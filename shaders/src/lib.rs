@@ -1,4 +1,5 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
+//#![feature(lang_items)]
 // HACK(eddyb) can't easily see warnings otherwise from `spirv-builder` builds.
 //#![cfg_attr(target_arch = "spirv", deny(warnings))]
 
@@ -7,25 +8,19 @@
 //#[cfg(target_arch = "spirv")]
 
 
-// use spirv_std::glam::{UVec2, Vec3};
-use spirv_std::glam::{UVec3, Vec2, Vec4};
-use spirv_std::{spirv};
-//use civ3_renderer_shared::Params;
+extern crate core;
+#[allow(dead_code)] mod lower_aligned;
+use crate::lower_aligned::*;
 
-#[repr(C)]
-pub struct Params {
-    pub world_size_x: u32,
-    pub world_size_y: u32,
-    pub max_texture_y: u32,
-    pub layer_count: u32,
-}
+use spirv_std::glam::{UVec2, Vec3};
+use spirv_std::glam::{UVec3, Vec2, Vec4};
+use spirv_std::spirv;
+use civ3_renderer_shared::{NO_SPRITE, Params, RHOMBUS_VERTEX_COUNT};
+//use civ3_renderer_shared::Params;
 
 // 
 // #[repr(C)]
 // pub struct Params {}
-
-/*
-const RHOMBUS_VERTEX_COUNT: usize = 6;*/
 
 #[spirv(compute(threads(32)))]
 pub fn main_generate_rhombuses(
@@ -45,7 +40,7 @@ pub fn main_generate_rhombuses(
     }*/
 }
 
-/*
+
 #[repr(C)]
 pub struct Rhombus {
     top: Vec2,
@@ -91,59 +86,138 @@ impl Rhombus {
         v4s[index + 5] = self.bottom.extend(z).extend(0.0);
     }
 }
+named_array!(WorldData);
+named_array!(LayerLookupTable);
+named_array!(TextureLookupTable);
 
-const NO_SPRITE: usize = 0;*/
+#[repr(transparent)]
+pub struct NewType<'a>(&'a [u32]);
+#[spirv(compute(threads(32)))]
+fn _foo(#[spirv(storage_buffer, descriptor_set = 1, binding = 3)] new_type: &[u32]) {
+    let _new_type = NewType(new_type);
+}
 
 #[spirv(compute(threads(32)))]
-pub fn main_resolve_sprite_and_mark_culled(
-    #[spirv(global_invocation_id)] _global_id: UVec3,
-/*    #[spirv(uniform, descriptor_set = 1, binding = 0)] params: &Params,
-    #[spirv(storage_buffer, descriptor_set = 1, binding = 2)] vertices_generated: &mut [Vec4],
-    #[spirv(storage_buffer, descriptor_set = 1, binding = 3)] world_data: &[u8],
-    #[spirv(storage_buffer descriptor_set = 1, binding = 4)] layer_lookup_table: &[u8],
-    #[spirv(storage_buffer, descriptor_set = 1, binding = 5)] texture_lookup_table: &[u8],*/
-) {/*
-    let frame_count: u32 = 0;
+fn _foo2(#[spirv(storage_buffer, descriptor_set = 1, binding = 3)] _new_type: NewType) {
     
-    let x = global_id.x as usize;
-    let y_index = global_id.y as usize;
-    let instance_index = y_index * params.world_size_x as usize + x;
-    let start_index = instance_index as usize * RHOMBUS_VERTEX_COUNT * params.layer_count as usize;
+}
+
+
+fn reorder_global_id(global_id: UVec3, params: &Params) -> (u32, u32) {
+    //This branches but does not use type conversions, or division
+    //The branch is always the same per workgroup though
+    //todo: benchmark which is faster
+    /*let mut x = global_id.y<<2;
+    let alignment_branch = if global_id.y >= params.compute_size_x >> 1 {
+        x -= params.compute_size_x <<1;
+        if global_id.y - params.compute_size_x >> 1 >= params.compute_size_x >> 2 {
+            x -= params.compute_size_x;
+            3
+        } else {
+            2
+        }
+    } else if global_id.y >= params.compute_size_x >> 2 {
+        x -= params.compute_size_x;
+        1
+    } else {
+        0
+    };
+    (x + alignment_branch , global_id.x) //x & y switched intentionally*/
+
+
+    //This is branch-less, but needs type conversion 
+    let int_div = (global_id.y as f32 * params.four_over_compute_size) as u32;
+    let remainder = global_id.y - int_div * (params.compute_size_x >> 2);
+    ((remainder << 2) + int_div , global_id.x) //x & y switched intentionally
+}
+
+#[spirv(compute(threads(16, 4, 1)))]
+pub fn main_resolve_sprite_and_mark_culled(
+    #[spirv(global_invocation_id)] global_id: UVec3,
+    #[spirv(uniform, descriptor_set = 1, binding = 0)] params: &Params,
+    #[spirv(storage_buffer, descriptor_set = 1, binding = 2)] vertices_generated: &mut [Vec4],
+    #[spirv(storage_buffer, descriptor_set = 1, binding = 3)] world_data: &[u32],
+    #[spirv(storage_buffer, descriptor_set = 1, binding = 4)] layer_lookup_table: &[u32],
+    #[spirv(storage_buffer, descriptor_set = 1, binding = 5)] texture_lookup_table: &[u32],
+
+    frame_count: u32,
+    /*#[spirv(storage_buffer, descriptor_set = 1, binding = 3)] world_data: &WorldData,
+    #[spirv(storage_buffer, descriptor_set = 1, binding = 4)] layer_lookup_table: &LayerLookupTable,
+    #[spirv(storage_buffer, descriptor_set = 1, binding = 5)] texture_lookup_table: &TextureLookupTable,*/
+) {
+    /*let vertices_generated: &mut [Vec4],*/
+    //    let frame_count: u32 = 0;
+    let world_data: WorldData = WorldData(world_data);
+    let layer_lookup_table: LayerLookupTable = LayerLookupTable(layer_lookup_table);
+    let texture_lookup_table: TextureLookupTable=  TextureLookupTable(texture_lookup_table);
+    
+    
+    /*
+    # because the data is packed consistently per layer, and we want to avoid branching,
+    # or taking both branches within a workgroup
+    # each workgroup should only ever access one layer
+    # further the architecture u32 means that no matter if our data is 1, 2, 3 or 4 bytes,
+    # after x advancing by 4, we are always at the same boundary within a workgroup
+    # with other words if we have 4 workgroups, within a layer
+    # 1234123412341234 is the pattern we want to access the data
+    # 1234123412341234
+    # current cpu have 64 thread per workgroup, and to not waste threads,
+    # we want to minimize the width and height of the workgroup, 
+    # as we need to repeat 4 times per width to get a cycle we must satisfy x*y*4=64*4 and y=x*4
+    # this is given for x=4, y=16
+    # now why do set threads as x=16, y=4 then? Even between workgroups there may be some branch
+    # prediction, so we want to make sure this is as regular as possible. With others words,
+    # we want to do all columns of the first alignment branch before we proceed to the second
+    */
+    let (x, y) = reorder_global_id(global_id, params);
+    if x >= params.world_size_x || y >= params.world_size_y {
+        return;
+    }
+    //yes as written above x, y here are switched on purpose
+    
+    let instance_index = (y * params.world_size_x + x) as usize;
+    let start_index = instance_index * RHOMBUS_VERTEX_COUNT * params.layer_count as usize;
 
     let is_top = x == 0;
-    let is_left = y_index == 0;
-    let is_right = x == params.world_size_x as usize - 1;
-    let is_bottom = y_index == params.world_size_y as usize - 1;
+    let is_left = y == 0;
+    let is_right = x == params.world_size_x - 1;
+    let is_bottom = y == params.world_size_y - 1;
 
     for l in 0usize..params.layer_count as usize {
+        //the top 6 bits are flags, the rest is the base address
+        let world_base_addr = world_data.inner_as_ref()[l * 4];
+
+        //  0btlrboo00_00000000_00000000_00000000
+        let ignore_top = world_base_addr & (1 << 31) != 0;
+        let ignore_left = world_base_addr & (1 << 30) != 0;
+        let ignore_right = world_base_addr & (1 << 29) != 0;
+        let ignore_bottom = world_base_addr & (1 << 28) != 0;
+        let bits = world_base_addr << 4 >> 30;
+        let mut world_base_addr = U8AlignedIndex::new_u32(world_base_addr & 0x03_FF_FF_FF, world_data);
+        
+        
         let layer_index = start_index + l * RHOMBUS_VERTEX_COUNT;
-        let flags = world_data[l * 4];
-        let bits = ((flags >> 6) + 1) as usize;
-        let offset_flags = flags << 2 >> 4;
-        let ignore_top = offset_flags & 1 != 0;
-        let ignore_left = offset_flags & 2 != 0;
-        let ignore_right = offset_flags & 4 != 0;
-        let ignore_bottom = offset_flags & 8 != 0;
 
         let sprite_index = if (ignore_top && is_top) || (ignore_left && is_left) ||
             (ignore_right && is_right) || (ignore_bottom && is_bottom) {
             NO_SPRITE as usize
         } else {
-            let world_base_addr = u32::from_be_bytes([flags << 6 >> 6, world_data[l *4+1], world_data[l *4+2], world_data[l *4+3]]) as usize;
             //+1 is for animation offset. let's consider if we can omit that in the future by a flag
-            let local_sprite_index = world_base_addr + (instance_index * bits + 1);
-            let local_base_addr = u32::from_be_bytes([layer_lookup_table[l *4], layer_lookup_table[l *4+1], layer_lookup_table[l *4+2], layer_lookup_table[l *4+3]]) as usize;
+            world_base_addr.skip(instance_index * (bits as usize + 1)); //layer data is continuous per layer
+            let mut world_data_addr = world_base_addr;
+            let layer_base_addr = layer_lookup_table.inner_as_ref()[l * 4];
 
-            let sprite_index = local_base_addr + {let mut bytes4 = [0; 4];
-                                    bytes4[4-bits..].copy_from_slice(&layer_lookup_table[local_sprite_index..local_sprite_index + bits]);
-                                    u32::from_be_bytes(bytes4) as usize};
+
+            let mut layer_sprite_addr = U32AlignedIndex::new_u32(layer_base_addr + world_data_addr.read_n_bytes(world_data, bits), layer_lookup_table);
             //one after sprite_index is frame offset for the animation
-            let anim_frame_offset = layer_lookup_table[local_sprite_index + bits];
-            let anim_frames_count = texture_lookup_table[sprite_index];
+            let anim_frame_offset = world_data_addr.get_u8(world_data);
+            let mut sprite_addr = U8AlignedIndex::new_u32(layer_sprite_addr.read_u32(layer_lookup_table), texture_lookup_table);
+            
+            let anim_frames_count = sprite_addr.read_u8(texture_lookup_table);
 
             //+1 because first entry is animation frame count
-            let anim_index = sprite_index + 1 + ((frame_count+ anim_frame_offset as u32) % anim_frames_count as u32) as usize;
-            u32::from_be_bytes(*texture_lookup_table[anim_index..anim_index+4].try_into().unwrap_or(&[0u8,0,0,0])) as usize
+            sprite_addr.skip(((frame_count+ anim_frame_offset) % anim_frames_count) as usize);
+            sprite_addr.read_u24(texture_lookup_table) as usize
         };
         
         let was_swapped = vertices_generated[layer_index + 1].w as i32 == -1;
@@ -153,15 +227,32 @@ pub fn main_resolve_sprite_and_mark_culled(
             vertices_generated[layer_index + i].w = sprite_index as f32;
         }
         if need_swapper && !was_swapped {
-            vertices_generated.swap(layer_index+1, layer_index+2);
-            vertices_generated.swap(layer_index+4, layer_index+5);
+            swap(vertices_generated, layer_index+1, layer_index+2);
+            swap(vertices_generated, layer_index+4, layer_index+5);
             //need to last as we swapped 1 and 2
             vertices_generated[layer_index + 1].w = -1.0;
-        } else if need_swapper && !was_swapped  {
-            vertices_generated.swap(layer_index+1, layer_index+2);
-            vertices_generated.swap(layer_index+4, layer_index+5);
+        } else if (!need_swapper) && was_swapped  {
+            swap(vertices_generated, layer_index+1, layer_index+2);
+            swap(vertices_generated, layer_index+4, layer_index+5);
         }
-    }*/
+    }
+}
+
+pub fn swap<T: Sized>(arr: &mut [T], i: usize, j: usize) {
+    unsafe {
+        // Get raw pointers to the elements at indices i and j
+        let ptr_i = &mut arr[i] as *mut T;
+        let ptr_j = &mut arr[j] as *mut T;
+
+        // Read the value at index i
+        let temp = ptr_i.read();
+
+        // Write the value at index j to index i
+        ptr_i.write(ptr_j.read());
+
+        // Write the saved value to index j
+        ptr_j.write(temp);
+    }
 }
 
 #[spirv(vertex)]
