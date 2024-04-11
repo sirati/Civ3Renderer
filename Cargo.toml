@@ -1,0 +1,47 @@
+[package]
+name = "Civ3Renderer"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "shared", "shaders",
+]
+
+
+[build-dependencies]
+spirv-builder = "0.9.0"
+
+# Compile build-dependencies in release mode with
+# the same settings as regular dependencies.
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 16
+[profile.dev.build-override]
+opt-level = 3
+
+
+[dependencies]
+cfg-if = "1"
+winit = "0.28"
+ahash = "=0.8.6" #fix yanked not compiling
+
+wgpu =  { version = "0.18", features = ["spirv"]}
+env_logger = "0.10"
+log = "0.4"
+spirv-std = {version =  "0.9.0"}
+civ3-renderer-shared = { path = "./shared" }
+bytemuck = {version = "1.15", features = [ "derive" ]}
+tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+console_log = "1.0"
+wgpu = { version = "0.18", features = ["webgl", "spirv"]}
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+]}
