@@ -709,14 +709,14 @@ pub enum Relation {
     /// A mutual protection pact (or a military alliance).
     Defense,
     Peace,
-    /// No contact, or neither of the above.
+    /// Not met.
     None,
 }
 
-/// `treaties` bits: 2 right of passage (C3X tests it); 1 peace and 4 mutual
-/// protection pact are assumed, to be checked against the game's foreign
-/// advisor (the bridge logs the raw words when they change).
-pub const TREATY_PEACE: i32 = 1;
+/// `treaties` bits, measured against the foreign advisor: 2 right of
+/// passage (also tested by C3X), 4 mutual protection pact (the allies of a
+/// scenario have it). `contacts` bit 1: in contact.
+pub const CONTACT: i32 = 1;
 pub const TREATY_RIGHT_OF_PASSAGE: i32 = 2;
 pub const TREATY_MUTUAL_PROTECTION: i32 = 4;
 
@@ -727,7 +727,9 @@ impl Diplomacy {
             Relation::War
         } else if self.treaties[i] & TREATY_MUTUAL_PROTECTION != 0 || self.military_allies[i] != 0 {
             Relation::Defense
-        } else if self.treaties[i] & TREATY_PEACE != 0 {
+        } else if self.contacts[i] & CONTACT != 0 {
+            // The game calls every civ it is not at war with and knows "at
+            // peace" (foreign and military advisors).
             Relation::Peace
         } else {
             Relation::None
