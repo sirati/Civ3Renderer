@@ -62,6 +62,9 @@ const CURSOR_FLC: &str = "Art/Animations/Cursor/Cursor.flc";
 /// The cursor shows the block of direction 5.
 const CURSOR_DIRECTION: i32 = 5;
 
+/// "Colour table" of art drawn in its own palette (the selection cursor).
+const OWN_PALETTE: i32 = -1;
+
 /// Resolves unit types to animation files.
 pub struct UnitArt {
     files: GameFiles,
@@ -199,10 +202,12 @@ impl Needed {
             sheets(&mut out, &shadow, &format!("UnitShadow@{path}"));
             for c in colors {
                 let image = format!("unit{n}c{c}");
-                let _ = writeln!(
-                    out,
-                    "[images.{image}]\nsource = {source}\npalette = \"Art/Units/Palettes/ntp{c:02}.pcx\"\npalette_range = [0, 64]\ntransparent = {body_transparent}\n"
-                );
+                let palette = if *c == OWN_PALETTE {
+                    String::new()
+                } else {
+                    format!("palette = \"Art/Units/Palettes/ntp{c:02}.pcx\"\npalette_range = [0, 64]\n")
+                };
+                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{palette}transparent = {body_transparent}\n");
                 sheets(&mut out, &image, &format!("UnitArt@{path}#{c}"));
             }
         }
@@ -267,9 +272,7 @@ fn hud(world: &Civ3World, u: &Civ3Unit) -> Vec<(&'static str, (i32, i32))> {
     let Some(&[attack, defence, movement, hp_bonus]) = world.unit_type_stats.get(u.unit_type.max(0) as usize) else {
         return out;
     };
-    if attack <= 0 && defence <= 0 {
-        return out;
-    }
+    let has_bar = attack > 0 || defence > 0;
     let (hx, hy) = (u.pixel.0 - 32, u.pixel.1 - 32);
     let base_hp = world.experience_hit_points.get(u.experience.max(0) as usize).copied().unwrap_or(1);
     let max = (base_hp + hp_bonus).max(1);
@@ -284,7 +287,9 @@ fn hud(world: &Civ3World, u: &Civ3Unit) -> Vec<(&'static str, (i32, i32))> {
             }
         }
     };
-    rect("Hud_black/0", (left, bottom - bar, left + 2, bottom), &mut out);
+    if has_bar {
+        rect("Hud_black/0", (left, bottom - bar, left + 2, bottom), &mut out);
+    }
     let color = if hp <= 1 {
         "Hud_red/0"
     } else if 3 * u.damage < max || u.damage == 0 {
@@ -295,7 +300,7 @@ fn hud(world: &Civ3World, u: &Civ3Unit) -> Vec<(&'static str, (i32, i32))> {
         "Hud_red/0"
     };
     let mut seg_bottom = bottom;
-    for _ in 0..hp.min(20) {
+    for _ in 0..if has_bar { hp.min(20) } else { 0 } {
         rect(color, (left, seg_bottom - pitch + 1, left + 2, seg_bottom), &mut out);
         seg_bottom -= pitch;
     }

@@ -36,10 +36,14 @@ start)
   echo "game at main menu"
   ;;
 newgame)
-  "$WLH" click 708 498; sleep 3     # New Game
-  "$WLH" click 1416 895; sleep 3    # world: OK
-  "$WLH" click 1416 895; sleep 14   # players: OK, world generation
-  "$WLH" click 1233 256; sleep 3    # dismiss "Dawn of Civilization"
+  # Every button needs a hover first: the first click after the pointer jumps
+  # somewhere may only hover, so move there, wait, then click.
+  hclick() { "$WLH" move "$1" "$2"; sleep 1; "$WLH" click "$1" "$2"; }
+  hclick 708 498; sleep 4     # main menu: New Game
+  hclick 1416 895; sleep 4    # world: OK
+  hclick 1416 895; sleep 10   # players: OK, world generation
+  hclick 1233 256; sleep 3    # dismiss "Dawn of Civilization"
+  wait_for_log "calls: draw_tiles [1-9]" 30
   echo "turn 1"
   ;;
 scenario)
