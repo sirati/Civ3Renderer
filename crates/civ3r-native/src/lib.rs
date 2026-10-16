@@ -51,7 +51,7 @@ mod unix_side {
     use civ3_assets::GameFiles;
     use civ3_assets::loader::Civ3Loader;
     use scene::Driver;
-    use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};
+    use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_DEVICE_BUSY, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};
 
     use super::*;
 
@@ -142,7 +142,12 @@ mod unix_side {
         STATUS_SUCCESS
     }
 
+    /// `STATUS_DEVICE_BUSY` while the viewer has not taken the last batch:
+    /// the bridge folds this one into its next.
     pub fn publish(args: &mut Publish) -> Status {
+        if VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|v| v.driver.busy()) {
+            return STATUS_DEVICE_BUSY;
+        }
         let Ok(bytes) = wine_unixlib::unix::read(args.scene) else { return STATUS_INVALID_PARAMETER };
         let updates = match scene::wire::decode_updates(&bytes) {
             Ok(u) => u,

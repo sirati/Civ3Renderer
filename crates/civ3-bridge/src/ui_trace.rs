@@ -28,6 +28,11 @@ fn emit(e: Event) {
     }
 }
 
+/// The mirror model's size (see `UiModel::stats`).
+pub fn stats() -> Option<(usize, usize, usize)> {
+    MODEL.lock().ok()?.as_ref().map(|m| m.stats())
+}
+
 /// The last composed screen, if the mirror runs.
 pub fn frame() -> Option<Frame> {
     MODEL.lock().ok()?.as_ref().map(|m| m.frame())

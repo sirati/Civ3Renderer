@@ -220,6 +220,14 @@ impl UiModel {
         self
     }
 
+    /// How much the model holds: canvases, their operations, the presented
+    /// ones (for diagnostics).
+    pub fn stats(&self) -> (usize, usize, usize) {
+        let ops = self.canvases.values().map(Vec::len).sum();
+        let presented = self.presented.values().map(|v| v.iter().map(|(_, r)| r.len()).sum::<usize>()).sum();
+        (self.canvases.len(), ops, presented)
+    }
+
     /// The screen now: the forms of the last paint with their canvases'
     /// current content (the game composes changed forms on their own,
     /// outside a full paint).

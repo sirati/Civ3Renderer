@@ -361,8 +361,28 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut art_pending = false;
     let mut last_compile = std::time::Instant::now() - RECOMPILE_EVERY;
     let mut city_bands = std::collections::HashMap::new();
+    let mut last_stats = std::time::Instant::now();
     loop {
         std::thread::sleep(POLL);
+        // Now and then, how much everything holds (memory diagnostics).
+        if last_stats.elapsed() >= Duration::from_secs(30) {
+            last_stats = std::time::Instant::now();
+            let mem = inproc::process::memory().unwrap_or_default();
+            let (canvases, ops, presented) = crate::ui_trace::stats().unwrap_or_default();
+            log::info!(
+                "memory: working set {} MiB (peak {}), commit {} MiB (peak {}); sprites {}, fonts {}, screen art {}+{}+{}, districts {}; ui canvases {canvases}, ops {ops}, presented {presented}",
+                mem.working_set >> 20,
+                mem.peak_working_set >> 20,
+                mem.commit >> 20,
+                mem.peak_commit >> 20,
+                compiled.atlas.sprites.len(),
+                fonts.len(),
+                screen_art.regions.len(),
+                screen_art.fills.len(),
+                screen_art.dynamic.len(),
+                district_art.len(),
+            );
+        }
         // A scenario brings its own art.
         let now = ArtFolders::of(&game);
         let mut recompile = false;
@@ -536,8 +556,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             crate::scene_map::city_view(&mut scene, (view.camera_x, view.camera_y), [x, y, w, h]);
         }
         scene.seq = seq;
-        presenter.publish(scene);
-        last = Some(state);
+        // Held back while the renderer is busy: publish again next time.
+        last = presenter.publish(scene).then_some(state);
     }
 }
 
