@@ -39,25 +39,28 @@ pub enum Event {
     Reset { sprite: u32 },
     /// `sprite`'s pixels drawn with their top-left at (x, y) of `canvas`,
     /// colour 255 transparent.
-    Blit { sprite: u32, canvas: u32, x: i32, y: i32 },
+    Blit { sprite: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
     /// Region `src` (x, y, w, h) of image `from` copied to (x, y) of
     /// `canvas`; `keyed`: colour 255 transparent.
     Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool },
     /// `rect` (x, y, w, h) of `canvas` filled (`rgb`).
     /// `alpha`: 255 opaque, else a translucent shade (50 % = 128).
-    Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
+    Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: Option<[i32; 4]> },
     /// Text on `canvas` (its position canvas-relative).
     Text { canvas: u32, run: TextRun },
     /// `flic` (an FLC animation) was loaded from `path`.
     FlcLoaded { flic: u32, path: String },
     /// Frame `chunk` of animation `flic` drawn with its frame's top-left at
     /// (x, y) of `canvas` (unit pictures in panels).
-    FlcBlit { flic: u32, chunk: u32, canvas: u32, x: i32, y: i32 },
+    FlcBlit { flic: u32, chunk: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
     /// A paint starts: the forms that follow are composed bottom to top.
     PaintBegin,
     /// A form's canvas put on the screen with its (0, 0) at `origin`, clipped
     /// to `clip` (left, top, right, bottom).
     Composite { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool },
+    /// The composition of that form is done (what it drew onto the screen
+    /// meanwhile is the form itself).
+    CompositeEnd,
     /// The paint is complete.
     PaintEnd,
 }
@@ -70,7 +73,7 @@ enum Op {
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
     Text(TextRun),
     /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
-    Flc { path: String, chunk: u32, x: i32, y: i32 },
+    Flc { path: String, chunk: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
 }
 
 /// One thing on the screen.
@@ -84,7 +87,7 @@ pub enum ScreenDraw {
     Flc { path: String, chunk: u32, x: i32, y: i32, clip: [i32; 4] },
     /// Region `rect` (x, y, w, h) of a surface the game generates itself
     /// (e.g. the minimap), at (x, y).
-    Surface { image: u32, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4] },
+    Surface { image: u32, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4], size: (i32, i32) },
 }
 
 /// A composed screen.
@@ -113,7 +116,7 @@ const MAX_DEPTH: u32 = 8;
 #[derive(Clone, Debug)]
 enum Layer {
     /// A form's canvas put on the screen with its (0, 0) at `origin`.
-    Form { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4] },
+    Form { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool },
     /// Drawn straight onto the screen (frames, the tooltip, the cursor).
     Screen(Vec<Op>),
 }
@@ -135,6 +138,8 @@ pub struct UiModel {
     order: Vec<Layer>,
     /// The paint in progress.
     pending: Option<Vec<Layer>>,
+    /// Inside a form's composition.
+    compositing: bool,
     /// Form classes (vtables) whose canvases we render ourselves.
     skip: Vec<u32>,
     /// Canvases left out of every paint.
@@ -205,14 +210,15 @@ impl UiModel {
                     let all = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
                     frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), all)));
                 }
-                &Layer::Form { canvas, vtable, origin, size, clip } => self.compose(&mut frame, canvas, vtable, origin, size, clip),
+                &Layer::Form { canvas, vtable, origin, size, clip, keyed } => self.compose(&mut frame, canvas, vtable, origin, size, clip, keyed),
             }
         }
         frame
     }
 
     /// Adds form `canvas` as composed at `origin` to `frame`.
-    fn compose(&self, frame: &mut Frame, canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4]) {
+    #[allow(clippy::too_many_arguments)]
+    fn compose(&self, frame: &mut Frame, canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool) {
         frame.forms.push((vtable, canvas, origin, size));
         if self.skip.contains(&vtable) || (self.skipping && self.skip_canvases.contains(&canvas)) {
             return;
@@ -223,10 +229,21 @@ impl UiModel {
             return;
         }
         let underlay = self.skipping && self.underlays.contains(&canvas);
-        let keep = |op: &&Op| !underlay || self.underlay_keeps(canvas, op);
+        // A colour-keyed form shows nothing where it is black (measured: the
+        // city screen clears to black and the map shows through its art).
+        let black = |op: &&Op| keyed && matches!(op, Op::Fill { rgb: [0, 0, 0], alpha: 255, .. });
+        let keep = |op: &&Op| (!underlay || self.underlay_keeps(canvas, op)) && !black(op);
         let Some(ops) = self.canvases.get(&canvas) else { return };
         let start = frame.draws.len();
-        frame.draws.extend(ops.iter().filter(keep).flat_map(|op| self.resolve(op, 0)).filter_map(|op| screen_draw(op, origin, clip)));
+        frame.draws.extend(ops.iter().filter(keep).flat_map(|op| self.resolve(op, 0)).filter_map(|op| screen_draw(op, origin, clip)).map(|mut d| {
+            // Generated surfaces: their whole size, as far as known.
+            if let ScreenDraw::Surface { image, size, .. } = &mut d {
+                if let Some(&s) = self.sizes.get(image) {
+                    *size = s;
+                }
+            }
+            d
+        }));
         frame.form_draws.push((canvas, start..frame.draws.len()));
         if underlay {
             frame.underlay_draws.push(start..frame.draws.len());
@@ -263,15 +280,34 @@ impl UiModel {
             Event::Reset { sprite } => {
                 self.sprites.remove(&sprite);
             }
-            Event::Blit { sprite, canvas, x, y } => {
+            Event::Blit { sprite, canvas, x, y, clip } => {
                 if let Some(source) = self.sprites.get(&sprite).cloned() {
-                    self.push(canvas, Op::Image { source, x, y, keyed: true });
+                    // Within the canvas's clip rectangle, if it has one.
+                    let op = Op::Image { source, x, y, keyed: true };
+                    if let Some(op) = clip.map_or(Some(op.clone()), |c| crop_move(op, c, (0, 0), true)) {
+                        self.push(canvas, op);
+                    }
                 }
             }
             Event::Copy { from, src, canvas, x, y, keyed } => {
                 // The map canvas is ours: its content (terrain, the fog tiles drawn on it)
                 // must not reach the screen through the form's own copy onto the back buffer.
-                if self.skipping && (self.skip_canvases.contains(&from) || self.underlays.contains(&from)) {
+                if from != canvas && self.skipping && (self.skip_canvases.contains(&from) || self.underlays.contains(&from)) {
+                    return;
+                }
+                // A copy within a canvas (scrolling): its content moves, over
+                // what was there.
+                if from == canvas {
+                    let window = [src[0], src[1], src[0] + src[2], src[1] + src[3]];
+                    let d = (x - src[0], y - src[1]);
+                    let ops = self.canvases.get(&canvas).cloned().unwrap_or_default();
+                    let moved: Vec<Op> = ops.into_iter().filter_map(|op| crop_move(op, window, d, keyed)).collect();
+                    if !keyed {
+                        self.occlude(canvas, [x, y, src[2], src[3]]);
+                    }
+                    for op in moved {
+                        self.push(canvas, op);
+                    }
                     return;
                 }
                 let source = match self.files.get(&from) {
@@ -282,11 +318,6 @@ impl UiModel {
                 if !keyed {
                     self.occlude(canvas, [x, y, src[2], src[3]]);
                 }
-                // A copy of a canvas into itself would refer to its own
-                // (changing) content.
-                if from == canvas {
-                    return;
-                }
                 let op = Op::Image { source, x, y, keyed };
                 // Copies of surfaces take their content as it is now.
                 let ops = self.resolve(&op, 0);
@@ -294,7 +325,17 @@ impl UiModel {
                     self.push(canvas, op);
                 }
             }
-            Event::Fill { canvas, rect, rgb, alpha } => {
+            Event::Fill { canvas, rect, rgb, alpha, clip } => {
+                let rect = match clip {
+                    Some(c) => {
+                        let [l, t, r, b] = intersect(c, [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]]);
+                        if r <= l || b <= t {
+                            return;
+                        }
+                        [l, t, r - l, b - t]
+                    }
+                    None => rect,
+                };
                 // The colour key (255, 0, 255) clears to transparent: nothing to draw.
                 if rgb == KEY_RGB && alpha == 255 {
                     if self.covers(canvas, rect) {
@@ -322,15 +363,16 @@ impl UiModel {
             Event::FlcLoaded { flic, path } => {
                 self.flcs.insert(flic, path);
             }
-            Event::FlcBlit { flic, chunk, canvas, x, y } => {
+            Event::FlcBlit { flic, chunk, canvas, x, y, clip } => {
                 if let Some(path) = self.flcs.get(&flic).cloned() {
-                    self.push(canvas, Op::Flc { path, chunk, x, y });
+                    self.push(canvas, Op::Flc { path, chunk, x, y, clip });
                 }
             }
             Event::PaintBegin => self.pending = Some(Vec::new()),
-            Event::Composite { canvas, vtable, origin, size, clip, keyed: _ } => {
+            Event::Composite { canvas, vtable, origin, size, clip, keyed } => {
                 self.sizes.insert(canvas, size);
-                let layer = Layer::Form { canvas, vtable, origin, size, clip };
+                self.compositing = true;
+                let layer = Layer::Form { canvas, vtable, origin, size, clip, keyed };
                 match self.pending.as_mut() {
                     Some(layers) => layers.push(layer),
                     // A form updated on its own: its place may have changed.
@@ -341,6 +383,7 @@ impl UiModel {
                     }
                 }
             }
+            Event::CompositeEnd => self.compositing = false,
             Event::PaintEnd => {
                 if let Some(layers) = self.pending.take() {
                     self.order = layers;
@@ -380,6 +423,10 @@ impl UiModel {
             return;
         }
         if canvas == self.screen && canvas != 0 {
+            // What a form's composition puts on the screen is that form.
+            if self.compositing {
+                return;
+            }
             // Straight onto the screen: part of the paint in progress.
             let ops = self.resolve(&op, 0);
             if let Some(layers) = self.pending.as_mut() {
@@ -461,9 +508,11 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
             run.y += dy;
             inside.then_some(Op::Text(run))
         }
-        Op::Flc { path, chunk, x, y } => {
+        Op::Flc { path, chunk, x, y, clip } => {
             let inside = x >= window[0] && x < window[2] && y >= window[1] && y < window[3];
-            inside.then_some(Op::Flc { path, chunk, x: x + dx, y: y + dy })
+            let clip = intersect(clip.unwrap_or(window), window);
+            let clip = Some([clip[0] + dx, clip[1] + dy, clip[2] + dx, clip[3] + dy]);
+            inside.then_some(Op::Flc { path, chunk, x: x + dx, y: y + dy, clip })
         }
     }
 }
@@ -515,14 +564,19 @@ fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDra
         Op::Image { source: Source::File { path, rect }, x, y, keyed } => {
             Some(ScreenDraw::Image { path, rect, x: x + ox, y: y + oy, keyed, clip })
         }
-        Op::Image { source: Source::Surface { image, rect }, x, y, .. } => Some(ScreenDraw::Surface { image, rect, x: x + ox, y: y + oy, clip }),
+        Op::Image { source: Source::Surface { image, rect }, x, y, .. } => {
+            Some(ScreenDraw::Surface { image, rect, x: x + ox, y: y + oy, clip, size: (rect[0] + rect[2], rect[1] + rect[3]) })
+        }
         Op::Fill { rect: [x, y, w, h], rgb, alpha } => Some(ScreenDraw::Fill { rect: [x + ox, y + oy, w, h], rgb, alpha, clip }),
         Op::Text(mut run) => {
             run.x += ox;
             run.y += oy;
             Some(ScreenDraw::Text { run, clip })
         }
-        Op::Flc { path, chunk, x, y } => Some(ScreenDraw::Flc { path, chunk, x: x + ox, y: y + oy, clip }),
+        Op::Flc { path, chunk, x, y, clip: own } => {
+            let clip = own.map_or(clip, |c| intersect(clip, [c[0] + ox, c[1] + oy, c[2] + ox, c[3] + oy]));
+            Some(ScreenDraw::Flc { path, chunk, x: x + ox, y: y + oy, clip })
+        }
     }
 }
 
@@ -546,7 +600,7 @@ mod tests {
         let mut m = UiModel::new(vec![], vec![]);
         m.apply(Event::Loaded { image: 10, path: "Art/a.pcx".into(), size: (100, 50) });
         m.apply(Event::Sliced { sprite: 20, image: 10, rect: [5, 6, 30, 20] });
-        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 7, y: 8 });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 7, y: 8, clip: None });
         m.apply(Event::Cleared { image: 10 });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (100, 200), (40, 40)));
@@ -564,7 +618,7 @@ mod tests {
         // A temporary image composed from the file, then copied (a 10x10
         // region of it) to a form's canvas.
         m.apply(Event::Copy { from: 10, src: [0, 0, 64, 64], canvas: 50, x: 0, y: 0, keyed: false });
-        m.apply(Event::Fill { canvas: 50, rect: [20, 20, 4, 4], rgb: [1, 2, 3], alpha: 255 });
+        m.apply(Event::Fill { canvas: 50, rect: [20, 20, 4, 4], rgb: [1, 2, 3], alpha: 255, clip: None });
         m.apply(Event::Copy { from: 50, src: [18, 18, 10, 10], canvas: 300, x: 2, y: 3, keyed: false });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (100, 100)));
@@ -583,8 +637,8 @@ mod tests {
     fn full_covers_reset_a_canvas_and_skipped_forms_stay_out() {
         let mut m = UiModel::new(vec![9], vec![]);
         m.apply(Event::Size { image: 300, size: (10, 10) });
-        m.apply(Event::Fill { canvas: 300, rect: [1, 1, 2, 2], rgb: [0, 0, 0], alpha: 255 });
-        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [9, 9, 9], alpha: 255 });
+        m.apply(Event::Fill { canvas: 300, rect: [1, 1, 2, 2], rgb: [0, 0, 0], alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [9, 9, 9], alpha: 255, clip: None });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (10, 10)));
         m.apply(Event::Composite { canvas: 300, vtable: 9, origin: (0, 0), size: (10, 10), clip: [0, 0, 10, 10], keyed: false });
@@ -600,11 +654,11 @@ mod tests {
         m.apply(Event::Loaded { image: 11, path: "Art\\Cities\\barracks.pcx".into(), size: (64, 64) });
         m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0, 0, 8, 8] });
         m.apply(Event::Sliced { sprite: 21, image: 11, rect: [1, 1, 23, 15] });
-        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255 });
-        m.apply(Event::Fill { canvas: 300, rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128 });
-        m.apply(Event::Blit { sprite: 21, canvas: 300, x: 1, y: 2 });
-        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 3, y: 4 });
-        m.apply(Event::Fill { canvas: 77, rect: [0, 0, 1, 1], rgb: [9, 9, 9], alpha: 255 });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 300, rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128, clip: None });
+        m.apply(Event::Blit { sprite: 21, canvas: 300, x: 1, y: 2, clip: None });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 3, y: 4, clip: None });
+        m.apply(Event::Fill { canvas: 77, rect: [0, 0, 1, 1], rgb: [9, 9, 9], alpha: 255, clip: None });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (100, 100)));
         m.apply(composite(77, (0, 0), (100, 100)));
@@ -640,8 +694,8 @@ mod tests {
         let mut m = UiModel::new(vec![], vec![]);
         m.apply(Event::Size { image: 300, size: (100, 100) });
         let label = |m: &mut UiModel, y| {
-            m.apply(Event::Fill { canvas: 50, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255 });
-            m.apply(Event::Fill { canvas: 50, rect: [10, y, 20, 5], rgb: [1, 1, 1], alpha: 128 });
+            m.apply(Event::Fill { canvas: 50, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
+            m.apply(Event::Fill { canvas: 50, rect: [10, y, 20, 5], rgb: [1, 1, 1], alpha: 128, clip: None });
             m.apply(Event::Copy { from: 50, src: [0, 0, 100, 60], canvas: 300, x: 0, y: 0, keyed: false });
         };
         label(&mut m, 30);
@@ -652,5 +706,35 @@ mod tests {
         let frame = m.frame();
         let shades: Vec<_> = frame.draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { alpha: 128, .. })).collect();
         assert_eq!(shades, vec![&ScreenDraw::Fill { rect: [10, 40, 20, 5], rgb: [1, 1, 1], alpha: 128, clip: [0, 0, 100, 100] }]);
+    }
+
+    #[test]
+    fn scrolling_moves_what_a_canvas_shows() {
+        // A label at y 50; the game scrolls the canvas up by 20 (copying it
+        // onto itself) and draws the new strip at the bottom.
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        m.apply(Event::Fill { canvas: 300, rect: [10, 50, 30, 5], rgb: [1, 1, 1], alpha: 128, clip: None });
+        m.apply(Event::Copy { from: 300, src: [0, 20, 100, 80], canvas: 300, x: 0, y: 0, keyed: false });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (100, 100)));
+        m.apply(Event::PaintEnd);
+        let clip = [0, 0, 100, 100];
+        assert_eq!(m.frame().draws, vec![ScreenDraw::Fill { rect: [10, 30, 30, 5], rgb: [1, 1, 1], alpha: 128, clip }]);
+    }
+
+    #[test]
+    fn keyed_forms_show_through_black_and_their_screen_copies_are_theirs() {
+        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 300, rect: [5, 5, 5, 5], rgb: [7, 7, 7], alpha: 255, clip: Some([0, 0, 8, 8]) });
+        m.apply(Event::PaintBegin);
+        m.apply(Event::Composite { canvas: 300, vtable: 1, origin: (0, 0), size: (100, 100), clip: [0, 0, 100, 100], keyed: true });
+        // What the composition itself puts on the screen.
+        m.apply(Event::Fill { canvas: 999, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
+        m.apply(Event::CompositeEnd);
+        m.apply(Event::PaintEnd);
+        assert_eq!(m.frame().draws, vec![ScreenDraw::Fill { rect: [5, 5, 3, 3], rgb: [7, 7, 7], alpha: 255, clip: [0, 0, 100, 100] }]);
     }
 }

@@ -63,12 +63,12 @@ fn rect_xywh(at: u32) -> Option<[i32; 4]> {
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
 fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool) {
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
-    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy });
+    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas) });
 }
 
 fn fill(canvas: u32, rect: [i32; 4], color: u32) {
     size_of(canvas);
-    emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255 });
+    emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: h::canvas_clip(canvas) });
 }
 
 /// The hooks; they stay installed while this lives.
@@ -156,18 +156,21 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(pcx_copy, sites.pcx_copy, |c| {
         size_of(c.dst);
+        size_of(c.image);
         let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
         emit(Event::Copy { from: c.image, src, canvas: c.dst, x: c.dx as i32, y: c.dy as i32, keyed: false });
         c.original()
     });
     hook!(pcx_copy_same, sites.pcx_copy_same, |c| {
         size_of(c.dst);
+        size_of(c.image);
         let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
         emit(Event::Copy { from: c.image, src, canvas: c.dst, x: src[0], y: src[1], keyed: false });
         c.original()
     });
     hook!(pcx_copy_rect, sites.pcx_copy_rect, |c| {
         size_of(c.dst);
+        size_of(c.image);
         if let Some(src) = rect_xywh(c.rect) {
             emit(Event::Copy { from: c.image, src, canvas: c.dst, x: src[0], y: src[1], keyed: false });
         }
@@ -175,6 +178,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(pcx_copy_rects, sites.pcx_copy_rects, |c| {
         size_of(c.dst);
+        size_of(c.image);
         if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
             emit(Event::Copy { from: c.image, src, canvas: c.dst, x: dst[0], y: dst[1], keyed: false });
         }
@@ -212,7 +216,8 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         if let Some(p) = obj::placement(c.form) {
             emit(Event::Composite { canvas: p.canvas, vtable: p.vtable, origin: p.origin, size: p.size, clip: p.clip, keyed: p.keyed });
         }
-        c.original()
+        c.original();
+        emit(Event::CompositeEnd);
     });
     hook!(paint, sites.paint, |c| {
         emit(Event::PaintBegin);
@@ -284,7 +289,7 @@ fn shade(c: &h::jgl_shade::Call) {
     if alpha == 0 {
         return;
     }
-    emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha });
+    emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: h::canvas_clip(canvas) });
 }
 
 /// What a line drawer is set to: canvas, colour, opacity, width.
@@ -340,7 +345,7 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
         if let Some(p) = pen.filter(|p| p.canvas != 0 && p.alpha > 0) {
             let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
             for rect in crate::ui::line_rects((x1, y1), (x2, y2), p.width) {
-                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha: p.alpha });
+                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha: p.alpha, clip: h::canvas_clip(p.canvas) });
             }
         }
         c.original()
@@ -400,6 +405,6 @@ pub fn map_redraw() {
 /// destination (the blit's second canvas argument).
 pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32) {
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32, y: y as i32 });
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32, y: y as i32, clip: h::canvas_clip(canvas) });
     }
 }

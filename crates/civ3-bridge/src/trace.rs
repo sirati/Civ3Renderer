@@ -459,8 +459,8 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                 crate::ui::ScreenDraw::Flc { path, chunk, x, y, clip: [c0, c1, c2, c3] } => {
                     writeln!(out, "ui_flc {x} {y} {c0} {c1} {c2} {c3} {chunk} {path}")
                 }
-                crate::ui::ScreenDraw::Surface { image, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3] } => {
-                    writeln!(out, "ui_surface {image:#x} {x} {y} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh}")
+                crate::ui::ScreenDraw::Surface { image, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3], size: (sw, sh) } => {
+                    writeln!(out, "ui_surface {image:#x} {x} {y} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {sw} {sh}")
                 }
             };
         }
