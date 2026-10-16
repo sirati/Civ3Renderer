@@ -282,3 +282,31 @@ fn quantized_translucency_mixes_and_rounds_down() {
         }
     }
 }
+
+#[test]
+fn several_views_share_one_target() {
+    // The whole window, and an inset view of another part of the world;
+    // screen sprites belong to one view each, world sprites to both.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let screen_sprite = world.free.iter().find(|s| s.screen).cloned().unwrap();
+    world.free.push(PlacedSprite { view: Some(1), x: 200, y: 140, clip: Some([180, 130, 260, 170]), ..screen_sprite.clone() });
+    world.free.push(PlacedSprite { view: Some(0), x: 220, y: 150, ..screen_sprite });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let mut main = Camera::new((400, 240));
+    main.x = 50;
+    main.overhang = (0, 40, 0, 0);
+    let mut inset = Camera::new((150, 90));
+    inset.x = 333;
+    inset.y = 101;
+    inset.origin = (170, 120);
+    inset.overhang = (0, 40, 0, 0);
+    let cameras = [main, inset];
+    let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 5, CLEAR);
+    let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 5, CLEAR);
+    assert_same(&got, &want, "two views");
+}

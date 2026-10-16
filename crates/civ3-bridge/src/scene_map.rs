@@ -14,6 +14,17 @@ use scene::{Scene, View, WorldShape};
 use crate::rules;
 use crate::world::{Civ3View, Civ3World};
 
+/// The view showing what the game shows.
+pub const GAME_VIEW: u32 = 0;
+
+/// Moves the screen-space sprites among the scene's sprites into the game
+/// view's overlay (they are its interface).
+pub fn overlay_screen_sprites(scene: &mut Scene) {
+    let (screen, world): (Vec<_>, Vec<_>) = std::mem::take(&mut scene.sprites).into_iter().partition(|s| s.screen);
+    scene.sprites = world;
+    scene.view_mut(GAME_VIEW).overlay.extend(screen);
+}
+
 /// Resolves (layer, sprite) names to cell values, caching the lookups.
 pub struct Mapper<'a> {
     compiled: &'a Compiled,
@@ -39,8 +50,9 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    /// Builds the scene for `world` seen through `view` in a viewport of
-    /// `viewport` pixels.
+    /// Builds the scene for `world` with the game's view (`view`, in a
+    /// viewport of `viewport` pixels; (0, 0): the whole window) as view
+    /// [`GAME_VIEW`].
     pub fn scene(&self, world: &Civ3World, view: &Civ3View, viewport: (u32, u32), tick: u32) -> Scene {
         let shape = WorldShape {
             cols: (world.width / 2).max(1) as u32,
@@ -57,7 +69,9 @@ impl<'a> Mapper<'a> {
         // outside that range would reach into the screen.
         let (sx, sy) = if view.zoomed_out { (32, 16) } else { (64, 32) };
         let cull = (view.tile_x.0 * sx, view.tile_y.0 * sy, (view.tile_x.1 + 1) * sx, (view.tile_y.1 + 1) * sy);
-        scene.view = View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull) };
+        // The game's view (id 0), at the window's top-left.
+        scene.view_mut(GAME_VIEW).view =
+            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), origin: (0, 0) };
 
         for row in 0..shape.rows {
             for col in 0..shape.cols {

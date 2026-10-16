@@ -108,6 +108,15 @@ const MAX_OPS: usize = 8192;
 /// How deep copies between canvases are followed.
 const MAX_DEPTH: u32 = 8;
 
+
+/// One layer of the composed screen.
+#[derive(Clone, Debug)]
+enum Layer {
+    /// A form's canvas put on the screen with its (0, 0) at `origin`.
+    Form { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4] },
+    /// Drawn straight onto the screen (frames, the tooltip, the cursor).
+    Screen(Vec<Op>),
+}
 /// The mirrored UI state.
 #[derive(Default)]
 pub struct UiModel {
@@ -121,10 +130,11 @@ pub struct UiModel {
     sprites: HashMap<u32, Source>,
     /// Display lists of canvases (and every other drawn-into image).
     canvases: HashMap<u32, Vec<Op>>,
+    /// What the screen is composed of, bottom to top, as the last paint
+    /// composed it (forms later composed on their own update their place).
+    order: Vec<Layer>,
     /// The paint in progress.
-    painting: Option<Frame>,
-    /// The last complete paint.
-    frame: Frame,
+    pending: Option<Vec<Layer>>,
     /// Form classes (vtables) whose canvases we render ourselves.
     skip: Vec<u32>,
     /// Canvases left out of every paint.
@@ -184,9 +194,43 @@ impl UiModel {
         self
     }
 
-    /// The last complete screen.
-    pub fn frame(&self) -> &Frame {
-        &self.frame
+    /// The screen now: the forms of the last paint with their canvases'
+    /// current content (the game composes changed forms on their own,
+    /// outside a full paint).
+    pub fn frame(&self) -> Frame {
+        let mut frame = Frame::default();
+        for layer in &self.order {
+            match layer {
+                Layer::Screen(ops) => {
+                    let all = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
+                    frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), all)));
+                }
+                &Layer::Form { canvas, vtable, origin, size, clip } => self.compose(&mut frame, canvas, vtable, origin, size, clip),
+            }
+        }
+        frame
+    }
+
+    /// Adds form `canvas` as composed at `origin` to `frame`.
+    fn compose(&self, frame: &mut Frame, canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4]) {
+        frame.forms.push((vtable, canvas, origin, size));
+        if self.skip.contains(&vtable) || (self.skipping && self.skip_canvases.contains(&canvas)) {
+            return;
+        }
+        // The canvas never extends beyond its size.
+        let clip = intersect(clip, [origin.0, origin.1, origin.0 + size.0, origin.1 + size.1]);
+        if clip[2] <= clip[0] || clip[3] <= clip[1] {
+            return;
+        }
+        let underlay = self.skipping && self.underlays.contains(&canvas);
+        let keep = |op: &&Op| !underlay || self.underlay_keeps(canvas, op);
+        let Some(ops) = self.canvases.get(&canvas) else { return };
+        let start = frame.draws.len();
+        frame.draws.extend(ops.iter().filter(keep).flat_map(|op| self.resolve(op, 0)).filter_map(|op| screen_draw(op, origin, clip)));
+        frame.form_draws.push((canvas, start..frame.draws.len()));
+        if underlay {
+            frame.underlay_draws.push(start..frame.draws.len());
+        }
     }
 
     pub fn apply(&mut self, e: Event) {
@@ -283,38 +327,23 @@ impl UiModel {
                     self.push(canvas, Op::Flc { path, chunk, x, y });
                 }
             }
-            Event::PaintBegin => self.painting = Some(Frame::default()),
+            Event::PaintBegin => self.pending = Some(Vec::new()),
             Event::Composite { canvas, vtable, origin, size, clip, keyed: _ } => {
-                if let Some(f) = self.painting.as_mut() {
-                    f.forms.push((vtable, canvas, origin, size));
-                }
-                if self.skip.contains(&vtable) || (self.skipping && self.skip_canvases.contains(&canvas)) {
-                    return;
-                }
-                if self.painting.is_none() {
-                    return;
-                }
-                // The canvas never extends beyond its size.
-                let clip = intersect(clip, [origin.0, origin.1, origin.0 + size.0, origin.1 + size.1]);
-                if clip[2] <= clip[0] || clip[3] <= clip[1] {
-                    return;
-                }
                 self.sizes.insert(canvas, size);
-                let underlay = self.skipping && self.underlays.contains(&canvas);
-                let keep = |op: &&Op| !underlay || self.underlay_keeps(canvas, op);
-                let ops = self.canvases.get(&canvas).map(|ops| ops.iter().filter(keep).flat_map(|op| self.resolve(op, 0)).collect::<Vec<_>>());
-                if let Some(frame) = self.painting.as_mut() {
-                    let start = frame.draws.len();
-                    frame.draws.extend(ops.into_iter().flatten().filter_map(|op| screen_draw(op, origin, clip)));
-                    frame.form_draws.push((canvas, start..frame.draws.len()));
-                    if underlay {
-                        frame.underlay_draws.push(start..frame.draws.len());
+                let layer = Layer::Form { canvas, vtable, origin, size, clip };
+                match self.pending.as_mut() {
+                    Some(layers) => layers.push(layer),
+                    // A form updated on its own: its place may have changed.
+                    None => {
+                        if let Some(l) = self.order.iter_mut().find(|l| matches!(l, Layer::Form { canvas: c, .. } if *c == canvas)) {
+                            *l = layer;
+                        }
                     }
                 }
             }
             Event::PaintEnd => {
-                if let Some(f) = self.painting.take() {
-                    self.frame = f;
+                if let Some(layers) = self.pending.take() {
+                    self.order = layers;
                 }
             }
         }
@@ -351,9 +380,13 @@ impl UiModel {
             return;
         }
         if canvas == self.screen && canvas != 0 {
+            // Straight onto the screen: part of the paint in progress.
             let ops = self.resolve(&op, 0);
-            if let Some(frame) = self.painting.as_mut() {
-                frame.draws.extend(ops.into_iter().filter_map(|op| screen_draw(op, (0, 0), [i32::MIN, i32::MIN, i32::MAX, i32::MAX])));
+            if let Some(layers) = self.pending.as_mut() {
+                match layers.last_mut() {
+                    Some(Layer::Screen(screen)) => screen.extend(ops),
+                    _ => layers.push(Layer::Screen(ops)),
+                }
             }
             return;
         }
@@ -616,7 +649,8 @@ mod tests {
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (100, 100)));
         m.apply(Event::PaintEnd);
-        let shades: Vec<_> = m.frame().draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { alpha: 128, .. })).collect();
+        let frame = m.frame();
+        let shades: Vec<_> = frame.draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { alpha: 128, .. })).collect();
         assert_eq!(shades, vec![&ScreenDraw::Fill { rect: [10, 40, 20, 5], rgb: [1, 1, 1], alpha: 128, clip: [0, 0, 100, 100] }]);
     }
 }

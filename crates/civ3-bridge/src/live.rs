@@ -257,7 +257,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     let mut presenter = if mode.starts_with("native") {
         let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
-        Presenter::Native(native)
+        Presenter::native(native)
     } else {
         let config = tile_viewer::ViewerConfig {
             title: VIEWER_TITLE.into(),
@@ -392,7 +392,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         seq += 1;
         let mut scene = match shown {
             Shown::Map(world, view) => {
-                let mut scene = mapper.scene(world, view, (1024, 768), 0);
+                let mut scene = mapper.scene(world, view, (0, 0), 0);
                 // The mirrored interface has the game's own city-site lines.
                 if ui.is_none() {
                     scene.sprites = city_site::sprites(world, &compiled);
@@ -424,6 +424,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
             });
         }
+        crate::scene_map::overlay_screen_sprites(&mut scene);
         scene.seq = seq;
         presenter.publish(scene);
         last = Some(state);

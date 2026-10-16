@@ -7,7 +7,7 @@
 //! Calls (argument structs are plain data, see [`Assets`], [`Publish`],
 //! [`TakeInput`]):
 //! 0. assets: compile a render description; starts the viewer on first use
-//! 1. publish: show a scene (`scene::wire`)
+//! 1. publish: a batch of scene updates (`scene::wire`)
 //! 2. input: take the viewer's queued input (`scene::wire`)
 
 use wine_unixlib::Buffer32;
@@ -21,7 +21,7 @@ pub struct Assets {
     pub _pad: u32,
 }
 
-/// Call 1. `scene`: `scene::wire::encode_scene`.
+/// Call 1. `scene`: a batch of updates, `scene::wire::encode_updates`.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Publish {
@@ -50,13 +50,13 @@ mod unix_side {
 
     use civ3_assets::GameFiles;
     use civ3_assets::loader::Civ3Loader;
-    use scene::Link;
+    use scene::Driver;
     use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};
 
     use super::*;
 
     struct Viewer {
-        link: Link,
+        driver: Driver,
         assets: tile_viewer::Assets,
         /// Input taken but not yet delivered (the caller's buffer was too
         /// small).
@@ -114,7 +114,8 @@ mod unix_side {
             v.assets.replace(compiled);
             return STATUS_SUCCESS;
         }
-        let link = Link::new();
+        let (driver, display) = scene::connect();
+        let quit = display.input_sender();
         let assets = tile_viewer::Assets::new(compiled);
         let config = tile_viewer::ViewerConfig {
             title: "Civ III (native renderer)".into(),
@@ -123,34 +124,34 @@ mod unix_side {
             overhang: (0, 128, 0, 128),
             ..Default::default()
         };
-        let (l, a) = (link.clone(), assets.clone());
+        let a = assets.clone();
         let started = wine_unixlib::unix::spawn_native("civ3r-native-viewer", move || {
-            if let Err(e) = tile_viewer::run(config, a, l.clone()) {
+            if let Err(e) = tile_viewer::run(config, a, display) {
                 log::error!("civ3r-native: viewer: {e}");
             }
-            l.send_input(scene::Input::Quit);
+            let _ = quit.send(scene::Input::Quit);
         });
         if let Err(e) = started {
             log::error!("civ3r-native: starting the viewer: {e}");
             return STATUS_UNSUCCESSFUL;
         }
         log::info!("civ3r-native: viewer started");
-        *viewer = Some(Viewer { link, assets, pending: Vec::new() });
+        *viewer = Some(Viewer { driver, assets, pending: Vec::new() });
         STATUS_SUCCESS
     }
 
     pub fn publish(args: &mut Publish) -> Status {
         let Ok(bytes) = wine_unixlib::unix::read(args.scene) else { return STATUS_INVALID_PARAMETER };
-        let scene = match scene::wire::decode_scene(&bytes) {
-            Ok(s) => s,
+        let updates = match scene::wire::decode_updates(&bytes) {
+            Ok(u) => u,
             Err(e) => {
-                log::warn!("civ3r-native: scene: {e}");
+                log::warn!("civ3r-native: updates: {e}");
                 return STATUS_INVALID_PARAMETER;
             }
         };
         match VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             Some(v) => {
-                v.link.publish(scene);
+                v.driver.send(updates);
                 STATUS_SUCCESS
             }
             None => STATUS_UNSUCCESSFUL,
@@ -163,7 +164,7 @@ mod unix_side {
             args.len = 0;
             return STATUS_SUCCESS;
         };
-        v.pending.extend(v.link.take_input());
+        v.pending.extend(v.driver.take_input());
         let bytes = scene::wire::encode_input(&v.pending);
         args.len = bytes.len() as u32;
         if bytes.len() > args.out.len as usize {

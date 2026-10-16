@@ -110,6 +110,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
             ifc23::scene_map::zoom_out(&mut scene.sprites);
         }
     }
+    ifc23::scene_map::overlay_screen_sprites(&mut scene);
     scene
 }
 
@@ -141,10 +142,11 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             let trace = load_trace(args.get(1).ok_or("render TRACE OUT.png")?)?;
             let out = args.get(2).ok_or("render TRACE OUT.png")?;
             let (compiled, mut art) = compile(Some(&trace))?;
-            let scene = trace_scene(&trace, &compiled, art.as_mut(), viewport(args)?);
+            let size = viewport(args)?;
+            let scene = trace_scene(&trace, &compiled, art.as_mut(), size);
             let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
             let config = tile_viewer::ViewerConfig { overhang: (0, 64, 0, 64), ..Default::default() };
-            let img = tile_viewer::render_offscreen(&gpu, &compiled, &scene, &config);
+            let img = tile_viewer::render_offscreen(&gpu, &compiled, &scene, size, &config);
             image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8)
                 .map_err(|e| e.to_string())?;
             println!("{out}");
@@ -213,7 +215,7 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
     let (compiled, _) = compile(Some(trace))?;
     let scene = Mapper::new(&compiled).scene(&trace.world, &trace.view, viewport, 0);
     let world = tile_viewer::scene_world(&compiled, &scene);
-    let camera = tile_viewer::scene_camera(&scene, (0, 128, 0, 128));
+    let camera = tile_viewer::scene_cameras(&scene, viewport, (0, 128, 0, 128)).remove(0);
 
     let index_of: std::collections::HashMap<&str, usize> =
         compiled.sprite_names.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
@@ -301,7 +303,7 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     let scene = trace_scene(trace, &compiled, art.as_mut(), viewport);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     let config = tile_viewer::ViewerConfig { overhang: (0, 128, 0, 128), ..Default::default() };
-    let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, &config);
+    let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, viewport, &config);
 
     // Pixels the game drew with sprites we do not model.
     let groups: HashSet<&str> = compiled.sprite_names.iter().filter_map(|n| n.split_once(['/', '@']).map(|(g, _)| g)).collect();

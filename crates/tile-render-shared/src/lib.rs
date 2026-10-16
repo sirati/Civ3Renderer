@@ -80,12 +80,21 @@ pub struct FrameParams {
     /// channels of this many bits (see `quantize`); the target holds such
     /// channel values.
     pub color_bits: u32,
-    pub _pad1: u32,
+    /// Index of the view being drawn (free sprites of other views are
+    /// skipped).
+    pub view: u32,
 
     pub cull_x0: i32,
     pub cull_y0: i32,
     pub cull_x1: i32,
     pub cull_y1: i32,
+
+    /// Where the view sits in the render target: screen-space free sprites
+    /// are given in target pixels.
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub _pad2: u32,
+    pub _pad3: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -168,7 +177,8 @@ pub struct FreeSprite {
     pub y: i32,
     /// Non-zero: darkens like a scale layer (see `LayerDesc::scale_den`).
     pub scale_den: u32,
-    pub _pad: u32,
+    /// Drawn only in this view (`ALL_VIEWS`: in every view).
+    pub view: u32,
     /// With `FREE_CLIP`: only the part inside this viewport rectangle
     /// (left, top, right, bottom; right and bottom exclusive) is drawn.
     pub clip: [i32; 4],
@@ -177,6 +187,8 @@ pub struct FreeSprite {
 /// The free sprite's position is in viewport pixels, unaffected by the
 /// camera (UI).
 pub const FREE_SCREEN: u32 = 1 << 0;
+/// `FreeSprite::view` of sprites drawn in every view.
+pub const ALL_VIEWS: u32 = u32::MAX;
 /// The free sprite is clipped to its `clip` rectangle.
 pub const FREE_CLIP: u32 = 1 << 1;
 

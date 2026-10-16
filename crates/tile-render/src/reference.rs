@@ -27,23 +27,28 @@ pub struct Draw {
 /// clipping to the viewport).
 pub fn draw_list(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32) -> Vec<Draw> {
     let mut out = Vec::new();
-    visit(world, atlas, camera, frame, |d| out.push(d));
+    visit(world, atlas, camera, 0, frame, &mut |d| out.push(d));
     out
 }
 
 /// Renders like `TileRenderer::render`. Only zoom 1/1 is supported (that is
 /// what pixel-exact comparisons use).
 pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
-    assert_eq!(camera.zoom, (1, 1), "the reference renderer only implements zoom 1");
-    let (w, h) = camera.viewport;
+    render_views(world, atlas, std::slice::from_ref(camera), camera.viewport, frame, clear)
+}
+
+/// Renders like `TileRenderer::render_views` into a target of `size`.
+pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
+    assert!(cameras.iter().all(|c| c.zoom == (1, 1)), "the reference renderer only implements zoom 1");
+    let (w, h) = size;
     let bits = match world.color {
-        ColorModel::Direct => return render_direct(world, atlas, camera, frame, clear),
+        ColorModel::Direct => return render_direct(world, atlas, cameras, size, frame, clear),
         ColorModel::Quantized { bits } => bits,
     };
     // Stored values (q + QUANTIZED_BIAS), like the GPU's internal target.
     let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
     let mut out: Vec<[u32; 3]> = vec![[stored(clear[0]), stored(clear[1]), stored(clear[2])]; (w * h) as usize];
-    visit(world, atlas, camera, frame, |d| {
+    visit_views(world, atlas, cameras, frame, &mut |d| {
         each_texel(atlas, &d, (w, h), |px, py, src| {
             let dst = &mut out[(py * w + px) as usize];
             match d.blend {
@@ -72,10 +77,9 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
     })
 }
 
-fn render_direct(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
-    let (w, h) = camera.viewport;
+fn render_direct(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], (w, h): (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
     let mut out = RgbaImage::from_fn(w, h, |_, _| clear);
-    visit(world, atlas, camera, frame, |d| {
+    visit_views(world, atlas, cameras, frame, &mut |d| {
         each_texel(atlas, &d, (w, h), |px, py, src| {
             let src = match d.blend {
                 Blend::Alpha => src,
@@ -108,14 +112,28 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
     }
 }
 
-/// Calls `draw` for every sprite the renderer would draw, in order.
-fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw: impl FnMut(Draw)) {
+/// Calls `draw` for every sprite `render_views` draws, view by view.
+fn visit_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], frame: u32, draw: &mut dyn FnMut(Draw)) {
+    for (v, camera) in cameras.iter().enumerate().take(crate::renderer::MAX_VIEWS) {
+        visit(world, atlas, camera, v as u32, frame, draw);
+    }
+}
+
+/// Calls `draw` for every sprite view `view` (seen by `camera`) shows, in
+/// order, in target pixels, clipped to the view.
+fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u32, draw: &mut dyn FnMut(Draw)) {
+    let (vx, vy) = camera.origin;
+    let rect = [vx, vy, vx + camera.viewport.0 as i32, vy + camera.viewport.1 as i32];
+    let within = |clip: Option<[i32; 4]>| {
+        let c = clip.unwrap_or(rect);
+        Some([c[0].max(rect[0]), c[1].max(rect[1]), c[2].min(rect[2]), c[3].min(rect[3])])
+    };
     let packed = world.pack();
     let data = ByteReader::new(&packed.data);
     let passes = world.passes();
     // Free sprites following pass `p`, in list order.
     let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
-        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p) {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.is_none_or(|sv| sv == view)) {
             let set = s.set.0 as usize;
             let frames = packed.sets[set];
             if set == 0 || frames == 0 {
@@ -124,13 +142,21 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
             let f = (frame / s.ticks_per_frame.max(1) + s.phase) % frames;
             let sprite_id = packed.sets[set + 1 + f as usize];
             let sprite = atlas.sprites[sprite_id as usize];
-            let (cx, cy) = if s.screen { (0, 0) } else { (camera.x, camera.y) };
-            draw(Draw { sprite: crate::SpriteId(sprite_id), x: s.x + sprite.anchor_x - cx, y: s.y + sprite.anchor_y - cy, pass: p, blend: s.blend, clip: s.clip });
+            // Screen sprites are given in target pixels.
+            let (cx, cy) = if s.screen { (0, 0) } else { (camera.x - vx, camera.y - vy) };
+            draw(Draw {
+                sprite: crate::SpriteId(sprite_id),
+                x: s.x + sprite.anchor_x - cx,
+                y: s.y + sprite.anchor_y - cy,
+                pass: p,
+                blend: s.blend,
+                clip: within(s.clip),
+            });
         }
     };
     for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
-        let params = camera.frame_params(&world.grid, world.color, frame, pass);
+        let params = camera.frame_params(&world.grid, world.color, frame, pass, view);
         for local in 0..params.cols * params.rows {
             let col = params.first_col + (local % params.cols) as i32;
             let row = params.first_row + (local / params.cols) as i32;
@@ -162,17 +188,17 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
                 let sprite = atlas.sprites[sprite_id as usize];
                 draw(Draw {
                     sprite: crate::SpriteId(sprite_id),
-                    x: ox + layer.offset_x + sprite.anchor_x - camera.x,
-                    y: oy + layer.offset_y + sprite.anchor_y - camera.y,
+                    x: ox + layer.offset_x + sprite.anchor_x - camera.x + vx,
+                    y: oy + layer.offset_y + sprite.anchor_y - camera.y + vy,
                     pass: pass_index,
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
-                    clip: None,
+                    clip: within(None),
                 });
             }
         }
-        free_after(pass_index, &mut draw);
+        free_after(pass_index, draw);
     }
-    free_after(passes.len(), &mut draw);
+    free_after(passes.len(), draw);
 }
 
 /// `BlendState::ALPHA_BLENDING` in 8-bit: colour = src·a + dst·(1−a),

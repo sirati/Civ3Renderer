@@ -17,7 +17,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
 };
 
@@ -151,7 +151,7 @@ pub fn free_vs(
     *out_page = 0;
     *out_scale_den = f.scale_den;
     let frames = sprite_sets[f.set as usize];
-    if f.set == 0 || frames == 0 {
+    if f.set == 0 || frames == 0 || (f.view != ALL_VIEWS && f.view != params.view) {
         *out_pos = CULLED;
         return;
     }
@@ -161,7 +161,8 @@ pub fn free_vs(
     let (u, v) = quad_corner(vertex);
     // The sprite's viewport rectangle: top-left and scale.
     let (x0, y0, z) = if f.flags & FREE_SCREEN != 0 {
-        ((f.x + sprite.anchor_x) as f32, (f.y + sprite.anchor_y) as f32, 1.0)
+        // Given in target pixels; the viewport starts at the view's origin.
+        ((f.x + sprite.anchor_x - params.origin_x) as f32, (f.y + sprite.anchor_y - params.origin_y) as f32, 1.0)
     } else {
         let zoom = params.zoom_num as f32 / params.zoom_den as f32;
         ((f.x + sprite.anchor_x - params.camera_x) as f32 * zoom, (f.y + sprite.anchor_y - params.camera_y) as f32 * zoom, zoom)
@@ -170,10 +171,12 @@ pub fn free_vs(
     let (mut r, mut b) = (x0 + sprite.width as f32 * z, y0 + sprite.height as f32 * z);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
     if f.flags & FREE_CLIP != 0 {
-        l = l.max(f.clip[0] as f32);
-        t = t.max(f.clip[1] as f32);
-        r = r.min(f.clip[2] as f32);
-        b = b.min(f.clip[3] as f32);
+        // (Target pixels, like screen sprites.)
+        let (ox, oy) = (params.origin_x, params.origin_y);
+        l = l.max((f.clip[0] - ox) as f32);
+        t = t.max((f.clip[1] - oy) as f32);
+        r = r.min((f.clip[2] - ox) as f32);
+        b = b.min((f.clip[3] - oy) as f32);
         if r <= l || b <= t {
             *out_pos = CULLED;
             return;

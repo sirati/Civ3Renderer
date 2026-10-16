@@ -22,11 +22,14 @@ pub struct Camera {
     /// drawn only if their logical anchor (see `LayerSpec::cull_offset`) is
     /// inside it.
     pub cull: Option<(i32, i32, i32, i32)>,
+    /// Where the view sits in the render target (its top-left), when several
+    /// views share it (see `TileRenderer::render_views`).
+    pub origin: (i32, i32),
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None }
+        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0) }
     }
 
     /// Viewport size in world pixels (rounded up).
@@ -35,7 +38,7 @@ impl Camera {
         ((self.viewport.0 * d).div_ceil(n), (self.viewport.1 * d).div_ceil(n))
     }
 
-    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass) -> FrameParams {
+    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32) -> FrameParams {
         let (ew, eh) = self.world_extent();
         let (ol, ot, or, ob) = self.overhang;
         let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
@@ -66,7 +69,7 @@ impl Camera {
             layer_count: pass.count,
             cull: self.cull.is_some() as u32,
             color_bits: color.bits(),
-            _pad1: 0,
+            view,
             cull_x0: self.cull.map_or(0, |c| c.0),
             cull_y0: self.cull.map_or(0, |c| c.1),
             cull_x1: self.cull.map_or(0, |c| c.2),
@@ -76,6 +79,10 @@ impl Camera {
             cols: (last_col - first_col + 1) as u32,
             rows: (last_row - first_row + 1) as u32,
             grid: grid.params(),
+            origin_x: self.origin.0,
+            origin_y: self.origin.1,
+            _pad2: 0,
+            _pad3: 0,
         }
     }
 }
@@ -92,7 +99,7 @@ mod tests {
         cam.x = 300;
         cam.y = 200;
         cam.overhang = (0, 24, 0, 0);
-        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 });
+        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 }, 0);
         // Every cell whose 128×64 footprint (+24 px upwards) touches the
         // viewport must be inside the window.
         for row in -10..120 {

@@ -14,6 +14,8 @@ const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
 /// Per-pass `FrameParams` live in one buffer at this stride (the minimum
 /// uniform offset alignment wgpu guarantees).
 const PARAMS_STRIDE: u64 = 256;
+/// Views [`TileRenderer::render_views`] draws at most.
+pub const MAX_VIEWS: usize = 8;
 /// Most passes a world may have.
 pub const MAX_PASSES: usize = 16;
 
@@ -194,7 +196,7 @@ impl TileRenderer {
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render params"),
-            size: PARAMS_STRIDE * MAX_PASSES as u64,
+            size: PARAMS_STRIDE * ((MAX_PASSES + 1) * MAX_VIEWS) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -367,86 +369,95 @@ impl TileRenderer {
         frame: u32,
         clear: [u8; 4],
     ) {
+        self.render_views(device, queue, encoder, target, std::slice::from_ref(camera), frame, clear);
+    }
+
+    /// Renders several views of the world into `target`: view `i` as
+    /// `cameras[i]` sees it, into the rectangle at `origin` of the camera's
+    /// viewport size (later views over earlier ones). Free sprites of view
+    /// `i` (`PlacedSprite::view`) are drawn in it only; the others in every
+    /// view. At most [`MAX_VIEWS`] views.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_views(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        cameras: &[Camera],
+        frame: u32,
+        clear: [u8; 4],
+    ) {
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
             return;
         };
         let bits = world.color.bits();
-        if bits == 0 {
+        let size = target.size();
+        let (canvas, tiles, free) = if bits == 0 {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
-            for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-                let params = camera.frame_params(&world.grid, world.color, frame, p);
-                let offset = i as u64 * PARAMS_STRIDE;
-                queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
-                let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, bind_group, &[offset as u32]);
-                pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
-                draw_free(&mut pass, world, i, &self.free_pipeline);
+            (view.clone(), &self.pipeline, &self.free_pipeline)
+        } else {
+            queue.write_buffer(&self.bits, 0, bytemuck::bytes_of(&[bits, 0, 0, 0]));
+            let scratch = scratch_for(&mut self.scratch, device, &self.output_layout, &self.bits, size);
+            let main = scratch.main.create_view(&Default::default());
+            let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0;
+            let background = wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 };
+            drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
+            (main, &self.quantized_pipeline, &self.free_quantized_pipeline)
+        };
+        if cameras.len() > MAX_VIEWS {
+            log::warn!("{} views, only the first {MAX_VIEWS} are drawn", cameras.len());
+        }
+        let passes = world.passes.len().min(MAX_PASSES);
+        for (v, camera) in cameras.iter().enumerate().take(MAX_VIEWS) {
+            // The view's rectangle, inside the target.
+            let (x0, y0) = (camera.origin.0.max(0) as u32, camera.origin.1.max(0) as u32);
+            let x1 = (camera.origin.0 + camera.viewport.0 as i32).clamp(0, size.width as i32) as u32;
+            let y1 = (camera.origin.1 + camera.viewport.1 as i32).clamp(0, size.height as i32) as u32;
+            if x1 <= x0 || y1 <= y0 {
+                continue;
             }
-            draw_free_last(&self.params, queue, encoder, &view, world, camera, frame, bind_group, &self.free_pipeline);
-            return;
+            let scissor = [x0, y0, x1 - x0, y1 - y0];
+            // Each (view, pass) has its own parameter slot: buffer writes all
+            // land before the commands run.
+            let write_params = |slot: usize, params: FrameParams| {
+                let offset = (v * (MAX_PASSES + 1) + slot) as u64 * PARAMS_STRIDE;
+                queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
+                offset as u32
+            };
+            for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
+                let params = camera.frame_params(&world.grid, world.color, frame, p, v as u32);
+                let offset = write_params(i, params);
+                let mut pass = begin_view(encoder, &canvas, camera, scissor, bind_group, offset);
+                pass.set_pipeline(tiles);
+                pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+                draw_free(&mut pass, world, i, free);
+            }
+            if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {
+                let params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32);
+                let offset = write_params(MAX_PASSES, params);
+                let mut pass = begin_view(encoder, &canvas, camera, scissor, bind_group, offset);
+                draw_free(&mut pass, world, passes, free);
+            }
         }
-
-        queue.write_buffer(&self.bits, 0, bytemuck::bytes_of(&[bits, 0, 0, 0]));
-        let scratch = scratch_for(&mut self.scratch, device, &self.output_layout, &self.bits, target.size());
-        let main = scratch.main.create_view(&Default::default());
-        let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0;
-        let background = wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 };
-        drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
-        for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-            let params = camera.frame_params(&world.grid, world.color, frame, p);
-            let offset = i as u64 * PARAMS_STRIDE;
-            queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
-            let mut pass = begin_pass(encoder, &main, wgpu::LoadOp::Load);
-            pass.set_pipeline(&self.quantized_pipeline);
-            pass.set_bind_group(0, bind_group, &[offset as u32]);
-            pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
-            draw_free(&mut pass, world, i, &self.free_quantized_pipeline);
+        if bits != 0 {
+            let scratch = self.scratch.as_ref().expect("created above");
+            let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
+            pass.set_pipeline(&self.output_pipeline);
+            pass.set_bind_group(0, &scratch.output, &[]);
+            pass.draw(0..3, 0..1);
         }
-        draw_free_last(&self.params, queue, encoder, &main, world, camera, frame, bind_group, &self.free_quantized_pipeline);
-        let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
-        pass.set_pipeline(&self.output_pipeline);
-        pass.set_bind_group(0, &scratch.output, &[]);
-        pass.draw(0..3, 0..1);
     }
 }
 
 /// Free sprites that follow pass `i`, into `pass` (whose bind group is
 /// already set).
 fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipeline: &wgpu::RenderPipeline) {
-        let Some(range) = world.free_after.get(i).filter(|r| !r.is_empty()) else { return };
-        pass.set_pipeline(pipeline);
-        pass.draw(0..QUAD_VERTICES, range.clone());
-    }
-
-/// Free sprites after the last pass, in a pass of their own.
-#[allow(clippy::too_many_arguments)]
-fn draw_free_last(
-        params_buffer: &wgpu::Buffer,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        world: &WorldBuffers,
-        camera: &Camera,
-        frame: u32,
-        bind_group: &wgpu::BindGroup,
-        pipeline: &wgpu::RenderPipeline,
-    ) {
-        let last = world.passes.len().min(MAX_PASSES);
-        let Some(range) = world.free_after.get(last).filter(|r| !r.is_empty()) else { return };
-        let params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 });
-        let offset = last.min(MAX_PASSES - 1) as u64 * PARAMS_STRIDE;
-        if last == MAX_PASSES {
-            log::warn!("free sprites after the last of {MAX_PASSES} passes share its parameters");
-        } else {
-            queue.write_buffer(params_buffer, offset, bytemuck::bytes_of(&params));
-        }
-        let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Load);
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, bind_group, &[offset as u32]);
-        pass.draw(0..QUAD_VERTICES, range.clone());
+    let Some(range) = world.free_after.get(i).filter(|r| !r.is_empty()) else { return };
+    pass.set_pipeline(pipeline);
+    pass.draw(0..QUAD_VERTICES, range.clone());
 }
 
 /// The world's free sprites in drawing order (by the pass they follow,
@@ -471,6 +482,22 @@ fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<std::ops::Range<u32>
     (gpu, ranges)
 }
 
+
+/// A pass drawing into one view's rectangle of `canvas`.
+fn begin_view<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    canvas: &wgpu::TextureView,
+    camera: &Camera,
+    [x, y, w, h]: [u32; 4],
+    bind_group: &wgpu::BindGroup,
+    params_offset: u32,
+) -> wgpu::RenderPass<'e> {
+    let mut pass = begin_pass(encoder, canvas, wgpu::LoadOp::Load);
+    pass.set_viewport(camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32, 0.0, 1.0);
+    pass.set_scissor_rect(x, y, w, h);
+    pass.set_bind_group(0, bind_group, &[params_offset]);
+    pass
+}
 fn begin_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,

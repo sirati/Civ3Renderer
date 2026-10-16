@@ -159,11 +159,14 @@ pub struct PlacedSprite {
     /// Drawn only inside this viewport rectangle (left, top, right,
     /// bottom; exclusive).
     pub clip: Option<[i32; 4]>,
+    /// Drawn only in this view (`None`: in every view; see
+    /// `TileRenderer::render_views`).
+    pub view: Option<u32>,
 }
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None }
     }
 
     pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
@@ -179,7 +182,7 @@ impl PlacedSprite {
                 Blend::Alpha => 0,
                 Blend::Scale { denominator } => denominator.max(1),
             },
-            _pad: 0,
+            view: self.view.unwrap_or(tile_render_shared::ALL_VIEWS),
             clip: self.clip.unwrap_or_default(),
         }
     }

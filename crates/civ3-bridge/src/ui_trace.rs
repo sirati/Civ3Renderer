@@ -30,7 +30,7 @@ fn emit(e: Event) {
 
 /// The last composed screen, if the mirror runs.
 pub fn frame() -> Option<Frame> {
-    MODEL.lock().ok()?.as_ref().map(|m| m.frame().clone())
+    MODEL.lock().ok()?.as_ref().map(|m| m.frame())
 }
 
 /// Text drawn with `TextOutA` (canvas coordinates): part of the canvas the

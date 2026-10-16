@@ -88,7 +88,13 @@ impl Headless {
 
     /// Renders one frame offscreen and reads it back.
     pub fn render(&self, renderer: &mut TileRenderer, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
-        let (w, h) = camera.viewport;
+        self.render_views(renderer, std::slice::from_ref(camera), camera.viewport, frame, clear)
+    }
+
+    /// Renders several views into an offscreen target of `size` (see
+    /// `TileRenderer::render_views`).
+    pub fn render_views(&self, renderer: &mut TileRenderer, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
+        let (w, h) = size;
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
             size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
@@ -100,7 +106,7 @@ impl Headless {
             view_formats: &[],
         });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        renderer.render(&self.device, &self.queue, &mut encoder, &target, camera, frame, clear);
+        renderer.render_views(&self.device, &self.queue, &mut encoder, &target, cameras, frame, clear);
         read_texture(&self.device, &self.queue, encoder, &target)
     }
 }
