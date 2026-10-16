@@ -51,7 +51,7 @@ impl Civ3Tile {
 }
 
 /// A city.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Civ3City {
     pub id: i32,
     pub x: i32,
@@ -63,6 +63,24 @@ pub struct Civ3City {
     pub improvements: [u8; 32],
     /// The wonder or small wonder the city is building (an improvement id).
     pub wonder_in_production: Option<i32>,
+    /// What its map label shows (docs §10.8, [`crate::city_labels`]): the name,
+    /// what it builds (`Order_Type`, `Order_ID`; by name: an improvement or a
+    /// unit type), the `Common_Policy` bits that outline the label (1 its size
+    /// box, 0x10 its production plate), the food surplus, the turns until it
+    /// grows and until it completes its order (`city_label::NEVER`: never; `None`
+    /// where a dump has none) and the icons of its HUD box (`None`: only the
+    /// capital's star).
+    pub name: String,
+    pub order: (i32, i32),
+    pub order_name: Option<String>,
+    pub policy: i32,
+    pub food_income: i32,
+    pub grow_turns: Option<i32>,
+    pub build_turns: Option<i32>,
+    pub hud_icons: Option<Vec<u8>>,
+    /// The harbour, airport and barracks icons (`civ3_sys::city_label::VETERAN_*`);
+    /// `None` where a dump has none: by the city's buildings (`icon_buildings`).
+    pub veteran_icons: Option<u8>,
 }
 
 impl Civ3City {
@@ -175,6 +193,11 @@ pub struct Civ3World {
     pub unit_tiles: Vec<(i32, i32, i32)>,
     /// The game's `P_*` preference flags.
     pub preferences: u32,
+    /// `p_debug_mode_bits`: bit 3 shows every city's full label (docs §10.8).
+    pub debug_mode_bits: u32,
+    /// Per civ: its adjective (`Leader_get_civ_adjective`), which a label may
+    /// show beside the city's name.
+    pub civ_adjectives: Vec<String>,
     /// The selected unit (id) and the selection cursor's frame, while shown.
     pub selection: Option<(i32, i32)>,
     /// How `player` stands with each civ (by civ; empty if unknown).
@@ -647,23 +670,52 @@ impl Trace {
                     t.world.max_town = n(1)? as i32;
                     t.world.max_city = n(2)? as i32;
                 }
-                Some("city") => t.world.cities.push(Civ3City {
-                    id: n(1)? as i32,
-                    x: n(2)? as i32,
-                    y: n(3)? as i32,
-                    civ: n(4)? as i32,
-                    size: n(5)? as i32,
-                    improvements: {
-                        let mut v = [0u8; 32];
-                        if let Some(hex) = f.get(6) {
-                            for (k, b) in v.iter_mut().enumerate() {
-                                *b = hex.get(2 * k..2 * k + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(0);
+                Some("city") => {
+                    // `city ... bits wonder [order_type order_id policy food_income
+                    // grow build icons]<TAB>order name<TAB>city name` (the later
+                    // columns are newer than the first dumps).
+                    let named: Vec<&str> = line.split('\t').collect();
+                    let opt = |k: usize| f.get(k).filter(|_| named.len() > 1).map(|_| n(k)).transpose();
+                    let icons = match f.get(14).filter(|_| named.len() > 1) {
+                        Some(&"-") => Some(Vec::new()),
+                        Some(list) => Some(list.split(',').filter_map(|c| c.parse().ok()).collect()),
+                        None => None,
+                    };
+                    t.world.cities.push(Civ3City {
+                        id: n(1)? as i32,
+                        x: n(2)? as i32,
+                        y: n(3)? as i32,
+                        civ: n(4)? as i32,
+                        size: n(5)? as i32,
+                        improvements: {
+                            let mut v = [0u8; 32];
+                            if let Some(hex) = f.get(6) {
+                                for (k, b) in v.iter_mut().enumerate() {
+                                    *b = hex.get(2 * k..2 * k + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(0);
+                                }
                             }
-                        }
-                        v
-                    },
-                    wonder_in_production: f.get(7).map(|_| n(7)).transpose()?.map(|w| w as i32).filter(|&w| w >= 0),
-                }),
+                            v
+                        },
+                        wonder_in_production: f.get(7).map(|_| n(7)).transpose()?.map(|w| w as i32).filter(|&w| w >= 0),
+                        order: (opt(8)?.unwrap_or(0) as i32, opt(9)?.unwrap_or(0) as i32),
+                        policy: opt(10)?.unwrap_or(0) as i32,
+                        food_income: opt(11)?.unwrap_or(0) as i32,
+                        grow_turns: opt(12)?.map(|v| v as i32),
+                        build_turns: opt(13)?.map(|v| v as i32),
+                        hud_icons: icons,
+                        veteran_icons: opt(15)?.map(|v| v as u8),
+                        order_name: named.get(1).filter(|s| !s.is_empty()).map(|s| (*s).to_owned()),
+                        name: named.get(2).map(|s| (*s).to_owned()).unwrap_or_default(),
+                    });
+                }
+                Some("civ_adjective") => {
+                    let civ = n(1)? as usize;
+                    if t.world.civ_adjectives.len() <= civ {
+                        t.world.civ_adjectives.resize(civ + 1, String::new());
+                    }
+                    t.world.civ_adjectives[civ] = f[2..].join(" ");
+                }
+                Some("debug_mode_bits") => t.world.debug_mode_bits = n(1)? as u32,
                 Some(kind @ ("unit" | "army_unit")) => {
                     let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
                     let at = |i: usize| v.get(i).copied().unwrap_or(0) as i32;

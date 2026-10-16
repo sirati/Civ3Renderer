@@ -7,9 +7,9 @@ use render_desc::Compiled;
 use crate::world::{Civ3City, Civ3World};
 
 /// `ITF_Veteran_*` flags of the icon buildings.
-const GROUND: u32 = 0x2;
-const SEA: u32 = 0x2_0000;
-const AIR: u32 = 0x4_0000;
+pub const GROUND: u32 = 0x2;
+pub const SEA: u32 = 0x2_0000;
+pub const AIR: u32 = 0x4_0000;
 
 /// Whether `city` has a working, not obsolete improvement with `flag`
 /// (`City_count_improvements_with_flag`).
