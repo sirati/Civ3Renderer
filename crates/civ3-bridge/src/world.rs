@@ -49,6 +49,8 @@ pub struct Civ3World {
     pub resource_visible: Vec<bool>,
     /// Every civ's era (0..3).
     pub eras: Vec<i32>,
+    /// Every civ's colour table (`ntpNN.pcx`).
+    pub color_tables: Vec<i32>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -90,6 +92,9 @@ pub struct Civ3View {
 /// A tracer dump (`civ3-trace.txt`): world, view and the game's draw list.
 #[derive(Clone, Debug, Default)]
 pub struct Trace {
+    /// Address of the `Map_Renderer` the redraw used (also the canvas of
+    /// map blits).
+    pub map_renderer: u32,
     pub world: Civ3World,
     pub view: Civ3View,
     /// Sheet file names by (Map_Renderer member, element).
@@ -106,6 +111,11 @@ pub struct TraceDraw {
     pub y: i32,
     /// Which blit: "map", "blend" or "colored".
     pub kind: String,
+    /// Sprite size, if the trace has it.
+    pub size: Option<(u32, u32)>,
+    /// The blit's other arguments (for "colored": canvas, second canvas,
+    /// colour table, p6).
+    pub params: Vec<u32>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -131,6 +141,9 @@ impl Trace {
             let f: Vec<&str> = line.split_whitespace().collect();
             let n = |k: usize| f.get(k).and_then(|s| num(s)).ok_or_else(|| err("bad number"));
             match f.first().copied() {
+                Some("#") if f.get(1) == Some(&"civ3-bridge") && f.get(3) == Some(&"map_renderer") => {
+                    t.map_renderer = n(4)? as u32;
+                }
                 Some("view") => {
                     t.view = Civ3View {
                         camera_x: n(2)? as i32,
@@ -154,6 +167,9 @@ impl Trace {
                 Some("player") => t.world.player = n(1)? as i32,
                 Some("resource_icons") => {
                     t.world.resource_icons = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
+                }
+                Some("color_tables") => {
+                    t.world.color_tables = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
                 Some("eras") => {
                     t.world.eras = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
@@ -196,7 +212,14 @@ impl Trace {
                 Some("draw") => {
                     let sprite = (f[1] != "?").then(|| Ok::<_, TraceError>((f[1].to_owned(), n(2)? as u32))).transpose()?;
                     let kind = f.get(5).filter(|k| !k.starts_with("0x")).map_or("map", |k| k).to_owned();
-                    t.draws.push(TraceDraw { sprite, x: n(3)? as i32, y: n(4)? as i32, kind });
+                    // Newer traces: kind w h params (params are hex).
+                    let size = match (f.get(6), f.get(7)) {
+                        (Some(w), Some(h)) if !w.starts_with("0x") && !h.starts_with("0x") => Some((n(6)? as u32, n(7)? as u32)),
+                        _ => None,
+                    };
+                    let first_param = if size.is_some() { 8 } else { 6 };
+                    let params = (first_param..f.len()).map(|k| n(k).map(|v| v as u32)).collect::<Result<_, _>>()?;
+                    t.draws.push(TraceDraw { sprite, x: n(3)? as i32, y: n(4)? as i32, kind, size, params });
                 }
                 _ => {}
             }

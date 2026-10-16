@@ -235,6 +235,13 @@ impl Civ3 {
             .collect()
     }
 
+    /// Every player's colour table (`Art/Units/Palettes/ntpNN.pcx`).
+    pub fn color_tables(&self) -> Result<Vec<i32>, Civ3Error> {
+        (0..32u32)
+            .map(|civ| Ok(Ptr32::<i32>::new(self.addrs.leaders + civ * L::LEADER_SIZE + L::LEADER_COLOR_TABLE_ID).read()?))
+            .collect()
+    }
+
     pub fn zoomed_out(&self) -> Result<bool, Civ3Error> {
         Ok(self.bic::<u8>(L::BIC_IS_ZOOMED_OUT)? != 0)
     }
