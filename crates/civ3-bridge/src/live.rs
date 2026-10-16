@@ -106,6 +106,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         preferences: optional("preferences", game.preferences()),
         mouse_tile: optional("mouse_tile", game.mouse_tile()),
         current_unit: optional("current_unit", game.current_unit()),
+        focus_city: optional("focus_city", game.focus_city()),
         outposts: optional("outposts", game.outposts()),
         selection: optional("selection", game.selection()),
         wall_buildings: players

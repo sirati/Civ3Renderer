@@ -434,3 +434,12 @@ pub fn line_sites(build: Build) -> Option<[u32; 5]> {
         Build::Gog | Build::Steam => None,
     }
 }
+
+/// Where the map renderer keeps its focus city (`City*`, set while the city
+/// screen is open; docs §16.8).
+pub fn focus_city_slot(build: Build) -> Option<u32> {
+    match build {
+        Build::PcGames => Some(0x9C_B3F4),
+        Build::Gog | Build::Steam => None,
+    }
+}

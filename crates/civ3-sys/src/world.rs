@@ -629,6 +629,17 @@ impl Civ3 {
         Ok(out)
     }
 
+    /// The city the city screen shows (its id), while it is open: the map
+    /// is then drawn around it with its own fog rule (docs §16.8).
+    pub fn focus_city(&self) -> Result<Option<i32>, Civ3Error> {
+        let Some(slot) = crate::ui_hooks::focus_city_slot(self.build) else { return Ok(None) };
+        let city: Ptr32<u8> = Ptr32::<Ptr32<u8>>::new(slot).read()?;
+        if city.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(city.offset::<i32>(L::CITY_BODY + L::CITY_BODY_ID)?.read()?))
+    }
+
     /// The tile under the mouse (`field_4E80[3..4]`, docs §10.9), unless the
     /// mouse is off the map.
     pub fn mouse_tile(&self) -> Result<Option<(i32, i32)>, Civ3Error> {

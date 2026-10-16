@@ -147,6 +147,8 @@ pub struct Civ3World {
     pub mouse_tile: Option<(i32, i32)>,
     /// The selected unit (also while its cursor blinks off).
     pub current_unit: Option<i32>,
+    /// The city the city screen shows, while it is open (§16.8).
+    pub focus_city: Option<i32>,
     /// Base hit points per experience level.
     pub experience_hit_points: Vec<i32>,
     /// Every unit's tile and container (-1: not loaded).
@@ -417,6 +419,7 @@ impl Trace {
                 Some("unit_tile") => t.world.unit_tiles.push((n(1)? as i32, n(2)? as i32, n(3)? as i32)),
                 Some("outpost") => t.world.outposts.push((n(1)? as i32, n(2)? as i32)),
                 Some("mouse_tile") => t.world.mouse_tile = Some((n(1)? as i32, n(2)? as i32)),
+                Some("focus_city") => t.world.focus_city = Some(n(1)? as i32),
                 Some("current_unit") => t.world.current_unit = Some(n(1)? as i32),
                 Some("preferences") => t.world.preferences = n(1)? as u32,
                 Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),

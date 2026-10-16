@@ -351,6 +351,7 @@ pub const TILE_BUILDING_BODY_ID: u32 = 4;
 pub const TILE_BUILDING_BODY_OWNERID: u32 = 16;
 pub const MAIN_SCREEN_FORM_FIELD_4E80: u32 = 20096;
 pub const BASE_FORM_DATA_CANVAS: u32 = 624;
+pub const CITY_BODY: u32 = 28;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),
