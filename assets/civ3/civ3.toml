@@ -247,6 +247,36 @@ cell = [128, 64]
 grid = [2, 1]
 group = "Terrain_Buldings_Airfields_Shadow"
 
+# §6.9: territory borders, in the owner's colours: palette entries 64/65
+# come from its ntpNN.pcx; 1 is transparent; 249/252 darken to 10/16 and
+# 13/16 (measured), drawn as a separate "shade" layer.
+[images.territory]
+source = "Art/Terrain/Territory.pcx"
+transparent = [1, 249, 252, 254, 255]
+palette = "Art/Units/Palettes/ntp{v:02}.pcx"
+palette_range = [64, 2]
+variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
+[sheets.territory]
+image = "territory@{v}"
+cell = [128, 72]
+grid = [2, 4]
+anchor = [0, -8]
+group = "Territory_Images@{v}"
+variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
+[images.territory_shade]
+source = "Art/Terrain/Territory.pcx"
+transparent = [1, 64, 65, 254, 255]
+rgba = { 249 = [10, 0, 0, 255], 252 = [13, 0, 0, 255] }
+
+[sheets.territory_shade]
+image = "territory_shade"
+cell = [128, 72]
+grid = [2, 4]
+anchor = [0, -8]
+group = "Territory_Shade"
+
 # §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
 # mtnRivers) and flood plains, per vertex.
 
@@ -690,6 +720,50 @@ sets = ["Tnt_Images/*"]
 name = "forest"
 pass = 3
 sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*"]
+
+[[layers]]
+name = "border_nw_shade"
+pass = 3
+blend = { scale = 16 }
+sets = ["Territory_Shade/*"]
+
+[[layers]]
+name = "border_nw"
+pass = 3
+sets = ["Territory_Images@*"]
+
+[[layers]]
+name = "border_ne_shade"
+pass = 3
+blend = { scale = 16 }
+sets = ["Territory_Shade/*"]
+
+[[layers]]
+name = "border_ne"
+pass = 3
+sets = ["Territory_Images@*"]
+
+[[layers]]
+name = "border_sw_shade"
+pass = 3
+blend = { scale = 16 }
+sets = ["Territory_Shade/*"]
+
+[[layers]]
+name = "border_sw"
+pass = 3
+sets = ["Territory_Images@*"]
+
+[[layers]]
+name = "border_se_shade"
+pass = 3
+blend = { scale = 16 }
+sets = ["Territory_Shade/*"]
+
+[[layers]]
+name = "border_se"
+pass = 3
+sets = ["Territory_Images@*"]
 
 [[layers]]
 name = "road"

@@ -366,6 +366,27 @@ pub fn roads(world: &Civ3World, x: i32, y: i32) -> (Option<String>, Option<Strin
     (road, rail)
 }
 
+/// §6.9: territory borders of tile (x, y): per diagonal neighbour (NW, NE,
+/// SW, SE) owned by someone else, sprite `2n + hilly` (`hilly`: both tiles
+/// hilly and the edge hash keeps the edge), in the owner's colour table.
+pub fn borders(world: &Civ3World, x: i32, y: i32) -> [Option<(i32, usize)>; 4] {
+    let mut out = [None, None, None, None];
+    let Some(tile) = world.tile(x, y) else { return out };
+    if tile.owner <= 0 {
+        return out;
+    }
+    let colors = world.color_tables.get(tile.owner as usize).copied().unwrap_or(0);
+    for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
+        let Some(other) = world.tile(x + dx, y + dy) else { continue };
+        if other.owner == tile.owner {
+            continue;
+        }
+        let hilly = is_hilly(tile) && is_hilly(other) && edge_keep(x, y, n);
+        out[n] = Some((colors, 2 * n + hilly as usize));
+    }
+    out
+}
+
 /// The era row of era-dependent terrain buildings: the territory owner's
 /// era, else the viewer's.
 fn era(world: &Civ3World, tile: &Civ3Tile) -> u32 {

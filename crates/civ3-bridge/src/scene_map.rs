@@ -79,6 +79,14 @@ impl<'a> Mapper<'a> {
                 self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
                 self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));
                 self.put(&mut scene, "forest", col, row, rules::forest(world, x, y));
+                // A border's darkening and coloured texels are drawn as two
+                // layers (they do not overlap, so the order between them
+                // does not matter).
+                for (dir, border) in ["nw", "ne", "sw", "se"].into_iter().zip(rules::borders(world, x, y)) {
+                    let Some((colors, index)) = border else { continue };
+                    self.put(&mut scene, &format!("border_{dir}_shade"), col, row, Some(format!("Territory_Shade/{index}")));
+                    self.put(&mut scene, &format!("border_{dir}"), col, row, Some(format!("Territory_Images@{colors}/{index}")));
+                }
                 let (road, rail) = rules::roads(world, x, y);
                 self.put(&mut scene, "road", col, row, road);
                 self.put(&mut scene, "railroad", col, row, rail);

@@ -21,3 +21,4 @@ tile-render.workspace = true
 tile-viewer = { path = "../tile-viewer" }
 thiserror.workspace = true
 image.workspace = true
+env_logger.workspace = true

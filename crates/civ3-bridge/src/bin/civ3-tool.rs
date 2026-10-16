@@ -26,6 +26,7 @@ use render_desc::{Compiled, Description};
 use tile_render::reference;
 
 fn main() -> ExitCode {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     match run(&args) {
         Ok(code) => code,
@@ -88,7 +89,16 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
 }
 
 /// Arrays the game draws through blits the tracer does not hook yet.
-const NOT_TRACED: &[&str] = &["Fog_Of_War_Images"];
+const NOT_TRACED: &[&str] = &["Fog_Of_War_Images", "Territory_Shade"];
+
+/// The game's array name of one of our sprites ("Territory_Images@3/2" is a
+/// recoloured "Territory_Images/2").
+fn game_name(name: &str) -> String {
+    match name.split_once('@') {
+        Some((array, rest)) => format!("{array}{}", &rest[rest.find('/').unwrap_or(rest.len())..]),
+        None => name.to_owned(),
+    }
+}
 
 /// A draw, named, and whether it touches the viewport.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +116,9 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
 
     let index_of: std::collections::HashMap<&str, usize> =
         compiled.sprite_names.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    // Game names ("Territory_Images/2") to one of our sprites of that size.
+    let index_of: std::collections::HashMap<String, usize> =
+        index_of.into_iter().map(|(n, i)| (game_name(n), i)).collect();
     let size_of = |name: &str| index_of.get(name).map(|&i| {
         let s = compiled.atlas.sprites[i];
         (s.width as i32, s.height as i32)
@@ -117,14 +130,16 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
     let groups: HashSet<&str> = compiled
         .sprite_names
         .iter()
-        .filter_map(|n| n.split_once('/').map(|(g, _)| g))
+        .filter_map(|n| n.split_once(['/', '@']).map(|(g, _)| g))
         .filter(|g| !NOT_TRACED.contains(g))
         .collect();
 
     let ours: Vec<Named> = reference::draw_list(&world, &compiled.atlas, &camera, 0)
         .into_iter()
         .map(|d| Named { name: compiled.sprite_names[d.sprite.0 as usize].clone(), x: d.x, y: d.y })
-        .filter(|d| visible(&d.name, d.x, d.y) && groups.contains(d.name.split('/').next().unwrap_or("")))
+        .filter(|d| groups.contains(d.name.split(['/', '@']).next().unwrap_or("")))
+        .map(|d| Named { name: game_name(&d.name), ..d })
+        .filter(|d| visible(&d.name, d.x, d.y))
         .collect();
     let mut unresolved = 0;
     let theirs: Vec<Named> = trace
@@ -188,7 +203,7 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, &config);
 
     // Pixels the game drew with sprites we do not model.
-    let groups: HashSet<&str> = compiled.sprite_names.iter().filter_map(|n| n.split_once('/').map(|(g, _)| g)).collect();
+    let groups: HashSet<&str> = compiled.sprite_names.iter().filter_map(|n| n.split_once(['/', '@']).map(|(g, _)| g)).collect();
     let (w, h) = viewport;
     let mut ignored = vec![false; (w * h) as usize];
     let mut unsized_draws = 0;
