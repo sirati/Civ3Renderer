@@ -1320,6 +1320,30 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Fog_Of_War_Images"
 
+# The viewer's markers (tile-viewer: `Viewer@cursor`, `Viewer@arrow`): the world
+# cursor of views following the mouse, and the arrow over the active unit
+# (the scene's focus is the unit's tile centre; the tip stays clear of the
+# unit's head).
+[images.viewer_cursor]
+source = "crosshair:255,255,255,255:25x25"
+
+[sheets.viewer_cursor]
+image = "viewer_cursor"
+cell = [25, 25]
+grid = [1, 1]
+anchor = [-12, -12]
+group = "Viewer@cursor"
+
+[images.viewer_arrow]
+source = "arrow:255,220,0,255:33x48"
+
+[sheets.viewer_arrow]
+image = "viewer_arrow"
+cell = [33, 48]
+grid = [1, 1]
+anchor = [-16, -112]
+group = "Viewer@arrow"
+
 # §4: passes. 1: vertices (terrain, flood plains); 2: rivers touching
 # mountains/buildings; 3: tiles, all objects in this order; 4: other rivers;
 # 5: fog of war.
