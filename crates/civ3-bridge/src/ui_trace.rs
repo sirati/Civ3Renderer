@@ -228,6 +228,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         c.original()
     });
     hook_shade_later();
+    hook_lines(game, &mut hooks);
     log::info!("UI mirror: {} hooks", hooks.len());
     Ok(UiTracer { _hooks: hooks })
 }
@@ -274,6 +275,66 @@ fn shade(c: &h::jgl_shade::Call) {
         return;
     }
     emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha });
+}
+
+/// What a line drawer is set to: canvas, colour, opacity, width.
+#[derive(Copy, Clone)]
+struct Pen {
+    canvas: u32,
+    rgb: [u8; 3],
+    alpha: u8,
+    width: i32,
+}
+
+static PENS: Mutex<Vec<(u32, Pen)>> = Mutex::new(Vec::new());
+
+fn with_pen(renderer: u32, f: impl FnOnce(&mut Pen)) {
+    if let Ok(mut pens) = PENS.lock() {
+        let i = match pens.iter().position(|p| p.0 == renderer) {
+            Some(i) => i,
+            None => {
+                pens.push((renderer, Pen { canvas: 0, rgb: [0; 3], alpha: 255, width: 1 }));
+                pens.len() - 1
+            }
+        };
+        f(&mut pens[i].1);
+    }
+}
+
+/// Hooks the game's line drawer (redirected by C3X: hooked over its jump).
+fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
+    let Some([bind, color, opacity, width, draw]) = h::line_sites(game.build) else { return };
+    let mut install = |r: Result<Box<dyn std::any::Any + Send>, HookError>| match r {
+        Ok(hook) => hooks.push(hook),
+        Err(e) => log::warn!("UI mirror: line drawer not mirrored: {e}"),
+    };
+    install(h::line_bind::install_over_jmp(bind, |c| {
+        with_pen(c.renderer, |p| p.canvas = c.canvas);
+        c.original()
+    }).map(|i| Box::new(i) as _));
+    install(h::line_color::install_over_jmp(color, |c| {
+        with_pen(c.renderer, |p| p.rgb = rgb555(c.rgb555));
+        c.original()
+    }).map(|i| Box::new(i) as _));
+    install(h::line_opacity::install_over_jmp(opacity, |c| {
+        with_pen(c.renderer, |p| p.alpha = c.alpha.min(255) as u8);
+        c.original()
+    }).map(|i| Box::new(i) as _));
+    install(h::line_width::install_over_jmp(width, |c| {
+        with_pen(c.renderer, |p| p.width = (c.width as i32).clamp(1, 16));
+        c.original()
+    }).map(|i| Box::new(i) as _));
+    install(h::line_draw::install_over_jmp(draw, |c| {
+        let mut pen = None;
+        with_pen(c.renderer, |p| pen = Some(*p));
+        if let Some(p) = pen.filter(|p| p.canvas != 0 && p.alpha > 0) {
+            let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
+            for rect in crate::ui::line_rects((x1, y1), (x2, y2), p.width) {
+                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha: p.alpha });
+            }
+        }
+        c.original()
+    }).map(|i| Box::new(i) as _));
 }
 fn with_text_canvas<R>(canvas: u32, f: impl FnOnce() -> R) -> R {
     let outer = TEXT_CANVAS.with(|c| c.replace(canvas));

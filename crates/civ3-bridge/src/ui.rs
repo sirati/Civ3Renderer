@@ -223,9 +223,9 @@ impl UiModel {
                     Some(path) => Source::File { path: path.clone(), rect: src },
                     None => Source::Surface { image: from, rect: src },
                 };
-                // An opaque copy over the whole canvas replaces it.
-                if !keyed && self.covers(canvas, [x, y, src[2], src[3]]) {
-                    self.canvases.remove(&canvas);
+                // An opaque copy hides what it covers.
+                if !keyed {
+                    self.occlude(canvas, [x, y, src[2], src[3]]);
                 }
                 // A copy of a canvas into itself would refer to its own
                 // (changing) content.
@@ -257,8 +257,8 @@ impl UiModel {
                     }
                     return;
                 }
-                if alpha == 255 && self.covers(canvas, rect) {
-                    self.canvases.remove(&canvas);
+                if alpha == 255 {
+                    self.occlude(canvas, rect);
                 }
                 self.push(canvas, Op::Fill { rect, rgb, alpha });
             }
@@ -297,6 +297,20 @@ impl UiModel {
                     self.frame = f;
                 }
             }
+        }
+    }
+
+    /// Drops what an opaque `rect` (x, y, w, h) on `canvas` hides: all of it
+    /// when it covers the canvas, else the operations entirely inside.
+    fn occlude(&mut self, canvas: u32, rect: [i32; 4]) {
+        if self.covers(canvas, rect) {
+            self.canvases.remove(&canvas);
+            return;
+        }
+        let [x, y, w, h] = rect;
+        let inside = |[l, t, r, b]: [i32; 4]| l >= x && t >= y && r <= x + w && b <= y + h;
+        if let Some(ops) = self.canvases.get_mut(&canvas) {
+            ops.retain(|op| !inside(op_bounds(op)));
         }
     }
 
@@ -397,6 +411,42 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
     }
 }
 
+
+/// The pixels of a line of the game's line drawer, as rectangles (x, y, w,
+/// h). Measured (§10.9): along the major axis every step from the start up
+/// to, not including, the larger end gets `width` pixels from
+/// `j·minor/major` (rounded down, `j` counted from the start) on, towards
+/// the end.
+pub fn line_rects((x1, y1): (i32, i32), (x2, y2): (i32, i32), width: i32) -> Vec<[i32; 4]> {
+    let (dx, dy) = (x2 - x1, y2 - y1);
+    let w = width.max(1);
+    if dy == 0 {
+        return if dx == 0 { Vec::new() } else { vec![[x1.min(x2), y1, dx.abs(), w]] };
+    }
+    if dx == 0 {
+        return vec![[x1, y1.min(y2), w, dy.abs()]];
+    }
+    let mut out = Vec::new();
+    let x_major = dx.abs() >= dy.abs();
+    let (major, minor) = if x_major { (dx, dy) } else { (dy, dx) };
+    for j in 0..major.abs() {
+        let along = if major < 0 { -1 - j } else { j };
+        let off = j * minor.abs() / major.abs();
+        let across = if minor < 0 { -off - (w - 1) } else { off };
+        out.push(if x_major { [x1 + along, y1 + across, 1, w] } else { [x1 + across, y1 + along, w, 1] });
+    }
+    out
+}
+
+/// Where an operation draws (left, top, right, bottom); text by its start
+/// point only.
+fn op_bounds(op: &Op) -> [i32; 4] {
+    match op {
+        Op::Image { source: Source::File { rect, .. } | Source::Surface { rect, .. }, x, y, .. } => [*x, *y, x + rect[2], y + rect[3]],
+        Op::Fill { rect: [x, y, w, h], .. } => [*x, *y, x + w, y + h],
+        Op::Text(run) => [run.x, run.y, run.x + 1, run.y + 1],
+    }
+}
 fn intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
     [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])]
 }
@@ -508,5 +558,39 @@ mod tests {
                 ScreenDraw::Image { path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip },
             ]
         );
+    }
+
+    #[test]
+    fn lines_follow_the_measured_rule() {
+        // A tile edge as the settler preview draws it (width 2): from
+        // (64, 0) to (0, 32), rows j/2 and j/2 + 1 from the start, x 0..=63.
+        let rects = line_rects((64, 0), (0, 32), 2);
+        assert_eq!(rects.len(), 64);
+        assert_eq!(rects[0], [63, 0, 1, 2]);
+        assert_eq!(rects[63], [0, 31, 1, 2]);
+        // Going up: the 2 pixels reach towards the end.
+        assert_eq!(line_rects((0, 0), (64, -32), 2)[2], [2, -2, 1, 2]);
+        assert_eq!(line_rects((5, 7), (9, 7), 1), vec![[5, 7, 4, 1]]);
+        assert_eq!(line_rects((5, 9), (5, 7), 1), vec![[5, 7, 1, 2]]);
+    }
+
+    #[test]
+    fn opaque_copies_hide_what_they_cover() {
+        // A label drawn on an image, copied (opaque) to a canvas; then the
+        // label moves: the next copy hides the old one.
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        let label = |m: &mut UiModel, y| {
+            m.apply(Event::Fill { canvas: 50, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255 });
+            m.apply(Event::Fill { canvas: 50, rect: [10, y, 20, 5], rgb: [1, 1, 1], alpha: 128 });
+            m.apply(Event::Copy { from: 50, src: [0, 0, 100, 60], canvas: 300, x: 0, y: 0, keyed: false });
+        };
+        label(&mut m, 30);
+        label(&mut m, 40);
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (100, 100)));
+        m.apply(Event::PaintEnd);
+        let shades: Vec<_> = m.frame().draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { alpha: 128, .. })).collect();
+        assert_eq!(shades, vec![&ScreenDraw::Fill { rect: [10, 40, 20, 5], rgb: [1, 1, 1], alpha: 128, clip: [0, 0, 100, 100] }]);
     }
 }

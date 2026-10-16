@@ -397,3 +397,40 @@ pub fn unit_overlay_canvas(build: Build) -> Option<u32> {
         Build::Gog | Build::Steam => None,
     }
 }
+
+// The game's line drawer (`OpenGLRenderer`, docs §10.9/§16.6): bound to a
+// canvas, then coloured lines. C3X redirects these (a `jmp` at each entry).
+
+inproc::fastcall_hook! {
+    /// `int OpenGLRenderer::initialize(this, PCX_Image *texture)`.
+    pub mod line_bind(renderer, edx; canvas) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// `void OpenGLRenderer::set_color(this, unsigned rgb555)`.
+    pub mod line_color(renderer, edx; rgb555) -> ();
+}
+
+inproc::fastcall_hook! {
+    /// `void OpenGLRenderer::set_opacity(this, unsigned alpha)` (0..255).
+    pub mod line_opacity(renderer, edx; alpha) -> ();
+}
+
+inproc::fastcall_hook! {
+    /// `void OpenGLRenderer::set_line_width(this, int width)`.
+    pub mod line_width(renderer, edx; width) -> ();
+}
+
+inproc::fastcall_hook! {
+    /// `void OpenGLRenderer::draw_line(this, x1, y1, x2, y2)`.
+    pub mod line_draw(renderer, edx; x1, y1, x2, y2) -> ();
+}
+
+/// The line drawer's functions: initialize, set_color, set_opacity,
+/// set_line_width, draw_line.
+pub fn line_sites(build: Build) -> Option<[u32; 5]> {
+    match build {
+        Build::PcGames => Some([0x62_74B0, 0x62_77A0, 0x62_7880, 0x62_78C0, 0x62_7760]),
+        Build::Gog | Build::Steam => None,
+    }
+}

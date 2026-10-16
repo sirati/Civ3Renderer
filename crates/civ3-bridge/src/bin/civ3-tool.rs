@@ -83,7 +83,9 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
 fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::UnitArt, text::Fonts)>, viewport: (u32, u32)) -> scene::Scene {
     let mut scene = Mapper::new(compiled).scene(&trace.world, &trace.view, viewport, 0);
     if let Some((art, fonts)) = art {
-        scene.sprites = city_site::sprites(&trace.world, compiled);
+        if trace.ui.is_none() {
+            scene.sprites = city_site::sprites(&trace.world, compiled);
+        }
         scene.sprites.extend(units::sprites(&trace.world, art, compiled));
         match &trace.ui {
             // The mirrored interface has the city icons and all text.

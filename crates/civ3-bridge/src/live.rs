@@ -377,7 +377,10 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let mut scene = match shown {
             Shown::Map(world, view) => {
                 let mut scene = mapper.scene(world, view, (1024, 768), 0);
-                scene.sprites = city_site::sprites(world, &compiled);
+                // The mirrored interface has the game's own city-site lines.
+                if ui.is_none() {
+                    scene.sprites = city_site::sprites(world, &compiled);
+                }
                 scene.sprites.extend(units::sprites(world, &mut art, &compiled));
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
