@@ -52,6 +52,15 @@ fn toml_str(s: &str) -> String {
 }
 
 impl DistrictArt {
+    /// How many slices are described.
+    pub fn len(&self) -> usize {
+        self.slices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slices.is_empty()
+    }
+
     /// Adds `slices`; whether any was new.
     pub fn add<'a>(&mut self, slices: impl IntoIterator<Item = &'a Slice>) -> bool {
         let mut new = false;

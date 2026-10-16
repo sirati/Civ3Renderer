@@ -14,6 +14,9 @@ pub struct Presenter {
     sent: Scene,
     /// The generation of the latest assets (`Scene::assets`).
     generation: u64,
+    /// The pixels last sent per run-time sprite (unchanged ones are not
+    /// sent again: the renderer keeps them, also across new art).
+    sent_patches: std::collections::HashMap<String, Vec<u8>>,
 }
 
 enum Sink {
@@ -32,13 +35,13 @@ impl Presenter {
                 log::error!("viewer: {e}");
             }
         })?;
-        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1 })
+        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, sent_patches: Default::default() })
     }
 
     /// The native Linux viewer (only in a Wine process with
     /// `civ3r_native.dll`).
     pub fn native(native: Native) -> Presenter {
-        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0 }
+        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, sent_patches: Default::default() }
     }
 
     /// New render assets: `compiled` for this side, `wire` for a renderer
@@ -54,20 +57,30 @@ impl Presenter {
     }
 
     /// Makes the renderer's scene `scene`, sending only what changed.
-    pub fn publish(&mut self, mut scene: Scene) {
+    /// While the renderer has not taken the last batch, nothing is sent: what
+    /// changed goes with a later one (a slow renderer does not queue up
+    /// batches). Whether the renderer has everything (else publish again).
+    pub fn publish(&mut self, mut scene: Scene) -> bool {
+        if let Sink::InProcess { driver, .. } = &self.sink && driver.busy() {
+            return false;
+        }
         scene.assets = self.generation;
+        scene.patches.retain(|p| self.sent_patches.get(&p.sprite) != Some(&p.rgba));
         let updates = scene.updates_since(&self.sent);
-        scene.patches.clear();
-        self.sent = scene;
         if updates.is_empty() {
-            return;
+            return true;
         }
-        match &mut self.sink {
-            Sink::InProcess { driver, .. } => {
-                driver.send(updates);
-            }
+        let taken = match &mut self.sink {
+            Sink::InProcess { driver, .. } => driver.send(updates),
             Sink::Native(n) => n.publish(&updates),
+        };
+        if taken {
+            for p in scene.patches.drain(..) {
+                self.sent_patches.insert(p.sprite, p.rgba);
+            }
+            self.sent = scene;
         }
+        taken
     }
 
     pub fn take_input(&mut self) -> Vec<Input> {
@@ -112,18 +125,23 @@ impl Native {
         let _ = (wire, self.fullscreen);
     }
 
-    fn publish(&mut self, updates: &[Update]) {
+    /// Whether the native viewer took `updates` (not when busy).
+    fn publish(&mut self, updates: &[Update]) -> bool {
         #[cfg(all(windows, target_arch = "x86"))]
         {
             let bytes = scene::wire::encode_updates(updates);
             let mut args = civ3r_native::Publish { scene: wine_unixlib::pe::buffer(&bytes) };
             let status = self.lib.call(civ3r_native::CALL_PUBLISH, &mut args);
-            if status != 0 {
+            if status != 0 && status != wine_unixlib::STATUS_DEVICE_BUSY {
                 log::debug!("native viewer: publish: status {status:#x}");
             }
+            status == 0
         }
         #[cfg(not(all(windows, target_arch = "x86")))]
-        let _ = updates;
+        {
+            let _ = updates;
+            false
+        }
     }
 
     fn take_input(&mut self) -> Vec<Input> {

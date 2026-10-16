@@ -90,6 +90,15 @@ impl Fonts {
         self.has(run) && compiled.set(&format!("Text@{}/{first}", Self::tag(&key))).is_some()
     }
 
+    /// How many fonts (style and colour) are loaded.
+    pub fn len(&self) -> usize {
+        self.fonts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fonts.is_empty()
+    }
+
     /// Whether the font of `run` is loaded.
     pub fn has(&self, run: &TextRun) -> bool {
         self.fonts.get(&key(run)).is_some_and(Option::is_some)

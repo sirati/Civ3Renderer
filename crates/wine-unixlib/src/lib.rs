@@ -26,6 +26,8 @@ pub const STATUS_INVALID_PARAMETER: Status = 0xC000_000Du32 as i32;
 pub const STATUS_DLL_NOT_FOUND: Status = 0xC000_0135u32 as i32;
 pub const STATUS_BUFFER_TOO_SMALL: Status = 0xC000_0023u32 as i32;
 pub const STATUS_UNSUCCESSFUL: Status = 0xC000_0001u32 as i32;
+/// The other side is busy; try again later (`STATUS_DEVICE_BUSY`).
+pub const STATUS_DEVICE_BUSY: Status = 0x8000_0011u32 as i32;
 
 /// A buffer in the 32-bit caller's memory: address and length. Argument
 /// structs use it in place of pointers (the same layout on both sides).
