@@ -495,7 +495,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                 crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette } => {
                     let _ = writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8);
                     if let Some(p) = palette {
-                        let _ = writeln!(out, "ui_image_palette {p}");
+                        let _ = writeln!(out, "ui_image_palette {} {} {}", p.first, p.count, p.image);
                     }
                     match mask {
                         Some(m) => writeln!(out, "ui_image_mask {} {} {}", m.at.0, m.at.1, m.path),

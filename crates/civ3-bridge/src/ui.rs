@@ -19,7 +19,7 @@ pub enum Source {
     /// through `mask` if it has one.
     /// `palette`: an image file whose palette replaces the image's own (a
     /// colour table the game drew it through).
-    File { path: String, rect: [i32; 4], mask: Option<Mask>, palette: Option<String> },
+    File { path: String, rect: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom> },
     /// A region of another surface (a canvas or temporary image).
     Surface { image: u32, rect: [i32; 4] },
 }
@@ -54,7 +54,7 @@ pub enum Event {
     /// `sprite`'s pixels drawn with their top-left at (x, y) of `canvas`,
     /// colour 255 transparent.
     /// `palette`: see [`Source::File`].
-    Blit { sprite: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]>, palette: Option<String> },
+    Blit { sprite: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]>, palette: Option<menu::screen::PaletteFrom> },
     /// Region `src` (x, y, w, h) of image `from` copied to (x, y) of
     /// `canvas`; `keyed`: colour 255 transparent.
     Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool },
@@ -97,7 +97,7 @@ enum Op {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScreenDraw {
     /// Region `rect` (x, y, w, h) of an image file at (x, y).
-    Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<String> },
+    Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom> },
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
     /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
