@@ -12,6 +12,8 @@ pub struct Presenter {
     sink: Sink,
     /// The scene as the renderer has it (what was sent so far).
     sent: Scene,
+    /// The generation of the latest assets (`Scene::assets`).
+    generation: u64,
 }
 
 enum Sink {
@@ -30,26 +32,30 @@ impl Presenter {
                 log::error!("viewer: {e}");
             }
         })?;
-        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default() })
+        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1 })
     }
 
     /// The native Linux viewer (only in a Wine process with
     /// `civ3r_native.dll`).
     pub fn native(native: Native) -> Presenter {
-        Presenter { sink: Sink::Native(native), sent: Scene::default() }
+        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0 }
     }
 
     /// New render assets: `compiled` for this side, `wire` for a renderer
     /// that compiles its own copy.
     pub fn set_assets(&mut self, compiled: &Arc<Compiled>, wire: &scene::wire::Assets) {
+        // Scenes from now on refer to this generation; the renderer draws
+        // them with these assets only.
+        self.generation += 1;
         match &mut self.sink {
-            Sink::InProcess { assets, .. } => assets.replace(compiled.clone()),
-            Sink::Native(n) => n.set_assets(wire),
+            Sink::InProcess { assets, .. } => assets.set(compiled.clone(), self.generation),
+            Sink::Native(n) => n.set_assets(&scene::wire::Assets { generation: self.generation, ..wire.clone() }),
         }
     }
 
     /// Makes the renderer's scene `scene`, sending only what changed.
     pub fn publish(&mut self, mut scene: Scene) {
+        scene.assets = self.generation;
         let updates = scene.updates_since(&self.sent);
         scene.patches.clear();
         self.sent = scene;

@@ -89,21 +89,22 @@ mod unix_side {
         }
     }
 
-    fn compile(bytes: &[u8]) -> Result<render_desc::Compiled, String> {
+    /// The compiled description and its generation.
+    fn compile(bytes: &[u8]) -> Result<(render_desc::Compiled, u64), String> {
         let a = scene::wire::decode_assets(bytes).map_err(|e| e.to_string())?;
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
         let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
         let desc = if a.scale_down > 1 { desc.scaled_down(a.scale_down) } else { desc };
         // Same page size as the driver, so both sides agree on nothing but
         // names and values (the atlas itself never crosses).
-        desc.compile(&Civ3Loader::new(files), 2048).map_err(|e| e.to_string())
+        desc.compile(&Civ3Loader::new(files), 2048).map(|c| (c, a.generation)).map_err(|e| e.to_string())
     }
 
     pub fn assets(args: &mut Assets) -> Status {
         log_init();
         let Ok(bytes) = wine_unixlib::unix::read(args.data) else { return STATUS_INVALID_PARAMETER };
-        let compiled = match compile(&bytes) {
-            Ok(c) => Arc::new(c),
+        let (compiled, generation) = match compile(&bytes) {
+            Ok((c, g)) => (Arc::new(c), g),
             Err(e) => {
                 log::error!("civ3r-native: assets: {e}");
                 return STATUS_UNSUCCESSFUL;
@@ -111,12 +112,13 @@ mod unix_side {
         };
         let mut viewer = VIEWER.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(v) = viewer.as_ref() {
-            v.assets.replace(compiled);
+            v.assets.set(compiled, generation);
             return STATUS_SUCCESS;
         }
         let (driver, display) = scene::connect();
         let quit = display.input_sender();
-        let assets = tile_viewer::Assets::new(compiled);
+        let assets = tile_viewer::Assets::new(compiled.clone());
+        assets.set(compiled, generation);
         let config = tile_viewer::ViewerConfig {
             title: "Civ III (native renderer)".into(),
             size: (1024, 768),
