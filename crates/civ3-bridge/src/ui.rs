@@ -48,6 +48,11 @@ pub enum Event {
     Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
     /// Text on `canvas` (its position canvas-relative).
     Text { canvas: u32, run: TextRun },
+    /// `flic` (an FLC animation) was loaded from `path`.
+    FlcLoaded { flic: u32, path: String },
+    /// Frame `chunk` of animation `flic` drawn with its frame's top-left at
+    /// (x, y) of `canvas` (unit pictures in panels).
+    FlcBlit { flic: u32, chunk: u32, canvas: u32, x: i32, y: i32 },
     /// A paint starts: the forms that follow are composed bottom to top.
     PaintBegin,
     /// A form's canvas put on the screen with its (0, 0) at `origin`, clipped
@@ -64,6 +69,8 @@ enum Op {
     Image { source: Source, x: i32, y: i32, keyed: bool },
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
     Text(TextRun),
+    /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
+    Flc { path: String, chunk: u32, x: i32, y: i32 },
 }
 
 /// One thing on the screen.
@@ -73,6 +80,8 @@ pub enum ScreenDraw {
     Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4] },
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
+    /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
+    Flc { path: String, chunk: u32, x: i32, y: i32, clip: [i32; 4] },
     /// Region `rect` (x, y, w, h) of a surface the game generates itself
     /// (e.g. the minimap), at (x, y).
     Surface { image: u32, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4] },
@@ -104,6 +113,8 @@ const MAX_DEPTH: u32 = 8;
 pub struct UiModel {
     /// Files of loaded images.
     files: HashMap<u32, String>,
+    /// Files of loaded FLC animations.
+    flcs: HashMap<u32, String>,
     /// Sizes of images and canvases.
     sizes: HashMap<u32, (i32, i32)>,
     /// Where sprites come from.
@@ -252,6 +263,7 @@ impl UiModel {
                         ops.retain(|op| match op {
                             Op::Fill { rect: [fx, fy, fw, fh], .. } => !inside(*fx, *fy, fx + fw, fy + fh),
                             Op::Text(run) => !inside(run.x, run.y, run.x + 1, run.y + 1),
+                            Op::Flc { x, y, .. } => !inside(*x, *y, x + 1, y + 1),
                             Op::Image { .. } => true,
                         });
                     }
@@ -263,6 +275,14 @@ impl UiModel {
                 self.push(canvas, Op::Fill { rect, rgb, alpha });
             }
             Event::Text { canvas, run } => self.push(canvas, Op::Text(run)),
+            Event::FlcLoaded { flic, path } => {
+                self.flcs.insert(flic, path);
+            }
+            Event::FlcBlit { flic, chunk, canvas, x, y } => {
+                if let Some(path) = self.flcs.get(&flic).cloned() {
+                    self.push(canvas, Op::Flc { path, chunk, x, y });
+                }
+            }
             Event::PaintBegin => self.painting = Some(Frame::default()),
             Event::Composite { canvas, vtable, origin, size, clip, keyed: _ } => {
                 if let Some(f) = self.painting.as_mut() {
@@ -408,6 +428,10 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
             run.y += dy;
             inside.then_some(Op::Text(run))
         }
+        Op::Flc { path, chunk, x, y } => {
+            let inside = x >= window[0] && x < window[2] && y >= window[1] && y < window[3];
+            inside.then_some(Op::Flc { path, chunk, x: x + dx, y: y + dy })
+        }
     }
 }
 
@@ -445,6 +469,7 @@ fn op_bounds(op: &Op) -> [i32; 4] {
         Op::Image { source: Source::File { rect, .. } | Source::Surface { rect, .. }, x, y, .. } => [*x, *y, x + rect[2], y + rect[3]],
         Op::Fill { rect: [x, y, w, h], .. } => [*x, *y, x + w, y + h],
         Op::Text(run) => [run.x, run.y, run.x + 1, run.y + 1],
+        Op::Flc { x, y, .. } => [*x, *y, x + 1, y + 1],
     }
 }
 fn intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
@@ -464,6 +489,7 @@ fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDra
             run.y += oy;
             Some(ScreenDraw::Text { run, clip })
         }
+        Op::Flc { path, chunk, x, y } => Some(ScreenDraw::Flc { path, chunk, x: x + ox, y: y + oy, clip }),
     }
 }
 

@@ -303,6 +303,16 @@ impl Trace {
                         rect: [v[7] as i32, v[8] as i32, v[9] as i32, v[10] as i32],
                     });
                 }
+                Some("ui_flc") if f.len() >= 9 => {
+                    let v = (1..8).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Flc {
+                        path: f[8..].join(" "),
+                        chunk: v[6] as u32,
+                        x: v[0],
+                        y: v[1],
+                        clip: [v[2], v[3], v[4], v[5]],
+                    });
+                }
                 Some("ui_underlay") => {
                     let range = n(1)? as usize..n(2)? as usize;
                     t.ui.get_or_insert_with(Default::default).underlay_draws.push(range);

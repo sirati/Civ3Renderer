@@ -150,6 +150,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
         Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_inline(addr, prologue, |call| {
             let mr = STATE.lock().ok().and_then(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
             record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
+            crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y);
             call.original()
         })?),
         None => None,
@@ -454,6 +455,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                 crate::ui::ScreenDraw::Text { run: t, clip: [c0, c1, c2, c3] } => {
                     let [r, g, b] = t.color;
                     writeln!(out, "ui_text {c0} {c1} {c2} {c3} text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/0/0 str {}", t.x, t.y, t.face, t.height, t.text)
+                }
+                crate::ui::ScreenDraw::Flc { path, chunk, x, y, clip: [c0, c1, c2, c3] } => {
+                    writeln!(out, "ui_flc {x} {y} {c0} {c1} {c2} {c3} {chunk} {path}")
                 }
                 crate::ui::ScreenDraw::Surface { image, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3] } => {
                     writeln!(out, "ui_surface {image:#x} {x} {y} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh}")

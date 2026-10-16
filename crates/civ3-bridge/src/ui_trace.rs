@@ -227,6 +227,16 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         blit(c.sprite, c.dest, c.x, c.y, false);
         c.original()
     });
+    if let Some(site) = h::flc_load_site(game.build) {
+        hook!(flc_load, site, |c| {
+            let path = read_c_string(c.path);
+            let r = c.original();
+            if let (0, Some(path)) = (r, path) {
+                emit(Event::FlcLoaded { flic: c.flic, path });
+            }
+            r
+        });
+    }
     hook_shade_later();
     hook_lines(game, &mut hooks);
     log::info!("UI mirror: {} hooks", hooks.len());
@@ -382,5 +392,14 @@ pub fn map_redraw() {
         if let Some(m) = m.as_mut() {
             m.reset_underlays();
         }
+    }
+}
+
+/// A colour-table blit (the tracer's hook): unit animation frames drawn on
+/// interface canvases become unit pictures (§16.9). `canvas` is the
+/// destination (the blit's second canvas argument).
+pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32) {
+    if let Some((flic, chunk)) = h::flc_frame(sprite) {
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32, y: y as i32 });
     }
 }

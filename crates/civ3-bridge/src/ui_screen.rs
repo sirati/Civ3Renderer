@@ -45,8 +45,9 @@ pub fn relative_path(path: &str, roots: &[PathBuf]) -> String {
 }
 
 /// The frame as items. `generated`: names of the surfaces the game fills
-/// itself that we make ourselves (others are left out).
-pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)]) -> Vec<Item> {
+/// itself that we make ourselves (others are left out); `unit_colors`: the
+/// colour table of unit pictures.
+pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32) -> Vec<Item> {
     frame
         .draws
         .iter()
@@ -63,6 +64,12 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)]) -> Vec
                     Item::Element(Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip }, under)
                 }
                 ScreenDraw::Text { run, clip } => Item::Text(run.clone(), *clip, under),
+                // Unit pictures, from our unit art in the viewing player's
+                // colours (§16.9).
+                ScreenDraw::Flc { path, chunk, x, y, clip } => {
+                    let name = format!("UnitArt@{}#{unit_colors}/{chunk}", relative_path(path, roots));
+                    Item::Element(Element::Sprite { name, at: (*x, *y), clip: *clip }, under)
+                }
                 ScreenDraw::Surface { image, rect, x, y, clip } => {
                     let name = generated.iter().find(|g| g.0 == *image)?.1;
                     // The surface is at least as big as the region read from it.
@@ -72,6 +79,18 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)]) -> Vec
             })
         })
         .collect()
+}
+
+/// The unit animation files `frame` shows in panels (relative paths).
+pub fn unit_files(frame: &Frame, roots: &[PathBuf]) -> Vec<String> {
+    let mut out: Vec<String> = frame
+        .draws
+        .iter()
+        .filter_map(|d| if let ScreenDraw::Flc { path, .. } = d { Some(relative_path(path, roots)) } else { None })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// The art and fonts `items` need; whether anything was new.
