@@ -249,9 +249,17 @@ impl Compiler {
         units: &units::Needed,
         fonts: &text::Fonts,
         screen: &menu::screen::ScreenArt,
+        districts: &crate::district_art::DistrictArt,
         zoomed_out: bool,
     ) -> Result<(Arc<Compiled>, scene::wire::Assets), LiveError> {
-        let text = format!("{}{}{}{}", self.text, units.description(), fonts.description(), ui_screen::description(screen));
+        let text = format!(
+            "{}{}{}{}{}",
+            self.text,
+            units.description(),
+            fonts.description(),
+            ui_screen::description(screen),
+            districts.description()
+        );
         let files = self.files(folders);
         let wire = scene::wire::Assets {
             description: text.clone(),
@@ -298,7 +306,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("not mirroring the interface: {e}"),
         }
     }
-    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), false)?;
+    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), false)?;
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     let mut presenter = if mode.starts_with("native") {
         let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
@@ -345,6 +353,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut have = units::Needed::default();
     let mut fonts = text::Fonts::default();
     let mut screen_art = menu::screen::ScreenArt::default();
+    let mut district_art = crate::district_art::DistrictArt::default();
     let mut zoomed_out = false;
     let mut table_colors = std::collections::HashMap::new();
     let mut art_pending = false;
@@ -447,13 +456,21 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
         }
         recompile |= fonts.add(&compiler.files(&folders), texts);
+        // The art of the districts on the map (C3X).
+        if let Shown::Map(world, view) = shown {
+            for d in &world.districts {
+                let stages = crate::districts::stages(world, d.x, d.y, view.zoomed_out);
+                let slices: Vec<_> = stages.buildings.iter().chain(&stages.resources).map(|s| crate::district_art::Slice::of(s, view.zoomed_out)).collect();
+                recompile |= district_art.add(&slices);
+            }
+        }
         // Rebuild the art at most every `RECOMPILE_EVERY`: a new screen asks
         // for new art several times in a row, and each atlas is big (a 32-bit
         // process with a software renderer runs out of memory otherwise).
         art_pending |= recompile;
         if art_pending && last_compile.elapsed() >= RECOMPILE_EVERY {
             art_pending = false;
-            match compiler.compile(&folders, &have, &fonts, &screen_art, zoomed_out) {
+            match compiler.compile(&folders, &have, &fonts, &screen_art, &district_art, zoomed_out) {
                 Ok((c, wire)) => {
                     presenter.set_assets(&c, &wire);
                     // The viewer has the pixels; this side needs the rest only.
