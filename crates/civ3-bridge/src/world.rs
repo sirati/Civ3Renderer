@@ -38,6 +38,17 @@ impl Civ3Tile {
     }
 }
 
+/// A city.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Civ3City {
+    pub id: i32,
+    pub x: i32,
+    pub y: i32,
+    pub civ: i32,
+    /// Population.
+    pub size: i32,
+}
+
 /// The map: shape plus every tile.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Civ3World {
@@ -51,6 +62,15 @@ pub struct Civ3World {
     pub eras: Vec<i32>,
     /// Every civ's colour table (`ntpNN.pcx`).
     pub color_tables: Vec<i32>,
+    /// Every civ's capital (city id) and race.
+    pub capitals: Vec<i32>,
+    pub races: Vec<i32>,
+    /// Per race: its culture group (city art).
+    pub culture_groups: Vec<i32>,
+    /// Population above which a town is a city, and a city a metropolis.
+    pub max_town: i32,
+    pub max_city: i32,
+    pub cities: Vec<Civ3City>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -71,6 +91,10 @@ impl Civ3World {
             Ok(civ) if civ > 0 && civ < 32 => (tile.overlays & !0xFF) | u32::from(tile.visible_overlays[civ]),
             _ => tile.overlays,
         }
+    }
+
+    pub fn city(&self, id: i32) -> Option<&Civ3City> {
+        self.cities.iter().find(|c| c.id == id)
     }
 
     pub fn index(&self, x: i32, y: i32) -> usize {
@@ -180,6 +204,22 @@ impl Trace {
                 Some("color_tables") => {
                     t.world.color_tables = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
+                Some("capitals") => t.world.capitals = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,
+                Some("races") => t.world.races = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,
+                Some("culture_groups") => {
+                    t.world.culture_groups = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
+                }
+                Some("city_sizes") => {
+                    t.world.max_town = n(1)? as i32;
+                    t.world.max_city = n(2)? as i32;
+                }
+                Some("city") => t.world.cities.push(Civ3City {
+                    id: n(1)? as i32,
+                    x: n(2)? as i32,
+                    y: n(3)? as i32,
+                    civ: n(4)? as i32,
+                    size: n(5)? as i32,
+                }),
                 Some("eras") => {
                     t.world.eras = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }

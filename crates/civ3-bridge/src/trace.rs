@@ -41,6 +41,8 @@ struct State {
 const MAX_DRAWS: usize = 20_000;
 
 static STATE: Mutex<State> = Mutex::new(State { frame: None, depth: 0 });
+/// The running build, for resolving sprites of global arrays.
+static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
 /// Calls seen, for diagnostics.
 pub static SPRITE_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -64,7 +66,8 @@ fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind
             if frame.len() >= MAX_DRAWS {
                 return;
             }
-            let resolved = if map_renderer != 0 { identify_canonical(map_renderer, sprite) } else { None };
+            let resolved = if map_renderer != 0 { identify_canonical(map_renderer, sprite) } else { None }
+                .or_else(|| BUILD.get().and_then(|&b| civ3_sys::sprites::identify_global(b, sprite)));
             let size = civ3_sys::sprites::size(sprite).unwrap_or((0, 0));
             frame.push(Draw { sprite: resolved, sprite_addr: sprite, x: x as i32, y: y as i32, size, params, kind });
         }
@@ -76,6 +79,7 @@ fn request_path() -> PathBuf {
 }
 
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
+    let _ = BUILD.set(game.build);
     let sprite = match hooks::sprite_draw_on_map_site(game.build) {
         Some((addr, prologue)) => Some(sprite_draw_on_map::install_inline(addr, prologue, |call| {
             SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -174,9 +178,21 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         let list: Vec<String> = eras.iter().map(|e| e.to_string()).collect();
         let _ = writeln!(out, "eras {}", list.join(" "));
     }
-    if let Ok(tables) = game.color_tables() {
-        let list: Vec<String> = tables.iter().map(|e| e.to_string()).collect();
-        let _ = writeln!(out, "color_tables {}", list.join(" "));
+    if let Ok(p) = game.players() {
+        let join = |v: &[i32]| v.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(" ");
+        let _ = writeln!(out, "color_tables {}", join(&p.color_tables));
+        let _ = writeln!(out, "capitals {}", join(&p.capitals));
+        let _ = writeln!(out, "races {}", join(&p.races));
+        let _ = writeln!(out, "culture_groups {}", join(&p.culture_groups));
+        let _ = writeln!(out, "city_sizes {} {}", p.max_town, p.max_city);
+    }
+    match game.cities() {
+        Ok(cities) => {
+            for c in cities {
+                let _ = writeln!(out, "city {} {} {} {} {}", c.id, c.x, c.y, c.civ, c.size);
+            }
+        }
+        Err(e) => log::warn!("reading cities: {e}"),
     }
     if let Ok(icons) = game.resource_icons() {
         let list: Vec<String> = icons.iter().map(|i| i.to_string()).collect();

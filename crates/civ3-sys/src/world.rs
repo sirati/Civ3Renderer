@@ -29,6 +29,31 @@ pub struct ViewState {
     pub player_civ: i32,
 }
 
+/// A city, as far as the map shows it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct CityInfo {
+    pub id: i32,
+    pub x: i32,
+    pub y: i32,
+    pub civ: i32,
+    /// Population.
+    pub size: i32,
+}
+
+/// Per player, the data city and unit art depends on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Players {
+    pub eras: Vec<i32>,
+    pub color_tables: Vec<i32>,
+    pub capitals: Vec<i32>,
+    pub races: Vec<i32>,
+    /// Per race (not player): `Race.CultureGroupID`.
+    pub culture_groups: Vec<i32>,
+    /// `General.MaximumSize_Town` / `MaximumSize_City`.
+    pub max_town: i32,
+    pub max_city: i32,
+}
+
 /// Shape of the map.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MapInfo {
@@ -228,18 +253,62 @@ impl Civ3 {
             .collect()
     }
 
+    fn leader_field(&self, offset: u32) -> Result<Vec<i32>, Civ3Error> {
+        (0..32u32).map(|civ| Ok(Ptr32::<i32>::new(self.addrs.leaders + civ * L::LEADER_SIZE + offset).read()?)).collect()
+    }
+
     /// Every player's era (0 ancient .. 3 modern).
     pub fn eras(&self) -> Result<Vec<i32>, Civ3Error> {
-        (0..32u32)
-            .map(|civ| Ok(Ptr32::<i32>::new(self.addrs.leaders + civ * L::LEADER_SIZE + L::LEADER_ERA).read()?))
-            .collect()
+        self.leader_field(L::LEADER_ERA)
     }
 
     /// Every player's colour table (`Art/Units/Palettes/ntpNN.pcx`).
     pub fn color_tables(&self) -> Result<Vec<i32>, Civ3Error> {
-        (0..32u32)
-            .map(|civ| Ok(Ptr32::<i32>::new(self.addrs.leaders + civ * L::LEADER_SIZE + L::LEADER_COLOR_TABLE_ID).read()?))
-            .collect()
+        self.leader_field(L::LEADER_COLOR_TABLE_ID)
+    }
+
+    pub fn players(&self) -> Result<Players, Civ3Error> {
+        let races: Ptr32<u8> = self.bic(L::BIC_RACES)?;
+        let race_count: i32 = self.bic(L::BIC_RACESCOUNT)?;
+        let culture_groups = (0..race_count.clamp(0, 256) as u32)
+            .map(|r| Ok(races.offset::<i32>(r * L::RACE_SIZE + L::RACE_CULTUREGROUPID)?.read()?))
+            .collect::<Result<_, Civ3Error>>()?;
+        Ok(Players {
+            eras: self.eras()?,
+            color_tables: self.color_tables()?,
+            capitals: self.leader_field(L::LEADER_CAPITALID)?,
+            races: self.leader_field(L::LEADER_RACEID)?,
+            culture_groups,
+            max_town: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_TOWN)?,
+            max_city: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_CITY)?,
+        })
+    }
+
+    /// All cities.
+    pub fn cities(&self) -> Result<Vec<CityInfo>, Civ3Error> {
+        let list = Ptr32::<u8>::new(self.addrs.cities);
+        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        let mut out = Vec::new();
+        if items.is_null() {
+            return Ok(out);
+        }
+        for i in 0..=last.clamp(-1, 0xFFFF) as u32 {
+            // `CityItem.City` points at the city's body (as the header types
+            // it), not at the `City` around it.
+            let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
+            if body.is_null() {
+                continue;
+            }
+            out.push(CityInfo {
+                id: body.offset::<i32>(L::CITY_BODY_ID)?.read()?,
+                x: body.offset::<i16>(L::CITY_BODY_X)?.read()?.into(),
+                y: body.offset::<i16>(L::CITY_BODY_Y)?.read()?.into(),
+                civ: body.offset::<i8>(L::CITY_BODY_CIVID)?.read()?.into(),
+                size: body.offset::<i32>(L::CITY_BODY_POPULATION + L::POPULATION_SIZE)?.read()?,
+            });
+        }
+        Ok(out)
     }
 
     pub fn zoomed_out(&self) -> Result<bool, Civ3Error> {
