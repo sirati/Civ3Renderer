@@ -216,6 +216,11 @@ impl TileRenderer {
 
     /// Uploads the atlas pages and sprite table.
     pub fn set_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, atlas: &Atlas) {
+        // Release the old atlas first: two at once may not fit (32-bit
+        // processes, software renderers).
+        self.bind_group = None;
+        self.atlas = None;
+        self.sprites = None;
         let size = wgpu::Extent3d {
             width: atlas.page_size.max(atlas.pages[0].width),
             height: atlas.page_size.max(atlas.pages[0].height),
