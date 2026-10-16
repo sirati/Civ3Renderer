@@ -32,6 +32,12 @@ impl Drop for Canvas {
     }
 }
 
+/// Default quality on a 32-bit DIB may pick ClearType (colour fringes); the
+/// games draw on 16-bit surfaces, where GDI smooths in grey only.
+fn quality(q: u8) -> u32 {
+    if q == DEFAULT_QUALITY as u8 { ANTIALIASED_QUALITY as u32 } else { q as u32 }
+}
+
 impl Canvas {
     fn new(font: &FontSpec, size: (i32, i32)) -> Result<Canvas, GdiError> {
         let face: Vec<u16> = font.face.encode_utf16().chain([0]).collect();
@@ -45,7 +51,7 @@ impl Canvas {
             let hfont = CreateFontW(
                 -font.height, 0, 0, 0, font.weight, font.italic as u32, 0, 0,
                 DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32,
-                font.quality as u32, DEFAULT_PITCH as u32, face.as_ptr(),
+                quality(font.quality), DEFAULT_PITCH as u32, face.as_ptr(),
             );
             let mut info: BITMAPINFO = std::mem::zeroed();
             info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
@@ -105,8 +111,10 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
         }
         let px = canvas.pixels();
         let (w, h) = canvas.size;
-        let ink_at = |x: i32, y: i32| px[(y * w + x) as usize] & 0xFF_FFFF != 0;
-        let cols: Vec<i32> = (0..w).filter(|&x| (0..line.min(h)).any(|y| ink_at(x, y))).collect();
+        // White text on black: any channel is the coverage (grey where GDI
+        // smooths the edges).
+        let ink_at = |x: i32, y: i32| (px[(y * w + x) as usize] >> 8) as u8;
+        let cols: Vec<i32> = (0..w).filter(|&x| (0..line.min(h)).any(|y| ink_at(x, y) != 0)).collect();
         let (x0, x1) = match (cols.first(), cols.last()) {
             (Some(&a), Some(&b)) => (a, b + 1),
             _ => (origin, origin),

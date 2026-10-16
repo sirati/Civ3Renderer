@@ -40,8 +40,9 @@ fn main() -> ExitCode {
         let (ox, oy) = ((i as u32 % 16) * cw, (i as u32 / 16) * ch);
         for y in 0..g.height {
             for x in 0..g.width {
-                if g.ink[(y * g.width + x) as usize] {
-                    img.put_pixel(ox + x, oy + y, image::Rgba([255, 255, 255, 255]));
+                let a = g.ink[(y * g.width + x) as usize];
+                if a != 0 {
+                    img.put_pixel(ox + x, oy + y, image::Rgba([255, 255, 255, a]));
                 }
             }
         }
