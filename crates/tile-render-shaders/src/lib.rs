@@ -54,6 +54,12 @@ fn resolve_sprite(
     // Position from the unwrapped coordinates, so a wrapped-around column
     // is drawn next to the edge it continues, not on top of its original.
     let (origin_x, origin_y) = cell_origin(&params.grid, col, row);
+    if params.cull != 0 {
+        let (ax, ay) = (origin_x + layer.cull_offset_x, origin_y + layer.cull_offset_y);
+        if ax < params.cull_x0 || ax >= params.cull_x1 || ay < params.cull_y0 || ay >= params.cull_y1 {
+            return None;
+        }
+    }
 
     let record = layer.value_bytes + layer.phase_bytes;
     let byte = layer.data_byte_offset + (r * params.grid.cols + c) * record;

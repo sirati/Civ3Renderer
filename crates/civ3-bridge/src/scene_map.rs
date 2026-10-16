@@ -1,28 +1,42 @@
 //! Civilization III world -> game-agnostic scene.
 //!
 //! This is where the game's rendering *logic* lives (which sprite a tile
-//! shows); *what* the sprites are and how they are drawn is data in
-//! `assets/civ3/civ3.toml`. Layers are addressed by name, sprites by the
+//! shows, see `rules`); *what* the sprites are and how they are drawn is data
+//! in `assets/civ3/civ3.toml`. Layers are addressed by name, sprites by the
 //! game's own array names, so the two stay in step.
+
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use render_desc::Compiled;
 use scene::{Scene, View, WorldShape};
 
+use crate::rules;
 use crate::world::{Civ3View, Civ3World};
 
-/// Resolves (layer, sprite) names to cell values once.
+/// Resolves (layer, sprite) names to cell values, caching the lookups.
 pub struct Mapper<'a> {
     compiled: &'a Compiled,
-    terrain: Option<(usize, Vec<u32>)>,
+    cache: RefCell<HashMap<(usize, String), u32>>,
 }
 
 impl<'a> Mapper<'a> {
     pub fn new(compiled: &'a Compiled) -> Self {
-        let terrain = compiled.layer_index("terrain").map(|layer| {
-            let values = (0..9 * 81).map(|i| compiled.value("terrain", &format!("Std_Terrain_Images/{i}")).unwrap_or(0)).collect();
-            (layer, values)
+        Self { compiled, cache: RefCell::new(HashMap::new()) }
+    }
+
+    fn put(&self, scene: &mut Scene, layer: &str, col: u32, row: u32, sprite: Option<String>) {
+        let (Some(index), Some(sprite)) = (self.compiled.layer_index(layer), sprite) else { return };
+        let mut cache = self.cache.borrow_mut();
+        let value = *cache.entry((index, sprite)).or_insert_with_key(|(_, s)| {
+            self.compiled.value(layer, s).unwrap_or_else(|| {
+                log::warn!("layer {layer} has no sprite {s}");
+                0
+            })
         });
-        Self { compiled, terrain }
+        if value != 0 {
+            scene.set(index, col, row, value);
+        }
     }
 
     /// Builds the scene for `world` seen through `view` in a viewport of
@@ -36,19 +50,31 @@ impl<'a> Mapper<'a> {
         };
         let mut scene = Scene::empty(shape, self.compiled.layers.len());
         scene.tick = tick;
-        scene.view = View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport };
+        // The game draws lattice cells TileX_Min..=TileX_Max ×
+        // TileY_Min..=TileY_Max only (§3), even where a tall sprite from
+        // outside that range would reach into the screen.
+        let cull = (view.tile_x.0 * 64, view.tile_y.0 * 32, (view.tile_x.1 + 1) * 64, (view.tile_y.1 + 1) * 32);
+        scene.view = View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull) };
 
         for row in 0..shape.rows {
             for col in 0..shape.cols {
                 let (x, y) = (2 * col as i32 + (row as i32 & 1), row as i32);
                 let Some(tile) = world.tile(x, y) else { continue };
-                if let Some((layer, values)) = &self.terrain {
-                    // §5.2: the image of the vertex above the tile.
-                    let sp = tile.square_parts;
-                    let index = (sp >> 8) as usize * 81 + (sp & 0xFF) as usize;
-                    if let Some(&v) = values.get(index) {
-                        scene.set(*layer, col, row, v);
-                    }
+                // Vertex layers: the vertex above this tile, (x, y - 1).
+                let sp = tile.square_parts;
+                self.put(&mut scene, "terrain", col, row, Some(format!("Std_Terrain_Images/{}", (sp >> 8) as u32 * 81 + (sp & 0xFF) as u32)));
+                let river = rules::vertex_river(world, x, y - 1);
+                self.put(&mut scene, "flood_plain", col, row, river.flood_plain);
+                let layer = if river.under_objects { "rivers_under" } else { "rivers_over" };
+                self.put(&mut scene, layer, col, row, river.river);
+                // Tile layers.
+                self.put(&mut scene, "mountain", col, row, rules::mountain(world, x, y));
+                self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
+                self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));
+                self.put(&mut scene, "forest", col, row, rules::forest(world, x, y));
+                if let Some((shadow, icon)) = rules::resource(world, x, y) {
+                    self.put(&mut scene, "resource_shadow", col, row, Some(shadow));
+                    self.put(&mut scene, "resource", col, row, Some(icon));
                 }
             }
         }

@@ -3,6 +3,7 @@
 // that `inproc::entry!` generates (an unsafe *attribute*, `no_mangle`).
 #![deny(unsafe_code)]
 
+pub mod rules;
 pub mod scene_map;
 pub mod world;
 #[cfg(windows)]

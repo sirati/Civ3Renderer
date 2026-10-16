@@ -1,0 +1,322 @@
+//! Which sprite the game draws for what: Civilization III's map rendering
+//! rules (docs/civ3-map-rendering.md, section numbers below). Every function
+//! returns sprite names in the game's own array numbering
+//! (`"Mountains_Images/18"`), which the render description maps to art.
+
+use crate::world::{Civ3Tile, Civ3World};
+
+/// Terrain ids (enum `SquareTypes`).
+pub mod terrain {
+    pub const DESERT: u32 = 0;
+    pub const PLAINS: u32 = 1;
+    pub const GRASSLAND: u32 = 2;
+    pub const TUNDRA: u32 = 3;
+    pub const FLOOD_PLAIN: u32 = 4;
+    pub const HILLS: u32 = 5;
+    pub const MOUNTAINS: u32 = 6;
+    pub const FOREST: u32 = 7;
+    pub const JUNGLE: u32 = 8;
+    pub const SWAMP: u32 = 9;
+    pub const VOLCANO: u32 = 10;
+    pub const COAST: u32 = 11;
+}
+use terrain::*;
+
+/// `Tile.Overlays` bits (§6.5).
+pub mod overlay {
+    pub const ROAD: u32 = 1 << 0;
+    pub const RAILROAD: u32 = 1 << 1;
+    pub const MINE: u32 = 1 << 2;
+    pub const IRRIGATION: u32 = 1 << 3;
+    pub const FORTRESS: u32 = 1 << 4;
+    pub const GOODY_HUT: u32 = 1 << 5;
+    pub const POLLUTION: u32 = 1 << 6;
+    pub const BARBARIAN_CAMP: u32 = 1 << 7;
+    pub const CRATERS: u32 = 1 << 8;
+    pub const BARRICADE: u32 = 1 << 28;
+    pub const AIRFIELD: u32 = 1 << 29;
+    pub const RADAR: u32 = 1 << 30;
+    pub const OUTPOST: u32 = 1 << 31;
+}
+
+/// `Tile.Terrain_Overlays` bits (§2.2).
+pub mod terrain_overlay {
+    pub const BONUS_SHIELD: u32 = 1 << 16;
+    pub const SNOW_CAP: u32 = 1 << 20;
+    pub const PINES: u32 = 1 << 21;
+    pub const LANDMARK: u32 = 1 << 29;
+}
+
+/// The game's per-tile art randomness (§9): ANSI C `rand()` seeded from the
+/// map seed and the tile index.
+pub struct Rng(u32);
+
+impl Rng {
+    /// Seeded for one consumer (`k`) at tile index `a`, with the four
+    /// discarded advances every consumer performs first.
+    pub fn new(seed: u32, k: u32, a: u32) -> Self {
+        let mut r = Rng(seed.wrapping_add(a.wrapping_mul(k)));
+        for _ in 0..4 {
+            r.advance();
+        }
+        r
+    }
+
+    fn advance(&mut self) -> u32 {
+        self.0 = self.0.wrapping_mul(0x41C6_4E6D).wrapping_add(0x3039);
+        (self.0 >> 16) & 0x7FFF
+    }
+
+    /// `floor(next_float() * n)`.
+    pub fn rand_int(&mut self, n: u32) -> u32 {
+        (self.advance() * n) >> 15
+    }
+}
+
+/// Seed constants of the consumers (§9).
+pub mod seed_k {
+    pub const FOREST: u32 = 1313;
+    pub const HILLS: u32 = 121_472;
+    pub const RIVER: u32 = 0x84_5FED;
+    pub const TNT: u32 = 64_536;
+}
+
+/// The tile index the RNG is seeded with (16 bits).
+pub fn tile_a(world: &Civ3World, x: i32, y: i32) -> u32 {
+    let x = if world.wrap_x { x.rem_euclid(world.width) } else { x };
+    ((((world.width / 2) * y) + (x >> 1)) & 0xFFFF) as u32
+}
+
+/// Diagonal neighbours in the order the game builds masks: bit 0 NW,
+/// bit 1 NE, bit 2 SW, bit 3 SE.
+pub const DIAGONALS: [(i32, i32); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
+
+/// The edge hash that prunes some links between neighbouring hills,
+/// irrigation and border segments (§6.1), for the edge from (x, y) to
+/// diagonal neighbour `n` (index into [`DIAGONALS`]).
+pub fn edge_keep(x: i32, y: i32, n: usize) -> bool {
+    let (dx, dy) = DIAGONALS[n];
+    // C integer division (truncating) of the shared edge's midpoint.
+    let mx = (2 * x + dx) / 2;
+    let my = (2 * y + dy) / 2;
+    match n {
+        // NW, SE
+        0 | 3 => (3 * mx - my) % 5 != 0 && (mx - 2 * my) % 5 != 0,
+        // NE, SW
+        _ => (3 * mx - my) % 7 != 0 && (mx + 2 * my) % 5 != 0 && (7 * mx + my) % 11 != 0,
+    }
+}
+
+fn is_hilly(t: &Civ3Tile) -> bool {
+    matches!(t.terrain(), HILLS | MOUNTAINS | VOLCANO)
+}
+
+/// §6.1: mountains, volcanoes and hills.
+pub fn mountain(world: &Civ3World, x: i32, y: i32) -> Option<String> {
+    let tile = world.tile(x, y)?;
+    let (array, snow_ok) = match tile.terrain() {
+        MOUNTAINS => ("Mountains_Images", true),
+        VOLCANO => ("Volcanos_Images", false),
+        HILLS => ("Hills_Images", false),
+        _ => return None,
+    };
+    let mut mask = 0;
+    for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
+        if world.tile(x + dx, y + dy).is_some_and(is_hilly) && edge_keep(x, y, n) {
+            mask |= 1 << n;
+        }
+    }
+    let kind = if snow_ok && tile.terrain_overlays & terrain_overlay::SNOW_CAP != 0 {
+        3
+    } else {
+        // NE, SE, SW, NW.
+        let neighbours: Vec<&Civ3Tile> =
+            [(1, -1), (1, 1), (-1, 1), (-1, -1)].iter().filter_map(|(dx, dy)| world.tile(x + dx, y + dy)).collect();
+        let only_rough = neighbours.iter().all(|t| matches!(t.terrain(), HILLS | MOUNTAINS | VOLCANO | FOREST | JUNGLE));
+        let forests = neighbours.iter().filter(|t| t.terrain() == FOREST).count();
+        let jungles = neighbours.iter().filter(|t| t.terrain() == JUNGLE).count();
+        if !only_rough || forests + jungles == 0 {
+            0
+        } else if forests > jungles {
+            1
+        } else if jungles > forests {
+            2
+        } else if Rng::new(world.seed, seed_k::HILLS, tile_a(world, x, y)).rand_int(2) == 0 {
+            1
+        } else {
+            2
+        }
+    };
+    Some(format!("{array}/{}", kind * 16 + mask))
+}
+
+/// §6.2: forests, jungles and swamps.
+pub fn forest(world: &Civ3World, x: i32, y: i32) -> Option<String> {
+    let tile = world.tile(x, y)?;
+    let kind = tile.terrain();
+    if !matches!(kind, FOREST | JUNGLE | SWAMP) {
+        return None;
+    }
+    let diag = |dx: i32, dy: i32| world.tile(x + dx, y + dy);
+    let small = [(1, -1), (1, 1), (-1, 1), (-1, -1)].iter().any(|&(dx, dy)| diag(dx, dy).is_some_and(|t| t.terrain() == COAST))
+        || [(1, -1), (-1, -1)].iter().any(|&(dx, dy)| diag(dx, dy).is_some_and(is_hilly));
+    let mut rng = Rng::new(world.seed, seed_k::FOREST, tile_a(world, x, y));
+    let name = match kind {
+        FOREST => {
+            let file = match tile.real_terrain() {
+                PLAINS => "Plains",
+                TUNDRA => "Tundra",
+                _ => "Grassland",
+            };
+            if tile.terrain_overlays & terrain_overlay::PINES != 0 {
+                format!("{file}_Forests_Pines/{}", rng.rand_int(12))
+            } else if small {
+                format!("{file}_Forests_Small/{}", rng.rand_int(10))
+            } else {
+                format!("{file}_Forests_Large/{}", rng.rand_int(8))
+            }
+        }
+        JUNGLE if small => format!("Grassland_Jungles_Small/{}", rng.rand_int(12)),
+        JUNGLE => format!("Grassland_Jungles_Large/{}", rng.rand_int(8)),
+        _ if small => format!("Marsh_Small/{}", rng.rand_int(10)),
+        _ => format!("Marsh_Large/{}", rng.rand_int(8)),
+    };
+    Some(name)
+}
+
+/// §6.3: irrigation.
+pub fn irrigation(world: &Civ3World, x: i32, y: i32) -> Option<String> {
+    let tile = world.tile(x, y)?;
+    if tile.overlays & overlay::IRRIGATION == 0 {
+        return None;
+    }
+    let mut mask = 0;
+    for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
+        if world.tile(x + dx, y + dy).is_some_and(|t| t.overlays & overlay::IRRIGATION != 0) && edge_keep(x, y, n) {
+            mask |= 1 << n;
+        }
+    }
+    let kind = match tile.terrain() {
+        DESERT => 0,
+        PLAINS => 1,
+        TUNDRA => 3,
+        _ => 2,
+    };
+    Some(format!("Irrigation_Desert_Images/{}", kind * 16 + mask))
+}
+
+/// §6.7: small ground decorations on bonus-shield grassland.
+pub fn tnt(world: &Civ3World, x: i32, y: i32) -> Option<String> {
+    let tile = world.tile(x, y)?;
+    if tile.terrain_overlays & terrain_overlay::BONUS_SHIELD == 0 {
+        return None;
+    }
+    let row = match tile.terrain() {
+        GRASSLAND => 0,
+        PLAINS => 1,
+        DESERT => 2,
+        TUNDRA => 3,
+        FLOOD_PLAIN => 4,
+        _ => return None,
+    };
+    let variant = Rng::new(world.seed, seed_k::TNT, tile_a(world, x, y)).rand_int(3);
+    Some(format!("Tnt_Images/{}", row * 3 + variant))
+}
+
+/// §6.7: a resource's shadow and icon.
+pub fn resource(world: &Civ3World, x: i32, y: i32) -> Option<(String, String)> {
+    let tile = world.tile(x, y)?;
+    let kind = usize::try_from(tile.resource).ok()?;
+    // Tile_get_resource_visible_to: hidden until the prerequisite is known.
+    if !world.resource_visible.get(kind).copied().unwrap_or(true) {
+        return None;
+    }
+    let icon = *world.resource_icons.get(kind)?;
+    Some((format!("ResourcesShadows/{icon}"), format!("Resources/{icon}")))
+}
+
+/// What the game draws at one vertex for rivers (§6.4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VertexRiver {
+    /// Flood plain sprite (pass 1).
+    pub flood_plain: Option<String>,
+    pub river: Option<String>,
+    /// The river is drawn before the objects (pass 2) rather than after
+    /// them (pass 4): it touches a mountain, volcano or building.
+    pub under_objects: bool,
+}
+
+/// §6.4: rivers and flood plains at vertex (vx, vy) (vx + vy odd).
+pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
+    let n = world.tile(vx, vy - 1);
+    let e = world.tile(vx + 1, vy);
+    let s = world.tile(vx, vy + 1);
+    let w = world.tile(vx - 1, vy);
+    let has = |t: Option<&Civ3Tile>, bit: u8| t.is_some_and(|t| t.river & bit != 0);
+    let fp = |t: Option<&Civ3Tile>, bit: u8| t.is_some_and(|t| t.river & bit != 0 && t.terrain() == FLOOD_PLAIN);
+
+    let mut mask = 0u32;
+    let mut fp_mask = 0u32;
+    let edges: [(u32, [(Option<&Civ3Tile>, u8); 2]); 4] = [
+        (1, [(n, 0x20), (w, 0x02)]),
+        (2, [(n, 0x08), (e, 0x80)]),
+        (4, [(w, 0x08), (s, 0x80)]),
+        (8, [(e, 0x20), (s, 0x02)]),
+    ];
+    for (bit, sources) in edges {
+        for (t, b) in sources {
+            if has(t, b) {
+                mask |= bit;
+            }
+            if fp(t, b) {
+                fp_mask |= bit;
+            }
+        }
+    }
+
+    let flood_plain = (fp_mask != 0).then(|| format!("Flood_Plains_Images/{fp_mask}"));
+    let around = [n, e, s, w];
+    let river = (mask != 0).then(|| {
+        // A river end (one edge) takes precedence over the flood-plain
+        // override (measured: a flood-plain river end uses variant 1).
+        let variant = if mask.count_ones() == 1 {
+            if around.iter().flatten().any(|t| t.real_terrain() == COAST) { 0 } else { 1 }
+        } else if fp_mask != 0 {
+            0
+        } else {
+            Rng::new(world.seed, seed_k::RIVER, tile_a(world, vx, vy - 1)).rand_int(2)
+        };
+        format!("Delta_Rivers_Images/{}", mask * 2 + variant)
+    });
+    // Mountains and volcanos only count below the vertex, or beside it when
+    // the river runs along their edge with the tile above (measured on 111
+    // rivers in three games; the tile above never counts).
+    let tall = |t: Option<&Civ3Tile>| t.is_some_and(|t| matches!(t.terrain(), MOUNTAINS | VOLCANO));
+    let tall_special = tall(s) || (tall(w) && has(w, 0x02)) || (tall(e) && has(e, 0x80));
+    let special = tall_special
+        || around.iter().flatten().any(|t| {
+            t.city >= 0
+            || t.overlays
+                & (overlay::FORTRESS
+                    | overlay::GOODY_HUT
+                    | overlay::BARBARIAN_CAMP
+                    | overlay::BARRICADE
+                    | overlay::AIRFIELD
+                    | overlay::RADAR
+                    | overlay::OUTPOST)
+                    != 0
+        });
+    VertexRiver { flood_plain, river, under_objects: special }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rng_is_ansi_c_rand() {
+        // ANSI C rand() with seed 1: 16838, 5758, 10113, ...
+        let mut r = Rng(1);
+        assert_eq!([r.advance(), r.advance(), r.advance()], [16838, 5758, 10113]);
+    }
+}

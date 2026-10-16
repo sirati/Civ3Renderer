@@ -71,9 +71,18 @@ pub struct FrameParams {
     pub grid: GridParams,
 
     pub layer_first: u32,
-    pub _pad0: u32,
+    /// 1: only draw cells whose logical anchor (origin + the layer's
+    /// `cull_offset`) lies in `[cull_x0, cull_x1) × [cull_y0, cull_y1)`
+    /// (world pixels, unwrapped). For games that clip by tile range rather
+    /// than by sprite bounds.
+    pub cull: u32,
     pub _pad1: u32,
     pub _pad2: u32,
+
+    pub cull_x0: i32,
+    pub cull_y0: i32,
+    pub cull_x1: i32,
+    pub cull_y1: i32,
 }
 
 /// Shape of the world's cell grid.
@@ -126,7 +135,11 @@ pub struct LayerDesc {
 
     /// Animation ticks per frame for this layer (>= 1).
     pub ticks_per_frame: u32,
-    pub _pad: [u32; 3],
+    /// Offset from the cell origin to the point tested against the
+    /// camera's cull rectangle.
+    pub cull_offset_x: i32,
+    pub cull_offset_y: i32,
+    pub _pad: u32,
 }
 
 /// One sprite: a rectangle of an atlas page and where to draw it.

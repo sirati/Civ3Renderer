@@ -195,6 +195,33 @@ impl Civ3 {
             .collect()
     }
 
+    /// Whether `civ` knows `tech` (`Leader_has_tech`); `None` if the tech
+    /// table of this build is not known.
+    pub fn has_tech(&self, civ: i32, tech: i32) -> Option<bool> {
+        if tech < 0 {
+            return Some(true);
+        }
+        let (table, never) = crate::hooks::tech_table(self.build)?;
+        if never.read().ok()? == tech {
+            return Some(false);
+        }
+        let bits = table.read().ok()?.index(tech as u32).ok()?.read().ok()?;
+        Some(bits & (1u32 << (civ & 31)) != 0)
+    }
+
+    /// Per resource type: is its icon shown to `civ` (the prerequisite tech
+    /// is known), as `Tile_get_resource_visible_to` decides.
+    pub fn resources_visible_to(&self, civ: i32) -> Result<Vec<bool>, Civ3Error> {
+        let count: i32 = self.bic(L::BIC_RESOURCETYPECOUNT)?;
+        let base: Ptr32<u8> = self.bic(L::BIC_RESOURCETYPES)?;
+        (0..count.clamp(0, 1024) as u32)
+            .map(|i| {
+                let req: i32 = base.offset::<i32>(i * L::RESOURCE_TYPE_SIZE + L::RESOURCE_TYPE_REQUIREID)?.read()?;
+                Ok(self.has_tech(civ, req).unwrap_or(true))
+            })
+            .collect()
+    }
+
     pub fn zoomed_out(&self) -> Result<bool, Civ3Error> {
         Ok(self.bic::<u8>(L::BIC_IS_ZOOMED_OUT)? != 0)
     }

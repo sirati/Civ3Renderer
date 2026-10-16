@@ -68,6 +68,12 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
                 if layer.flags & tile_render_shared::LAYER_HIDDEN != 0 {
                     continue;
                 }
+                if let Some((x0, y0, x1, y1)) = camera.cull {
+                    let (ax, ay) = (ox + layer.cull_offset_x, oy + layer.cull_offset_y);
+                    if ax < x0 || ax >= x1 || ay < y0 || ay >= y1 {
+                        continue;
+                    }
+                }
                 let byte = layer.data_byte_offset + (r * params.grid.cols + c) * (layer.value_bytes + layer.phase_bytes);
                 let value = data.uint(byte, layer.value_bytes);
                 if value >= layer.lut_len {

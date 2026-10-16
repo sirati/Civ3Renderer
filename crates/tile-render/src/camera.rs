@@ -18,11 +18,15 @@ pub struct Camera {
     /// (left, top, right, bottom). Cells whose sprites could reach into the
     /// viewport by that much are drawn too.
     pub overhang: (u32, u32, u32, u32),
+    /// Optional cull rectangle in world pixels (x0, y0, x1, y1): cells are
+    /// drawn only if their logical anchor (see `LayerSpec::cull_offset`) is
+    /// inside it.
+    pub cull: Option<(i32, i32, i32, i32)>,
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0) }
+        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None }
     }
 
     /// Viewport size in world pixels (rounded up).
@@ -60,9 +64,13 @@ impl Camera {
             frame,
             layer_first: layers.0,
             layer_count: layers.1,
-            _pad0: 0,
+            cull: self.cull.is_some() as u32,
             _pad1: 0,
             _pad2: 0,
+            cull_x0: self.cull.map_or(0, |c| c.0),
+            cull_y0: self.cull.map_or(0, |c| c.1),
+            cull_x1: self.cull.map_or(0, |c| c.2),
+            cull_y1: self.cull.map_or(0, |c| c.3),
             first_col,
             first_row,
             cols: (last_col - first_col + 1) as u32,

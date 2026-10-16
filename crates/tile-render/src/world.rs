@@ -106,11 +106,13 @@ pub struct LayerSpec {
     pub hidden: bool,
     /// Render pass. A world's layers must be ordered by pass.
     pub pass: u32,
+    /// Point tested against `Camera::cull`, relative to the cell origin.
+    pub cull_offset: (i32, i32),
 }
 
 impl LayerSpec {
     pub fn new(name: impl Into<String>, lut: Vec<SpriteSetId>) -> Self {
-        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false, pass: 0 }
+        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false, pass: 0, cull_offset: (0, 0) }
     }
 
     /// Smallest value width (bytes) that can index the whole table.
@@ -228,7 +230,9 @@ impl TileWorld {
                 offset_y: spec.offset.1,
                 flags: if spec.hidden { LAYER_HIDDEN } else { 0 },
                 ticks_per_frame: spec.ticks_per_frame.max(1),
-                _pad: [0; 3],
+                cull_offset_x: spec.cull_offset.0,
+                cull_offset_y: spec.cull_offset.1,
+                _pad: 0,
             });
             lut.extend(spec.lut.iter().map(|s| s.0));
             data.extend_from_slice(bytes);

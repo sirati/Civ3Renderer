@@ -8,7 +8,9 @@
 # Cells are the map's real tiles (x + y even), on a staggered grid: tile
 # (x, y) is cell (x/2, y) with its 128x64 box at (64x, 32y). Things the game
 # draws per *vertex* (the point between four tiles: terrain, rivers, fog)
-# are stored in the tile below the vertex and anchored 32 px up.
+# are stored in the tile below the vertex and anchored 32 px up. Their logical
+# position (for the game's tile-range clipping) is the vertex: cull_offset.
+
 
 [grid]
 layout = "staggered"
@@ -121,8 +123,440 @@ anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 648
 
-# Pass 1 (§4): odd (vertex) cells — base terrain.
+# §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
+# mtnRivers) and flood plains, per vertex.
+
+[images.deltaRivers]
+source = "Art/Terrain/deltaRivers.pcx"
+
+[sheets.rivers_delta]
+image = "deltaRivers"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, -32]
+group = "Delta_Rivers_Images"
+first_index = 0
+index_stride = 2
+
+[images.mtnRivers]
+source = "Art/Terrain/mtnRivers.pcx"
+
+[sheets.rivers_mtn]
+image = "mtnRivers"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, -32]
+group = "Delta_Rivers_Images"
+first_index = 1
+index_stride = 2
+
+[images.floodplains]
+source = "Art/Terrain/floodplains.pcx"
+
+[sheets.flood_plains]
+image = "floodplains"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, -32]
+group = "Flood_Plains_Images"
+first_index = 0
+
+# §6.1: mountains, volcanoes (128x88, 24 px up) and hills (128x72, 8 px up),
+# index kind·16 + neighbour mask.
+
+[images.mtn0]
+source = "Art/Terrain/Mountains.pcx"
+
+[sheets.mtn0]
+image = "mtn0"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Mountains_Images"
+first_index = 0
+
+[images.mtn1]
+source = "Art/Terrain/mountain forests.pcx"
+
+[sheets.mtn1]
+image = "mtn1"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Mountains_Images"
+first_index = 16
+
+[images.mtn2]
+source = "Art/Terrain/mountain jungles.pcx"
+
+[sheets.mtn2]
+image = "mtn2"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Mountains_Images"
+first_index = 32
+
+[images.mtn3]
+source = "Art/Terrain/Mountains-snow.pcx"
+
+[sheets.mtn3]
+image = "mtn3"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Mountains_Images"
+first_index = 48
+
+[images.vol0]
+source = "Art/Terrain/Volcanos.pcx"
+
+[sheets.vol0]
+image = "vol0"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Volcanos_Images"
+first_index = 0
+
+[images.vol1]
+source = "Art/Terrain/Volcanos forests.pcx"
+
+[sheets.vol1]
+image = "vol1"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Volcanos_Images"
+first_index = 16
+
+[images.vol2]
+source = "Art/Terrain/Volcanos jungles.pcx"
+
+[sheets.vol2]
+image = "vol2"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Volcanos_Images"
+first_index = 32
+
+[images.vol3]
+source = "Art/Terrain/Volcanos-snow.pcx"
+
+[sheets.vol3]
+image = "vol3"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "Volcanos_Images"
+first_index = 48
+
+[images.hill0]
+source = "Art/Terrain/xhills.pcx"
+
+[sheets.hill0]
+image = "hill0"
+cell = [128, 72]
+grid = [4, 4]
+anchor = [0, -8]
+group = "Hills_Images"
+first_index = 0
+
+[images.hill1]
+source = "Art/Terrain/hill forests.pcx"
+
+[sheets.hill1]
+image = "hill1"
+cell = [128, 72]
+grid = [4, 4]
+anchor = [0, -8]
+group = "Hills_Images"
+first_index = 16
+
+[images.hill2]
+source = "Art/Terrain/hill jungle.pcx"
+
+[sheets.hill2]
+image = "hill2"
+cell = [128, 72]
+grid = [4, 4]
+anchor = [0, -8]
+group = "Hills_Images"
+first_index = 32
+
+# §6.3: irrigation, index kind·16 + mask (desert, plains, grassland, tundra).
+
+[images.irr0]
+source = "Art/Terrain/irrigation DESETT.pcx"
+
+[sheets.irr0]
+image = "irr0"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, 0]
+group = "Irrigation_Desert_Images"
+first_index = 0
+
+[images.irr1]
+source = "Art/Terrain/irrigation PLAINS.pcx"
+
+[sheets.irr1]
+image = "irr1"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, 0]
+group = "Irrigation_Desert_Images"
+first_index = 16
+
+[images.irr2]
+source = "Art/Terrain/irrigation.pcx"
+
+[sheets.irr2]
+image = "irr2"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, 0]
+group = "Irrigation_Desert_Images"
+first_index = 32
+
+[images.irr3]
+source = "Art/Terrain/irrigation TUNDRA.pcx"
+
+[sheets.irr3]
+image = "irr3"
+cell = [128, 64]
+grid = [4, 4]
+anchor = [0, 0]
+group = "Irrigation_Desert_Images"
+first_index = 48
+
+# §6.2: forests, jungles, swamps: 128x88 blocks, 12 px up.
+
+[images.grassland_forests]
+source = "Art/Terrain/grassland forests.pcx"
+
+[sheets.Grassland_Jungles_Large]
+image = "grassland_forests"
+cell = [128, 88]
+grid = [4, 2]
+anchor = [0, -12]
+group = "Grassland_Jungles_Large"
+first_index = 0
+origin = [0, 0]
+
+[sheets.Grassland_Jungles_Small]
+image = "grassland_forests"
+cell = [128, 88]
+grid = [6, 2]
+anchor = [0, -12]
+group = "Grassland_Jungles_Small"
+first_index = 0
+origin = [0, 176]
+
+[sheets.Grassland_Forests_Large]
+image = "grassland_forests"
+cell = [128, 88]
+grid = [4, 2]
+anchor = [0, -12]
+group = "Grassland_Forests_Large"
+first_index = 0
+origin = [0, 352]
+
+[sheets.Grassland_Forests_Small]
+image = "grassland_forests"
+cell = [128, 88]
+grid = [5, 2]
+anchor = [0, -12]
+group = "Grassland_Forests_Small"
+first_index = 0
+origin = [0, 528]
+
+[sheets.Grassland_Forests_Pines]
+image = "grassland_forests"
+cell = [128, 88]
+grid = [6, 2]
+anchor = [0, -12]
+group = "Grassland_Forests_Pines"
+first_index = 0
+origin = [0, 704]
+
+[images.plains_forests]
+source = "Art/Terrain/plains forests.pcx"
+
+[sheets.Plains_Forests_Large]
+image = "plains_forests"
+cell = [128, 88]
+grid = [4, 2]
+anchor = [0, -12]
+group = "Plains_Forests_Large"
+first_index = 0
+origin = [0, 352]
+
+[sheets.Plains_Forests_Small]
+image = "plains_forests"
+cell = [128, 88]
+grid = [5, 2]
+anchor = [0, -12]
+group = "Plains_Forests_Small"
+first_index = 0
+origin = [0, 528]
+
+[sheets.Plains_Forests_Pines]
+image = "plains_forests"
+cell = [128, 88]
+grid = [6, 2]
+anchor = [0, -12]
+group = "Plains_Forests_Pines"
+first_index = 0
+origin = [0, 704]
+
+[images.tundra_forests]
+source = "Art/Terrain/tundra forests.pcx"
+
+[sheets.Tundra_Forests_Large]
+image = "tundra_forests"
+cell = [128, 88]
+grid = [4, 2]
+anchor = [0, -12]
+group = "Tundra_Forests_Large"
+first_index = 0
+origin = [0, 352]
+
+[sheets.Tundra_Forests_Small]
+image = "tundra_forests"
+cell = [128, 88]
+grid = [5, 2]
+anchor = [0, -12]
+group = "Tundra_Forests_Small"
+first_index = 0
+origin = [0, 528]
+
+[sheets.Tundra_Forests_Pines]
+image = "tundra_forests"
+cell = [128, 88]
+grid = [6, 2]
+anchor = [0, -12]
+group = "Tundra_Forests_Pines"
+first_index = 0
+origin = [0, 704]
+
+[images.marsh]
+source = "Art/Terrain/marsh.pcx"
+
+[sheets.Marsh_Large]
+image = "marsh"
+cell = [128, 88]
+grid = [4, 2]
+anchor = [0, -12]
+group = "Marsh_Large"
+first_index = 0
+origin = [0, 0]
+
+[sheets.Marsh_Small]
+image = "marsh"
+cell = [128, 88]
+grid = [5, 2]
+anchor = [0, -12]
+group = "Marsh_Small"
+first_index = 0
+origin = [0, 176]
+
+# §6.7: ground decorations on bonus grassland (row = terrain, 3 variants).
+
+[images.tnt]
+source = "Art/Terrain/tnt.pcx"
+
+[sheets.tnt]
+image = "tnt"
+cell = [128, 64]
+grid = [3, 6]
+anchor = [0, 0]
+group = "Tnt_Images"
+first_index = 0
+
+# §6.7: resources, 49x49 cells at (1 + 50c, 1 + 50r), drawn at (+40, +8);
+# the shadow first. Shadow sheet indices 248..251 are a translucency ramp.
+
+[images.resources]
+source = "Art/resources.pcx"
+
+[sheets.resources]
+image = "resources"
+cell = [49, 49]
+grid = [6, 6]
+anchor = [40, 8]
+group = "Resources"
+first_index = 0
+origin = [1, 1]
+spacing = [1, 1]
+
+[images.resources_shadows]
+source = "Art/resources_shadows.pcx"
+rgba = { 248 = [0, 0, 0, 32], 249 = [0, 0, 0, 64], 250 = [0, 0, 0, 96], 251 = [0, 0, 0, 128] }
+
+[sheets.resources_shadows]
+image = "resources_shadows"
+cell = [49, 49]
+grid = [6, 6]
+anchor = [40, 8]
+group = "ResourcesShadows"
+first_index = 0
+origin = [1, 1]
+spacing = [1, 1]
+
+# §4: passes. 1: vertices (terrain, flood plains); 2: rivers touching
+# mountains/buildings; 3: tiles, all objects in this order; 4: other rivers.
 [[layers]]
 name = "terrain"
+cull_offset = [0, -32]
 pass = 1
 sets = ["Std_Terrain_Images/*"]
+
+[[layers]]
+name = "flood_plain"
+cull_offset = [0, -32]
+pass = 1
+sets = ["Flood_Plains_Images/*"]
+
+[[layers]]
+name = "rivers_under"
+cull_offset = [0, -32]
+pass = 2
+sets = ["Delta_Rivers_Images/*"]
+
+[[layers]]
+name = "mountain"
+pass = 3
+sets = ["Mountains_Images/*", "Volcanos_Images/*", "Hills_Images/*"]
+
+[[layers]]
+name = "irrigation"
+pass = 3
+sets = ["Irrigation_Desert_Images/*"]
+
+[[layers]]
+name = "tnt"
+pass = 3
+sets = ["Tnt_Images/*"]
+
+[[layers]]
+name = "forest"
+pass = 3
+sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*"]
+
+[[layers]]
+name = "resource_shadow"
+pass = 3
+sets = ["ResourcesShadows/*"]
+
+[[layers]]
+name = "resource"
+pass = 3
+sets = ["Resources/*"]
+
+[[layers]]
+name = "rivers_over"
+cull_offset = [0, -32]
+pass = 4
+sets = ["Delta_Rivers_Images/*"]
