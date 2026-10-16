@@ -215,8 +215,67 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             println!("minimap: {same} of {} pixels identical ({pct:.2}%); {white} of the others white in the game", w * h);
             Ok(ExitCode::SUCCESS)
         }
-        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | pixeldiff TRACE GAME.png [DIFF.png] | minimap TRACE GAME.png  [--viewport WxH]".into()),
+        Some("labels") => {
+            let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
+            let paths: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with('-')).collect();
+            if paths.is_empty() {
+                return Err("labels TRACE... [--verbose]".into());
+            }
+            labels(&paths, verbose)
+        }
+        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | pixeldiff TRACE GAME.png [DIFF.png] | minimap TRACE GAME.png | labels TRACE... [-v]  [--viewport WxH]".into()),
     }
+}
+
+/// Compares the city labels our rules draw with the game's own, per dump (see
+/// `ifc23::label_check`).
+fn labels(paths: &[&String], verbose: bool) -> Result<ExitCode, String> {
+    let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+    let (mut cities, mut exact, mut expected, mut matched, mut unexplained, mut dumps, mut unchecked) = (0, 0, 0, 0, 0, 0, 0);
+    let mut in_places = 0;
+    let (mut own_cities, mut own_exact) = (0, 0);
+    for path in paths {
+        let mut trace = load_trace(path)?;
+        let files = assets::game_files(install.as_ref(), trace.scenario_folder.as_deref(), &trace.search_roots);
+        let report = ifc23::label_check::check(&mut trace, &files, true);
+        let name = std::path::Path::new(path.as_str()).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
+        println!(
+            "{name}: {}/{} labels exact; operations {}/{} (game only: {}){}{}",
+            report.exact,
+            report.cities,
+            report.matched,
+            report.expected,
+            report.unexplained,
+            if report.unchecked > 0 { format!("; {} cut by the image, not checked", report.unchecked) } else { String::new() },
+            if report.inferred { "; texts from the mirror" } else { "" }
+        );
+        if verbose || report.exact != report.cities {
+            for note in &report.notes {
+                println!("    {note}");
+            }
+        }
+        if report.cities > 0 {
+            dumps += 1;
+        }
+        cities += report.cities;
+        exact += report.exact;
+        expected += report.expected;
+        matched += report.matched;
+        unexplained += report.unexplained;
+        unchecked += report.unchecked;
+        in_places += report.in_label_places;
+        if !report.inferred {
+            own_cities += report.cities;
+            own_exact += report.exact;
+        }
+    }
+    println!("{dumps} dumps with labels: {exact}/{cities} labels exact, {matched}/{expected} operations matched, {unexplained} game operations not expected ({in_places} of them in the places of labels), {unchecked} labels cut by the image not checked");
+    if own_cities > 0 {
+        println!("of them from dumps with the cities' texts: {own_exact}/{own_cities}");
+    }
+    // What the game drew that was not expected (cut labels, other drawings of the canvas) is
+    // only counted; the exit status is about the labels we made.
+    Ok(if exact == cities { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 /// Arrays the game draws through blits the tracer does not hook yet.

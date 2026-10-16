@@ -36,6 +36,17 @@ pub struct Addresses {
     /// The outposts (a list like `cities`; docs §6.7b, from the disassembly of the
     /// PCGames build, the others by the constant offset between builds).
     pub outposts: u32,
+    /// `p_game` (`Game`): its member at +0x4F8 points to the city of each wonder
+    /// (`Game_get_wonder_city_id`, 0x5390B0).
+    pub game: u32,
+    /// `p_toggleable_rules`: `TR_*` flag word (`TR_ACCELERATED_PRODUCTION`).
+    pub toggleable_rules: u32,
+    /// `p_debug_mode_bits`: bit 3 shows every city's full label.
+    pub debug_mode_bits: u32,
+    /// `p_game_difficulty`: the difficulty level (index into `BIC.DifficultyLevels`).
+    pub game_difficulty: u32,
+    /// `p_human_player_bits`: bit per civ run by a human.
+    pub human_player_bits: u32,
 }
 
 impl Build {
@@ -51,6 +62,11 @@ impl Build {
                 current_turn_no: 0xA5_26AC,
                 preferences: 0xA5_2678,
                 outposts: 0xA5_2E08,
+                game: 0xA5_2658,
+                toggleable_rules: 0xA5_267C,
+                debug_mode_bits: 0xA5_2680,
+                game_difficulty: 0xA5_2684,
+                human_player_bits: 0xA5_26BC,
             },
             Build::Steam => Addresses {
                 bic_data: 0x9E_5D08,
@@ -62,6 +78,11 @@ impl Build {
                 current_turn_no: 0xA7_4EA4,
                 preferences: 0xA7_4E70,
                 outposts: 0xA7_5608,
+                game: 0xA7_4E50,
+                toggleable_rules: 0xA7_4E74,
+                debug_mode_bits: 0xA7_4E78,
+                game_difficulty: 0xA7_4E7C,
+                human_player_bits: 0xA7_4EB4,
             },
             Build::PcGames => Addresses {
                 bic_data: 0x9C_34C8,
@@ -73,6 +94,11 @@ impl Build {
                 current_turn_no: 0xA5_266C,
                 preferences: 0xA5_2638,
                 outposts: 0xA5_2DC8,
+                game: 0xA5_2618,
+                toggleable_rules: 0xA5_263C,
+                debug_mode_bits: 0xA5_2640,
+                game_difficulty: 0xA5_2644,
+                human_player_bits: 0xA5_267C,
             },
         }
     }

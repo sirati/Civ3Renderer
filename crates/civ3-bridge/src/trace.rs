@@ -325,6 +325,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         for b in &p.icon_buildings {
             let _ = writeln!(out, "icon_building {} {:#x} {:#x}", b.id, b.flags, b.obsolete_for);
         }
+        for (civ, adjective) in p.adjectives.iter().enumerate().filter(|(_, a)| !a.is_empty()) {
+            let _ = writeln!(out, "civ_adjective {civ} {adjective}");
+        }
     }
     if let Ok(keys) = game.unit_type_keys() {
         for (i, k) in keys.iter().enumerate() {
@@ -365,6 +368,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     if let Ok(p) = game.preferences() {
         let _ = writeln!(out, "preferences {p:#x}");
     }
+    if let Ok(bits) = game.debug_mode_bits() {
+        let _ = writeln!(out, "debug_mode_bits {bits:#x}");
+    }
     if let Ok(keys) = game.era_keys() {
         for (i, k) in keys.iter().enumerate() {
             let _ = writeln!(out, "era_key {i} {k}");
@@ -398,7 +404,14 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             for c in cities {
                 let bits: String = c.improvements.iter().map(|b| format!("{b:02x}")).collect();
                 let wonder = c.improvement_in_production().filter(|&i| districts.is_wonder(i)).unwrap_or(-1);
-                let _ = writeln!(out, "city {} {} {} {} {} {bits} {wonder}", c.id, c.x, c.y, c.civ, c.size);
+                // The columns of the label (docs §10.8), then the names (a tab before each).
+                let icons = if c.hud_icons.is_empty() { "-".to_owned() } else { c.hud_icons.iter().map(u8::to_string).collect::<Vec<_>>().join(",") };
+                let _ = writeln!(
+                    out,
+                    "city {} {} {} {} {} {bits} {wonder} {} {} {} {} {} {} {icons} {}\t{}\t{}",
+                    c.id, c.x, c.y, c.civ, c.size, c.order.0, c.order.1, c.policy, c.food_income, c.grow_turns, c.build_turns, c.veteran_icons,
+                    c.order_name.as_deref().unwrap_or(""), c.name
+                );
             }
         }
         Err(e) => log::warn!("reading cities: {e}"),

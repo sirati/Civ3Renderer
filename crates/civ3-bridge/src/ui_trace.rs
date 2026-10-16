@@ -284,9 +284,7 @@ fn hook_shade_later() {
     });
 }
 
-/// `shade_rect`: the colour weighs `1 − a`, what is there `a = percent·256/100`
-/// (in 1/256), per 8-bit channel, rounded down — for the percentages the
-/// game uses, our translucency (1/32 steps, rounded down) exactly.
+/// `shade_rect` (see [`crate::ui::shade_alpha`]).
 fn shade(c: &h::jgl_shade::Call) {
     let Some(canvas) = h::jgl_owner(c.image) else { return };
     // Palette colours are not used by the interface code we know of.
@@ -295,8 +293,7 @@ fn shade(c: &h::jgl_shade::Call) {
     }
     let rect = if c.rect == 0 { obj::image_size(canvas).map(|(w, hh)| [0, 0, w, hh]) } else { rect_xywh(c.rect) };
     let Some(rect) = rect else { return };
-    let kept = (c.percent as i32).clamp(0, 100) * 256 / 100;
-    let alpha = ((256 - kept) * 255 / 256) as u8;
+    let alpha = crate::ui::shade_alpha((c.percent as i32).clamp(0, 100) as u32);
     if alpha == 0 {
         return;
     }

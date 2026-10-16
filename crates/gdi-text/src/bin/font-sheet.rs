@@ -5,8 +5,8 @@
 //! Writes OUT.png (per channel, the opacity of black text over white),
 //! OUT-light.png (of white text over black; see `gdi_text::Glyph`), each
 //! with one cell per character FIRST..=LAST, 16 per row, cell = widest
-//! glyph × line height, and OUT.toml with each glyph's left bearing and
-//! advance.
+//! glyph × line height, and OUT.toml with each glyph's left bearing, advance
+//! and text extent (what the game measures text with).
 
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
                 light.put_pixel(ox + x, oy + y, opaque(g.light[i]));
             }
         }
-        let _ = writeln!(toml, "{} = {{ left = {}, advance = {}, width = {} }}", g.ch as u32, g.left, g.advance, g.width);
+        let _ = writeln!(toml, "{} = {{ left = {}, advance = {}, extent = {}, width = {} }}", g.ch as u32, g.left, g.advance, g.extent, g.width);
     }
     let out = std::path::Path::new(&a[4]);
     let light_path = out.with_file_name(format!("{}-light.png", out.file_stem().unwrap_or_default().to_string_lossy()));

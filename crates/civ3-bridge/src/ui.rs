@@ -645,6 +645,16 @@ pub fn rgb555(c: u32) -> [u8; 3] {
     [e((c >> 10) & 31), e((c >> 5) & 31), e(c & 31)]
 }
 
+/// The opacity (of 255) of the game's translucent rectangle fill
+/// (`JGL_Image::shade_rect`) that keeps `percent` of what is under it: the
+/// colour weighs `1 − a`, what is there `a = percent·256/100` (in 1/256), per
+/// 8-bit channel, rounded down — for the percentages the game uses, our
+/// translucency (1/32 steps, rounded down) exactly.
+pub fn shade_alpha(percent: u32) -> u8 {
+    let kept = percent.min(100) * 256 / 100;
+    ((256 - kept) * 255 / 256) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
