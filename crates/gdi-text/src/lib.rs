@@ -30,6 +30,11 @@ pub struct Glyph {
     pub ch: char,
     pub left: i32,
     pub advance: i32,
+    /// The width `GetTextExtentPoint32` gives the character on a memory DC
+    /// with its default (monochrome) bitmap, which is how `jgl.dll`
+    /// measures text for the game (docs §10.8). It is not `advance`, with
+    /// which the text is drawn on the 16-bit surfaces.
+    pub extent: i32,
     pub width: u32,
     pub height: u32,
     /// Row-major opacity per channel (red, green, blue) of black text over
@@ -103,6 +108,18 @@ pub struct Font {
     /// thickness.
     pub underline: (i32, i32),
     pub glyphs: Vec<Glyph>,
+}
+
+/// The width `GetTextExtentPoint32A` gives `text` (Windows-1252 bytes) in
+/// `font` on a memory DC with its default bitmap: the game's text measure.
+pub fn text_extent(font: &FontSpec, text: &[u8]) -> Result<i32, GdiError> {
+    #[cfg(windows)]
+    return win::text_extent(font, text);
+    #[cfg(not(windows))]
+    {
+        let _ = (font, text);
+        Err(GdiError::Unsupported)
+    }
 }
 
 /// Renders `chars` one by one with `font`.

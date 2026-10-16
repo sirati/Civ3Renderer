@@ -1,5 +1,6 @@
 //! The GDI calls.
 
+use windows_sys::Win32::Foundation::SIZE;
 use windows_sys::Win32::Graphics::Gdi::*;
 
 use crate::{FontSpec, GdiError, Glyph};
@@ -96,6 +97,63 @@ impl Canvas {
     }
 }
 
+/// A memory DC with only `font` selected: its default bitmap is one
+/// monochrome pixel, as that of the DC `jgl.dll` measures text on.
+struct MeasureDc {
+    dc: HDC,
+    font: HFONT,
+}
+
+impl MeasureDc {
+    fn new(font: &FontSpec) -> Result<MeasureDc, GdiError> {
+        let face: Vec<u16> = font.face.encode_utf16().chain([0]).collect();
+        // SAFETY: plain GDI object creation; every handle is checked and
+        // owned by the returned value.
+        unsafe {
+            let dc = CreateCompatibleDC(std::ptr::null_mut());
+            if dc.is_null() {
+                return Err(GdiError::Call("CreateCompatibleDC"));
+            }
+            // As the game's fonts: ANSI character set, swiss, variable pitch.
+            let hfont = CreateFontW(
+                -font.height, 0, 0, 0, font.weight, font.italic as u32, 0, 0,
+                ANSI_CHARSET as u32, OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32,
+                font.quality as u32, (FF_SWISS | VARIABLE_PITCH) as u32, face.as_ptr(),
+            );
+            if hfont.is_null() {
+                DeleteDC(dc);
+                return Err(GdiError::Call("CreateFontW"));
+            }
+            SelectObject(dc, hfont);
+            Ok(MeasureDc { dc, font: hfont })
+        }
+    }
+
+    /// `GetTextExtentPoint32A`'s width.
+    fn extent(&self, text: &[u8]) -> Result<i32, GdiError> {
+        let mut size = SIZE { cx: 0, cy: 0 };
+        // SAFETY: `text` outlives the call, which writes only `size`.
+        if unsafe { GetTextExtentPoint32A(self.dc, text.as_ptr(), text.len() as i32, &mut size) } == 0 {
+            return Err(GdiError::Call("GetTextExtentPoint32A"));
+        }
+        Ok(size.cx)
+    }
+}
+
+impl Drop for MeasureDc {
+    fn drop(&mut self) {
+        // SAFETY: handles created in `MeasureDc::new`, deleted once.
+        unsafe {
+            DeleteDC(self.dc);
+            DeleteObject(self.font);
+        }
+    }
+}
+
+pub fn text_extent(font: &FontSpec, text: &[u8]) -> Result<i32, GdiError> {
+    MeasureDc::new(font)?.extent(text)
+}
+
 pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<crate::Font, GdiError> {
     let cell = font.height.abs() * 3;
     let mut canvas = Canvas::new(font, (cell * 2, cell))?;
@@ -106,6 +164,7 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
     }
     let line = metrics.tmHeight;
     let origin = font.height.abs(); // pen x, leaves room for negative bearings
+    let measure = MeasureDc::new(font)?;
     let mut out = Vec::new();
     for ch in chars {
         let mut units = [0u16; 2];
@@ -125,10 +184,13 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
             _ => (origin, origin),
         };
         let crop = |m: &[[u8; 3]]| (0..height).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| m[at(x, y)]).collect();
+        // The character as a Windows-1252 byte (Latin-1 codes are the same).
+        let extent = u8::try_from(ch as u32).map_or(Ok(advance), |b| measure.extent(&[b]))?;
         out.push(Glyph {
             ch,
             left: x0 - origin,
             advance,
+            extent,
             width: (x1 - x0) as u32,
             height: height as u32,
             dark: crop(&dark),
