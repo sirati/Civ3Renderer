@@ -15,6 +15,10 @@
 //!   recolour units to a civilisation's colours; `palette_map = { 247 = 66 }`
 //!   also copies its entry 66 to entry 247.
 //!
+//! * `alpha_image = "Art/mask.pcx"` alpha per pixel from another PCX (repeated
+//!   if smaller), whose palette indices are inverted weights (alpha = 255 −
+//!   index), as the game's button masks are.
+//!
 //! PCX sources yield one image, FLC sources one image per frame.
 //!
 //! `font:<face>/<height>/<r>,<g>,<b>` sources are the game's text glyphs
@@ -158,7 +162,18 @@ impl ImageLoader for Civ3Loader {
         if lower.ends_with(".pcx") {
             let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             let palette = self.options_palette(options, &img.palette)?;
-            Ok(vec![to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, &explicit, q)])
+            let mut out = to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, &explicit, q);
+            if let Some(mask) = options.get("alpha_image").and_then(|v| v.as_str()) {
+                let m = pcx::decode(&self.files.read(mask).map_err(|e| e.to_string())?).map_err(|e| format!("{mask}: {e}"))?;
+                for y in 0..out.height {
+                    for x in 0..out.width {
+                        let mut p = out.get(x, y);
+                        p[3] = 255 - m.pixels[((y % m.height) * m.width + x % m.width) as usize];
+                        out.put(x, y, p);
+                    }
+                }
+            }
+            Ok(vec![out])
         } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
             let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             anim.frames

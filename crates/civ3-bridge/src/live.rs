@@ -9,7 +9,7 @@ use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
 use scene::Link;
 
-use crate::{assets, units};
+use crate::{assets, text, trace, units};
 use crate::scene_map::Mapper;
 use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, WallBuilding};
 
@@ -162,8 +162,8 @@ impl Compiler {
         assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search)
     }
 
-    fn compile(&self, folders: &ArtFolders, units: &units::Needed) -> Result<Arc<Compiled>, LiveError> {
-        let text = format!("{}{}", self.text, units.description());
+    fn compile(&self, folders: &ArtFolders, units: &units::Needed, fonts: &text::Fonts) -> Result<Arc<Compiled>, LiveError> {
+        let text = format!("{}{}{}", self.text, units.description(), fonts.description());
         let compiled = assets::compile(&text, self.files(folders)).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
         log::info!("live renderer: {} layers, {} sprites ({folders:?})", compiled.layers.len(), compiled.sprite_names.len());
         Ok(Arc::new(compiled))
@@ -175,7 +175,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let (name, text) = description()?;
     let compiler = Compiler { install: install_root()?, name, text };
     let folders = ArtFolders::of(&game);
-    let assets = tile_viewer::Assets::new(compiler.compile(&folders, &units::Needed::default())?);
+    let assets = tile_viewer::Assets::new(compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default())?);
     let link = Link::new();
     {
         let (assets, link) = (assets.clone(), link.clone());
@@ -202,15 +202,29 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     Ok(())
 }
 
+/// The game's menus in our renderer (`assets/civ3/menus.toml`).
+const MENUS: &str = include_str!("../../../assets/civ3/menus.toml");
+
+/// What the viewer shows: the map, or the title menu while no game runs.
+#[derive(PartialEq)]
+enum Shown {
+    Map(Civ3World, Civ3View),
+    Title(menu::MenuState),
+}
+
 /// Publishes a new scene whenever what the game shows changes.
 fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &tile_viewer::Assets, link: &Link) {
     let mut compiled = assets.current().1;
     let mut mapper = Mapper::new(&compiled);
-    let mut last: Option<(Civ3World, Civ3View)> = None;
+    let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
+    let mut menus = menus_of(&compiled);
+    let mut last: Option<(Shown, Vec<text::TextRun>)> = None;
     let mut seq = 0;
     let mut input = InputForwarder::default();
+    let mut title = menu::MenuState::default();
     let mut art = units::UnitArt::new(compiler.files(&folders));
     let mut have = units::Needed::default();
+    let mut fonts = text::Fonts::default();
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
@@ -222,36 +236,70 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
             have = units::Needed::default();
             recompile = true;
         }
-        forward_input(&mut input, link.take_input());
-        let state = match snapshot(&game) {
-            Ok(s) => s,
-            // Between games, or while loading.
-            Err(Civ3Error::NoGame) => continue,
+        let inputs = link.take_input();
+        let shown = match snapshot(&game) {
+            Ok((world, view)) => Shown::Map(world, view),
+            // Between games: the title menu, which follows the pointer.
+            Err(Civ3Error::NoGame) => {
+                if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))) {
+                    for i in &inputs {
+                        m.0.input(m.1, &mut title, input.viewport, i);
+                    }
+                }
+                Shown::Title(title.clone())
+            }
             Err(e) => {
                 log::debug!("snapshot: {e}");
+                forward_input(&mut input, inputs);
                 continue;
             }
         };
+        forward_input(&mut input, inputs);
+        if input.viewport == (0, 0) {
+            input.game_window();
+        }
+        let texts = trace::recent_texts();
+        let state = (shown, texts);
         if last.as_ref() == Some(&state) && !recompile {
             continue;
         }
-        let (world, view) = &state;
-        // Unit art the description does not have yet.
-        let needed = units::Needed::of(world, &mut art);
-        if recompile || !have.covers(&needed) {
-            have.merge(&needed);
-            match compiler.compile(&folders, &have) {
+        let (shown, texts) = &state;
+        // Art the description does not have yet: units, text fonts.
+        if let Shown::Map(world, _) = shown {
+            let needed = units::Needed::of(world, &mut art);
+            if !have.covers(&needed) {
+                have.merge(&needed);
+                recompile = true;
+            }
+        }
+        recompile |= fonts.add(&compiler.files(&folders), texts);
+        if recompile {
+            match compiler.compile(&folders, &have, &fonts) {
                 Ok(c) => {
                     assets.replace(c.clone());
                     compiled = c;
                     mapper = Mapper::new(&compiled);
+                    menus = menus_of(&compiled);
                 }
                 Err(e) => log::error!("recompiling for {folders:?}: {e}"),
             }
         }
         seq += 1;
-        let mut scene = mapper.scene(world, view, (1024, 768), 0);
-        scene.sprites = units::sprites(world, &mut art, &compiled);
+        let mut scene = match shown {
+            Shown::Map(world, view) => {
+                let mut scene = mapper.scene(world, view, (1024, 768), 0);
+                scene.sprites = units::sprites(world, &mut art, &compiled);
+                scene
+            }
+            Shown::Title(state) => {
+                let mut scene = scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len());
+                if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))) {
+                    scene.sprites = m.0.sprites(m.1, state, input.viewport, u32::MAX);
+                }
+                scene
+            }
+        };
+        scene.sprites.extend(fonts.sprites(texts, &compiled));
         scene.seq = seq;
         link.publish(scene);
         last = Some(state);
@@ -265,6 +313,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
 struct InputForwarder {
     window: Option<inproc::window::Window>,
     held: inproc::window::Buttons,
+    /// The viewer's size, as it last reported.
+    viewport: (u32, u32),
 }
 
 impl InputForwarder {
@@ -276,6 +326,9 @@ impl InputForwarder {
                 .max_by_key(|w| w.client_size().map_or(0, |(w, h)| w as u64 * h as u64));
             if let Some(w) = self.window {
                 log::info!("forwarding input to {:?} ({:?})", w.title(), w.client_size());
+                if self.viewport == (0, 0) {
+                    self.viewport = w.client_size().unwrap_or((1024, 768));
+                }
             }
         }
         self.window
@@ -317,7 +370,8 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
                     window.char(c);
                 }
             }
-            Input::Resized { .. } | Input::Quit => {}
+            Input::Resized { width, height } => forwarder.viewport = (width, height),
+            Input::Quit => {}
         }
     }
 }

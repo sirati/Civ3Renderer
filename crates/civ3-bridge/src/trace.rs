@@ -16,6 +16,8 @@ use civ3_sys::hooks::{draw_tiles, sprite_draw_on_map, sprite_draw_on_map_blend, 
 use civ3_sys::sprites::{SpriteRef, identify_canonical};
 use civ3_sys::{Civ3, hooks};
 
+use crate::text::TextRun;
+
 #[derive(Clone, Debug)]
 pub struct Draw {
     pub sprite: Option<SpriteRef>,
@@ -28,8 +30,6 @@ pub struct Draw {
     /// Which blit: "map", "blend" (with a blend table), "colored" or
     /// "text".
     pub kind: &'static str,
-    /// For text: the string, font and colour.
-    pub text: Option<(String, Option<inproc::gdi::LogFont>, (u8, u8, u8))>,
 }
 
 struct State {
@@ -77,34 +77,47 @@ fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind
             let resolved = if map_renderer != 0 { identify_canonical(map_renderer, sprite) } else { None }
                 .or_else(|| BUILD.get().and_then(|&b| civ3_sys::sprites::identify_global(b, sprite)));
             let size = civ3_sys::sprites::size(sprite).unwrap_or((0, 0));
-            frame.push(Draw { sprite: resolved, sprite_addr: sprite, x: x as i32, y: y as i32, size, params, kind, text: None });
+            frame.push(Draw { sprite: resolved, sprite_addr: sprite, x: x as i32, y: y as i32, size, params, kind });
         }
     }
 }
 
+/// Text the game drew recently, newest last.
+static RECENT_TEXT: Mutex<std::collections::VecDeque<(std::time::Instant, TextRun)>> =
+    Mutex::new(std::collections::VecDeque::new());
+
+/// How long text stays "recent": the game redraws what is on screen more
+/// often than this.
+const TEXT_WINDOW: std::time::Duration = std::time::Duration::from_millis(500);
+
 fn record_text(call: &hooks::text_out::Call) {
     let len = (call.len as i32).clamp(0, 1024) as usize;
     let Ok(bytes) = inproc::Ptr32::<u8>::new(call.text).read_array(len) else { return };
-    // The game's text is Windows-1252; keep it readable in the trace.
-    let s: String = bytes.iter().map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { '?' }).collect();
-    let font = inproc::gdi::dc_font(call.dc);
-    let color = inproc::gdi::dc_text_color(call.dc);
-    if let Ok(mut st) = STATE.lock() {
-        if let Some((_, frame, _)) = st.frame.as_mut() {
-            if frame.len() < MAX_DRAWS {
-                frame.push(Draw {
-                    sprite: None,
-                    sprite_addr: call.dc,
-                    x: call.x as i32,
-                    y: call.y as i32,
-                    size: (0, 0),
-                    params: vec![],
-                    kind: "text",
-                    text: Some((s, font, color)),
-                });
-            }
+    // Windows-1252, read as Latin-1 (the glyph set covers the same codes).
+    let text: String = bytes.iter().map(|&b| b as char).collect();
+    let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
+    let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
+    let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, text };
+    if let Ok(mut recent) = RECENT_TEXT.lock() {
+        let now = std::time::Instant::now();
+        while recent.front().is_some_and(|(t, _)| now.duration_since(*t) > TEXT_WINDOW) {
+            recent.pop_front();
+        }
+        recent.retain(|(_, r)| !(r.x == run.x && r.y == run.y));
+        if recent.len() < 4096 {
+            recent.push_back((now, run));
         }
     }
+}
+
+/// The text runs currently on screen (drawn within the last half second),
+/// in drawing order; a run replaces earlier ones at the same position.
+pub fn recent_texts() -> Vec<TextRun> {
+    let now = std::time::Instant::now();
+    RECENT_TEXT
+        .lock()
+        .map(|r| r.iter().filter(|(t, _)| now.duration_since(*t) <= TEXT_WINDOW).map(|(_, r)| r.clone()).collect())
+        .unwrap_or_default()
 }
 
 fn request_path() -> PathBuf {
@@ -206,6 +219,11 @@ fn serve_requests(game: Civ3) {
                 _ => None,
             }
         };
+        // No map on screen (title screen, menus): text only, after a moment.
+        let frame = frame.or_else(|| {
+            let waited = std::fs::metadata(request_path()).and_then(|m| m.modified()).ok()?.elapsed().ok()?;
+            (waited > std::time::Duration::from_secs(1)).then(|| (0, Vec::new()))
+        });
         let Some((map_renderer, draws)) = frame else { continue };
         let text = format_trace(&game, map_renderer, &draws);
         match std::fs::write("civ3-trace.txt", text) {
@@ -375,13 +393,12 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             }
         }
     }
+    for t in recent_texts() {
+        let [r, g, b] = t.color;
+        let _ = writeln!(out, "text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/0/0 str {}", t.x, t.y, t.face, t.height, t.text);
+    }
     let _ = writeln!(out, "# draw array index x y kind w h params...");
     for d in draws {
-        if let Some((s, font, (r, g, b))) = &d.text {
-            let f = font.as_ref().map_or("?".to_owned(), |f| format!("{:?}/{}/{}/{}", f.face, f.height, f.weight, f.quality));
-            let _ = writeln!(out, "text dc {:#x} at {} {} color {r} {g} {b} font {f} str {s}", d.sprite_addr, d.x, d.y);
-            continue;
-        }
         let (array, index) = d.sprite.map_or(("?", d.sprite_addr), |s| (s.array, s.index));
         let params: Vec<String> = d.params.iter().map(|p| format!("{p:#x}")).collect();
         let _ = writeln!(out, "draw {array} {index} {} {} {} {} {} {}", d.x, d.y, d.kind, d.size.0, d.size.1, params.join(" "));

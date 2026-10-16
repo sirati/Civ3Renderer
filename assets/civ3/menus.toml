@@ -1,0 +1,81 @@
+# Civilization III menus (menu crate format), drawn from the game's art.
+# Text is not described here: the game's own text output is mirrored.
+
+# The main menu (measured: background centred, dots at (200, 324 + 38k)).
+[menus.title]
+size = [1024, 768]
+anchor = "center"
+
+[[menus.title.items]]
+image = "Title/0"
+at = [0, 0]
+
+[[menus.title.items]]
+button = "new_game"
+at = [200, 324]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "quick_start"
+at = [200, 362]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "load_game"
+at = [200, 400]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "conquests"
+at = [200, 438]
+size = [160, 38]
+normal = "TitleDot/2"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "civ_content"
+at = [200, 476]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "hall_of_fame"
+at = [200, 514]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "preferences"
+at = [200, 552]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "multiplayer"
+at = [200, 590]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "credits"
+at = [200, 628]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"
+
+[[menus.title.items]]
+button = "exit"
+at = [200, 666]
+size = [160, 38]
+normal = "TitleDot/0"
+hover = "TitleDot/1"

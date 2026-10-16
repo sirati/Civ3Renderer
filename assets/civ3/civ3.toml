@@ -585,6 +585,27 @@ image = "hud_white"
 cell = [1, 1]
 group = "Hud_white"
 
+# Title screen (menus.toml): background and the menu's dot buttons
+# (normal, hover, highlighted), feathered by a mask.
+[images.title]
+source = "Art/x_title.PCX"
+
+[sheets.title]
+image = "title"
+cell = [1024, 768]
+grid = [1, 1]
+group = "Title"
+
+[images.title_dots]
+source = "Art/x_title buttons.PCX"
+alpha_image = "Art/x_title buttons alpha.PCX"
+
+[sheets.title_dots]
+image = "title_dots"
+cell = [38, 38]
+grid = [3, 1]
+group = "TitleDot"
+
 # §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
 # mtnRivers) and flood plains, per vertex.
 
