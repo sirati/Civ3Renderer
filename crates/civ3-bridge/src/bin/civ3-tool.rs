@@ -6,6 +6,11 @@
 //!       description covers
 //!   civ3-tool render TRACE OUT.png [--viewport WxH]
 //!       renders the trace's world on the GPU
+//!   civ3-tool pixeldiff TRACE GAME.png [DIFF.png]
+//!       renders the trace's world and compares it with a screenshot of the
+//!       game taken at the same moment, ignoring the screen rectangles of
+//!       game draws we do not model (units, cities, borders); DIFF.png shows
+//!       differing pixels in magenta and ignored areas darkened
 //!
 //! Environment: CIV3_INSTALL (game folder), CIV3_DESC (render description,
 //! default assets/civ3/civ3.toml).
@@ -72,7 +77,13 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             println!("{out}");
             Ok(ExitCode::SUCCESS)
         }
-        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png  [--viewport WxH]".into()),
+        Some("pixeldiff") => {
+            let usage = "pixeldiff TRACE GAME.png [DIFF.png]";
+            let trace = load_trace(args.get(1).ok_or(usage)?)?;
+            let game = image::open(args.get(2).ok_or(usage)?).map_err(|e| e.to_string())?.to_rgba8();
+            pixeldiff(&trace, &game, args.get(3).map(String::as_str))
+        }
+        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | pixeldiff TRACE GAME.png [DIFF.png]  [--viewport WxH]".into()),
     }
 }
 
@@ -166,4 +177,68 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
         println!("  ours-only {d:?}");
     }
     Ok(ExitCode::FAILURE)
+}
+
+fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Result<ExitCode, String> {
+    let viewport = (game.width(), game.height());
+    let compiled = compile()?;
+    let scene = Mapper::new(&compiled).scene(&trace.world, &trace.view, viewport, 0);
+    let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
+    let config = tile_viewer::ViewerConfig { overhang: (0, 128, 0, 128), ..Default::default() };
+    let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, &config);
+
+    // Pixels the game drew with sprites we do not model.
+    let groups: HashSet<&str> = compiled.sprite_names.iter().filter_map(|n| n.split_once('/').map(|(g, _)| g)).collect();
+    let (w, h) = viewport;
+    let mut ignored = vec![false; (w * h) as usize];
+    let mut unsized_draws = 0;
+    for d in &trace.draws {
+        let modelled = d.sprite.as_ref().is_some_and(|(array, _)| groups.contains(array.as_str()));
+        // Colour-table blits also draw off the map (other canvases).
+        let on_map = d.kind != "colored" || d.params.first() == Some(&trace.map_renderer);
+        if modelled || !on_map {
+            continue;
+        }
+        let Some((sw, sh)) = d.size else {
+            unsized_draws += 1;
+            continue;
+        };
+        for y in d.y.max(0)..(d.y + sh as i32).min(h as i32) {
+            for x in d.x.max(0)..(d.x + sw as i32).min(w as i32) {
+                ignored[(y as u32 * w + x as u32) as usize] = true;
+            }
+        }
+    }
+    let (mut same, mut compared) = (0u64, 0u64);
+    let mut diff = game.clone();
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) as usize;
+            let g = game.get_pixel(x, y).0;
+            if ignored[i] {
+                diff.put_pixel(x, y, image::Rgba([g[0] / 4, g[1] / 4, g[2] / 4, 255]));
+                continue;
+            }
+            compared += 1;
+            let o = ours.get(x, y);
+            if g[..3] == o[..3] {
+                same += 1;
+            } else {
+                diff.put_pixel(x, y, image::Rgba([255, 0, 255, 255]));
+            }
+        }
+    }
+    println!(
+        "compared {compared} of {} pixels ({} ignored{}): {:.3}% identical, {} differ",
+        w * h,
+        w as u64 * h as u64 - compared,
+        if unsized_draws > 0 { format!(", {unsized_draws} unmodelled draws without size not masked") } else { String::new() },
+        100.0 * same as f64 / compared.max(1) as f64,
+        compared - same
+    );
+    if let Some(path) = out {
+        diff.save(path).map_err(|e| e.to_string())?;
+        println!("{path}");
+    }
+    Ok(if same == compared { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }

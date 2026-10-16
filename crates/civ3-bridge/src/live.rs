@@ -49,6 +49,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         resource_icons: game.resource_icons()?,
         resource_visible: game.resources_visible_to(view.player_civ)?,
         eras: game.eras()?,
+        color_tables: game.color_tables()?,
         width: map.width,
         height: map.height,
         wrap_x: map.wrap_x,

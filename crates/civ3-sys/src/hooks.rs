@@ -18,9 +18,10 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
-    /// A sprite recoloured with a civ colour table (borders); 6 stack args,
-    /// meaning not decoded.
-    pub mod sprite_draw_with_color_table(sprite, edx; a1, a2, a3, a4, a5, a6) -> i32;
+    /// A sprite recoloured with a civ colour table (borders, unit flags):
+    /// `Sprite *this, canvas, canvas2, x, y, table, p6` (meaning of the
+    /// second canvas and p6 not decoded).
+    pub mod sprite_draw_with_color_table(sprite, edx; canvas, canvas2, pixel_x, pixel_y, table, p6) -> i32;
 }
 
 inproc::fastcall_hook! {

@@ -51,6 +51,14 @@ pub fn identify_canonical(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
 }
 
 /// Resolves `sprite` against the `Map_Renderer` at `map_renderer`.
+/// Width and height of the sprite at `sprite`.
+pub fn size(sprite: u32) -> Option<(u32, u32)> {
+    let base = Ptr32::<u8>::new(sprite);
+    let w: i32 = base.offset::<i32>(L::SPRITE_WIDTH).ok()?.read().ok()?;
+    let h: i32 = base.offset::<i32>(L::SPRITE_HEIGHT).ok()?.read().ok()?;
+    Some((w.max(0) as u32, h.max(0) as u32))
+}
+
 pub fn identify(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
     for &(name, offset, size) in L::MAP_RENDERER_FIELDS {
         if name.starts_with("PCX_") {
