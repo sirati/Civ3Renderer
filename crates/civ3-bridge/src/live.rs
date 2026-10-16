@@ -471,8 +471,13 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         // Every explored city has its label, also those the game's own view
         // leaves out (it skips cities past the edge of its tile range and
         // misplaces far ones).
+        // A menu over the game's map (an advisor, diplomacy) leaves its own
+        // labels out: what is left of its map canvas shows none. Then the
+        // game's view shows none either; the viewer's other views do.
+        let mut labels_not_in_game_view = false;
         let label_items = match shown {
             Shown::Map(world, view) if ui.is_some() && world_labels() => {
+                labels_not_in_game_view = !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 let labels = crate::city_labels::labels(world, view.zoomed_out, &mut label_env);
                 let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
@@ -607,7 +612,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms));
         // The city labels go with the world.
         scene.sprites.extend(ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms).into_iter().map(|s| {
-            scene::FreeSprite { screen: false, clip: None, ..s }
+            let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
+            scene::FreeSprite { screen: false, clip: None, not_in_view, ..s }
         }));
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {

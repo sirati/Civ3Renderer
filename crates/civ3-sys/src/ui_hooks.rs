@@ -273,12 +273,14 @@ fn color_tables(build: Build) -> Option<u32> {
     }
 }
 
-/// Which civ colour table (NN of `ntpNN.pcx`) `ct` is, if it is one: a
-/// sprite drawn through it shows that file's palette (e.g. the foreign
-/// advisor's ring around a leader).
+/// Which civ colour table (NN of `ntpNN.pcx`) `ct` is, if it is one (the
+/// `PCX_Color_Table` or its `JGL_Color_Table`, +4): a sprite drawn through
+/// it shows that file's palette (e.g. the foreign advisor's ring around a
+/// leader).
 pub fn civ_color_table(build: Build, ct: u32) -> Option<u32> {
     let base = color_tables(build).filter(|_| ct != 0)?;
-    (0..32).find(|&i| Ptr32::<u32>::new(base + 4 * i).read().ok() == Some(ct))
+    let read = |a: u32| Ptr32::<u32>::new(a).read().ok().filter(|&p| p != 0);
+    (0..32).find(|&i| read(base + 4 * i).is_some_and(|t| t == ct || read(t + 4) == Some(ct)))
 }
 
 /// Fields of the game's image, sprite and form objects (docs §16.2-16.5).

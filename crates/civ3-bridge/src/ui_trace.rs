@@ -77,7 +77,18 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
         return;
     }
     // Through a civ colour table: that table's palette.
-    let palette = BUILD.get().and_then(|&b| h::civ_color_table(b, ct)).map(|n| format!("Art/Units/Palettes/ntp{n:02}.pcx"));
+    let table = BUILD.get().and_then(|&b| h::civ_color_table(b, ct));
+    if ct != 0 && table.is_none() {
+        // (Once per table: which ones are not the civs'.)
+        static SEEN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+        if let Ok(mut seen) = SEEN.lock() {
+            if !seen.contains(&ct) && seen.len() < 64 {
+                seen.push(ct);
+                log::debug!("sprite {sprite:#x} drawn through colour table {ct:#x}, not a civ's");
+            }
+        }
+    }
+    let palette = table.map(|n| format!("Art/Units/Palettes/ntp{n:02}.pcx"));
     emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), palette });
 }
 
