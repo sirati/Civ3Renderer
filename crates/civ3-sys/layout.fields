@@ -272,3 +272,24 @@ Main_Screen_Form field_4E80
 # User interface (docs §16).
 Base_Form_Data Canvas
 City Body
+
+# Districts (docs "C3X districts"): the city whose area a tile belongs to,
+# what a city is building, what an improvement is called and is.
+Tile_Body CityAreaID
+City_Body Order_ID
+City_Body Order_Type
+Improvement Name
+Improvement Characteristics
+value COT_IMPROVEMENT COT_Improvement
+value ITC_WONDER ITC_Wonder
+value ITC_SMALL_WONDER ITC_Small_Wonder
+
+# Free buildings from wonders (Leader.Auto_Improvements, a hash table of
+# 8-byte (key, value) items; unused items hold the key -1) and the continent
+# of a tile (docs §18).
+Leader Auto_Improvements
+Hash_Table
+Hash_Table Items
+Hash_Table Capacity
+Hash_Table_Item
+Tile ContinentID

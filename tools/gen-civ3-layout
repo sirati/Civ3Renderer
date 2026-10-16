@@ -8,7 +8,9 @@
 # writes crates/civ3-sys/src/layout.rs from crates/civ3-sys/layout.fields
 # (the game's structs) and crates/civ3-sys/src/c3x_layout.rs from
 # crates/civ3-sys/c3x.fields (C3X's own state; needs a C3X with districts,
-# default the C3X source at /mnt/datasets/winvm/c3x-src). Field lists:
+# default the C3X source at /mnt/datasets/winvm/c3x-src), which also gets the
+# district ids and work area tables of C3X's injected_code.c appended.
+# Field lists:
 #   Struct                -> SIZE of the struct
 #   Struct field.sub[3]   -> OFFSET of that member (any offsetof designator)
 #   Struct field sizeof   -> its OFFSET and its SIZE
@@ -72,3 +74,43 @@ generate "$repo/crates/civ3-sys/layout.fields" "$repo/crates/civ3-sys/src/layout
 generate "$repo/crates/civ3-sys/c3x.fields" "$repo/crates/civ3-sys/src/c3x_layout.rs" \
   "Offsets and sizes of C3X's own state (its districts), valid for the C3X
 //! release they were generated from (see \`C3X_MOD_VERSION\`, \`STATE_SIZE\`)."
+
+# What C3X keeps in injected_code.c rather than in its headers: the ids of the
+# special districts (#defines) and the work area tables (city radius), copied
+# from the source so that nothing is transcribed by hand.
+tables() {
+  local src=$c3x/injected_code.c
+  echo
+  echo '// ---- From injected_code.c ----'
+  echo
+  echo '/// The special districts'"'"' ids (indices into the district configs).'
+  grep -E '^#define [A-Z_]+_DISTRICT_ID[[:space:]]' "$src" | tr -d '\r' \
+    | awk '{ printf "pub const %s: i32 = %s;\n", $2, $3 }'
+  echo
+  awk '/^#define MAX_CULTURAL_NI/ { sub(/\r/, ""); printf "pub const MAX_CULTURAL_NI: usize = %s;\n", $3 }' "$src"
+  echo '/// Work area size (city centre included) by radius 0..7.'
+  awk '/^unsigned char const workable_tile_counts\[/ {
+         sub(/\r/, ""); sub(/^[^{]*\{/, ""); sub(/\}.*$/, "")
+         printf "pub const WORKABLE_TILE_COUNTS: [u32; 8] = [%s];\n", $0 }' "$src"
+  echo
+  echo '/// `cultural_ni_to_diffs`: the (x, y) offsets of the work area'"'"'s tiles from the'
+  echo '/// city, in the order C3X enumerates them (the centre first, then ring by ring).'
+  awk '
+    /^char const cultural_ni_to_diffs/ { on = 1; next }
+    on && /^};/ { exit }
+    on {
+      sub(/\/\/.*/, ""); gsub(/[{}]/, "")
+      n = split($0, f, /[ ,\t\r]+/)
+      for (i = 1; i <= n; i++) if (f[i] != "") v[k++] = f[i]
+    }
+    END {
+      printf "pub const WORK_AREA_OFFSETS: [(i8, i8); %d] = [\n", k / 2
+      for (i = 0; i < k; i += 2) {
+        if (i % 16 == 0) printf "   "
+        printf " (%s, %s),", v[i], v[i + 1]
+        if (i % 16 == 14 || i + 2 >= k) printf "\n"
+      }
+      print "];"
+    }' "$src"
+}
+tables >> "$repo/crates/civ3-sys/src/c3x_layout.rs"
