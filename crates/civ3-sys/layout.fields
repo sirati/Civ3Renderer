@@ -293,3 +293,66 @@ Hash_Table Items
 Hash_Table Capacity
 Hash_Table_Item
 Tile ContinentID
+
+# What the map label of a city shows (docs §10.8, civ3_sys::city_label): its
+# name and numbers, the turns to grow and to build (the game's own rules for
+# them), and the icons of its HUD.
+City_Body CityName
+City_Body StoredFood
+City_Body StoredProduction
+City_Body FoodIncome
+City_Body ProductionIncome
+City_Body Common_Policy
+City_Body stored_production_from_specialists
+City_Body Citizens
+Citizens Items
+Citizens LastIndex
+Citizen_Info
+Citizen_Info Body
+Citizen_Body field_20
+Citizen_Body WorkerType
+Citizen_Type
+Citizen_Type Construction
+BIC CitizenTypes
+BIC DifficultyLevels
+Difficulty_Level
+Difficulty_Level Cost_Factor
+BIC WorldSizes
+World_Size
+World_Size OptimalCityCount
+Map World.World_Size
+BIC Advances
+BIC AdvanceCount
+Advance
+Advance Flags
+Improvement Cost
+Improvement SmallWonderFlags
+UnitType Name
+UnitType Cost
+Race AdjectiveName
+Race Bonuses
+Leader Cities_Count
+Leader Small_Wonders
+Leader tribe_customization.civ_adjective
+Leader field_D50
+Leader field_D70
+value ITF_ALLOWS_CITY_LEVEL_2 ITF_Allows_City_Level_2
+value ITF_ALLOWS_CITY_LEVEL_3 ITF_Allows_City_Level_3
+value ITF_CENTER_OF_EMPIRE ITF_Center_of_Empire
+value ITC_MILITARISTIC ITC_Militaristic
+value ITC_SCIENTIFIC ITC_Scientific
+value ITC_RELIGIOUS ITC_Religious
+value ITC_AGRICULTURAL ITC_Agricultural
+value ITC_SEAFARING ITC_Seafaring
+value ITSW_ALLOWS_SPY_MISSIONS ITSW_Allows_Spy_Missions
+value ATF_ENABLES_DIPLOMATS ATF_Enables_Diplomats
+value COT_UNIT COT_Unit
+value RB_MILITARISTIC RB_Militaristic
+value RB_SCIENTIFIC RB_Scientific
+value RB_RELIGIOUS RB_Religious
+value RB_AGRICULTURAL RB_Agricultural
+value RB_SEAFARING RB_Seafaring
+BIC DifficultyLevelCount
+BIC CitizenTypeCount
+BIC transition_government
+value TR_ACCELERATED_PRODUCTION TR_ACCELERATED_PRODUCTION
