@@ -1,9 +1,12 @@
 //! Reading the game's world state: map, tiles, view.
 
+use std::collections::HashSet;
+
 use bytemuck::{Pod, Zeroable};
 use inproc::Ptr32;
 
 use crate::build::{Addresses, Build, IMAGE_BASE};
+use crate::city_label::{self, CityFacts, ImprovementRules, LeaderRules, Rules};
 use crate::{Civ3Error, layout as L};
 
 /// Handle to the running game.
@@ -30,7 +33,7 @@ pub struct ViewState {
 }
 
 /// A city, as far as the map shows it.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CityInfo {
     pub id: i32,
     pub x: i32,
@@ -43,6 +46,20 @@ pub struct CityInfo {
     /// What the city is building: `Order_Type` (`COT_IMPROVEMENT`: 1) and
     /// `Order_ID`.
     pub order: (i32, i32),
+    /// What its map label shows (docs §10.8): the name, what it builds by
+    /// name (an improvement or a unit type), the `Common_Policy` bits that
+    /// outline its label, the food surplus, the turns until it grows and
+    /// until it completes its order ([`crate::city_label::NEVER`]: never),
+    /// and the icons of its HUD box.
+    pub name: String,
+    pub order_name: Option<String>,
+    pub policy: i32,
+    pub food_income: i32,
+    pub grow_turns: i32,
+    pub build_turns: i32,
+    pub hud_icons: Vec<u8>,
+    /// The harbour, airport and barracks icons it shows (`city_label::VETERAN_*`).
+    pub veteran_icons: u8,
 }
 
 impl CityInfo {
@@ -143,6 +160,8 @@ pub struct Players {
     pub governments: Vec<i32>,
     pub wall_buildings: Vec<WallBuilding>,
     pub icon_buildings: Vec<IconBuilding>,
+    /// Every player's adjective (`Leader_get_civ_adjective`).
+    pub adjectives: Vec<String>,
 }
 
 /// Shape of the map.
@@ -446,7 +465,31 @@ impl Civ3 {
             governments: self.leader_field(L::LEADER_GOVERNMENTTYPE)?,
             wall_buildings,
             icon_buildings,
+            adjectives: self.civ_adjectives().unwrap_or_default(),
         })
+    }
+
+    /// Every player's adjective (`Leader_get_civ_adjective`, 0x55A1C0): the
+    /// one the player gave their tribe, else their race's.
+    pub fn civ_adjectives(&self) -> Result<Vec<String>, Civ3Error> {
+        let races: Ptr32<u8> = self.bic(L::BIC_RACES)?;
+        let race_count: i32 = self.bic(L::BIC_RACESCOUNT)?;
+        // Windows-1252, read as Latin-1.
+        let text = |bytes: &[u8]| -> String { bytes.iter().take_while(|&&b| b != 0).map(|&b| b as char).collect() };
+        (0..32u32)
+            .map(|civ| {
+                let leader = Ptr32::<u8>::new(self.addrs.leaders + civ * L::LEADER_SIZE);
+                let custom = leader.offset::<u8>(L::LEADER_TRIBE_CUSTOMIZATION_CIV_ADJECTIVE)?.read_array(16)?;
+                if custom.first().is_some_and(|&b| b != 0) {
+                    return Ok(text(&custom));
+                }
+                let race: i32 = leader.offset::<i32>(L::LEADER_RACEID)?.read()?;
+                if !(0..race_count).contains(&race) {
+                    return Ok(String::new());
+                }
+                Ok(text(&races.offset::<u8>(race as u32 * L::RACE_SIZE + L::RACE_ADJECTIVENAME)?.read_array(40)?))
+            })
+            .collect()
     }
 
     /// The improvements that change how a city looks: walls (docs §8) and
@@ -667,6 +710,11 @@ impl Civ3 {
         Ok(Ptr32::<u32>::new(self.addrs.preferences).read()?)
     }
 
+    /// `p_debug_mode_bits`.
+    pub fn debug_mode_bits(&self) -> Result<u32, Civ3Error> {
+        Ok(Ptr32::<u32>::new(self.addrs.debug_mode_bits).read()?)
+    }
+
     /// Every unit type's Civilopedia key (`PRTO_...`), by type id.
     pub fn unit_type_keys(&self) -> Result<Vec<String>, Civ3Error> {
         self.strings(L::BIC_UNITTYPES, L::BIC_UNITTYPECOUNT, L::UNITTYPE_SIZE, L::UNITTYPE_CIVILIPEDIA_ENTRY, 32)
@@ -677,15 +725,20 @@ impl Civ3 {
         self.strings(L::BIC_ERAS, L::BIC_ERASCOUNT, L::ERA_TYPE_SIZE, L::ERA_TYPE_CIV_ENTRY, 32)
     }
 
-    /// All cities.
+    /// All cities, with what their labels show (docs §10.8). The numbers
+    /// come from the game's own rules ([`crate::city_label`]), read from its
+    /// tables; if those cannot be read (no game yet) the labels' numbers are
+    /// the game's "never".
     pub fn cities(&self) -> Result<Vec<CityInfo>, Civ3Error> {
         let list = Ptr32::<u8>::new(self.addrs.cities);
         let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
         let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
         let mut out = Vec::new();
+        let mut facts = Vec::new();
         if items.is_null() {
             return Ok(out);
         }
+        let rules = self.label_rules().inspect_err(|e| log::debug!("label rules: {e}")).ok();
         // LastIndex is -1 for an empty list.
         for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
             // `CityItem.City` points at the city's body (as the header types
@@ -694,17 +747,226 @@ impl Civ3 {
             if body.is_null() {
                 continue;
             }
-            out.push(CityInfo {
-                id: body.offset::<i32>(L::CITY_BODY_ID)?.read()?,
-                x: body.offset::<i16>(L::CITY_BODY_X)?.read()?.into(),
-                y: body.offset::<i16>(L::CITY_BODY_Y)?.read()?.into(),
+            let i32_at = |at: u32| -> Result<i32, Civ3Error> { Ok(body.offset::<i32>(at)?.read()?) };
+            let (x, y): (i32, i32) = (body.offset::<i16>(L::CITY_BODY_X)?.read()?.into(), body.offset::<i16>(L::CITY_BODY_Y)?.read()?.into());
+            let name = body.offset::<u8>(L::CITY_BODY_CITYNAME)?.read_array(20)?;
+            let fact = CityFacts {
+                id: i32_at(L::CITY_BODY_ID)?,
                 civ: body.offset::<i8>(L::CITY_BODY_CIVID)?.read()?.into(),
-                size: body.offset::<i32>(L::CITY_BODY_POPULATION + L::POPULATION_SIZE)?.read()?,
+                size: i32_at(L::CITY_BODY_POPULATION + L::POPULATION_SIZE)?,
                 improvements: body.offset::<[u8; 32]>(L::CITY_BODY_IMPROVEMENTS_1 + L::CITY_IMPROVEMENTS_IMPROVEMENTS)?.read()?,
-                order: (body.offset::<i32>(L::CITY_BODY_ORDER_TYPE)?.read()?, body.offset::<i32>(L::CITY_BODY_ORDER_ID)?.read()?),
+                order: (i32_at(L::CITY_BODY_ORDER_TYPE)?, i32_at(L::CITY_BODY_ORDER_ID)?),
+                stored_food: i32_at(L::CITY_BODY_STOREDFOOD)?,
+                food_income: i32_at(L::CITY_BODY_FOODINCOME)?,
+                stored_production: i32_at(L::CITY_BODY_STOREDPRODUCTION)?,
+                production_income: i32_at(L::CITY_BODY_PRODUCTIONINCOME)?,
+                specialist_stock: i32_at(L::CITY_BODY_STORED_PRODUCTION_FROM_SPECIALISTS)?,
+                specialist_shields: rules.as_ref().map_or(0, |r| self.specialist_shields(body, r)),
+                on_river: self.tile_record(x, y).is_ok_and(|t| t.river_code() != 0),
+            };
+            out.push(CityInfo {
+                id: fact.id,
+                x,
+                y,
+                civ: fact.civ,
+                size: fact.size,
+                improvements: fact.improvements,
+                order: fact.order,
+                // Windows-1252, read as Latin-1 (the glyph set covers the same codes).
+                name: name.iter().take_while(|&&b| b != 0).map(|&b| b as char).collect(),
+                order_name: None,
+                policy: i32_at(L::CITY_BODY_COMMON_POLICY)?,
+                food_income: fact.food_income,
+                grow_turns: city_label::NEVER,
+                build_turns: city_label::NEVER,
+                hud_icons: Vec::new(),
+                veteran_icons: 0,
             });
+            facts.push(fact);
+        }
+        if let Some(rules) = &rules {
+            let owner: std::collections::HashMap<i32, i32> = facts.iter().map(|f| (f.id, f.civ)).collect();
+            let owner = |city: i32| owner.get(&city).copied();
+            // The free buildings of each player, looked up when the game asks for them.
+            let free_keys = std::cell::RefCell::new(std::collections::HashMap::<i32, std::rc::Rc<HashSet<i32>>>::new());
+            let free_of = |civ: i32| {
+                free_keys
+                    .borrow_mut()
+                    .entry(civ)
+                    .or_insert_with(|| std::rc::Rc::new(self.free_improvements(civ).unwrap_or_default().into_iter().collect()))
+                    .clone()
+            };
+            for (city, fact) in out.iter_mut().zip(&facts) {
+                let (x, y) = (city.x, city.y);
+                let continent = std::cell::OnceCell::new();
+                let has = |id: i32| {
+                    let continent = *continent.get_or_init(|| self.tile_record(x, y).map_or(-1, |t| t.continent().into()));
+                    rules.has_improvement(fact, &free_of(fact.civ), continent, id)
+                };
+                city.grow_turns = rules.turns_to_grow(fact, &has);
+                city.build_turns = rules.turns_to_build(fact);
+                city.order_name = rules.order_name(fact.order);
+                city.hud_icons = rules.hud_icons(fact, &owner);
+                city.veteran_icons = rules.veteran_icons(fact, &has);
+            }
         }
         Ok(out)
+    }
+
+    /// One tile's record, by its coordinates.
+    pub fn tile_record(&self, x: i32, y: i32) -> Result<TileRecord, Civ3Error> {
+        let map = self.map()?;
+        if x < 0 || y < 0 || x >= map.width || y >= map.height || (x + y) % 2 != 0 {
+            return Err(Civ3Error::NoGame);
+        }
+        let tile: Ptr32<TileRecord> = map.tiles.index(map.tile_index(x, y) as u32)?.read()?;
+        Ok(tile.read()?)
+    }
+
+    /// The shields a city's specialists add: the `Construction` of each citizen
+    /// of status 0 (`City_get_turns_to_build`, 0x4BFDD0, and C3X's guard).
+    fn specialist_shields(&self, body: Ptr32<u8>, rules: &Rules) -> i32 {
+        let read = || -> Result<i32, Civ3Error> {
+            let citizens = body.offset::<u8>(L::CITY_BODY_CITIZENS)?;
+            let items: Ptr32<u8> = citizens.offset::<Ptr32<u8>>(L::CITIZENS_ITEMS)?.read()?;
+            let last: i32 = citizens.offset::<i32>(L::CITIZENS_LASTINDEX)?.read()?;
+            let mut sum = 0;
+            if items.is_null() {
+                return Ok(0);
+            }
+            for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
+                let citizen: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITIZEN_INFO_SIZE + L::CITIZEN_INFO_BODY)?.read()?;
+                if citizen.is_null() || citizen.offset::<u8>(L::CITIZEN_BODY_FIELD_20)?.read()? != 0 {
+                    continue;
+                }
+                let kind: i32 = citizen.offset::<i32>(L::CITIZEN_BODY_WORKERTYPE)?.read()?;
+                sum += usize::try_from(kind).ok().and_then(|k| rules.citizen_construction.get(k)).copied().unwrap_or(0);
+            }
+            Ok(sum)
+        };
+        read().unwrap_or(0)
+    }
+
+    /// What the labels' numbers need from the game's tables and players,
+    /// read once for all cities (docs §10.8).
+    fn label_rules(&self) -> Result<Rules, Civ3Error> {
+        let a = &self.addrs;
+        let viewer: i32 = self.screen(L::MAIN_SCREEN_FORM_PLAYER_CIVID)?;
+        let table = |count: u32, list: u32| -> Result<(Ptr32<u8>, usize), Civ3Error> {
+            Ok((self.bic(list)?, self.bic::<i32>(count)?.clamp(0, 4096) as usize))
+        };
+        let improvements = {
+            let (base, count) = table(L::BIC_IMPROVEMENTSCOUNT, L::BIC_IMPROVEMENTS)?;
+            let size = L::IMPROVEMENT_SIZE as usize;
+            let bytes = base.read_array(count * size)?;
+            bytes
+                .chunks_exact(size)
+                .map(|r| {
+                    let word = |at: u32| i32::from_le_bytes(r[at as usize..at as usize + 4].try_into().unwrap());
+                    let name = &r[L::IMPROVEMENT_NAME as usize..][..32];
+                    ImprovementRules {
+                        name: name.iter().take_while(|&&b| b != 0).map(|&b| b as char).collect(),
+                        cost: word(L::IMPROVEMENT_COST),
+                        flags: word(L::IMPROVEMENT_IMPROVEMENTFLAGS) as u32,
+                        characteristics: word(L::IMPROVEMENT_CHARACTERISTICS) as u32,
+                        small_wonder_flags: word(L::IMPROVEMENT_SMALLWONDERFLAGS) as u32,
+                        government: word(L::IMPROVEMENT_GOVERNMENTID),
+                        obsolete: word(L::IMPROVEMENT_OBSOLETEID),
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let (unit_names, unit_costs) = {
+            let (base, count) = table(L::BIC_UNITTYPECOUNT, L::BIC_UNITTYPES)?;
+            let size = L::UNITTYPE_SIZE as usize;
+            let bytes = base.read_array(count * size)?;
+            bytes
+                .chunks_exact(size)
+                .map(|r| {
+                    let name = &r[L::UNITTYPE_NAME as usize..][..32];
+                    let cost = i32::from_le_bytes(r[L::UNITTYPE_COST as usize..][..4].try_into().unwrap());
+                    (name.iter().take_while(|&&b| b != 0).map(|&b| b as char).collect::<String>(), cost)
+                })
+                .unzip::<String, i32, Vec<_>, Vec<_>>()
+        };
+        let citizen_construction = {
+            let (base, count) = table(L::BIC_CITIZENTYPECOUNT, L::BIC_CITIZENTYPES)?;
+            (0..count as u32)
+                .map(|i| Ok(base.offset::<i32>(i * L::CITIZEN_TYPE_SIZE + L::CITIZEN_TYPE_CONSTRUCTION)?.read()?))
+                .collect::<Result<Vec<i32>, Civ3Error>>()?
+        };
+        let (tech_flags, tech_known_by) = {
+            let (base, count) = table(L::BIC_ADVANCECOUNT, L::BIC_ADVANCES)?;
+            let flags = (0..count as u32)
+                .map(|i| Ok(base.offset::<u32>(i * L::ADVANCE_SIZE + L::ADVANCE_FLAGS)?.read()?))
+                .collect::<Result<Vec<u32>, Civ3Error>>()?;
+            let known = match crate::hooks::tech_table(self.build) {
+                Some((known, _)) => known.read()?.read_array(count)?,
+                None => vec![0; count],
+            };
+            (flags, known)
+        };
+        let difficulty_cost_factor = {
+            let (base, count) = table(L::BIC_DIFFICULTYLEVELCOUNT, L::BIC_DIFFICULTYLEVELS)?;
+            let level = Ptr32::<i32>::new(a.game_difficulty).read()?;
+            if (0..count as i32).contains(&level) {
+                base.offset::<i32>(level as u32 * L::DIFFICULTY_LEVEL_SIZE + L::DIFFICULTY_LEVEL_COST_FACTOR)?.read()?
+            } else {
+                10
+            }
+        };
+        let optimal_cities = {
+            let size: i32 = self.map_field(L::MAP_WORLD_WORLD_SIZE)?;
+            let sizes: Ptr32<u8> = self.bic(L::BIC_WORLDSIZES)?;
+            sizes.offset::<i32>(size.clamp(0, 16) as u32 * L::WORLD_SIZE_SIZE + L::WORLD_SIZE_OPTIMALCITYCOUNT)?.read()?
+        };
+        let races: Ptr32<u8> = self.bic(L::BIC_RACES)?;
+        let leaders = (0..32u32)
+            .map(|civ| {
+                let base = Ptr32::<u8>::new(a.leaders + civ * L::LEADER_SIZE);
+                let word = |at: u32| -> Result<i32, Civ3Error> { Ok(base.offset::<i32>(at)?.read()?) };
+                let race = word(L::LEADER_RACEID)?;
+                let race_bonuses = if (0..self.bic::<i32>(L::BIC_RACESCOUNT)?).contains(&race) {
+                    races.offset::<u32>(race as u32 * L::RACE_SIZE + L::RACE_BONUSES)?.read()?
+                } else {
+                    0
+                };
+                let wonders: Ptr32<i32> = base.offset::<Ptr32<i32>>(L::LEADER_SMALL_WONDERS)?.read()?;
+                Ok(LeaderRules {
+                    government: word(L::LEADER_GOVERNMENTTYPE)?,
+                    capital: word(L::LEADER_CAPITALID)?,
+                    cities: word(L::LEADER_CITIES_COUNT)?,
+                    race_bonuses,
+                    small_wonders: if wonders.is_null() { Vec::new() } else { wonders.read_array(improvements.len())? },
+                })
+            })
+            .collect::<Result<Vec<_>, Civ3Error>>()?;
+        let wonder_cities: Ptr32<i32> = Ptr32::<Ptr32<i32>>::new(a.game + 0x4F8).read()?;
+        let viewer_flags = |at: u32| -> Result<[bool; 32], Civ3Error> {
+            let bytes = Ptr32::<u8>::new(a.leaders + viewer.clamp(0, 31) as u32 * L::LEADER_SIZE + at).read_array(32)?;
+            Ok(std::array::from_fn(|i| bytes[i] != 0))
+        };
+        Ok(Rules {
+            viewer,
+            human_players: Ptr32::<u32>::new(a.human_player_bits).read()?,
+            difficulty_cost_factor,
+            accelerated_production: Ptr32::<u32>::new(a.toggleable_rules).read()? & L::TR_ACCELERATED_PRODUCTION as u32 != 0,
+            max_town: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_TOWN)?,
+            max_city: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_CITY)?,
+            wonder_cities: if wonder_cities.is_null() { Vec::new() } else { wonder_cities.read_array(improvements.len())? },
+            improvements,
+            unit_names,
+            unit_costs,
+            citizen_construction,
+            tech_flags,
+            tech_known_by,
+            optimal_cities,
+            anarchy: self.bic(L::BIC_TRANSITION_GOVERNMENT)?,
+            leaders,
+            viewer_war: viewer_flags(L::LEADER_AT_WAR)?,
+            viewer_d50: viewer_flags(L::LEADER_FIELD_D50)?,
+            viewer_d70: viewer_flags(L::LEADER_FIELD_D70)?,
+        })
     }
 
     /// Every outpost: (tile building id = list index, owner).
