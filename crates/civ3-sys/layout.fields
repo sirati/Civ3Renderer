@@ -154,3 +154,16 @@ Map_Renderer PCX_LM_Terrain sizeof
 Map_Renderer PCX_Delta_Rivers sizeof
 Map_Renderer PCX_Rivers sizeof
 Map_Renderer PCX_Std_Terrain_Images sizeof
+
+# Rules data needed by the map renderer.
+BIC ResourceTypeCount
+BIC ResourceTypes
+BIC is_zoomed_out
+Resource_Type
+Resource_Type IconID
+Map Seed
+
+# Per-civ knowledge of a tile (fog of war, remembered improvements).
+Tile_Body CircuitFlags
+Tile_Body Visibile_Overlays
+Tile_Body field_D0_Visibility
