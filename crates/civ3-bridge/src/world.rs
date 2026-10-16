@@ -23,7 +23,8 @@ pub struct Civ3Tile {
     pub visibility_d0: u32,
     /// Per civ: the improvements (overlay bits 0..7) that civ remembers.
     pub visible_overlays: [u8; 32],
-    pub victory_point: i16,
+    /// -1, or the victory location on this tile.
+    pub victory_location: i16,
 }
 
 impl Civ3Tile {
@@ -294,7 +295,7 @@ impl Trace {
                             }
                             v
                         },
-                        victory_point: f.get(17).map(|_| n(17)).transpose()?.unwrap_or(-1) as i16,
+                        victory_location: f.get(17).map(|_| n(17)).transpose()?.unwrap_or(-1) as i16,
                     };
                     tiles.push((n(1)? as i32, n(2)? as i32, tile));
                 }

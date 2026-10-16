@@ -478,6 +478,11 @@ pub fn city(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     Some(format!("City_Images/{}", size_class * 20 + era * 5 + culture))
 }
 
+/// The victory location marker of tile (x, y).
+pub fn victory_location(world: &Civ3World, x: i32, y: i32) -> Option<String> {
+    (world.tile(x, y)?.victory_location >= 0).then(|| "Victory_Image/0".to_owned())
+}
+
 /// §5.2: the polar ice cap at vertex (vx, vy), on maps with polar caps
 /// (and no vertical wrap): the two rows at each pole, sheet rows 0/1 at the
 /// top, 3/2 at the bottom. Unlike the other consumers, one LCG step only.

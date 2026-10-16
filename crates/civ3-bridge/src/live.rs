@@ -41,7 +41,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
             v3: t.v3(),
             visibility_d0: t.visibility_d0(),
             visible_overlays: t.visible_overlays(),
-            victory_point: t.victory_point(),
+            victory_location: t.victory_location(),
         })
         .collect();
     let players = game.players()?;
