@@ -57,6 +57,16 @@ pub struct FontStyle {
     pub italic: bool,
 }
 
+/// The width this system's text routine (`GetTextExtentPoint32A`, as the game
+/// measures; under Wine, Wine's, as the game gets there) gives `text` in
+/// `font`, Windows-1252 encoded (other characters as `?`); `None` where there
+/// is no such routine (not Windows) or it fails.
+pub fn measure(font: &FontStyle, text: &str) -> Option<i32> {
+    let spec = gdi_text::FontSpec { face: font.face.clone(), height: font.height, weight: font.weight, italic: font.italic, quality: 0 };
+    let bytes: Vec<u8> = text.chars().map(|c| u8::try_from(c as u32).unwrap_or(b'?')).collect();
+    gdi_text::text_extent(&spec, &bytes).ok()
+}
+
 /// Loads `font` in `color`.
 pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     #[cfg(windows)]
