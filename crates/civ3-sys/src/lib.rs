@@ -12,6 +12,8 @@
 #![deny(unsafe_code)]
 
 pub mod build;
+pub mod c3x;
+pub mod c3x_layout;
 pub mod hooks;
 pub mod layout;
 pub mod sprites;

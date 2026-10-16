@@ -1,0 +1,93 @@
+# C3X's own state (crates/civ3-sys/src/c3x.rs), from C3X.h of a release with
+# districts (see tools/gen-civ3-layout). Valid only for that release: the
+# reader checks the version and the state's size.
+
+typedef State struct injected_state
+typedef District struct district_instance
+typedef DistrictConfig struct district_config
+typedef DistrictInfos struct district_infos
+typedef WonderConfig struct wonder_district_config
+typedef NaturalWonderConfig struct natural_wonder_district_config
+typedef Table struct table
+
+value C3X_MOD_VERSION MOD_VERSION
+value MAX_DISTRICT_TYPES COUNT_DISTRICT_TYPES
+value MAX_WONDER_DISTRICTS MAX_WONDER_DISTRICT_TYPES
+value MAX_NATURAL_WONDERS MAX_NATURAL_WONDER_DISTRICT_TYPES
+value DS_COMPLETED DS_COMPLETED
+value WDS_UNDER_CONSTRUCTION WDS_UNDER_CONSTRUCTION
+value WDS_COMPLETED WDS_COMPLETED
+value DRS_BY_COUNT DRS_BY_COUNT
+value DRS_BY_BUILDING DRS_BY_BUILDING
+
+State
+State mod_version
+State current_config.enable_districts
+State current_config.enable_natural_wonders
+State district_configs
+State wonder_district_configs
+State natural_wonder_configs
+State district_tile_map
+State district_infos
+State district_count
+State wonder_district_count
+State natural_wonder_count
+
+Table block
+Table capacity_exponent
+Table len
+
+District
+District state
+District district_id
+District tile_x
+District tile_y
+District built_by_civ_id
+District completed_turn
+District wonder_info.state
+District wonder_info.city_id
+District wonder_info.wonder_index
+District natural_wonder_info.natural_wonder_id
+
+DistrictConfig
+DistrictConfig name
+DistrictConfig img_paths
+DistrictConfig img_path_count
+DistrictConfig img_column_count
+DistrictConfig vary_img_by_era
+DistrictConfig vary_img_by_culture
+DistrictConfig render_strategy
+DistrictConfig type
+DistrictConfig align_to_coast
+DistrictConfig draw_over_resources
+DistrictConfig subsumes_tile_resource
+DistrictConfig custom_width
+DistrictConfig custom_height
+DistrictConfig x_offset
+DistrictConfig y_offset
+DistrictConfig generated_resource_id
+
+DistrictInfos
+DistrictInfos dependent_building_count
+DistrictInfos dependent_building_ids
+
+WonderConfig
+WonderConfig wonder_name
+WonderConfig img_path
+WonderConfig img_row
+WonderConfig img_column
+WonderConfig img_construct_row
+WonderConfig img_construct_column
+WonderConfig img_alt_dir_construct_row
+WonderConfig img_alt_dir_construct_column
+WonderConfig img_alt_dir_row
+WonderConfig img_alt_dir_column
+WonderConfig custom_width
+WonderConfig custom_height
+WonderConfig enable_img_alt_dir
+
+NaturalWonderConfig
+NaturalWonderConfig name
+NaturalWonderConfig img_path
+NaturalWonderConfig img_row
+NaturalWonderConfig img_column
