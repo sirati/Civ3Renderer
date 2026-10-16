@@ -443,3 +443,38 @@ pub fn focus_city_slot(build: Build) -> Option<u32> {
         Build::Gog | Build::Steam => None,
     }
 }
+
+inproc::fastcall_hook! {
+    /// `int Flic_Anim_Info::load(this, char *path)` (0x600FA0): an FLC
+    /// animation (unit art) loaded from `path`.
+    pub mod flc_load(flic, edx; path) -> i32;
+}
+
+/// `Flic_Anim_Info::load`: address and first instructions (push -1 / push
+/// imm32).
+pub fn flc_load_site(build: Build) -> Option<Site> {
+    match build {
+        Build::PcGames => Some((0x60_0FA0, &[0x6A, 0xFF, 0x68, 0xF3, 0x2E, 0x66, 0x00])),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// `FLC_Frame_Image`'s vtable: a `Sprite` preceded by it is a frame of an
+/// FLC animation (docs §16.9).
+const FLC_FRAME_VTABLE: u32 = 0x66_5450;
+
+/// If `sprite` is an FLC animation frame: its animation (`Flic_Anim_Info*`)
+/// and its chunk (block · (frames per block + 1) + frame, how unit art
+/// numbers frames).
+pub fn flc_frame(sprite: u32) -> Option<(u32, u32)> {
+    let u32_at = |a: u32| Ptr32::<u32>::new(a).read().ok();
+    if u32_at(sprite.wrapping_sub(8))? != FLC_FRAME_VTABLE {
+        return None;
+    }
+    let flic = u32_at(sprite.wrapping_sub(4)).filter(|&f| f != 0)?;
+    let frame = u32_at(sprite + 0x34)? as i32;
+    let block = u32_at(sprite + 0x38)? as i32;
+    let header = u32_at(flic + 0x58).filter(|&h| h != 0)?;
+    let fpd = Ptr32::<u16>::new(header + 0x62).read().ok()? as i32;
+    (frame >= 0 && block >= 0).then(|| (flic, (block * (fpd + 1) + frame) as u32))
+}

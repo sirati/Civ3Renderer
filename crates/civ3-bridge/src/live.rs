@@ -345,7 +345,22 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let (shown, texts, ui) = &state;
         let files = compiler.files(&folders);
         let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
-        let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated)).unwrap_or_default();
+        // Unit pictures in panels are drawn in the viewing player's colours.
+        let unit_colors = match shown {
+            Shown::Map(world, _) => world.color_tables.get(world.player.max(0) as usize).copied().unwrap_or(0),
+            Shown::Title(_) => 0,
+        };
+        let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        if let Some(f) = ui {
+            let mut more = have.clone();
+            for path in ui_screen::unit_files(f, files.roots()) {
+                more.add_file(&mut art, &path, unit_colors);
+            }
+            if more != have {
+                have = more;
+                recompile = true;
+            }
+        }
         recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files);
         // The zoomed-out view has its own (half-size) art.
         if let Shown::Map(_, view) = shown {

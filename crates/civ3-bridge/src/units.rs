@@ -77,6 +77,8 @@ pub struct UnitArt {
     /// (unit type key, era key, animation) → file, cached.
     resolved: HashMap<(String, String, i32), Option<AnimFile>>,
     cursor: Option<Option<AnimFile>>,
+    /// Files asked for by path, cached.
+    by_path: HashMap<String, Option<AnimFile>>,
 }
 
 impl UnitArt {
@@ -91,7 +93,7 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new(), cursor: None }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new() }
     }
 
     /// Entry `index` of colour table `table` (`ntpNN.pcx`).
@@ -111,6 +113,12 @@ impl UnitArt {
 
     /// The animation file a unit of type `type_key` (`PRTO_...`) shows for
     /// `animation` in `era_key`, falling back to DEFAULT.
+    /// The animation file at `path` (e.g. one the game draws in a panel).
+    pub fn file_at(&mut self, path: &str) -> Option<&AnimFile> {
+        let files = &self.files;
+        self.by_path.entry(path.to_owned()).or_insert_with(|| AnimFile::read(files, path)).as_ref()
+    }
+
     pub fn file(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<&AnimFile> {
         let key = (type_key.to_owned(), era_key.to_owned(), animation);
         if !self.resolved.contains_key(&key) {
@@ -228,6 +236,13 @@ impl Needed {
     pub fn covers(&self, other: &Needed) -> bool {
         other.files.iter().all(|(p, (_, c))| self.files.get(p).is_some_and(|(_, mine)| c.is_subset(mine)))
             && other.site_colors.keys().all(|c| self.site_colors.contains_key(c))
+    }
+
+    /// Adds animation file `path` in colour table `table`.
+    pub fn add_file(&mut self, art: &mut UnitArt, path: &str, table: i32) {
+        if let Some(file) = art.file_at(path) {
+            self.files.entry(file.path.clone()).or_insert_with(|| (file.clone(), BTreeSet::new())).1.insert(Recolor::civ(table));
+        }
     }
 
     pub fn merge(&mut self, other: &Needed) {
