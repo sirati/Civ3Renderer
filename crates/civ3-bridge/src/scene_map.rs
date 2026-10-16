@@ -64,7 +64,8 @@ impl<'a> Mapper<'a> {
                 let tile = world.tile(x, y);
                 // Vertex layers: the vertex above this tile, (x, y - 1).
                 let terrain = tile.map(|t| (t.square_parts >> 8) as u32 * 81 + (t.square_parts & 0xFF) as u32);
-                self.put(&mut scene, "terrain", col, row, terrain.map(|i| format!("Std_Terrain_Images/{i}")));
+                let array = if rules::landmark_vertex(world, x, y - 1) { "LM_Terrain_Images" } else { "Std_Terrain_Images" };
+                self.put(&mut scene, "terrain", col, row, terrain.map(|i| format!("{array}/{i}")));
                 self.put(&mut scene, "polar_cap", col, row, rules::polar_cap(world, x, y - 1));
                 let river = rules::vertex_river(world, x, y - 1);
                 self.put(&mut scene, "flood_plain", col, row, river.flood_plain);

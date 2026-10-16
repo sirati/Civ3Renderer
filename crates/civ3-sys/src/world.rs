@@ -169,6 +169,14 @@ impl TileRecord {
     pub fn city_id(&self) -> i16 {
         self.i16(L::TILE_CITYID)
     }
+    /// -1, or the tile building (colony, airfield, radar tower, outpost)
+    /// on this tile.
+    pub fn building_id(&self) -> i16 {
+        self.i16(L::TILE_TILE_BUILDINGID)
+    }
+    pub fn ruins(&self) -> bool {
+        self.u32(L::TILE_RUINS) != 0
+    }
     pub fn overlays(&self) -> u32 {
         self.u32(L::TILE_OVERLAYS)
     }
@@ -520,6 +528,26 @@ impl Civ3 {
                 size: body.offset::<i32>(L::CITY_BODY_POPULATION + L::POPULATION_SIZE)?.read()?,
                 improvements: body.offset::<[u8; 32]>(L::CITY_BODY_IMPROVEMENTS_1 + L::CITY_IMPROVEMENTS_IMPROVEMENTS)?.read()?,
             });
+        }
+        Ok(out)
+    }
+
+    /// Every outpost: (tile building id = list index, owner).
+    pub fn outposts(&self) -> Result<Vec<(i32, i32)>, Civ3Error> {
+        let list = Ptr32::<u8>::new(self.addrs.outposts);
+        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        let mut out = Vec::new();
+        if items.is_null() {
+            return Ok(out);
+        }
+        for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
+            let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
+            if body.is_null() {
+                continue;
+            }
+            // The game reads the owner as a byte.
+            out.push((i as i32, body.offset::<i8>(L::TILE_BUILDING_BODY_OWNERID)?.read()?.into()));
         }
         Ok(out)
     }

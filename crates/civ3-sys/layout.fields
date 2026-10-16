@@ -250,3 +250,9 @@ BIC CombatExperience
 BIC CombatExperienceCount
 Animator Unit_Cursor_Animation
 Animator field_18E4[12]
+
+# Tile buildings and ruins (docs §6.7b).
+Tile Tile_BuildingID
+Tile Ruins
+Tile_Building_Body ID
+Tile_Building_Body OwnerID

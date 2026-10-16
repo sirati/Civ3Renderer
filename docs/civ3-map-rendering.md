@@ -117,6 +117,13 @@ SAV TILE record (4 chunks per tile, lengths 36/12/4/128) maps 1:1 onto these fie
 
 - **Tile size 128 x 64** (diamond). The lattice cell (cx, cy) (any integers, **both parities**) has a 128x64 box whose top-left is `(cx*64, cy*32)` in map pixel space. A tile (cx+cy even) box is its own diamond; an odd cell is a *vertex* cell: the point where four tiles meet, box centred on that vertex. Tile (x,y)'s top vertex is the odd cell (x, y-1); its right vertex is (x+1, y), bottom (x, y+1), left (x-1, y).
 - **Two zoom levels only**: `bic.is_zoomed_out == 0` -> lattice step 64 x 32 (box 128x64); `!= 0` -> step **32 x 16** (box 64x32) [X: `(0x80 or 0x40)>>1` per axis]. Every sprite draw receives a scale argument 1 or 2 (`Sprite_draw_on_map(spr, renderer, x, y, 1, 1, zoom?2:1, 0)`) and all per-layer pixel offsets are halved in zoomed-out mode (e.g. mountain -24 -> -12) [X]; so zoomed-out = same art downscaled by 2 [I for the filtering].
+- **Zoomed-out resampling, verified [X]** (replaces the [I] above). `Sprite_draw_on_map` (0x5F8060) receives `(canvas, x, y, num_x = 1, num_y = 1, den = zoomed ? 2 : 1, color_table = 0)`. It saves the JGL global scale (JGL object at `[0xCAB28C]`, vtable +0xA0 get, +0x9C set; jgl.dll stores it in its globals 0x1006C0FC/0x1006C100/0x1006C104 = num_x/num_y/den, set by 0x1003C0E0), sets `num/den`, adds the sprite's frame offset scaled (`x += Sprite+0x20 * num_x / den`, `y += Sprite+0x24 * num_y / den`, C division; 0 for sheet cells), blits through the image's vtable +0x44, and restores the old scale. In jgl.dll (`Conquests/jgl.dll`, 2004-03-17) the blit dispatcher (around 0x10008200) picks a routine by source/destination depth; the 8-bit indexed source to 16-bit canvas routine is 0x1000ADA0 (variant 0x10034400 when image flag `+0x18 & 1` is set; same scheme). The scaled path is **nearest neighbour, no filtering**:
+  - destination size = `ftol(W * num/den)`, `ftol(H * num/den)` with `ftol` truncating, i.e. **`floor(W/2) x floor(H/2)`** (128x64 -> 64x32, 128x88 -> 64x44, 128x72 -> 64x36, 49x49 -> 24x24, 167x95 -> 83x47);
+  - source step per destination pixel = `(den << 16) / num` in 16.16 fixed point = exactly 2.0 in both axes; the source start is `(clip_dx * step, clip_dy * step)` where `clip_d*` is how far the canvas clip moved the destination start (0 when the sprite is not clipped);
+  - so **destination pixel (i, j) = source pixel (2i, 2j)**: every second column and row starting with the cell's (0,0); a sprite clipped at the left/top canvas edge still samples even source coordinates;
+  - source indices >= 254 (`cmp byte [esi], 0xFE; jae skip`) are not written (both 254 and 255 transparent); others go through the 16-bit colour table.
+  The shadow/blend blit 0x5F8560 (airfield/radar/outpost shadows) takes the same scale arguments.
+- **Zoomed-out offsets [X]** (normal -> zoomed out): lattice step 64x32 -> 32x16; terrain, rivers, flood plains, fog, irrigation, tnt, roads/rails, borders' x, all `TerrainBuildings` cells, goody huts, pollution/craters, victory, LM marker: `(px, py)` both zooms; polar caps `(px-64, py+-32)` -> `(px-32, py+-16)`; mountains/volcanoes `py-24` -> `py-12`; hills `py-8` -> `py-4`; borders `py-8` -> `py-4`; **forests/jungles/marsh `py-12` in both zooms** (m8 passes a constant `-0xC`, 0x5F650F/0x5F654B/0x5F6589/0x5F65C9/0x5F6640; the callees do not correct it), so zoomed-out forests sit 6 px higher than a proportional scale would put them; radar and outposts `py-64` -> `py-32` (`64 / den`); resources `(px+40, py+8)` -> `(px+20, py+4)`; cities and ruins `px + halfW - W/(2*den)`, `py + halfH - H/(2*den)` with halfW/halfH = 64/32 -> 32/16: `(px-19, py-15)` -> `(px-9, py-7)` for 167x95 cells.
 - **Camera**: `camera_x/camera_y` (MSF+0x4E98/0x4E9C) are **pixels at the current zoom**, the map-pixel coordinate of the viewport's top-left. The function that converts tile -> pixel (`Main_Screen_Form` method 0x4E3BD0; the same arithmetic is inlined in the draw loop):
 
 ```
@@ -272,10 +279,17 @@ mask |= 8 if E.river & 0x20 (SW) or S.river & 0x02 (NE)      // down-right      
 - **River sprite**: `sprite[mask*2 + variant]` in the interleaved array at Map_Renderer+0x1801C where **variant 0 = `deltaRivers.pcx`** (narrow) and **variant 1 = `mtnRivers.pcx`** (broad); both 512x256, 4x4 cells of 128x64, cell index = row*4+col = mask [X: loader writes deltaRivers to even slots with stride 0x58]. Drawn only if `mask != 0` (or the vertex has special terrain bits 24/27, [?] unverified effect). Variant: if `popcount(mask) == 1` (river end/spring): `variant = 1` unless any of the four tiles has real terrain *coast* (id 11), then 0; otherwise `variant = rand_int(2)` from the vertex RNG (seed `Seed + 0x845FED*a`, `a = ((W/2)*(vy-1) + (vx>>1)) & 0xFFFF`, 4 advances then one `rand_int(2)`), forced to 0 if flood plain contributed. Position `(px,py)` of the vertex cell.
 - **Pass**: let `special` = the tile below the vertex (S) is a mountain (6) / volcano (10), or W is one and has river bit 0x02, or E is one and has river bit 0x80 (N never counts) [D: 111 rivers, 3 games; the doc's earlier "any of the four" was wrong], or any of the four tiles has a city, colony, airfield, radar, outpost, fortress, barricade, goody hut, barbarian camp or ruins. If `special` the river is drawn in pass 2 (flags&4, *before* objects so buildings/mountains cover it), else in pass 4 (flags&2, *after* objects).
 - `waterfalls.pcx` (512x64, 4 cells of 128x64) is loaded into `Waterfalls_Images[4]` [X]; I did not find the selection logic [?].
+- **Waterfalls are never drawn [X].** The only reader of `Waterfalls_Images` (+0xC154) besides the constructor/destructor/loader is Map_Renderer vtable slot 67 (+0x10C, 0x4C3D60: draws `Waterfalls_Images[arg1]` at `(px, py)`). Its address occurs once in the exe (the vtable at 0x66A614) and no `call 0x4C3D60` exists; the four `call [reg+0x10C]` sites in the exe (0x5D2258, 0x5D9317, 0x5E9EF4, 0x618778) are on other objects (Tile and others) and pass one argument, while the waterfall method takes four (`ret 0x10`). A reimplementation draws no waterfalls.
 
 ### 6.5 Overlay bits (`Tile.Overlays`, per-civ view via `Visibile_Overlays`) [X][D]
 
 bit 0 road, 1 railroad, 2 mine, 3 irrigation, 4 fortress, 5 goody hut, 6 pollution, 7 barbarian camp, 8 craters, 28 barricade, 29 airfield, 30 radar tower, 31 outpost. (Matches SAV flags2: road bit0 ... byte3 bit4 barricade, bit5 airfield, bit6 radar, bit7 outpost.) `Tile_BuildingID != -1` = colony/other tile building [X].
+
+**Per-civ view, exact [X]** (`Tile::m42_Get_Overlays(civ)`, 0x5DC230; C3X wraps it only for hot-seat shared vision). `civ == 0` -> `Tile.Overlays` (Tile+0x28). Otherwise, if the tile is **currently visible** to civ (`(Tile+0xD0 | +0x64 | +0x60 | +0x5C) & (1 << civ)`, the same test as the fog pass) -> `Tile.Overlays`; else -> the remembered **byte** `Tile+0xAE+civ` (`Visibile_Overlays[civ]`) zero-extended. So on a tile that is explored but not currently visible only bits 0-7 survive (road, rail, mine, irrigation, fortress, goody hut, pollution, barbarian camp); **craters (bit 8) and barricades (bit 28) are not drawn there**, and a barricaded fortress falls back to the plain fortress sprite (bit 4 is in the byte). Airfield, radar and outpost are always tested with `civ = 0` (actual state), so they show through fog. Our `Civ3World::seen_overlays` (`(Overlays & !0xFF) | remembered byte`) differs from this: it keeps bits 8-31 on fogged tiles and uses the remembered byte even on visible tiles.
+
+The `civ` every layer receives is the first argument of `m19`, i.e. the **viewing player** (`Player_CivID`), not the tile owner [X].
+
+Tile vtable (0x6701C8) checks used by the object layers [X]: +0x18 `m06` airfield (bit 29), +0x1C `m07` barbarian camp (bit 7), +0x34 fortress (bit 4), +0x38 barricade (bit 28), +0x3C goody hut (bit 5), +0x48 mine (bit 2), +0x4C outpost (bit 31), +0x50 pollution (bit 6), +0x54 craters (bit 8), +0x5C railroad (bit 1), +0x78 LM (`Terrain_Overlays` bit 29), +0x84 radar (bit 30), +0x88 victory point (`(u16)Tile+0x22 != 0xFFFF`), +0x90 ruins (`Tile+0x24`, dword), +0xB0 `Barbarian_TribeID` (Tile+0x18), +0xB4 `CityID` (Tile+0x1A), +0xBC `Tile_BuildingID` (Tile+0x1C), +0xC8 effective terrain. `Tile_has_city` 0x5EA5F0 = `CityID != -1`; **`Tile_has_colony` 0x5EA610 = `Tile_BuildingID != -1` and not airfield(0), not radar(0), not outpost(0)** (airfields, radar towers and outposts are tile buildings too and also carry their overlay bit).
 
 ### 6.6 Roads and railroads (m16 / m14 -> m52 / m50) [X][D]
 
@@ -283,6 +297,7 @@ bit 0 road, 1 railroad, 2 mine, 3 irrigation, 4 fortress, 5 goody hut, 6 polluti
 - Bit i of the index = connection to neighbour i+1 of the spiral numbering `neighbor_index_to_diff` (0x5E6D80): 1 NE(+1,-1), 2 E(+2,0), 3 SE(+1,+1), 4 S(0,+2), 5 SW(-1,+1), 6 W(-2,0), 7 NW(-1,-1), 8 N(0,-2) => **bit0 NE, bit1 E, bit2 SE, bit3 S, bit4 SW, bit5 W, bit6 NW, bit7 N** [X]. Pixel check: `roads.pcx` cell 1 has its stroke in the upper-right, 2 horizontal right, 4 lower-right, 8 vertical down, 16 lower-left, 32 horizontal left, 64 upper-left, 128 vertical up [D].
 - Road mask: for each of the 8 neighbours inside the map: set the bit if the neighbour has a road (`Check_Roads(civ)`), **except** when both this tile and the neighbour have railroad (then that link is a railroad link). If mask == 0 and the tile has no city and no railroad: draw sprite 0 (the isolated road stub); if a city is present nothing.
 - Railroad mask: same with `Check_Railroads`; for tiles whose rail neighbours... the 16 extra images for rails are used for rail-over-road junction cases; the exact rule for indices 256-271 was not decoded [?]. Roads are drawn before railroads in the same cell.
+- **Railroad indices 255-271, verified [X]** (`m14` 0x5F6880 -> slot 50 `Railroads_Images[i]`): `mask` = bit k-1 set for each neighbour k = 1..8 (`neighbor_index_to_diff`) inside the map that has a railroad in the viewer's overlays (no road/rail exclusion here). If `mask == 0` and the tile has a city, nothing is drawn. Otherwise, **if `mask == 0xFF`** (rail on all eight neighbours): `index = 255 + rand_int(17)` (255..271: the normal full junction or one of the 16 variants in sheet row 16); else `index = mask`. RNG: `a = ((W/2)*y + (x>>1)) & 0xFFFF`, `state = Seed + a * 15221` (computed as `a + 4*5*(a + 8*(96a - a))`), **three** plain advances (not four; 0x5F69E5/0x5F69F0/0x5F69FB), then the single `rand_int(17)`. The seeding and the three advances run for every drawn rail sprite, but only the all-neighbours case consumes the `rand_int`. Position `(px, py)`.
 - Roads/rails respect the *viewing civ's* remembered overlays (civ id argument).
 
 ### 6.7 Fortress, mines, camps, airfield, radar, outpost, pollution, craters, ruins, goody huts, tnt, resources
@@ -300,6 +315,36 @@ bit 0 road, 1 railroad, 2 mine, 3 irrigation, 4 fortress, 5 goody hut, 6 polluti
 `StartLoc.pcx` (128x64) is the editor start-location marker (not part of game rendering).
 
 **Resources** (`Art/resources.pcx` + `resources_shadows.pcx`, 300x300): 6x6 grid, each cell **49x49 at (1+50*col, 1+50*row)**; column index lines (x = 0,50,...) are palette index 254 [D]. `icon = BIC.ResourceTypes[Tile.ResourceType].IconID` (BIQ GOOD record: name[24], pedia[32], class, appearance, disappearance, icon, prereq, food, shield, commerce; conquests.biq: Horses 0, Iron 1, Saltpeter 2, Coal 3, Oil 4, Rubber 5, Aluminum 6, Uranium 7, Wines 8, Furs 9, Dyes 10, Incense 11, Spices 12, Ivory 13, Silks 14, Gems 15, Whales 16, Game 17, Fish 18, Cattle 19, Wheat 20, Gold 21, Tropical Fruit 22, Oasis 23, Sugar 24, Tobacco 25) -> `col = icon%6, row = icon/6` [X][D]. Draw position: icon top-left = `(px + 64 - 24, py + 32 - 24) = (px+40, py+8)` (zoomed-out `(px+20, py+4)`; i.e. `49/2 = 24`, `49/4 = 12` offset for scale 1/2) [X]. The shadow sprite (same cell index, `ResourcesShadows`) is drawn first at the same position, then the icon [X: 0x4C4AE0 draws the shadows array first]. Condition: `Tile_get_resource_visible_to(civ) != -1` (player knows the tech that reveals it) unless debug bit 8 [X].
+
+### 6.7b Tile buildings (m12) and pollution/craters (m13), exact rules [X]
+
+`civ` below = the viewer (m19 arg 1). `Era(c)` = `leaders[c].Era` (Leader+0xF4, 0..3). All sprites go through `Sprite_draw_on_map(..., 1, 1, zoomed ? 2 : 1, 0)` (section 3). `a = ((W/2)*y + (x>>1)) & 0xFFFF`.
+
+**m12 `Draw_Tile_Buildings`** (slot 12, 0x5F6A50; flag 0x80 in pass 3, after roads/railroads, before m13). On entry it seeds one RNG `state = Seed + a * 0x20C7D` and does the 4 plain advances **unconditionally**; the `rand_int` calls below draw from this one state in this order. Then, in this fixed order:
+
+| # | Condition | Draw (Map_Renderer slot) | Sprite | Position |
+|---|---|---|---|---|
+| 1 | `Tile+0x24` (ruins) != 0 | slot 53 (0x4C4A30) | `DESTROY.PCX` cell `rand_int(3)`: static array 0xB3E790 (3 cells of `W/3` x H = 167x95, sliced at x = 0, 167, 334 by 0x549CEE; the file is `art\Cities\destroy.pcx` via `BIC_get_asset_path`, so `Conquests/Art/Cities/DESTROY.PCX`) | centred: `(px + 64/den - W/(2*den), py + 32/den - H/(2*den))` = `(px-19, py-15)`; zoomed `(px-9, py-7)` |
+| 2 | airfield bit 29 of `Overlays` (civ 0 = actual) | slot 22 (0x4C4700) | first the shadow `Terrain_Buldings_Airfields_Shadow[i]` (+0xB07C) with the blend blit 0x5F8560 (blend table `[0x73D9F0]`), then `Terrain_Buldings_Airfields[i]` (+0xB024); **`i = (Era(civ) - 1) / 2`** (C division, truncating): 0 for eras 0-2, 1 for era 3 | `(px, py)` |
+| 3 | mine bit 2 (viewer overlays) | slot 41 (0x4C44A0) | `Terrain_Buldings_Mines` (+0x3EE0, TerrainBuildings col 2 row 1) | `(px, py)` |
+| 4 | barricade bit 28 (viewer) | slot 32 (0x4C45C0) | `Terrain_Buldings_Barricade[Era(civ)]` (+0xB234) | `(px, py)` |
+| 4' | else fortress bit 4 (viewer) | slot 31 (0x4C4560) | `Terrain_Buldings_Fortress[Era(civ)]` (+0xB184) | `(px, py)` |
+| 5 | goody hut bit 5 (viewer) | slot 34 (0x4C4620) | `Goody_Huts_Images[rand_int(8)]` | `(px, py)` |
+| 6 | barbarian camp bit 7 in **both** `Overlays(0)` and `Overlays(civ)` | slot 23 (0x4C4660) | `Terrain_Buldings_Barbarian_Camp` (+0x3EB4, TerrainBuildings col 2 row 0). The caller passes `Barbarian_TribeID`, the drawer ignores it: one sprite for all tribes | `(px, py)` |
+| 7 | `Tile_has_colony` (see 6.5; no visibility test) | slot 26 (0x4C46A0) | `Terrain_Buldings_Camp[Era(civ)]` (+0xB0D4, TerrainBuildings col 1, rows = era) | `(px, py)` |
+| 8 | radar bit 30 (actual) | slot 57 (0x4C4790) | shadow `Terrain_Buldings_Radar_Shadow` (+0xBE10, blend blit) then `Terrain_Buldings_Radar` (+0xBDE4). The index is computed from the owner's era but reduces to `min(era, 0)` = **always 0** | `(px, py - 64)` (128x128 cell bottom-aligned to the tile box); zoomed `(px, py - 32)` |
+| 9 | outpost bit 31 (actual) | slot 46 (0x4C48C0) | shadow `Terrain_Buldings_Outposts_Shadow[i]` (+0xB4C8) then `Terrain_Buldings_Outposts[i]` (+0xB444); **`i = min(Era(owner), 2)`**, owner = `OwnerID` (Body+0x10, byte read at object+0x2C) of entry `Tile_BuildingID` in the outpost list `[0xA52DCC]` (`LastIndex` at 0xA52DD8; item = `{int, body*}`, object = body-0x1C); if the list or entry is missing, owner = viewer. (Radar uses the list `[0xA52DE4]`/0xA52DF0 the same way.) | `(px, py - 64)`; zoomed `(px, py - 32)` |
+| 10 | victory point (`(u16)Tile+0x22 != 0xFFFF`) and **no city** | slot 66 (0x4C49F0) | `Victory_Image` (+0x3F0C) | `(px, py)` |
+
+So the ruins `rand_int(3)` (if any) comes before the goody hut's `rand_int(8)`. Victory points on city tiles are drawn later by `m7` (flag 0x2000) right after the city sprite (0x5F7152..0x5F7187: `has_city` -> city via slot 25, then the same victory test without the city condition -> slot 66). Sprite cells (loader 0x4C5A30): `x_airfields and detect.PCX` airfields at (0,0),(128,0) 128x64; outposts at (0,64),(128,64),(256,64) 128x128; radar at (0,192) 128x128; the `_shadow` file has the same layout.
+
+**m13 `Draw_Tile_Pollution`** (slot 13, 0x5F6DA0; flag 0x8000, after m12, before resources). One RNG: `state = Seed + a * 21030`, 4 plain advances on entry (unconditional). Then:
+1. **Craters first**: if craters (bit 8, viewer overlays): `mask` over k = 0..3 with neighbour `(x + ((k+1)&2) - 1, y + 2*(k/2) - 1)` = **k0 NW (-1,-1), k1 NE (+1,-1), k2 SE (+1,+1), k3 SW (-1,+1)** (wrapped; off-map skipped), bit k set if that neighbour has craters (viewer overlays). Index `mask + 9` if `mask != 0`, else `rand_int(10)`. Sprite `Craters[index]` (+0xB998, `craters.pcx`) via slot 49 at `(px, py)`.
+2. **Then pollution**: same with bit 6, sprite `Pollution[index]` (+0xB54C, `pollution.pcx`) via slot 48 at `(px, py)`. Its `rand_int(10)` continues the same RNG state, so on a tile with both and both masks 0, pollution uses the second draw.
+
+Corrections to section 6.7 above: the neighbour bit order is **NW, NE, SE, SW** (bit 2 = SE, bit 3 = SW), not NW, NE, SW, SE; craters are drawn **before** pollution; both share one RNG stream.
+
+**Order relative to our pass-3 layer list.** Engine order inside one even cell: mountain/hills (0x4010) -> irrigation -> tnt -> forest -> LM marker -> borders -> road -> railroad -> [m12: ruins -> airfield shadow, airfield -> mine -> barricade | fortress -> goody hut -> barbarian camp -> colony -> radar shadow, radar -> outpost shadow, outpost -> victory (non-city tile)] -> [m13: craters -> pollution] -> resource shadow, resource -> city -> victory (city tile).
 
 ### 6.7a Blending in RGB555 (measured) [D]
 
@@ -330,6 +375,13 @@ Pixel semantics [D]: palette is a grey ramp (`R = idx*17`); the sprite is **blac
 
 `Terrain_Overlays` bit 29. For such tiles: base terrain uses the `l*` sheets (`SquareParts` still indexes them), hills/mountains/forests use `LMHills/LMMountains/LMForests`, and the `m58` layer draws an additional `landmark_terrain.pcx` sprite: 290x448, 7 cells of 128x64 stacked vertically (`LM_Terrain[7]`, +0xC204); the cell is chosen from the tile's effective terrain via `Tile_Type.LM_*` data [?]. `Tile_Type` in the BIQ has `LM_Name`, `LM_FoodBase` etc. [H].
 
+**Verified rules [X]** (LM test = `Tile::m30` 0x5EA8B0 = `Terrain_Overlays` bit 29):
+- **Base terrain (m6, 0x5F48C0)**: the image comes from `SquareParts` of tile `(vx, vy+1)` as before, but the `isLM` flag passed to `m24` (slot 24, 0x4C38A0) comes from `Map.m12_Get_Tile_by_XY(vx, vy)` = `tile_at(vx, vy)` (0x5DC0F0, plain `Tiles[(W/2)*vy + (vx>>1)]`, no parity check, `vy` not wrapped) **for the odd vertex cell itself**. That index is the tile at `(2*(vx>>1) + (vy&1), vy)`: the **W neighbour `(vx-1, vy)` when `vy` is even, the E neighbour `(vx+1, vy)` when `vy` is odd**. If that tile has bit 29, the vertex is drawn from `LM_Terrain_Images[file][loc]` (`lxtgc ... lwOOO`) with the same `file/loc`. Polar caps are unaffected.
+- **Mountains (m10 -> slot 42, 0x4C3A40)**: if the tile is LM, draw `LM_Mountains_Images[mask]` (+0x186FC; `mask` as in 6.1, the vegetation/snow `kind` is ignored) at `(px, py-24)` (zoomed `-12`). **Hills (slot 37, 0x4C3AD0)**: `LM_Hills_Images[mask]` (+0x18EE4) at `(px, py-8)` (`-4`). **Volcanoes** (slot 45, 0x4C4330) take no LM flag: normal volcano art. The RNG for the `kind` tie-break is still consumed exactly as for a non-LM tile.
+- **Forests (m8 -> slots 28/29/30, 0x4C40E0/0x4C4170/0x4C4200)**: same seed, `small`/`pines` decision and `rand_int` as 6.2; LM tiles use `LM_Forests_Large[r]` (+0x189BC), `LM_Forests_Pines[r]`, `LM_Forests_Small[r]` (`LMForests.pcx`) instead of the grassland/plains/tundra block, at `(px, py-12)`. **Jungle and marsh** have no LM variant (slots 39/40/43/44 take no flag).
+- **LM marker (slot 58, 0x4C3DA0; m19 flag 0x60, after forests, before borders)**: called with the tile's **effective** terrain (`m50`, +0xC8) when the tile is LM. Cell of `landmark_terrain.pcx` (the sheet is a debug key: a magenta (transparent) diamond with a small yellow diamond in the centre and a text label "Forest/Hills/Mountains/Desert/Plains/Grassland/Sea" outside the 128x64 cell): desert 0 -> 3, plains 1 -> 4, grassland 2 -> 5, hills 5 -> 1, mountains 6 -> 2, forest 7 -> 0, jungle 8 -> 0, sea 12 -> 6; tundra, flood plain, swamp, volcano, coast, ocean -> nothing. **Drawn only if `p_preferences` (0xA52638) & 0x1000** (C3X header name `P_SHOW_YIELDS_ON_MAP`); otherwise nothing. Position `(px, py)`; the visible part is just the small yellow diamond at the tile centre.
+- Irrigation, tnt, rivers, roads, buildings: no LM handling.
+
 ---
 
 ## 8. Cities [X]
@@ -340,7 +392,7 @@ Pixel semantics [D]: palette is a grey ramp (`R = idx*17`); the sprite is **blac
 - Position: anchor = tile centre `(px + 64, py + 32)` (zoomed-out `(px+32, py+16)`); top-left = `anchor - (sprite.Width >> z, sprite.Height >> z)` with `z = 1` normal, `2` zoomed-out, giving `(px + 64 - 83, py + 32 - 47) = (px - 19, py - 15)` at normal zoom (the sprite is centred on the tile) [X from `City_draw_on_map` 0x4BFC80 and caller 0x4C37A0; the `>> z` with z in {1,2} is the scale handling].
 - City ruins: `DESTROY.PCX` (Conquests, 501x95: 3 cells of 167x95), randomly picked (`rand_int`, seed `Seed + 0x20C7D*a`) in the tile-building layer [X].
 - City name banner, size number, production icon, flags (`City_draw_hud_icon`, `m25` helper 0x4E5640) are UI-level drawing done after the unit pass; not specified here [?].
-- Colony: `Tile_has_colony` draws `Terrain_Buldings_Camp[era?]`; unverified era choice [?].
+- Colony: `Tile_has_colony` draws `Terrain_Buldings_Camp[era?]`; unverified era choice [?]. **Resolved [X]:** `Terrain_Buldings_Camp[leaders[viewer].Era]`, see 6.7b row 7. Ruins: 6.7b row 1 (any `Tile+0x24 != 0`, cell `rand_int(3)` from the shared building RNG, centred like a city). Note that fortress, barricade, colony and airfield art all follow the **viewer's** era, not the owner's.
 
 **Walled towns [X].** The rule below uses City_Body-relative offsets (`b = City+0x1C`, which is what `CityItem.City` points at). The BIC is a static object at PCG 0x9C34C8 (C3X's csv lists it as `p_bic_data`), so `General.MaximumSize_Town` = 0x9C72A4 (BIC+0x3DDC) and `General.MaximumSize_City` = 0x9C72A8 (BIC+0x3DE0); `ImprovementsCount` = 0x9C3D40 (BIC+0x878); `Improvements` (pointer, stride 0x110) = 0x9C406C (BIC+0xBA4); `leaders` = 0xA52E58 (stride 0x20E4).
 ```
@@ -492,7 +544,7 @@ Units are therefore drawn **after terrain, cities and fog**, which matches the t
 
 **`Unit_draw` (0x5CBC60)** in order [X]:
 1. Return unless `Unit_is_visible_to_civ(Player_CivID, 1)` or debug-see-all.
-2. Colour civ: `c = CivID`. If the unit has `UTA_Hidden_Nationality` (0x11) and the viewer is a real civ other than the owner, `c = 0` (barbarian colours), unless debug bit 8 is set. Colour table: `FLC_Animation::civ_color_table(c)` (0x403040), see 10.5. Armies (`UTA_Army`) use a 3-colour table built at 0x5CBD25 and their own draw routine 0x5CC140 when `U+0x1D0 != -1` [?].
+2. Colour civ: `c = CivID`. If the unit has `UTA_Hidden_Nationality` (0x11) and the viewer is a real civ other than the owner, `c = 0` (barbarian colours), unless debug bit 8 is set. Colour table: `FLC_Animation::civ_color_table(c)` (0x403040), see 10.5. Armies (`UTA_Army`) get palette entries 64..127 rewritten at 0x5CBD25 and use their own draw routine 0x5CC140 when `U+0x1D0 != -1` (see 10.11).
 3. `(x, y) = pixel_loc` (halved when zoomed out) `- (cam_x, cam_y)`. This is the **unit anchor in canvas pixels**.
 4. **Units in cities**: unless `p_preferences` (0xA52638) has `P_SHOW_UNITS_OVER_CITIES` (0x2000), a unit on a city tile is not drawn. Exceptions: it is `Current_Unit`, `always_on_top`, or (`field_111` and anim in 3..6). [D: in this game 11 of the 31 drawn units stand on city tiles, so the preference is on.]
 5. **Team-colour disc**: if `p_preferences & P_SHOW_TEAM_COLOR_DISC` (0x800) and the tile has **no city**, draw the disc sprite (10.6).
@@ -574,17 +626,157 @@ All positions below are canvas pixels relative to the anchor `(x, y)` of 10.3 (n
   for i in 0 .. min(hp, 20): fill [X+6, X+8) x [bottom - pitch + 1, bottom) with colour; bottom -= pitch
   ```
   So each HP is a `pitch-1` px segment with a 1 px black gap, filled from the bottom. [D: unit at anchor (896, 476), Infantry with 3 HP: black/green column at x = 870-871, rows 454-467, green 454-457, 459-462, 464-467, black 458 and 463.]
-- **Fortified frame**: for a land unit on land with `UnitState == 1`, fortification bonus `0x467D60(u) > 0` and `[0x9C72B0] > 0` (armies use 0x42B630), the outline 0x6008D0 is drawn in white at `(left-1, top-1, right, bottom)` around the bar [X; not in the data].
+- **Fortified frame**: for a land unit on land with `UnitState == 1`, fortification bonus `0x467D60(u) > 0` and `[0x9C72B0] > 0` (armies use 0x42B630), the outline 0x6008D0 is drawn in white at `(left-1, top-1, right, bottom)` around the bar [X; not in the data]. Exact pixels and condition: 10.10.
 - **Movement LED** (0x5BA380, own units only, i.e. `CivID == Player_CivID`). The 6x6 sprites are cut from `Art\interface\MovementLED.pcx` at (1,1) green, (15,1) yellow and (29,1) red (0x54B986..0x54B9C1); magenta is transparent. Selection: remaining move points `max_moves - Moves <= 0` (and not `U+0x5D`) -> red; remaining != max -> yellow; full -> green. Position: `((left + right - 6)/2, top - 6)` = `(X+4, Y+18-barH)`, drawn with `Sprite_draw` 0x5F8210 [X]. [D: (868, 448) holds the red LED exactly.]
 - **Stack lines** (when `stack_flag`): `n = 1 +` the number of other units on the tile for which `0x4E3E50(u')` is false, clamped to 8. If `n > 1`, draw `n` white lines from `(X+5, Y+26+2i)` to `(X+8, Y+26+2i)` (0x5FFFB0), i.e. below the bar [X]. [D: the unit at anchor (640, 92) in a 4-unit city shows white 4-px lines at x = 613-616, y = 86, 88, 90, 92.]
 - City labels and the other UI are drawn later by the form, outside this pipeline.
 
 ### 10.7 Open points
 
-- Armies (`U+0x1D0 != -1` path 0x5CC140, the 3-colour table at 0x5CBD25), the meaning of `U+0x1DC`, `U+0x1E8`/0x5B2BE0, `U+0x24F`, `U+0x259`, and the exact semantics of `Unit_is_visible_to_civ` for invisible/submarine units.
+- The meaning of `U+0x1DC`, `U+0x1E8`/0x5B2BE0, `U+0x24F`, `U+0x259`. (Armies and `Unit_is_visible_to_civ`: now 10.11 and 10.12.)
 - The JGL blit flags `0x0A000020`, shadow indices 224-247, and zoomed-out resampling.
 - Which era index selects the `_ERAS_` art variant (probably the owner's era).
 - Wrapping: the alternate camera copies at Animator+0x1924..0x1938 are set only when the view straddles the map edge (0x4EEF49..0x4EF067); not exercised by `ww2j` (no wrap).
+
+### 10.8 Harbour / airport / barracks icons beside cities (the small white diamonds) [X][D]
+
+The small white diamond icons near some units are **city icons**, not unit markers. A city that has a harbour-, airport- or barracks-type building shows a 23x15 white diamond with an anchor, a plane or a sword next to its tile. They are drawn by the city-label pass, **on top of the units**. So when a unit stands on the tile south-east of such a city, the icon covers the unit's head. [D: in `u2` the sword icon of Taiyuan (city at (16,22)) covers the Infantry at (17,23), and the one of the city at (11,41) covers the Guerilla at (12,42).]
+
+**Where** [X]: `Main_Screen_Form::draw_city_hud` (PCG **0x4E5640**; C3X calls it `Main_Screen_Form_draw_city_hud`, GOG 0x4E5580). It is called from 0x4C3100 (the draw method of an overlay control; the call at 0x4C3150, followed by the colony labels 0x4E4990), not from the Animator. It loops over all cities (`Cities` list 0xA52E2C, `LastIndex` 0xA52E38). For each city it draws the name/production label boxes (OpenGL lines plus text), then the capital/HUD star (`City_draw_hud_icon` 0x4B9CF0, beside the label), then these icons. The order relative to units is [I] (separate overlay control). The [D] overlap above shows that it lands above the unit sprites.
+
+**City filter** (0x4E5748..0x4E57C2) [X]: drawn if debug-see-all (`0xA52640 & 8`, via 0x427390) or if the city tile is **explored** by the viewer (`0x4EDF90`: Tile+0x58 bit of the viewer). The tile must also pass 0x4E6AB0 (on-screen test [I]).
+
+**Position** (normal zoom) [X 0x4E68BD..0x4E69FD][D]: `0x4E3BD0(city.x, city.y)` returns the city tile's box top-left `(sx, sy)`. In canvas coordinates this is `(64*cx - camera_x, 32*cy - camera_y)` = city anchor - (64, 32). The icons are plain `Sprite_draw` (0x5F8210, index 255 transparent) at the sprite cell's top-left:
+
+| Icon | Sprite | Art cell (x, y, w, h) | Draw position | Condition |
+|---|---|---|---|---|
+| Harbour (anchor) | 0xB3F340 | `Art\Cities\airAndHarb.pcx` (27, 1, 25, 17) | `(sx, sy + 47)` | `City_shows_harbor_icon` (C3X hook 0xCF8744, called at 0x4E68B4) |
+| Airport (plane) | 0xB3F314 | `Art\Cities\airAndHarb.pcx` (1, 1, 25, 17) | `(sx + 103, sy + 47)` | `City_shows_airport_icon` (C3X hook 0xCF87B3, called at 0x4E6902) |
+| Barracks (sword) | 0xB3F2E8 | `Art\Cities\barracks.pcx` (1, 1, 25, 17) (only in `Conquests\Art\Cities\`) | `(sx + 103, sy + 29)`, i.e. 18 px above the airport slot | `0x4AE160(city)` **and** `city.CivID == Player_CivID` (own cities only) |
+
+Relative to the city anchor `(ax, ay)` the three cells sit at `(ax-64, ay+15)`, `(ax+39, ay+15)` and `(ax+39, ay-3)`. The visible diamond is the cell minus its 1-px transparent border, so 23x15 starting at cell + (1, 1). The sprites are cut in 0x54A5B0 by `0x5F7EC0(pcx, x, y, w, h, 1, 1)`. Paths go through `BIC_get_asset_path` (0x5982A0), so scenario folders can override them. Zoomed out the code subtracts the sprite width (`[0xB3F350]`, `[0xB3F324]`, `[0xB3F2F8]`) and uses the half-size tile constants. Zoomed-out positions are [X] in code but not checked.
+
+[D] With camera (64, 580), **every** non-label magenta cluster in `u2-diff2.png` sits exactly at one of these slots. Examples: barracks (1064,154) of city (16,22) and (744,762) of city (11,41); airport (1320,44) of a Japanese city; harbour (1345,684) plus barracks (1448,666) of Foochow (22,38). Foreign cities never show the sword.
+
+**Conditions** [X]:
+- `0x4AE160` (barracks): count the buildings `i` (`BIC.ImprovementsCount` 0x9C3D40, `Improvements` 0x9C406C, stride 0x110) that the city has active (`0x4ACBE0(city, i, 1)`), that are not obsolete for the owner (`Improvement+0xE0` = obsoleting advance; obsolete if >= 0 and the owner knows it, 0x5613F0), and whose `ImprovementFlags` (+0xEC) has `ITF_Veteran_Ground_Units` (0x2). Show the icon if the count > 0.
+- Harbour and airport: C3X replaces both calls. With `city_icons_show_unit_effects_not_trade = true` (the value in the installed `default.c3x_config.ini`, no custom config present), the test is `City_count_improvements_with_flag` (0x4B2020, the same loop as above) with `ITF_Veteran_Sea_Units` (0x20000) for the harbour and `ITF_Veteran_Air_Units` (0x40000) for the airport. With the option off it is vanilla `City_can_trade_via_water` (0x4AE0C0) / `City_can_trade_via_air` (0x4AE020), i.e. `ITF_Allows_Water_Trade` 0x100000 / `ITF_Allows_Air_Trade` 0x200000. Under standard rules both variants pick Harbour and Airport.
+- The icons are independent of units and of the label preference bits. They need the city's building list (the trace's `city ... <hex bits>` column) and `BIC.Improvements[].ImprovementFlags`.
+
+Side note [D]: `u2-diff2.png` also shows 6 missing white stack lines at x = 1189-1192, y = 246..256. They belong to the Japanese unit 450 in Kaifeng (19,25), anchor (1216,252): `X+5..X+8`, `Y+26+2i` as in 10.6. The renderer does not draw that stack. The cause (probably stacked units missing from the trace) is not investigated here.
+
+### 10.9 City-site radius preview for a selected settler (the thin orange/red diamond) [X][D]
+
+**What it is**: when the selected unit can found a city, the game outlines the tiles the new city would work. In a fresh game that is the 3x3 block around the settler (radius-1 culture border). The lines are drawn with the OpenGL line renderer, so the sprite tracer never sees them. This is vanilla code (C3X only wraps the line primitive, see below).
+
+**Call site** [X]: `Unit_draw` (0x5CBC60), right after `draw_cursor` (0x5CBFB2..0x5CBFE4):
+```
+if unit == Current_Unit (0x9FD434):
+    Animator::draw_cursor(x, y)
+    if Unit_can_perform_command(unit, UCV_Build_City = 0x20000002)   // 0x5C17E0 (C3X inlead)
+       and unit.current_anim_type (U+0x2A0) == 1 (DEFAULT, i.e. not walking):
+        Main_Screen_Form::draw_city_radius_preview()                  // 0x4DD8C0, ecx = MSF 0x9F86C0
+```
+`0x4DD8C0` returns at once if `MSF+0x2E1AD` is set. It sets that flag (and MSF+0x2FAC7) when done. The Animator clears the flag at 0x4EF0E6, right after it redraws terrain (m71) and fog (0x4C4F10) into the map canvas. So the preview is drawn **once per terrain redraw, into the map canvas MSF+0x274 (0x9F8934), after terrain, cities and fog and before all units** (units go to the Units_Control canvas). [D: the lines are not darkened where they cross fog.]
+
+**Centre tile** [X 0x4DD8D8..0x4DD986]: `MSF+0x4E8C/0x4E90` (`field_4E80[3..4]`) hold the tile under the mouse [I: cleared to -1 by the mouse handler at 0x4EAEE6, set from `get_tile_coords_under_mouse`].
+- If that tile is on the map and the viewer has **explored** it (Tile+0x58 bit), the radius is centred on the **mouse tile**.
+- If it is on the map but unexplored, nothing is drawn.
+- If it is -1/off the map (mouse not over the map), the radius is centred on the **unit's own tile** (U+0x24/0x28).
+
+In `sel-game.png` it is centred on the settler, so the mouse was off the map.
+
+**Line style** [X 0x4DD98A..0x4DD9E0]: `OpenGLRenderer_initialize(MSF+0x274)`, `set_color(Leader 0x55A350(unit.CivID))` = the owner's **ntp palette entry 66** (the team-disc colour, as RGB555/565), `set_line_width(2)`, `set_opacity(0x80)`. [D: Rome's entry 66 = (231,8,8) (also the disc ring in the same shot). Line pixels like (181,66,24) over grass (132,132,49) are exactly `(colour + bg)/2` truncated to RGB555 (176|5, 64|2, 24|0 after 5-bit expansion), i.e. 50 % alpha.]
+
+**Which edges** [X 0x4DDA1A..0x4DDD8A, cached per (unit ID, x, y) in `MSF+0x4DC0..0x4DC8`; the edge mask is 21x4 bytes at `MSF+0x4DCC`]: first the centre must pass `Map_check_city_location` (0x5F3090, C3X-hooked) == 0, otherwise no lines. Then it walks the 21 tiles `n = 0..20` of the city radius in spiral order (`0x5E6D80(n)` gives the offset; n = 0 centre, 1..8 the inner ring, 9..20 the outer ring of the fat cross). A tile is **in** the area if:
+- `n < 9`: `0x5D41C0(x, y)` (owner the tile would have, [I]) is 0 or the unit's civ;
+- `n >= 9`: the tile's territory owner (`Tile` vfunc +0x98) is the unit's civ, or `Map 0x5D42A0(x, y, k)` (k = the neighbour index toward the centre, from 0x5E6C50) returns the unit's civ [semantics I].
+
+For each tile that is in, and each diagonal neighbour `d = 0..3` with `(dx, dy)` from the tables 0x67055C / 0x67056C = `(+1,-1) NE, (+1,+1) SE, (-1,+1) SW, (-1,-1) NW`, the edge is flagged if the neighbour is not in the area. That means it lies outside the 21-tile radius (spiral index >= 21 via 0x5F3E80), or it fails the same owner test as above.
+
+**Geometry** [X 0x4DDDCD..0x4DE269]: for each flagged edge of tile T, with `(cx, cy)` = T's centre in canvas coordinates (`0x4E3BD0` box top-left + (64, 32); wraps handled):
+```
+OpenGLRenderer_draw_line(cx + 64*dx, cy,  cx, cy + 32*dy)     // one tile-diamond edge, vertex to vertex
+```
+So the outline follows the tile-diamond edges, exactly one tile beyond the settler's ring. [D: `sel` (camera (1984,292), settler at (45,25), anchor (960,540)): the outline is the 3x3 block's diamond with vertices (960,444), (1151/1152,540), (960,636), (768,540). No outer-ring tiles are included because nothing is owned yet.]
+
+**Rasterisation** [D, measured; exact GL rule I]: a width-2 line of slope 1/2 covers 4 consecutive pixels per row (2 pixels per column). On the NW edge `x_ideal = 960 - 2*(y - 444)` the pixels are `x_ideal-2 .. x_ideal+1` (e.g. y = 446: x = 954..957). The ends at the left/right vertices thin out (rows 538..542 near x = 768..773). Each pixel is `(c + bg)/2` per channel, as RGB555.
+
+C3X note: with `draw_lines_using_gdi_plus = wine` (installed default) and the game running under Wine, `patch_OpenGLRenderer_draw_line` (injected_code.c) draws the same line with GDI+ (`GdipDrawLineI`, antialiased, pen width 2, colour = rgb555 expanded, alpha 0x80) instead of OpenGL. The screenshots here come from the Windows VM, so OpenGL is used and the pixels above apply.
+
+### 10.10 Fortified frame around the health bar (exact) [X]
+
+In `Unit_draw_hud` (0x5BA460), after the bar segments (0x5BA67B..0x5BA731):
+```
+cont = Units.get(U.Container_Unit (U+0x60))
+if cont and Unit_has_ability(cont, UTA_Army 0x12):        // dead path: the HUD already returned at 0x5BA486 for army members
+    bonus = 0x42B630(cont)
+else:
+    if UnitType.Unit_Class (+0x9C) != 0  -> no frame        // land units only
+    if tile_at(U.x, U.y) is water (Tile vfunc +0x8C) -> no frame
+    if U.UnitState (U+0x64) != 1         -> no frame        // fortified
+    if 0x467D60(u) <= 0                  -> no frame        // remaining moves = clamp(max_moves - Moves, 0, 9999)
+    bonus = [0x9C72B0]                                      // BIC.General.DefenceBonus_Fortification (General+0x10C) [H]
+if bonus > 0:
+    PCX 0x6008D0(left-1, top-1, right, bottom, white, white)
+```
+- **0x467D60 is not a fortification bonus**: it returns the unit's remaining move points, `clamp(Unit_get_max_move_points(u) - U.Moves, 0, 9999)` [X]. So a fortified unit that has used all its moves this turn has **no frame**.
+- **`[0x9C72B0]`** = `BIC+0x3DE8` = `General.DefenceBonus_Fortification` (offset 0x10C in `General` at BIC+0x3CDC) [H, offsets X]. It only gates the frame (the rules value, normally 25). 0x42B630 is the general "fortification bonus" helper: it walks up to the outermost army, then returns `[0x9C72B0]` under the same land/land/state 1/moves left conditions.
+- `left, top, right, bottom` are the bar rectangle of 10.6: `left = X+6` (-4 for Mech Infantry), `right = X+8`, `top = Y+24-barH`, `bottom = Y+24` (X = x-32, Y = y-32).
+- **0x6008D0** draws four 1-px JGL lines (vfunc +0x64; endpoints inclusive, as for the stack lines): top `(x0+1..x1, y0)`, bottom `(x0..x1-1, y1)`, left `(x0, y0..y1-1)`, right `(x1, y0+1..y1)`. With `(x0,y0,x1,y1) = (left-1, top-1, right, bottom)` this is the **closed 1-px outline of the inclusive box `[X+5, X+8] x [Y+23-barH, Y+24]`**: one pixel left of, one right of, one above and one below the 2-px bar.
+- Colour: white, `0x8000FFFF` in 565 mode / `0x80007FFF` in 555 mode (bit 31 is a JGL flag) [X].
+- Order: frame after the bar, **before** the movement LED (0x5BA736..). The 6x6 LED at `(X+4, Y+18-barH)` covers `x = X+4..X+9`, `y = Y+18-barH..Y+23-barH`, so it overwrites the frame's top row except where the LED is transparent (magenta).
+- No fortified unit (`state == 1`) occurs in any trace in `/mnt/datasets/winvm/civ3r-runs` (all `state` = 0), so this is [X] only.
+
+### 10.11 Armies [X]
+
+Army unit = a unit whose type has `UTA_Army` (0x12; `Unit_has_ability` 0x5BC5C0). Fields [X]: **`U+0x1D0`** (`Body.field_1B0[1]`) = **ID of the displayed member**, i.e. the best defender. When a unit joins (0x5BC9E9..0x5BCB48) the game increments **`U+0x1D4`** (`field_1B0[2]`) = **member count**. It then scores the old and the new member like `find_visible_unit` (defence x (100 + fortify bonus) x HP, comparator 0x4A1360) and stores the winner's ID in U+0x1D0. Both are reset to 0 / -1 at creation (0x5BB7E9). Members have `Container_Unit` = the army and are never picked by `find_visible_unit` (10.2) and get no HUD.
+
+**Palette** (`Unit_draw` 0x5CBD10..0x5CBD95, every army, before the branch): get entries 0..15 of `Units_Image_Data.Color_Tables[leaders[army.CivID].Color_Table_ID]` (0x73DA04; JGL vfunc +0x10 `get(buf, 0, 16)`, 3 bytes per entry). Replicate them 4 times (3 x `memcpy 0x30`). Write the 64 entries into the army animation's FLC table (`ebp` = result of `civ_color_table`) at **entries 64..127** (vfunc +0x14 `set(buf, 64, 64)`). So **army art index `64 + k` gets `ntp[k mod 16]`**, on top of the normal 0..63 civ replacement (10.5). (The old note's "3-colour table" was wrong.)
+
+**Branch**: if `U+0x1D0 == -1` (empty army) the normal path (10.2/10.3) draws the army's own art. Otherwise `0x5CC140(canvas, cam_x, cam_y, table, stack_flag)` draws it and `Unit_draw` returns:
+```
+M = Units.get(A.U+0x1D0)                                  // displayed member
+(mx, my) = A.U+0x5D (moving) ? A.pixel_loc : M.pixel_loc;  (ax, ay) = A.pixel_loc     // both /2 when zoomed out
+mx -= cam_x; my -= cam_y; ax = ax - cam_x + 40 (20 zoomed out); ay -= cam_y
+if A.current_anim_type == 3 (ATTACK1) and A.direction_2 == 2 (E): ay -= 20 (10 zoomed out)
+civ = A.CivID, or 0 for UTA_Hidden_Nationality seen by another real civ (as 10.2 step 2)
+tableM = civ_color_table(M.anim, civ)                      // M's FLC table, entries 0..63 from ntp
+n = min(A.U+0x1D4, 4); copy ntp[0..15] of leaders[0] (literal 0xA53F50 = leaders[0].Color_Table_ID) n times
+    and set entries 64 .. 64+16n-1 of `table` (A's FLC table)       [X; using civ 0 here looks like a game bug, effect ?]
+return unless Unit_is_visible_to_civ(A, Player_CivID, 1) or debug-see-all
+units-in-cities rule as 10.2 step 4, but the only exceptions are Current_Unit and anim 3..6
+team disc (P_SHOW_TEAM_COLOR_DISC, no city) at (mx - 64, my - 32), civ colour
+if A == Current_Unit: draw_cursor(mx, my)                 // no settler radius on this path
+Sprite_draw_with_color_table(A.frame, 0x9F8934, canvas, ax - W/2, ay - H/2, [0x9C7304], table)    // army banner art, 40 px right
+Sprite_draw_with_color_table(M.frame, 0x9F8934, canvas, mx - W/2, my - H/2, [0x9C7304], tableM)   // member figure, in front
+   (zoomed out: 0x5F8870 scale 2 at x - W/4, y - H/4)
+Unit_draw_hud(A, canvas, mx - 32, my - 32, stack_flag)     // HUD of the army, at the member's anchor (-16 zoomed out)
+```
+So an army shows as the **strongest member's figure at the tile anchor, plus the army's own (banner) animation 40 px to the right drawn behind it**. The health bar, LED and stack lines are the army's own. The member's `Frame_1` must be animated too. It is not in the draw list itself, so its frame is advanced only through the army [I]. No army occurs in the available traces.
+
+### 10.12 `Unit_is_visible_to_civ(unit, civ, param_2)` (0x5BB360) [X]
+
+The installed exe jumps to C3X `patch_Unit_is_visible_to_civ` first. That only adds hot-seat shared vision (`share_visibility_in_hoseat`, offline non-PBEM hot-seat games: visible if visible to any other human player) and otherwise returns the original result. Original:
+```
+if unit.CivID == civ: return 1
+if unit.Container_Unit != -1: return Unit_is_visible_to_civ(container, civ, param_2)   // 1 if the container ID is invalid
+t2 = 0x5BC3E0(unit)            // armies: a member's type (else -1)
+invisible = UnitType[unit.type] has UTA_Invisible (0x7)  or  (t2 != -1 and UnitType[t2] has UTA_Invisible)
+if !invisible: return 1        // ordinary units: always "visible" here; fog/visibility is handled by 10.2 tile_visible_now
+if civ == -1: return 0
+if race slot(owner) != 0 and race slot(owner) == race slot(civ): return 1
+        // 0x5E22F0 on BIC.Game (0x9C4090) with leaders[].RaceID (+0x20): same team/slot [I]
+if leaders[civ]+0xEB0+4*owner has bit 6: return 1      // the same diplomatic bit as 10.2's shared-vision test
+for n in 1 .. 24:                                        // spiral 0x5E6D80: ring 1 (8 tiles) and ring 2 (16 tiles); the unit's own tile (n = 0) is NOT scanned
+    (x, y) = unit tile + offset(n), wrapped; skip if off-map (Map_in_range 0x426C50)
+    for each unit d on (x, y) (TileUnits list):
+        if d.CivID == civ and (UnitType[d.type] or UnitType[0x5BC3E0(d)]) has UTA_Detect_Invisible (0x16; C3X hook 0xD00314)
+           and 0x5B9D20(d, unit.x, unit.y):              // detector can see the target tile [range rule I: uses tile distance 0x44A950;
+               return 1                                  //  sea detectors that are fortified (state 1) or in state 0xF get special handling at distance <= 3]
+return 0
+```
+Renderer consequences [X]: `Unit_draw` (both paths) and `find_visible_unit` (10.2 step 3) call it with `civ = Player_CivID`, `param_2 = 1`. Invisible units (e.g. submarines, `UTA_Invisible`) of other civs are skipped unless they are on the same team, have the bit-6 diplomatic relation, or a viewer-owned detector stands within the 24 surrounding tiles and passes 0x5B9D20. Debug-see-all (`0xA52640 & 8`) bypasses it in both callers. The trace's `visible` column is the result of this call for the viewer [I].
 
 ---
 
@@ -670,3 +862,208 @@ for (cy = TileY_Min ..= TileY_Max) for (cx = TileX_Min ..= TileX_Max) {         
 - SAV/BIQ: PKWare DCL decompression (port of zlib `blast.c`; C7 uses the same, `Blast` project), then TILE chunks (4 per tile).
 - Image-index formula validation: 27,780 interior tiles from `Rom D 4.SAV`, `MK 10.SAV` and 12 saves in `Conquests/Saves`: `loc = d(N) + 3 d(NW) + 9 d(NE) + 27 d(T)` matched for sheets 0-4 and 6 with zero mismatches.
 - River bit mirroring: 982/982 mirrored pairs in `MK 10.SAV`.
+
+---
+
+## 16. User interface drawing
+
+Numbered 16 because section 15 already exists. This section covers everything that is not the map: forms (screens, dialogs, advisors, city screen), controls (buttons), the HUD, the cursor and tooltips. It gives the hook points needed to rebuild every UI blit as *(art file, source rect) -> (screen x, y)*. All addresses are PCG; none of the functions below are patched at their entry by C3X (I compared the first 16 bytes in `Civ3Conquests.exe` and `Civ3Conquests-Unmodded.exe`) [X]. Struct offsets come from the C3X header compiled with `gcc -m32` [H] unless the disassembly reads them, in which case they are tagged [X]. Calling convention: every method is `__thiscall` (`this` in ECX, args on the stack, callee pops; `ret N` gives the arg count). C3X writes them as `__fastcall` with a dummy EDX.
+
+### 16.1 Layers and objects
+
+```
+art file --PCX_Image_read_file--> PCX_Image (8-bit indexed, palette)
+            --Sprite_slice_pcx--> Sprite (owns a JGLSprite: copy of the pixels of a sub-rect)
+                  --Sprite_draw*--> PCX_Image used as a canvas (16-bit, one per form/control, plus temporaries)
+                          --Base_Form m79 (0x602710)--> back buffer PCX_Image at 0xCACFF0 (screen-sized, 16-bit)
+                                  --jgl BitBlt 1:1--> window
+```
+
+The blitter is `jgl.dll`. It is loaded with `LoadLibraryA` and has one export, `get_graphsy_object_ptr`. The returned "graphics" object is stored at **0xCAB28C** [X: 0x6306E0]. Its vtable (jgl RVA 0x685F8) creates every pixel object:
+
+| graphics vt slot | jgl impl (base 0x10000000) | meaning |
+|---|---|---|
+| +0x04 | 0x1003B400 | create window (controller 0xCACD30, ..., back buffer 0xCACFF0, ...) [X: call at 0x620288] |
+| +0x30 | 0x1003BBB0 | `InvalidateRect(hwnd, rect, FALSE)` [X] |
+| +0x7C | 0x1003BFF0 | new `JGL_Image` (0x4D4 bytes, vtable jgl RVA 0x68238) [X] |
+| +0x80 | 0x1003C060 | new `JGLSprite` (0x50 bytes, vtable jgl RVA 0x68440) [X]. Called from exactly 5 places: 0x5F8A72, 0x5F8AC0, 0x5F8B30, 0x62AD0B, 0x62B217 (= the 5 sprite constructors in 16.3) |
+| +0x9C / +0xA0 | 0x1003C0E0 / 0x1003C100 | set / get the global draw scale `(num_x, num_y, den)` (jgl globals RVA 0x6C0FC/0x6C100/0x6C104) [X]. UI code sets 1/1/1 (0x60272A, 0x6083C8); the map sets 1/2 when zoomed out |
+| +0xA4 | 0x1003BAA0 | present: `BitBlt(window DC, r.left, r.top, w, h, backbuffer DC, r.left, r.top, SRCCOPY)` for a dirty rect (whole buffer if NULL) [X] |
+| +0xB4 | 0x1003BF10 | pixel format query (used ~800x for colour conversion) [I] |
+
+**Back buffer = screen.** `PCX_Image` at **0xCACFF0** (its `JGL_Image*` is at 0xCACFF4) is passed to Create_Window [X: 0x62027B], stored in graphics+0x148, and BitBlt'd to the window at the same coordinates [X: 0x1003BAA0]. A pixel at (x, y) of 0xCACFF0 is window client pixel (x, y). No scaling happens after this point (StretchBlt is imported but not used on this path).
+
+### 16.2 PCX_Image (images and canvases)
+
+`PCX_Image` (0x2B8 bytes): +0x00 vtable (0x6711D0), **+0x04 `JGL_Image*`** (NULL when empty), +0x08 image type, +0x20 creation arg, **+0xAC owned `PCX_Color_Table*`** (palette, created by the loader when `flags & 1`) [X]. The `JGL_Image` holds the pixels. Read its size with JGL_Image vt+0xD8 `Get_Width()` and vt+0xDC `Get_Height()` [X: used everywhere]. vt+0xE4 returns a format struct whose first dword is the bit depth (8 or 16) [X]. Other fields: +0x24 BitCount, +0x40 stride, +0x44 Clip_Rect, +0x54 Image_Rect, +0x80 back-pointer to the owning `PCX_Image` [X: ctor 0x100015F0 stores its arg there], +0x4BC HDC, +0x4C0 Bits_Data (DIB section) [H].
+
+| Function | Address | Signature | Notes |
+|---|---|---|---|
+| `PCX_Image_construct` | 0x5FC300 | `(this)` | empty image [X] |
+| `PCX_Image_destruct` | 0x5FC460 | `(this)` | calls clear [X] |
+| `PCX_Image_clear` | 0x5FC4D0 | `(this)` | frees the JGL_Image and the owned colour table [X] |
+| **`PCX_Image_read_file`** | **0x5FC700** | `int (this, char* path, PCX_Color_Table* ct, int ct_start, int ct_count, unsigned flags)`, `ret 0x14` | [X] see below |
+| `PCX_Image_create` (blank surface) | 0x5FC5F0 | `int (this, int w, int h, int bpp, int type, int ?, int a6)`, `ret 0x18` | graphics vt+0x7C then JGL_Image vt+0x04(w, h, bpp, type). Canvases are created with bpp 16 (`0x10`) [X: 0x60A13E] |
+| `PCX_Image_resize` | 0x5FC690 | `(this, w, h, ?)` | re-creates with the same type [X] |
+
+**Load hook (read_file, 0x5FC700)** [X]: at entry, ECX = `PCX_Image*` and `[esp+4]` = `char* path`. Copy the string immediately: callers pass the static result of `BIC_get_asset_path` (0x5982A0, `char* (BIC* this=0x9C34C8, char* rel_path, bool popup)`), so the path is already resolved (scenario folder, then roots, section 11). If the path has no '.', ".pcx" is appended to a local copy. `flags & 1`: a new palette is allocated into `img+0xAC`, and `ct` must be NULL. `flags & 2`: the shared palette at 0xCAB270 is used. Otherwise the caller's `ct` is used. Return 0 = success. After return, `img+4` holds an **8-bit** JGL_Image with the PCX's size. In 378 of 382 call sites the image is a stack temporary: load, slice sprites, destroy. **The same `PCX_Image*` address is therefore reused for different files**, so keep "current file of this PCX_Image", update it on every read_file / create / clear, and look it up at slice time. 0xCAA808 is a shared scratch image used by "lazy" sprites (16.3) [X].
+
+### 16.3 Sprites: creation and source mapping
+
+`Sprite` (0x2C bytes) [X: 0x5F7D80, 0x62B170]:
+
+| Off | Field | Meaning |
+|---|---|---|
+| +0x04 | `JGLSprite*` | pixels (a private copy of the source rect, 8-bit, colour key 0xFF set by JGLSprite vt+0x18(0xFF)) |
+| +0x08 | `char*` | "lazy" file path (only for `Sprite_from_file`); if set, the sprite draws the whole file |
+| +0x0C | `PCX_Color_Table*` | palette taken over from the PCX (only `Sprite_slice_pcx_with_color_table`) |
+| +0x10 / +0x14 | Width3 / Height3 | **cropped** size = size of the JGL pixels |
+| +0x18 / +0x1C | Width / Height | **requested** cell size (w after the odd-width fix, h) |
+| +0x20 / +0x24 | Width2 / Height2 | **crop offset**: number of fully transparent (0xFF) columns on the left / rows on the top that were trimmed |
+| +0x28 | type | JGLSprite type (slice arg 6; usually 1) |
+
+**The Sprite stores neither the source PCX nor the source x/y**, so the hook has to capture them at creation:
+
+| Constructor | Address | Signature | Source recorded |
+|---|---|---|---|
+| **`Sprite_slice_pcx`** | **0x5F7EC0** | `int (Sprite* this, PCX_Image* img, int x, int y, int w, int h, int type, bool crop)`, `ret 0x1C` | [X] Does nothing (returns 0) unless `img` is 8-bit. **If `w > 1` and odd, `w` is decremented** (so a 49x49 resource cell becomes 48 wide). Forwards to the worker 0x62B170 (only caller), which checks `x+w <= W`, `y+h <= H`, creates the JGLSprite and, if `crop`, trims fully-0xFF rows/columns on all four sides (fills +0x10..+0x24). Source pixels = `(x + spr[0x20], y + spr[0x24], spr[0x10], spr[0x14])` in the file. Typical call: `(img, x, y, w, h, 1, 1)` |
+| `Sprite_slice_pcx_with_color_table` | 0x5F7FB0 | same args | calls 0x5F7EC0, then moves `img+0xAC` (palette) to `spr+0x0C` [X]. Hooking 0x5F7EC0 covers it |
+| slice with colour key | 0x5F7F30 | 10 args, `ret 0x28` -> worker 0x62AC60 | like 0x62B170 but the transparent key is an argument (JGLSprite vt+0x18(arg)). Only caller is 0x5F8000 (palette-taking wrapper), called from 0x5CE5C5 [X] |
+| copy constructor | 0x5F8A20 | `Sprite* (this, Sprite* src)`, `ret 4` | copies all fields, duplicates the JGL pixels (vt+0x0C); inherits src's origin [X]. 1 caller (0x60165A) |
+| blank 8-bit | 0x5F8AA0 | `(this, int w, int h)` | generated; callers 0x5F7AEE, 0x5F7C09 [X] |
+| blank screen format | 0x5F8B10 | `(this, int w, int h)` | generated; callers 0x625436.., 0x630626 [X] |
+| lazy file sprite | 0x5F7E20 | `int (this, char* path, int w, int h)`, `ret 0xC` | stores a copy of the path in +0x08. Every draw loads the file into 0xCAA808 and blits the whole image (`PCX_Image_draw_onto`). 1 caller (0x6112A0) [X] |
+| reset/free | 0x5F7DB0 | `(this)` | releases the JGLSprite; drop the mapping [X] |
+| `Sprite_construct` | 0x5F7D80 | `(this)` | zeroes the fields [X] |
+
+A sprite sliced from an image that was never loaded from a file (a canvas, the minimap image, a temporary composed image) has no file origin: treat it as "generated, from surface S".
+
+### 16.4 Blits onto canvases
+
+The exe wrappers add the crop offset (`spr+0x20/+0x24`, multiplied by the current scale, which is 1 in UI code) and then call a JGLSprite vtable slot [X]. **Effective top-left of the stored pixels = (x + spr[0x20], y + spr[0x24])**, and their size is `(spr[0x10], spr[0x14])`. All return 7 if the sprite or canvas has no JGL object. All except Sprite_draw return 0x18 for lazy sprites. The `ct` argument is a `PCX_Color_Table*` (NULL = the sprite's own palette); its `+4` (`JGL_Color_Table*`) is what gets passed down, and this is how civ colours and button palettes are applied [X].
+
+| Wrapper | Signature (`this` = Sprite*) | JGLSprite slot | Callers / use |
+|---|---|---|---|
+| **`Sprite_draw`** 0x5F8210 | `(PCX_Image* canvas, int x, int y, PCX_Color_Table* ct)`, `ret 0x10` | +0x44 (jgl 0x10008180) | 441 callers; normal colour-keyed (index 0xFF) blit [X key; I exact 254 handling] |
+| `Sprite_draw_on_map` 0x5F8060 | `(Map_Renderer*, x, y, ct, ?, scale_num, scale_den)`, `ret 0x1C` | +0x44 with scale | map only (section 4) |
+| 0x5F81A0 | `(canvas, x, y, ct)`, `ret 0x10` | +0x5C | 26, city screen 0x408xxx-0x412xxx, 0x4F8997, 0x523Cxx [I: variant blit mode] |
+| 0x5F84A0 | `(canvas, x, y, int a4, ct)`, `ret 0x14` | +0x74 | 16 (city screen, 0x52Axxx, 0x5A39xx) [I] |
+| 0x5F83E0 | scaled wrapper of 0x5F84A0, `ret 0x20` | | 2 |
+| 0x5F8620 | `(canvas, x, y, void* blend_lut, ct)`, `ret 0x14` | +0x7C | per pixel: if src != 0xFF then `dst = lut[(src16<<16)|dst16]` (16-bit path 0x1000A740) [X]. Translucent overlays |
+| **0x5F8560** | scaled wrapper of 0x5F8620 `(…, num_x, num_y, den)`, `ret 0x20` | | 5 (0x4C47xx fog, 0x4E55D0 city HUD) |
+| 0x5F8760 | `(canvas, x, y, int a4, ct)`, `ret 0x14` | +0x84 | 25, city screen 0x411xxx-0x414xxx, 0x424C05, 0x5A855B [I] |
+| 0x5F86A0 | scaled wrapper of 0x5F8760 | | 1 (0x4C4F05) |
+| **`Sprite_draw_with_color_table`** 0x5F87E0 | `(canvas, PCX_Image* canvas2, x, y, int a5, ct)`, `ret 0x18` | +0x8C | 10 (units/leaders) |
+| 0x5F8870 | scaled two-surface variant, `ret 0x24` | +0x88 | 7 |
+| 0x5F89A0 | `(canvas, x, y, ct?, a5, a6)`, `ret 0x18` | +0x94 | 18 (0x4F7Fxx-0x4F88xx, 0x5896xx, 0x5CFxxx) [I] |
+| **0x5F8310** (alpha-mask blit) | `(Sprite* alpha_mask, PCX_Image* background, PCX_Image* dest, x, y, ct)`, `ret 0x18` | +0x50 | **no crop offset added**. Buttons with an alpha image: `Images[state].0x5F8310(Button.Images[3], tmp_bg, button_canvas, (W-w)/2, (H-h)/2, 0)` [X: 0x60A252]. Also Main_GUI 0x5536FD..0x558209 |
+| 0x5F8380 | `(PCX_Image* a1, PCX_Image* a2, x, y, ct)`, `ret 0x14` | +0x58 | no crop offset; Main_GUI 0x54F2xx/0x552Bxx [I: two-surface mode] |
+
+JGLSprite vtable (jgl RVA 0x68440), useful as a catch-all hook (every exe wrapper ends here, with x/y already offset): +0x44 0x10008180, +0x50 0x10009AA0, +0x58 0x10009B20, +0x5C 0x10008050, +0x74 0x10008600, +0x7C 0x10008EE0, +0x84 0x10008FC0, +0x88 0x100090E0, +0x8C 0x100090A0, +0x94 0x10009220 [X]. The first stack arg is always the destination `JGL_Image*`, and `JGL_Image+0x80` gives back its `PCX_Image*` [X]. Each slot dispatches on (sprite bpp, dest bpp) to specialised loops. Only +0x7C was decoded; the exact pixel maths of the other modes is [?].
+
+**PCX_Image -> PCX_Image copies** (whole backgrounds, the minimap, parent backgrounds, temporaries) [X]:
+
+| Function | Signature (`this` = source PCX_Image) | JGL_Image slot |
+|---|---|---|
+| **`PCX_Image_draw_onto`** 0x5FC9F0 | `(PCX_Image* dst, x, y)`, `ret 0xC` | +0x84 (jgl 0x10002410): wraps the source in a temporary JGLSprite and runs the same blit as Sprite_draw, so it is colour-keyed |
+| copy rect 0x5FCB30 | `(dst, src_x, src_y, dst_x, dst_y, w, h)`, `ret 0x1C` | -> 0x5FCC10 |
+| copy/stretch 0x5FCC10 | `(dst, sx, sy, sw, sh, dx, dy, dw, dh)`, `ret 0x24` | +0x40 `Copy(dst, RECT* src, RECT* dst)` (opaque) |
+| copy same rect 0x5FCB60 | `(dst, x, y, w, h)`, `ret 0x14` | +0x40 with src = dst rect |
+| 0x5FCBD0 | `(dst, RECT*)` | +0x40 same rect |
+| 0x5FCCB0 | `(dst, RECT* src, RECT* dst)` | +0x40 |
+| 0x5FCA30 / 0x5FCA70 / 0x5FCAB0 / 0x5FCAF0 | `(dst, x, y, a4)` | +0x88 / +0x90 / +0xA4 / +0xA0: **not implemented** in this jgl (`mov eax,0x18; ret 0x10`, 0x1003BE40), so they draw nothing [X] |
+
+### 16.5 Forms, canvases and composition to the screen
+
+Form offsets, counted from the start of `Base_Form` (including the vtable; header `Base_Form_Data` offset + 4):
+
+| Off | Field | Use |
+|---|---|---|
+| +0x9C | Status1 | 0x20 coordinates relative to parent; 0x8000 see below; 0x10/0x01 has frame decorations (m80); 0x80000 erase background by copying the parent canvas; 0x1000000 transparent composite; 0x40000000 second canvas at +0x568 [X arithmetic, I names] |
+| +0xA0 | Status2 | bit0 visible (`0x609AC0` = visible and all parents visible); bit1 framed/scrollable [X bit0] |
+| +0xA4/+0xA8/+0xAC | composite params | only used when Status1 & 0x1000000 [X] |
+| +0xB0 | surface owner | the form whose canvas is composited for this entry (normally `this`) [X use, I meaning] |
+| +0x130 | Parent | [X] |
+| +0x1AC..+0x1B8 | Left, Top, Right, Bottom | canvas size = (Right-Left, Bottom-Top) [X] |
+| +0x1BC/+0x1C0 | client offset x/y (rect +0x1BC..+0x1C8) | [X] |
+| +0x1DC | RECT clip, in **screen** coords | computed by 0x607AC0 (IntersectRect down the parent chain) [X] |
+| +0x224 / +0x228 / +0x22C | child `Base_Form*[]`, capacity, count | [X] |
+| **+0x274** | **Canvas** (`PCX_Image`), +0x278 its `JGL_Image*` | [X]. MSF canvas = 0x9F8934; Main_GUI (HUD, `Main_Screen_Form+0x5450` = **0x9FDB10**) canvas = 0x9FDD84 |
+
+Every form and control (buttons included: `Button` vtable 0x6656C0, draw 0x60A010) has **its own canvas**. Controls draw into their own canvas, not into the parent's [X]. Relevant Base_Form vtable slots (shared implementations) [X]: +0x0C `m03` 0x602340 creates the canvas (`PCX_Image_create(w, h, …)` into +0x274); +0x58 `m22_Draw` (per class: draws into the canvas); +0x124 `m73` 0x6026B0 = `m22_Draw` + `0x602540` (invalidate the form's screen rect via graphics vt+0x30); **+0x13C `m79` 0x602710 = composite the canvas onto the back buffer**; +0x140 `m80` 0x608390 = draw frame/scroll images directly onto the back buffer; +0x16C 0x6028D0 = re-create the canvas on resize.
+
+**Local -> screen** [X]: `0x604A00 Base_Form_local_to_screen(this, int* x, int* y)`, `ret 8`:
+```
+x += Left + client_x; y += Top + client_y                     // +0x1AC/+0x1BC, +0x1B0/+0x1C0
+if (Status1 & 0x20) && Parent:
+    Parent->local_to_screen(x, y)                              // recursion
+    if (Status1 & 0x8000): x -= Parent.Left; y -= Parent.Top
+```
+`0x604A90` is the inverse. The screen position of canvas pixel (0, 0) is `local_to_screen(0, 0)`.
+
+**Composite of one form, `m79` 0x602710 `(this, RECT* dirty)`** [X]:
+```
+set scale 1/1/1; dst = 0xCACFF0 (back buffer)      // 0xCAD30C override: never written in .text, ignore
+dst.set_clip(this+0x1DC)                            // 0x5FC990 -> JGL vt+0x34
+(ox, oy) = local_to_screen(0, 0)
+if Status1 & 0x1000000:  canvas.PCX_Image_draw_onto(dst, ox, oy)   // colour-keyed; A4/A8/AC variants are no-ops
+else:                    canvas.copy_rect(dst, 0, 0, ox, oy, Right-Left, Bottom-Top)   // opaque, 0x5FCB30
+dst.reset_clip()                                    // JGL vt+0xC4
+```
+So **a draw at (x, y) on canvas C (form F) lands at screen `(x + ox, y + oy)`**, clipped to `F+0x1DC` and to the paint rect. Exception: if C is not a form canvas, it is a temporary or offscreen image whose content reaches a canvas through a later PCX->PCX copy (16.4).
+
+**Paint pass** [X]:
+1. Windows sends WM_PAINT to the jgl window. jgl (0x1003CC7E) calls `BeginPaint`, then `controller->vt[1](&ps.rcPaint)`. The controller is 0xCACD30 (vtable 0x67138C, set at 0x603220), and `vt[1]` = **0x62C3F0 `paint(RECT* r)`** = `compose(r, 0)` (0x609210) followed by `present(r)` (0x606680).
+2. **`compose` 0x609210 `cdecl (RECT* r, Base_Form* from)`**: walks the draw list `Base_Form* 0xCAC2F8[count 0xCAD3C0]` **from the last index down to 0**. For each visible entry `e` it calls `e->m80(r, -1)` if `e.Status2 & 2`, then `e->[+0xB0]->m79(r)`. **The last index is the bottom layer and index 0 is the top layer.** Afterwards, if a cursor sprite is set (0xCAD2D0), it saves the background under the cursor (0xCACD38) from the back buffer.
+3. The draw list is rebuilt by 0x607DE0 from the root list `0xCACB10[count 0xCAD3C4]` (roots in order; root 0 ends up topmost). Per root, 0x607CC0 appends in post-order: non-relative children (recursively), then relative (0x20) children if `this->B0 == this`, then the form itself. A parent is therefore drawn before (under) its children. If a modal form is set (0xCAD310), the list restarts at it [X list logic, I "modal"].
+4. **`present` 0x606680 `(RECT* r)`**: draws the tooltip (if text 0xCAD2F4 is set: outline 0x600940 with colour 0x72FF38, `fill_area(0xCACAFC, 0xCAD308)`, font 0xCAD2F8, text split on `^` drawn by 0x5FEFC0/0x5FF0D0, all straight into 0xCACFF0). It then draws the mouse cursor `Sprite_draw(0xCAD2D0, 0xCACFF0, *0xCAD2D4, *0xCAD2D8, 0)` and calls graphics vt+0xA4(r), which BitBlts to the window.
+
+Forms redraw into their canvas only when invalidated (m73 -> m22), not every frame. **Canvases are retained surfaces**: the tracer must keep a per-canvas display list, reset it when the canvas is re-created (0x5FC5F0 / 0x5FC690 / read_file into it) or fully covered (fill of the whole canvas, opaque copy of the full rect, background sprite at (0,0) of canvas size). "Erase background" (0x602120): if Status1 & 0x80000, `parent_canvas.copy_rect(own_canvas, Left+cx, Top+cy, 0, 0, W, H)`; otherwise `fill(color)` (0x5FFF30). Translucent and transparent controls are built from this copy of the parent's pixels.
+
+### 16.6 Other UI drawing
+
+| What | Function | Signature (`this` = PCX_Image) | JGL_Image slot |
+|---|---|---|---|
+| fill whole image | 0x5FFF30 | `(color)` | +0x44(NULL, color) [X] |
+| `PCX_Image_fill_area` | 0x5FFF50 | `(RECT*, color)` | +0x44 [X] |
+| fill x,y,w,h | 0x5FFEF0 | `(x, y, w, h, color)` -> 0x5FFF50 [X] |
+| line | 0x5FFFB0 | `(x1, y1, x2, y2, color)` | +0x64(x1, y1, x2, y2, color, 1) [X] |
+| horizontal line | 0x5FFFE0 | `(x1, x2, y, color)` | +0x64(x1, y, x2, y, color, 1) [X] |
+| vertical line | 0x600010 | `(x, y1, y2, color)` | +0x64 [X] |
+| outline rect | 0x6008D0 | `(left, top, right, bottom, color, ?)` built from the h/v lines [X] |
+| outline RECT* | 0x600940 | `(RECT*, color, ?)` -> 0x6008D0 with right-1/bottom-1 [X] |
+| special frame | 0x600980 | 5 args, uses 0x600040/0x6000A0 (exe-side 8/16-bit loops 0x62B720/0x62B9D0, 0x62B860/0x62BBA0) [I: dotted/xor selection lines] |
+| rect frame (debug) | 0x5FCCF0 | `(l, t, r, b, color)` | +0x5C(&rect, color) [I] |
+| set palette | 0x5FFDF0 | `(PCX_Color_Table*)` | +0xEC (canvases get the global 0xCAAE2C) [X] |
+| text | `PCX_Image_draw_text` 0x5FEE50 `(str, x, y, len)`; `do_draw_centered_text` 0x5FEFC0 `(str, x, y, width, len)`; `draw_centered_text` 0x5FD630 `(font, str, x, y, width, len)`; 0x5FF0D0 `(str, RECT*, len)`; state: `set_font` 0x5FD200, `set_text_effects` 0x5FD240 `(color, shadow, dx, dy)` [H names, X addresses]. These end in jgl `TextOutA` on the canvas's DC [I: DC owned by the JGL_Image, +0x4BC]. To attribute TextOutA calls to a canvas, record ECX on entry of these functions |
+| per-pixel | JGL_Image vt+0x1C / +0x14 (pixel pointer) | used by the minimap builder [I] |
+
+**Minimap**: `Navigator_Data` lives at **Main_GUI+0x10720 = 0xA0E230** [X: passed as `this` to 0x578050/0x5786F0/0x578E00]. Its PCX_Images (+0x18, +0x2D0, +0x588, +0x858 [H]) are filled per pixel from world state, then copied into the Main_GUI canvas with 0x5FCBD0/0x5FCB60 (calls at 0x5784EC, 0x578625, 0x578733, 0x57886C) [X calls, I content]. The renderer has to generate the minimap itself. Only the frame and buttons come from art files (Main_GUI `Images[252]` at +0x140D8, file names `PCX_Files[25]` at +0x2F0C [H]).
+
+**Not found**: no gradient fill primitive in the exe [?]. Fog/translucency in the UI goes through the LUT blend (+0x7C).
+
+### 16.7 Hook plan
+
+All hooks are thiscall. Read args at entry and results at return.
+
+1. **Image origin**
+   - `0x5FC700` read_file: entry `img = ECX`, `path = strdup([esp+4])`, `flags = [esp+0x14]`. On return `EAX == 0`: `img_src[img] = {file: path, w: JGL(img+4).vt[0xD8](), h: vt[0xDC]()}`.
+   - `0x5FC5F0` create, `0x5FC690` resize: `img_src[img] = {generated, w, h, bpp=[esp+0xC]}`.
+   - `0x5FC4D0` clear: `img_src.remove(img)`.
+2. **Sprite origin**
+   - `0x5F7EC0` slice: entry `spr = ECX`, `img, x, y, w, h, type, crop = [esp+4..0x1C]`. On return, if `spr+4 != 0`: `spr_src[spr] = {src: img_src[img] (or surface id img), rect: (x + spr[0x20], y + spr[0x24], spr[0x10], spr[0x14]), cell: (x, y, spr[0x18], spr[0x1C])}`. The odd-width decrement means `spr[0x18]` can be `w-1`.
+   - `0x5F7F30` (same, 10 args).
+   - `0x5F8A20` copy: `spr_src[ECX] = spr_src[[esp+4]]`.
+   - `0x5F8AA0` / `0x5F8B10`: generated.
+   - `0x5F7E20`: `{file: [esp+4], whole image}`.
+   - `0x5F7DB0`: remove.
+   - Alternatively key by `JGLSprite*` (`spr+4`) and hook at JGL level.
+3. **Every UI blit**: hook the wrappers in 16.4 (0x5F8210, 0x5F81A0, 0x5F84A0, 0x5F8620, 0x5F8760, 0x5F87E0, 0x5F89A0, 0x5F8310, 0x5F8380, plus the scaled 0x5F8060/0x5F83E0/0x5F8560/0x5F86A0/0x5F8870). Record `{op, spr, spr_src[spr], dst_canvas, x + spr[0x20], y + spr[0x24], extra args, ct}`. Alternatively hook the ten JGLSprite slots in jgl (vtable RVA 0x68440, read-only page: patch the vtable entries or detour the functions). That catches everything with the final x/y; map `JGLSprite* -> Sprite*` from step 2 and `dst JGL_Image* -> PCX_Image*` via `+0x80`. Also hook the PCX->PCX copies (0x5FC9F0, 0x5FCB30/0x5FCC10, 0x5FCB60, 0x5FCBD0, 0x5FCCB0), the primitives and text in 16.6.
+4. **Canvas -> screen**
+   - Hook `0x602710` (m79) entry: `form = ECX`, `canvas = form+0x274`, `(ox, oy)` = call `0x604A00(form, &x0, &y0)` with `x0 = y0 = 0` (pure, safe to call from the hook), `clip = *(RECT*)(form+0x1DC)`, `size = (form[0x1B4]-form[0x1AC], form[0x1B8]-form[0x1B0])`, `mode = form[0x9C] & 0x1000000 ? keyed : opaque`, plus `form vtable = *(void**)form` to identify the class.
+   - Bracket paint passes with `0x62C3F0` (arg = dirty RECT* in screen coords): composite events in call order are back-to-front.
+   - The cursor/tooltip pass is `0x606680`.
+   - Draws whose destination is 0xCACFF0 are already in screen coordinates (m80 frame pieces, tooltip, cursor).
+5. **Reconstruction**: keep a retained display list per canvas (16.5 reset rules), resolve temporaries through the copy events, and on each paint pass emit `for each m79 event: canvas list translated by (ox, oy), clipped to clip ∩ dirty`. For a full-screen mirror, hook `0x609210` and re-run the composition over all forms.
+
+Open: the exact pixel semantics of JGLSprite slots +0x50/+0x58/+0x5C/+0x74/+0x84/+0x88/+0x8C/+0x94 (need tracing of jgl's inner loops, e.g. 0x1000A1D0 for +0x44 8->16 bit); the role of `+0xB0` when it is not `this`; the frame images drawn by m80 (form+0x11C..+0x128, [I] PCX_Image* edge/scroll pieces).

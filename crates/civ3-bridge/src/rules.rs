@@ -55,8 +55,13 @@ impl Rng {
     /// Seeded for one consumer (`k`) at tile index `a`, with the four
     /// discarded advances every consumer performs first.
     pub fn new(seed: u32, k: u32, a: u32) -> Self {
+        Self::with_advances(seed, k, a, 4)
+    }
+
+    /// Like [`Rng::new`] for the consumers that discard `n` values first.
+    pub fn with_advances(seed: u32, k: u32, a: u32, n: u32) -> Self {
         let mut r = Rng(seed.wrapping_add(a.wrapping_mul(k)));
-        for _ in 0..4 {
+        for _ in 0..n {
             r.advance();
         }
         r
@@ -82,6 +87,8 @@ pub mod seed_k {
     pub const POLAR: u32 = 21_031;
     pub const POLLUTION: u32 = 21_030;
     pub const BUILDINGS: u32 = 0x2_0C7D;
+    /// Three discarded values, not four.
+    pub const RAILROAD: u32 = 15_221;
 }
 
 /// The tile index the RNG is seeded with (16 bits).
@@ -129,6 +136,14 @@ pub fn mountain(world: &Civ3World, x: i32, y: i32) -> Option<String> {
             mask |= 1 << n;
         }
     }
+    // Landmark mountains and hills: one sheet, by the mask only (§7).
+    if tile.terrain_overlays & terrain_overlay::LANDMARK != 0 {
+        match tile.terrain() {
+            MOUNTAINS => return Some(format!("LM_Mountains_Images/{mask}")),
+            HILLS => return Some(format!("LM_Hills_Images/{mask}")),
+            _ => {}
+        }
+    }
     let kind = if snow_ok && tile.terrain_overlays & terrain_overlay::SNOW_CAP != 0 {
         3
     } else {
@@ -166,17 +181,19 @@ pub fn forest(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     let mut rng = Rng::new(world.seed, seed_k::FOREST, tile_a(world, x, y));
     let name = match kind {
         FOREST => {
-            let file = match tile.real_terrain() {
-                PLAINS => "Plains",
-                TUNDRA => "Tundra",
-                _ => "Grassland",
+            // Landmark forests: their own sheets, chosen alike (§7).
+            let (file, suffix) = match tile.real_terrain() {
+                _ if tile.terrain_overlays & terrain_overlay::LANDMARK != 0 => ("LM", "_Images"),
+                PLAINS => ("Plains", ""),
+                TUNDRA => ("Tundra", ""),
+                _ => ("Grassland", ""),
             };
             if tile.terrain_overlays & terrain_overlay::PINES != 0 {
-                format!("{file}_Forests_Pines/{}", rng.rand_int(12))
+                format!("{file}_Forests_Pines{suffix}/{}", rng.rand_int(12))
             } else if small {
-                format!("{file}_Forests_Small/{}", rng.rand_int(10))
+                format!("{file}_Forests_Small{suffix}/{}", rng.rand_int(10))
             } else {
-                format!("{file}_Forests_Large/{}", rng.rand_int(8))
+                format!("{file}_Forests_Large{suffix}/{}", rng.rand_int(8))
             }
         }
         JUNGLE if small => format!("Grassland_Jungles_Small/{}", rng.rand_int(12)),
@@ -317,6 +334,18 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
     VertexRiver { flood_plain, river, under_objects: special }
 }
 
+/// §7: whether vertex (vx, vy) is drawn from the landmark terrain sheets.
+/// The game asks the tile beside the vertex in its row (W when the row is
+/// even, E when odd; no wrapping in y), not the tile below it whose image
+/// is drawn.
+pub fn landmark_vertex(world: &Civ3World, vx: i32, vy: i32) -> bool {
+    if vy < 0 {
+        return false;
+    }
+    let x = if vy & 1 == 0 { vx - 1 } else { vx + 1 };
+    world.tile(x, vy).is_some_and(|t| t.terrain_overlays & terrain_overlay::LANDMARK != 0)
+}
+
 /// §6.8: the fog-of-war sprite at vertex (vx, vy): per surrounding tile
 /// N, W, E, S a digit 2 (visible to the player), 1 (explored) or 0
 /// (unexplored, also off the map), weighted 1, 3, 9, 27. All visible (80)
@@ -324,7 +353,7 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
 pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
     let bit = 1u32 << (world.player & 31);
     let digit = |t: Option<&Civ3Tile>| match t {
-        Some(t) if (t.fow_status | t.v3 | t.visibility | t.visibility_d0) & bit != 0 => 2,
+        Some(t) if world.visible_now(t) => 2,
         Some(t) if t.explored & bit != 0 => 1,
         _ => 0,
     };
@@ -362,6 +391,11 @@ pub fn roads(world: &Civ3World, x: i32, y: i32) -> (Option<String>, Option<Strin
     let rail = match (rail, rail_mask) {
         (false, _) => None,
         (true, 0) if city => None,
+        // Linked all around: one of 17 junctions.
+        (true, 0xFF) => {
+            let r = Rng::with_advances(world.seed, seed_k::RAILROAD, tile_a(world, x, y), 3).rand_int(17);
+            Some(format!("Railroads_Images/{}", 255 + r))
+        }
         (true, mask) => Some(format!("Railroads_Images/{mask}")),
     };
     (road, rail)
@@ -388,59 +422,89 @@ pub fn borders(world: &Civ3World, x: i32, y: i32) -> [Option<(i32, usize)>; 4] {
     out
 }
 
-/// The era row of era-dependent terrain buildings: the territory owner's
-/// era, else the viewer's.
-fn era(world: &Civ3World, tile: &Civ3Tile) -> u32 {
-    let civ = if tile.owner >= 0 { tile.owner as i32 } else { world.player };
-    world.eras.get(civ as usize).copied().unwrap_or(0).clamp(0, 3) as u32
+/// The viewing player's era (0..3): the era row of fortresses,
+/// barricades, colonies and airfields (§6.7b).
+fn viewer_era(world: &Civ3World) -> i32 {
+    world.eras.get(world.player.max(0) as usize).copied().unwrap_or(0).clamp(0, 3)
 }
 
-/// §6.7: terrain buildings of tile (x, y), in drawing order.
+/// §6.7b: what the game's `Draw_Tile_Buildings` draws on tile (x, y), in
+/// drawing order. One RNG serves every random choice here.
 pub fn terrain_buildings(world: &Civ3World, x: i32, y: i32) -> Vec<(&'static str, String)> {
     let Some(tile) = world.tile(x, y) else { return Vec::new() };
-    let era = era(world, tile);
+    let era = viewer_era(world);
+    let seen = world.seen_overlays(tile);
+    // Airfields, radar towers and outposts are drawn as they are, through
+    // fog too.
+    let actual = tile.overlays;
+    let mut rng = Rng::new(world.seed, seed_k::BUILDINGS, tile_a(world, x, y));
     let mut out = Vec::new();
-    if world.seen_overlays(tile) & overlay::AIRFIELD != 0 {
-        // Cell 1 is what the game drew in the one scenario seen so far.
-        out.push(("airfield_shadow", "Terrain_Buldings_Airfields_Shadow/1".to_owned()));
-        out.push(("airfield", "Terrain_Buldings_Airfields/1".to_owned()));
+    if tile.ruins {
+        out.push(("ruins", format!("Ruins/{}", rng.rand_int(3))));
     }
-    if world.seen_overlays(tile) & overlay::MINE != 0 {
+    if actual & overlay::AIRFIELD != 0 {
+        // C division: eras 0..2 -> 0, era 3 -> 1.
+        let i = (era - 1) / 2;
+        out.push(("airfield_shadow", format!("Terrain_Buldings_Airfields_Shadow/{i}")));
+        out.push(("airfield", format!("Terrain_Buldings_Airfields/{i}")));
+    }
+    if seen & overlay::MINE != 0 {
         out.push(("mine", "Terrain_Buldings_Mines/0".to_owned()));
     }
-    if world.seen_overlays(tile) & overlay::BARRICADE != 0 {
-        out.push(("barricade", format!("Terrain_Buldings_Barricade/{era}")));
-    }
     // A barricade is an upgraded fortress: both bits are set.
-    if world.seen_overlays(tile) & overlay::FORTRESS != 0 && world.seen_overlays(tile) & overlay::BARRICADE == 0 {
+    if seen & overlay::BARRICADE != 0 {
+        out.push(("barricade", format!("Terrain_Buldings_Barricade/{era}")));
+    } else if seen & overlay::FORTRESS != 0 {
         out.push(("fortress", format!("Terrain_Buldings_Fortress/{era}")));
     }
-    if world.seen_overlays(tile) & overlay::GOODY_HUT != 0 {
-        let r = Rng::new(world.seed, seed_k::BUILDINGS, tile_a(world, x, y)).rand_int(8);
-        out.push(("goody_hut", format!("Goody_Huts_Images/{r}")));
+    if seen & overlay::GOODY_HUT != 0 {
+        out.push(("goody_hut", format!("Goody_Huts_Images/{}", rng.rand_int(8))));
     }
-    if world.seen_overlays(tile) & overlay::BARBARIAN_CAMP != 0 {
+    if actual & seen & overlay::BARBARIAN_CAMP != 0 {
         out.push(("barbarian_camp", "Terrain_Buldings_Barbarian_Camp/0".to_owned()));
+    }
+    // Airfields, radar towers and outposts are tile buildings too.
+    if tile.building.is_some() && actual & (overlay::AIRFIELD | overlay::RADAR | overlay::OUTPOST) == 0 {
+        out.push(("colony", format!("Terrain_Buldings_Camp/{era}")));
+    }
+    if actual & overlay::RADAR != 0 {
+        out.push(("radar_shadow", "Terrain_Buldings_Radar_Shadow/0".to_owned()));
+        out.push(("radar", "Terrain_Buldings_Radar/0".to_owned()));
+    }
+    if actual & overlay::OUTPOST != 0 {
+        let owner = tile
+            .building
+            .and_then(|b| world.outposts.iter().find(|&&(id, _)| id == i32::from(b)))
+            .map_or(world.player, |&(_, owner)| owner);
+        let i = world.eras.get(owner.max(0) as usize).copied().unwrap_or(0).clamp(0, 2);
+        out.push(("outpost_shadow", format!("Terrain_Buldings_Outposts_Shadow/{i}")));
+        out.push(("outpost", format!("Terrain_Buldings_Outposts/{i}")));
+    }
+    // On city tiles the marker is drawn after the city (`victory_location`).
+    if tile.victory_location >= 0 && tile.city < 0 {
+        out.push(("victory_point", "Victory_Image/0".to_owned()));
     }
     out
 }
 
-/// §6.7: pollution and craters: linked to diagonal neighbours that have
-/// them too (cells 10..24), else one of ten random cells.
+/// §6.7b: craters, then pollution: linked to diagonal neighbours (NW, NE,
+/// SE, SW) that have them too (cells 10..24), else one of ten random cells
+/// from one RNG shared by both.
 pub fn pollution(world: &Civ3World, x: i32, y: i32) -> Vec<(&'static str, String)> {
     let Some(tile) = world.tile(x, y) else { return Vec::new() };
+    let mut rng = Rng::new(world.seed, seed_k::POLLUTION, tile_a(world, x, y));
     let mut out = Vec::new();
-    for (bit, layer, array) in [(overlay::POLLUTION, "pollution", "Pollution"), (overlay::CRATERS, "craters", "Craters")] {
+    for (bit, layer, array) in [(overlay::CRATERS, "craters", "Craters"), (overlay::POLLUTION, "pollution", "Pollution")] {
         if world.seen_overlays(tile) & bit == 0 {
             continue;
         }
         let mut mask = 0;
-        for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
+        for (n, (dx, dy)) in [(-1, -1), (1, -1), (1, 1), (-1, 1)].iter().enumerate() {
             if world.tile(x + dx, y + dy).is_some_and(|t| world.seen_overlays(t) & bit != 0) {
                 mask |= 1 << n;
             }
         }
-        let index = if mask != 0 { mask + 9 } else { Rng::new(world.seed, seed_k::POLLUTION, tile_a(world, x, y)).rand_int(10) };
+        let index = if mask != 0 { mask + 9 } else { rng.rand_int(10) };
         out.push((layer, format!("{array}/{index}")));
     }
     out
@@ -479,9 +543,11 @@ pub fn city(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     Some(format!("City_Images/{}", size_class * 20 + era * 5 + culture))
 }
 
-/// The victory location marker of tile (x, y).
+/// The victory location marker of city tile (x, y), drawn after the city
+/// (elsewhere it is a tile building, see [`terrain_buildings`]).
 pub fn victory_location(world: &Civ3World, x: i32, y: i32) -> Option<String> {
-    (world.tile(x, y)?.victory_location >= 0).then(|| "Victory_Image/0".to_owned())
+    let tile = world.tile(x, y)?;
+    (tile.victory_location >= 0 && tile.city >= 0).then(|| "Victory_Image/0".to_owned())
 }
 
 /// §5.2: the polar ice cap at vertex (vx, vy), on maps with polar caps

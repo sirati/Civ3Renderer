@@ -25,6 +25,9 @@ pub struct Civ3Tile {
     pub visible_overlays: [u8; 32],
     /// -1, or the victory location on this tile.
     pub victory_location: i16,
+    /// The tile building (colony, airfield, radar, outpost) here.
+    pub building: Option<i16>,
+    pub ruins: bool,
 }
 
 impl Civ3Tile {
@@ -113,6 +116,8 @@ pub struct Civ3World {
     pub cities: Vec<Civ3City>,
     pub governments: Vec<i32>,
     pub wall_buildings: Vec<WallBuilding>,
+    /// Outposts: (tile building id, owner).
+    pub outposts: Vec<(i32, i32)>,
     /// Drawn units, in drawing order.
     pub units: Vec<Civ3Unit>,
     /// Civilopedia keys of unit types (`PRTO_...`) and eras (`ERAS_...`).
@@ -141,11 +146,18 @@ pub struct Civ3World {
 }
 
 impl Civ3World {
-    /// The tile's overlays as the viewing player knows them: improvements
-    /// (bits 0..7) as last seen, the rest as they are.
+    /// Whether the viewing player sees the tile now (not fogged).
+    pub fn visible_now(&self, tile: &Civ3Tile) -> bool {
+        let bit = 1u32 << (self.player & 31);
+        (tile.fow_status | tile.v3 | tile.visibility | tile.visibility_d0) & bit != 0
+    }
+
+    /// The tile's overlays as the viewing player knows them
+    /// (`Tile::m42_Get_Overlays`, §6.5): as they are where the player sees
+    /// the tile now, else only the improvements (bits 0..7) last seen.
     pub fn seen_overlays(&self, tile: &Civ3Tile) -> u32 {
         match usize::try_from(self.player) {
-            Ok(civ) if civ > 0 && civ < 32 => (tile.overlays & !0xFF) | u32::from(tile.visible_overlays[civ]),
+            Ok(civ) if civ > 0 && civ < 32 && !self.visible_now(tile) => u32::from(tile.visible_overlays[civ]),
             _ => tile.overlays,
         }
     }
@@ -324,6 +336,7 @@ impl Trace {
                     t.world.experience_hit_points = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
                 Some("unit_tile") => t.world.unit_tiles.push((n(1)? as i32, n(2)? as i32, n(3)? as i32)),
+                Some("outpost") => t.world.outposts.push((n(1)? as i32, n(2)? as i32)),
                 Some("preferences") => t.world.preferences = n(1)? as u32,
                 Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),
                 Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
@@ -369,6 +382,8 @@ impl Trace {
                             v
                         },
                         victory_location: f.get(17).map(|_| n(17)).transpose()?.unwrap_or(-1) as i16,
+                        building: f.get(18).map(|_| n(18)).transpose()?.map(|b| b as i16).filter(|&b| b >= 0),
+                        ruins: f.get(19).map(|_| n(19)).transpose()?.unwrap_or(0) != 0,
                     };
                     tiles.push((n(1)? as i32, n(2)? as i32, tile));
                 }

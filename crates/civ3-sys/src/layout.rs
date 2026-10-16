@@ -340,6 +340,10 @@ pub const BIC_COMBATEXPERIENCE: u32 = 3012;
 pub const BIC_COMBATEXPERIENCECOUNT: u32 = 2200;
 pub const ANIMATOR_UNIT_CURSOR_ANIMATION: u32 = 6460;
 pub const ANIMATOR_FIELD_18E4_12: u32 = 6420;
+pub const TILE_TILE_BUILDINGID: u32 = 28;
+pub const TILE_RUINS: u32 = 36;
+pub const TILE_BUILDING_BODY_ID: u32 = 4;
+pub const TILE_BUILDING_BODY_OWNERID: u32 = 16;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),
