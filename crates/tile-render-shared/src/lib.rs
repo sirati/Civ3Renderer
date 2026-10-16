@@ -365,6 +365,32 @@ pub fn cell_origin(grid: &GridParams, col: i32, row: i32) -> (i32, i32) {
     }
 }
 
+/// How far the world repeats along each axis in pixels (0: it does not wrap).
+pub fn world_period(grid: &GridParams) -> (i32, i32) {
+    let w = if grid.layout == LAYOUT_STAGGERED { 2 * grid.cols * grid.step_x } else { grid.cols * grid.step_x };
+    let x = if grid.wrap & WRAP_X != 0 { w as i32 } else { 0 };
+    let y = if grid.wrap & WRAP_Y != 0 { (grid.rows * grid.step_y) as i32 } else { 0 };
+    (x, y)
+}
+
+/// How far before the camera a world sprite of a wrapping world is still
+/// drawn there rather than one period on (its art may reach right of it).
+pub const WRAP_MARGIN: i32 = 512;
+
+/// A world sprite's distance `d` from the camera along an axis repeating
+/// every `period` pixels (0: not at all): the copy of it that lies in
+/// [−`WRAP_MARGIN`, `period` − `WRAP_MARGIN`).
+pub fn wrap_distance(d: i32, period: i32) -> i32 {
+    if period <= 2 * WRAP_MARGIN {
+        return d;
+    }
+    let mut m = d % period;
+    if m < 0 {
+        m += period;
+    }
+    if m >= period - WRAP_MARGIN { m - period } else { m }
+}
+
 /// Wraps or rejects a cell coordinate. Returns `None` outside a non-wrapping
 /// world.
 pub fn wrap_cell(grid: &GridParams, col: i32, row: i32) -> Option<(u32, u32)> {

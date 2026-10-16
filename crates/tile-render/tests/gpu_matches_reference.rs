@@ -168,6 +168,32 @@ fn staggered_wrapping_world_is_pixel_exact() {
 }
 
 #[test]
+fn world_sprites_show_across_the_wrap() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    // (Sets are made in the same order either way; without shading the
+    // direct-colour renders match.)
+    let anim = scene_with(grid, true).0.free[0].set;
+    let (mut world, atlas) = scene(grid);
+    // Just before the seam (the world is 1536 pixels wide): seen from a
+    // camera at 0 it is at −36, from one past the seam further on.
+    world.free.push(PlacedSprite::new(anim, 1500, 150));
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for x in [0, 1300, 1536 + 20, -200] {
+        let mut camera = Camera::new((640, 360));
+        camera.x = x;
+        let got = gpu.render(&mut renderer, &camera, 3, CLEAR);
+        let want = reference::render(&world, &atlas, &camera, 3, CLEAR);
+        assert_same(&got, &want, &format!("camera at {x}"));
+    }
+    let camera = Camera::new((640, 360));
+    let draws = reference::draw_list(&world, &atlas, &camera, 3);
+    assert!(draws.iter().any(|d| d.y == 150 - 40 && d.x == 1500 - 1536 + 34), "the sprite near the seam is drawn left of the camera");
+}
+
+#[test]
 fn orthogonal_world_is_pixel_exact() {
     let gpu = Headless::new().expect("GPU");
     let grid = Grid { cols: 9, rows: 7, layout: Layout::Orthogonal, wrap_x: false, wrap_y: true, step: (128, 64) };

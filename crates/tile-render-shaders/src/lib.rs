@@ -18,7 +18,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, FREE_CLIP, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, expand, mix_offset, quantize, scale_offset, world_period, wrap_cell, wrap_distance,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -173,8 +173,15 @@ pub fn free_vs(
     let (bx, by) = if f.flags & FREE_SCREEN != 0 { (params.origin_x, params.origin_y) } else { (params.camera_x, params.camera_y) };
     let (zn, zd) = if zoomed { (params.zoom_num, params.zoom_den) } else { (1, 1) };
     let (dx, dy) = if zoomed { (f.zoom_dx, f.zoom_dy) } else { (0, 0) };
-    let x0 = (scaled(f.x - bx, zn, zd) + dx + sprite.anchor_x) as f32;
-    let y0 = (scaled(f.y - by, zn, zd) + dy + sprite.anchor_y) as f32;
+    // In a wrapping world, the copy of a world sprite near the camera.
+    let (fx, fy) = if f.flags & FREE_SCREEN != 0 {
+        (f.x - bx, f.y - by)
+    } else {
+        let (px, py) = world_period(&params.grid);
+        (wrap_distance(f.x - bx, px), wrap_distance(f.y - by, py))
+    };
+    let x0 = (scaled(fx, zn, zd) + dx + sprite.anchor_x) as f32;
+    let y0 = (scaled(fy, zn, zd) + dy + sprite.anchor_y) as f32;
     let (mut l, mut t) = (x0, y0);
     let (mut r, mut b) = (x0 + sprite.width as f32, y0 + sprite.height as f32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).

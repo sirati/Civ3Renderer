@@ -248,6 +248,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     let packed = world.pack();
     let data = ByteReader::new(&packed.data);
     let passes = world.passes();
+    let period = tile_render_shared::world_period(&world.grid.params());
     // Free sprites following pass `p`, in list order.
     let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
         for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| sv == view) && art_fits(s)) {
@@ -259,6 +260,12 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
             let f = (frame / s.ticks_per_frame.max(1) + s.phase) % frames;
             let sprite_id = packed.sets[set + 1 + f as usize];
             let sprite = atlas.sprites[sprite_id as usize];
+            // In a wrapping world, the copy of a world sprite near the camera.
+            let s = &crate::PlacedSprite {
+                x: if s.screen { s.x } else { camera.x + tile_render_shared::wrap_distance(s.x - camera.x, period.0) },
+                y: if s.screen { s.y } else { camera.y + tile_render_shared::wrap_distance(s.y - camera.y, period.1) },
+                ..*s
+            };
             // Screen sprites are given in target pixels (moved by the shift).
             let (sx, sy) = camera.screen_shift;
             let (cx, cy) = if s.screen { (-sx, -sy) } else { (camera.x - vx, camera.y - vy) };
