@@ -240,6 +240,8 @@ impl Compiler {
             description: text.clone(),
             roots: files.roots().iter().map(|r| r.to_string_lossy().into_owned()).collect(),
             scale_down: if zoomed_out { 2 } else { 1 },
+            // (The presenter numbers them.)
+            generation: 0,
         };
         let compiled = assets::compile_scaled(&text, files, wire.scale_down).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
         let pages = &compiled.atlas.pages;
