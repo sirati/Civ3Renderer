@@ -164,3 +164,28 @@ pub fn city_view(scene: &mut Scene, camera: (i32, i32), [x, y, w, h]: [i32; 4]) 
     };
     city.overlay = labels;
 }
+
+/// The tile whose diamond holds world pixel (wx, wy) (tile (x, y), x + y
+/// even, has its 128×64 footprint at (64·x, 32·y); half that zoomed out),
+/// wrapped where the map wraps; `None` off the map.
+pub fn tile_at(world: &Civ3World, (wx, wy): (i32, i32), zoomed_out: bool) -> Option<(i32, i32)> {
+    let (wx, wy) = if zoomed_out { (2 * wx, 2 * wy) } else { (wx, wy) };
+    let (cx, cy) = ((wx - 64).div_euclid(64), (wy - 32).div_euclid(32));
+    let mut best = None;
+    for y in cy - 1..=cy + 2 {
+        for x in cx - 1..=cx + 2 {
+            if (x + y).rem_euclid(2) != 0 {
+                continue;
+            }
+            // Diamond distance from the tile's centre (≤ 1 inside it).
+            let d = (wx - (64 * x + 64)).abs() * 32 + (wy - (32 * y + 32)).abs() * 64;
+            if best.is_none_or(|(b, _)| d < b) {
+                best = Some((d, (x, y)));
+            }
+        }
+    }
+    let (_, (x, y)) = best?;
+    let x = if world.wrap_x { x.rem_euclid(world.width.max(1)) } else { x };
+    let y = if world.wrap_y { y.rem_euclid(world.height.max(1)) } else { y };
+    world.tile(x, y).map(|_| (x, y))
+}

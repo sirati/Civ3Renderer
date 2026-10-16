@@ -346,7 +346,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let ui = ui_trace::frame();
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
         let state = (shown, texts, ui);
-        if last.as_ref() == Some(&state) && !recompile && !art_pending {
+        if last.as_ref() == Some(&state) && !recompile && !art_pending && input.look.is_none() {
             continue;
         }
         let (shown, texts, ui) = &state;
@@ -370,6 +370,14 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             None => ui.clone(),
         };
         let ui_items = visible_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        // The viewer asked to see a world pixel: click it on the minimap (the
+        // game centres its view there).
+        if let (Some(look), Shown::Map(world, view)) = (input.look.take(), shown) {
+            match crate::scene_map::tile_at(world, look, view.zoomed_out).and_then(|t| ui_screen::minimap_point(&ui_items, world, t)) {
+                Some(p) => input.click(p),
+                None => log::debug!("look at {look:?}: not on the minimap"),
+            }
+        }
         if let Some(f) = ui {
             let mut more = have.clone();
             for path in ui_screen::unit_files(f, files.roots()) {
@@ -430,8 +438,11 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));
                 }
+                // The point of interest: the active unit.
+                scene.focus = units::focus(world);
                 if view.zoomed_out {
                     crate::scene_map::zoom_out(&mut scene.sprites);
+                    scene.focus = scene.focus.map(|(x, y)| (x / 2, y / 2));
                 }
                 scene
             }
@@ -477,6 +488,15 @@ struct InputForwarder {
 }
 
 impl InputForwarder {
+    /// A left click at client position `p`.
+    fn click(&mut self, (x, y): (i32, i32)) {
+        use inproc::window::{Buttons, MouseButton};
+        let Some(window) = self.game_window() else { return };
+        window.mouse_move(x, y, self.held);
+        window.mouse_button(MouseButton::Left, true, false, x, y, Buttons { left: true, ..self.held });
+        window.mouse_button(MouseButton::Left, false, false, x, y, self.held);
+    }
+
     fn game_window(&mut self) -> Option<inproc::window::Window> {
         if self.window.is_none() {
             self.window = inproc::window::Window::of_this_process()

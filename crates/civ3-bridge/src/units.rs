@@ -312,6 +312,13 @@ const SHOW_TEAM_COLOR_DISC: u32 = 0x800;
 /// The free sprites drawing the world's units, after all passes (over the
 /// fog of war), in the animator's order: per unit its team disc, its body
 /// with shadow, then its HUD (§10.2 `Unit_draw`).
+/// Where the selected unit stands (its tile centre, or where it is on its
+/// way), if one is selected and shown.
+pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
+    let (id, _) = world.selection?;
+    world.units.iter().find(|u| u.id == id && u.visible).map(|u| u.pixel)
+}
+
 pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled) -> Vec<scene::FreeSprite> {
     let mut out = Vec::new();
     for u in world.units.iter().filter(|u| u.visible) {

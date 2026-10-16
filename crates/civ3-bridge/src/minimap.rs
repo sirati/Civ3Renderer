@@ -220,3 +220,34 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
     }
     out
 }
+
+/// The pixel of a `size` minimap nearest the middle of tile `(x, y)`'s
+/// area on it, if the minimap shows the tile.
+pub fn pixel_of(world: &Civ3World, (w, h): (u32, u32), (x, y): (i32, i32)) -> Option<(u32, u32)> {
+    let g = Geometry {
+        w: w as i64,
+        h: h as i64,
+        width: world.width as i64,
+        height: world.height as i64,
+        wrap_x: world.flags & 1 != 0,
+        wrap_y: world.flags & 2 != 0,
+    };
+    if w == 0 || h == 0 || g.width <= 0 || g.height <= 1 {
+        return None;
+    }
+    let half = w as i64 * h as i64;
+    let mut best: Option<(i64, (u32, u32))> = None;
+    for py in 0..h {
+        for px in 0..w {
+            let Some((tx, ty, fx, fy)) = g.tile_of(px as i64, py as i64) else { continue };
+            if (tx, ty) != (x as i64, y as i64) {
+                continue;
+            }
+            let d = (fx - half).abs() + (fy - half).abs();
+            if best.is_none_or(|(b, _)| d < b) {
+                best = Some((d, (px, py)));
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
