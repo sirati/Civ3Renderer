@@ -29,6 +29,7 @@ pub const TILE_RESOURCETYPE: u32 = 8;
 pub const TILE_TILEUNITID: u32 = 12;
 pub const TILE_SQUAREPARTS: u32 = 16;
 pub const TILE_CITYID: u32 = 26;
+pub const TILE_VICTORYPOINT: u32 = 18;
 pub const TILE_OVERLAYS: u32 = 40;
 pub const TILE_SQUARETYPE: u32 = 44;
 pub const TILE_TERRAIN_OVERLAYS: u32 = 48;
@@ -266,6 +267,8 @@ pub const TILE_BODY_CIRCUITFLAGS: u32 = 44;
 pub const TILE_BODY_VISIBILE_OVERLAYS: u32 = 114;
 pub const TILE_BODY_FIELD_D0_VISIBILITY: u32 = 148;
 pub const RESOURCE_TYPE_REQUIREID: u32 = 76;
+pub const LEADER_SIZE: u32 = 8420;
+pub const LEADER_ERA: u32 = 244;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),

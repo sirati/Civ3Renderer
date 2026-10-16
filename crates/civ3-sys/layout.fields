@@ -30,6 +30,7 @@ Tile ResourceType
 Tile TileUnitID
 Tile SquareParts
 Tile CityID
+Tile VictoryPoint
 Tile Overlays
 Tile SquareType
 Tile Terrain_Overlays
@@ -169,3 +170,6 @@ Tile_Body Visibile_Overlays
 Tile_Body field_D0_Visibility
 
 Resource_Type RequireID
+
+Leader
+Leader Era

@@ -145,6 +145,69 @@ anchor = [-64, 0]
 group = "Polar_Icecaps_Images"
 first_index = 16
 
+# §6.6: roads (16x16) and railroads (16x17; row 16 not decoded), drawn at
+# the tile.
+[images.roads]
+source = "Art/Terrain/roads.pcx"
+
+[sheets.roads]
+image = "roads"
+cell = [128, 64]
+grid = [16, 16]
+group = "Roads_Images"
+
+[images.railroads]
+source = "Art/Terrain/railroads.pcx"
+
+[sheets.railroads]
+image = "railroads"
+cell = [128, 64]
+grid = [16, 17]
+group = "Railroads_Images"
+
+# §6.7: TerrainBuildings.PCX columns: fortress, camp, (barbarian camp, mine),
+# barricade; rows are eras.
+[images.terrain_buildings]
+source = "Art/Terrain/TerrainBuildings.PCX"
+
+[sheets.fortress]
+image = "terrain_buildings"
+cell = [128, 64]
+grid = [1, 4]
+group = "Terrain_Buldings_Fortress"
+
+[sheets.mine]
+image = "terrain_buildings"
+origin = [256, 64]
+cell = [128, 64]
+grid = [1, 1]
+group = "Terrain_Buldings_Mines"
+
+[sheets.barricade]
+image = "terrain_buildings"
+origin = [384, 0]
+cell = [128, 64]
+grid = [1, 4]
+group = "Terrain_Buldings_Barricade"
+
+[images.airfields]
+source = "Art/Terrain/x_airfields and detect.PCX"
+
+[sheets.airfields]
+image = "airfields"
+cell = [128, 64]
+grid = [2, 1]
+group = "Terrain_Buldings_Airfields"
+
+[images.airfields_shadow]
+source = "Art/Terrain/X_AIRfields and detect_shadow.PCX"
+
+[sheets.airfields_shadow]
+image = "airfields_shadow"
+cell = [128, 64]
+grid = [2, 1]
+group = "Terrain_Buldings_Airfields_Shadow"
+
 # §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
 # mtnRivers) and flood plains, per vertex.
 
@@ -586,6 +649,41 @@ sets = ["Tnt_Images/*"]
 name = "forest"
 pass = 3
 sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*"]
+
+[[layers]]
+name = "road"
+pass = 3
+sets = ["Roads_Images/*"]
+
+[[layers]]
+name = "railroad"
+pass = 3
+sets = ["Railroads_Images/*"]
+
+[[layers]]
+name = "airfield_shadow"
+pass = 3
+sets = ["Terrain_Buldings_Airfields_Shadow/*"]
+
+[[layers]]
+name = "airfield"
+pass = 3
+sets = ["Terrain_Buldings_Airfields/*"]
+
+[[layers]]
+name = "mine"
+pass = 3
+sets = ["Terrain_Buldings_Mines/*"]
+
+[[layers]]
+name = "barricade"
+pass = 3
+sets = ["Terrain_Buldings_Barricade/*"]
+
+[[layers]]
+name = "fortress"
+pass = 3
+sets = ["Terrain_Buldings_Fortress/*"]
 
 [[layers]]
 name = "resource_shadow"

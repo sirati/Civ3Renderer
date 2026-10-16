@@ -23,6 +23,7 @@ pub struct Civ3Tile {
     pub visibility_d0: u32,
     /// Per civ: the improvements (overlay bits 0..7) that civ remembers.
     pub visible_overlays: [u8; 32],
+    pub victory_point: i16,
 }
 
 impl Civ3Tile {
@@ -46,6 +47,8 @@ pub struct Civ3World {
     pub resource_icons: Vec<i32>,
     /// Per resource type: shown to `player` (prerequisite tech known).
     pub resource_visible: Vec<bool>,
+    /// Every civ's era (0..3).
+    pub eras: Vec<i32>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -152,6 +155,9 @@ impl Trace {
                 Some("resource_icons") => {
                     t.world.resource_icons = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
+                Some("eras") => {
+                    t.world.eras = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
+                }
                 Some("resource_visible") => {
                     t.world.resource_visible = f[1..].iter().map(|v| *v == "1").collect();
                 }
@@ -183,6 +189,7 @@ impl Trace {
                             }
                             v
                         },
+                        victory_point: f.get(17).map(|_| n(17)).transpose()?.unwrap_or(-1) as i16,
                     };
                     tiles.push((n(1)? as i32, n(2)? as i32, tile));
                 }

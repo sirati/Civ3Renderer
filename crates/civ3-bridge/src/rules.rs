@@ -328,6 +328,70 @@ pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
     (index != 80).then(|| format!("Fog_Of_War_Images/{index}"))
 }
 
+/// The eight neighbours in the game's spiral order (`neighbor_index_to_diff`):
+/// bit i of a road/railroad mask is a link to neighbour i.
+pub const NEIGHBOURS: [(i32, i32); 8] = [(1, -1), (2, 0), (1, 1), (0, 2), (-1, 1), (-2, 0), (-1, -1), (0, -2)];
+
+/// §6.6: the road and railroad sprites of tile (x, y). A link between two
+/// railroad tiles is drawn as railroad only.
+pub fn roads(world: &Civ3World, x: i32, y: i32) -> (Option<String>, Option<String>) {
+    let Some(tile) = world.tile(x, y) else { return (None, None) };
+    let road = tile.overlays & overlay::ROAD != 0;
+    let rail = tile.overlays & overlay::RAILROAD != 0;
+    let (mut road_mask, mut rail_mask) = (0u32, 0u32);
+    for (i, (dx, dy)) in NEIGHBOURS.iter().enumerate() {
+        let Some(n) = world.tile(x + dx, y + dy) else { continue };
+        let n_rail = n.overlays & overlay::RAILROAD != 0;
+        if rail && n_rail {
+            rail_mask |= 1 << i;
+        } else if road && n.overlays & overlay::ROAD != 0 {
+            road_mask |= 1 << i;
+        }
+    }
+    let city = tile.city >= 0;
+    let road = match (road, road_mask) {
+        (false, _) => None,
+        (true, 0) if city || rail => None,
+        (true, mask) => Some(format!("Roads_Images/{mask}")),
+    };
+    let rail = match (rail, rail_mask) {
+        (false, _) => None,
+        (true, 0) if city => None,
+        (true, mask) => Some(format!("Railroads_Images/{mask}")),
+    };
+    (road, rail)
+}
+
+/// The era row of era-dependent terrain buildings: the territory owner's
+/// era, else the viewer's.
+fn era(world: &Civ3World, tile: &Civ3Tile) -> u32 {
+    let civ = if tile.owner >= 0 { tile.owner as i32 } else { world.player };
+    world.eras.get(civ as usize).copied().unwrap_or(0).clamp(0, 3) as u32
+}
+
+/// §6.7: terrain buildings of tile (x, y), in drawing order.
+pub fn terrain_buildings(world: &Civ3World, x: i32, y: i32) -> Vec<(&'static str, String)> {
+    let Some(tile) = world.tile(x, y) else { return Vec::new() };
+    let era = era(world, tile);
+    let mut out = Vec::new();
+    if tile.overlays & overlay::AIRFIELD != 0 {
+        // Cell 1 is what the game drew in the one scenario seen so far.
+        out.push(("airfield_shadow", "Terrain_Buldings_Airfields_Shadow/1".to_owned()));
+        out.push(("airfield", "Terrain_Buldings_Airfields/1".to_owned()));
+    }
+    if tile.overlays & overlay::MINE != 0 {
+        out.push(("mine", "Terrain_Buldings_Mines/0".to_owned()));
+    }
+    if tile.overlays & overlay::BARRICADE != 0 {
+        out.push(("barricade", format!("Terrain_Buldings_Barricade/{era}")));
+    }
+    // A barricade is an upgraded fortress: both bits are set.
+    if tile.overlays & overlay::FORTRESS != 0 && tile.overlays & overlay::BARRICADE == 0 {
+        out.push(("fortress", format!("Terrain_Buldings_Fortress/{era}")));
+    }
+    out
+}
+
 /// §5.2: the polar ice cap at vertex (vx, vy), on maps with polar caps
 /// (and no vertical wrap): the two rows at each pole, sheet rows 0/1 at the
 /// top, 3/2 at the bottom. Unlike the other consumers, one LCG step only.
