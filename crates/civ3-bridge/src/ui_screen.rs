@@ -43,19 +43,28 @@ pub fn relative_path(path: &str, roots: &[PathBuf]) -> String {
     }
 }
 
-/// The frame as items.
-pub fn items(frame: &Frame, roots: &[PathBuf]) -> Vec<Item> {
+/// The frame as items. `generated`: names of the surfaces the game fills
+/// itself that we make ourselves (others are left out).
+pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)]) -> Vec<Item> {
     frame
         .draws
         .iter()
-        .map(|d| match d {
-            ScreenDraw::Image { path, rect, x, y, keyed, clip } => Item::Element(Element::Image {
-                region: Region { source: relative_path(path, roots), rect: *rect, keyed: *keyed },
-                at: (*x, *y),
-                clip: *clip,
-            }),
-            ScreenDraw::Fill { rect, rgb, clip } => Item::Element(Element::Fill { rect: *rect, rgb: *rgb, clip: *clip }),
-            ScreenDraw::Text { run, clip } => Item::Text(run.clone(), *clip),
+        .filter_map(|d| {
+            Some(match d {
+                ScreenDraw::Image { path, rect, x, y, keyed, clip } => Item::Element(Element::Image {
+                    region: Region { source: relative_path(path, roots), rect: *rect, keyed: *keyed },
+                    at: (*x, *y),
+                    clip: *clip,
+                }),
+                ScreenDraw::Fill { rect, rgb, clip } => Item::Element(Element::Fill { rect: *rect, rgb: *rgb, clip: *clip }),
+                ScreenDraw::Text { run, clip } => Item::Text(run.clone(), *clip),
+                ScreenDraw::Surface { image, rect, x, y, clip } => {
+                    let name = generated.iter().find(|g| g.0 == *image)?.1;
+                    // The surface is at least as big as the region read from it.
+                    let size = ((rect[0] + rect[2]).max(0) as u32, (rect[1] + rect[3]).max(0) as u32);
+                    Item::Element(Element::Dynamic { name: name.to_owned(), size, rect: *rect, at: (*x, *y), clip: *clip })
+                }
+            })
         })
         .collect()
 }
@@ -86,6 +95,31 @@ pub fn sprites(items: &[Item], fonts: &Fonts, compiled: &Compiled) -> Vec<scene:
     out
 }
 
+
+/// Scene patches for the minimap pictures among `items`, made from
+/// `world`. `table_color`: a colour table's entry 66 (8-bit RGB).
+pub fn minimap_patches(
+    items: &[Item],
+    world: &crate::world::Civ3World,
+    compiled: &Compiled,
+    mut table_color: impl FnMut(i32) -> [u8; 3],
+) -> Vec<scene::Patch> {
+    let mut out = Vec::new();
+    let mut done = Vec::new();
+    for i in items {
+        let Item::Element(Element::Dynamic { name, size, .. }) = i else { continue };
+        if name != "minimap" || done.contains(size) {
+            continue;
+        }
+        done.push(*size);
+        let colors: Vec<u16> = (0..32)
+            .map(|civ| crate::minimap::from_rgb(table_color(world.color_tables.get(civ).copied().unwrap_or(0))))
+            .collect();
+        let rgba = crate::minimap::image(world, *size, |civ| colors.get(civ as usize).copied().unwrap_or(0));
+        out.extend(menu::screen::patch(compiled, name, *size, rgba));
+    }
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;

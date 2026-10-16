@@ -332,3 +332,18 @@ pub mod obj {
         })
     }
 }
+
+/// Surfaces the game fills pixel by pixel, which a mirror has to make
+/// itself, by name: the minimap's shown image (`Navigator_Data` at
+/// Main_GUI+0x10720, its `PCX_4` at +0x858; docs §17).
+pub fn generated_surfaces(build: Build) -> &'static [(u32, &'static str)] {
+    match build {
+        Build::PcGames => generated_surfaces_pcg(),
+        Build::Gog | Build::Steam => &[],
+    }
+}
+
+/// [`generated_surfaces`] of the PCGames build, usable in constants.
+pub const fn generated_surfaces_pcg() -> &'static [(u32, &'static str)] {
+    &[(0xA0_E230 + 0x858, "minimap")]
+}
