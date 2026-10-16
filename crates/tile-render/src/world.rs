@@ -55,6 +55,20 @@ impl Grid {
 pub struct SpriteSetId(pub(crate) u32);
 
 impl SpriteSetId {
+    /// The id as a plain number (for passing through game-agnostic data
+    /// such as a scene); `from_raw` turns it back.
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// An id from `raw`. An id that does not belong to the world's sets
+    /// draws nothing.
+    pub fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+}
+
+impl SpriteSetId {
     /// The set that draws nothing.
     pub const EMPTY: SpriteSetId = SpriteSetId(0);
 }
