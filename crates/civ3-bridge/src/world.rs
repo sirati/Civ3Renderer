@@ -64,6 +64,15 @@ pub struct Civ3World {
 }
 
 impl Civ3World {
+    /// The tile's overlays as the viewing player knows them: improvements
+    /// (bits 0..7) as last seen, the rest as they are.
+    pub fn seen_overlays(&self, tile: &Civ3Tile) -> u32 {
+        match usize::try_from(self.player) {
+            Ok(civ) if civ > 0 && civ < 32 => (tile.overlays & !0xFF) | u32::from(tile.visible_overlays[civ]),
+            _ => tile.overlays,
+        }
+    }
+
     pub fn index(&self, x: i32, y: i32) -> usize {
         ((y * self.width + x) / 2) as usize
     }

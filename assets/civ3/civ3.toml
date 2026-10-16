@@ -192,6 +192,43 @@ cell = [128, 64]
 grid = [1, 4]
 group = "Terrain_Buldings_Barricade"
 
+[sheets.barbarian_camp]
+image = "terrain_buildings"
+origin = [256, 0]
+cell = [128, 64]
+grid = [1, 1]
+group = "Terrain_Buldings_Barbarian_Camp"
+
+[images.goody_huts]
+source = "Art/Terrain/goodyhuts.pcx"
+
+[sheets.goody_huts]
+image = "goody_huts"
+cell = [128, 64]
+grid = [3, 3]
+only = [0, 1, 2, 3, 4, 5, 6, 7]
+group = "Goody_Huts_Images"
+
+# Pollution and craters: 5x5 cells; neighbour order of the mask assumed
+# NW, NE, SW, SE [?].
+[images.pollution]
+source = "Art/Terrain/pollution.pcx"
+
+[sheets.pollution]
+image = "pollution"
+cell = [128, 64]
+grid = [5, 5]
+group = "Pollution"
+
+[images.craters]
+source = "Art/Terrain/craters.pcx"
+
+[sheets.craters]
+image = "craters"
+cell = [128, 64]
+grid = [5, 5]
+group = "Craters"
+
 [images.airfields]
 source = "Art/Terrain/x_airfields and detect.PCX"
 
@@ -688,6 +725,26 @@ sets = ["Terrain_Buldings_Barricade/*"]
 name = "fortress"
 pass = 3
 sets = ["Terrain_Buldings_Fortress/*"]
+
+[[layers]]
+name = "goody_hut"
+pass = 3
+sets = ["Goody_Huts_Images/*"]
+
+[[layers]]
+name = "barbarian_camp"
+pass = 3
+sets = ["Terrain_Buldings_Barbarian_Camp/*"]
+
+[[layers]]
+name = "pollution"
+pass = 3
+sets = ["Pollution/*"]
+
+[[layers]]
+name = "craters"
+pass = 3
+sets = ["Craters/*"]
 
 [[layers]]
 name = "resource_shadow"
