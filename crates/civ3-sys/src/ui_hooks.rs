@@ -283,6 +283,30 @@ pub fn civ_color_table(build: Build, ct: u32) -> Option<u32> {
     (0..32).find(|&i| read(base + 4 * i).is_some_and(|t| t == ct || read(t + 4) == Some(ct)))
 }
 
+/// The first 64 colours (RGB, `0xBBGGRR`) of the `JGL_Color_Table` `jgl`
+/// (entry i a dword at +0x0C + 4i, a flag byte on top).
+fn first_colors(jgl: u32) -> Option<Vec<u32>> {
+    let entries = Ptr32::<u32>::new(jgl.checked_add(0x0C)?).read_array(64).ok()?;
+    Some(entries.into_iter().map(|c| c & 0xFF_FFFF).collect())
+}
+
+/// The first 64 colours of each civ colour table (see [`civ_color_table`]),
+/// by table number; `None` before they are loaded.
+pub fn civ_table_colors(build: Build) -> Option<Vec<Vec<u32>>> {
+    let tables = Ptr32::<u32>::new(color_tables(build)?).read_array(32).ok()?;
+    tables.iter().map(|&t| first_colors(Ptr32::<u32>::new(t.checked_add(4)?).read().ok().filter(|&p| p != 0)?)).collect()
+}
+
+/// The first 64 colours of `sprite`'s own colour table, if it has one
+/// (`Sprite+0x0C`, a `PCX_Color_Table*`): the game recolours such sprites by
+/// copying a civ's colours into it before drawing them (e.g. the foreign
+/// advisor's ring around a leader, 0x52E696).
+pub fn sprite_own_colors(sprite: u32) -> Option<Vec<u32>> {
+    let read = |a: u32| Ptr32::<u32>::new(a).read().ok().filter(|&p| p != 0);
+    let table = read(sprite.checked_add(0x0C)?)?;
+    first_colors(read(table.checked_add(4)?)?)
+}
+
 /// Fields of the game's image, sprite and form objects (docs §16.2-16.5).
 pub mod obj {
     use super::*;

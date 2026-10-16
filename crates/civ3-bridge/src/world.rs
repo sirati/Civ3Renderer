@@ -610,9 +610,10 @@ impl Trace {
                     let range = n(1)? as usize..n(2)? as usize;
                     t.ui.get_or_insert_with(Default::default).underlay_draws.push(range);
                 }
-                Some("ui_image_palette") if f.len() >= 2 => {
+                Some("ui_image_palette") if f.len() >= 4 => {
+                    let (first, count) = (n(1)? as u32, n(2)? as u32);
                     if let Some(crate::ui::ScreenDraw::Image { palette, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
-                        *palette = Some(f[1..].join(" "));
+                        *palette = Some(menu::screen::PaletteFrom { image: f[3..].join(" "), first, count });
                     }
                 }
                 Some("ui_image_mask") if f.len() >= 4 => {

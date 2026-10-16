@@ -88,8 +88,27 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
             }
         }
     }
-    let palette = table.map(|n| format!("Art/Units/Palettes/ntp{n:02}.pcx"));
+    let ntp = |n: u32, count: u32| menu::screen::PaletteFrom { image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 0, count };
+    // Else a sprite of its own colour table, recoloured by copying a civ's
+    // first 64 colours into it.
+    let palette = table.map(|n| ntp(n, 256)).or_else(|| own_civ_colors(sprite).map(|n| ntp(n, 64)));
     emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), palette });
+}
+
+/// Which civ's colours `sprite`'s own colour table holds (its first 64), if
+/// it has one and they are a civ's.
+fn own_civ_colors(sprite: u32) -> Option<u32> {
+    let own = h::sprite_own_colors(sprite)?;
+    // The civ tables do not change once loaded.
+    static CIVS: std::sync::OnceLock<Vec<Vec<u32>>> = std::sync::OnceLock::new();
+    let civs = match CIVS.get() {
+        Some(c) => c,
+        None => {
+            let loaded = h::civ_table_colors(*BUILD.get()?)?;
+            CIVS.get_or_init(|| loaded)
+        }
+    };
+    civs.iter().position(|c| *c == own).map(|n| n as u32)
 }
 
 /// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`, within
