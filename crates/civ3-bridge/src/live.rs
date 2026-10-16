@@ -398,7 +398,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
-        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled));
+        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled)));
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {

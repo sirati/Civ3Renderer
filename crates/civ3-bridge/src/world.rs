@@ -301,6 +301,10 @@ impl Trace {
                         rect: [v[7] as i32, v[8] as i32, v[9] as i32, v[10] as i32],
                     });
                 }
+                Some("ui_underlay") => {
+                    let range = n(1)? as usize..n(2)? as usize;
+                    t.ui.get_or_insert_with(Default::default).underlay_draws.push(range);
+                }
                 Some("ui_fill") if f.len() >= 12 => {
                     let v = (1..12).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
                     t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Fill {

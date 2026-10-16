@@ -90,7 +90,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
             Some(frame) => {
                 let roots: Vec<std::path::PathBuf> = Vec::new();
                 let items = ui_screen::items(frame, &roots, GENERATED);
-                scene.sprites.extend(ui_screen::sprites(&items, fonts, compiled));
+                scene.sprites.extend(ui_screen::sprites(&items, fonts, compiled, ui_screen::under_pass(compiled)));
                 scene.patches = ui_screen::minimap_patches(&items, &trace.world, compiled, |t| art.table_color(t, 66).unwrap_or_default());
             }
             None => {

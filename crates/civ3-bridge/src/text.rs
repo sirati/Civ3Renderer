@@ -102,14 +102,22 @@ impl Fonts {
         for r in runs {
             // The game redraws some lines several times per frame.
             if seen.insert(r) {
-                self.run_sprites(r, None, compiled, &mut out);
+                self.run_sprites(r, None, compiled, u32::MAX, &mut out);
             }
         }
         out
     }
 
-    /// Glyph sprites of one run, clipped to `clip` (screen rectangle).
-    pub fn run_sprites(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled, out: &mut Vec<scene::FreeSprite>) {
+    /// Glyph sprites of one run, clipped to `clip` (screen rectangle), drawn
+    /// after render pass `after_pass`.
+    pub fn run_sprites(
+        &self,
+        r: &TextRun,
+        clip: Option<[i32; 4]>,
+        compiled: &Compiled,
+        after_pass: u32,
+        out: &mut Vec<scene::FreeSprite>,
+    ) {
         let key = (r.face.clone(), r.height.abs(), r.color);
         let (Some(n), Some(Some(font))) = (self.index(&key), self.fonts.get(&key)) else { return };
         let mut pen = r.x;
@@ -121,7 +129,7 @@ impl Fonts {
                     x: pen,
                     y: r.y,
                     screen: true,
-                    after_pass: u32::MAX,
+                    after_pass,
                     phase: 0,
                     ticks_per_frame: 1,
                     scale_den: 0,

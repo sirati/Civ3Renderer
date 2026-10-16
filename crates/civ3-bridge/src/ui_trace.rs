@@ -314,3 +314,12 @@ pub fn set_skipping(on: bool) {
         }
     }
 }
+
+/// The game starts redrawing the map (terrain over the old labels).
+pub fn map_redraw() {
+    if let Ok(mut m) = MODEL.lock() {
+        if let Some(m) = m.as_mut() {
+            m.reset_underlays();
+        }
+    }
+}
