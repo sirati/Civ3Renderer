@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use civ3_assets::GameFiles;
 use ifc23::assets;
 use ifc23::scene_map::Mapper;
-use ifc23::{city_hud, city_site, text, units};
+use ifc23::{city_hud, city_site, text, ui_screen, units};
 use ifc23::world::Trace;
 use render_desc::Compiled;
 use tile_render::reference;
@@ -66,6 +66,12 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
         if std::env::var("CIV3_TEXT").as_deref() != Ok("0") {
             fonts.add(&files(), &t.texts);
         }
+        // The mirrored interface: its art and text.
+        if let Some(frame) = &t.ui {
+            let mut screen = menu::screen::ScreenArt::default();
+            ui_screen::add_art(&ui_screen::items(frame, &[]), &mut screen, &mut fonts, &files());
+            text.push_str(&ui_screen::description(&screen));
+        }
         text.push_str(&fonts.description());
         art = Some((a, fonts));
     }
@@ -78,8 +84,17 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
     if let Some((art, fonts)) = art {
         scene.sprites = city_site::sprites(&trace.world, compiled);
         scene.sprites.extend(units::sprites(&trace.world, art, compiled));
-        scene.sprites.extend(city_hud::sprites(&trace.world, compiled));
-        scene.sprites.extend(fonts.sprites(&trace.texts, compiled));
+        match &trace.ui {
+            // The mirrored interface has the city icons and all text.
+            Some(frame) => {
+                let roots: Vec<std::path::PathBuf> = Vec::new();
+                scene.sprites.extend(ui_screen::sprites(&ui_screen::items(frame, &roots), fonts, compiled));
+            }
+            None => {
+                scene.sprites.extend(city_hud::sprites(&trace.world, compiled));
+                scene.sprites.extend(fonts.sprites(&trace.texts, compiled));
+            }
+        }
     }
     scene
 }

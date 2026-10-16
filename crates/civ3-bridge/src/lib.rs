@@ -9,6 +9,10 @@ pub mod city_site;
 pub mod rules;
 pub mod scene_map;
 pub mod text;
+pub mod ui;
+pub mod ui_screen;
+#[cfg(windows)]
+pub mod ui_trace;
 pub mod units;
 pub mod world;
 #[cfg(windows)]

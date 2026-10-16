@@ -15,6 +15,7 @@ pub mod build;
 pub mod hooks;
 pub mod layout;
 pub mod sprites;
+pub mod ui_hooks;
 pub mod world;
 
 pub use build::{Addresses, Build};

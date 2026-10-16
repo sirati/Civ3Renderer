@@ -262,3 +262,6 @@ Tile Ruins
 Tile_Building_Body ID
 Tile_Building_Body OwnerID
 Main_Screen_Form field_4E80
+
+# User interface (docs §16).
+Base_Form_Data Canvas
