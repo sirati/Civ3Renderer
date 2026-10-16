@@ -65,9 +65,10 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
         let mut a = units::UnitArt::new(files());
         let mut needed = units::Needed::of(&t.world, &mut a);
         let unit_colors = t.world.color_tables.get(t.world.player.max(0) as usize).copied().unwrap_or(0);
-        for path in t.ui.as_ref().map(|f| ui_screen::unit_files(f, &[])).unwrap_or_default() {
+        for path in t.ui.as_ref().map(|f| ui_screen::unit_files(f, &[], false)).unwrap_or_default() {
             needed.add_file(&mut a, &path, unit_colors);
         }
+        needed.set_plain(&mut a, &t.ui.as_ref().map(|f| ui_screen::unit_files(f, &[], true)).unwrap_or_default());
         text.push_str(&needed.description());
         let mut fonts = text::Fonts::default();
         // CIV3_TEXT=0: leave the game's text out.

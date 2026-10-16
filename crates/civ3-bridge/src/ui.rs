@@ -64,7 +64,9 @@ pub enum Event {
     FlcLoaded { flic: u32, path: String },
     /// Frame `chunk` of animation `flic` drawn with its frame's top-left at
     /// (x, y) of `canvas` (unit pictures in panels).
-    FlcBlit { flic: u32, chunk: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
+    /// `plain`: in the file's own colours, no shadow (leader heads), else
+    /// a unit picture.
+    FlcBlit { flic: u32, chunk: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]>, plain: bool },
     /// A paint starts: the forms that follow are composed bottom to top.
     PaintBegin,
     /// A form's canvas put on the screen with its (0, 0) at `origin`, clipped
@@ -85,7 +87,7 @@ enum Op {
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
     Text(TextRun),
     /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
-    Flc { path: String, chunk: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
+    Flc { path: String, chunk: u32, x: i32, y: i32, clip: Option<[i32; 4]>, plain: bool },
 }
 
 /// One thing on the screen.
@@ -96,7 +98,7 @@ pub enum ScreenDraw {
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
     /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
-    Flc { path: String, chunk: u32, x: i32, y: i32, clip: [i32; 4] },
+    Flc { path: String, chunk: u32, x: i32, y: i32, clip: [i32; 4], plain: bool },
     /// Region `rect` (x, y, w, h) of a surface the game generates itself
     /// (e.g. the minimap), at (x, y).
     Surface { image: u32, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4], size: (i32, i32) },
@@ -408,9 +410,14 @@ impl UiModel {
             Event::FlcLoaded { flic, path } => {
                 self.flcs.insert(flic, path);
             }
-            Event::FlcBlit { flic, chunk, canvas, x, y, clip } => {
+            Event::FlcBlit { flic, chunk, canvas, x, y, clip, plain } => {
                 if let Some(path) = self.flcs.get(&flic).cloned() {
-                    self.push(canvas, Op::Flc { path, chunk, x, y, clip });
+                    // The next frame of an animation replaces the one there
+                    // (a leader head is redrawn every few frames).
+                    if let Some(ops) = self.canvases.get_mut(&canvas) {
+                        ops.retain(|op| !matches!(op, Op::Flc { path: p, x: px, y: py, .. } if *p == path && (*px, *py) == (x, y)));
+                    }
+                    self.push(canvas, Op::Flc { path, chunk, x, y, clip, plain });
                 }
             }
             Event::PaintBegin => self.pending = Some(Vec::new()),
@@ -559,11 +566,11 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
             run.y += dy;
             inside.then_some(Op::Text(run))
         }
-        Op::Flc { path, chunk, x, y, clip } => {
+        Op::Flc { path, chunk, x, y, clip, plain } => {
             let inside = x >= window[0] && x < window[2] && y >= window[1] && y < window[3];
             let clip = intersect(clip.unwrap_or(window), window);
             let clip = Some([clip[0] + dx, clip[1] + dy, clip[2] + dx, clip[3] + dy]);
-            inside.then_some(Op::Flc { path, chunk, x: x + dx, y: y + dy, clip })
+            inside.then_some(Op::Flc { path, chunk, x: x + dx, y: y + dy, clip, plain })
         }
     }
 }
@@ -624,9 +631,9 @@ fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDra
             run.y += oy;
             Some(ScreenDraw::Text { run, clip })
         }
-        Op::Flc { path, chunk, x, y, clip: own } => {
+        Op::Flc { path, chunk, x, y, clip: own, plain } => {
             let clip = own.map_or(clip, |c| intersect(clip, [c[0] + ox, c[1] + oy, c[2] + ox, c[3] + oy]));
-            Some(ScreenDraw::Flc { path, chunk, x: x + ox, y: y + oy, clip })
+            Some(ScreenDraw::Flc { path, chunk, x: x + ox, y: y + oy, clip, plain })
         }
     }
 }
@@ -659,6 +666,24 @@ mod tests {
         assert_eq!(
             m.frame().draws,
             vec![ScreenDraw::Image { path: "Art/a.pcx".into(), rect: [5, 6, 30, 20], x: 107, y: 208, keyed: true, clip: [100, 200, 140, 240], mask: None }]
+        );
+    }
+
+    #[test]
+    fn a_leader_heads_next_frame_replaces_the_last() {
+        // The head is drawn onto its own image, which the form copies.
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::FlcLoaded { flic: 5, path: "Art/Flics/Al_01.FLC".into() });
+        for chunk in [3, 4] {
+            m.apply(Event::FlcBlit { flic: 5, chunk, canvas: 40, x: 0, y: 0, clip: None, plain: true });
+        }
+        m.apply(Event::Copy { from: 40, src: [0, 0, 200, 240], canvas: 300, x: 411, y: 59, keyed: false });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (1920, 1080)));
+        m.apply(Event::PaintEnd);
+        assert_eq!(
+            m.frame().draws,
+            vec![ScreenDraw::Flc { path: "Art/Flics/Al_01.FLC".into(), chunk: 4, x: 411, y: 59, clip: [411, 59, 611, 299], plain: true }]
         );
     }
 

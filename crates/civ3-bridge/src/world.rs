@@ -571,7 +571,7 @@ impl Trace {
                         ),
                     });
                 }
-                Some("ui_flc") if f.len() >= 9 => {
+                Some(kind @ ("ui_flc" | "ui_flc_plain")) if f.len() >= 9 => {
                     let v = (1..8).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
                     t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Flc {
                         path: f[8..].join(" "),
@@ -579,6 +579,7 @@ impl Trace {
                         x: v[0],
                         y: v[1],
                         clip: [v[2], v[3], v[4], v[5]],
+                        plain: kind == "ui_flc_plain",
                     });
                 }
                 Some("ui_underlay") => {

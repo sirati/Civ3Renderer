@@ -68,6 +68,11 @@ fn rect_xywh(at: u32) -> Option<[i32; 4]> {
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
 fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool) {
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
+    // A frame of an FLC animation in its own colours (a leader head).
+    if let Some((flic, chunk)) = h::flc_frame(sprite) {
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), plain: true });
+        return;
+    }
     emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas) });
 }
 
@@ -417,6 +422,6 @@ pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32) {
         // The frame's image lies at its offset from (x, y), as for map
         // units (§10.3).
         let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas) });
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), plain: false });
     }
 }

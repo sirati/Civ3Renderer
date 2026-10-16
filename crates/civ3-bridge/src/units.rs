@@ -175,6 +175,10 @@ pub struct Needed {
     pub files: BTreeMap<String, (AnimFile, BTreeSet<Recolor>)>,
     /// Colour tables of city-site previews, with their entry 66 (§10.9).
     pub site_colors: BTreeMap<i32, [u8; 3]>,
+    /// Animations drawn in their own colours, without shadow (leader
+    /// heads): sprites `Flc@<file>/<chunk>`. Only those shown (they are
+    /// big).
+    pub plain: BTreeMap<String, AnimFile>,
 }
 
 fn era_key(world: &Civ3World, civ: i32) -> &str {
@@ -236,6 +240,13 @@ impl Needed {
     pub fn covers(&self, other: &Needed) -> bool {
         other.files.iter().all(|(p, (_, c))| self.files.get(p).is_some_and(|(_, mine)| c.is_subset(mine)))
             && other.site_colors.keys().all(|c| self.site_colors.contains_key(c))
+            && other.plain.keys().all(|p| self.plain.contains_key(p))
+    }
+
+    /// Animation file `path` in its own colours (replacing those before:
+    /// only the ones shown are kept).
+    pub fn set_plain(&mut self, art: &mut UnitArt, paths: &[String]) {
+        self.plain = paths.iter().filter_map(|p| art.file_at(p).map(|f| (f.path.clone(), f.clone()))).collect();
     }
 
     /// Adds animation file `path` in colour table `table`.
@@ -250,6 +261,7 @@ impl Needed {
             self.files.entry(p.clone()).or_insert_with(|| (f.clone(), BTreeSet::new())).1.extend(c);
         }
         self.site_colors.extend(other.site_colors.iter().map(|(k, v)| (*k, *v)));
+        self.plain.extend(other.plain.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
 
     /// Render description entries for this art: sprites
@@ -294,6 +306,20 @@ impl Needed {
                 }
                 let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{palette}transparent = {body_transparent}\n");
                 sheets(&mut out, &image, &format!("UnitArt@{path}#{c}"));
+            }
+        }
+        // In the file's own colours, frames at their top-left.
+        for (n, (path, file)) in self.plain.iter().enumerate() {
+            let image = format!("flc{n}");
+            let _ = writeln!(out, "[images.{image}]\nsource = {}\n", toml_str(path));
+            for k in 0..file.chunks {
+                let _ = writeln!(
+                    out,
+                    "[sheets.\"{image}_{k}\"]\nimage = \"{image}\"\nframe = {k}\ncell = [{}, {}]\ngroup = {}\nfirst_index = {k}\n",
+                    file.size.0,
+                    file.size.1,
+                    toml_str(&format!("Flc@{path}"))
+                );
             }
         }
         let sites: Vec<(i32, [u8; 3])> = self.site_colors.iter().map(|(k, v)| (*k, *v)).collect();

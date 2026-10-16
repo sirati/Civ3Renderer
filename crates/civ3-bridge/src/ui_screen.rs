@@ -70,7 +70,11 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
             }
             // Unit pictures, from our unit art in the viewing player's
             // colours (§16.9), over their shadow as on the map.
-            ScreenDraw::Flc { path, chunk, x, y, clip } => {
+            // Leader heads: in their own colours.
+            ScreenDraw::Flc { path, chunk, x, y, clip, plain: true } => {
+                Element::Sprite { name: format!("Flc@{}/{chunk}", relative_path(path, roots)), at: (*x, *y), clip: *clip, scale_den: 0 }
+            }
+            ScreenDraw::Flc { path, chunk, x, y, clip, plain: false } => {
                 let path = relative_path(path, roots);
                 let shadow = format!("UnitShadow@{path}/{chunk}");
                 out.push(Item::Element(Element::Sprite { name: shadow, at: (*x, *y), clip: *clip, scale_den: 16 }, under));
@@ -87,12 +91,16 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
     out
 }
 
-/// The unit animation files `frame` shows in panels (relative paths).
-pub fn unit_files(frame: &Frame, roots: &[PathBuf]) -> Vec<String> {
+/// The unit animation files `frame` shows in panels (relative paths);
+/// `plain`: those in their own colours (leader heads) instead.
+pub fn unit_files(frame: &Frame, roots: &[PathBuf], plain: bool) -> Vec<String> {
     let mut out: Vec<String> = frame
         .draws
         .iter()
-        .filter_map(|d| if let ScreenDraw::Flc { path, .. } = d { Some(relative_path(path, roots)) } else { None })
+        .filter_map(|d| match d {
+            ScreenDraw::Flc { path, plain: p, .. } if *p == plain => Some(relative_path(path, roots)),
+            _ => None,
+        })
         .collect();
     out.sort();
     out.dedup();

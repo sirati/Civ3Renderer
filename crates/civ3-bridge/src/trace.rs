@@ -493,8 +493,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                     let [r, g, b] = t.color;
                     writeln!(out, "ui_text {c0} {c1} {c2} {c3} text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/{}/{}/{} str {}", t.x, t.y, t.face, t.height, t.weight, t.italic as u8, t.underline as u8, t.text)
                 }
-                crate::ui::ScreenDraw::Flc { path, chunk, x, y, clip: [c0, c1, c2, c3] } => {
-                    writeln!(out, "ui_flc {x} {y} {c0} {c1} {c2} {c3} {chunk} {path}")
+                crate::ui::ScreenDraw::Flc { path, chunk, x, y, clip: [c0, c1, c2, c3], plain } => {
+                    let kind = if *plain { "ui_flc_plain" } else { "ui_flc" };
+                    writeln!(out, "{kind} {x} {y} {c0} {c1} {c2} {c3} {chunk} {path}")
                 }
                 crate::ui::ScreenDraw::Surface { image, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3], size: (sw, sh) } => {
                     writeln!(out, "ui_surface {image:#x} {x} {y} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {sw} {sh}")
