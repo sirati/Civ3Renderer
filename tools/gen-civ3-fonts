@@ -12,8 +12,15 @@ out=${CIV3R_FONT_CACHE:-$HOME/.cache/civ3r/fonts}
 mkdir -p "$out"
 cargo build -q -p gdi-text --target x86_64-pc-windows-gnu
 exe=$repo/target/x86_64-pc-windows-gnu/debug/font-sheet.exe
+# Regular, bold, italic and bold italic (file names as civ3-assets'
+# `cache_stem`: -w<weight> for bold, -i for italic).
 for h in "${@:-8 9 10 11 12 13 14 15 16 18 20 22 24}"; do
   for size in $h; do
-    "$repo/tools/wine-run" "$exe" "Z:$install/LSANS.TTF" "Lucida Sans" "$size" 0 "Z:$out/Lucida_Sans-$size.png" 32 255 0 2>/dev/null | tail -1
+    for style in "0 0 -" "700 0 -w700" "0 1 -i" "700 1 -w700-i"; do
+      read -r weight italic suffix <<<"$style"
+      [ "$suffix" = - ] && suffix=
+      "$repo/tools/wine-run" "$exe" "Z:$install/LSANS.TTF" "Lucida Sans" "$size" "$weight" \
+        "Z:$out/Lucida_Sans-$size$suffix.png" 32 255 0 "$italic" 2>/dev/null | tail -1
+    done
   done
 done

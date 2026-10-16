@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
 
 use civ3_assets::GameFiles;
-use civ3_assets::fonts::{GlyphFont, charset};
+use civ3_assets::fonts::{FontStyle, GlyphFont, charset};
 use render_desc::Compiled;
 
 /// One `TextOutA` call: `text` with its pen at (x, baseline y).
@@ -19,11 +19,14 @@ pub struct TextRun {
     pub face: String,
     /// GDI `lfHeight` (negative: character height).
     pub height: i32,
+    /// GDI `lfWeight` (0 or 400 normal, 700 bold) and `lfItalic`.
+    pub weight: i32,
+    pub italic: bool,
     pub text: String,
 }
 
 impl TextRun {
-    /// A trace line `text dc D at X Y color R G B font "Face"/H/W/Q str TEXT`.
+    /// A trace line `text dc D at X Y color R G B font "Face"/H/WEIGHT/ITALIC str TEXT`.
     pub fn parse(line: &str) -> Option<TextRun> {
         let rest = line.strip_prefix("text dc ")?;
         let (_, rest) = rest.split_once(" at ")?;
@@ -31,19 +34,28 @@ impl TextRun {
         let f: Vec<&str> = head.split_whitespace().collect();
         let font = head.split_once(" font ")?.1;
         let (face, metrics) = font.strip_prefix('"')?.split_once("\"/")?;
-        let height = metrics.split('/').next()?.parse().ok()?;
+        let mut m = metrics.split('/');
+        let height = m.next()?.parse().ok()?;
+        let weight = m.next().and_then(|w| w.parse().ok()).unwrap_or(0);
+        let italic = m.next() == Some("1");
         Some(TextRun {
             x: f.first()?.parse().ok()?,
             y: f.get(1)?.parse().ok()?,
             color: [f.get(3)?.parse().ok()?, f.get(4)?.parse().ok()?, f.get(5)?.parse().ok()?],
             face: face.to_owned(),
             height,
+            weight,
+            italic,
             text: text.to_owned(),
         })
     }
 }
 
-type FontKey = (String, i32, [u8; 3]);
+type FontKey = (FontStyle, [u8; 3]);
+
+fn key(r: &TextRun) -> FontKey {
+    (FontStyle { face: r.face.clone(), height: r.height.abs(), weight: r.weight, italic: r.italic }, r.color)
+}
 
 /// The fonts (face, size, colour) text runs need, loaded.
 #[derive(Default)]
@@ -56,9 +68,9 @@ impl Fonts {
     pub fn add(&mut self, files: &GameFiles, runs: &[TextRun]) -> bool {
         let mut added = false;
         for r in runs {
-            let key = (r.face.clone(), r.height.abs(), r.color);
+            let key = key(r);
             if !self.fonts.contains_key(&key) {
-                let font = civ3_assets::fonts::load(files, &key.0, key.1, key.2)
+                let font = civ3_assets::fonts::load(files, &key.0, key.1)
                     .inspect_err(|e| log::warn!("font {key:?}: {e}"))
                     .ok();
                 self.fonts.insert(key, font);
@@ -76,9 +88,10 @@ impl Fonts {
     /// anchored at the pen on the baseline.
     pub fn description(&self) -> String {
         let mut out = String::from("\n# Text glyphs (generated).\n");
-        for (n, ((face, height, [r, g, b]), font)) in self.fonts.iter().enumerate() {
+        for (n, ((style, [r, g, b]), font)) in self.fonts.iter().enumerate() {
             let Some(font) = font else { continue };
-            let _ = writeln!(out, "[images.text{n}]\nsource = \"font:{face}/{height}/{r},{g},{b}\"\n");
+            let FontStyle { face, height, weight, italic } = style;
+            let _ = writeln!(out, "[images.text{n}]\nsource = \"font:{face}/{height}/{r},{g},{b}/{weight}/{}\"\n", *italic as u8);
             for (k, c) in charset().enumerate() {
                 let Some(glyph) = font.glyphs.get(&c) else { continue };
                 let _ = writeln!(
@@ -118,7 +131,7 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) {
-        let key = (r.face.clone(), r.height.abs(), r.color);
+        let key = key(r);
         let (Some(n), Some(Some(font))) = (self.index(&key), self.fonts.get(&key)) else { return };
         let mut pen = r.x;
         for c in r.text.chars() {

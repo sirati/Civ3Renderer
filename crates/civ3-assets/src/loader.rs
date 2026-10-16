@@ -23,7 +23,7 @@
 //!
 //! PCX sources yield one image, FLC sources one image per frame.
 //!
-//! `font:<face>/<height>/<r>,<g>,<b>` sources are the game's text glyphs
+//! `font:<face>/<height>/<r>,<g>,<b>[/<weight>/<italic>]` sources are the game's text glyphs
 //! (see `fonts`), one image per character of `fonts::charset()`, in order.
 
 use render_desc::ImageLoader;
@@ -149,15 +149,17 @@ fn to_rgba_with(
     })
 }
 
-/// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>`.
+/// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>[/<weight>/<italic 0|1>]`.
 pub fn font_of(files: &GameFiles, spec: &str) -> Result<crate::fonts::GlyphFont, String> {
-    let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>");
+    let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>[/<weight>/<italic>]");
     let mut parts = spec.split('/');
     let (face, height, color) = (parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?);
     let height: i32 = height.parse().map_err(|_| err())?;
+    let weight: i32 = parts.next().map_or(Ok(0), |w| w.parse().map_err(|_| err()))?;
+    let italic = parts.next().is_some_and(|i| i == "1");
     let rgb: Vec<u8> = color.split(',').map(|v| v.trim().parse().map_err(|_| err())).collect::<Result<_, _>>()?;
     let rgb = <[u8; 3]>::try_from(rgb).map_err(|_| err())?;
-    crate::fonts::load(files, face, height, rgb)
+    crate::fonts::load(files, &crate::fonts::FontStyle { face: face.to_owned(), height, weight, italic }, rgb)
 }
 
 impl ImageLoader for Civ3Loader {

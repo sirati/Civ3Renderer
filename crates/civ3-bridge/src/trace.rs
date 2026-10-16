@@ -103,7 +103,7 @@ fn record_text(call: &hooks::text_out::Call) {
     let text: String = bytes.iter().map(|&b| b as char).collect();
     let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
-    let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, text };
+    let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, text };
     crate::ui_trace::on_text(&run);
     if let Ok(mut recent) = RECENT_TEXT.lock() {
         let now = std::time::Instant::now();
@@ -436,7 +436,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     }
     for t in recent_texts() {
         let [r, g, b] = t.color;
-        let _ = writeln!(out, "text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/0/0 str {}", t.x, t.y, t.face, t.height, t.text);
+        let _ = writeln!(out, "text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/{}/{} str {}", t.x, t.y, t.face, t.height, t.weight, t.italic as u8, t.text);
     }
     // The mirrored interface (docs §16).
     if let Some(frame) = crate::ui_trace::frame() {
@@ -463,7 +463,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                 }
                 crate::ui::ScreenDraw::Text { run: t, clip: [c0, c1, c2, c3] } => {
                     let [r, g, b] = t.color;
-                    writeln!(out, "ui_text {c0} {c1} {c2} {c3} text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/0/0 str {}", t.x, t.y, t.face, t.height, t.text)
+                    writeln!(out, "ui_text {c0} {c1} {c2} {c3} text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/{}/{} str {}", t.x, t.y, t.face, t.height, t.weight, t.italic as u8, t.text)
                 }
                 crate::ui::ScreenDraw::Flc { path, chunk, x, y, clip: [c0, c1, c2, c3] } => {
                     writeln!(out, "ui_flc {x} {y} {c0} {c1} {c2} {c3} {chunk} {path}")

@@ -12,12 +12,12 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let a: Vec<String> = std::env::args().skip(1).collect();
     if a.len() < 5 {
-        eprintln!("usage: font-sheet FONT.TTF FACE HEIGHT WEIGHT OUT.png [FIRST LAST]");
+        eprintln!("usage: font-sheet FONT.TTF FACE HEIGHT WEIGHT OUT.png [FIRST LAST [QUALITY [ITALIC]]]");
         return ExitCode::from(2);
     }
     let num = |i: usize, d: i64| a.get(i).and_then(|s| s.parse().ok()).unwrap_or(d);
     let (first, last) = (num(5, 32) as u32, num(6, 255) as u32);
-    let font = gdi_text::FontSpec { face: a[1].clone(), height: num(2, 12) as i32, weight: num(3, 400) as i32, italic: false, quality: num(7, 0) as u8 };
+    let font = gdi_text::FontSpec { face: a[1].clone(), height: num(2, 12) as i32, weight: num(3, 400) as i32, italic: num(8, 0) != 0, quality: num(7, 0) as u8 };
     if let Err(e) = gdi_text::add_font_file(std::path::Path::new(&a[0])) {
         eprintln!("{e}");
         return ExitCode::FAILURE;
