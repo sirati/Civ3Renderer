@@ -47,6 +47,25 @@ fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
 }
 
 /// A copy of the parts of the game state the map is drawn from.
+/// How `player` stands with every civ (the barbarians, civ 0, are always
+/// at war). The raw fields are logged when they change: not all treaty
+/// bits are known (`civ3_sys::world::Diplomacy`).
+fn relations(game: &Civ3, player: i32) -> Vec<civ3_sys::world::Relation> {
+    static LAST: std::sync::Mutex<Option<civ3_sys::world::Diplomacy>> = std::sync::Mutex::new(None);
+    let Ok(d) = game.diplomacy(player) else { return Vec::new() };
+    if let Ok(mut last) = LAST.lock()
+        && last.as_ref() != Some(&d)
+    {
+        let known: Vec<String> = (0..32)
+            .filter(|&c| d.at_war[c] || d.contacts[c] != 0 || d.treaties[c] != 0 || d.military_allies[c] != 0)
+            .map(|c| format!("{c}: war {} contacts {:#x} treaties {:#x} allies {:#x}", d.at_war[c] as u8, d.contacts[c], d.treaties[c], d.military_allies[c]))
+            .collect();
+        log::info!("diplomacy of civ {player}: {}", known.join("; "));
+        *last = Some(d.clone());
+    }
+    (0..32).map(|c| if c == 0 { civ3_sys::world::Relation::War } else { d.relation(c) }).collect()
+}
+
 pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
     let view = game.view()?;
     let map = game.map()?;
@@ -112,6 +131,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         focus_city: optional("focus_city", game.focus_city()),
         outposts: optional("outposts", game.outposts()),
         selection: optional("selection", game.selection()),
+        relations: relations(game, view.player_civ),
         wall_buildings: players
             .wall_buildings
             .iter()
@@ -195,6 +215,8 @@ struct Compiler {
     install: PathBuf,
     name: String,
     text: String,
+    /// Rings around foreign units (their art is in `text`).
+    rings: Option<crate::rings::Rings>,
 }
 
 impl Compiler {
@@ -237,8 +259,11 @@ impl Compiler {
 /// `native-fullscreen` the native Linux viewer (Wine with
 /// `civ3r_native.dll`, see `tools/install-native`).
 pub fn start(game: Civ3) -> Result<(), LiveError> {
-    let (name, text) = description()?;
-    let compiler = Compiler { install: install_root()?, name, text };
+    let (name, mut text) = description()?;
+    // Rings around foreign units, if asked for (`crate::rings`).
+    let rings = crate::rings::Rings::from_env();
+    text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
+    let compiler = Compiler { install: install_root()?, name, text, rings };
     let folders = ArtFolders::of(&game);
     // Mirror the game's interface (`CIV3R_UI=off`: only its text).
     if std::env::var("CIV3R_UI").as_deref() != Ok("off") {
@@ -433,7 +458,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 if ui.is_none() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
-                scene.sprites.extend(units::sprites(world, &mut art, &compiled));
+                scene.sprites.extend(units::sprites(world, &mut art, &compiled, compiler.rings.as_ref()));
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));

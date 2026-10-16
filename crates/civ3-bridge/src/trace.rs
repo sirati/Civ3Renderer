@@ -286,6 +286,17 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         let _ = writeln!(out, "zoomed_out {}", z as u8);
     }
     if let Ok(view) = game.view() {
+        if let Ok(d) = game.diplomacy(view.player_civ) {
+            use civ3_sys::world::Relation;
+            let code = |c: i32| match if c == 0 { Relation::War } else { d.relation(c) } {
+                Relation::War => "w",
+                Relation::Defense => "d",
+                Relation::Peace => "p",
+                Relation::None => "n",
+            };
+            let list: Vec<&str> = (0..32).map(code).collect();
+            let _ = writeln!(out, "relations {}", list.join(" "));
+        }
         if let Ok(vis) = game.resources_visible_to(view.player_civ) {
             let list: Vec<&str> = vis.iter().map(|&v| if v { "1" } else { "0" }).collect();
             let _ = writeln!(out, "resource_visible {}", list.join(" "));
