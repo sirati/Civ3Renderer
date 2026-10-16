@@ -1,0 +1,41 @@
+# Members of the game's structs that civ3-sys reads (see tools/gen-civ3-layout).
+# "Struct" alone exports its size; "Struct member" exports the member's offset.
+
+Main_Screen_Form
+Main_Screen_Form Current_Unit
+Main_Screen_Form Selected_City
+Main_Screen_Form Player_CivID
+Main_Screen_Form TileX_Min
+Main_Screen_Form TileX_Max
+Main_Screen_Form TileY_Min
+Main_Screen_Form TileY_Max
+Main_Screen_Form camera_x
+Main_Screen_Form camera_y
+Main_Screen_Form mouse_x
+Main_Screen_Form mouse_y
+
+BIC Map
+
+Map
+Map Flags
+Map Tiles
+Map Width
+Map Height
+Map TileCount
+
+Tile
+Tile River_Code
+Tile Territory_OwnerID
+Tile ResourceType
+Tile TileUnitID
+Tile SquareParts
+Tile CityID
+Tile Overlays
+Tile SquareType
+Tile Terrain_Overlays
+Tile Body
+Tile_Body
+Tile_Body Fog_Of_War
+Tile_Body FOWStatus
+Tile_Body V3
+Tile_Body Visibility

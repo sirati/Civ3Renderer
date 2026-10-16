@@ -1,0 +1,12 @@
+; civ3-bridge is loaded into Civilization III by standing in for ifc23.dll
+; (Immersion force feedback), which Civ3Conquests.exe imports these seven
+; functions from. They are forwarded unchanged to the original, renamed to
+; ifc23_orig.dll by the installer.
+EXPORTS
+    "?Start@CImmProject@@QAEHPBDKKPAVCImmDevice@@@Z" = ifc23_orig."?Start@CImmProject@@QAEHPBDKKPAVCImmDevice@@@Z"
+    "??1CImmProject@@QAE@XZ" = ifc23_orig."??1CImmProject@@QAE@XZ"
+    "?CreateEffect@CImmProject@@QAEPAVCImmCompoundEffect@@PBDPAVCImmDevice@@K@Z" = ifc23_orig."?CreateEffect@CImmProject@@QAEPAVCImmCompoundEffect@@PBDPAVCImmDevice@@K@Z"
+    "?CreateDevice@CImmDevice@@SAPAV1@PAUHINSTANCE__@@PAUHWND__@@@Z" = ifc23_orig."?CreateDevice@CImmDevice@@SAPAV1@PAUHINSTANCE__@@PAUHWND__@@@Z"
+    "??0CImmProject@@QAE@XZ" = ifc23_orig."??0CImmProject@@QAE@XZ"
+    "?OpenFile@CImmProject@@QAEHPBDPAVCImmDevice@@@Z" = ifc23_orig."?OpenFile@CImmProject@@QAEHPBDPAVCImmDevice@@@Z"
+    "?Stop@CImmProject@@QAEHPBD@Z" = ifc23_orig."?Stop@CImmProject@@QAEHPBD@Z"
