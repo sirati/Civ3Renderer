@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use civ3_assets::GameFiles;
 use ifc23::assets;
 use ifc23::scene_map::Mapper;
-use ifc23::{text, units};
+use ifc23::{city_hud, city_site, text, units};
 use ifc23::world::Trace;
 use render_desc::Compiled;
 use tile_render::reference;
@@ -76,7 +76,9 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
 fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::UnitArt, text::Fonts)>, viewport: (u32, u32)) -> scene::Scene {
     let mut scene = Mapper::new(compiled).scene(&trace.world, &trace.view, viewport, 0);
     if let Some((art, fonts)) = art {
-        scene.sprites = units::sprites(&trace.world, art, compiled);
+        scene.sprites = city_site::sprites(&trace.world, compiled);
+        scene.sprites.extend(units::sprites(&trace.world, art, compiled));
+        scene.sprites.extend(city_hud::sprites(&trace.world, compiled));
         scene.sprites.extend(fonts.sprites(&trace.texts, compiled));
     }
     scene

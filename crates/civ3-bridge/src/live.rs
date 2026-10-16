@@ -9,15 +9,39 @@ use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
 
 use crate::presenter::{self, Presenter};
-use crate::{assets, text, trace, units};
+use crate::{assets, city_hud, city_site, text, trace, units};
 use crate::scene_map::Mapper;
-use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, WallBuilding};
+use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, IconBuilding, WallBuilding};
 
 /// The viewer window's title (also how we tell it from the game's window).
 const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
 
 /// How often the publisher looks at the game.
 const POLL: Duration = Duration::from_millis(33);
+
+fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
+    Civ3Unit {
+        id: u.id,
+        x: u.x,
+        y: u.y,
+        civ: u.civ,
+        unit_type: u.unit_type,
+        experience: u.experience,
+        damage: u.damage,
+        moves: u.moves,
+        container: u.container,
+        state: u.state,
+        always_on_top: u.always_on_top,
+        pixel: u.pixel,
+        direction: u.direction,
+        animation: u.animation,
+        frame: u.frame,
+        visible: u.visible,
+        army_member: Some(u.army_member).filter(|&m| m >= 0),
+        army_size: u.army_size,
+        moving: u.moving,
+    }
+}
 
 /// A copy of the parts of the game state the map is drawn from.
 pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
@@ -47,6 +71,14 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         })
         .collect();
     let players = optional("players", game.players());
+    let drawn = optional("units", game.drawn_units());
+    // The members armies show (§10.11).
+    let army_members = drawn
+        .iter()
+        .filter(|u| u.army_member >= 0)
+        .filter_map(|u| game.unit(u.army_member).ok().flatten())
+        .map(|m| unit(&m))
+        .collect();
     let cities = optional("cities", game.cities())
         .into_iter()
         .map(|c| Civ3City { id: c.id, x: c.x, y: c.y, civ: c.civ, size: c.size, improvements: c.improvements })
@@ -64,39 +96,27 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         max_city: players.max_city,
         cities,
         governments: players.governments,
-        units: optional("units", game.drawn_units())
-            .into_iter()
-            .map(|u| Civ3Unit {
-                id: u.id,
-                x: u.x,
-                y: u.y,
-                civ: u.civ,
-                unit_type: u.unit_type,
-                experience: u.experience,
-                damage: u.damage,
-                moves: u.moves,
-                container: u.container,
-                state: u.state,
-                always_on_top: u.always_on_top,
-                pixel: u.pixel,
-                direction: u.direction,
-                animation: u.animation,
-                frame: u.frame,
-                visible: u.visible,
-            })
-            .collect(),
+        units: drawn.iter().map(unit).collect(),
+        army_members,
         unit_type_keys: optional("unit_type_keys", game.unit_type_keys()),
         era_keys: optional("era_keys", game.era_keys()),
         unit_type_stats: optional("unit_type_stats", game.unit_type_stats()),
         experience_hit_points: optional("experience_hit_points", game.experience_hit_points()),
         unit_tiles: optional("unit_tiles", game.unit_tiles()),
         preferences: optional("preferences", game.preferences()),
+        mouse_tile: optional("mouse_tile", game.mouse_tile()),
+        current_unit: optional("current_unit", game.current_unit()),
         outposts: optional("outposts", game.outposts()),
         selection: optional("selection", game.selection()),
         wall_buildings: players
             .wall_buildings
             .iter()
             .map(|b| WallBuilding { id: b.id, government: b.government, obsolete_for: b.obsolete_for })
+            .collect(),
+        icon_buildings: players
+            .icon_buildings
+            .iter()
+            .map(|b| IconBuilding { id: b.id, flags: b.flags, obsolete_for: b.obsolete_for })
             .collect(),
         width: map.width,
         height: map.height,
@@ -315,7 +335,9 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let mut scene = match shown {
             Shown::Map(world, view) => {
                 let mut scene = mapper.scene(world, view, (1024, 768), 0);
-                scene.sprites = units::sprites(world, &mut art, &compiled);
+                scene.sprites = city_site::sprites(world, &compiled);
+                scene.sprites.extend(units::sprites(world, &mut art, &compiled));
+                scene.sprites.extend(city_hud::sprites(world, &compiled));
                 scene
             }
             Shown::Title(state) => {

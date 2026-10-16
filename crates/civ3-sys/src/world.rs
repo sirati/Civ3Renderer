@@ -67,6 +67,12 @@ pub struct DrawnUnit {
     /// Frame within the direction's block.
     pub frame: i32,
     pub visible: bool,
+    /// Armies (docs §10.11): the member shown (-1: none) and how many
+    /// members there are.
+    pub army_member: i32,
+    pub army_size: i32,
+    /// On its way between tiles.
+    pub moving: bool,
 }
 
 /// An improvement that makes a town look walled (`Combat_Bombard > 0`,
@@ -77,6 +83,26 @@ pub struct WallBuilding {
     pub id: i32,
     pub government: i32,
     pub obsolete_for: u32,
+}
+
+/// An improvement that gives its city an icon on the map (docs §10.8):
+/// its id, its `ITF_Veteran_*` flags, and which players know the tech that
+/// obsoletes it (bit per player).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct IconBuilding {
+    pub id: i32,
+    pub flags: u32,
+    pub obsolete_for: u32,
+}
+
+impl IconBuilding {
+    /// Barracks (`ITF_Veteran_Ground_Units`).
+    pub const GROUND: u32 = 0x2;
+    /// Harbour (`ITF_Veteran_Sea_Units`).
+    pub const SEA: u32 = 0x2_0000;
+    /// Airport (`ITF_Veteran_Air_Units`).
+    pub const AIR: u32 = 0x4_0000;
+    pub const FLAGS: u32 = Self::GROUND | Self::SEA | Self::AIR;
 }
 
 /// Per player, the data city and unit art depends on.
@@ -93,6 +119,7 @@ pub struct Players {
     pub max_city: i32,
     pub governments: Vec<i32>,
     pub wall_buildings: Vec<WallBuilding>,
+    pub icon_buildings: Vec<IconBuilding>,
 }
 
 /// Shape of the map.
@@ -349,6 +376,7 @@ impl Civ3 {
         let culture_groups = (0..race_count.clamp(0, 256) as u32)
             .map(|r| Ok(races.offset::<i32>(r * L::RACE_SIZE + L::RACE_CULTUREGROUPID)?.read()?))
             .collect::<Result<_, Civ3Error>>()?;
+        let (wall_buildings, icon_buildings) = self.marked_buildings()?;
         Ok(Players {
             eras: self.eras()?,
             color_tables: self.color_tables()?,
@@ -358,24 +386,34 @@ impl Civ3 {
             max_town: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_TOWN)?,
             max_city: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_CITY)?,
             governments: self.leader_field(L::LEADER_GOVERNMENTTYPE)?,
-            wall_buildings: self.wall_buildings()?,
+            wall_buildings,
+            icon_buildings,
         })
     }
 
-    fn wall_buildings(&self) -> Result<Vec<WallBuilding>, Civ3Error> {
+    /// The improvements that change how a city looks: walls (docs §8) and
+    /// those with a city icon (§10.8).
+    fn marked_buildings(&self) -> Result<(Vec<WallBuilding>, Vec<IconBuilding>), Civ3Error> {
         let base: Ptr32<u8> = self.bic(L::BIC_IMPROVEMENTS)?;
         let count: i32 = self.bic(L::BIC_IMPROVEMENTSCOUNT)?;
-        let mut out = Vec::new();
+        let (mut walls, mut icons) = (Vec::new(), Vec::new());
         for id in 0..count.clamp(0, 256) as u32 {
             let field = |offset| -> Result<i32, Civ3Error> { Ok(base.offset::<i32>(id * L::IMPROVEMENT_SIZE + offset)?.read()?) };
-            if field(L::IMPROVEMENT_COMBAT_BOMBARD)? <= 0 {
+            let wall = field(L::IMPROVEMENT_COMBAT_BOMBARD)? > 0;
+            let flags = field(L::IMPROVEMENT_IMPROVEMENTFLAGS)? as u32 & IconBuilding::FLAGS;
+            if !wall && flags == 0 {
                 continue;
             }
             let obsolete = field(L::IMPROVEMENT_OBSOLETEID)?;
             let obsolete_for = (0..32).filter(|&civ| obsolete >= 0 && self.has_tech(civ, obsolete) == Some(true)).fold(0, |m, civ| m | 1 << civ);
-            out.push(WallBuilding { id: id as i32, government: field(L::IMPROVEMENT_GOVERNMENTID)?, obsolete_for });
+            if wall {
+                walls.push(WallBuilding { id: id as i32, government: field(L::IMPROVEMENT_GOVERNMENTID)?, obsolete_for });
+            }
+            if flags != 0 {
+                icons.push(IconBuilding { id: id as i32, flags, obsolete_for });
+            }
         }
-        Ok(out)
+        Ok((walls, icons))
     }
 
     /// The units the animator draws this frame, in drawing order.
@@ -388,30 +426,53 @@ impl Civ3 {
             if unit.is_null() {
                 continue;
             }
-            let body = unit.offset::<u8>(L::UNIT_BODY)?;
-            let anim = body.offset::<u8>(L::UNIT_BODY_ANIMATION)?;
-            let i32_at = |p: Ptr32<u8>, at: u32| -> Result<i32, Civ3Error> { Ok(p.offset::<i32>(at)?.read()?) };
-            out.push(DrawnUnit {
-                id: i32_at(body, L::UNIT_BODY_ID)?,
-                x: i32_at(body, L::UNIT_BODY_X)?,
-                y: i32_at(body, L::UNIT_BODY_Y)?,
-                civ: i32_at(body, L::UNIT_BODY_CIVID)?,
-                unit_type: i32_at(body, L::UNIT_BODY_UNITTYPEID)?,
-                experience: i32_at(body, L::UNIT_BODY_COMBAT_EXPERIENCE)?,
-                damage: i32_at(body, L::UNIT_BODY_DAMAGE)?,
-                moves: i32_at(body, L::UNIT_BODY_MOVES)?,
-                container: i32_at(body, L::UNIT_BODY_CONTAINER_UNIT)?,
-                state: i32_at(body, L::UNIT_BODY_UNITSTATE)?,
-                always_on_top: body.offset::<u8>(L::UNIT_BODY_ALWAYS_ON_TOP)?.read()? != 0,
-                pixel: (i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X)?, i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y)?),
-                direction: i32_at(anim, L::FLC_ANIMATION_SUMMARY_DIRECTION_2)?,
-                animation: i32_at(anim, L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE)?,
-                frame: i32_at(anim, L::FLC_ANIMATION_FIELD_FC)?,
-                // The header's `Last` member of `FLC_Animation`.
-                visible: i32_at(anim, L::FLC_ANIMATION_LAST)? & 0xFF != 0,
-            });
+            out.push(Self::read_unit(unit.offset::<u8>(L::UNIT_BODY)?)?);
         }
         Ok(out)
+    }
+
+    /// The unit with `id` (e.g. the member an army shows, docs §10.11).
+    pub fn unit(&self, id: i32) -> Result<Option<DrawnUnit>, Civ3Error> {
+        let list = Ptr32::<u8>::new(self.addrs.units);
+        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        if items.is_null() || id < 0 || id > last {
+            return Ok(None);
+        }
+        let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(id as u32 * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
+        if body.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(Self::read_unit(body)?))
+    }
+
+    fn read_unit(body: Ptr32<u8>) -> Result<DrawnUnit, Civ3Error> {
+        let anim = body.offset::<u8>(L::UNIT_BODY_ANIMATION)?;
+        let i32_at = |p: Ptr32<u8>, at: u32| -> Result<i32, Civ3Error> { Ok(p.offset::<i32>(at)?.read()?) };
+        Ok(DrawnUnit {
+            id: i32_at(body, L::UNIT_BODY_ID)?,
+            x: i32_at(body, L::UNIT_BODY_X)?,
+            y: i32_at(body, L::UNIT_BODY_Y)?,
+            civ: i32_at(body, L::UNIT_BODY_CIVID)?,
+            unit_type: i32_at(body, L::UNIT_BODY_UNITTYPEID)?,
+            experience: i32_at(body, L::UNIT_BODY_COMBAT_EXPERIENCE)?,
+            damage: i32_at(body, L::UNIT_BODY_DAMAGE)?,
+            moves: i32_at(body, L::UNIT_BODY_MOVES)?,
+            container: i32_at(body, L::UNIT_BODY_CONTAINER_UNIT)?,
+            state: i32_at(body, L::UNIT_BODY_UNITSTATE)?,
+            always_on_top: body.offset::<u8>(L::UNIT_BODY_ALWAYS_ON_TOP)?.read()? != 0,
+            pixel: (i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X)?, i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y)?),
+            direction: i32_at(anim, L::FLC_ANIMATION_SUMMARY_DIRECTION_2)?,
+            animation: i32_at(anim, L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE)?,
+            frame: i32_at(anim, L::FLC_ANIMATION_FIELD_FC)?,
+            // The header's `Last` member of `FLC_Animation`.
+            visible: i32_at(anim, L::FLC_ANIMATION_LAST)? & 0xFF != 0,
+            // `field_1B0[1]` / `[2]`.
+            army_member: i32_at(body, L::UNIT_BODY_FIELD_1B0 + 4)?,
+            army_size: i32_at(body, L::UNIT_BODY_FIELD_1B0 + 8)?,
+            // The high byte of the header's `Active`.
+            moving: body.offset::<u8>(L::UNIT_BODY_ACTIVE + 1)?.read()? != 0,
+        })
     }
 
     fn strings(&self, list: u32, count: u32, stride: u32, member: u32, len: usize) -> Result<Vec<String>, Civ3Error> {
@@ -427,14 +488,21 @@ impl Civ3 {
     }
 
     /// Every unit type's numbers the map shows: attack, defence, movement
-    /// (whole tiles), hit point bonus.
-    pub fn unit_type_stats(&self) -> Result<Vec<[i32; 4]>, Civ3Error> {
+    /// (whole tiles), hit point bonus, class, worker actions.
+    pub fn unit_type_stats(&self) -> Result<Vec<[i32; 6]>, Civ3Error> {
         let base: Ptr32<u8> = self.bic(L::BIC_UNITTYPES)?;
         let n: i32 = self.bic(L::BIC_UNITTYPECOUNT)?;
         (0..n.clamp(0, 4096) as u32)
             .map(|i| {
                 let f = |at| -> Result<i32, Civ3Error> { Ok(base.offset::<i32>(i * L::UNITTYPE_SIZE + at)?.read()?) };
-                Ok([f(L::UNITTYPE_ATTACK)?, f(L::UNITTYPE_DEFENCE)?, f(L::UNITTYPE_MOVEMENT)?, f(L::UNITTYPE_HIT_POINT_BONUS)?])
+                Ok([
+                    f(L::UNITTYPE_ATTACK)?,
+                    f(L::UNITTYPE_DEFENCE)?,
+                    f(L::UNITTYPE_MOVEMENT)?,
+                    f(L::UNITTYPE_HIT_POINT_BONUS)?,
+                    f(L::UNITTYPE_UNIT_CLASS)?,
+                    f(L::UNITTYPE_WORKER_ACTIONS)?,
+                ])
             })
             .collect()
     }
@@ -472,6 +540,15 @@ impl Civ3 {
 
     /// The selected unit's id and the selection cursor's frame, unless the
     /// cursor is in the hidden half of its blink (docs §10.6).
+    /// The selected unit (`Current_Unit`), blinking or not.
+    pub fn current_unit(&self) -> Result<Option<i32>, Civ3Error> {
+        let current: Ptr32<u8> = self.screen(L::MAIN_SCREEN_FORM_CURRENT_UNIT)?;
+        if current.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(current.offset::<i32>(L::UNIT_BODY + L::UNIT_BODY_ID)?.read()?))
+    }
+
     pub fn selection(&self) -> Result<Option<(i32, i32)>, Civ3Error> {
         let current: Ptr32<u8> = self.screen(L::MAIN_SCREEN_FORM_CURRENT_UNIT)?;
         if current.is_null() {
@@ -550,6 +627,14 @@ impl Civ3 {
             out.push((i as i32, body.offset::<i8>(L::TILE_BUILDING_BODY_OWNERID)?.read()?.into()));
         }
         Ok(out)
+    }
+
+    /// The tile under the mouse (`field_4E80[3..4]`, docs §10.9), unless the
+    /// mouse is off the map.
+    pub fn mouse_tile(&self) -> Result<Option<(i32, i32)>, Civ3Error> {
+        let x: i32 = self.screen(L::MAIN_SCREEN_FORM_FIELD_4E80 + 12)?;
+        let y: i32 = self.screen(L::MAIN_SCREEN_FORM_FIELD_4E80 + 16)?;
+        Ok((x >= 0 && y >= 0).then_some((x, y)))
     }
 
     pub fn zoomed_out(&self) -> Result<bool, Civ3Error> {

@@ -18,7 +18,7 @@ pub mod sprites;
 pub mod world;
 
 pub use build::{Addresses, Build};
-pub use world::{Civ3, CityInfo, DrawnUnit, MapInfo, Players, TileRecord, ViewState, WallBuilding};
+pub use world::{Civ3, CityInfo, DrawnUnit, MapInfo, Players, TileRecord, IconBuilding, ViewState, WallBuilding};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Civ3Error {

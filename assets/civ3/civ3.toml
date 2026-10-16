@@ -689,6 +689,35 @@ cell = [128, 64]
 grid = [1, 1]
 group = "Victory_Image"
 
+# §10.8: harbour, airport and barracks icons beside cities (25x17 cells,
+# transparent border; drawn at the cell's top-left).
+[images.air_and_harbor]
+source = "Art/Cities/airAndHarb.pcx"
+
+[sheets.city_icon_harbor]
+image = "air_and_harbor"
+origin = [27, 1]
+cell = [25, 17]
+grid = [1, 1]
+group = "CityIcon_Harbor"
+
+[sheets.city_icon_airport]
+image = "air_and_harbor"
+origin = [1, 1]
+cell = [25, 17]
+grid = [1, 1]
+group = "CityIcon_Airport"
+
+[images.barracks]
+source = "Art/Cities/barracks.pcx"
+
+[sheets.city_icon_barracks]
+image = "barracks"
+origin = [1, 1]
+cell = [25, 17]
+grid = [1, 1]
+group = "CityIcon_Barracks"
+
 # §10.6: unit HUD. Team disc: Art/Cursor.pcx cell (259, 155), its ring
 # (index 247) in the owner's ntpNN entry 66.
 [images.team_disc]

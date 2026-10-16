@@ -13,7 +13,8 @@
 //! * `palette = "Art/Units/Palettes/ntp00.pcx"` substitute the palette of
 //!   this PCX (whole, or `palette_range = [first, count]` of it), e.g. to
 //!   recolour units to a civilisation's colours; `palette_map = { 247 = 66 }`
-//!   also copies its entry 66 to entry 247.
+//!   also copies its entry 66 to entry 247; `palette2 = "..."` with
+//!   `palette2_map = { 64 = 0 }` copies entries of a second palette.
 //!
 //! * `alpha_image = "Art/mask.pcx"` alpha per pixel from another PCX (repeated
 //!   if smaller), whose palette indices are inverted weights (alpha = 255 −
@@ -50,14 +51,24 @@ impl Civ3Loader {
         for i in first..(first + count).min(256) {
             out.0[i] = other.0[i];
         }
-        if let Some(map) = options.get("palette_map").and_then(|v| v.as_table()) {
-            for (dst, src) in map {
-                let dst: usize = dst.parse().map_err(|_| format!("palette_map key {dst:?} is not an index"))?;
-                out.0[dst.min(255)] = other.0[int(src)?.min(255)];
-            }
+        map_entries(&mut out, &other, options.get("palette_map"))?;
+        if let Some(path) = options.get("palette2").and_then(|v| v.as_str()) {
+            let bytes = self.files.read(path).map_err(|e| e.to_string())?;
+            let second = pcx::decode(&bytes).map_err(|e| format!("{path}: {e}"))?.palette;
+            map_entries(&mut out, &second, options.get("palette2_map"))?;
         }
         Ok(out)
     }
+}
+
+/// Copies entries of `from` into `out` per a `{ dst = src }` table.
+fn map_entries(out: &mut Palette, from: &Palette, map: Option<&toml::Value>) -> Result<(), String> {
+    let Some(map) = map.and_then(|v| v.as_table()) else { return Ok(()) };
+    for (dst, src) in map {
+        let dst: usize = dst.parse().map_err(|_| format!("palette map key {dst:?} is not an index"))?;
+        out.0[dst.min(255)] = from.0[int(src)?.min(255)];
+    }
+    Ok(())
 }
 
 fn int(v: &toml::Value) -> Result<usize, String> {
