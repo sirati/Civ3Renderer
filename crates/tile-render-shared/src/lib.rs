@@ -40,6 +40,24 @@ pub const LAYER_HIDDEN: u32 = 1 << 0;
 /// Vertices per sprite quad (two triangles, no index buffer).
 pub const QUAD_VERTICES: u32 = 6;
 
+/// One copy of the output pass: the rectangle of the source texture at
+/// (src_x, src_y) into the target at (dst_x, dst_y) (the pass's scissor
+/// bounds it), scaled by `zoom_num / zoom_den` by nearest texel; `bits`: the
+/// quantized colour depth to expand from, 0 to copy values as they are.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]
+pub struct OutputParams {
+    pub src_x: u32,
+    pub src_y: u32,
+    pub dst_x: i32,
+    pub dst_y: i32,
+    pub zoom_num: u32,
+    pub zoom_den: u32,
+    pub bits: u32,
+    pub _pad: u32,
+}
+
 /// Per-frame parameters, one uniform buffer.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -51,10 +69,10 @@ pub struct FrameParams {
     /// World pixel shown at the viewport's top-left corner, before zoom.
     pub camera_x: i32,
     pub camera_y: i32,
+    /// (Keeps `grid` 16-byte aligned.)
+    pub _pad0: u32,
+    pub _pad1: u32,
 
-    /// Screen pixels per world pixel = zoom_num / zoom_den.
-    pub zoom_num: u32,
-    pub zoom_den: u32,
     /// Animation clock in ticks.
     pub frame: u32,
     /// Layers drawn by this draw call (one render pass): `layer_count`

@@ -31,44 +31,50 @@ pub fn draw_list(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32) 
     out
 }
 
-/// Renders like `TileRenderer::render`. Only zoom 1/1 is supported (that is
-/// what pixel-exact comparisons use).
+/// Renders like `TileRenderer::render`.
 pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
     render_views(world, atlas, std::slice::from_ref(camera), camera.viewport, frame, clear)
 }
 
 /// Renders like `TileRenderer::render_views` into a target of `size`.
 pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
-    assert!(cameras.iter().all(|c| c.zoom == (1, 1)), "the reference renderer only implements zoom 1");
     let (w, h) = size;
     let bits = match world.color {
-        ColorModel::Direct => return render_direct(world, atlas, cameras, size, frame, clear),
+        ColorModel::Direct => {
+            let out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
+                Blend::Alpha => *dst = blend(src, *dst),
+                // Black at alpha 1 − k/den, as the shader blends it.
+                Blend::Scale { denominator } if (src[0] as u32) < denominator => {
+                    let keep = src[0] as f32 / denominator as f32;
+                    let a = 1.0 - keep;
+                    let [r, g, b, da] = dst.map(|c| c as f32);
+                    *dst = [(r * keep).round() as u8, (g * keep).round() as u8, (b * keep).round() as u8, (a * 255.0 + da * keep).round() as u8];
+                }
+                Blend::Scale { .. } => {}
+            });
+            return RgbaImage::from_fn(w, h, |x, y| out[(y * w + x) as usize]);
+        }
         ColorModel::Quantized { bits } => bits,
     };
     // Stored values (q + QUANTIZED_BIAS), like the GPU's internal target.
     let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
-    let mut out: Vec<[u32; 3]> = vec![[stored(clear[0]), stored(clear[1]), stored(clear[2])]; (w * h) as usize];
-    visit_views(world, atlas, cameras, frame, &mut |d| {
-        each_texel(atlas, &d, (w, h), |px, py, src| {
-            let dst = &mut out[(py * w + px) as usize];
-            match d.blend {
-                Blend::Scale { denominator } if (src[0] as u32) < denominator => {
-                    for c in dst.iter_mut() {
-                        *c = scale_stored(*c, src[0] as u32, denominator);
-                    }
-                }
-                Blend::Scale { .. } => {}
-                // Translucent texels mix in whole alpha steps, rounded down.
-                Blend::Alpha => {
-                    let k = alpha_steps(src[3].into());
-                    if k > 0 {
-                        for (c, s) in dst.iter_mut().zip(src) {
-                            *c = mix_stored(stored(s), *c, k);
-                        }
-                    }
+    let background = [stored(clear[0]), stored(clear[1]), stored(clear[2])];
+    let out = compose(world, atlas, cameras, size, frame, background, |dst: &mut [u32; 3], d, src| match d.blend {
+        Blend::Scale { denominator } if (src[0] as u32) < denominator => {
+            for c in dst.iter_mut() {
+                *c = scale_stored(*c, src[0] as u32, denominator);
+            }
+        }
+        Blend::Scale { .. } => {}
+        // Translucent texels mix in whole alpha steps, rounded down.
+        Blend::Alpha => {
+            let k = alpha_steps(src[3].into());
+            if k > 0 {
+                for (c, s) in dst.iter_mut().zip(src) {
+                    *c = mix_stored(stored(s), *c, k);
                 }
             }
-        });
+        }
     });
     RgbaImage::from_fn(w, h, |x, y| {
         let p = out[(y * w + x) as usize];
@@ -77,17 +83,40 @@ pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: 
     })
 }
 
-fn render_direct(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], (w, h): (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
-    let mut out = RgbaImage::from_fn(w, h, |_, _| clear);
-    visit_views(world, atlas, cameras, frame, &mut |d| {
-        each_texel(atlas, &d, (w, h), |px, py, src| {
-            let src = match d.blend {
-                Blend::Alpha => src,
-                Blend::Scale { denominator } => [0, 0, 0, (255 - src[0] as u32 * 255 / denominator) as u8],
-            };
-            out.put(px, py, blend(src, out.get(px, py)));
+/// The views composed into a `size` canvas of pixels `P` starting as
+/// `background`, `put` blending one texel. A zoomed view is drawn at zoom 1
+/// on its own `background`, then magnified (or shrunk) into its rectangle
+/// by nearest texel, replacing what is there; later views draw over it.
+fn compose<P: Copy>(
+    world: &TileWorld,
+    atlas: &Atlas,
+    cameras: &[Camera],
+    (w, h): (u32, u32),
+    frame: u32,
+    background: P,
+    mut put: impl FnMut(&mut P, &Draw, [u8; 4]),
+) -> Vec<P> {
+    let mut out = vec![background; (w * h) as usize];
+    for (v, camera) in cameras.iter().enumerate().take(crate::renderer::MAX_VIEWS) {
+        if !camera.is_scaled() {
+            visit(world, atlas, camera, v as u32, frame, &mut |d| {
+                each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
+            });
+            continue;
+        }
+        let (sw, sh) = camera.source_size();
+        let flat = Camera { zoom: (1, 1), viewport: (sw, sh), ..*camera };
+        let (ox, oy) = camera.origin;
+        let mut source = vec![background; (sw * sh) as usize];
+        visit(world, atlas, &flat, v as u32, frame, &mut |d| {
+            let d = Draw { x: d.x - ox, y: d.y - oy, clip: d.clip.map(|[x0, y0, x1, y1]| [x0 - ox, y0 - oy, x1 - ox, y1 - oy]), ..d };
+            each_texel(atlas, &d, (sw, sh), |px, py, src| put(&mut source[(py * sw + px) as usize], &d, src));
         });
-    });
+        for (px, py) in camera.target_rect((w, h)) {
+            let (sx, sy) = camera.source_texel((px, py));
+            out[(py * w + px) as usize] = source[(sy * sw + sx) as usize];
+        }
+    }
     out
 }
 
@@ -109,13 +138,6 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
                 f(px as u32, py as u32, src);
             }
         }
-    }
-}
-
-/// Calls `draw` for every sprite `render_views` draws, view by view.
-fn visit_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], frame: u32, draw: &mut dyn FnMut(Draw)) {
-    for (v, camera) in cameras.iter().enumerate().take(crate::renderer::MAX_VIEWS) {
-        visit(world, atlas, camera, v as u32, frame, draw);
     }
 }
 

@@ -332,3 +332,54 @@ fn interface_views_show_only_their_own_sprites() {
     let changed = got.pixels.iter().zip(&alone.pixels).filter(|(a, b)| a != b).count();
     assert!(changed > 0 && changed < 64 * 64, "{changed} pixels changed");
 }
+
+#[test]
+fn zoomed_views_scale_by_nearest_texel() {
+    // A main view zoomed in 3/2, a magnifier at 3/1, a zoomed-out inset at
+    // 1/2, and an interface at zoom 1 blending over all of them; in the
+    // quantized and the direct colour model (without blends there: the
+    // GPU's 8-bit blending rounds its own way).
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = scene_with(grid, color != ColorModel::Direct);
+        world.color = color;
+        if let Some(screen_sprite) = world.free.iter().find(|s| s.screen).cloned() {
+            world.free.push(PlacedSprite { view: Some(1), x: 10, y: 12, ..screen_sprite.clone() });
+            world.free.push(PlacedSprite { view: Some(3), x: 300, y: 20, ..screen_sprite });
+        }
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let overhang = (0, 40, 0, 0);
+        let main = Camera { x: 50, y: 7, zoom: (3, 2), overhang, ..Camera::new((400, 240)) };
+        let magnifier = Camera { x: 140, y: 90, zoom: (3, 1), origin: (250, 10), overhang, ..Camera::new((121, 80)) };
+        let inset = Camera { x: 20, y: 30, zoom: (1, 2), origin: (-30, 150), overhang, ..Camera::new((160, 100)) };
+        let interface = Camera { cells: false, ..Camera::new((400, 240)) };
+        let cameras = [main, magnifier, inset, interface];
+        let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 3, CLEAR);
+        let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 3, CLEAR);
+        assert_same(&got, &want, &format!("zoomed views, {color:?}"));
+    }
+}
+
+#[test]
+fn zoom_repeats_texels() {
+    // At 2/1 every texel of the zoom-1 picture becomes a 2×2 block.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let flat = Camera { x: 64, y: 32, ..Camera::new((100, 60)) };
+    let zoomed = Camera { zoom: (2, 1), viewport: (200, 120), ..flat };
+    let small = gpu.render_views(&mut renderer, &[flat], (100, 60), 0, CLEAR);
+    let big = gpu.render_views(&mut renderer, &[zoomed], (200, 120), 0, CLEAR);
+    for y in 0..120 {
+        for x in 0..200 {
+            assert_eq!(big.get(x, y), small.get(x / 2, y / 2), "({x}, {y})");
+        }
+    }
+}

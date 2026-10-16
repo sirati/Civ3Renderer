@@ -4,13 +4,17 @@ use tile_render_shared::FrameParams;
 
 use crate::world::{ColorModel, Grid, Layout, Pass};
 
+/// Largest source picture of a zoomed view, each way.
+pub const MAX_SOURCE: u32 = 4096;
+
 /// A view onto the world.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Camera {
     /// World pixel at the top-left corner of the viewport.
     pub x: i32,
     pub y: i32,
-    /// Screen pixels per world pixel, as a fraction (1/1, 1/2, 2/1, …).
+    /// Screen pixels per world pixel, as a fraction (1/1, 1/2, 2/1, …). The
+    /// view is drawn at 1/1 and scaled by nearest pixel: no blur, no seams.
     pub zoom: (u32, u32),
     /// Viewport size in screen pixels.
     pub viewport: (u32, u32),
@@ -35,14 +39,38 @@ impl Camera {
         Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true }
     }
 
-    /// Viewport size in world pixels (rounded up).
-    pub fn world_extent(&self) -> (u32, u32) {
-        let (n, d) = self.zoom;
-        ((self.viewport.0 * d).div_ceil(n), (self.viewport.1 * d).div_ceil(n))
+    /// Whether the view is scaled (zoom other than 1).
+    pub fn is_scaled(&self) -> bool {
+        self.zoom.0.max(1) != self.zoom.1.max(1)
+    }
+
+    /// Viewport size in world pixels (rounded up): the picture drawn at
+    /// zoom 1 and then scaled to the viewport, by nearest pixel. At most
+    /// [`MAX_SOURCE`] each way (a view zoomed out further shows less).
+    pub fn source_size(&self) -> (u32, u32) {
+        let (n, d) = (self.zoom.0.max(1), self.zoom.1.max(1));
+        ((self.viewport.0 * d).div_ceil(n).min(MAX_SOURCE), (self.viewport.1 * d).div_ceil(n).min(MAX_SOURCE))
+    }
+
+    /// The target pixels of the view inside a target of `size`.
+    pub fn target_rect(&self, (w, h): (u32, u32)) -> impl Iterator<Item = (u32, u32)> + use<> {
+        let (ox, oy) = self.origin;
+        let x = ox.max(0) as u32..(ox + self.viewport.0 as i32).clamp(0, w as i32) as u32;
+        let y = oy.max(0) as u32..(oy + self.viewport.1 as i32).clamp(0, h as i32) as u32;
+        y.flat_map(move |py| x.clone().map(move |px| (px, py)))
+    }
+
+    /// The source picture's texel (see [`Camera::source_size`]) shown at
+    /// target pixel `p` of the view.
+    pub fn source_texel(&self, (px, py): (u32, u32)) -> (u32, u32) {
+        let (n, d) = (self.zoom.0.max(1), self.zoom.1.max(1));
+        let (sw, sh) = self.source_size();
+        let rel = |p: u32, o: i32| (p as i32 - o).max(0) as u32;
+        ((rel(px, self.origin.0) * d / n).min(sw - 1), (rel(py, self.origin.1) * d / n).min(sh - 1))
     }
 
     pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32) -> FrameParams {
-        let (ew, eh) = self.world_extent();
+        let (ew, eh) = self.source_size();
         let (ol, ot, or, ob) = self.overhang;
         let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
         // A cell's origin is its top-left; its footprint is one step (two
@@ -65,8 +93,8 @@ impl Camera {
             viewport_h: self.viewport.1,
             camera_x: self.x,
             camera_y: self.y,
-            zoom_num: self.zoom.0,
-            zoom_den: self.zoom.1,
+            _pad0: 0,
+            _pad1: 0,
             frame,
             layer_first: pass.first,
             layer_count: pass.count,

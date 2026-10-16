@@ -2,7 +2,7 @@
 
 use std::num::NonZeroU64;
 
-use tile_render_shared::{FrameParams, FreeSprite, LayerDesc, QUAD_VERTICES, SpriteDesc};
+use tile_render_shared::{FrameParams, FreeSprite, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc};
 use wgpu::util::DeviceExt;
 
 use crate::atlas::Atlas;
@@ -32,14 +32,21 @@ pub struct TileRenderer {
     /// The same for free sprites.
     free_pipeline: wgpu::RenderPipeline,
     free_quantized_pipeline: wgpu::RenderPipeline,
-    /// Expands the internal target into the caller's target.
+    /// Zoomed views of direct-colour worlds, into their source texture.
+    source_pipeline: wgpu::RenderPipeline,
+    free_source_pipeline: wgpu::RenderPipeline,
+    /// Copies (scaled) into the caller's target, expanding quantized values.
     output_pipeline: wgpu::RenderPipeline,
+    /// Copies (scaled) into the internal target.
+    blit_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     output_layout: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
-    /// The colour depth for `output_fs`.
-    bits: wgpu::Buffer,
+    /// `OutputParams` of each copy (one slot per view, then the final one).
+    output_params: wgpu::Buffer,
     scratch: Option<Scratch>,
+    /// The pictures of zoomed views at zoom 1 (see `Camera::source_size`).
+    sources: Option<Scratch>,
     atlas: Option<wgpu::TextureView>,
     /// The atlas texture and its sprites (for run-time pixel updates).
     atlas_texture: Option<(wgpu::Texture, Vec<SpriteDesc>)>,
@@ -48,8 +55,7 @@ pub struct TileRenderer {
     bind_group: Option<wgpu::BindGroup>,
 }
 
-/// The internal target of quantized colour models and the bind group
-/// reading it.
+/// An internal texture and the bind group reading it in the output pass.
 struct Scratch {
     main: wgpu::Texture,
     output: wgpu::BindGroup,
@@ -144,8 +150,8 @@ impl TileRenderer {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                        has_dynamic_offset: true,
+                        min_binding_size: NonZeroU64::new(size_of::<OutputParams>() as u64),
                     },
                     count: None,
                 },
@@ -187,10 +193,14 @@ impl TileRenderer {
         let premultiplied = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
         let quantized = pipeline("tile-render quantized", tiles, &layout, QUANTIZED_FORMAT, premultiplied);
         let free_quantized = pipeline("tile-render free quantized", frees, &layout, QUANTIZED_FORMAT, premultiplied);
-        let output = pipeline("tile-render output", ("fullscreen_vs", "output_fs"), &output_layout, target_format, None);
-        let bits = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("tile-render colour bits"),
-            size: 16,
+        let source = pipeline("tile-render source", tiles, &layout, QUANTIZED_FORMAT, alpha);
+        let free_source = pipeline("tile-render free source", frees, &layout, QUANTIZED_FORMAT, alpha);
+        let copy = ("fullscreen_vs", "output_fs");
+        let output = pipeline("tile-render output", copy, &output_layout, target_format, None);
+        let blit = pipeline("tile-render blit", copy, &output_layout, QUANTIZED_FORMAT, None);
+        let output_params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile-render output params"),
+            size: PARAMS_STRIDE * (MAX_VIEWS + 1) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -205,12 +215,16 @@ impl TileRenderer {
             quantized_pipeline: quantized,
             free_pipeline: free_direct,
             free_quantized_pipeline: free_quantized,
+            source_pipeline: source,
+            free_source_pipeline: free_source,
             output_pipeline: output,
+            blit_pipeline: blit,
             layout,
             output_layout,
             params,
-            bits,
+            output_params,
             scratch: None,
+            sources: None,
             atlas: None,
             atlas_texture: None,
             sprites: None,
@@ -381,7 +395,9 @@ impl TileRenderer {
     /// `cameras[i]` sees it, into the rectangle at `origin` of the camera's
     /// viewport size (later views over earlier ones). Free sprites of view
     /// `i` (`PlacedSprite::view`) are drawn in it only; the others in every
-    /// view. At most [`MAX_VIEWS`] views.
+    /// view. A zoomed view is drawn at zoom 1 into a texture of its own and
+    /// copied into its rectangle by nearest texel. At most [`MAX_VIEWS`]
+    /// views.
     #[allow(clippy::too_many_arguments)]
     pub fn render_views(
         &mut self,
@@ -398,25 +414,43 @@ impl TileRenderer {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
             return;
         };
-        let bits = world.color.bits();
-        let size = target.size();
-        let (canvas, tiles, free) = if bits == 0 {
-            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
-            (view.clone(), &self.pipeline, &self.free_pipeline)
-        } else {
-            queue.write_buffer(&self.bits, 0, bytemuck::bytes_of(&[bits, 0, 0, 0]));
-            let scratch = scratch_for(&mut self.scratch, device, &self.output_layout, &self.bits, size);
-            let main = scratch.main.create_view(&Default::default());
-            let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0;
-            let background = wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 };
-            drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
-            (main, &self.quantized_pipeline, &self.free_quantized_pipeline)
-        };
         if cameras.len() > MAX_VIEWS {
             log::warn!("{} views, only the first {MAX_VIEWS} are drawn", cameras.len());
         }
+        let cameras = &cameras[..cameras.len().min(MAX_VIEWS)];
+        let bits = world.color.bits();
+        let size = target.size();
+        // Background in the canvas's values.
+        let background = if bits == 0 {
+            crate::gpu::color(clear)
+        } else {
+            let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0;
+            wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 }
+        };
+        let write_output = |slot: usize, params: OutputParams| {
+            let offset = slot as u64 * PARAMS_STRIDE;
+            queue.write_buffer(&self.output_params, offset, bytemuck::bytes_of(&params));
+            offset as u32
+        };
+        // Zoomed views' pictures, side by side in rows.
+        let sources = source_rects(cameras);
+        let source_extent = sources.iter().flatten().fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
+        if sources.iter().any(Option::is_some) {
+            let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
+            drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background)));
+        }
+        let canvas = if bits == 0 {
+            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background)));
+            view.clone()
+        } else {
+            let s = scratch_for(&mut self.scratch, device, &self.output_layout, &self.output_params, (size.width, size.height), false);
+            let main = s.main.create_view(&Default::default());
+            drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
+            main
+        };
+        let source_view = self.sources.as_ref().map(|s| s.main.create_view(&Default::default()));
         let passes = world.passes.len().min(MAX_PASSES);
-        for (v, camera) in cameras.iter().enumerate().take(MAX_VIEWS) {
+        for (v, camera) in cameras.iter().enumerate() {
             // The view's rectangle, inside the target.
             let (x0, y0) = (camera.origin.0.max(0) as u32, camera.origin.1.max(0) as u32);
             let x1 = (camera.origin.0 + camera.viewport.0 as i32).clamp(0, size.width as i32) as u32;
@@ -424,7 +458,22 @@ impl TileRenderer {
             if x1 <= x0 || y1 <= y0 {
                 continue;
             }
-            let scissor = [x0, y0, x1 - x0, y1 - y0];
+            let on_target = [x0, y0, x1 - x0, y1 - y0];
+            // Where it is drawn at zoom 1: its rectangle, or its source picture.
+            let (drawn, into, rect, (tiles, free)) = match sources[v] {
+                None => {
+                    let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
+                    let pipelines = if bits == 0 { (&self.pipeline, &self.free_pipeline) } else { (&self.quantized_pipeline, &self.free_quantized_pipeline) };
+                    (*camera, &canvas, (viewport, on_target), pipelines)
+                }
+                Some(r) => {
+                    let flat = Camera { zoom: (1, 1), viewport: (r[2], r[3]), ..*camera };
+                    let viewport = [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32];
+                    let pipelines =
+                        if bits == 0 { (&self.source_pipeline, &self.free_source_pipeline) } else { (&self.quantized_pipeline, &self.free_quantized_pipeline) };
+                    (flat, source_view.as_ref().expect("created above"), (viewport, r), pipelines)
+                }
+            };
             // Each (view, pass) has its own parameter slot: buffer writes all
             // land before the commands run.
             let write_params = |slot: usize, params: FrameParams| {
@@ -433,30 +482,72 @@ impl TileRenderer {
                 offset as u32
             };
             for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-                let params = camera.frame_params(&world.grid, world.color, frame, p, v as u32);
+                let params = drawn.frame_params(&world.grid, world.color, frame, p, v as u32);
                 let offset = write_params(i, params);
-                let mut pass = begin_view(encoder, &canvas, camera, scissor, bind_group, offset);
-                if camera.cells {
+                let mut pass = begin_view(encoder, into, rect, bind_group, offset);
+                if drawn.cells {
                     pass.set_pipeline(tiles);
                     pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
                 }
                 draw_free(&mut pass, world, i, free);
             }
             if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {
-                let params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32);
+                let params = drawn.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32);
                 let offset = write_params(MAX_PASSES, params);
-                let mut pass = begin_view(encoder, &canvas, camera, scissor, bind_group, offset);
+                let mut pass = begin_view(encoder, into, rect, bind_group, offset);
                 draw_free(&mut pass, world, passes, free);
+            }
+            if let Some(r) = sources[v] {
+                let params = OutputParams {
+                    src_x: r[0],
+                    src_y: r[1],
+                    dst_x: camera.origin.0,
+                    dst_y: camera.origin.1,
+                    zoom_num: camera.zoom.0.max(1),
+                    zoom_den: camera.zoom.1.max(1),
+                    bits: 0,
+                    _pad: 0,
+                };
+                let offset = write_output(v, params);
+                let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
+                pass.set_pipeline(if bits == 0 { &self.output_pipeline } else { &self.blit_pipeline });
+                pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
+                pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
+                pass.draw(0..3, 0..1);
             }
         }
         if bits != 0 {
+            let params = OutputParams { zoom_num: 1, zoom_den: 1, bits, ..Default::default() };
+            let offset = write_output(MAX_VIEWS, params);
             let scratch = self.scratch.as_ref().expect("created above");
             let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
             pass.set_pipeline(&self.output_pipeline);
-            pass.set_bind_group(0, &scratch.output, &[]);
+            pass.set_bind_group(0, &scratch.output, &[offset]);
             pass.draw(0..3, 0..1);
         }
     }
+}
+
+/// Where each zoomed view's picture goes in the source texture (x, y, w,
+/// h), in rows at most `MAX_SOURCE` wide; `None` for views at zoom 1.
+fn source_rects(cameras: &[Camera]) -> Vec<Option<[u32; 4]>> {
+    let (mut x, mut y, mut row) = (0, 0, 0);
+    cameras
+        .iter()
+        .map(|c| {
+            if !c.is_scaled() {
+                return None;
+            }
+            let (w, h) = c.source_size();
+            if x + w > crate::camera::MAX_SOURCE {
+                (x, y, row) = (0, y + row, 0);
+            }
+            let r = [x, y, w, h];
+            x += w;
+            row = row.max(h);
+            Some(r)
+        })
+        .collect()
 }
 
 /// Free sprites that follow pass `i`, into `pass` (whose bind group is
@@ -490,17 +581,17 @@ fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<std::ops::Range<u32>
 }
 
 
-/// A pass drawing into one view's rectangle of `canvas`.
+/// A pass drawing into a rectangle of `canvas`: viewport (x, y, w, h) and
+/// the part of it to touch (scissor).
 fn begin_view<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
     canvas: &wgpu::TextureView,
-    camera: &Camera,
-    [x, y, w, h]: [u32; 4],
+    ([vx, vy, vw, vh], [x, y, w, h]): ([f32; 4], [u32; 4]),
     bind_group: &wgpu::BindGroup,
     params_offset: u32,
 ) -> wgpu::RenderPass<'e> {
     let mut pass = begin_pass(encoder, canvas, wgpu::LoadOp::Load);
-    pass.set_viewport(camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32, 0.0, 1.0);
+    pass.set_viewport(vx, vy, vw, vh, 0.0, 1.0);
     pass.set_scissor_rect(x, y, w, h);
     pass.set_bind_group(0, bind_group, &[params_offset]);
     pass
@@ -525,17 +616,27 @@ fn begin_pass<'e>(
     })
 }
 
-/// The scratch texture for a target of `size`, (re)created when it changed.
+/// An internal texture of `size` (at least `size` if `grow`), (re)created
+/// when it does not fit.
 fn scratch_for<'a>(
     slot: &'a mut Option<Scratch>,
     device: &wgpu::Device,
     output_layout: &wgpu::BindGroupLayout,
-    bits: &wgpu::Buffer,
-    size: wgpu::Extent3d,
+    output_params: &wgpu::Buffer,
+    (w, h): (u32, u32),
+    grow: bool,
 ) -> &'a Scratch {
-    if slot.as_ref().is_none_or(|s| s.main.size() != size) {
+    let fits = |s: &Scratch| {
+        let have = s.main.size();
+        if grow { have.width >= w && have.height >= h } else { (have.width, have.height) == (w, h) }
+    };
+    if !slot.as_ref().is_some_and(fits) {
+        let size = match slot.as_ref().filter(|_| grow) {
+            Some(s) => wgpu::Extent3d { width: s.main.width().max(w), height: s.main.height().max(h), depth_or_array_layers: 1 },
+            None => wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        };
         let main = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("tile-render quantized target"),
+            label: Some("tile-render internal target"),
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -549,7 +650,14 @@ fn scratch_for<'a>(
             layout: output_layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&main.create_view(&Default::default())) },
-                wgpu::BindGroupEntry { binding: 1, resource: bits.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: output_params,
+                        offset: 0,
+                        size: NonZeroU64::new(size_of::<OutputParams>() as u64),
+                    }),
+                },
             ],
         });
         *slot = Some(Scratch { main, output });

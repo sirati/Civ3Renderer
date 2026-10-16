@@ -17,7 +17,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
 };
 
@@ -115,9 +115,8 @@ pub fn tile_vs(
     let (u, v) = quad_corner(vertex);
     let world_x = (x + sprite.anchor_x - params.camera_x) as f32 + u * sprite.width as f32;
     let world_y = (y + sprite.anchor_y - params.camera_y) as f32 + v * sprite.height as f32;
-    let zoom = params.zoom_num as f32 / params.zoom_den as f32;
-    let ndc_x = world_x * zoom / params.viewport_w as f32 * 2.0 - 1.0;
-    let ndc_y = 1.0 - world_y * zoom / params.viewport_h as f32 * 2.0;
+    let ndc_x = world_x / params.viewport_w as f32 * 2.0 - 1.0;
+    let ndc_y = 1.0 - world_y / params.viewport_h as f32 * 2.0;
 
     *out_pos = Vec4::new(ndc_x, ndc_y, 0.0, 1.0);
     // Texel = flat atlas origin + interpolated offset inside the sprite. Small
@@ -159,16 +158,15 @@ pub fn free_vs(
     let frame = (params.frame / ticks + f.phase) % frames;
     let sprite = &sprites[sprite_sets[(f.set + 1 + frame) as usize] as usize];
     let (u, v) = quad_corner(vertex);
-    // The sprite's viewport rectangle: top-left and scale.
-    let (x0, y0, z) = if f.flags & FREE_SCREEN != 0 {
+    // The sprite's top-left in the viewport (views are drawn at zoom 1).
+    let (x0, y0) = if f.flags & FREE_SCREEN != 0 {
         // Given in target pixels; the viewport starts at the view's origin.
-        ((f.x + sprite.anchor_x - params.origin_x) as f32, (f.y + sprite.anchor_y - params.origin_y) as f32, 1.0)
+        ((f.x + sprite.anchor_x - params.origin_x) as f32, (f.y + sprite.anchor_y - params.origin_y) as f32)
     } else {
-        let zoom = params.zoom_num as f32 / params.zoom_den as f32;
-        ((f.x + sprite.anchor_x - params.camera_x) as f32 * zoom, (f.y + sprite.anchor_y - params.camera_y) as f32 * zoom, zoom)
+        ((f.x + sprite.anchor_x - params.camera_x) as f32, (f.y + sprite.anchor_y - params.camera_y) as f32)
     };
     let (mut l, mut t) = (x0, y0);
-    let (mut r, mut b) = (x0 + sprite.width as f32 * z, y0 + sprite.height as f32 * z);
+    let (mut r, mut b) = (x0 + sprite.width as f32, y0 + sprite.height as f32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
     if f.flags & FREE_CLIP != 0 {
         // (Target pixels, like screen sprites.)
@@ -184,7 +182,7 @@ pub fn free_vs(
     }
     let (sx, sy) = (l + u * (r - l), t + v * (b - t));
     *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
-    *out_local = Vec2::new((sx - x0) / z, (sy - y0) / z);
+    *out_local = Vec2::new(sx - x0, sy - y0);
     *out_origin = IVec2::new(sprite.atlas_x as i32, sprite.atlas_y as i32);
     *out_page = sprite.page;
 }
@@ -244,16 +242,27 @@ pub fn fullscreen_vs(#[spirv(vertex_index)] vertex: u32, #[spirv(position)] out_
     *out_pos = Vec4::new(x, y, 0.0, 1.0);
 }
 
-/// Stored quantized values to the 8-bit output.
+/// Copies a rectangle of `source` into the target, scaled by nearest
+/// texel, and turns stored quantized values into 8-bit ones (`bits` 0: as
+/// they are).
 #[spirv(fragment)]
 pub fn output_fs(
     #[spirv(frag_coord)] frag: Vec4,
-    #[spirv(uniform, descriptor_set = 0, binding = 1)] bits: &u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 1)] params: &OutputParams,
     #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
     output: &mut Vec4,
 ) {
-    let v: Vec4 = source.fetch(IVec2::new(frag.x as i32, frag.y as i32));
-    *output = Vec4::new(to_unorm(v.x, *bits), to_unorm(v.y, *bits), to_unorm(v.z, *bits), v.w);
+    let sx = params.src_x + offset(frag.x, params.dst_x) * params.zoom_den / params.zoom_num;
+    let sy = params.src_y + offset(frag.y, params.dst_y) * params.zoom_den / params.zoom_num;
+    let v: Vec4 = source.fetch(IVec2::new(sx as i32, sy as i32));
+    let bits = params.bits;
+    *output = if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits), to_unorm(v.y, bits), to_unorm(v.z, bits), v.w) };
+}
+
+/// How far pixel coordinate `p` lies past `o` (0 before it).
+fn offset(p: f32, o: i32) -> u32 {
+    let r = p as i32 - o;
+    if r < 0 { 0 } else { r as u32 }
 }
 
 /// An atlas channel as the stored quantized value (normalized).
