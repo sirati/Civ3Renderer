@@ -79,6 +79,12 @@ impl<'a> Mapper<'a> {
                 self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
                 self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));
                 self.put(&mut scene, "forest", col, row, rules::forest(world, x, y));
+                let (road, rail) = rules::roads(world, x, y);
+                self.put(&mut scene, "road", col, row, road);
+                self.put(&mut scene, "railroad", col, row, rail);
+                for (layer, sprite) in rules::terrain_buildings(world, x, y) {
+                    self.put(&mut scene, layer, col, row, Some(sprite));
+                }
                 if let Some((shadow, icon)) = rules::resource(world, x, y) {
                     self.put(&mut scene, "resource_shadow", col, row, Some(shadow));
                     self.put(&mut scene, "resource", col, row, Some(icon));

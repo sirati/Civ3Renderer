@@ -89,6 +89,9 @@ impl TileRecord {
     pub fn square_parts(&self) -> i16 {
         self.i16(L::TILE_SQUAREPARTS)
     }
+    pub fn victory_point(&self) -> i16 {
+        self.i16(L::TILE_VICTORYPOINT)
+    }
     pub fn city_id(&self) -> i16 {
         self.i16(L::TILE_CITYID)
     }
@@ -222,6 +225,13 @@ impl Civ3 {
                 let req: i32 = base.offset::<i32>(i * L::RESOURCE_TYPE_SIZE + L::RESOURCE_TYPE_REQUIREID)?.read()?;
                 Ok(self.has_tech(civ, req).unwrap_or(true))
             })
+            .collect()
+    }
+
+    /// Every player's era (0 ancient .. 3 modern).
+    pub fn eras(&self) -> Result<Vec<i32>, Civ3Error> {
+        (0..32u32)
+            .map(|civ| Ok(Ptr32::<i32>::new(self.addrs.leaders + civ * L::LEADER_SIZE + L::LEADER_ERA).read()?))
             .collect()
     }
 
