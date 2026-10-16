@@ -145,6 +145,10 @@ pub struct UiModel {
     sprites: HashMap<u32, Source>,
     /// Display lists of canvases (and every other drawn-into image).
     canvases: HashMap<u32, Vec<Op>>,
+    /// What each form's canvas showed when the game last put it on the
+    /// screen (each operation with what it resolves to): the frame is made
+    /// of these, never of a canvas the game is still painting.
+    presented: HashMap<u32, Vec<(Op, Vec<Op>)>>,
     /// What the screen is composed of, bottom to top, as the last paint
     /// composed it (forms later composed on their own update their place).
     order: Vec<Layer>,
@@ -250,9 +254,9 @@ impl UiModel {
         // city screen clears to black and the map shows through its art).
         let black = |op: &&Op| keyed && matches!(op, Op::Fill { rgb: [0, 0, 0], alpha: 255, .. });
         let keep = |op: &&Op| (!underlay || self.underlay_keeps(canvas, op)) && !black(op);
-        let Some(ops) = self.canvases.get(&canvas) else { return };
+        let Some(ops) = self.presented.get(&canvas) else { return };
         let start = frame.draws.len();
-        frame.draws.extend(ops.iter().filter(keep).flat_map(|op| self.resolve(op, 0)).filter_map(|op| screen_draw(op, origin, clip)).map(|mut d| {
+        frame.draws.extend(ops.iter().filter(|(op, _)| keep(&op)).flat_map(|(_, resolved)| resolved.iter().cloned()).filter_map(|op| screen_draw(op, origin, clip)).map(|mut d| {
             // Generated surfaces: their whole size, as far as known.
             if let ScreenDraw::Surface { image, size, .. } = &mut d {
                 if let Some(&s) = self.sizes.get(image) {
@@ -404,6 +408,8 @@ impl UiModel {
             Event::PaintBegin => self.pending = Some(Vec::new()),
             Event::Composite { canvas, vtable, origin, size, clip, keyed } => {
                 self.sizes.insert(canvas, size);
+                let shown = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
+                self.presented.insert(canvas, shown);
                 self.compositing = true;
                 let layer = Layer::Form { canvas, vtable, origin, size, clip, keyed };
                 match self.pending.as_mut() {
@@ -646,6 +652,26 @@ mod tests {
             m.frame().draws,
             vec![ScreenDraw::Image { path: "Art/a.pcx".into(), rect: [5, 6, 30, 20], x: 107, y: 208, keyed: true, clip: [100, 200, 140, 240], mask: None }]
         );
+    }
+
+    #[test]
+    fn a_canvas_being_repainted_shows_what_it_showed() {
+        // The game clears a form's canvas and draws it again before it
+        // puts it on the screen: until then the screen shows the old one.
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 300, size: (10, 10) });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [1, 1, 1], alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 300, rect: [2, 2, 3, 3], rgb: [7, 7, 7], alpha: 255, clip: None });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (10, 10)));
+        m.apply(Event::PaintEnd);
+        let before = m.frame().draws;
+        assert_eq!(before.len(), 2);
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [1, 1, 1], alpha: 255, clip: None });
+        assert_eq!(m.frame().draws, before);
+        m.apply(Event::Fill { canvas: 300, rect: [4, 4, 3, 3], rgb: [8, 8, 8], alpha: 255, clip: None });
+        m.apply(composite(300, (0, 0), (10, 10)));
+        assert_eq!(m.frame().draws.last(), Some(&ScreenDraw::Fill { rect: [4, 4, 3, 3], rgb: [8, 8, 8], alpha: 255, clip: [0, 0, 10, 10] }));
     }
 
     #[test]
