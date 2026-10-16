@@ -87,6 +87,13 @@ impl Default for SpriteSets {
 }
 
 impl SpriteSets {
+    /// Frame `i` of `set`, if it has one.
+    pub fn frame(&self, set: SpriteSetId, i: u32) -> Option<SpriteId> {
+        let at = set.0 as usize;
+        let n = *self.words.get(at).filter(|_| set.0 != 0)?;
+        (i < n).then(|| self.words.get(at + 1 + i as usize).map(|&s| SpriteId(s))).flatten()
+    }
+
     pub fn add(&mut self, frames: &[SpriteId]) -> SpriteSetId {
         if frames.is_empty() {
             return SpriteSetId::EMPTY;
