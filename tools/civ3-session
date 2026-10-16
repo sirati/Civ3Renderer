@@ -4,6 +4,7 @@
 #
 #   tools/civ3-session start            start sway + the game (fullscreen), wait for the menu
 #   tools/civ3-session newgame          New Game with the saved settings, found nothing, wait for turn 1
+#   tools/civ3-session scenario         Conquests scenario "WW2 in the Pacific" (as China), wait for turn 1
 #   tools/civ3-session trace [out.txt]  have civ3-bridge write one frame's draw list
 #   tools/civ3-session shot [out.png]   screenshot of the session
 #   tools/civ3-session state            print the bridge's log tail
@@ -39,6 +40,16 @@ newgame)
   "$WLH" click 1416 895; sleep 3    # world: OK
   "$WLH" click 1416 895; sleep 14   # players: OK, world generation
   "$WLH" click 1233 256; sleep 3    # dismiss "Dawn of Civilization"
+  echo "turn 1"
+  ;;
+scenario)
+  "$WLH" move 710 612; sleep 1
+  "$WLH" click 710 612; sleep 5     # Conquests! (the first click may only hover)
+  "$WLH" click 710 612; sleep 4     # (if the list is already up this selects a harmless row)
+  "$WLH" click 680 553; sleep 2     # select "9 WWII in the Pacific.biq"
+  "$WLH" click 1421 901; sleep 6    # scenario list: OK
+  "$WLH" click 1416 895; sleep 25   # player setup (China): OK, scenario loads
+  "$WLH" click 1861 1035; sleep 4   # dismiss the scenario intro text
   echo "turn 1"
   ;;
 trace)

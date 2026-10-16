@@ -44,7 +44,9 @@ impl<'a> Mapper<'a> {
     pub fn scene(&self, world: &Civ3World, view: &Civ3View, viewport: (u32, u32), tick: u32) -> Scene {
         let shape = WorldShape {
             cols: (world.width / 2).max(1) as u32,
-            rows: world.height.max(1) as u32,
+            // Vertex layers live in the tile below the vertex: one more row
+            // for the vertices along the bottom edge.
+            rows: (world.height + i32::from(!world.wrap_y)).max(1) as u32,
             wrap_x: world.wrap_x,
             wrap_y: world.wrap_y,
         };
@@ -59,15 +61,20 @@ impl<'a> Mapper<'a> {
         for row in 0..shape.rows {
             for col in 0..shape.cols {
                 let (x, y) = (2 * col as i32 + (row as i32 & 1), row as i32);
-                let Some(tile) = world.tile(x, y) else { continue };
+                let tile = world.tile(x, y);
                 // Vertex layers: the vertex above this tile, (x, y - 1).
-                let sp = tile.square_parts;
-                self.put(&mut scene, "terrain", col, row, Some(format!("Std_Terrain_Images/{}", (sp >> 8) as u32 * 81 + (sp & 0xFF) as u32)));
+                let terrain = tile.map(|t| (t.square_parts >> 8) as u32 * 81 + (t.square_parts & 0xFF) as u32);
+                self.put(&mut scene, "terrain", col, row, terrain.map(|i| format!("Std_Terrain_Images/{i}")));
+                self.put(&mut scene, "polar_cap", col, row, rules::polar_cap(world, x, y - 1));
                 let river = rules::vertex_river(world, x, y - 1);
                 self.put(&mut scene, "flood_plain", col, row, river.flood_plain);
                 let layer = if river.under_objects { "rivers_under" } else { "rivers_over" };
                 self.put(&mut scene, layer, col, row, river.river);
+                self.put(&mut scene, "fog", col, row, rules::fog(world, x, y - 1));
                 // Tile layers.
+                if tile.is_none() {
+                    continue;
+                }
                 self.put(&mut scene, "mountain", col, row, rules::mountain(world, x, y));
                 self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
                 self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));

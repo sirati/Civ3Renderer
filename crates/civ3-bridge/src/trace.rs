@@ -154,7 +154,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         let _ = writeln!(out, "view camera {} {} visible_x {} {} visible_y {} {}", view.camera_x, view.camera_y, view.tile_x.0, view.tile_x.1, view.tile_y.0, view.tile_y.1);
     }
     if let Ok(map) = game.map() {
-        let _ = writeln!(out, "map {} {} wrap {} {} seed {}", map.width, map.height, map.wrap_x as u8, map.wrap_y as u8, map.seed);
+        let _ = writeln!(out, "map {} {} wrap {} {} seed {} flags {:#x}", map.width, map.height, map.wrap_x as u8, map.wrap_y as u8, map.seed, map.flags);
     }
     if let Ok(view) = game.view() {
         let _ = writeln!(out, "player {}", view.player_civ);

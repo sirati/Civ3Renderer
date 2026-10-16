@@ -52,6 +52,8 @@ pub struct Civ3World {
     pub wrap_x: bool,
     pub wrap_y: bool,
     pub seed: u32,
+    /// `Map.Flags`: bit 0 wrap x, bit 1 wrap y, bit 2 polar ice caps.
+    pub flags: u32,
     /// Indexed `(y·width + x) / 2`.
     pub tiles: Vec<Civ3Tile>,
 }
@@ -141,6 +143,9 @@ impl Trace {
                     t.world.wrap_y = n(5)? != 0;
                     if f.get(6) == Some(&"seed") {
                         t.world.seed = n(7)? as u32;
+                    }
+                    if f.get(8) == Some(&"flags") {
+                        t.world.flags = n(9)? as u32;
                     }
                 }
                 Some("player") => t.world.player = n(1)? as i32,

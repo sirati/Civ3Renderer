@@ -123,6 +123,28 @@ anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 648
 
+# §5.2: polar ice caps, drawn right after a pole row's base terrain:
+# rows 0/1 (sheet rows 0/1) 64 px left and 32 px up of it, rows H-1/H-2
+# (sheet rows 2/3) 64 px left and 32 px down.
+[images.polar]
+source = "Art/Terrain/polarICEcaps-final.pcx"
+
+[sheets.polar_top]
+image = "polar"
+cell = [128, 64]
+grid = [8, 2]
+anchor = [-64, -64]
+group = "Polar_Icecaps_Images"
+
+[sheets.polar_bottom]
+image = "polar"
+origin = [0, 128]
+cell = [128, 64]
+grid = [8, 2]
+anchor = [-64, 0]
+group = "Polar_Icecaps_Images"
+first_index = 16
+
 # §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
 # mtnRivers) and flood plains, per vertex.
 
@@ -505,13 +527,33 @@ first_index = 0
 origin = [1, 1]
 spacing = [1, 1]
 
+# §6.8: fog of war, per vertex. The sheet's palette is a grey ramp used as
+# alpha: index i is black with alpha 255 - 17·i.
+[images.fog]
+source = "Art/Terrain/FogOfWar.pcx"
+rgba = { 0 = [0, 0, 0, 255], 1 = [0, 0, 0, 238], 2 = [0, 0, 0, 221], 3 = [0, 0, 0, 204], 4 = [0, 0, 0, 187], 5 = [0, 0, 0, 170], 6 = [0, 0, 0, 153], 7 = [0, 0, 0, 136], 8 = [0, 0, 0, 119], 9 = [0, 0, 0, 102], 10 = [0, 0, 0, 85], 11 = [0, 0, 0, 68], 12 = [0, 0, 0, 51], 13 = [0, 0, 0, 34], 14 = [0, 0, 0, 17], 15 = [0, 0, 0, 0] }
+
+[sheets.fog]
+image = "fog"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Fog_Of_War_Images"
+
 # §4: passes. 1: vertices (terrain, flood plains); 2: rivers touching
-# mountains/buildings; 3: tiles, all objects in this order; 4: other rivers.
+# mountains/buildings; 3: tiles, all objects in this order; 4: other rivers;
+# 5: fog of war.
 [[layers]]
 name = "terrain"
 cull_offset = [0, -32]
 pass = 1
 sets = ["Std_Terrain_Images/*"]
+
+[[layers]]
+name = "polar_cap"
+cull_offset = [0, -32]
+pass = 1
+sets = ["Polar_Icecaps_Images/*"]
 
 [[layers]]
 name = "flood_plain"
@@ -560,3 +602,9 @@ name = "rivers_over"
 cull_offset = [0, -32]
 pass = 4
 sets = ["Delta_Rivers_Images/*"]
+
+[[layers]]
+name = "fog"
+cull_offset = [0, -32]
+pass = 5
+sets = ["Fog_Of_War_Images/*"]

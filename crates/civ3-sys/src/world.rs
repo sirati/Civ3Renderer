@@ -39,6 +39,8 @@ pub struct MapInfo {
     pub tile_count: i32,
     pub wrap_x: bool,
     pub wrap_y: bool,
+    /// `Map.Flags` (bit 0 wrap x, bit 1 wrap y, bit 2 polar ice caps).
+    pub flags: u32,
     /// Seed of the per-tile art randomness (docs §9).
     pub seed: u32,
     tiles: Ptr32<Ptr32<TileRecord>>,
@@ -165,6 +167,7 @@ impl Civ3 {
             tile_count: self.map_field(L::MAP_TILECOUNT)?,
             wrap_x: flags & 1 != 0,
             wrap_y: flags & 2 != 0,
+            flags,
             seed: self.map_field(L::MAP_SEED)?,
             tiles: self.map_field(L::MAP_TILES)?,
         };

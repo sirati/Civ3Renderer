@@ -1,0 +1,151 @@
+//! The reimplemented renderer, running inside the game: a publisher thread
+//! turns the game's world and view into scenes, a viewer window draws them.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use civ3_assets::GameFiles;
+use civ3_assets::loader::Civ3Loader;
+use civ3_sys::{Civ3, Civ3Error};
+use render_desc::{Compiled, Description};
+use scene::Link;
+
+use crate::scene_map::Mapper;
+use crate::world::{Civ3Tile, Civ3View, Civ3World};
+
+/// The render description built into the DLL; `CIV3R_DESC` overrides it.
+const BUILTIN_DESC: &str = include_str!("../../../assets/civ3/civ3.toml");
+
+/// How often the publisher looks at the game.
+const POLL: Duration = Duration::from_millis(33);
+
+/// A copy of the parts of the game state the map is drawn from.
+pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
+    let view = game.view()?;
+    let map = game.map()?;
+    let tiles = game
+        .tiles(&map)?
+        .iter()
+        .map(|t| Civ3Tile {
+            square_type: t.square_type(),
+            square_parts: t.square_parts() as u16,
+            overlays: t.overlays(),
+            terrain_overlays: t.terrain_overlays(),
+            river: t.river_code(),
+            resource: t.resource_type(),
+            owner: t.territory_owner(),
+            city: t.city_id(),
+            fow_status: t.fow_status(),
+            visibility: t.visibility(),
+            explored: t.explored(),
+            v3: t.v3(),
+            visibility_d0: t.visibility_d0(),
+            visible_overlays: t.visible_overlays(),
+        })
+        .collect();
+    let world = Civ3World {
+        player: view.player_civ,
+        resource_icons: game.resource_icons()?,
+        resource_visible: game.resources_visible_to(view.player_civ)?,
+        width: map.width,
+        height: map.height,
+        wrap_x: map.wrap_x,
+        wrap_y: map.wrap_y,
+        seed: map.seed,
+        flags: map.flags,
+        tiles,
+    };
+    let view = Civ3View { camera_x: view.camera_x, camera_y: view.camera_y, tile_x: view.tile_x, tile_y: view.tile_y };
+    Ok((world, view))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LiveError {
+    #[error("render description {0}: {1}")]
+    Desc(String, String),
+    #[error("game folder: {0}")]
+    Install(std::io::Error),
+}
+
+/// The game install root ("Civilization III Complete"): the parent of the
+/// folder the running executable is in.
+fn install_root() -> Result<std::path::PathBuf, LiveError> {
+    let exe = std::env::current_exe().map_err(LiveError::Install)?;
+    exe.parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| LiveError::Install(std::io::Error::other("executable has no grandparent folder")))
+}
+
+fn compile() -> Result<Compiled, LiveError> {
+    let (name, text) = match std::env::var("CIV3R_DESC") {
+        Ok(path) => {
+            let text = std::fs::read_to_string(&path).map_err(|e| LiveError::Desc(path.clone(), e.to_string()))?;
+            (path, text)
+        }
+        Err(_) => ("built-in civ3.toml".to_owned(), BUILTIN_DESC.to_owned()),
+    };
+    let desc = Description::parse(&text).map_err(|e| LiveError::Desc(name.clone(), e.to_string()))?;
+    let loader = Civ3Loader::new(GameFiles::complete(install_root()?));
+    desc.compile(&loader, 4096).map_err(|e| LiveError::Desc(name, e.to_string()))
+}
+
+/// Starts the publisher and the viewer window; returns at once.
+pub fn start(game: Civ3) -> Result<(), LiveError> {
+    let compiled = Arc::new(compile()?);
+    log::info!("live renderer: {} layers, {} sprites", compiled.layers.len(), compiled.sprite_names.len());
+    let link = Link::new();
+    {
+        let (compiled, link) = (compiled.clone(), link.clone());
+        std::thread::Builder::new()
+            .name("civ3r-publish".into())
+            .spawn(move || publish(game, &compiled, &link))
+            .map_err(LiveError::Install)?;
+    }
+    std::thread::Builder::new()
+        .name("civ3r-viewer".into())
+        .spawn(move || {
+            let config = tile_viewer::ViewerConfig {
+                title: "Civ III (reimplemented renderer)".into(),
+                size: (1024, 768),
+                overhang: (0, 128, 0, 128),
+                ..Default::default()
+            };
+            if let Err(e) = tile_viewer::run(config, compiled, link) {
+                log::error!("viewer: {e}");
+            }
+        })
+        .map_err(LiveError::Install)?;
+    Ok(())
+}
+
+/// Publishes a new scene whenever what the game shows changes.
+fn publish(game: Civ3, compiled: &Compiled, link: &Link) {
+    let mapper = Mapper::new(compiled);
+    let mut last: Option<(Civ3World, Civ3View)> = None;
+    let mut seq = 0;
+    loop {
+        std::thread::sleep(POLL);
+        for input in link.take_input() {
+            log::trace!("input {input:?}");
+        }
+        let state = match snapshot(&game) {
+            Ok(s) => s,
+            // Between games, or while loading.
+            Err(Civ3Error::NoGame) => continue,
+            Err(e) => {
+                log::debug!("snapshot: {e}");
+                continue;
+            }
+        };
+        if last.as_ref() == Some(&state) {
+            continue;
+        }
+        let (world, view) = &state;
+        seq += 1;
+        let mut scene = mapper.scene(world, view, (1024, 768), 0);
+        scene.seq = seq;
+        link.publish(scene);
+        last = Some(state);
+    }
+}
