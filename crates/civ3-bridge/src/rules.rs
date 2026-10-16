@@ -3,6 +3,7 @@
 //! returns sprite names in the game's own array numbering
 //! (`"Mountains_Images/18"`), which the render description maps to art.
 
+use crate::districts;
 use crate::world::{Civ3Tile, Civ3World};
 
 /// Terrain ids (enum `SquareTypes`).
@@ -19,6 +20,8 @@ pub mod terrain {
     pub const SWAMP: u32 = 9;
     pub const VOLCANO: u32 = 10;
     pub const COAST: u32 = 11;
+    pub const SEA: u32 = 12;
+    pub const OCEAN: u32 = 13;
 }
 use terrain::*;
 
@@ -207,10 +210,11 @@ pub fn forest(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     Some(name)
 }
 
-/// §6.3: irrigation.
+/// §6.3: irrigation. A district that can be an irrigation source hides the
+/// irrigation of its own tile (§18).
 pub fn irrigation(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     let tile = world.tile(x, y)?;
-    if world.seen_overlays(tile) & overlay::IRRIGATION == 0 {
+    if world.seen_overlays(tile) & overlay::IRRIGATION == 0 || districts::hides_irrigation(world, tile) {
         return None;
     }
     let mut mask = 0;
@@ -247,15 +251,24 @@ pub fn tnt(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     Some(format!("Tnt_Images/{}", row * 3 + variant))
 }
 
-/// §6.7: a resource's shadow and icon.
-pub fn resource(world: &Civ3World, x: i32, y: i32) -> Option<(String, String)> {
-    let tile = world.tile(x, y)?;
+/// The resource the viewing player sees on `tile` (`Tile_get_resource_visible_to`:
+/// hidden until the prerequisite is known): its type and its icon.
+pub fn visible_resource(world: &Civ3World, tile: &Civ3Tile) -> Option<(usize, i32)> {
     let kind = usize::try_from(tile.resource).ok()?;
-    // Tile_get_resource_visible_to: hidden until the prerequisite is known.
     if !world.resource_visible.get(kind).copied().unwrap_or(true) {
         return None;
     }
-    let icon = *world.resource_icons.get(kind)?;
+    Some((kind, *world.resource_icons.get(kind)?))
+}
+
+/// §6.7: a resource's shadow and icon. Where a district has C3X draw the
+/// resource itself (§18) there is none here.
+pub fn resource(world: &Civ3World, x: i32, y: i32) -> Option<(String, String)> {
+    let tile = world.tile(x, y)?;
+    let (_, icon) = visible_resource(world, tile)?;
+    if districts::takes_over_resource(world, tile) {
+        return None;
+    }
     Some((format!("ResourcesShadows/{icon}"), format!("Resources/{icon}")))
 }
 
@@ -327,6 +340,8 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
         // in unexplored land still counts).
         || around.iter().flatten().any(|t| {
             t.city >= 0
+            // C3X's districts count like cities (§18).
+            || districts::makes_river_special(world, t)
             // Tile buildings (colonies, airfields, radar, outposts) and ruins.
             || t.building.is_some()
             || t.ruins
@@ -384,9 +399,13 @@ pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
 pub const NEIGHBOURS: [(i32, i32); 8] = [(1, -1), (2, 0), (1, 1), (0, 2), (-1, 1), (-2, 0), (-1, -1), (0, -2)];
 
 /// §6.6: the road and railroad sprites of tile (x, y). A link between two
-/// railroad tiles is drawn as railroad only.
+/// railroad tiles is drawn as railroad only. A bridge district has the
+/// tile's roads and railroads drawn as part of itself (§18).
 pub fn roads(world: &Civ3World, x: i32, y: i32) -> (Option<String>, Option<String>) {
     let Some(tile) = world.tile(x, y) else { return (None, None) };
+    if districts::hides_roads(world, tile) {
+        return (None, None);
+    }
     let road = world.seen_overlays(tile) & overlay::ROAD != 0;
     let rail = world.seen_overlays(tile) & overlay::RAILROAD != 0;
     let (mut road_mask, mut rail_mask) = (0u32, 0u32);
@@ -448,9 +467,13 @@ fn viewer_era(world: &Civ3World) -> i32 {
 }
 
 /// §6.7b: what the game's `Draw_Tile_Buildings` draws on tile (x, y), in
-/// drawing order. One RNG serves every random choice here.
+/// drawing order. One RNG serves every random choice here. Nothing on a tile
+/// with a district: C3X draws that instead (§18).
 pub fn terrain_buildings(world: &Civ3World, x: i32, y: i32) -> Vec<(&'static str, String)> {
     let Some(tile) = world.tile(x, y) else { return Vec::new() };
+    if districts::replaces_tile_buildings(world, x, y) {
+        return Vec::new();
+    }
     let era = viewer_era(world);
     let seen = world.seen_overlays(tile);
     // Airfields, radar towers and outposts are drawn as they are, through

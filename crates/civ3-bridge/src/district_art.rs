@@ -15,17 +15,29 @@ pub struct Slice {
     pub origin: (u32, u32),
     pub size: (u32, u32),
     pub offset: (i32, i32),
+    /// For the zoomed-out view: the art is halved, the offset is not (C3X
+    /// does not scale what it adds to the drawing position).
+    pub zoomed_out: bool,
+}
+
+impl Slice {
+    pub fn of(d: &crate::districts::DistrictDraw, zoomed_out: bool) -> Slice {
+        Slice { image: d.image.clone(), origin: d.origin, size: d.size, offset: d.offset, zoomed_out }
+    }
 }
 
 /// Layers district slices go into, in drawing order (a tile shows at most
 /// this many slices: e.g. a great wall's pillar and segments).
 pub const LAYERS: [&str; 6] = ["district_0", "district_1", "district_2", "district_3", "district_4", "district_5"];
+/// Layers for what C3X draws where the game draws resources.
+pub const RESOURCE_LAYERS: [&str; 2] = ["district_resource_0", "district_resource_1"];
 
 impl Slice {
     /// Its sprite set's name.
     pub fn sprite(&self) -> String {
         let ((x, y), (w, h), (dx, dy)) = (self.origin, self.size, self.offset);
-        format!("District@{}#{x},{y},{w},{h}@{dx},{dy}/0", self.image)
+        let z = if self.zoomed_out { "z" } else { "" };
+        format!("District@{}#{x},{y},{w},{h}@{dx},{dy}{z}/0", self.image)
     }
 }
 
@@ -64,9 +76,10 @@ impl DistrictArt {
             let ((x, y), (w, h), (dx, dy)) = (s.origin, s.size, s.offset);
             let _ = writeln!(
                 out,
-                "[sheets.district_{n}]\nimage = \"district_image_{}\"\norigin = [{x}, {y}]\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{dx}, {dy}]\ngroup = {}\n",
+                "[sheets.district_{n}]\nimage = \"district_image_{}\"\norigin = [{x}, {y}]\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{dx}, {dy}]\ngroup = {}\n{}",
                 index(&s.image),
-                toml_str(s.sprite().trim_end_matches("/0"))
+                toml_str(s.sprite().trim_end_matches("/0")),
+                if s.zoomed_out { "scaling = \"scale_keep_anchor\"\n" } else { "" }
             );
         }
         out
@@ -79,7 +92,7 @@ mod tests {
 
     #[test]
     fn slices_are_described_once() {
-        let s = Slice { image: "Art/Districts/Summer/1200/Bridge.PCX".into(), origin: (176, 112), size: (176, 112), offset: (-24, -48) };
+        let s = Slice { image: "Art/Districts/Summer/1200/Bridge.PCX".into(), origin: (176, 112), size: (176, 112), offset: (-24, -48), zoomed_out: false };
         let mut art = DistrictArt::default();
         assert!(art.add([&s]));
         assert!(!art.add([&s]));
