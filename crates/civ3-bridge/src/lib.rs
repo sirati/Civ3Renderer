@@ -6,6 +6,7 @@
 pub mod assets;
 pub mod city_hud;
 pub mod city_site;
+pub mod districts;
 pub mod minimap;
 pub mod rings;
 pub mod rules;
