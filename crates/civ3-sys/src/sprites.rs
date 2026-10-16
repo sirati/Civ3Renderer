@@ -62,7 +62,8 @@ pub fn size(sprite: u32) -> Option<(u32, u32)> {
 fn global_arrays(build: crate::Build) -> &'static [(&'static str, u32, u32)] {
     match build {
         // Cities (docs §8): index = size class·20 + era·5 + culture group.
-        crate::Build::PcGames => &[("City_Images", 0xB3_CE60, 80)],
+        // Ruins (docs §6.7b): DESTROY.PCX, three cells.
+        crate::Build::PcGames => &[("City_Images", 0xB3_CE60, 80), ("Ruins", 0xB3_E790, 3)],
         crate::Build::Gog | crate::Build::Steam => &[],
     }
 }

@@ -33,6 +33,9 @@ pub struct Addresses {
     pub current_turn_no: u32,
     /// `p_preferences` (C3X's civ_prog_objects.csv): `P_*` flag word.
     pub preferences: u32,
+    /// The outposts (a list like `cities`; docs §6.7b, from the disassembly of the
+    /// PCGames build, the others by the constant offset between builds).
+    pub outposts: u32,
 }
 
 impl Build {
@@ -47,6 +50,7 @@ impl Build {
                 leaders: 0xA5_2E98,
                 current_turn_no: 0xA5_26AC,
                 preferences: 0xA5_2678,
+                outposts: 0xA5_2E08,
             },
             Build::Steam => Addresses {
                 bic_data: 0x9E_5D08,
@@ -57,6 +61,7 @@ impl Build {
                 leaders: 0xA7_5698,
                 current_turn_no: 0xA7_4EA4,
                 preferences: 0xA7_4E70,
+                outposts: 0xA7_5608,
             },
             Build::PcGames => Addresses {
                 bic_data: 0x9C_34C8,
@@ -67,6 +72,7 @@ impl Build {
                 leaders: 0xA5_2E58,
                 current_turn_no: 0xA5_266C,
                 preferences: 0xA5_2638,
+                outposts: 0xA5_2DC8,
             },
         }
     }

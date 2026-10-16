@@ -42,6 +42,8 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
             visibility_d0: t.visibility_d0(),
             visible_overlays: t.visible_overlays(),
             victory_location: t.victory_location(),
+            building: Some(t.building_id()).filter(|&b| b >= 0),
+            ruins: t.ruins(),
         })
         .collect();
     let players = optional("players", game.players());
@@ -89,6 +91,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         experience_hit_points: optional("experience_hit_points", game.experience_hit_points()),
         unit_tiles: optional("unit_tiles", game.unit_tiles()),
         preferences: optional("preferences", game.preferences()),
+        outposts: optional("outposts", game.outposts()),
         selection: optional("selection", game.selection()),
         wall_buildings: players
             .wall_buildings

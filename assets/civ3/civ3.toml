@@ -125,6 +125,108 @@ anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 648
 
+
+# §7: landmark terrain (Terrain_Overlays bit 29), same layout as the
+# Std_Terrain_Images sheets.
+
+[images.lxtgc]
+source = "Art/Terrain/lxtgc.pcx"
+
+[sheets.lm_terrain_xtgc]
+image = "lxtgc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 0
+
+[images.lxpgc]
+source = "Art/Terrain/lxpgc.pcx"
+
+[sheets.lm_terrain_xpgc]
+image = "lxpgc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 81
+
+[images.lxdgc]
+source = "Art/Terrain/lxdgc.pcx"
+
+[sheets.lm_terrain_xdgc]
+image = "lxdgc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 162
+
+[images.lxdpc]
+source = "Art/Terrain/lxdpc.pcx"
+
+[sheets.lm_terrain_xdpc]
+image = "lxdpc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 243
+
+[images.lxdgp]
+source = "Art/Terrain/lxdgp.pcx"
+
+[sheets.lm_terrain_xdgp]
+image = "lxdgp"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 324
+
+[images.lxggc]
+source = "Art/Terrain/lxggc.pcx"
+
+[sheets.lm_terrain_xggc]
+image = "lxggc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 405
+
+[images.lwCSO]
+source = "Art/Terrain/lwCSO.pcx"
+
+[sheets.lm_terrain_wCSO]
+image = "lwCSO"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 486
+
+[images.lwSSS]
+source = "Art/Terrain/lwSSS.pcx"
+
+[sheets.lm_terrain_wSSS]
+image = "lwSSS"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 567
+
+[images.lwOOO]
+source = "Art/Terrain/lwOOO.pcx"
+
+[sheets.lm_terrain_wOOO]
+image = "lwOOO"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "LM_Terrain_Images"
+first_index = 648
 # §5.2: polar ice caps, drawn right after a pole row's base terrain:
 # rows 0/1 (sheet rows 0/1) 64 px left and 32 px up of it, rows H-1/H-2
 # (sheet rows 2/3) 64 px left and 32 px down.
@@ -209,8 +311,8 @@ grid = [3, 3]
 only = [0, 1, 2, 3, 4, 5, 6, 7]
 group = "Goody_Huts_Images"
 
-# Pollution and craters: 5x5 cells; neighbour order of the mask assumed
-# NW, NE, SW, SE [?].
+# Pollution and craters: 5x5 cells, index = mask of linked diagonal
+# neighbours (NW, NE, SE, SW) + 9, else random 0..9 (§6.7b).
 [images.pollution]
 source = "Art/Terrain/pollution.pcx"
 
@@ -246,6 +348,79 @@ image = "airfields_shadow"
 cell = [128, 64]
 grid = [2, 1]
 group = "Terrain_Buldings_Airfields_Shadow"
+
+# §6.7b: ruins (DESTROY.PCX: three 166x95 sprites in 167-wide cells,
+# centred like cities), colonies (TerrainBuildings column 1, rows = era),
+# radar towers and outposts (128x128, bottom-aligned to the tile box) with
+# their shadows.
+[images.ruins]
+source = "Art/Cities/DESTROY.PCX"
+
+[sheets.ruins_0]
+image = "ruins"
+origin = [0, 0]
+cell = [166, 95]
+grid = [1, 1]
+anchor = [-19, -15]
+group = "Ruins"
+first_index = 0
+
+[sheets.ruins_1]
+image = "ruins"
+origin = [167, 0]
+cell = [166, 95]
+grid = [1, 1]
+anchor = [-19, -15]
+group = "Ruins"
+first_index = 1
+
+[sheets.ruins_2]
+image = "ruins"
+origin = [334, 0]
+cell = [166, 95]
+grid = [1, 1]
+anchor = [-19, -15]
+group = "Ruins"
+first_index = 2
+
+[sheets.colony]
+image = "terrain_buildings"
+origin = [128, 0]
+cell = [128, 64]
+grid = [1, 4]
+group = "Terrain_Buldings_Camp"
+
+[sheets.outposts]
+image = "airfields"
+origin = [0, 64]
+cell = [128, 128]
+grid = [3, 1]
+anchor = [0, -64]
+group = "Terrain_Buldings_Outposts"
+
+[sheets.outposts_shadow]
+image = "airfields_shadow"
+origin = [0, 64]
+cell = [128, 128]
+grid = [3, 1]
+anchor = [0, -64]
+group = "Terrain_Buldings_Outposts_Shadow"
+
+[sheets.radar]
+image = "airfields"
+origin = [0, 192]
+cell = [128, 128]
+grid = [1, 1]
+anchor = [0, -64]
+group = "Terrain_Buldings_Radar"
+
+[sheets.radar_shadow]
+image = "airfields_shadow"
+origin = [0, 192]
+cell = [128, 128]
+grid = [1, 1]
+anchor = [0, -64]
+group = "Terrain_Buldings_Radar_Shadow"
 
 # §6.9: territory borders, in the owner's colours: palette entries 64/65
 # come from its ntpNN.pcx; 1 is transparent; 249/252 darken to 10/16 and
@@ -768,6 +943,54 @@ anchor = [0, -8]
 group = "Hills_Images"
 first_index = 32
 
+
+# §7: landmark mountains and hills (by neighbour mask only) and forests.
+[images.lm_mountains]
+source = "Art/Terrain/LMMountains.pcx"
+
+[sheets.lm_mountains]
+image = "lm_mountains"
+cell = [128, 88]
+grid = [4, 4]
+anchor = [0, -24]
+group = "LM_Mountains_Images"
+
+[images.lm_hills]
+source = "Art/Terrain/LMHills.pcx"
+
+[sheets.lm_hills]
+image = "lm_hills"
+cell = [128, 72]
+grid = [4, 4]
+anchor = [0, -8]
+group = "LM_Hills_Images"
+
+[images.lm_forests]
+source = "Art/Terrain/LMForests.pcx"
+
+[sheets.LM_Forests_Large]
+image = "lm_forests"
+cell = [128, 88]
+grid = [4, 2]
+anchor = [0, -12]
+group = "LM_Forests_Large_Images"
+origin = [0, 0]
+
+[sheets.LM_Forests_Small]
+image = "lm_forests"
+cell = [128, 88]
+grid = [5, 2]
+anchor = [0, -12]
+group = "LM_Forests_Small_Images"
+origin = [0, 176]
+
+[sheets.LM_Forests_Pines]
+image = "lm_forests"
+cell = [128, 88]
+grid = [6, 2]
+anchor = [0, -12]
+group = "LM_Forests_Pines_Images"
+origin = [0, 352]
 # §6.3: irrigation, index kind·16 + mask (desert, plains, grassland, tundra).
 
 [images.irr0]
@@ -1053,7 +1276,7 @@ group = "Fog_Of_War_Images"
 name = "terrain"
 cull_offset = [0, -32]
 pass = 1
-sets = ["Std_Terrain_Images/*"]
+sets = ["Std_Terrain_Images/*", "LM_Terrain_Images/*"]
 
 [[layers]]
 name = "polar_cap"
@@ -1076,7 +1299,7 @@ sets = ["Delta_Rivers_Images/*"]
 [[layers]]
 name = "mountain"
 pass = 3
-sets = ["Mountains_Images/*", "Volcanos_Images/*", "Hills_Images/*"]
+sets = ["Mountains_Images/*", "Volcanos_Images/*", "Hills_Images/*", "LM_Mountains_Images/*", "LM_Hills_Images/*"]
 
 [[layers]]
 name = "irrigation"
@@ -1091,7 +1314,7 @@ sets = ["Tnt_Images/*"]
 [[layers]]
 name = "forest"
 pass = 3
-sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*"]
+sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*", "LM_Forests_*"]
 
 [[layers]]
 name = "border_nw_shade"
@@ -1147,6 +1370,12 @@ name = "railroad"
 pass = 3
 sets = ["Railroads_Images/*"]
 
+# Draw_Tile_Buildings (§6.7b), then craters and pollution.
+[[layers]]
+name = "ruins"
+pass = 3
+sets = ["Ruins/*"]
+
 [[layers]]
 name = "airfield_shadow"
 pass = 3
@@ -1183,14 +1412,44 @@ pass = 3
 sets = ["Terrain_Buldings_Barbarian_Camp/*"]
 
 [[layers]]
-name = "pollution"
+name = "colony"
 pass = 3
-sets = ["Pollution/*"]
+sets = ["Terrain_Buldings_Camp/*"]
+
+[[layers]]
+name = "radar_shadow"
+pass = 3
+sets = ["Terrain_Buldings_Radar_Shadow/*"]
+
+[[layers]]
+name = "radar"
+pass = 3
+sets = ["Terrain_Buldings_Radar/*"]
+
+[[layers]]
+name = "outpost_shadow"
+pass = 3
+sets = ["Terrain_Buldings_Outposts_Shadow/*"]
+
+[[layers]]
+name = "outpost"
+pass = 3
+sets = ["Terrain_Buldings_Outposts/*"]
+
+[[layers]]
+name = "victory_point"
+pass = 3
+sets = ["Victory_Image/*"]
 
 [[layers]]
 name = "craters"
 pass = 3
 sets = ["Craters/*"]
+
+[[layers]]
+name = "pollution"
+pass = 3
+sets = ["Pollution/*"]
 
 [[layers]]
 name = "resource_shadow"

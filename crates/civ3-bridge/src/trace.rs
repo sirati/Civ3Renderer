@@ -307,6 +307,11 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     if let Ok(Some((id, frame))) = game.selection() {
         let _ = writeln!(out, "selection {id} {frame}");
     }
+    if let Ok(outposts) = game.outposts() {
+        for (id, owner) in outposts {
+            let _ = writeln!(out, "outpost {id} {owner}");
+        }
+    }
     if let Ok(p) = game.preferences() {
         let _ = writeln!(out, "preferences {p:#x}");
     }
@@ -345,13 +350,13 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     // Every tile's raw fields, for correlating draws with world state.
     if let Ok(map) = game.map() {
         if let Ok(tiles) = game.tiles(&map) {
-            let _ = writeln!(out, "# tile x y square_type square_parts overlays terrain_overlays river resource owner city fow visibility explored v3 vis_d0 visible_overlays victory_location");
+            let _ = writeln!(out, "# tile x y square_type square_parts overlays terrain_overlays river resource owner city fow visibility explored v3 vis_d0 visible_overlays victory_location building ruins");
             for y in 0..map.height {
                 for x in (y & 1..map.width).step_by(2) {
                     let t = &tiles[map.tile_index(x, y)];
                     let _ = writeln!(
                         out,
-                        "tile {x} {y} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {:#x} {:#x} {:#x} {:#x} {:#x} {} {}",
+                        "tile {x} {y} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {}",
                         t.square_type(),
                         t.square_parts() as u16,
                         t.overlays(),
@@ -366,7 +371,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         t.v3(),
                         t.visibility_d0(),
                         t.visible_overlays().iter().map(|b| format!("{b:02x}")).collect::<String>(),
-                        t.victory_location()
+                        t.victory_location(),
+                        t.building_id(),
+                        t.ruins() as u8
                     );
                 }
             }
