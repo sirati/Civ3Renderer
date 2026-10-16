@@ -17,7 +17,9 @@ use crate::text::TextRun;
 pub enum Source {
     /// A region of an image file (path as the game opened it), blended
     /// through `mask` if it has one.
-    File { path: String, rect: [i32; 4], mask: Option<Mask> },
+    /// `palette`: an image file whose palette replaces the image's own (a
+    /// colour table the game drew it through).
+    File { path: String, rect: [i32; 4], mask: Option<Mask>, palette: Option<String> },
     /// A region of another surface (a canvas or temporary image).
     Surface { image: u32, rect: [i32; 4] },
 }
@@ -51,7 +53,8 @@ pub enum Event {
     MaskedBlit { sprite: u32, mask: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
     /// `sprite`'s pixels drawn with their top-left at (x, y) of `canvas`,
     /// colour 255 transparent.
-    Blit { sprite: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
+    /// `palette`: see [`Source::File`].
+    Blit { sprite: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]>, palette: Option<String> },
     /// Region `src` (x, y, w, h) of image `from` copied to (x, y) of
     /// `canvas`; `keyed`: colour 255 transparent.
     Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool },
@@ -94,7 +97,7 @@ enum Op {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScreenDraw {
     /// Region `rect` (x, y, w, h) of an image file at (x, y).
-    Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4], mask: Option<Mask> },
+    Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<String> },
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
     /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
@@ -298,7 +301,7 @@ impl UiModel {
             }
             Event::Sliced { sprite, image, rect } => {
                 let source = match self.files.get(&image) {
-                    Some(path) => Source::File { path: path.clone(), rect, mask: None },
+                    Some(path) => Source::File { path: path.clone(), rect, mask: None, palette: None },
                     None => Source::Surface { image, rect },
                 };
                 self.sprites.insert(sprite, source);
@@ -311,8 +314,11 @@ impl UiModel {
             Event::Reset { sprite } => {
                 self.sprites.remove(&sprite);
             }
-            Event::Blit { sprite, canvas, x, y, clip } => {
-                if let Some(source) = self.sprites.get(&sprite).cloned() {
+            Event::Blit { sprite, canvas, x, y, clip, palette } => {
+                if let Some(mut source) = self.sprites.get(&sprite).cloned() {
+                    if let (Source::File { palette: p, .. }, Some(table)) = (&mut source, palette) {
+                        *p = Some(table);
+                    }
                     // Within the canvas's clip rectangle, if it has one.
                     let op = Op::Image { source, x, y, keyed: true };
                     if let Some(op) = clip.map_or(Some(op.clone()), |c| crop_move(op, c, (0, 0), true)) {
@@ -327,7 +333,7 @@ impl UiModel {
                     _ => None,
                 };
                 let source = match face {
-                    Some(Source::File { path, rect, .. }) => Source::File { path, rect, mask: alpha },
+                    Some(Source::File { path, rect, palette, .. }) => Source::File { path, rect, mask: alpha, palette },
                     Some(other) => other,
                     None => return,
                 };
@@ -358,7 +364,7 @@ impl UiModel {
                     return;
                 }
                 let source = match self.files.get(&from) {
-                    Some(path) => Source::File { path: path.clone(), rect: src, mask: None },
+                    Some(path) => Source::File { path: path.clone(), rect: src, mask: None, palette: None },
                     None => Source::Surface { image: from, rect: src },
                 };
                 // An opaque copy hides what it covers.
@@ -546,10 +552,10 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
             }
             let rect = [rx + (l - x), ry + (t - y), r - l, b - t];
             let source = match path_or_image {
-                Source::File { path, mask, .. } => {
+                Source::File { path, mask, palette, .. } => {
                     // The mask moves along with the cut.
                     let mask = mask.map(|m| Mask { at: (m.at.0 + (l - x), m.at.1 + (t - y)), ..m });
-                    Source::File { path, rect, mask }
+                    Source::File { path, rect, mask, palette }
                 }
                 Source::Surface { image, .. } => Source::Surface { image, rect },
             };
@@ -619,8 +625,8 @@ fn intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
 /// A resolved canvas operation on the screen.
 fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDraw> {
     match op {
-        Op::Image { source: Source::File { path, rect, mask }, x, y, keyed } => {
-            Some(ScreenDraw::Image { path, rect, x: x + ox, y: y + oy, keyed, clip, mask })
+        Op::Image { source: Source::File { path, rect, mask, palette }, x, y, keyed } => {
+            Some(ScreenDraw::Image { path, rect, x: x + ox, y: y + oy, keyed, clip, mask, palette })
         }
         Op::Image { source: Source::Surface { image, rect }, x, y, .. } => {
             Some(ScreenDraw::Surface { image, rect, x: x + ox, y: y + oy, clip, size: (rect[0] + rect[2], rect[1] + rect[3]) })
@@ -668,14 +674,14 @@ mod tests {
         let mut m = UiModel::new(vec![], vec![]);
         m.apply(Event::Loaded { image: 10, path: "Art/a.pcx".into(), size: (100, 50) });
         m.apply(Event::Sliced { sprite: 20, image: 10, rect: [5, 6, 30, 20] });
-        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 7, y: 8, clip: None });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 7, y: 8, clip: None, palette: None });
         m.apply(Event::Cleared { image: 10 });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (100, 200), (40, 40)));
         m.apply(Event::PaintEnd);
         assert_eq!(
             m.frame().draws,
-            vec![ScreenDraw::Image { path: "Art/a.pcx".into(), rect: [5, 6, 30, 20], x: 107, y: 208, keyed: true, clip: [100, 200, 140, 240], mask: None }]
+            vec![ScreenDraw::Image { path: "Art/a.pcx".into(), rect: [5, 6, 30, 20], x: 107, y: 208, keyed: true, clip: [100, 200, 140, 240], mask: None, palette: None }]
         );
     }
 
@@ -733,7 +739,7 @@ mod tests {
         assert_eq!(
             m.frame().draws,
             vec![
-                ScreenDraw::Image { path: "Art/bg.pcx".into(), rect: [18, 18, 10, 10], x: 2, y: 3, keyed: false, clip, mask: None },
+                ScreenDraw::Image { path: "Art/bg.pcx".into(), rect: [18, 18, 10, 10], x: 2, y: 3, keyed: false, clip, mask: None, palette: None },
                 ScreenDraw::Fill { rect: [4, 5, 4, 4], rgb: [1, 2, 3], alpha: 255, clip },
             ]
         );
@@ -762,8 +768,8 @@ mod tests {
         m.apply(Event::Sliced { sprite: 21, image: 11, rect: [1, 1, 23, 15] });
         m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
         m.apply(Event::Fill { canvas: 300, rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128, clip: None });
-        m.apply(Event::Blit { sprite: 21, canvas: 300, x: 1, y: 2, clip: None });
-        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 3, y: 4, clip: None });
+        m.apply(Event::Blit { sprite: 21, canvas: 300, x: 1, y: 2, clip: None, palette: None });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 3, y: 4, clip: None, palette: None });
         m.apply(Event::Fill { canvas: 77, rect: [0, 0, 1, 1], rgb: [9, 9, 9], alpha: 255, clip: None });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (100, 100)));
@@ -774,7 +780,7 @@ mod tests {
             m.frame().draws,
             vec![
                 ScreenDraw::Fill { rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128, clip },
-                ScreenDraw::Image { path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip, mask: None },
+                ScreenDraw::Image { path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip, mask: None, palette: None },
             ]
         );
     }

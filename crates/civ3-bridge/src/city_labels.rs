@@ -98,7 +98,7 @@ impl LabelOp {
                 .collect(),
             LabelOp::Fill { rect: [x, y, w, h], rgb, alpha } => vec![ScreenDraw::Fill { rect: [x + ox, y + oy, *w, *h], rgb: *rgb, alpha: *alpha, clip }],
             LabelOp::Image { path, rect, at } => {
-                vec![ScreenDraw::Image { path: (*path).to_owned(), rect: *rect, x: at.0 + ox, y: at.1 + oy, keyed: true, clip, mask: None }]
+                vec![ScreenDraw::Image { path: (*path).to_owned(), rect: *rect, x: at.0 + ox, y: at.1 + oy, keyed: true, clip, mask: None, palette: None }]
             }
             LabelOp::Text(run) => vec![ScreenDraw::Text { run: TextRun { x: run.x + ox, y: run.y + oy, ..run.clone() }, clip }],
         }

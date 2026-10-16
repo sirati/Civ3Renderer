@@ -264,6 +264,23 @@ pub fn back_buffer(build: Build) -> Option<u32> {
     }
 }
 
+/// The civ colour tables (`Units_Image_Data.Color_Tables`, 32
+/// `PCX_Color_Table*` loaded from `Art/Units/Palettes/ntpNN.pcx`).
+fn color_tables(build: Build) -> Option<u32> {
+    match build {
+        Build::PcGames => Some(0x73_DA04),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// Which civ colour table (NN of `ntpNN.pcx`) `ct` is, if it is one: a
+/// sprite drawn through it shows that file's palette (e.g. the foreign
+/// advisor's ring around a leader).
+pub fn civ_color_table(build: Build, ct: u32) -> Option<u32> {
+    let base = color_tables(build).filter(|_| ct != 0)?;
+    (0..32).find(|&i| Ptr32::<u32>::new(base + 4 * i).read().ok() == Some(ct))
+}
+
 /// Fields of the game's image, sprite and form objects (docs §16.2-16.5).
 pub mod obj {
     use super::*;
