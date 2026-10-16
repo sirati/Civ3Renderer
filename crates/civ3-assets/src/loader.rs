@@ -16,6 +16,9 @@
 //!   also copies its entry 66 to entry 247.
 //!
 //! PCX sources yield one image, FLC sources one image per frame.
+//!
+//! `font:<face>/<height>/<r>,<g>,<b>` sources are the game's text glyphs
+//! (see `fonts`), one image per character of `fonts::charset()`, in order.
 
 use render_desc::ImageLoader;
 use tile_render::RgbaImage;
@@ -126,8 +129,23 @@ fn to_rgba_with(
     })
 }
 
+/// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>`.
+pub fn font_of(files: &GameFiles, spec: &str) -> Result<crate::fonts::GlyphFont, String> {
+    let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>");
+    let mut parts = spec.split('/');
+    let (face, height, color) = (parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?);
+    let height: i32 = height.parse().map_err(|_| err())?;
+    let rgb: Vec<u8> = color.split(',').map(|v| v.trim().parse().map_err(|_| err())).collect::<Result<_, _>>()?;
+    let rgb = <[u8; 3]>::try_from(rgb).map_err(|_| err())?;
+    crate::fonts::load(files, face, height, rgb)
+}
+
 impl ImageLoader for Civ3Loader {
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
+        if let Some(spec) = source.strip_prefix("font:") {
+            let font = font_of(&self.files, spec)?;
+            return Ok(crate::fonts::charset().map(|c| font.glyphs.get(&c).map_or_else(|| RgbaImage::from_fn(1, 1, |_, _| [0; 4]), |g| g.image.clone())).collect());
+        }
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
         let alpha = alpha_table(options)?;
         let explicit = rgba_table(options)?;
