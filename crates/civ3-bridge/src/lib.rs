@@ -11,6 +11,7 @@ pub mod district_art;
 pub mod districts;
 pub mod label_check;
 pub mod minimap;
+pub mod modal;
 pub mod rings;
 pub mod rules;
 pub mod scene_map;
