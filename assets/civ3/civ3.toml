@@ -590,11 +590,12 @@ first_index = 0
 origin = [1, 1]
 spacing = [1, 1]
 
-# §6.8: fog of war, per vertex. The sheet's palette is a grey ramp used as
-# alpha: index i is black with alpha 255 - 17·i.
+# §6.8: fog of war, per vertex. The sheet's palette is a grey ramp; the game
+# darkens what is below by index/16 in RGB555 (measured), so the red channel
+# carries the index for the "scale" blend.
 [images.fog]
 source = "Art/Terrain/FogOfWar.pcx"
-rgba = { 0 = [0, 0, 0, 255], 1 = [0, 0, 0, 238], 2 = [0, 0, 0, 221], 3 = [0, 0, 0, 204], 4 = [0, 0, 0, 187], 5 = [0, 0, 0, 170], 6 = [0, 0, 0, 153], 7 = [0, 0, 0, 136], 8 = [0, 0, 0, 119], 9 = [0, 0, 0, 102], 10 = [0, 0, 0, 85], 11 = [0, 0, 0, 68], 12 = [0, 0, 0, 51], 13 = [0, 0, 0, 34], 14 = [0, 0, 0, 17], 15 = [0, 0, 0, 0] }
+rgba = { 0 = [0, 0, 0, 255], 1 = [1, 0, 0, 255], 2 = [2, 0, 0, 255], 3 = [3, 0, 0, 255], 4 = [4, 0, 0, 255], 5 = [5, 0, 0, 255], 6 = [6, 0, 0, 255], 7 = [7, 0, 0, 255], 8 = [8, 0, 0, 255], 9 = [9, 0, 0, 255], 10 = [10, 0, 0, 255], 11 = [11, 0, 0, 255], 12 = [12, 0, 0, 255], 13 = [13, 0, 0, 255], 14 = [14, 0, 0, 255], 15 = [15, 0, 0, 255] }
 
 [sheets.fog]
 image = "fog"
@@ -705,4 +706,5 @@ sets = ["Delta_Rivers_Images/*"]
 name = "fog"
 cull_offset = [0, -32]
 pass = 5
+blend = { scale = { bits = 5, denominator = 16 } }
 sets = ["Fog_Of_War_Images/*"]

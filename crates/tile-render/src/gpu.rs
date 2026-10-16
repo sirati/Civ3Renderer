@@ -77,7 +77,7 @@ impl Headless {
     }
 
     /// Renders one frame offscreen and reads it back.
-    pub fn render(&self, renderer: &TileRenderer, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
+    pub fn render(&self, renderer: &mut TileRenderer, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
         let (w, h) = camera.viewport;
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
@@ -89,24 +89,8 @@ impl Headless {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let view = target.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("offscreen"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(color(clear)), store: wgpu::StoreOp::Store },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            renderer.draw(&self.queue, &mut pass, camera, frame);
-        }
+        renderer.render(&self.device, &self.queue, &mut encoder, &target, camera, frame, clear);
         read_texture(&self.device, &self.queue, encoder, &target)
     }
 }

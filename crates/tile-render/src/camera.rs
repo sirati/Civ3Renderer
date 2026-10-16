@@ -2,7 +2,7 @@
 
 use tile_render_shared::FrameParams;
 
-use crate::world::{Grid, Layout};
+use crate::world::{Blend, Grid, Layout, Pass};
 
 /// A view onto the world.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -35,7 +35,7 @@ impl Camera {
         ((self.viewport.0 * d).div_ceil(n), (self.viewport.1 * d).div_ceil(n))
     }
 
-    pub(crate) fn frame_params(&self, grid: &Grid, frame: u32, layers: (u32, u32)) -> FrameParams {
+    pub(crate) fn frame_params(&self, grid: &Grid, frame: u32, pass: &Pass) -> FrameParams {
         let (ew, eh) = self.world_extent();
         let (ol, ot, or, ob) = self.overhang;
         let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
@@ -62,11 +62,17 @@ impl Camera {
             zoom_num: self.zoom.0,
             zoom_den: self.zoom.1,
             frame,
-            layer_first: layers.0,
-            layer_count: layers.1,
+            layer_first: pass.first,
+            layer_count: pass.count,
             cull: self.cull.is_some() as u32,
-            _pad1: 0,
-            _pad2: 0,
+            blend_bits: match pass.blend {
+                Blend::Alpha => 0,
+                Blend::Scale { bits, .. } => bits,
+            },
+            blend_den: match pass.blend {
+                Blend::Alpha => 0,
+                Blend::Scale { denominator, .. } => denominator,
+            },
             cull_x0: self.cull.map_or(0, |c| c.0),
             cull_y0: self.cull.map_or(0, |c| c.1),
             cull_x1: self.cull.map_or(0, |c| c.2),
@@ -92,7 +98,7 @@ mod tests {
         cam.x = 300;
         cam.y = 200;
         cam.overhang = (0, 24, 0, 0);
-        let p = cam.frame_params(&grid, 0, (0, 3));
+        let p = cam.frame_params(&grid, 0, &Pass { first: 0, count: 3, blend: Blend::Alpha });
         // Every cell whose 128×64 footprint (+24 px upwards) touches the
         // viewport must be inside the window.
         for row in -10..120 {

@@ -1,7 +1,7 @@
 //! The GPU renderer must produce exactly the reference renderer's pixels.
 
 use tile_render::{
-    Atlas, AtlasBuilder, Camera, Grid, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
+    Atlas, AtlasBuilder, Blend, Camera, Grid, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
     reference,
 };
 
@@ -30,12 +30,24 @@ fn tall(seed: u8) -> RgbaImage {
     })
 }
 
+/// A diamond that darkens what is below, in 16 steps by position (the red
+/// channel is the scale numerator, as for `Blend::Scale`).
+fn shade() -> RgbaImage {
+    RgbaImage::from_fn(128, 64, |x, y| {
+        let dx = (x as i32 * 2 - 127).abs() as f32 / 128.0;
+        let dy = (y as i32 * 2 - 63).abs() as f32 / 64.0;
+        if dx + dy > 1.0 { [0, 0, 0, 0] } else { [((x + y) % 16) as u8, 0, 0, 255] }
+    })
+}
+
 fn scene(grid: Grid) -> (TileWorld, Atlas) {
     let mut atlas = AtlasBuilder::new(512);
     let mut sets = SpriteSets::default();
     let terrain: Vec<_> = (0..5u8).map(|i| sets.single(atlas.add(&diamond(i * 40), (0, 0)).unwrap())).collect();
     let anim_frames: Vec<_> = (0..4u8).map(|i| atlas.add(&tall(i * 60), (34, -40)).unwrap()).collect();
     let anim = sets.add(&anim_frames);
+
+    let shade_set = sets.single(atlas.add(&shade(), (0, 0)).unwrap());
 
     let mut world = TileWorld::new(grid, sets);
     let base = world.add_layer(LayerSpec::new("terrain", terrain));
@@ -54,8 +66,17 @@ fn scene(grid: Grid) -> (TileWorld, Atlas) {
             lut
         })
     });
+    // A third pass that darkens in RGB555, like Civ III's fog of war.
+    let shaded = world.add_layer(LayerSpec {
+        pass: 2,
+        blend: Blend::Scale { bits: 5, denominator: 16 },
+        ..LayerSpec::new("shade", vec![tile_render::SpriteSetId::EMPTY, shade_set])
+    });
     for r in 0..grid.rows {
         for c in 0..grid.cols {
+            if (c + r) % 4 != 1 {
+                world.set(shaded, c, r, 1);
+            }
             world.set(base, c, r, (c * 3 + r * 7) % 5);
             if (c + 2 * r) % 3 == 0 {
                 world.set(overlay, c, r, 1);
@@ -96,7 +117,7 @@ fn staggered_wrapping_world_is_pixel_exact() {
         camera.y = y;
         camera.overhang = (0, 40, 0, 0);
         for frame in [0, 5, 13] {
-            let got = gpu.render(&renderer, &camera, frame, CLEAR);
+            let got = gpu.render(&mut renderer, &camera, frame, CLEAR);
             let want = reference::render(&world, &atlas, &camera, frame, CLEAR);
             assert_same(&got, &want, &format!("camera {i} ({x}, {y}) frame {frame}"));
         }
@@ -115,7 +136,7 @@ fn orthogonal_world_is_pixel_exact() {
     camera.x = -60;
     camera.y = 250;
     camera.overhang = (0, 40, 0, 0);
-    let got = gpu.render(&renderer, &camera, 2, CLEAR);
+    let got = gpu.render(&mut renderer, &camera, 2, CLEAR);
     let want = reference::render(&world, &atlas, &camera, 2, CLEAR);
     assert_same(&got, &want, "orthogonal");
     // Something was actually drawn.

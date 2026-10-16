@@ -3,11 +3,11 @@
 //! It is the oracle for the GPU path (tests compare both byte for byte) and
 //! a fallback for tools that have no GPU.
 
-use tile_render_shared::{ByteReader, cell_origin, wrap_cell};
+use tile_render_shared::{ByteReader, cell_origin, scale_channel, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
-use crate::world::TileWorld;
+use crate::world::{Blend, TileWorld};
 
 /// One sprite draw: which sprite, and where its top-left lands in the
 /// viewport (screen pixels at zoom 1).
@@ -16,6 +16,9 @@ pub struct Draw {
     pub sprite: crate::SpriteId,
     pub x: i32,
     pub y: i32,
+    /// Index of the render pass, and its blend.
+    pub pass: usize,
+    pub blend: Blend,
 }
 
 /// The sprites `TileRenderer::draw` draws, in drawing order (without
@@ -32,7 +35,12 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
     assert_eq!(camera.zoom, (1, 1), "the reference renderer only implements zoom 1");
     let (w, h) = camera.viewport;
     let mut out = RgbaImage::from_fn(w, h, |_, _| clear);
+    // What a scale-blend pass reads: the image as its pass started.
+    let mut backdrop: Option<(usize, RgbaImage)> = None;
     visit(world, atlas, camera, frame, |d| {
+        if matches!(d.blend, Blend::Scale { .. }) && backdrop.as_ref().is_none_or(|b| b.0 != d.pass) {
+            backdrop = Some((d.pass, out.clone()));
+        }
         let sprite = atlas.sprites[d.sprite.0 as usize];
         let page = &atlas.pages[sprite.page as usize];
         for sy in 0..sprite.height as i32 {
@@ -45,8 +53,15 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
                 if src[3] == 0 {
                     continue;
                 }
-                let dst = out.get(px as u32, py as u32);
-                out.put(px as u32, py as u32, blend(src, dst));
+                let color = match d.blend {
+                    Blend::Alpha => blend(src, out.get(px as u32, py as u32)),
+                    Blend::Scale { bits, denominator } => {
+                        let below = backdrop.as_ref().unwrap().1.get(px as u32, py as u32);
+                        let ch = |c: u8| scale_channel(c as u32, src[0] as u32, denominator, bits) as u8;
+                        [ch(below[0]), ch(below[1]), ch(below[2]), below[3]]
+                    }
+                };
+                out.put(px as u32, py as u32, color);
             }
         }
     });
@@ -57,8 +72,9 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
 fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw: impl FnMut(Draw)) {
     let packed = world.pack();
     let data = ByteReader::new(&packed.data);
-    for (first, count) in world.passes() {
-        let params = camera.frame_params(&world.grid, frame, (first, count));
+    for (pass_index, pass) in world.passes().iter().enumerate() {
+        let (first, count) = (pass.first, pass.count);
+        let params = camera.frame_params(&world.grid, frame, pass);
         for local in 0..params.cols * params.rows {
             let col = params.first_col + (local % params.cols) as i32;
             let row = params.first_row + (local / params.cols) as i32;
@@ -92,6 +108,8 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
                     sprite: crate::SpriteId(sprite_id),
                     x: ox + layer.offset_x + sprite.anchor_x - camera.x,
                     y: oy + layer.offset_y + sprite.anchor_y - camera.y,
+                    pass: pass_index,
+                    blend: pass.blend,
                 });
             }
         }

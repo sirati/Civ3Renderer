@@ -76,8 +76,11 @@ pub struct FrameParams {
     /// (world pixels, unwrapped). For games that clip by tile range rather
     /// than by sprite bounds.
     pub cull: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
+    /// Blend of this pass: 0 = alpha blending; otherwise "scale" (see
+    /// `scale_channel`) with channels quantized to `blend_bits` bits and
+    /// this denominator.
+    pub blend_bits: u32,
+    pub blend_den: u32,
 
     pub cull_x0: i32,
     pub cull_y0: i32,
@@ -196,6 +199,17 @@ impl<'a> ByteReader<'a> {
     }
 }
 
+/// The "scale" blend of one 8-bit channel `dst` (a value of a game that
+/// composes in `bits`-bit channels, expanded by bit replication) by the
+/// fraction `num / den`, rounded down in the quantized space, as such games
+/// darken: `expand(floor((dst >> (8 - bits)) · num / den))`. `bits` is 4..=8.
+pub fn scale_channel(dst: u32, num: u32, den: u32, bits: u32) -> u32 {
+    let shift = 8 - bits;
+    let q = (dst >> shift) * num / den.max(1);
+    let q = if q > (255 >> shift) { 255 >> shift } else { q };
+    if shift == 0 { q } else { (q << shift) | (q >> (bits - shift)) }
+}
+
 /// World-pixel origin of a cell. `col`/`row` are already wrapped.
 pub fn cell_origin(grid: &GridParams, col: i32, row: i32) -> (i32, i32) {
     let sx = grid.step_x as i32;
@@ -240,6 +254,15 @@ mod tests {
     }
 
     #[test]
+    fn scale_channel_is_rgb555_darkening() {
+        // 5-bit 20 expands to 165; half of it is 10, which expands to 82.
+        assert_eq!(scale_channel(165, 8, 16, 5), 82);
+        assert_eq!(scale_channel(255, 16, 16, 5), 255);
+        assert_eq!(scale_channel(255, 0, 16, 5), 0);
+        assert_eq!(scale_channel(200, 1, 2, 8), 100);
+    }
+
+    #[test]
     fn byte_reader_reads_every_alignment_and_width() {
         let bytes: Vec<u8> = (1..=16).collect();
         let words: Vec<u32> = bytes
@@ -263,7 +286,7 @@ mod tests {
     fn staggered_origins_match_civ3_diamond_coordinates() {
         let grid = GridParams { cols: 50, rows: 100, layout: LAYOUT_STAGGERED, step_x: 64, step_y: 32, ..Default::default() };
         // Civ III tile (x, y) with x + y even sits at (x·64, y·32): row y, col x/2.
-        for (x, y) in [(0, 0), (2, 0), (1, 1), (3, 1), (98, 99)] {
+        for (x, y) in [(0, 0), (2, 0), (1, 1), (3, 1), (97, 99)] {
             assert_eq!(cell_origin(&grid, x / 2, y), (x * 64, y * 32));
         }
     }

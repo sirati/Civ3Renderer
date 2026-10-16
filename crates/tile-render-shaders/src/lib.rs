@@ -18,7 +18,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ByteReader, FrameParams, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
-    wrap_cell,
+    scale_channel, wrap_cell,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -141,4 +141,38 @@ pub fn tile_fs(
         spirv_std::arch::kill();
     }
     *output = color;
+}
+
+/// The "scale" blend (see `tile_render_shared::scale_channel`): the sprite's
+/// red channel is the numerator; the target as it was when the pass started
+/// is bound as `backdrop`, and blending is off.
+#[spirv(fragment)]
+pub fn tile_fs_scale(
+    #[spirv(frag_coord)] frag: Vec4,
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(descriptor_set = 1, binding = 0)] backdrop: &Image!(2D, type = f32, sampled),
+    output: &mut Vec4,
+) {
+    let xy = origin + IVec2::new(local.x.floor() as i32, local.y.floor() as i32);
+    let color: Vec4 = atlas.fetch(xy.extend(page as i32));
+    if color.w == 0.0 {
+        spirv_std::arch::kill();
+    }
+    let below: Vec4 = backdrop.fetch(IVec2::new(frag.x as i32, frag.y as i32));
+    let num = to_u8(color.x);
+    let (den, bits) = (params.blend_den, params.blend_bits);
+    *output = Vec4::new(
+        scale_channel(to_u8(below.x), num, den, bits) as f32 / 255.0,
+        scale_channel(to_u8(below.y), num, den, bits) as f32 / 255.0,
+        scale_channel(to_u8(below.z), num, den, bits) as f32 / 255.0,
+        below.w,
+    );
+}
+
+fn to_u8(v: f32) -> u32 {
+    (v * 255.0 + 0.5) as u32
 }

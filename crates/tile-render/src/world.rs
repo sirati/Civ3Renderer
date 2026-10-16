@@ -92,6 +92,28 @@ impl SpriteSets {
     }
 }
 
+/// How a layer's sprites combine with what is already drawn.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum Blend {
+    /// Standard "over" alpha blending.
+    #[default]
+    Alpha,
+    /// Scales what is underneath by `k / denominator` (`k` = the sprite's
+    /// red channel), rounding down in a space of `bits`-bit channels — how
+    /// games that compose in e.g. RGB555 darken (fog of war, shadows). See
+    /// `tile_render_shared::scale_channel`. Sees the target as it was when
+    /// its pass started, so the sprites of such a pass must not overlap.
+    Scale { bits: u32, denominator: u32 },
+}
+
+/// A range of layers drawn together, see [`TileWorld::passes`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Pass {
+    pub first: u32,
+    pub count: u32,
+    pub blend: Blend,
+}
+
 /// Static configuration of one layer.
 #[derive(Clone, Debug)]
 pub struct LayerSpec {
@@ -108,11 +130,13 @@ pub struct LayerSpec {
     pub pass: u32,
     /// Point tested against `Camera::cull`, relative to the cell origin.
     pub cull_offset: (i32, i32),
+    /// Must be the same for all layers of a pass.
+    pub blend: Blend,
 }
 
 impl LayerSpec {
     pub fn new(name: impl Into<String>, lut: Vec<SpriteSetId>) -> Self {
-        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false, pass: 0, cull_offset: (0, 0) }
+        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false, pass: 0, cull_offset: (0, 0), blend: Blend::Alpha }
     }
 
     /// Smallest value width (bytes) that can index the whole table.
@@ -165,14 +189,14 @@ impl TileWorld {
     }
 
     /// (first layer, layer count) of every non-empty pass, in drawing order.
-    pub fn passes(&self) -> Vec<(u32, u32)> {
-        let mut out: Vec<(u32, u32)> = Vec::new();
+    pub fn passes(&self) -> Vec<Pass> {
+        let mut out: Vec<Pass> = Vec::new();
         let mut last_pass = None;
         for (i, l) in self.layers.iter().enumerate() {
             if last_pass == Some(l.pass) {
-                out.last_mut().unwrap().1 += 1;
+                out.last_mut().unwrap().count += 1;
             } else {
-                out.push((i as u32, 1));
+                out.push(Pass { first: i as u32, count: 1, blend: l.blend });
                 last_pass = Some(l.pass);
             }
         }
