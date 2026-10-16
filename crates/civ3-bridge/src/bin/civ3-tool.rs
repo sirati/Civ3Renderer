@@ -74,7 +74,7 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
         // The mirrored interface: its art and text.
         if let Some(frame) = &t.ui {
             let mut screen = menu::screen::ScreenArt::default();
-            ui_screen::add_art(&ui_screen::items(frame, &[], GENERATED, unit_colors), &mut screen, &mut fonts, &files(), (1, 1));
+            ui_screen::add_art(&ui_screen::items(frame, &[], GENERATED, unit_colors), &mut screen, &mut fonts, &files(), &[]);
             text.push_str(&ui_screen::description(&screen));
         }
         text.push_str(&fonts.description());
@@ -119,7 +119,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
                 let roots: Vec<std::path::PathBuf> = Vec::new();
                 let unit_colors = trace.world.color_tables.get(trace.world.player.max(0) as usize).copied().unwrap_or(0);
                 let items = ui_screen::items(frame, &roots, GENERATED, unit_colors);
-                scene.sprites.extend(ui_screen::sprites(&items, fonts, compiled, ui_screen::under_pass(compiled), (1, 1)));
+                scene.sprites.extend(ui_screen::sprites(&items, fonts, compiled, ui_screen::under_pass(compiled), &[]));
                 scene.patches = ui_screen::minimap_patches(&items, &trace.world, compiled, |t| art.table_color(t, 66).unwrap_or_default());
             }
             None => {

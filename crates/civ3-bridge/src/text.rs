@@ -83,13 +83,22 @@ impl Fonts {
         added
     }
 
+    /// Whether `compiled` has the glyphs of `run` (its art is built).
+    pub fn compiled(&self, run: &TextRun, compiled: &Compiled) -> bool {
+        let key = key(run);
+        let first = run.text.chars().next().map_or(32, |c| c as u32);
+        self.has(run) && compiled.set(&format!("Text@{}/{first}", Self::tag(&key))).is_some()
+    }
+
     /// Whether the font of `run` is loaded.
     pub fn has(&self, run: &TextRun) -> bool {
         self.fonts.get(&key(run)).is_some_and(Option::is_some)
     }
 
-    fn index(&self, key: &FontKey) -> Option<usize> {
-        self.fonts.keys().position(|k| k == key)
+    /// The name of `key`'s glyph sets: the font itself, not its place among
+    /// the fonts (which moves as fonts are added, before the art is rebuilt).
+    fn tag((style, [r, g, b]): &FontKey) -> String {
+        format!("{}#{r:02x}{g:02x}{b:02x}", civ3_assets::fonts::cache_stem(style))
     }
 
     /// Render description entries: glyph sprites `Text@<font>/<code>`
@@ -98,13 +107,14 @@ impl Fonts {
         let mut out = String::from("\n# Text glyphs (generated).\n");
         for (n, ((style, [r, g, b]), font)) in self.fonts.iter().enumerate() {
             let Some(font) = font else { continue };
+            let tag = Self::tag(&(style.clone(), [*r, *g, *b]));
             let FontStyle { face, height, weight, italic } = style;
             let _ = writeln!(out, "[images.text{n}]\nsource = \"font:{face}/{height}/{r},{g},{b}/{weight}/{}\"\n", *italic as u8);
             for (k, c) in charset().enumerate() {
                 let Some(glyph) = font.glyphs.get(&c) else { continue };
                 let _ = writeln!(
                     out,
-                    "[sheets.text{n}_{k}]\nimage = \"text{n}\"\nframe = {k}\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = \"Text@{n}\"\nfirst_index = {}\nscaling = \"keep\"\n",
+                    "[sheets.text{n}_{k}]\nimage = \"text{n}\"\nframe = {k}\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = \"Text@{tag}\"\nfirst_index = {}\nscaling = \"keep\"\n",
                     glyph.image.width,
                     glyph.image.height,
                     glyph.left,
@@ -118,7 +128,7 @@ impl Fonts {
             for a in advances {
                 let _ = writeln!(
                     out,
-                    "[images.text{n}_line{a}]\nsource = \"solid:{r},{g},{b},255:{a}x{thick}\"\n\n[sheets.text{n}_line{a}]\nimage = \"text{n}_line{a}\"\ncell = [{a}, {thick}]\ngrid = [1, 1]\nanchor = [0, {top}]\ngroup = \"TextLine@{n}\"\nfirst_index = {a}\nscaling = \"keep\"\n"
+                    "[images.text{n}_line{a}]\nsource = \"solid:{r},{g},{b},255:{a}x{thick}\"\n\n[sheets.text{n}_line{a}]\nimage = \"text{n}_line{a}\"\ncell = [{a}, {thick}]\ngrid = [1, 1]\nanchor = [0, {top}]\ngroup = \"TextLine@{tag}\"\nfirst_index = {a}\nscaling = \"keep\"\n"
                 );
             }
         }
@@ -148,20 +158,42 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) {
-        let key = key(r);
-        let (Some(n), Some(Some(font))) = (self.index(&key), self.fonts.get(&key)) else { return };
-        let mut pen = r.x;
+        self.run_sprites_at(r, clip, compiled, after_pass, None, out);
+    }
+
+    /// Like [`Fonts::run_sprites`]; with a `zoom`, the run rasterised at that
+    /// zoom (its font [`zoomed`] that many times the size) as zoomed art: at
+    /// the run's position, each glyph offset by its pen at that zoom (see
+    /// `scene::FreeSprite::zoom_art`).
+    pub fn run_sprites_at(
+        &self,
+        r: &TextRun,
+        clip: Option<[i32; 4]>,
+        compiled: &Compiled,
+        after_pass: u32,
+        zoom: Option<(u32, u32)>,
+        out: &mut Vec<scene::FreeSprite>,
+    ) {
+        let key = key(&zoom.map_or_else(|| r.clone(), |z| zoomed(r, z)));
+        let Some(Some(font)) = self.fonts.get(&key) else { return };
+        let tag = Self::tag(&key);
+        // 1:1: the pen from the run's x; zoomed: the offset from it.
+        let mut pen = if zoom.is_some() { 0 } else { r.x };
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
             // Glyphs hold coverage per colour channel (ClearType); the
             // underline is a plain bar.
             let glyph_blend = tile_render::Blend::Subpixel { color: r.color };
-            let line = r.underline.then(|| (format!("TextLine@{n}/{}", glyph.advance), tile_render::Blend::Alpha));
-            for (name, blend) in [Some((format!("Text@{n}/{}", c as u32), glyph_blend)), line].into_iter().flatten() {
+            let line = r.underline.then(|| (format!("TextLine@{tag}/{}", glyph.advance), tile_render::Blend::Alpha));
+            for (name, blend) in [Some((format!("Text@{tag}/{}", c as u32), glyph_blend)), line].into_iter().flatten() {
                 let Some((set, _)) = compiled.set(&name) else { continue };
+                let (x, zoom_art, z, zoom_offset) = match zoom {
+                    None => (pen, 0, (0, 0), (0, 0)),
+                    Some((zn, zd)) => (r.x, 2, (zn as u16, zd as u16), (pen, 0)),
+                };
                 out.push(scene::FreeSprite {
                     set: set.raw(),
-                    x: pen,
+                    x,
                     y: r.y,
                     screen: true,
                     after_pass,
@@ -169,7 +201,9 @@ impl Fonts {
                     ticks_per_frame: 1,
                     scale_den: blend.scale_den(),
                     tint: blend.tint(),
-                    zoom_art: 0,
+                    zoom_art,
+                    zoom: z,
+                    zoom_offset,
                     clip,
                 });
             }
@@ -189,4 +223,11 @@ mod tests {
         let old = TextRun::parse("text dc 0 at 1 2 color 3 4 5 font \"Lucida Sans\"/-12 str a b").unwrap();
         assert_eq!((old.color, old.weight, old.italic, old.underline, old.text.as_str()), ([3, 4, 5], 0, false, false, "a b"));
     }
+}
+
+/// Run `r` as the game would draw it at `zoom` (`(num, den)`): its font
+/// that many times the size (rounded), the rest as it is.
+pub fn zoomed(r: &TextRun, (n, d): (u32, u32)) -> TextRun {
+    let height = ((r.height.abs() as i64 * n as i64 + d as i64 / 2) / d.max(1) as i64) as i32;
+    TextRun { height: height * r.height.signum(), ..r.clone() }
 }
