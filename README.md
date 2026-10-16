@@ -58,6 +58,11 @@ sprites may also invert what is under them (`Blend::Invert`).
 A description can be compiled `n` times smaller (`Description::scaled_down`):
 sprites keep every n-th pixel, anchors and steps are divided, per-sheet
 `scaling` keeps anchors or screen art as they are — a game's zoomed-out view.
+Where the samples start is per sheet (`sample_from`): the cell's corner, or —
+for games that keep sprites cropped to the box of their non-blank pixels and
+shrink them from there — the box's corner, which makes the sampling phase
+depend on the sprite (`blank_loader` and an image's `blank` say which pixels
+are blank). Civ III's map is drawn that way.
 
 Colour: a world may compose in a *quantized colour model* (e.g. RGB555, as
 Civ III does). The target then stores `q + bias` per channel in 8 bits, and
@@ -122,7 +127,9 @@ peace.
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
 game's sprite blits and records one redraw — every sprite, position and
 order — plus the world state; `civ3-tool drawdiff` compares our draw list
-with it, `civ3-tool pixeldiff` compares our image with a screenshot.
+with it, `civ3-tool pixeldiff` compares our image with a screenshot (the
+whole frame, and the terrain alone: what no unit, label or interface sprite
+of ours covers).
 
 ## Building
 
