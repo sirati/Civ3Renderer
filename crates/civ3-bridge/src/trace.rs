@@ -114,6 +114,9 @@ fn serve_requests() {
 fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# civ3-bridge trace: map_renderer {map_renderer:#x}");
+    for (name, i, path) in civ3_sys::sprites::sheet_files(map_renderer) {
+        let _ = writeln!(out, "file {name} {i} {path}");
+    }
     if let Ok(view) = game.view() {
         let _ = writeln!(out, "view camera {} {} visible_x {} {} visible_y {} {}", view.camera_x, view.camera_y, view.tile_x.0, view.tile_x.1, view.tile_y.0, view.tile_y.1);
     }

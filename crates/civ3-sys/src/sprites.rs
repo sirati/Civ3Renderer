@@ -25,6 +25,9 @@ const MAX_POINTED: u32 = 256;
 /// Resolves `sprite` against the `Map_Renderer` at `map_renderer`.
 pub fn identify(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
     for &(name, offset, size) in L::MAP_RENDERER_FIELDS {
+        if name.starts_with("PCX_") {
+            continue; // file names, not sprites
+        }
         let (base, len) = if POINTER_ARRAYS.contains(&name) {
             let p: Ptr32<u32> = Ptr32::<u8>::new(map_renderer).offset(offset).ok()?;
             let Ok(base) = p.read() else { continue };
@@ -56,4 +59,22 @@ mod tests {
         assert_eq!(identify(mr, sprite), Some(SpriteRef { array: "Std_Terrain_Images", index: 2 * 81 + 7 }));
         assert_eq!(identify(mr, sprite + 4), None);
     }
+}
+
+/// The file names the map renderer loaded its sheets from, as
+/// (member name, element index, path), read from the running game.
+pub fn sheet_files(map_renderer: u32) -> Vec<(&'static str, u32, String)> {
+    let mut out = Vec::new();
+    for &(name, offset, size) in L::MAP_RENDERER_FIELDS {
+        if !name.starts_with("PCX_") {
+            continue;
+        }
+        let Ok(p) = Ptr32::<u8>::new(map_renderer).offset::<u8>(offset) else { continue };
+        let Ok(bytes) = p.read_array(size as usize) else { continue };
+        for (i, s) in bytes.chunks(260).enumerate() {
+            let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
+            out.push((name, i as u32, s[..end].iter().map(|&b| b as char).collect()));
+        }
+    }
+    out
 }
