@@ -457,8 +457,13 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         }
         if let Some(f) = ui {
             let mut more = have.clone();
-            for path in ui_screen::unit_files(f, files.roots()) {
+            for path in ui_screen::unit_files(f, files.roots(), false) {
                 more.add_file(&mut art, &path, unit_colors);
+            }
+            // Leader heads: those shown now replace those before.
+            let heads = ui_screen::unit_files(f, files.roots(), true);
+            if !heads.iter().all(|p| have.plain.contains_key(p)) {
+                more.set_plain(&mut art, &heads);
             }
             if more != have {
                 have = more;
