@@ -17,7 +17,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ByteReader, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
 };
 
@@ -159,17 +159,29 @@ pub fn free_vs(
     let frame = (params.frame / ticks + f.phase) % frames;
     let sprite = &sprites[sprite_sets[(f.set + 1 + frame) as usize] as usize];
     let (u, v) = quad_corner(vertex);
-    let (sx, sy) = if f.flags & FREE_SCREEN != 0 {
-        ((f.x + sprite.anchor_x) as f32 + u * sprite.width as f32, (f.y + sprite.anchor_y) as f32 + v * sprite.height as f32)
+    // The sprite's viewport rectangle: top-left and scale.
+    let (x0, y0, z) = if f.flags & FREE_SCREEN != 0 {
+        ((f.x + sprite.anchor_x) as f32, (f.y + sprite.anchor_y) as f32, 1.0)
     } else {
         let zoom = params.zoom_num as f32 / params.zoom_den as f32;
-        (
-            ((f.x + sprite.anchor_x - params.camera_x) as f32 + u * sprite.width as f32) * zoom,
-            ((f.y + sprite.anchor_y - params.camera_y) as f32 + v * sprite.height as f32) * zoom,
-        )
+        ((f.x + sprite.anchor_x - params.camera_x) as f32 * zoom, (f.y + sprite.anchor_y - params.camera_y) as f32 * zoom, zoom)
     };
+    let (mut l, mut t) = (x0, y0);
+    let (mut r, mut b) = (x0 + sprite.width as f32 * z, y0 + sprite.height as f32 * z);
+    // Clipping shrinks the quad (sprites are axis-aligned rectangles).
+    if f.flags & FREE_CLIP != 0 {
+        l = l.max(f.clip[0] as f32);
+        t = t.max(f.clip[1] as f32);
+        r = r.min(f.clip[2] as f32);
+        b = b.min(f.clip[3] as f32);
+        if r <= l || b <= t {
+            *out_pos = CULLED;
+            return;
+        }
+    }
+    let (sx, sy) = (l + u * (r - l), t + v * (b - t));
     *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
-    *out_local = Vec2::new(u * sprite.width as f32, v * sprite.height as f32);
+    *out_local = Vec2::new((sx - x0) / z, (sy - y0) / z);
     *out_origin = IVec2::new(sprite.atlas_x as i32, sprite.atlas_y as i32);
     *out_page = sprite.page;
 }

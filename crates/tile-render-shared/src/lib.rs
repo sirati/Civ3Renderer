@@ -169,11 +169,16 @@ pub struct FreeSprite {
     /// Non-zero: darkens like a scale layer (see `LayerDesc::scale_den`).
     pub scale_den: u32,
     pub _pad: u32,
+    /// With `FREE_CLIP`: only the part inside this viewport rectangle
+    /// (left, top, right, bottom; right and bottom exclusive) is drawn.
+    pub clip: [i32; 4],
 }
 
 /// The free sprite's position is in viewport pixels, unaffected by the
 /// camera (UI).
 pub const FREE_SCREEN: u32 = 1 << 0;
+/// The free sprite is clipped to its `clip` rectangle.
+pub const FREE_CLIP: u32 = 1 << 1;
 
 /// One sprite: a rectangle of an atlas page and where to draw it.
 #[repr(C)]

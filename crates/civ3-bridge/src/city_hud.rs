@@ -61,6 +61,7 @@ pub fn sprites(world: &Civ3World, compiled: &Compiled) -> Vec<scene::FreeSprite>
                 phase: 0,
                 ticks_per_frame: 1,
                 scale_den: 0,
+                clip: None,
             })
         })
         .collect()

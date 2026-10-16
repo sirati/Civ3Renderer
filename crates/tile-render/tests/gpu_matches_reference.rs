@@ -92,6 +92,9 @@ fn scene_with(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
         world.free.push(PlacedSprite { after_pass: 1, blend: Blend::Scale { denominator: 16 }, ..PlacedSprite::new(shade_set, 150, 70) });
         world.free.push(PlacedSprite { screen: true, ..PlacedSprite::new(terrain[2], 30, 20) });
         world.free.push(PlacedSprite { screen: true, ..PlacedSprite::new(anim, -10, 300) });
+        world.free.push(PlacedSprite { screen: true, clip: Some([40, 25, 90, 60]), ..PlacedSprite::new(terrain[1], 30, 20) });
+        world.free.push(PlacedSprite { clip: Some([100, 0, 130, 400]), ..PlacedSprite::new(anim, 180, 120) });
+        world.free.push(PlacedSprite { screen: true, clip: Some([5, 5, 5, 50]), ..PlacedSprite::new(terrain[0], 0, 0) });
         let shadow = world.add_layer(LayerSpec {
             pass: 1,
             blend: Blend::Scale { denominator: 16 },

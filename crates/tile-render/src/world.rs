@@ -156,11 +156,14 @@ pub struct PlacedSprite {
     pub phase: u32,
     pub ticks_per_frame: u32,
     pub blend: Blend,
+    /// Drawn only inside this viewport rectangle (left, top, right,
+    /// bottom; exclusive).
+    pub clip: Option<[i32; 4]>,
 }
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None }
     }
 
     pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
@@ -168,7 +171,8 @@ impl PlacedSprite {
             set: self.set.0,
             phase: self.phase,
             ticks_per_frame: self.ticks_per_frame.max(1),
-            flags: if self.screen { tile_render_shared::FREE_SCREEN } else { 0 },
+            flags: if self.screen { tile_render_shared::FREE_SCREEN } else { 0 }
+                | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 },
             x: self.x,
             y: self.y,
             scale_den: match self.blend {
@@ -176,6 +180,7 @@ impl PlacedSprite {
                 Blend::Scale { denominator } => denominator.max(1),
             },
             _pad: 0,
+            clip: self.clip.unwrap_or_default(),
         }
     }
 }

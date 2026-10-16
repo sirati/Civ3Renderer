@@ -19,6 +19,8 @@ pub struct Draw {
     /// Index of the render pass, and the layer's blend.
     pub pass: usize,
     pub blend: Blend,
+    /// Viewport rectangle the draw is limited to.
+    pub clip: Option<[i32; 4]>,
 }
 
 /// The sprites `TileRenderer::draw` draws, in drawing order (without
@@ -95,6 +97,9 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
             if px < 0 || py < 0 || px >= w as i32 || py >= h as i32 {
                 continue;
             }
+            if d.clip.is_some_and(|[x0, y0, x1, y1]| px < x0 || py < y0 || px >= x1 || py >= y1) {
+                continue;
+            }
             let src = page.get(sprite.atlas_x + sx as u32, sprite.atlas_y + sy as u32);
             if src[3] != 0 {
                 f(px as u32, py as u32, src);
@@ -120,7 +125,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
             let sprite_id = packed.sets[set + 1 + f as usize];
             let sprite = atlas.sprites[sprite_id as usize];
             let (cx, cy) = if s.screen { (0, 0) } else { (camera.x, camera.y) };
-            draw(Draw { sprite: crate::SpriteId(sprite_id), x: s.x + sprite.anchor_x - cx, y: s.y + sprite.anchor_y - cy, pass: p, blend: s.blend });
+            draw(Draw { sprite: crate::SpriteId(sprite_id), x: s.x + sprite.anchor_x - cx, y: s.y + sprite.anchor_y - cy, pass: p, blend: s.blend, clip: s.clip });
         }
     };
     for (pass_index, pass) in passes.iter().enumerate() {
@@ -161,6 +166,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
                     y: oy + layer.offset_y + sprite.anchor_y - camera.y,
                     pass: pass_index,
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
+                    clip: None,
                 });
             }
         }

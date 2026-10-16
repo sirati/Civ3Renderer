@@ -312,6 +312,7 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled) -> Vec
                     phase: 0,
                     ticks_per_frame: 1,
                     scale_den,
+                    clip: None,
                 });
             }
         };
