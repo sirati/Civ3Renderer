@@ -76,6 +76,9 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     }
 }
 
+/// Arrays the game draws through blits the tracer does not hook yet.
+const NOT_TRACED: &[&str] = &["Fog_Of_War_Images"];
+
 /// A draw, named, and whether it touches the viewport.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Named {
@@ -99,13 +102,18 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
     let visible = |name: &str, x: i32, y: i32| {
         size_of(name).is_some_and(|(w, h)| x + w > 0 && y + h > 0 && x < viewport.0 as i32 && y < viewport.1 as i32)
     };
-    // Arrays our description covers: compare only those.
-    let groups: HashSet<&str> = compiled.sprite_names.iter().filter_map(|n| n.split_once('/').map(|(g, _)| g)).collect();
+    // Arrays our description covers and the tracer sees: compare only those.
+    let groups: HashSet<&str> = compiled
+        .sprite_names
+        .iter()
+        .filter_map(|n| n.split_once('/').map(|(g, _)| g))
+        .filter(|g| !NOT_TRACED.contains(g))
+        .collect();
 
     let ours: Vec<Named> = reference::draw_list(&world, &compiled.atlas, &camera, 0)
         .into_iter()
         .map(|d| Named { name: compiled.sprite_names[d.sprite.0 as usize].clone(), x: d.x, y: d.y })
-        .filter(|d| visible(&d.name, d.x, d.y))
+        .filter(|d| visible(&d.name, d.x, d.y) && groups.contains(d.name.split('/').next().unwrap_or("")))
         .collect();
     let mut unresolved = 0;
     let theirs: Vec<Named> = trace

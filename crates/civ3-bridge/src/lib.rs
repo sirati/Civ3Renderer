@@ -7,6 +7,8 @@ pub mod rules;
 pub mod scene_map;
 pub mod world;
 #[cfg(windows)]
+pub mod live;
+#[cfg(windows)]
 pub mod trace;
 
 #[cfg(windows)]
@@ -15,7 +17,6 @@ use civ3_sys::Civ3;
 inproc::entry!(init);
 
 #[cfg(windows)]
-
 fn init() {
     let _ = inproc::log_to_file(std::path::Path::new("civ3-bridge.log"), log::LevelFilter::Debug);
     log::info!("civ3-bridge loaded");
@@ -28,6 +29,11 @@ fn init() {
         // Hooks stay installed for the life of the process.
         Ok(tracer) => std::mem::forget(tracer),
         Err(e) => log::error!("installing tracer: {e}"),
+    }
+    if std::env::var_os("CIV3R_VIEWER").is_some() {
+        if let Err(e) = live::start(game) {
+            log::error!("starting the renderer: {e}");
+        }
     }
     for _ in 0..30 {
         std::thread::sleep(std::time::Duration::from_secs(2));

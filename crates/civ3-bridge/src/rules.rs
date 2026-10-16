@@ -79,6 +79,7 @@ pub mod seed_k {
     pub const HILLS: u32 = 121_472;
     pub const RIVER: u32 = 0x84_5FED;
     pub const TNT: u32 = 64_536;
+    pub const POLAR: u32 = 21_031;
 }
 
 /// The tile index the RNG is seeded with (16 bits).
@@ -264,11 +265,13 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
         (8, [(e, 0x20), (s, 0x02)]),
     ];
     for (bit, sources) in edges {
-        for (t, b) in sources {
+        for (k, (t, b)) in sources.into_iter().enumerate() {
             if has(t, b) {
                 mask |= bit;
             }
-            if fp(t, b) {
+            // W never makes the NW edge a flood-plain edge (measured, 17
+            // flood-plain vertices in two games).
+            if fp(t, b) && !(bit == 1 && k == 1) {
                 fp_mask |= bit;
             }
         }
@@ -307,6 +310,41 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
                     != 0
         });
     VertexRiver { flood_plain, river, under_objects: special }
+}
+
+/// §6.8: the fog-of-war sprite at vertex (vx, vy): per surrounding tile
+/// N, W, E, S a digit 2 (visible to the player), 1 (explored) or 0
+/// (unexplored, also off the map), weighted 1, 3, 9, 27. All visible (80)
+/// draws nothing.
+pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
+    let bit = 1u32 << (world.player & 31);
+    let digit = |t: Option<&Civ3Tile>| match t {
+        Some(t) if (t.fow_status | t.v3 | t.visibility | t.visibility_d0) & bit != 0 => 2,
+        Some(t) if t.explored & bit != 0 => 1,
+        _ => 0,
+    };
+    let corners = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)];
+    let index: u32 = corners.iter().rev().fold(0, |acc, &(x, y)| acc * 3 + digit(world.tile(x, y)));
+    (index != 80).then(|| format!("Fog_Of_War_Images/{index}"))
+}
+
+/// §5.2: the polar ice cap at vertex (vx, vy), on maps with polar caps
+/// (and no vertical wrap): the two rows at each pole, sheet rows 0/1 at the
+/// top, 3/2 at the bottom. Unlike the other consumers, one LCG step only.
+pub fn polar_cap(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
+    if world.flags & 2 != 0 || world.flags & 4 == 0 {
+        return None;
+    }
+    let base = match vy {
+        0 => 0,
+        1 => 8,
+        y if y == world.height - 1 => 16,
+        y if y == world.height - 2 => 24,
+        _ => return None,
+    };
+    let a = (((world.width >> 1) * vy + ((vx & 0xFFFF) >> 1)) & 0xFFFF) as u32;
+    let r = Rng(world.seed.wrapping_add(a.wrapping_mul(seed_k::POLAR))).rand_int(8);
+    Some(format!("Polar_Icecaps_Images/{}", base + r))
 }
 
 #[cfg(test)]
