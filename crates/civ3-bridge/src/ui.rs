@@ -179,6 +179,11 @@ impl UiModel {
     }
 
 
+    /// Forgets what `image` shows.
+    pub fn reset(&mut self, image: u32) {
+        self.canvases.remove(&image);
+    }
+
     /// Forgets what the underlays show: the game redraws the map under them
     /// (painting over what they showed, unseen by the mirror).
     pub fn reset_underlays(&mut self) {

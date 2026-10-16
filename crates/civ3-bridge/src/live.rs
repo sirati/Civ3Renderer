@@ -351,7 +351,19 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             Shown::Map(world, _) => world.color_tables.get(world.player.max(0) as usize).copied().unwrap_or(0),
             Shown::Title(_) => 0,
         };
-        let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        // An open city screen covers everything under it; the map shows in
+        // its gap, as a view of its own (§16.8).
+        let city = match (shown, ui) {
+            (Shown::Map(world, _), Some(frame)) if world.focus_city.is_some() => {
+                ui_screen::city_screen(frame, &files, files.roots(), &mut city_bands)
+            }
+            _ => None,
+        };
+        let visible_ui = match city {
+            Some((_, first)) => ui.as_ref().map(|f| ui_screen::from_draw(f, first)),
+            None => ui.clone(),
+        };
+        let ui_items = visible_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
         if let Some(f) = ui {
             let mut more = have.clone();
             for path in ui_screen::unit_files(f, files.roots()) {
@@ -426,19 +438,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             });
         }
         crate::scene_map::overlay_screen_sprites(&mut scene);
-        // The city screen's map: a view of its own, in the gap of its art.
-        if let (Shown::Map(world, view), Some(frame)) = (shown, ui) {
-            let rect = world.focus_city.and_then(|_| ui_screen::city_view_rect(frame, &files, files.roots(), &mut city_bands));
-            if let Some([x, y, w, h]) = rect {
-                scene.view_mut(crate::scene_map::CITY_VIEW).view = scene::View {
-                    camera_x: view.camera_x + x,
-                    camera_y: view.camera_y + y,
-                    zoom: (1, 1),
-                    viewport: (w as u32, h as u32),
-                    origin: (x, y),
-                    ..Default::default()
-                };
-            }
+        if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
+            crate::scene_map::city_view(&mut scene, (view.camera_x, view.camera_y), [x, y, w, h]);
         }
         scene.seq = seq;
         presenter.publish(scene);

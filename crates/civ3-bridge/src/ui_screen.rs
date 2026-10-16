@@ -92,6 +92,19 @@ pub fn unit_files(frame: &Frame, roots: &[PathBuf]) -> Vec<String> {
     out
 }
 
+/// What an opaque screen starting at draw `first` leaves of `frame`: the
+/// underlays (map labels; they go with the map, which is shown in its own
+/// view) and the draws from `first` on.
+pub fn from_draw(frame: &Frame, first: usize) -> Frame {
+    let under: Vec<usize> = frame.underlay_draws.iter().flat_map(|r| r.clone()).filter(|&i| i < first).collect();
+    let mut draws: Vec<_> = under.iter().map(|&i| frame.draws[i].clone()).collect();
+    let n = draws.len();
+    draws.extend(frame.draws[first.min(frame.draws.len())..].iter().cloned());
+    let mut underlay_draws = vec![0..n];
+    underlay_draws.extend(frame.underlay_draws.iter().filter(|r| r.start >= first).map(|r| r.start - first + n..r.end - first + n));
+    Frame { draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws }
+}
+
 /// The art and fonts `items` need; whether anything was new.
 pub fn add_art(items: &[Item], art: &mut ScreenArt, fonts: &mut Fonts, files: &civ3_assets::GameFiles) -> bool {
     let elements: Vec<Element> = items.iter().filter_map(|i| if let Item::Element(e, _) = i { Some(e.clone()) } else { None }).collect();
@@ -159,16 +172,18 @@ pub fn minimap_patches(
     out
 }
 
-/// Where the city screen shows the map (§16.8): the transparent band
-/// (palette index 255) of its background art, as the mirrored interface
-/// places it. Bands are measured once per file (`bands`).
-pub fn city_view_rect(
+/// The open city screen (§16.8): where it shows the map — the transparent
+/// band (palette index 255) of its background art, as the mirrored
+/// interface places it — and the index of its first draw in `frame` (what
+/// comes before is under it, hidden). Bands are measured once per file
+/// (`bands`).
+pub fn city_screen(
     frame: &Frame,
     files: &civ3_assets::GameFiles,
     roots: &[PathBuf],
     bands: &mut std::collections::HashMap<String, Option<[i32; 4]>>,
-) -> Option<[i32; 4]> {
-    frame.draws.iter().find_map(|d| {
+) -> Option<([i32; 4], usize)> {
+    frame.draws.iter().enumerate().find_map(|(i, d)| {
         let ScreenDraw::Image { path, rect, x, y, .. } = d else { return None };
         let p = path.to_ascii_lowercase().replace('/', "\\");
         if !p.ends_with("city screen\\background.pcx") {
@@ -180,7 +195,8 @@ pub fn city_view_rect(
         // The band within the drawn region, on the screen.
         let (l, t) = (bl.max(rect[0]), bt.max(rect[1]));
         let (r, b) = (br.min(rect[0] + rect[2]), bb.min(rect[1] + rect[3]));
-        (r > l && b > t).then(|| [x + l - rect[0], y + t - rect[1], r - l, b - t])
+        let first = frame.form_draws.iter().find(|(_, range)| range.contains(&i)).map_or(i, |(_, range)| range.start);
+        (r > l && b > t).then(|| ([x + l - rect[0], y + t - rect[1], r - l, b - t], first))
     })
 }
 

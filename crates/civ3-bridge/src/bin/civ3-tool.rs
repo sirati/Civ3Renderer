@@ -87,12 +87,25 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
 /// The scene of a trace, units included.
 fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::UnitArt, text::Fonts)>, viewport: (u32, u32)) -> scene::Scene {
     let mut scene = Mapper::new(compiled).scene(&trace.world, &trace.view, viewport, 0);
+    // An open city screen, as live handles it.
+    let city = match (trace.world.focus_city, &trace.ui) {
+        (Some(_), Some(frame)) => {
+            let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+            let files = assets::game_files(install.as_ref(), trace.scenario_folder.as_deref(), &trace.search_roots);
+            ui_screen::city_screen(frame, &files, &[], &mut Default::default())
+        }
+        _ => None,
+    };
+    let ui = match city {
+        Some((_, first)) => trace.ui.as_ref().map(|f| ui_screen::from_draw(f, first)),
+        None => trace.ui.clone(),
+    };
     if let Some((art, fonts)) = art {
-        if trace.ui.is_none() {
+        if ui.is_none() {
             scene.sprites = city_site::sprites(&trace.world, compiled);
         }
         scene.sprites.extend(units::sprites(&trace.world, art, compiled));
-        match &trace.ui {
+        match &ui {
             // The mirrored interface has the city icons and all text.
             Some(frame) => {
                 let roots: Vec<std::path::PathBuf> = Vec::new();
@@ -111,21 +124,8 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         }
     }
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
-    // The city screen's map, as live does.
-    if let (Some(_), Some(frame)) = (trace.world.focus_city, &trace.ui) {
-        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-        let files = assets::game_files(install.as_ref(), trace.scenario_folder.as_deref(), &trace.search_roots);
-        if let Some([x, y, w, h]) = ui_screen::city_view_rect(frame, &files, &[], &mut Default::default()) {
-            let game = scene.view(ifc23::scene_map::GAME_VIEW).map(|v| v.view).unwrap_or_default();
-            scene.view_mut(ifc23::scene_map::CITY_VIEW).view = scene::View {
-                camera_x: game.camera_x + x,
-                camera_y: game.camera_y + y,
-                zoom: (1, 1),
-                viewport: (w as u32, h as u32),
-                origin: (x, y),
-                ..Default::default()
-            };
-        }
+    if let Some((rect, _)) = city {
+        ifc23::scene_map::city_view(&mut scene, (trace.view.camera_x, trace.view.camera_y), rect);
     }
     scene
 }

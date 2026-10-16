@@ -66,8 +66,9 @@ impl<'a> Mapper<'a> {
         let shape = WorldShape {
             cols: (world.width / 2).max(1) as u32,
             // Vertex layers live in the tile below the vertex: one more row
-            // for the vertices along the bottom edge.
-            rows: (world.height + i32::from(!world.wrap_y)).max(1) as u32,
+            // for the vertices along the bottom edge, and one for the fog of
+            // war the game draws below them (off the map, measured).
+            rows: (world.height + 2 * i32::from(!world.wrap_y)).max(1) as u32,
             wrap_x: world.wrap_x,
             wrap_y: world.wrap_y,
         };
@@ -143,4 +144,23 @@ pub fn zoom_out(sprites: &mut [scene::FreeSprite]) {
         s.x /= 2;
         s.y /= 2;
     }
+}
+
+/// The city screen is open: the game view is hidden (the screen covers it)
+/// and the city's surroundings show in `rect` (window pixels: x, y, w, h)
+/// as the game frames them (its camera at `camera`), with the map labels.
+pub fn city_view(scene: &mut Scene, camera: (i32, i32), [x, y, w, h]: [i32; 4]) {
+    let game = scene.view_mut(GAME_VIEW);
+    game.view.interface_only = true;
+    let labels = std::mem::take(&mut game.overlay);
+    let city = scene.view_mut(CITY_VIEW);
+    city.view = View {
+        camera_x: camera.0 + x,
+        camera_y: camera.1 + y,
+        zoom: (1, 1),
+        viewport: (w as u32, h as u32),
+        origin: (x, y),
+        ..Default::default()
+    };
+    city.overlay = labels;
 }

@@ -52,6 +52,12 @@ static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 /// Skip the game's own map drawing (`Draw_Tiles`).
 pub static GAME_MAP_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Whether map sprites are not to be blitted: the game's map rendering is
+/// off and a map redraw is in progress.
+fn map_blits_off() -> bool {
+    GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) && STATE.lock().is_ok_and(|s| s.depth > 0)
+}
+
 /// Calls seen, for diagnostics.
 pub static SPRITE_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static DRAW_TILES_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -131,7 +137,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
         Some((addr, prologue)) => Some(sprite_draw_on_map::install_inline(addr, prologue, |call| {
             SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
-            call.original()
+            if map_blits_off() { 0 } else { call.original() }
         })?),
         None => {
             log::warn!("no Sprite_draw_on_map site for {:?}; tracing disabled", game.build);
@@ -141,7 +147,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let blend = match hooks::sprite_draw_on_map_blend_site(game.build) {
         Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_inline(addr, prologue, |call| {
             record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
-            call.original()
+            if map_blits_off() { 0 } else { call.original() }
         })?),
         None => None,
     };
@@ -184,18 +190,17 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
             let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
             s.depth += 1;
             if s.depth == 1 {
-                crate::ui_trace::map_redraw();
+                crate::ui_trace::map_redraw(call.map_renderer);
                 if let Some((mr, draws, _)) = s.frame.take() {
                     s.previous = Some((mr, draws));
                 }
                 s.frame = Some((call.map_renderer, Vec::new(), std::time::Instant::now()));
             }
         }
-        // With the game's map rendering switched off, the map stays as the
-        // UI left it; our renderer draws the map instead.
-        if !GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) {
-            call.original();
-        }
+        // With the game's map rendering switched off its sprites are not
+        // blitted (see `map_blits_off`), but the pass still runs: it also
+        // draws the city labels the interface mirror shows.
+        call.original();
         STATE.lock().unwrap_or_else(|e| e.into_inner()).depth -= 1;
     })?;
     std::thread::spawn(move || serve_requests(game));
