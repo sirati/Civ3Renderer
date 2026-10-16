@@ -645,7 +645,7 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
             Input::Zooms(zooms) => {
-                forwarder.zooms = zooms.iter().filter(|z| z.0 > z.1 && z.1 > 0).map(|&(n, d)| (u32::from(n), u32::from(d))).collect();
+                forwarder.zooms = zooms.iter().filter(|z| z.0 != z.1 && z.0 > 0 && z.1 > 0).map(|&(n, d)| (u32::from(n), u32::from(d))).collect();
             }
         }
     }
