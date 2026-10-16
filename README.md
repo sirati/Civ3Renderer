@@ -124,6 +124,11 @@ game's sprite blits and records one redraw — every sprite, position and
 order — plus the world state; `civ3-tool drawdiff` compares our draw list
 with it, `civ3-tool pixeldiff` compares our image with a screenshot.
 
+The districts of the C3X mod (`civ3_bridge::districts`, docs §18) are read
+from C3X's state in the game and drawn by C3X's rules; `tools/district-oracle`
+runs C3X's own choice functions, cut out of its source, over all their inputs
+for the tests.
+
 ## Building
 
 ```
