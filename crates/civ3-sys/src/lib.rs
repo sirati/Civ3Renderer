@@ -7,10 +7,14 @@
 //! calling conventions of the functions we hook. Reads go through
 //! [`inproc::Ptr32`], so they are safe; interpretation of the data (what a
 //! tile *means* for rendering) is the business of the crates above.
-#![forbid(unsafe_code)]
+// No unsafe code of our own; the hook declarations in `hooks` expand
+// `inproc::fastcall_hook!`, whose generated trampolines are the exception.
+#![deny(unsafe_code)]
 
 pub mod build;
+pub mod hooks;
 pub mod layout;
+pub mod sprites;
 pub mod world;
 
 pub use build::{Addresses, Build};
