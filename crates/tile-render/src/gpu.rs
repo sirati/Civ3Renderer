@@ -59,6 +59,16 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wg
         .await?)
 }
 
+/// The instance settings: backends from `WGPU_BACKEND`, and no validation
+/// or debug callbacks unless asked for (`WGPU_DEBUG`, `WGPU_VALIDATION`):
+/// the renderer often runs inside other programs, on machines whose
+/// graphics stack it cannot vouch for.
+pub fn instance_descriptor() -> wgpu::InstanceDescriptor {
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    desc.flags = wgpu::InstanceFlags::empty().with_env();
+    desc
+}
+
 /// A device without a window, for tests and screenshot tools.
 pub struct Headless {
     pub adapter: wgpu::Adapter,
@@ -69,7 +79,7 @@ pub struct Headless {
 impl Headless {
     pub fn new() -> Result<Self, GpuError> {
         pollster::block_on(async {
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+            let instance = wgpu::Instance::new(instance_descriptor());
             let adapter = select_adapter(&instance, None, None).await?;
             let (device, queue) = request_device(&adapter).await?;
             Ok(Self { adapter, device, queue })

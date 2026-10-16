@@ -44,9 +44,8 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
             victory_location: t.victory_location(),
         })
         .collect();
-    let players = game.players()?;
-    let cities = game
-        .cities()?
+    let players = optional("players", game.players());
+    let cities = optional("cities", game.cities())
         .into_iter()
         .map(|c| Civ3City { id: c.id, x: c.x, y: c.y, civ: c.civ, size: c.size, improvements: c.improvements })
         .collect();
@@ -63,8 +62,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         max_city: players.max_city,
         cities,
         governments: players.governments,
-        units: game
-            .drawn_units()?
+        units: optional("units", game.drawn_units())
             .into_iter()
             .map(|u| Civ3Unit {
                 id: u.id,
@@ -85,13 +83,13 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
                 visible: u.visible,
             })
             .collect(),
-        unit_type_keys: game.unit_type_keys()?,
-        era_keys: game.era_keys()?,
-        unit_type_stats: game.unit_type_stats()?,
-        experience_hit_points: game.experience_hit_points()?,
-        unit_tiles: game.unit_tiles()?,
-        preferences: game.preferences()?,
-        selection: game.selection()?,
+        unit_type_keys: optional("unit_type_keys", game.unit_type_keys()),
+        era_keys: optional("era_keys", game.era_keys()),
+        unit_type_stats: optional("unit_type_stats", game.unit_type_stats()),
+        experience_hit_points: optional("experience_hit_points", game.experience_hit_points()),
+        unit_tiles: optional("unit_tiles", game.unit_tiles()),
+        preferences: optional("preferences", game.preferences()),
+        selection: optional("selection", game.selection()),
         wall_buildings: players
             .wall_buildings
             .iter()
@@ -107,6 +105,15 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
     };
     let view = Civ3View { camera_x: view.camera_x, camera_y: view.camera_y, tile_x: view.tile_x, tile_y: view.tile_y };
     Ok((world, view))
+}
+
+/// Parts of the game state the map can do without when they cannot be
+/// read (e.g. lists the game is rebuilding): their default, and a note.
+fn optional<T: Default>(what: &str, read: Result<T, Civ3Error>) -> T {
+    read.unwrap_or_else(|e| {
+        log::debug!("snapshot: no {what}: {e}");
+        T::default()
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -322,7 +329,11 @@ impl InputForwarder {
         if self.window.is_none() {
             self.window = inproc::window::Window::of_this_process()
                 .into_iter()
-                .filter(|w| w.title() != VIEWER_TITLE)
+                // Not ours, and a real window (titled, with an area).
+                .filter(|w| {
+                    let t = w.title();
+                    !t.is_empty() && t != VIEWER_TITLE && w.client_size().is_some_and(|(w, h)| w > 0 && h > 0)
+                })
                 .max_by_key(|w| w.client_size().map_or(0, |(w, h)| w as u64 * h as u64));
             if let Some(w) = self.window {
                 log::info!("forwarding input to {:?} ({:?})", w.title(), w.client_size());

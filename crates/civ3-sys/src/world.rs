@@ -80,7 +80,7 @@ pub struct WallBuilding {
 }
 
 /// Per player, the data city and unit art depends on.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Players {
     pub eras: Vec<i32>,
     pub color_tables: Vec<i32>,
