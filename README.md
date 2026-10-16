@@ -24,6 +24,9 @@ game could drive the same renderer, with or without Civ III's art.
 | `inproc` | no | safe abstractions for injected code: guarded memory reads, hooks, DLL entry |
 | `civ3-sys` | facts only | Civ III binary facts: build detection, addresses, generated struct layouts |
 | `civ3-bridge` | **yes** | runs in the game (as `ifc23.dll`), reads its state, drives the renderer |
+| `gdi-text` | no | safe wrapper for GDI text rasterisation (glyph sheets matching old games' text) |
+| `wine-unixlib` | no | safe abstractions for Wine dual-stack programs (PE code calling a native Linux unixlib) |
+| `civ3r-native` | asset loader only | native Linux side of the renderer inside the Wine game process |
 
 All `unsafe` interop is confined to `inproc`; `civ3-sys` and the renderer
 crates forbid unsafe code, `civ3-bridge` denies it except for the exported DLL
@@ -92,3 +95,22 @@ per user). Set `TILE_RENDER_ADAPTER=radv` to pick the AMD iGPU.
 * The game composes in 15-bit colour (RGB555); the render description asks
   the loader to quantise accordingly, which is what makes pixel-exact
   comparison possible.
+
+## Native Linux renderer inside the game (Wine "dual stack")
+
+Under Wine's new WoW64 mode (`wineWow64Packages`) the 32-bit game and our
+32-bit bridge share one 64-bit process with native Linux code. The builtin
+DLL `civ3r_native.dll` carries a unixlib, `civ3r_native.so` (crate
+`civ3r-native`), which runs the tile viewer natively (Wayland, Vulkan):
+the bridge sends it the render description and scenes and takes input
+back through `__wine_unix_call` (`wine-unixlib`, `scene::wire`). With
+`CIV3R_GAME_MAP=off` the game no longer draws its map at all.
+
+```
+tools/install-native                 # build + lay out for WINEDLLPATH
+tools/civ3-native start --map-off    # inside nix develop; then civ3-session newgame/trace/shot
+```
+
+On Windows (and in the Windows VM, DX12 WARP) the bridge runs the viewer as
+a window of the game's own 32-bit process instead; `vendor/wgpu-hal` carries
+a fix that DX12 needs in 32-bit processes.

@@ -1,0 +1,13 @@
+[package]
+name = "wine-unixlib"
+description = "Safe abstractions for Wine dual-stack programs: PE code calling a native Linux unixlib in the same process"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

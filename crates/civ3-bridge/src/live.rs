@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
-use scene::Link;
 
+use crate::presenter::{self, Presenter};
 use crate::{assets, text, trace, units};
 use crate::scene_map::Mapper;
 use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, WallBuilding};
@@ -169,9 +169,21 @@ impl Compiler {
         assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search)
     }
 
-    fn compile(&self, folders: &ArtFolders, units: &units::Needed, fonts: &text::Fonts) -> Result<Arc<Compiled>, LiveError> {
+    /// The compiled description, and what a renderer compiling its own copy
+    /// needs (the full text, the art roots).
+    fn compile(
+        &self,
+        folders: &ArtFolders,
+        units: &units::Needed,
+        fonts: &text::Fonts,
+    ) -> Result<(Arc<Compiled>, scene::wire::Assets), LiveError> {
         let text = format!("{}{}{}", self.text, units.description(), fonts.description());
-        let compiled = assets::compile(&text, self.files(folders)).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
+        let files = self.files(folders);
+        let wire = scene::wire::Assets {
+            description: text.clone(),
+            roots: files.roots().iter().map(|r| r.to_string_lossy().into_owned()).collect(),
+        };
+        let compiled = assets::compile(&text, files).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
         let pages = &compiled.atlas.pages;
         let mb = pages.iter().map(|p| p.width as u64 * p.height as u64 * 4).sum::<u64>() >> 20;
         log::info!(
@@ -180,38 +192,37 @@ impl Compiler {
             compiled.sprite_names.len(),
             pages.len()
         );
-        Ok(Arc::new(compiled))
+        Ok((Arc::new(compiled), wire))
     }
 }
 
-/// Starts the publisher and the viewer window; returns at once.
+/// Starts the publisher and the viewer; returns at once. `CIV3R_VIEWER`:
+/// `1` / `fullscreen` a window of this process, `native` /
+/// `native-fullscreen` the native Linux viewer (Wine with
+/// `civ3r_native.dll`, see `tools/install-native`).
 pub fn start(game: Civ3) -> Result<(), LiveError> {
     let (name, text) = description()?;
     let compiler = Compiler { install: install_root()?, name, text };
     let folders = ArtFolders::of(&game);
-    let assets = tile_viewer::Assets::new(compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default())?);
-    let link = Link::new();
-    {
-        let (assets, link) = (assets.clone(), link.clone());
-        std::thread::Builder::new()
-            .name("civ3r-publish".into())
-            .spawn(move || publish(game, &compiler, folders, &assets, &link))
-            .map_err(LiveError::Install)?;
-    }
+    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default())?;
+    let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
+    let mut presenter = if mode.starts_with("native") {
+        let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
+        Presenter::Native(native)
+    } else {
+        let config = tile_viewer::ViewerConfig {
+            title: VIEWER_TITLE.into(),
+            size: (1024, 768),
+            fullscreen: mode == "fullscreen",
+            overhang: (0, 128, 0, 128),
+            ..Default::default()
+        };
+        Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
+    };
+    presenter.set_assets(&compiled, &wire);
     std::thread::Builder::new()
-        .name("civ3r-viewer".into())
-        .spawn(move || {
-            let config = tile_viewer::ViewerConfig {
-                title: VIEWER_TITLE.into(),
-                size: (1024, 768),
-                fullscreen: std::env::var("CIV3R_VIEWER").is_ok_and(|v| v == "fullscreen"),
-                overhang: (0, 128, 0, 128),
-                ..Default::default()
-            };
-            if let Err(e) = tile_viewer::run(config, assets, link) {
-                log::error!("viewer: {e}");
-            }
-        })
+        .name("civ3r-publish".into())
+        .spawn(move || publish(game, &compiler, folders, compiled, presenter))
         .map_err(LiveError::Install)?;
     Ok(())
 }
@@ -227,8 +238,7 @@ enum Shown {
 }
 
 /// Publishes a new scene whenever what the game shows changes.
-fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &tile_viewer::Assets, link: &Link) {
-    let mut compiled = assets.current().1;
+fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compiled: Arc<Compiled>, mut presenter: Presenter) {
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
@@ -250,7 +260,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
             have = units::Needed::default();
             recompile = true;
         }
-        let inputs = link.take_input();
+        let inputs = presenter.take_input();
         let shown = match snapshot(&game) {
             Ok((world, view)) => Shown::Map(world, view),
             // Between games: the title menu, which follows the pointer.
@@ -289,8 +299,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
         recompile |= fonts.add(&compiler.files(&folders), texts);
         if recompile {
             match compiler.compile(&folders, &have, &fonts) {
-                Ok(c) => {
-                    assets.replace(c.clone());
+                Ok((c, wire)) => {
+                    presenter.set_assets(&c, &wire);
                     compiled = c;
                     mapper = Mapper::new(&compiled);
                     menus = menus_of(&compiled);
@@ -315,7 +325,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         scene.seq = seq;
-        link.publish(scene);
+        presenter.publish(scene);
         last = Some(state);
     }
 }

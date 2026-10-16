@@ -11,6 +11,7 @@ pub mod units;
 pub mod world;
 #[cfg(windows)]
 pub mod live;
+pub mod presenter;
 #[cfg(windows)]
 pub mod trace;
 
