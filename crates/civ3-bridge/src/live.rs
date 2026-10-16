@@ -468,17 +468,17 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
-        // Labels the game's own view does not show where we would (see
-        // `game_shows_label`) are left out of it: `elsewhere_items`.
-        let (label_items, elsewhere_items) = match shown {
+        // Every explored city has its label, also those the game's own view
+        // leaves out (it skips cities past the edge of its tile range and
+        // misplaces far ones).
+        let label_items = match shown {
             Shown::Map(world, view) if ui.is_some() && world_labels() => {
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 let labels = crate::city_labels::labels(world, view.zoomed_out, &mut label_env);
-                let (shown_too, elsewhere): (Vec<_>, Vec<_>) = labels.into_iter().partition(|l| game_shows_label(world, view, l.city));
                 let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
-                (crate::city_labels::items(&shown_too, (0, 0), everywhere, true), crate::city_labels::items(&elsewhere, (0, 0), everywhere, true))
+                crate::city_labels::items(&labels, (0, 0), everywhere, true)
             }
-            _ => (Vec::new(), Vec::new()),
+            _ => Vec::new(),
         };
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
@@ -526,7 +526,6 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         }
         recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms);
         recompile |= ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms);
-        recompile |= ui_screen::add_art(&elsewhere_items, &mut screen_art, &mut fonts, &files, &input.zooms);
         // The zoomed-out view has its own (half-size) art.
         if let Shown::Map(_, view) = shown {
             if view.zoomed_out != zoomed_out {
@@ -604,14 +603,12 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         // Labels also rasterised at the zooms the viewer shows (as far as
         // their fonts are there).
-        scene.zooms = ui_screen::label_zooms(&[ui_items.as_slice(), &label_items, &elsewhere_items].concat(), &fonts, &compiled, &input.zooms);
+        scene.zooms = ui_screen::label_zooms(&[ui_items.as_slice(), &label_items].concat(), &fonts, &compiled, &input.zooms);
         scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms));
         // The city labels go with the world.
-        for (items, not_in_view) in [(&label_items, None), (&elsewhere_items, Some(crate::scene_map::GAME_VIEW))] {
-            scene.sprites.extend(ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms).into_iter().map(|s| {
-                scene::FreeSprite { screen: false, clip: None, not_in_view, ..s }
-            }));
-        }
+        scene.sprites.extend(ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms).into_iter().map(|s| {
+            scene::FreeSprite { screen: false, clip: None, ..s }
+        }));
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {
@@ -626,26 +623,6 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         // Held back while the renderer is busy: publish again next time.
         last = presenter.publish(scene).then_some(state);
     }
-}
-
-/// Whether the game's own view shows the label of city `id` where the
-/// renderer puts it in that view: the game draws only cities inside its
-/// view's tile range, at its own tile-to-screen position (which differs
-/// from ours for tiles more than half the map from the view's first row or
-/// column), and the renderer draws a world sprite at its copy nearest the
-/// camera (`tile_render::wrap_distance`).
-fn game_shows_label(world: &Civ3World, view: &Civ3View, id: i32) -> bool {
-    let Some(city) = world.cities.iter().find(|c| c.id == id) else { return false };
-    if !crate::city_labels::in_game_view(world, view, city) {
-        return false;
-    }
-    let (w, h) = if view.zoomed_out { (32, 16) } else { (64, 32) };
-    let period = |on: bool, tiles: i32, step: i32| if on { tiles * step } else { 0 };
-    let ours = (
-        tile_render::wrap_distance(w * city.x - view.camera_x, period(world.wrap_x, world.width, w)),
-        tile_render::wrap_distance(h * city.y - view.camera_y, period(world.wrap_y, world.height, h)),
-    );
-    crate::city_labels::tile_to_screen(world, view, city.x, city.y) == ours
 }
 
 /// Whether city labels are made from the world (see `publish`), unless

@@ -214,7 +214,6 @@ impl Fonts {
                     zoom: z,
                     zoom_offset,
                     clip,
-                    not_in_view: None,
                 });
             }
             pen += glyph.advance;

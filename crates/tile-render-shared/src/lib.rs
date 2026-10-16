@@ -230,8 +230,6 @@ pub const FREE_LOW: u32 = 1 << 2;
 /// `FreeSprite::zoom`): drawn only in the pass after a view at that zoom is
 /// scaled, at its 1:1 position scaled plus `zoom_dx, zoom_dy`.
 pub const FREE_ZOOMED: u32 = 1 << 3;
-/// Drawn in every view but `FreeSprite::view` (instead of only in it).
-pub const FREE_EXCEPT_VIEW: u32 = 1 << 4;
 
 /// One sprite: a rectangle of an atlas page and where to draw it.
 #[repr(C)]

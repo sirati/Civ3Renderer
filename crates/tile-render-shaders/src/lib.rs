@@ -17,7 +17,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, expand, mix_offset, quantize, scale_offset, world_period, wrap_cell, wrap_distance,
 };
 
@@ -158,11 +158,7 @@ pub fn free_vs(
     let wrong_art = (params.zoom_art == 2) != zoomed
         || (params.zoom_art == 1 && f.flags & FREE_LOW != 0)
         || (zoomed && f.zoom != (params.zoom_num << 16 | params.zoom_den));
-    // In its view only, or (`FREE_EXCEPT_VIEW`) in every view showing the
-    // world but that one.
-    let except = f.flags & FREE_EXCEPT_VIEW != 0;
-    let wrong_view = if except { f.view == params.view || params.world == 0 } else { (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) };
-    if f.set == 0 || frames == 0 || wrong_art || wrong_view {
+    if f.set == 0 || frames == 0 || wrong_art || (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) {
         *out_pos = CULLED;
         return;
     }
