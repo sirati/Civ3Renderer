@@ -49,6 +49,12 @@ sprite may be clipped to a viewport rectangle (the quad is shrunk in the vertex
 shader). Translucent texels in a quantized model mix in 1/32 steps and round
 down, like a game averaging two RGB555 values.
 
+Views can be zoomed by any ratio without blur: a zoomed view is drawn at
+zoom 1 into a texture of its own and copied into its rectangle by nearest
+pixel, at its place in the view order (later views blend over it). Screen
+copies magnify a rectangle of the finished picture the same way. Free
+sprites may also invert what is under them (`Blend::Invert`).
+
 A description can be compiled `n` times smaller (`Description::scaled_down`):
 sprites keep every n-th pixel, anchors and steps are divided, per-sheet
 `scaling` keeps anchors or screen art as they are — a game's zoomed-out view.
@@ -94,6 +100,24 @@ without the map itself (ours): the city labels on it go under our fog of
 war; the unit overlay is left out (we draw units). Pictures the game makes
 pixel by pixel (the minimap) are generated from the world state and sent
 as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
+
+The viewer arranges the world beyond the views the driver asks for
+(`tile_viewer::layout`; the driver's interface stays on top, unscaled):
+the main view zoomed (Ctrl+wheel), a second pane beside or below it
+(Ctrl+Shift+S, a draggable divider), up to three floating insets
+(Ctrl+Shift+I), and a magnifier beside the pointer showing everything or
+the world only (Ctrl+Shift+M). Each view follows the game's view, the
+driver's point of interest (the active unit), the world cursor, or nothing
+(Ctrl+Shift+F); a view following the world cursor keeps it in its middle
+and captures the mouse when clicked into (Ctrl+Shift+Space lets go), the
+cursor drawn in every view that shows it. Ctrl+Shift+A toggles a blinking
+arrow over the active unit. Clicks are routed to the game where its view
+shows the same world pixel; elsewhere the game is asked to look there
+(the bridge clicks its minimap). `TILE_VIEWER_LAYOUT` sets it up at start,
+e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
+`CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
+second ring around foreign units by diplomacy: war, mutual defence,
+peace.
 
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
 game's sprite blits and records one redraw — every sprite, position and
