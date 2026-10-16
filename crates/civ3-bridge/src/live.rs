@@ -422,7 +422,11 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             Some((_, first)) => ui.as_ref().map(|f| ui_screen::from_draw(f, first)),
             None => ui.clone(),
         };
-        let ui_items = visible_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        let mut ui_items = visible_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        // The viewer's own views marked on the minimap.
+        if let Shown::Map(world, view) = shown {
+            ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
+        }
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         if let (Some(look), Shown::Map(world, view)) = (input.look.take(), shown) {
@@ -537,6 +541,17 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     }
 }
 
+/// The colour the viewer's own views are marked with on the minimap:
+/// `CIV3R_VIEW_RECT_COLOR` (`R;G;B`), yellow by default.
+fn view_rect_color() -> [u8; 3] {
+    static COLOR: std::sync::OnceLock<[u8; 3]> = std::sync::OnceLock::new();
+    *COLOR.get_or_init(|| {
+        let spec = std::env::var("CIV3R_VIEW_RECT_COLOR").unwrap_or_default();
+        let c: Vec<u8> = spec.split(';').filter_map(|v| v.trim().parse().ok()).collect();
+        <[u8; 3]>::try_from(c).unwrap_or([255, 255, 0])
+    })
+}
+
 /// Delivers the viewer's input to the game's window. The viewer shows the
 /// game's map with the game's camera at its own top-left corner, 1:1, so a
 /// viewer pixel is the same game client pixel.
@@ -547,6 +562,8 @@ struct InputForwarder {
     clicks: inproc::window::DoubleClicks,
     /// A world pixel the viewer asked to see (`Input::Look`), not yet acted on.
     look: Option<(i32, i32)>,
+    /// World rectangles of the viewer's own views (`Input::Views`).
+    views: Vec<(i32, i32, i32, i32)>,
     /// The magnifying zooms the viewer shows the world at (`Input::Zooms`):
     /// text is made for them too.
     zooms: Vec<(u32, u32)>,
@@ -626,6 +643,7 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
             Input::Resized { width, height } => forwarder.viewport = (width, height),
             Input::Quit => {}
             Input::Look { x, y } => forwarder.look = Some((x, y)),
+            Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
             Input::Zooms(zooms) => {
                 forwarder.zooms = zooms.iter().filter(|z| z.0 > z.1 && z.1 > 0).map(|&(n, d)| (u32::from(n), u32::from(d))).collect();
             }
