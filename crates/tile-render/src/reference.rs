@@ -251,7 +251,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     let period = tile_render_shared::world_period(&world.grid.params());
     // Free sprites following pass `p`, in list order.
     let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
-        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| sv == view) && art_fits(s)) {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s)) {
             let set = s.set.0 as usize;
             let frames = packed.sets[set];
             if set == 0 || frames == 0 {

@@ -338,6 +338,29 @@ fn several_views_share_one_target() {
 }
 
 #[test]
+fn world_sprites_can_skip_one_view() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let world_sprite = world.free.iter().find(|s| !s.screen).cloned().unwrap();
+    // Seen by both cameras, drawn only by the second.
+    world.free.push(PlacedSprite { view: Some(0), except_view: true, x: 120, y: 100, ..world_sprite });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let left = Camera::new((200, 200));
+    let right = Camera { origin: (200, 0), ..Camera::new((200, 200)) };
+    let cameras = [left, right];
+    let got = gpu.render_views(&mut renderer, &cameras, (400, 200), 2, CLEAR);
+    assert_same(&got, &reference::render_views(&world, &atlas, &cameras, (400, 200), 2, CLEAR), "except view");
+    // The two halves show the same world but for that sprite.
+    let half = |x0: u32| (0..200).flat_map(|y| (x0..x0 + 200).map(move |x| (x, y))).map(|(x, y)| got.pixels[(y * 400 + x) as usize]).collect::<Vec<_>>();
+    let differ = half(0).iter().zip(&half(200)).filter(|(a, b)| a != b).count();
+    assert!(differ > 0, "the sprite shows in the second view only");
+}
+
+#[test]
 fn interface_views_show_only_their_own_sprites() {
     let gpu = Headless::new().expect("GPU");
     let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
