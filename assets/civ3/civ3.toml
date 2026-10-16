@@ -1440,10 +1440,22 @@ name = "road"
 pass = 3
 sets = ["Roads_Images/*"]
 
+# C3X's draw_forests_over_roads_and_railroads: the forest again after the
+# road, and after the railroad (crate::scene_map).
+[[layers]]
+name = "forest_over_road"
+pass = 3
+sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*", "LM_Forests_*"]
+
 [[layers]]
 name = "railroad"
 pass = 3
 sets = ["Railroads_Images/*"]
+
+[[layers]]
+name = "forest_over_railroad"
+pass = 3
+sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*", "LM_Forests_*"]
 
 # Draw_Tile_Buildings (§6.7b), then craters and pollution.
 [[layers]]
@@ -1580,6 +1592,11 @@ sets = ["District@*"]
 
 [[layers]]
 name = "district_resource_1"
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_resource_2"
 pass = 3
 sets = ["District@*"]
 

@@ -30,7 +30,7 @@ impl Slice {
 /// this many slices: e.g. a great wall's pillar and segments).
 pub const LAYERS: [&str; 6] = ["district_0", "district_1", "district_2", "district_3", "district_4", "district_5"];
 /// Layers for what C3X draws where the game draws resources.
-pub const RESOURCE_LAYERS: [&str; 2] = ["district_resource_0", "district_resource_1"];
+pub const RESOURCE_LAYERS: [&str; 3] = ["district_resource_0", "district_resource_1", "district_resource_2"];
 
 impl Slice {
     /// Its sprite set's name.

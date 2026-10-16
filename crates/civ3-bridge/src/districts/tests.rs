@@ -191,6 +191,7 @@ fn configs() -> DistrictConfigs {
             bridge: true,
             canal: true,
             great_wall: true,
+            forests_over_roads: false,
         },
         districts,
         wonders: vec![WonderKind {
@@ -519,23 +520,24 @@ fn generated_resources_go_beside_the_tiles_own() {
     // The tile's own resource, icon 4, cell (4, 0), after the game's usual offset.
     let own = |image: &str, dx: i32| DistrictDraw { image: image.to_owned(), origin: (201, 1), size: (49, 49), offset: (40 + dx, 8) };
     let rig = sheet("OilRig.pcx", (0, 0), (128, 64), (0, 0));
-    assert_eq!(draws(&w, 10, 10), vec![rig.clone(), generated((39, 7))]);
-    assert_eq!(stages(&w, 10, 10, false), Stages { buildings: vec![rig.clone()], resources: vec![generated((39, 7))] });
+    // (40: C3X centres by the icon sprite's Width, 48, measured live.)
+    assert_eq!(draws(&w, 10, 10), vec![rig.clone(), generated((40, 7))]);
+    assert_eq!(stages(&w, 10, 10, false), Stages { buildings: vec![rig.clone()], resources: vec![generated((40, 7))] });
 
     // With the tile's own resource: that one 16 pixels left, this one 16 right of the centre.
     tile_mut(&mut w, 10, 10).resource = 0;
     assert_eq!(
         draws(&w, 10, 10),
-        vec![rig.clone(), own("Art/resources_shadows.pcx", -16), own("Art/resources.pcx", -16), generated((16 + 39, 7))]
+        vec![rig.clone(), own("Art/resources_shadows.pcx", -16), own("Art/resources.pcx", -16), generated((16 + 40, 7))]
     );
     let tile = *w.tile(10, 10).unwrap();
     assert!(takes_over_resource(&w, &tile) && rules::resource(&w, 10, 10).is_none());
 
-    // Zoomed out the cell is 64×32 but the sprite counts as 49 wide: it ends
+    // Zoomed out the cell is 64×32 but the sprite counts as 48 wide (49 high): it ends
     // up above and left of the centre, half size.
     let out = draws_at(&w, 10, 10, true);
     assert_eq!(out[1].offset, (-8 + 20, 4));
-    assert_eq!(out[3].offset, (8 + (64 - 49) / 2, (32 - 49 >> 1)));
+    assert_eq!(out[3].offset, (8 + (64 - 48) / 2, (32 - 49 >> 1)));
 
     // Only for the viewer who owns the tile; the district alone otherwise.
     w.player = 2;

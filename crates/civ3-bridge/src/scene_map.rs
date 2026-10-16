@@ -121,7 +121,12 @@ impl<'a> Mapper<'a> {
                 self.put(&mut scene, "mountain", col, row, rules::mountain(world, x, y));
                 self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
                 self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));
-                self.put(&mut scene, "forest", col, row, rules::forest(world, x, y));
+                // C3X's draw_forests_over_roads_and_railroads: a forest with a road
+                // is drawn after the road instead, and again after the railroad.
+                let (road, rail) = rules::roads(world, x, y);
+                let forest = rules::forest(world, x, y);
+                let over_roads = world.district_configs.flags.forests_over_roads && tile.is_some_and(|t| t.terrain() == rules::terrain::FOREST) && road.is_some();
+                self.put(&mut scene, "forest", col, row, forest.clone().filter(|_| !over_roads));
                 // A border's darkening and coloured texels are drawn as two
                 // layers (they do not overlap, so the order between them
                 // does not matter).
@@ -130,9 +135,10 @@ impl<'a> Mapper<'a> {
                     self.put(&mut scene, &format!("border_{dir}_shade"), col, row, Some(format!("Territory_Shade/{index}")));
                     self.put(&mut scene, &format!("border_{dir}"), col, row, Some(format!("Territory_Images@{colors}/{index}")));
                 }
-                let (road, rail) = rules::roads(world, x, y);
                 self.put(&mut scene, "road", col, row, road);
-                self.put(&mut scene, "railroad", col, row, rail);
+                self.put(&mut scene, "forest_over_road", col, row, forest.clone().filter(|_| over_roads));
+                self.put(&mut scene, "railroad", col, row, rail.clone());
+                self.put(&mut scene, "forest_over_railroad", col, row, forest.filter(|_| over_roads && rail.is_some()));
                 self.put(&mut scene, "city", col, row, rules::city(world, x, y));
                 self.put(&mut scene, "victory_location", col, row, rules::victory_location(world, x, y));
                 for (layer, sprite) in rules::terrain_buildings(world, x, y).into_iter().chain(rules::pollution(world, x, y)) {

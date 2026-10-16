@@ -17,6 +17,9 @@ use crate::world::{Civ3Tile, Civ3World};
 pub const RESOURCES: &str = "Art/resources.pcx";
 pub const RESOURCE_SHADOWS: &str = "Art/resources_shadows.pcx";
 const CELL: u32 = 49;
+/// The icons' `Sprite.Width` C3X centres them by: one less than the cell
+/// (measured: a lone generated icon sits at x 40 in the 128 px tile).
+const ICON_WIDTH: i32 = 48;
 
 /// The game's resource sprites for an icon (§6.7): its shadow, then the icon,
 /// `dx` pixels to the right of where they go.
@@ -99,7 +102,7 @@ pub fn draws(world: &Civ3World, tile: &Civ3Tile, d: &District, kind: &DistrictKi
         return rules::visible_resource(world, tile).map(|(_, icon)| plain(icon, 0, zoomed_out).to_vec()).unwrap_or_default();
     };
     let mut out = base.map(|(_, icon)| plain(icon, left, zoomed_out).to_vec()).unwrap_or_default();
-    let at = ((tile_width - CELL as i32 >> 1) + if base.is_some() { right } else { 0 }, (tile_width / 2 - CELL as i32) >> 1);
+    let at = ((tile_width - ICON_WIDTH >> 1) + if base.is_some() { right } else { 0 }, (tile_width / 2 - CELL as i32) >> 1);
     out.push(DistrictDraw { offset: at, ..plain(icon, 0, zoomed_out)[1].clone() });
     out
 }

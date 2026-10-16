@@ -131,12 +131,15 @@ pub struct DistrictFlags {
     pub bridge: bool,
     pub canal: bool,
     pub great_wall: bool,
+    /// `draw_forests_over_roads_and_railroads`: forests drawn again after a
+    /// tile's road and railroad.
+    pub forests_over_roads: bool,
 }
 
 impl DistrictFlags {
-    /// Whether C3X replaces the game's tile drawing at all.
+    /// Whether C3X changes the game's tile drawing at all.
     pub fn any(&self) -> bool {
-        self.districts || self.natural_wonders
+        self.districts || self.natural_wonders || self.forests_over_roads
     }
 }
 
@@ -243,6 +246,7 @@ impl C3xState {
             X::STATE_CURRENT_CONFIG_ENABLE_BRIDGE_DISTRICTS,
             X::STATE_CURRENT_CONFIG_ENABLE_CANAL_DISTRICTS,
             X::STATE_CURRENT_CONFIG_ENABLE_GREAT_WALL_DISTRICTS,
+            X::STATE_CURRENT_CONFIG_DRAW_FORESTS_OVER_ROADS_AND_RAILROADS,
         ];
         let lo = at.into_iter().min().unwrap_or(0);
         let hi = at.into_iter().max().unwrap_or(0);
@@ -258,6 +262,7 @@ impl C3xState {
             bridge: on(at[6]),
             canal: on(at[7]),
             great_wall: on(at[8]),
+            forests_over_roads: on(at[9]),
         })
     }
 

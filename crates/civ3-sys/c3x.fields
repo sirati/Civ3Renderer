@@ -101,6 +101,7 @@ State current_config.enable_energy_grid_districts
 State current_config.enable_bridge_districts
 State current_config.enable_canal_districts
 State current_config.enable_great_wall_districts
+State current_config.draw_forests_over_roads_and_railroads
 State workable_tile_count
 State mod_rel_dir
 
