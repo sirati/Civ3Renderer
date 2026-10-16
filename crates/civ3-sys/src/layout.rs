@@ -270,6 +270,25 @@ pub const RESOURCE_TYPE_REQUIREID: u32 = 76;
 pub const LEADER_SIZE: u32 = 8420;
 pub const LEADER_ERA: u32 = 244;
 pub const LEADER_COLOR_TABLE_ID: u32 = 4344;
+pub const CITIES_CITIES: u32 = 4;
+pub const CITIES_LASTINDEX: u32 = 16;
+pub const CITYITEM_SIZE: u32 = 8;
+pub const CITYITEM_CITY: u32 = 4;
+pub const CITY_BODY_ID: u32 = 4;
+pub const CITY_BODY_X: u32 = 8;
+pub const CITY_BODY_Y: u32 = 10;
+pub const CITY_BODY_CIVID: u32 = 12;
+pub const CITY_BODY_POPULATION: u32 = 252;
+pub const POPULATION_SIZE: u32 = 32;
+pub const LEADER_RACEID: u32 = 32;
+pub const LEADER_CAPITALID: u32 = 44;
+pub const RACE_SIZE: u32 = 2420;
+pub const RACE_CULTUREGROUPID: u32 = 2316;
+pub const BIC_RACES: u32 = 15560;
+pub const BIC_RACESCOUNT: u32 = 2220;
+pub const BIC_GENERAL: u32 = 15580;
+pub const GENERAL_MAXIMUMSIZE_CITY: u32 = 260;
+pub const GENERAL_MAXIMUMSIZE_TOWN: u32 = 256;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),

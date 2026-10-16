@@ -174,3 +174,24 @@ Resource_Type RequireID
 Leader
 Leader Era
 Leader Color_Table_ID
+
+# Cities (see civ3_sys::world::Civ3::cities).
+Cities Cities
+Cities LastIndex
+CityItem
+CityItem City
+City_Body ID
+City_Body X
+City_Body Y
+City_Body CivID
+City_Body Population
+Population Size
+Leader RaceID
+Leader CapitalID
+Race
+Race CultureGroupID
+BIC Races
+BIC RacesCount
+BIC General
+General MaximumSize_City
+General MaximumSize_Town

@@ -445,6 +445,31 @@ pub fn pollution(world: &Civ3World, x: i32, y: i32) -> Vec<(&'static str, String
     out
 }
 
+/// §8: the city sprite of tile (x, y): by size class (town, city,
+/// metropolis; the capital one class larger), the owner's era and culture
+/// group.
+pub fn city(world: &Civ3World, x: i32, y: i32) -> Option<String> {
+    let tile = world.tile(x, y)?;
+    if tile.city < 0 {
+        return None;
+    }
+    let city = world.city(tile.city as i32)?;
+    let civ = city.civ.clamp(0, 31) as usize;
+    let size_class = if city.size > world.max_city {
+        2
+    } else if city.size > world.max_town {
+        1
+    } else {
+        0
+    };
+    let capital = world.capitals.get(civ) == Some(&city.id);
+    let size_class = (size_class + capital as i32).min(2);
+    let era = world.eras.get(civ).copied().unwrap_or(0).clamp(0, 3);
+    let race = world.races.get(civ).copied().unwrap_or(0);
+    let culture = world.culture_groups.get(race.max(0) as usize).copied().unwrap_or(0).clamp(0, 4);
+    Some(format!("City_Images/{}", size_class * 20 + era * 5 + culture))
+}
+
 /// §5.2: the polar ice cap at vertex (vx, vy), on maps with polar caps
 /// (and no vertical wrap): the two rows at each pole, sheet rows 0/1 at the
 /// top, 3/2 at the bottom. Unlike the other consumers, one LCG step only.

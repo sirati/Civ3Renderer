@@ -90,6 +90,7 @@ impl<'a> Mapper<'a> {
                 let (road, rail) = rules::roads(world, x, y);
                 self.put(&mut scene, "road", col, row, road);
                 self.put(&mut scene, "railroad", col, row, rail);
+                self.put(&mut scene, "city", col, row, rules::city(world, x, y));
                 for (layer, sprite) in rules::terrain_buildings(world, x, y).into_iter().chain(rules::pollution(world, x, y)) {
                     self.put(&mut scene, layer, col, row, Some(sprite));
                 }

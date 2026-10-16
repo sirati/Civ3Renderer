@@ -277,6 +277,234 @@ grid = [2, 4]
 anchor = [0, -8]
 group = "Territory_Shade"
 
+# §8: cities, Art/Cities/r<culture>.PCX: columns = size class (town,
+# city, metropolis), rows = era; *WALL.PCX: walled towns. 166x95 sprites in
+# 167-wide cells. Array index = size class·20 + era·5 + culture group.
+[images.city_amer]
+source = "Art/Cities/rAMER.PCX"
+
+[images.city_amer_wall]
+source = "Art/Cities/AMERWALL.PCX"
+
+[sheets.city_amer_0]
+image = "city_amer"
+origin = [0, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 0
+index_stride = 5
+
+[sheets.city_amer_1]
+image = "city_amer"
+origin = [167, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 20
+index_stride = 5
+
+[sheets.city_amer_2]
+image = "city_amer"
+origin = [334, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 40
+index_stride = 5
+
+[sheets.city_amer_wall]
+image = "city_amer_wall"
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 60
+index_stride = 5
+
+[images.city_euro]
+source = "Art/Cities/rEURO.PCX"
+
+[images.city_euro_wall]
+source = "Art/Cities/EUROWALL.PCX"
+
+[sheets.city_euro_0]
+image = "city_euro"
+origin = [0, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 1
+index_stride = 5
+
+[sheets.city_euro_1]
+image = "city_euro"
+origin = [167, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 21
+index_stride = 5
+
+[sheets.city_euro_2]
+image = "city_euro"
+origin = [334, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 41
+index_stride = 5
+
+[sheets.city_euro_wall]
+image = "city_euro_wall"
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 61
+index_stride = 5
+
+[images.city_roman]
+source = "Art/Cities/rROMAN.PCX"
+
+[images.city_roman_wall]
+source = "Art/Cities/ROMANWALL.PCX"
+
+[sheets.city_roman_0]
+image = "city_roman"
+origin = [0, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 2
+index_stride = 5
+
+[sheets.city_roman_1]
+image = "city_roman"
+origin = [167, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 22
+index_stride = 5
+
+[sheets.city_roman_2]
+image = "city_roman"
+origin = [334, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 42
+index_stride = 5
+
+[sheets.city_roman_wall]
+image = "city_roman_wall"
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 62
+index_stride = 5
+
+[images.city_mideast]
+source = "Art/Cities/rMIDEAST.PCX"
+
+[images.city_mideast_wall]
+source = "Art/Cities/MIDEASTWALL.PCX"
+
+[sheets.city_mideast_0]
+image = "city_mideast"
+origin = [0, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 3
+index_stride = 5
+
+[sheets.city_mideast_1]
+image = "city_mideast"
+origin = [167, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 23
+index_stride = 5
+
+[sheets.city_mideast_2]
+image = "city_mideast"
+origin = [334, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 43
+index_stride = 5
+
+[sheets.city_mideast_wall]
+image = "city_mideast_wall"
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 63
+index_stride = 5
+
+[images.city_asian]
+source = "Art/Cities/rASIAN.PCX"
+
+[images.city_asian_wall]
+source = "Art/Cities/ASIANWALL.PCX"
+
+[sheets.city_asian_0]
+image = "city_asian"
+origin = [0, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 4
+index_stride = 5
+
+[sheets.city_asian_1]
+image = "city_asian"
+origin = [167, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 24
+index_stride = 5
+
+[sheets.city_asian_2]
+image = "city_asian"
+origin = [334, 0]
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 44
+index_stride = 5
+
+[sheets.city_asian_wall]
+image = "city_asian_wall"
+cell = [166, 95]
+grid = [1, 4]
+anchor = [-19, -15]
+group = "City_Images"
+first_index = 64
+index_stride = 5
+
 # §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
 # mtnRivers) and flood plains, per vertex.
 
@@ -774,6 +1002,11 @@ sets = ["Roads_Images/*"]
 name = "railroad"
 pass = 3
 sets = ["Railroads_Images/*"]
+
+[[layers]]
+name = "city"
+pass = 3
+sets = ["City_Images/*"]
 
 [[layers]]
 name = "airfield_shadow"

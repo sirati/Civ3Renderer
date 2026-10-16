@@ -50,7 +50,6 @@ pub fn identify_canonical(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
     Some(r)
 }
 
-/// Resolves `sprite` against the `Map_Renderer` at `map_renderer`.
 /// Width and height of the sprite at `sprite`.
 pub fn size(sprite: u32) -> Option<(u32, u32)> {
     let base = Ptr32::<u8>::new(sprite);
@@ -59,6 +58,24 @@ pub fn size(sprite: u32) -> Option<(u32, u32)> {
     Some((w.max(0) as u32, h.max(0) as u32))
 }
 
+/// Sprite arrays outside the `Map_Renderer`: (name, address, length).
+fn global_arrays(build: crate::Build) -> &'static [(&'static str, u32, u32)] {
+    match build {
+        // Cities (docs §8): index = size class·20 + era·5 + culture group.
+        crate::Build::PcGames => &[("City_Images", 0xB3_CE60, 80)],
+        crate::Build::Gog | crate::Build::Steam => &[],
+    }
+}
+
+/// Resolves a sprite of one of the global arrays.
+pub fn identify_global(build: crate::Build, sprite: u32) -> Option<SpriteRef> {
+    global_arrays(build).iter().find_map(|&(array, base, len)| {
+        let offset = sprite.checked_sub(base)?;
+        (offset % L::SPRITE_SIZE == 0 && offset / L::SPRITE_SIZE < len).then(|| SpriteRef { array, index: offset / L::SPRITE_SIZE })
+    })
+}
+
+/// Resolves `sprite` against the `Map_Renderer` at `map_renderer`.
 pub fn identify(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
     for &(name, offset, size) in L::MAP_RENDERER_FIELDS {
         if name.starts_with("PCX_") {
