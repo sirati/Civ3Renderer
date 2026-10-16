@@ -99,9 +99,10 @@ pub enum Blend {
     #[default]
     Alpha,
     /// Darkens what is underneath to `k / denominator` (`k` = the sprite's
-    /// red channel) — how games darken with blend tables (fog of war,
-    /// shadows). Exact (rounded down per channel) in a quantized
-    /// [`ColorModel`]; plain alpha blending with black otherwise.
+    /// red channel; `denominator` at most 32) — how games darken with blend
+    /// tables (fog of war, shadows). Exact (rounded down per channel after
+    /// every sprite) in a quantized [`ColorModel`]; plain alpha blending
+    /// with black otherwise.
     Scale { denominator: u32 },
 }
 
@@ -111,7 +112,7 @@ pub enum ColorModel {
     /// 8-bit channels as they are.
     #[default]
     Direct,
-    /// Channels of `bits` bits (4..=8), like a game drawing into an RGB555
+    /// Channels of `bits` bits (4..=7), like a game drawing into an RGB555
     /// frame buffer: sprite colours keep their top bits, blending happens on
     /// those values and is rounded down after every pass, and the result is
     /// expanded to 8 bits by bit replication.

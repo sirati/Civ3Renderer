@@ -19,10 +19,10 @@ use std::collections::HashSet;
 use std::process::ExitCode;
 
 use civ3_assets::GameFiles;
-use civ3_assets::loader::Civ3Loader;
+use ifc23::assets;
 use ifc23::scene_map::Mapper;
 use ifc23::world::Trace;
-use render_desc::{Compiled, Description};
+use render_desc::Compiled;
 use tile_render::reference;
 
 fn main() -> ExitCode {
@@ -44,35 +44,17 @@ fn viewport(args: &[String]) -> Result<(u32, u32), String> {
     Ok((w.parse().map_err(|_| "bad width")?, h.parse().map_err(|_| "bad height")?))
 }
 
-/// The game's scenario art folders that exist under `install`, highest
-/// priority first. The game names them relative to `Conquests` or
-/// `Conquests/Conquests` (scenario files), with backslashes.
-fn scenario_dirs(install: &str, trace: &Trace) -> Vec<std::path::PathBuf> {
-    let files = GameFiles::with_roots(vec![install.into()]);
-    trace
-        .scenario_folder
-        .iter()
-        .chain(&trace.search_roots)
-        .filter_map(|folder| {
-            let rel = folder.replace('\\', "/");
-            let rel = rel.trim_matches('/');
-            ["Conquests/Conquests", "Conquests", ""].iter().find_map(|base| files.resolve(&format!("{base}/{rel}")).ok())
-        })
-        .collect()
-}
-
 fn compile(trace: Option<&Trace>) -> Result<Compiled, String> {
     let install = std::env::var("CIV3_INSTALL")
         .unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
     let desc_path = std::env::var("CIV3_DESC")
         .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/civ3/civ3.toml").into());
     let text = std::fs::read_to_string(&desc_path).map_err(|e| format!("{desc_path}: {e}"))?;
-    let desc = Description::parse(&text).map_err(|e| e.to_string())?;
-    let mut files = GameFiles::complete(&install);
-    for dir in trace.map(|t| scenario_dirs(&install, t)).unwrap_or_default().into_iter().rev() {
-        files.push_front(dir);
-    }
-    desc.compile(&Civ3Loader::new(files), 4096).map_err(|e| e.to_string())
+    let files = match trace {
+        Some(t) => assets::game_files(install.as_ref(), t.scenario_folder.as_deref(), &t.search_roots),
+        None => GameFiles::complete(&install),
+    };
+    assets::compile(&text, files).map_err(|e| e.to_string())
 }
 
 fn load_trace(path: &str) -> Result<Trace, String> {

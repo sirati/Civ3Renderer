@@ -202,6 +202,30 @@ impl<'a> ByteReader<'a> {
     }
 }
 
+/// In a quantized colour model the target stores channel value `q` as the
+/// 8-bit value `q + QUANTIZED_BIAS`. The bias lets a "scale" blit round
+/// down with ordinary blending (see `scale_offset`).
+pub const QUANTIZED_BIAS: u32 = 16;
+/// Largest scale denominator the bias supports (`2·QUANTIZED_BIAS`).
+pub const MAX_SCALE_DENOMINATOR: u32 = 32;
+
+/// What a scale blit by `num / den` adds after multiplying the stored value
+/// `S = q + B` by `num / den` (B = `QUANTIZED_BIAS`): with
+/// `S' = S·num/den + B·(1 − num/den) − 1/2 + 1/(2·den)`, rounding `S'` to
+/// the nearest integer — what writing to an 8-bit target does — gives
+/// exactly `B + floor(q·num/den)`: `q·num/den` is a multiple of `1/den`, so
+/// the result lies within `1/(2·den)` of the middle of the right interval.
+/// Needs `num < den` (`num == den` changes nothing and is not drawn) and
+/// `den <= MAX_SCALE_DENOMINATOR` (so the offset is not negative).
+pub fn scale_offset(num: u32, den: u32) -> f32 {
+    QUANTIZED_BIAS as f32 * (1.0 - num as f32 / den as f32) - 0.5 + 0.5 / den as f32
+}
+
+/// The exact result of a scale blit on a stored quantized value.
+pub fn scale_stored(stored: u32, num: u32, den: u32) -> u32 {
+    QUANTIZED_BIAS + (stored - QUANTIZED_BIAS) * num / den
+}
+
 /// An 8-bit channel value in a `bits`-bit colour space (4..=8): the top
 /// bits, as games that compose in e.g. RGB555 store it.
 pub fn quantize(c8: u32, bits: u32) -> u32 {
@@ -256,6 +280,19 @@ mod tests {
         assert_eq!(size_of::<GridParams>() % 16, 0);
         assert_eq!(size_of::<LayerDesc>() % 16, 0);
         assert_eq!(size_of::<SpriteDesc>() % 16, 0);
+    }
+
+    #[test]
+    fn scale_offset_rounds_to_the_floor() {
+        for den in [2, 10, 16, 32] {
+            for num in 0..den {
+                for q in 0..=127u32 {
+                    let s = (q + QUANTIZED_BIAS) as f32 * num as f32 / den as f32 + scale_offset(num, den);
+                    assert_eq!(s.round() as u32, scale_stored(q + QUANTIZED_BIAS, num, den), "q {q} num {num}/{den}");
+                    assert!(s >= 0.0);
+                }
+            }
+        }
     }
 
     #[test]

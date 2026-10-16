@@ -3,7 +3,7 @@
 //! It is the oracle for the GPU path (tests compare both byte for byte) and
 //! a fallback for tools that have no GPU.
 
-use tile_render_shared::{ByteReader, cell_origin, expand, quantize, wrap_cell};
+use tile_render_shared::{ByteReader, QUANTIZED_BIAS, cell_origin, expand, quantize, scale_stored, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
@@ -38,39 +38,33 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
         ColorModel::Direct => return render_direct(world, atlas, camera, frame, clear),
         ColorModel::Quantized { bits } => bits,
     };
-    // Raw channel values, like the GPU's float target.
-    let q = |c: u8| quantize(c.into(), bits) as f32;
-    let mut out: Vec<[f32; 4]> = vec![[q(clear[0]), q(clear[1]), q(clear[2]), clear[3] as f32 / 255.0]; (w * h) as usize];
-    let mut pass = 0;
-    let floor = |out: &mut Vec<[f32; 4]>| {
-        for p in out.iter_mut() {
-            for c in &mut p[..3] {
-                *c = c.floor();
-            }
-        }
-    };
+    // Stored values (q + QUANTIZED_BIAS), like the GPU's internal target.
+    let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
+    let mut out: Vec<[u32; 3]> = vec![[stored(clear[0]), stored(clear[1]), stored(clear[2])]; (w * h) as usize];
     visit(world, atlas, camera, frame, |d| {
-        if d.pass != pass {
-            floor(&mut out);
-            pass = d.pass;
-        }
         each_texel(atlas, &d, (w, h), |px, py, src| {
             let dst = &mut out[(py * w + px) as usize];
-            let (rgb, a) = match d.blend {
-                Blend::Scale { denominator } => ([0.0; 3], 1.0 - src[0] as f32 / denominator as f32),
-                Blend::Alpha => ([q(src[0]), q(src[1]), q(src[2])], src[3] as f32 / 255.0),
-            };
-            for i in 0..3 {
-                dst[i] = rgb[i] * a + dst[i] * (1.0 - a);
+            match d.blend {
+                Blend::Scale { denominator } if (src[0] as u32) < denominator => {
+                    for c in dst.iter_mut() {
+                        *c = scale_stored(*c, src[0] as u32, denominator);
+                    }
+                }
+                Blend::Scale { .. } => {}
+                // Exact for opaque texels, which is all quantized content uses.
+                Blend::Alpha => {
+                    let a = src[3] as f32 / 255.0;
+                    for (c, s) in dst.iter_mut().zip(src) {
+                        *c = (stored(s) as f32 * a + *c as f32 * (1.0 - a)).round() as u32;
+                    }
+                }
             }
-            dst[3] = a + dst[3] * (1.0 - a);
         });
     });
-    floor(&mut out);
     RgbaImage::from_fn(w, h, |x, y| {
         let p = out[(y * w + x) as usize];
-        let c = |v: f32| expand(v as u32, bits) as u8;
-        [c(p[0]), c(p[1]), c(p[2]), (p[3] * 255.0).round() as u8]
+        let c = |v: u32| expand(v.saturating_sub(QUANTIZED_BIAS), bits) as u8;
+        [c(p[0]), c(p[1]), c(p[2]), clear[3]]
     })
 }
 

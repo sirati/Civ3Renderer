@@ -17,9 +17,9 @@ const PARAMS_STRIDE: u64 = 256;
 /// Most passes a world may have.
 pub const MAX_PASSES: usize = 16;
 
-/// Format of the internal target of quantized colour models: holds raw
-/// channel values (0..31 for 5 bits) and blends them exactly.
-const QUANTIZED_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// Format of the internal target of quantized colour models: holds
+/// `q + QUANTIZED_BIAS` per channel (see `tile_render_shared::scale_offset`).
+const QUANTIZED_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// Draws one `TileWorld` with one `Atlas`.
 pub struct TileRenderer {
@@ -27,12 +27,9 @@ pub struct TileRenderer {
     pipeline: wgpu::RenderPipeline,
     /// Draws into the internal target (quantized colour models).
     quantized_pipeline: wgpu::RenderPipeline,
-    /// Rounds the internal target down after a pass.
-    quantize_pipeline: wgpu::RenderPipeline,
     /// Expands the internal target into the caller's target.
     output_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
-    quantize_layout: wgpu::BindGroupLayout,
     output_layout: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
     /// The colour depth for `output_fs`.
@@ -44,12 +41,10 @@ pub struct TileRenderer {
     bind_group: Option<wgpu::BindGroup>,
 }
 
-/// The internal target of quantized colour models, a copy of it to read
-/// while rounding, and the bind groups reading them.
+/// The internal target of quantized colour models and the bind group
+/// reading it.
 struct Scratch {
     main: wgpu::Texture,
-    copy: wgpu::Texture,
-    quantize: wgpu::BindGroup,
     output: wgpu::BindGroup,
 }
 
@@ -128,10 +123,6 @@ impl TileRenderer {
                 },
             ],
         });
-        let quantize_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("tile-render quantize"),
-            entries: &[texture_entry(0)],
-        });
         let output_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tile-render output"),
             entries: &[
@@ -179,8 +170,8 @@ impl TileRenderer {
         let tiles = ("tile_vs", "tile_fs");
         let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
         let direct = pipeline("tile-render", tiles, &layout, target_format, alpha);
-        let quantized = pipeline("tile-render quantized", tiles, &layout, QUANTIZED_FORMAT, alpha);
-        let quantize = pipeline("tile-render quantize", ("fullscreen_vs", "quantize_fs"), &quantize_layout, QUANTIZED_FORMAT, None);
+        let premultiplied = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+        let quantized = pipeline("tile-render quantized", tiles, &layout, QUANTIZED_FORMAT, premultiplied);
         let output = pipeline("tile-render output", ("fullscreen_vs", "output_fs"), &output_layout, target_format, None);
         let bits = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render colour bits"),
@@ -197,10 +188,8 @@ impl TileRenderer {
         Self {
             pipeline: direct,
             quantized_pipeline: quantized,
-            quantize_pipeline: quantize,
             output_pipeline: output,
             layout,
-            quantize_layout,
             output_layout,
             params,
             bits,
@@ -342,27 +331,19 @@ impl TileRenderer {
         }
 
         queue.write_buffer(&self.bits, 0, bytemuck::bytes_of(&[bits, 0, 0, 0]));
-        let scratch = scratch_for(&mut self.scratch, device, &self.quantize_layout, &self.output_layout, &self.bits, target.size());
+        let scratch = scratch_for(&mut self.scratch, device, &self.output_layout, &self.bits, target.size());
         let main = scratch.main.create_view(&Default::default());
-        let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits));
+        let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0;
         let background = wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 };
         drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
         for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
             let params = camera.frame_params(&world.grid, world.color, frame, p);
             let offset = i as u64 * PARAMS_STRIDE;
             queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
-            {
-                let mut pass = begin_pass(encoder, &main, wgpu::LoadOp::Load);
-                pass.set_pipeline(&self.quantized_pipeline);
-                pass.set_bind_group(0, bind_group, &[offset as u32]);
-                pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
-            }
-            // Round down what this pass blended.
-            encoder.copy_texture_to_texture(scratch.main.as_image_copy(), scratch.copy.as_image_copy(), target.size());
             let mut pass = begin_pass(encoder, &main, wgpu::LoadOp::Load);
-            pass.set_pipeline(&self.quantize_pipeline);
-            pass.set_bind_group(0, &scratch.quantize, &[]);
-            pass.draw(0..3, 0..1);
+            pass.set_pipeline(&self.quantized_pipeline);
+            pass.set_bind_group(0, bind_group, &[offset as u32]);
+            pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
         }
         let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
         pass.set_pipeline(&self.output_pipeline);
@@ -391,35 +372,24 @@ fn begin_pass<'e>(
     })
 }
 
-/// The scratch textures for a target of `size`, (re)created when it changed.
+/// The scratch texture for a target of `size`, (re)created when it changed.
 fn scratch_for<'a>(
     slot: &'a mut Option<Scratch>,
     device: &wgpu::Device,
-    quantize_layout: &wgpu::BindGroupLayout,
     output_layout: &wgpu::BindGroupLayout,
     bits: &wgpu::Buffer,
     size: wgpu::Extent3d,
 ) -> &'a Scratch {
     if slot.as_ref().is_none_or(|s| s.main.size() != size) {
-        let texture = |label, usage| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: QUANTIZED_FORMAT,
-                usage,
-                view_formats: &[],
-            })
-        };
-        use wgpu::TextureUsages as U;
-        let main = texture("tile-render quantized target", U::RENDER_ATTACHMENT | U::COPY_SRC | U::TEXTURE_BINDING);
-        let copy = texture("tile-render quantized copy", U::COPY_DST | U::TEXTURE_BINDING);
-        let quantize = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("tile-render quantize"),
-            layout: quantize_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&copy.create_view(&Default::default())) }],
+        let main = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("tile-render quantized target"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: QUANTIZED_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
         let output = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tile-render output"),
@@ -429,7 +399,7 @@ fn scratch_for<'a>(
                 wgpu::BindGroupEntry { binding: 1, resource: bits.as_entire_binding() },
             ],
         });
-        *slot = Some(Scratch { main, copy, quantize, output });
+        *slot = Some(Scratch { main, output });
     }
     slot.as_ref().unwrap()
 }

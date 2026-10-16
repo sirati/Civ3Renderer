@@ -18,7 +18,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ByteReader, FrameParams, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
-    expand, quantize, wrap_cell,
+    QUANTIZED_BIAS, expand, quantize, scale_offset, wrap_cell,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -129,10 +129,11 @@ pub fn tile_vs(
     *out_page = sprite.page;
 }
 
-/// Draws a sprite texel. In a quantized colour space (`color_bits != 0`)
-/// the target holds raw channel values (0..2^bits - 1), and a scale layer's
-/// texel becomes black with alpha `1 - k / den`, so ordinary alpha blending
-/// computes `dst · k / den` exactly; `quantize_fs` rounds it down later.
+/// Draws a sprite texel. In a quantized colour model (`color_bits != 0`)
+/// the target holds `q + QUANTIZED_BIAS` per channel and blending is
+/// premultiplied: a scale layer's texel (`k` = its red channel) becomes
+/// `scale_offset(k, den)` with alpha `1 − k/den`, so the blend computes
+/// `S·k/den + offset`, which the 8-bit target rounds to the exact result.
 #[spirv(fragment)]
 pub fn tile_fs(
     local: Vec2,
@@ -149,21 +150,27 @@ pub fn tile_fs(
         spirv_std::arch::kill();
     }
     let bits = params.color_bits;
-    *output = if scale_den != 0 {
-        Vec4::new(0.0, 0.0, 0.0, 1.0 - to_u8(color.x) as f32 / scale_den as f32)
+    if scale_den != 0 {
+        let k = to_u8(color.x);
+        if k >= scale_den {
+            spirv_std::arch::kill();
+        }
+        let a = 1.0 - k as f32 / scale_den as f32;
+        *output = if bits != 0 {
+            let o = scale_offset(k, scale_den) / 255.0;
+            Vec4::new(o, o, o, a)
+        } else {
+            Vec4::new(0.0, 0.0, 0.0, a)
+        };
     } else if bits != 0 {
-        Vec4::new(
-            quantize(to_u8(color.x), bits) as f32,
-            quantize(to_u8(color.y), bits) as f32,
-            quantize(to_u8(color.z), bits) as f32,
-            color.w,
-        )
+        let a = color.w;
+        *output = Vec4::new(stored(color.x, bits) * a, stored(color.y, bits) * a, stored(color.z, bits) * a, a);
     } else {
-        color
-    };
+        *output = color;
+    }
 }
 
-/// A triangle covering the viewport, for the full-screen passes.
+/// A triangle covering the viewport, for the full-screen pass.
 #[spirv(vertex)]
 pub fn fullscreen_vs(#[spirv(vertex_index)] vertex: u32, #[spirv(position)] out_pos: &mut Vec4) {
     let x = if vertex == 1 { 3.0 } else { -1.0 };
@@ -171,19 +178,7 @@ pub fn fullscreen_vs(#[spirv(vertex_index)] vertex: u32, #[spirv(position)] out_
     *out_pos = Vec4::new(x, y, 0.0, 1.0);
 }
 
-/// Rounds the quantized channel values in `source` down to integers, as the
-/// game does after every blit (end of each pass).
-#[spirv(fragment)]
-pub fn quantize_fs(
-    #[spirv(frag_coord)] frag: Vec4,
-    #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
-    output: &mut Vec4,
-) {
-    let v: Vec4 = source.fetch(IVec2::new(frag.x as i32, frag.y as i32));
-    *output = Vec4::new(v.x.floor(), v.y.floor(), v.z.floor(), v.w);
-}
-
-/// Quantized channel values to the 8-bit output.
+/// Stored quantized values to the 8-bit output.
 #[spirv(fragment)]
 pub fn output_fs(
     #[spirv(frag_coord)] frag: Vec4,
@@ -195,8 +190,15 @@ pub fn output_fs(
     *output = Vec4::new(to_unorm(v.x, *bits), to_unorm(v.y, *bits), to_unorm(v.z, *bits), v.w);
 }
 
-fn to_unorm(q: f32, bits: u32) -> f32 {
-    expand(q.floor() as u32, bits) as f32 / 255.0
+/// An atlas channel as the stored quantized value (normalized).
+fn stored(c: f32, bits: u32) -> f32 {
+    (quantize(to_u8(c), bits) + QUANTIZED_BIAS) as f32 / 255.0
+}
+
+fn to_unorm(stored: f32, bits: u32) -> f32 {
+    let s = to_u8(stored);
+    let q = if s > QUANTIZED_BIAS { s - QUANTIZED_BIAS } else { 0 };
+    expand(q, bits) as f32 / 255.0
 }
 
 fn to_u8(v: f32) -> u32 {

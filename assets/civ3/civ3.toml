@@ -858,13 +858,56 @@ origin = [0, 176]
 [images.tnt]
 source = "Art/Terrain/tnt.pcx"
 
-[sheets.tnt]
+# The game loads tnt.pcx rows into its array out of order (loader
+# 0x4C7125): entries 0-2 <- file row 3, 3-5 <- 5, 6-8 <- 0, 9-11 <- 1,
+# 12-14 <- 2, 15-17 <- 4.
+[sheets.tnt_row3]
 image = "tnt"
+origin = [0, 192]
 cell = [128, 64]
-grid = [3, 6]
-anchor = [0, 0]
+grid = [3, 1]
 group = "Tnt_Images"
 first_index = 0
+
+[sheets.tnt_row5]
+image = "tnt"
+origin = [0, 320]
+cell = [128, 64]
+grid = [3, 1]
+group = "Tnt_Images"
+first_index = 3
+
+[sheets.tnt_row0]
+image = "tnt"
+origin = [0, 0]
+cell = [128, 64]
+grid = [3, 1]
+group = "Tnt_Images"
+first_index = 6
+
+[sheets.tnt_row1]
+image = "tnt"
+origin = [0, 64]
+cell = [128, 64]
+grid = [3, 1]
+group = "Tnt_Images"
+first_index = 9
+
+[sheets.tnt_row2]
+image = "tnt"
+origin = [0, 128]
+cell = [128, 64]
+grid = [3, 1]
+group = "Tnt_Images"
+first_index = 12
+
+[sheets.tnt_row4]
+image = "tnt"
+origin = [0, 256]
+cell = [128, 64]
+grid = [3, 1]
+group = "Tnt_Images"
+first_index = 15
 
 # §6.7: resources, 49x49 cells at (1 + 50c, 1 + 50r), drawn at (+40, +8);
 # the shadow first. Shadow sheet indices 248..251 are a translucency ramp.

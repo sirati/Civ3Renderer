@@ -1,20 +1,17 @@
 //! The reimplemented renderer, running inside the game: a publisher thread
 //! turns the game's world and view into scenes, a viewer window draws them.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use civ3_assets::GameFiles;
-use civ3_assets::loader::Civ3Loader;
 use civ3_sys::{Civ3, Civ3Error};
-use render_desc::{Compiled, Description};
+use render_desc::Compiled;
 use scene::Link;
 
+use crate::assets;
 use crate::scene_map::Mapper;
 use crate::world::{Civ3City, Civ3Tile, Civ3View, Civ3World, WallBuilding};
-
-/// The render description built into the DLL; `CIV3R_DESC` overrides it.
-const BUILTIN_DESC: &str = include_str!("../../../assets/civ3/civ3.toml");
 
 /// How often the publisher looks at the game.
 const POLL: Duration = Duration::from_millis(33);
@@ -90,7 +87,7 @@ pub enum LiveError {
 
 /// The game install root ("Civilization III Complete"): the parent of the
 /// folder the running executable is in.
-fn install_root() -> Result<std::path::PathBuf, LiveError> {
+fn install_root() -> Result<PathBuf, LiveError> {
     let exe = std::env::current_exe().map_err(LiveError::Install)?;
     exe.parent()
         .and_then(|p| p.parent())
@@ -98,29 +95,57 @@ fn install_root() -> Result<std::path::PathBuf, LiveError> {
         .ok_or_else(|| LiveError::Install(std::io::Error::other("executable has no grandparent folder")))
 }
 
-fn compile() -> Result<Compiled, LiveError> {
-    let (name, text) = match std::env::var("CIV3R_DESC") {
+/// The description text and a name for messages.
+fn description() -> Result<(String, String), LiveError> {
+    match std::env::var("CIV3R_DESC") {
         Ok(path) => {
             let text = std::fs::read_to_string(&path).map_err(|e| LiveError::Desc(path.clone(), e.to_string()))?;
-            (path, text)
+            Ok((path, text))
         }
-        Err(_) => ("built-in civ3.toml".to_owned(), BUILTIN_DESC.to_owned()),
-    };
-    let desc = Description::parse(&text).map_err(|e| LiveError::Desc(name.clone(), e.to_string()))?;
-    let loader = Civ3Loader::new(GameFiles::complete(install_root()?));
-    desc.compile(&loader, 4096).map_err(|e| LiveError::Desc(name, e.to_string()))
+        Err(_) => Ok(("built-in civ3.toml".to_owned(), assets::BUILTIN_DESC.to_owned())),
+    }
+}
+
+/// Where the game currently loads art from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ArtFolders {
+    scenario: Option<String>,
+    search: Vec<String>,
+}
+
+impl ArtFolders {
+    fn of(game: &Civ3) -> Self {
+        Self { scenario: game.scenario_folder().ok().flatten(), search: game.search_roots().unwrap_or_default() }
+    }
+}
+
+struct Compiler {
+    install: PathBuf,
+    name: String,
+    text: String,
+}
+
+impl Compiler {
+    fn compile(&self, folders: &ArtFolders) -> Result<Arc<Compiled>, LiveError> {
+        let files = assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search);
+        let compiled = assets::compile(&self.text, files).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
+        log::info!("live renderer: {} layers, {} sprites ({folders:?})", compiled.layers.len(), compiled.sprite_names.len());
+        Ok(Arc::new(compiled))
+    }
 }
 
 /// Starts the publisher and the viewer window; returns at once.
 pub fn start(game: Civ3) -> Result<(), LiveError> {
-    let compiled = Arc::new(compile()?);
-    log::info!("live renderer: {} layers, {} sprites", compiled.layers.len(), compiled.sprite_names.len());
+    let (name, text) = description()?;
+    let compiler = Compiler { install: install_root()?, name, text };
+    let folders = ArtFolders::of(&game);
+    let assets = tile_viewer::Assets::new(compiler.compile(&folders)?);
     let link = Link::new();
     {
-        let (compiled, link) = (compiled.clone(), link.clone());
+        let (assets, link) = (assets.clone(), link.clone());
         std::thread::Builder::new()
             .name("civ3r-publish".into())
-            .spawn(move || publish(game, &compiled, &link))
+            .spawn(move || publish(game, &compiler, folders, &assets, &link))
             .map_err(LiveError::Install)?;
     }
     std::thread::Builder::new()
@@ -132,7 +157,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
                 overhang: (0, 128, 0, 128),
                 ..Default::default()
             };
-            if let Err(e) = tile_viewer::run(config, compiled, link) {
+            if let Err(e) = tile_viewer::run(config, assets, link) {
                 log::error!("viewer: {e}");
             }
         })
@@ -141,12 +166,27 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
 }
 
 /// Publishes a new scene whenever what the game shows changes.
-fn publish(game: Civ3, compiled: &Compiled, link: &Link) {
-    let mapper = Mapper::new(compiled);
+fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &tile_viewer::Assets, link: &Link) {
+    let mut compiled = assets.current().1;
+    let mut mapper = Mapper::new(&compiled);
     let mut last: Option<(Civ3World, Civ3View)> = None;
     let mut seq = 0;
     loop {
         std::thread::sleep(POLL);
+        // A scenario brings its own art.
+        let now = ArtFolders::of(&game);
+        if now != folders {
+            match compiler.compile(&now) {
+                Ok(c) => {
+                    assets.replace(c.clone());
+                    compiled = c;
+                    mapper = Mapper::new(&compiled);
+                    last = None;
+                }
+                Err(e) => log::error!("recompiling for {now:?}: {e}"),
+            }
+            folders = now;
+        }
         for input in link.take_input() {
             log::trace!("input {input:?}");
         }
