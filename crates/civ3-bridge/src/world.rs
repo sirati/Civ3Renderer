@@ -306,6 +306,7 @@ impl Trace {
                     t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Fill {
                         rect: [v[0], v[1], v[2], v[3]],
                         rgb: [v[4] as u8, v[5] as u8, v[6] as u8],
+                        alpha: f.get(12).and_then(|a| a.parse().ok()).unwrap_or(255),
                         clip: [v[7], v[8], v[9], v[10]],
                     });
                 }

@@ -236,15 +236,18 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let (name, text) = description()?;
     let compiler = Compiler { install: install_root()?, name, text };
     let folders = ArtFolders::of(&game);
-    // Mirror the game's interface (`CIV3R_UI=off`: only its text). The map
-    // canvas (the main screen form's) is ours.
+    // Mirror the game's interface (`CIV3R_UI=off`: only its text).
     if std::env::var("CIV3R_UI").as_deref() != Ok("off") {
         // `Base_Form` is its vtable, then `Base_Form_Data`.
         let map_canvas = game.addrs.main_screen_form + 4 + civ3_sys::layout::BASE_FORM_DATA_CANVAS;
         // `CIV3R_UI_SKIP=off`: mirror the map canvas too (for finding out what
         // is drawn there).
-        let skip = if std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off") { Vec::new() } else { vec![map_canvas] };
-        match ui_trace::install(&game, skip) {
+        let inspect = std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off");
+        // The map canvas carries the city labels (kept) over the fog tiles
+        // (ours); the unit overlay carries discs, LEDs, bars (all ours).
+        let overlay = civ3_sys::ui_hooks::unit_overlay_canvas(game.build);
+        let (skip, underlays) = if inspect { (Vec::new(), Vec::new()) } else { (overlay.into_iter().collect(), vec![map_canvas]) };
+        match ui_trace::install(&game, skip, underlays, vec!["fogofwar.pcx".into()]) {
             Ok(tracer) => std::mem::forget(tracer),
             Err(e) => log::warn!("not mirroring the interface: {e}"),
         }
