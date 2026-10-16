@@ -57,11 +57,12 @@ exhaustive test of the rounding.
 ## In the game
 
 `civ3-bridge` is installed as the game's `ifc23.dll` (a proxy forwarding to
-the original). With `CIV3R_VIEWER=1` it opens the reimplemented renderer in a
+the original). With `CIV3R_VIEWER=1` (or `=fullscreen`) it opens the reimplemented renderer in a
 window of its own inside the game process: a publisher thread snapshots the
 game's memory (`civ3-sys`), maps it to a scene (`rules`, `scene_map`) and the
 viewer draws it with the game's camera; mouse and keyboard input in that
-window is forwarded to the game's window. When a scenario brings its own art,
+window is forwarded to the game's window; `CIV3R_GAME_MAP=off` stops the
+game drawing its own map. When a scenario brings its own art,
 the description is recompiled against the scenario's folders.
 
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the

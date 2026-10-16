@@ -157,6 +157,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             let config = tile_viewer::ViewerConfig {
                 title: VIEWER_TITLE.into(),
                 size: (1024, 768),
+                fullscreen: std::env::var("CIV3R_VIEWER").is_ok_and(|v| v == "fullscreen"),
                 overhang: (0, 128, 0, 128),
                 ..Default::default()
             };
