@@ -7,6 +7,7 @@ use tile_render_shared::{ByteReader, QUANTIZED_BIAS, alpha_steps, cell_origin, e
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
+use crate::renderer::ScreenCopy;
 use crate::world::{Blend, ColorModel, TileWorld};
 
 /// One sprite draw: which sprite, and where its top-left lands in the
@@ -38,10 +39,24 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
 
 /// Renders like `TileRenderer::render_views` into a target of `size`.
 pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
+    render_composed(world, atlas, cameras, &[], size, frame, clear)
+}
+
+/// Renders like `TileRenderer::render_composed` into a target of `size`.
+pub fn render_composed(
+    world: &TileWorld,
+    atlas: &Atlas,
+    cameras: &[Camera],
+    copies: &[ScreenCopy],
+    size: (u32, u32),
+    frame: u32,
+    clear: [u8; 4],
+) -> RgbaImage {
     let (w, h) = size;
+    let copies = &copies[..copies.len().min(crate::renderer::MAX_COPIES)];
     let bits = match world.color {
         ColorModel::Direct => {
-            let out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
+            let mut out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
                 Blend::Alpha => *dst = blend(src, *dst),
                 // Black at alpha 1 − k/den, as the shader blends it.
                 Blend::Scale { denominator } if (src[0] as u32) < denominator => {
@@ -52,6 +67,7 @@ pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: 
                 }
                 Blend::Scale { .. } => {}
             });
+            apply_copies(&mut out, size, copies);
             return RgbaImage::from_fn(w, h, |x, y| out[(y * w + x) as usize]);
         }
         ColorModel::Quantized { bits } => bits,
@@ -59,7 +75,7 @@ pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: 
     // Stored values (q + QUANTIZED_BIAS), like the GPU's internal target.
     let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
     let background = [stored(clear[0]), stored(clear[1]), stored(clear[2])];
-    let out = compose(world, atlas, cameras, size, frame, background, |dst: &mut [u32; 3], d, src| match d.blend {
+    let mut out = compose(world, atlas, cameras, size, frame, background, |dst: &mut [u32; 3], d, src| match d.blend {
         Blend::Scale { denominator } if (src[0] as u32) < denominator => {
             for c in dst.iter_mut() {
                 *c = scale_stored(*c, src[0] as u32, denominator);
@@ -76,11 +92,28 @@ pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: 
             }
         }
     });
+    apply_copies(&mut out, size, copies);
     RgbaImage::from_fn(w, h, |x, y| {
         let p = out[(y * w + x) as usize];
         let c = |v: u32| expand(v.saturating_sub(QUANTIZED_BIAS), bits) as u8;
         [c(p[0]), c(p[1]), c(p[2]), clear[3]]
     })
+}
+
+/// Copies rectangles of the finished picture `out` on top of it.
+fn apply_copies<P: Copy>(out: &mut [P], (w, h): (u32, u32), copies: &[ScreenCopy]) {
+    let finished = out.to_vec();
+    for c in copies {
+        let Some([x, y, cw, ch]) = c.scissor((w, h)) else { continue };
+        let (n, d) = (c.zoom.0.max(1), c.zoom.1.max(1));
+        for py in y..y + ch {
+            for px in x..x + cw {
+                let sx = c.source[0] + ((px as i32 - c.at.0) as u32 * d / n) as i32;
+                let sy = c.source[1] + ((py as i32 - c.at.1) as u32 * d / n) as i32;
+                out[(py * w + px) as usize] = finished[(sy as u32 * w + sx as u32) as usize];
+            }
+        }
+    }
 }
 
 /// The views composed into a `size` canvas of pixels `P` starting as

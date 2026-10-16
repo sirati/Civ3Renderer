@@ -252,9 +252,9 @@ pub fn output_fs(
     #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
     output: &mut Vec4,
 ) {
-    let sx = params.src_x + offset(frag.x, params.dst_x) * params.zoom_den / params.zoom_num;
-    let sy = params.src_y + offset(frag.y, params.dst_y) * params.zoom_den / params.zoom_num;
-    let v: Vec4 = source.fetch(IVec2::new(sx as i32, sy as i32));
+    let sx = params.src_x + (offset(frag.x, params.dst_x) * params.zoom_den / params.zoom_num) as i32;
+    let sy = params.src_y + (offset(frag.y, params.dst_y) * params.zoom_den / params.zoom_num) as i32;
+    let v: Vec4 = source.fetch(IVec2::new(sx, sy));
     let bits = params.bits;
     *output = if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits), to_unorm(v.y, bits), to_unorm(v.z, bits), v.w) };
 }

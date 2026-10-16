@@ -48,8 +48,8 @@ pub const QUAD_VERTICES: u32 = 6;
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]
 pub struct OutputParams {
-    pub src_x: u32,
-    pub src_y: u32,
+    pub src_x: i32,
+    pub src_y: i32,
     pub dst_x: i32,
     pub dst_y: i32,
     pub zoom_num: u32,

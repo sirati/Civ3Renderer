@@ -200,7 +200,7 @@ impl TileRenderer {
         let blit = pipeline("tile-render blit", copy, &output_layout, QUANTIZED_FORMAT, None);
         let output_params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render output params"),
-            size: PARAMS_STRIDE * (MAX_VIEWS + 1) as u64,
+            size: PARAMS_STRIDE * (MAX_VIEWS + 1 + MAX_COPIES) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -409,6 +409,23 @@ impl TileRenderer {
         frame: u32,
         clear: [u8; 4],
     ) {
+        self.render_composed(device, queue, encoder, target, cameras, &[], frame, clear);
+    }
+
+    /// [`TileRenderer::render_views`], then `copies` of the finished
+    /// picture on top (at most [`MAX_COPIES`]), e.g. a magnifier.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_composed(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        cameras: &[Camera],
+        copies: &[ScreenCopy],
+        frame: u32,
+        clear: [u8; 4],
+    ) {
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
@@ -439,7 +456,10 @@ impl TileRenderer {
             let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
             drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background)));
         }
-        let canvas = if bits == 0 {
+        let copies = &copies[..copies.len().min(MAX_COPIES)];
+        // Copies read the finished picture: then it is composed internally.
+        let direct = bits == 0 && copies.is_empty();
+        let canvas = if direct {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background)));
             view.clone()
         } else {
@@ -463,7 +483,7 @@ impl TileRenderer {
             let (drawn, into, rect, (tiles, free)) = match sources[v] {
                 None => {
                     let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
-                    let pipelines = if bits == 0 { (&self.pipeline, &self.free_pipeline) } else { (&self.quantized_pipeline, &self.free_quantized_pipeline) };
+                    let pipelines = if direct { (&self.pipeline, &self.free_pipeline) } else if bits == 0 { (&self.source_pipeline, &self.free_source_pipeline) } else { (&self.quantized_pipeline, &self.free_quantized_pipeline) };
                     (*camera, &canvas, (viewport, on_target), pipelines)
                 }
                 Some(r) => {
@@ -499,8 +519,8 @@ impl TileRenderer {
             }
             if let Some(r) = sources[v] {
                 let params = OutputParams {
-                    src_x: r[0],
-                    src_y: r[1],
+                    src_x: r[0] as i32,
+                    src_y: r[1] as i32,
                     dst_x: camera.origin.0,
                     dst_y: camera.origin.1,
                     zoom_num: camera.zoom.0.max(1),
@@ -510,21 +530,72 @@ impl TileRenderer {
                 };
                 let offset = write_output(v, params);
                 let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
-                pass.set_pipeline(if bits == 0 { &self.output_pipeline } else { &self.blit_pipeline });
+                pass.set_pipeline(if direct { &self.output_pipeline } else { &self.blit_pipeline });
                 pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
                 pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
                 pass.draw(0..3, 0..1);
             }
         }
-        if bits != 0 {
-            let params = OutputParams { zoom_num: 1, zoom_den: 1, bits, ..Default::default() };
-            let offset = write_output(MAX_VIEWS, params);
-            let scratch = self.scratch.as_ref().expect("created above");
-            let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
-            pass.set_pipeline(&self.output_pipeline);
+        if direct {
+            return;
+        }
+        let scratch = self.scratch.as_ref().expect("created above");
+        let params = OutputParams { zoom_num: 1, zoom_den: 1, bits, ..Default::default() };
+        let offset = write_output(MAX_VIEWS, params);
+        let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
+        pass.set_pipeline(&self.output_pipeline);
+        pass.set_bind_group(0, &scratch.output, &[offset]);
+        pass.draw(0..3, 0..1);
+        for (i, c) in copies.iter().enumerate() {
+            let Some(on_target) = c.scissor((size.width, size.height)) else { continue };
+            let (zoom_num, zoom_den) = (c.zoom.0.max(1), c.zoom.1.max(1));
+            let [src_x, src_y, _, _] = c.source;
+            let params = OutputParams { src_x, src_y, dst_x: c.at.0, dst_y: c.at.1, zoom_num, zoom_den, bits, _pad: 0 };
+            let offset = write_output(MAX_VIEWS + 1 + i, params);
+            pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
             pass.set_bind_group(0, &scratch.output, &[offset]);
             pass.draw(0..3, 0..1);
         }
+    }
+}
+
+/// Most [`ScreenCopy`]s a frame may have.
+pub const MAX_COPIES: usize = 4;
+
+/// A rectangle of the finished picture copied on top of it, scaled by
+/// nearest pixel (a magnifier).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ScreenCopy {
+    /// Source rectangle in target pixels: x, y, width, height.
+    pub source: [i32; 4],
+    /// Top-left of the copy in the target.
+    pub at: (i32, i32),
+    /// Target pixels per source pixel, as a fraction.
+    pub zoom: (u32, u32),
+}
+
+impl ScreenCopy {
+    /// Target pixel `p` of the copy shows source pixel `source + (p − at)·den/num`
+    /// (per axis). The target pixels (x, y, w, h) that are inside a target of
+    /// `size` and show a source pixel inside it, if any.
+    pub fn scissor(&self, (w, h): (u32, u32)) -> Option<[u32; 4]> {
+        let (n, d) = (self.zoom.0.max(1) as i64, self.zoom.1.max(1) as i64);
+        // Offsets o ≥ 0 from `at` with s + floor(o·d/n) in [max(s, 0), min(s + len, limit)).
+        let axis = |s: i64, len: i64, at: i64, limit: i64| {
+            let lo = (-s).max(0); // first source offset
+            let hi = len.min(limit - s); // past the last
+            if hi <= lo {
+                return None;
+            }
+            // floor(o·d/n) ≥ lo ⇔ o ≥ ceil(lo·n/d); < hi ⇔ o < ceil(hi·n/d).
+            let (o0, o1) = ((lo * n + d - 1) / d, (hi * n + d - 1) / d);
+            let (t0, t1) = ((at + o0).max(0), (at + o1).min(limit));
+            (t1 > t0).then_some((t0 as u32, (t1 - t0) as u32))
+        };
+        let [sx, sy, sw, sh] = self.source.map(i64::from);
+        let (x, cw) = axis(sx, sw, self.at.0 as i64, w as i64)?;
+        let (y, ch) = axis(sy, sh, self.at.1 as i64, h as i64)?;
+        Some([x, y, cw, ch])
     }
 }
 

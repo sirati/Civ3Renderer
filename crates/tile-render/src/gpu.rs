@@ -94,6 +94,20 @@ impl Headless {
     /// Renders several views into an offscreen target of `size` (see
     /// `TileRenderer::render_views`).
     pub fn render_views(&self, renderer: &mut TileRenderer, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
+        self.render_composed(renderer, cameras, &[], size, frame, clear)
+    }
+
+    /// Renders views and screen copies into an offscreen image (see
+    /// `TileRenderer::render_composed`).
+    pub fn render_composed(
+        &self,
+        renderer: &mut TileRenderer,
+        cameras: &[Camera],
+        copies: &[crate::ScreenCopy],
+        size: (u32, u32),
+        frame: u32,
+        clear: [u8; 4],
+    ) -> RgbaImage {
         let (w, h) = size;
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
@@ -106,7 +120,7 @@ impl Headless {
             view_formats: &[],
         });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        renderer.render_views(&self.device, &self.queue, &mut encoder, &target, cameras, frame, clear);
+        renderer.render_composed(&self.device, &self.queue, &mut encoder, &target, cameras, copies, frame, clear);
         read_texture(&self.device, &self.queue, encoder, &target)
     }
 }

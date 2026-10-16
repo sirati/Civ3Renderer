@@ -1,7 +1,7 @@
 //! The GPU renderer must produce exactly the reference renderer's pixels.
 
 use tile_render::{
-    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
+    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, RgbaImage, ScreenCopy, SpriteSets, TileRenderer, TileWorld,
     reference,
 };
 
@@ -381,5 +381,30 @@ fn zoom_repeats_texels() {
         for x in 0..200 {
             assert_eq!(big.get(x, y), small.get(x / 2, y / 2), "({x}, {y})");
         }
+    }
+}
+
+#[test]
+fn screen_copies_magnify_the_finished_picture() {
+    // A magnifier over the corner (partly outside the target) and one over
+    // the middle at 5/2, in both colour models.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = scene_with(grid, color != ColorModel::Direct);
+        world.color = color;
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let main = Camera { x: 30, y: 10, overhang: (0, 40, 0, 0), ..Camera::new((320, 200)) };
+        let copies = [
+            ScreenCopy { source: [-10, -5, 40, 30], at: (250, 140), zoom: (3, 1) },
+            ScreenCopy { source: [150, 90, 33, 21], at: (-7, 3), zoom: (5, 2) },
+        ];
+        let got = gpu.render_composed(&mut renderer, &[main], &copies, (320, 200), 1, CLEAR);
+        let want = reference::render_composed(&world, &atlas, &[main], &copies, (320, 200), 1, CLEAR);
+        assert_same(&got, &want, &format!("screen copies, {color:?}"));
+        let plain = gpu.render_views(&mut renderer, &[main], (320, 200), 1, CLEAR);
+        assert_ne!(got.pixels, plain.pixels);
     }
 }
