@@ -91,6 +91,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         experience_hit_points: game.experience_hit_points()?,
         unit_tiles: game.unit_tiles()?,
         preferences: game.preferences()?,
+        selection: game.selection()?,
         wall_buildings: players
             .wall_buildings
             .iter()

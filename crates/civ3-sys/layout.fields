@@ -248,3 +248,5 @@ Combat_Experience
 Combat_Experience Base_Hit_Points
 BIC CombatExperience
 BIC CombatExperienceCount
+Animator Unit_Cursor_Animation
+Animator field_18E4[12]
