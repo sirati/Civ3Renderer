@@ -69,6 +69,13 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// `Sprite::draw_masked(this, Sprite *mask, PCX_Image *dest, x, y, ct)`
+    /// (`0x5F8380`, the main menu's button faces): `this` blended onto
+    /// `dest` through the alpha sprite `mask` (no crop offset).
+    pub mod sprite_draw_masked(sprite, edx; mask, dest, x, y, ct) -> i32;
+}
+
+inproc::fastcall_hook! {
     /// `int PCX_Image::draw_onto(this, PCX_Image *dst, x, y)`: the whole
     /// image, colour-keyed.
     pub mod pcx_draw_onto(image, edx; dst, x, y) -> i32;
@@ -135,6 +142,12 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The text worker `0x5FE7B0 (this, char *s, x, y, len)` every text function
+    /// (left, centred, in a rectangle, right-aligned...) ends in.
+    pub mod text_worker(image, edx; text, x, y, len) -> i32;
+}
+
+inproc::fastcall_hook! {
     /// `PCX_Image::draw_text(this, char *s, x, y, len)`.
     pub mod text_draw(image, edx; text, x, y, len) -> i32;
 }
@@ -166,6 +179,7 @@ pub struct UiSites {
     pub sprite_draw_a4b: Site,
     pub sprite_draw_blend: Site,
     pub sprite_draw_alpha: Site,
+    pub sprite_draw_masked: Site,
     pub pcx_draw_onto: Site,
     pub pcx_copy: Site,
     pub pcx_copy_same: Site,
@@ -179,6 +193,7 @@ pub struct UiSites {
     pub form_composite: Site,
     pub paint: Site,
     pub text_draw: Site,
+    pub text_worker: Site,
     pub text_draw_centered: Site,
     pub text_draw_rect: Site,
 }
@@ -207,6 +222,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             sprite_draw_blend: (0x5F_8620, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             // mov eax,[esp+8] / push esi
             sprite_draw_alpha: (0x5F_8310, &[0x8B, 0x44, 0x24, 0x08, 0x56]),
+            // mov eax,[esp+8] / push esi / test eax,eax
+            sprite_draw_masked: (0x5F_8380, &[0x8B, 0x44, 0x24, 0x08, 0x56, 0x85, 0xC0]),
             // mov ecx,[ecx+4] / test ecx,ecx
             pcx_draw_onto: (0x5F_C9F0, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
             // mov eax,[esp+4] / sub esp,20h
@@ -226,6 +243,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             form_composite: (0x60_2710, &[0x83, 0xEC, 0x18, 0x55, 0x56]),
             // push esi / mov esi,[esp+8]
             paint: (0x62_C3F0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
+            // sub esp,8 / mov eax,[esp+0Ch] / push ebp
+            text_worker: (0x5F_E7B0, &[0x83, 0xEC, 0x08, 0x8B, 0x44, 0x24, 0x0C, 0x55]),
             // push ebx / push esi / mov esi,[esp+0Ch]
             text_draw: (0x5F_EE50, &[0x53, 0x56, 0x8B, 0x74, 0x24, 0x0C]),
             // push ebx / mov ebx,[esp+8]

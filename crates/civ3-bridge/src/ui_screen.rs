@@ -12,7 +12,7 @@ use crate::ui::{Frame, ScreenDraw};
 
 /// Loader options of colour-keyed regions (palette index 255 shows what is
 /// below) and of opaque ones.
-const KEYED: &str = "transparent = [255]";
+const KEYED: &str = "transparent = [254, 255]";
 const OPAQUE: &str = "transparent = []";
 
 /// One thing to draw, in order.

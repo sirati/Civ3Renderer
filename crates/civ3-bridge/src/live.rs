@@ -241,7 +241,10 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     if std::env::var("CIV3R_UI").as_deref() != Ok("off") {
         // `Base_Form` is its vtable, then `Base_Form_Data`.
         let map_canvas = game.addrs.main_screen_form + 4 + civ3_sys::layout::BASE_FORM_DATA_CANVAS;
-        match ui_trace::install(&game, vec![map_canvas]) {
+        // `CIV3R_UI_SKIP=off`: mirror the map canvas too (for finding out what
+        // is drawn there).
+        let skip = if std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off") { Vec::new() } else { vec![map_canvas] };
+        match ui_trace::install(&game, skip) {
             Ok(tracer) => std::mem::forget(tracer),
             Err(e) => log::warn!("not mirroring the interface: {e}"),
         }
@@ -323,6 +326,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 continue;
             }
         };
+        ui_trace::set_skipping(matches!(shown, Shown::Map(..)));
         forward_input(&mut input, inputs);
         if input.viewport == (0, 0) {
             input.game_window();
