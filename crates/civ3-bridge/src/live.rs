@@ -458,8 +458,10 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         }
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
+        // Not while a menu is open: the click would go to the menu.
         if let (Some(look), Shown::Map(world, view)) = (input.look.take(), shown) {
             match crate::scene_map::tile_at(world, look, view.zoomed_out).and_then(|t| ui_screen::minimap_point(&ui_items, world, t)) {
+                _ if crate::modal::modal_open(&game) => log::debug!("look at {look:?}: a menu is open"),
                 Some(p) => input.click(p),
                 None => log::debug!("look at {look:?}: not on the minimap"),
             }
