@@ -18,7 +18,7 @@ game could drive the same renderer, with or without Civ III's art.
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
 | `scene` | no | world snapshots and input events between driver and renderer |
-| `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing |
+| `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; run-time screens (image regions, fills, clipped) |
 | `tile-viewer` | no | window that draws scenes and reports input |
 | `civ3-assets` | format reader | PCX, FLC, INI readers; game file lookup; `render-desc` image loader |
 | `inproc` | no | safe abstractions for injected code: guarded memory reads, hooks, DLL entry |
@@ -44,7 +44,14 @@ which is the order an isometric map needs for tall sprites to overlap the rows
 behind. Sprites are anchored quads fetched texel-exact from an atlas.
 
 Beyond the grid, a world has *free sprites* (units, effects, UI): animated
-sprite sets placed in world or screen space and drawn after any pass.
+sprite sets placed in world or screen space and drawn after any pass. A free
+sprite may be clipped to a viewport rectangle (the quad is shrunk in the vertex
+shader). Translucent texels in a quantized model mix in 1/32 steps and round
+down, like a game averaging two RGB555 values.
+
+A description can be compiled `n` times smaller (`Description::scaled_down`):
+sprites keep every n-th pixel, anchors and steps are divided, per-sheet
+`scaling` keeps anchors or screen art as they are — a game's zoomed-out view.
 
 Colour: a world may compose in a *quantized colour model* (e.g. RGB555, as
 Civ III does). The target then stores `q + bias` per channel in 8 bits, and
@@ -67,6 +74,14 @@ viewer draws it with the game's camera; mouse and keyboard input in that
 window is forwarded to the game's window; `CIV3R_GAME_MAP=off` stops the
 game drawing its own map. When a scenario brings its own art,
 the description is recompiled against the scenario's folders.
+
+The game's interface is mirrored (`CIV3R_UI=off` turns it off): hooks on
+its UI drawing (image loads, sprite slices, blits, copies, fills, lines,
+text, and the composition of forms onto the screen) keep a display list per
+canvas; every paint becomes screen draws — regions of the game's art files,
+fills and text, clipped — that the `menu` crate's run-time screens draw.
+The map form's canvas is left out: that is ours. See
+`docs/civ3-map-rendering.md` §16.
 
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
 game's sprite blits and records one redraw — every sprite, position and
