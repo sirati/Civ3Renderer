@@ -1,0 +1,9 @@
+[package]
+name = "civ3-assets"
+description = "Readers for Civilization III asset formats (PCX, FLC, INI) and game file lookup"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
