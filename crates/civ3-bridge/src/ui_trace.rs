@@ -91,7 +91,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     macro_rules! hook {
         ($module:ident, $site:expr, $handler:expr) => {
-            hooks.push(Box::new(h::$module::install_inline($site.0, $site.1, $handler)?));
+            hooks.push(Box::new(h::$module::install_at_start($site.0, $site.1, $handler)?));
         };
     }
 

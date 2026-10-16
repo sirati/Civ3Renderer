@@ -143,7 +143,7 @@ fn request_path() -> PathBuf {
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let _ = BUILD.set(game.build);
     let sprite = match hooks::sprite_draw_on_map_site(game.build) {
-        Some((addr, prologue)) => Some(sprite_draw_on_map::install_inline(addr, prologue, |call| {
+        Some((addr, prologue)) => Some(sprite_draw_on_map::install_at_start(addr, prologue, |call| {
             SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
             if map_blits_off() { 0 } else { call.original() }
@@ -154,7 +154,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
         }
     };
     let blend = match hooks::sprite_draw_on_map_blend_site(game.build) {
-        Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_inline(addr, prologue, |call| {
+        Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_at_start(addr, prologue, |call| {
             record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
             if map_blits_off() { 0 } else { call.original() }
         })?),
@@ -162,7 +162,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     };
     // Resolve the sprite against the map renderer of the redraw in progress.
     let colored = match hooks::sprite_draw_with_color_table_site(game.build) {
-        Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_inline(addr, prologue, |call| {
+        Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_at_start(addr, prologue, |call| {
             let mr = STATE.lock().ok().and_then(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
             record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
             crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y);
