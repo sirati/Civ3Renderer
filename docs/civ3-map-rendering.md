@@ -220,6 +220,7 @@ wSSS / wOOO (all sea / all ocean): loc = random 0..80
 - **Position**: drawn at the vertex cell's top-left `(px, py)`, i.e. the image is centred on the vertex = half a tile above tile T's box centre. No extra offset [X: `m24` passes (px,py) straight to `Sprite_draw_on_map`].
 - **Polar ice caps** (`polarICEcaps-final.pcx`, 1024x256, 8x4 cells of 128x64): for tiles in the top two and bottom two map rows `m6` also draws an ice sprite: index `rand_int(8) + (y==1 ? 8 : 0)` for the top rows, `16 + rand_int(8) + (y==Height-2 ? 8 : 0)` for the bottom rows (`rand_int` from the per-vertex RNG); exact pixel placement not decoded [X for index, ? for position].
   - **Correction (verified) [X][D]:** the ice cap is drawn by `m6` itself (`0x5F48C0`, Map_Renderer vtable slot 6), at its end, through `this->vtbl[+0xBC]` (`0x4C3A00`; call sites `0x5F4A71` top, `0x5F4AFA` bottom). It is keyed on the **vertex cell (vx, vy)** that `m6` was called with, not on the tile below it. Condition: `!(Map.flags(0x1F0) & 2)` (no Y-wrap) and `Map.flags & 4`, and `vy` in {0, 1, Height-2, Height-1}. It runs even when the base terrain was skipped (e.g. `vy = Height-1`, whose tile below is off the map). RNG: `a = ((Width/2)*vy + (vx>>1)) & 0xFFFF`, `state = Seed + a*21031`, then **one** `rand_int(8)` with **no** 4-advance warm-up (`r = (((state*0x41C64E6D+0x3039) >> 16) & 0x7FFF) >> 12`). Index = `r` (vy=0), `8+r` (vy=1), `16+r` (vy=Height-1), `24+r` (vy=Height-2). Position: with `(px, py)` = the cell's base-terrain top-left, top rows draw at `(px-64, py-32)` and bottom rows at `(px-64, py+32)` (halved to 32/16 when zoomed out, `Map` vfunc +0x28 = `0x5D1600` returns the zoom byte 0x9C7300). Draw order: right after that cell's base terrain sprite, inside the same `m6` call, so before every later layer. Checked with `/tmp/polar-verify.py` against traces t4 and t6 (two seeds): 66/66 draws match on index and position.
+  - **Top and bottom map edge (verified) [X][D].** `m21` (0x4C3230) wraps every lattice cell and skips it when the wrapped x is outside `[0, Width)` or the wrapped y outside `[0, Height)` (0x4C33BE..0x4C33E0), before it calls `m19` (0x4C3768, with the *wrapped* coordinates). The loop range starts at `TileY_Min = -1`, but on a map without Y wrap every cell of row -1 is skipped, and so is row `Height`. So the vertex row `vy = -1` (the top corners of tile row 0) and the row `vy = Height` get **no terrain, river or flood plain**. Vertex row 0 is drawn normally (terrain from tile `(vx, 1)`). The ice cap of vertex `(vx, 0)` lands at `(px-64, py-32)`, which is exactly the box of the skipped vertex `(vx-1, -1)`; at the bottom the cap of `(vx, Height-1)` lands at `(px-64, py+32)` = the box of `(vx-1, Height)`. With `Map.Flags & 4` the caps fill the missing top/bottom corners; without it nothing is drawn there. The cap index has no special meaning: one LCG step from `Seed + a*21031` changes slowly with `a`, so neighbouring vertices give runs (sp3, top row from the left: 1 2 2 3 4 4 5 6 6 7 0 0 1 1 2 3 3). Check (`/tmp/top.py`): the 32 row -1 vertices with a tile below them inside the draw rectangle (sp3 16, t4 16) get no terrain from the game; no trace has a terrain draw outside `0 <= vy < Height` on a map without Y wrap; polar caps 132/132 on index and position (all non-zoomed traces with a seed). Whether the fog pass (0x4C4F10) also skips row -1 was not checked (fog draws are unnamed in the traces).
 - The unexplored/fog look is *not* baked into terrain; see section 6.8.
 
 ---
@@ -241,6 +242,17 @@ All sprite sheets are loaded by the renderer initialiser (vtable slot 72, PCG 0x
 - **kind** (vegetation tint): mountains with snow-cap bit (`Terrain_Overlays` bit 20, only for effective type 6) -> kind 3 (snow). Otherwise look at the 4 diagonal neighbours (NE, SE, SW, NW order): if any neighbour that exists is *not* hills/mountain/volcano/forest/jungle -> kind 0; else count forests (type 7) and jungles (type 8): both zero -> 0; forests > jungles -> 1; jungles > forests -> 2; tie -> `rand_int(2)` (0 -> kind 1, else kind 2) using the per-tile RNG (section 9; seed `Seed + 121472*a`, 4 advances then one `rand_int`). Snow sets kind 3 only for mountains; volcanoes use kinds 0-2 only; hills use kinds 0-2.
 - **Position**: mountains and volcanoes `(px, py - 24)` (zoomed-out `-12`), hills `(px, py - 8)` (`-4`): the sprites are bottom-aligned to the 64-px tile box (88-64 = 24, 72-64 = 8).
 - The volcano drawer stores the mask into `Tile.field_38`.
+- **Correction (verified) [X][D]: the edge hash uses the wrapped neighbour.** In m10 (0x5F4B87..0x5F4CF0), m11 irrigation (0x5F610C..0x5F6243) and m17 borders (0x5F5204..0x5F5285) the neighbour of diagonal k = 0..3 is `(x + 2*(k&1) - 1, y + 2*(k>>1) - 1)` (NW, NE, SW, SE), passed through `Map_wrap_horiz/vert` and skipped if off the map. The edge midpoint is then `mx = (x + nx) / 2`, `my = (y + ny) / 2` (C division, toward zero) with **(nx, ny) the wrapped neighbour** and (x, y) the tile as `m19` passes it (already wrapped):
+  ```
+  for k in 0..4:
+      (nx, ny) = wrap(x + 2*(k&1) - 1, y + 2*(k>>1) - 1); skip if off the map
+      if neighbour effective type (Tile vt+0xC8) not in {6, 5, 10}: continue
+      mx = (x + nx) / 2 ; my = (y + ny) / 2            // cdq; sub; sar 1
+      keep = k in {0,3} ? (3mx - my) % 5 != 0 && (mx - 2my) % 5 != 0
+                        : (3mx - my) % 7 != 0 && (mx + 2my) % 5 != 0 && (7mx + my) % 11 != 0   // idiv, signed remainder
+      if keep: mask |= 1 << k
+  ```
+  Away from the wrap seams this is the formula above; on a seam it is not. Example cr1 (60x60, wraps in x and y): tile (32, 0), NE neighbour (33, -1) wraps to (33, 59), so `mx = 32`, `my = 29`, `(mx + 2my) % 5 = 90 % 5 = 0`: the NE link is dropped and the game draws `Mountains_Images/13`; with the unwrapped neighbour (`my = 0`) the link is kept (15). The same applies to irrigation masks and to the border `hilly` bit. Check (`/tmp/mtn.py`): 6330/6330 mountain/hill/volcano masks in all traces with a seed (unwrapped rule: 6329, the cr1 case is the only seam occurrence); irrigation 2459/2459 under both rules (no seam case in the traces).
 
 ### 6.2 Forest, jungle, swamp (m8) [X][D]
 
@@ -280,6 +292,24 @@ mask |= 8 if E.river & 0x20 (SW) or S.river & 0x02 (NE)      // down-right      
 - **Pass**: let `special` = the tile below the vertex (S) is a mountain (6) / volcano (10), or W is one and has river bit 0x02, or E is one and has river bit 0x80 (N never counts) [D: 111 rivers, 3 games; the doc's earlier "any of the four" was wrong], or any of the four tiles has a city, colony, airfield, radar, outpost, fortress, barricade, goody hut, barbarian camp or ruins. If `special` the river is drawn in pass 2 (flags&4, *before* objects so buildings/mountains cover it), else in pass 4 (flags&2, *after* objects).
 - `waterfalls.pcx` (512x64, 4 cells of 128x64) is loaded into `Waterfalls_Images[4]` [X]; I did not find the selection logic [?].
 - **Waterfalls are never drawn [X].** The only reader of `Waterfalls_Images` (+0xC154) besides the constructor/destructor/loader is Map_Renderer vtable slot 67 (+0x10C, 0x4C3D60: draws `Waterfalls_Images[arg1]` at `(px, py)`). Its address occurs once in the exe (the vtable at 0x66A614) and no `call 0x4C3D60` exists; the four `call [reg+0x10C]` sites in the exe (0x5D2258, 0x5D9317, 0x5E9EF4, 0x618778) are on other objects (Tile and others) and pass one argument, while the waterfall method takes four (`ret 0x10`). A reimplementation draws no waterfalls.
+- **Correction (verified) [X][D]: variant and pass, exact** (`m15` 0x5F5300, sprite via slot 51 0x4C3D10 = `Delta_Rivers_Images[mask*2 + variant]`). `m15` gets the wrapped vertex `(vx, vy)` from `m19`. N = `(vx, vy-1)`, W = `(vx-1, vy)`, E = `(vx+1, vy)`, S = `(vx, vy+1)`, each wrapped again and skipped if off the map. "Real" = Tile vt+0xC4 (`SquareType` bits 8-11), "effective" = vt+0xC8 (bits 12-15), `River_Code` = vt+0x94 (Tile+0x04).
+  ```
+  a       = ((Map.Width(+0x168) >> 1) * (vy - 1) + ((u16)vx >> 1)) & 0xFFFF   // vy wrapped first, vy-1 not re-wrapped
+  state   = Map.Seed(+0x1EC) + a * 0x845FED ; 4 advances
+  variant = rand_int(2)                                    // always consumed (0x5F538D)
+  mask, fp as in the table above; fp bit 1 never comes from W (0x5F56C3 ORs into W's flood-plain flag instead)
+  coast   = real(W) == 11 || real(E) == 11 || real(S) == 11  // N is not tested (0x5F5874, 0x5F5B10, 0x5F5DDE)
+  if fp != 0:  (flags & 8: Flood_Plains_Images[fp]) ; variant = 0
+  if popcount(mask) == 1: variant = coast ? 0 : 1          // 0x5DF830, 0x5F5E4F
+  special = any of N, W, E, S has: CityID != -1, Tile_has_colony, airfield, radar, outpost, fortress,
+            barricade, goody hut, barbarian camp (Overlays(civ 0)), or ruins (Tile+0x24 != 0)
+         || effective(S) in {6, 10}
+         || effective(W) in {6, 10} && W.River_Code & 0x02
+         || effective(E) in {6, 10} && E.River_Code & 0x80
+  if mask != 0 (or Terrain_Overlays bit 27 of N / 26 of W / 25 of E / 24 of S):
+      draw at (px, py) in pass 2 (flags & 4) if special, else in pass 4 (flags & 2)
+  ```
+  So the odd (`mtnRivers`) art has nothing to do with mountains: it is the second random variant or the spring art away from the coast. Three differences from the text above: (1) the spring coast test ignores N, so a spring whose only coast neighbour is the tile above uses `mtnRivers`; (2) the seed row is the *wrapped* `vy` minus one, which matters on Y-wrapping maps for the row drawn at `vy = -1` on screen (it is `vy = Height-1`, cr1 at (448,-4)); (3) ruins and colonies also make a river "special". Check (`/tmp/river.py`, `/tmp/river2.py`, `/tmp/rpass.py`): index 4452/4452 river draws in all traces with a seed; 781 of them are springs, 7 of those have coast only in N and all 7 use the odd art (bc1 1, bc3 2, bd1 1, bd3 1, cr1 1, ww5 1). Pass 4299/4299 in the 59 traces that record `Tile_BuildingID`; the condition without ruins/colonies gets 4295 (the 4 misses are sp5 rivers next to ruins). The old t4/t5 traces (no ruins/building fields, an older recorder) list all rivers before the pass-3 objects and were left out of the pass check.
 
 ### 6.5 Overlay bits (`Tile.Overlays`, per-civ view via `Visibile_Overlays`) [X][D]
 
@@ -299,6 +329,23 @@ Tile vtable (0x6701C8) checks used by the object layers [X]: +0x18 `m06` airfiel
 - Railroad mask: same with `Check_Railroads`; for tiles whose rail neighbours... the 16 extra images for rails are used for rail-over-road junction cases; the exact rule for indices 256-271 was not decoded [?]. Roads are drawn before railroads in the same cell.
 - **Railroad indices 255-271, verified [X]** (`m14` 0x5F6880 -> slot 50 `Railroads_Images[i]`): `mask` = bit k-1 set for each neighbour k = 1..8 (`neighbor_index_to_diff`) inside the map that has a railroad in the viewer's overlays (no road/rail exclusion here). If `mask == 0` and the tile has a city, nothing is drawn. Otherwise, **if `mask == 0xFF`** (rail on all eight neighbours): `index = 255 + rand_int(17)` (255..271: the normal full junction or one of the 16 variants in sheet row 16); else `index = mask`. RNG: `a = ((W/2)*y + (x>>1)) & 0xFFFF`, `state = Seed + a * 15221` (computed as `a + 4*5*(a + 8*(96a - a))`), **three** plain advances (not four; 0x5F69E5/0x5F69F0/0x5F69FB), then the single `rand_int(17)`. The seeding and the three advances run for every drawn rail sprite, but only the all-neighbours case consumes the `rand_int`. Position `(px, py)`.
 - Roads/rails respect the *viewing civ's* remembered overlays (civ id argument).
+- **Correction (verified) [X][D]: road index and stub suppression, exact** (`m16` 0x5F66B0 -> slot 52 `Roads_Images[i]`). `civ` = the viewer (m19 arg 1).
+  ```
+  road(t, c) = Tile vt+0x64 (0x5D9F20):
+      if t has a city (vt+0x114 owner) or a colony (vt+0x118 owner) with owner o != -1
+         and !Leader_has_tech(leaders[o], WorkerJobs[3].RequireID): false
+         // BIC+0x3E1C WorkerJobs (stride 0x74), +0x1A4 = job 3 Build_Road .RequireID; 0x5613F0: -1 = known
+      else Get_Overlays(c) (vt+0xA8, m42) & 0x01
+  rail(t, c) = Tile vt+0x5C (0x5DA000): the same with WorkerJobs[4].RequireID (+0x218, Build_Railroad), bit 0x02
+  if !road(T, civ): draw nothing
+  mask = 0
+  for k in 1..8:                                           // neighbor_index_to_diff 0x5E6D80, wrapped, off-map skipped
+      n = neighbour k
+      if road(n, civ) && !(rail(n, civ) && rail(T, civ)): mask |= 1 << (k-1)
+  if mask == 0 && (CityID(T) != -1 || rail(T, 0)): draw nothing   // civ 0: the ACTUAL Tile.Overlays
+  draw Roads_Images[mask] at (px, py)
+  ```
+  The stub test reads the tile's actual railroad bit, not the viewer's memory. On a fogged tile where the viewer still remembers road + railroad but the railroad is gone from `Tile.Overlays`, every road link is suppressed as a rail-rail link, the stub test finds no actual railroad, and the game draws `Roads_Images/0` under the remembered `Railroads_Images[...]`. In sp1/sp2 these tiles now hold only pollution (`Overlays` 0x40, remembered byte 0x0B or 0x07); in cr1 (7,59) `Overlays` = 0x05, remembered 0x07. Check (`/tmp/roads.py`, predicted multiset of (index, x, y) over every tile of the draw rectangle against the trace): 6631/6631 road draws, 0 extra, in the 59 traces with a seed and `Tile_BuildingID`; 23 of them are stubs, 19 of which are this case (cr1 1, sp1 3, sp2 5, t0 10). The rule "no stub when the viewer sees a railroad" gets 6612 and misses exactly those 19. The traces carry no tech data, so the city/colony tech gate is untested (it can only matter on city/colony tiles).
 
 ### 6.7 Fortress, mines, camps, airfield, radar, outpost, pollution, craters, ruins, goody huts, tnt, resources
 
@@ -1038,7 +1085,7 @@ Forms redraw into their canvas only when invalidated (m73 -> m22), not every fra
 | text | `PCX_Image_draw_text` 0x5FEE50 `(str, x, y, len)`; `do_draw_centered_text` 0x5FEFC0 `(str, x, y, width, len)`; `draw_centered_text` 0x5FD630 `(font, str, x, y, width, len)`; 0x5FF0D0 `(str, RECT*, len)`; state: `set_font` 0x5FD200, `set_text_effects` 0x5FD240 `(color, shadow, dx, dy)` [H names, X addresses]. These end in jgl `TextOutA` on the canvas's DC [I: DC owned by the JGL_Image, +0x4BC]. To attribute TextOutA calls to a canvas, record ECX on entry of these functions |
 | per-pixel | JGL_Image vt+0x1C / +0x14 (pixel pointer) | used by the minimap builder [I] |
 
-**Minimap**: `Navigator_Data` lives at **Main_GUI+0x10720 = 0xA0E230** [X: passed as `this` to 0x578050/0x5786F0/0x578E00]. Its PCX_Images (+0x18, +0x2D0, +0x588, +0x858 [H]) are filled per pixel from world state, then copied into the Main_GUI canvas with 0x5FCBD0/0x5FCB60 (calls at 0x5784EC, 0x578625, 0x578733, 0x57886C) [X calls, I content]. The renderer has to generate the minimap itself. Only the frame and buttons come from art files (Main_GUI `Images[252]` at +0x140D8, file names `PCX_Files[25]` at +0x2F0C [H]).
+**Minimap**: `Navigator_Data` lives at **Main_GUI+0x10720 = 0xA0E230** [X: passed as `this` to 0x578050/0x5786F0/0x578E00]. Its PCX_Images (+0x18, +0x2D0, +0x588, +0x858 [H]) are filled per pixel from world state, then copied into the Main_GUI canvas [X calls, I content]. (Correction, see section 17: the copies at 0x5784EC, 0x578625, 0x578733, 0x57886C are image-to-image copies inside `Navigator_Data`; the copy onto the Main_GUI canvas is 0x5FCB30 at 0x57AED0.) The renderer has to generate the minimap itself. Only the frame and buttons come from art files (Main_GUI `Images[252]` at +0x140D8, file names `PCX_Files[25]` at +0x2F0C [H]).
 
 **Not found**: no gradient fill primitive in the exe [?]. Fog/translucency in the UI goes through the LUT blend (+0x7C).
 
@@ -1067,3 +1114,170 @@ All hooks are thiscall. Read args at entry and results at return.
 5. **Reconstruction**: keep a retained display list per canvas (16.5 reset rules), resolve temporaries through the copy events, and on each paint pass emit `for each m79 event: canvas list translated by (ox, oy), clipped to clip ∩ dirty`. For a full-screen mirror, hook `0x609210` and re-run the composition over all forms.
 
 Open: the exact pixel semantics of JGLSprite slots +0x50/+0x58/+0x5C/+0x74/+0x84/+0x88/+0x8C/+0x94 (need tracing of jgl's inner loops, e.g. 0x1000A1D0 for +0x44 8->16 bit); the role of `+0xB0` when it is not `this`; the frame images drawn by m80 (form+0x11C..+0x128, [I] PCX_Image* edge/scroll pieces).
+
+---
+
+## 17. Minimap
+
+The minimap is generated by the exe from world state. No art file is involved apart from the HUD frame drawn over it. The object is `Navigator_Data` at **Main_GUI+0x10720 = 0xA0E230** [X]. The prototype `tools/minimap-proto.py` implements this section and reproduces the screenshots exactly (17.9).
+
+All colour arithmetic below uses the **RGB555** path. The game queries the surface format (graphics vt+0xB4; 1 = 565, otherwise 555). The screenshots are 555, and every constant has a 565 twin that I list once. Channel helpers (555) [X]: `R(c) = (c >> 7) & 0xF8` (0x550880), `G(c) = (c >> 2) & 0xF8` (0x57AF60), `B(c) = (c << 3) & 0xFF`, `rgb(r,g,b) = (r&0xF8)<<7 | (g&0xF8)<<2 | b>>3` (0x48D210). Colours are written as `0x8000xxxx`. Bit 31 is a JGL flag; only the low 16 bits reach the pixels. Screen value of a 5-bit channel: `(c<<3)|(c>>2)` (6.7a).
+
+### 17.1 Object layout [X offsets; H names]
+
+| Off | Field | Use |
+|---|---|---|
+| +0x00 | `Main_PCX` | destination canvas. Set to 0x9FDD84 (Main_GUI canvas) by init |
+| +0x04 | `PCX_0` | the "source" image: +0x2D0 (political, default) or +0x18 (terrain). The toggle 0x579E70 switches it |
+| +0x08..+0x14 | `Rect` | left/top/right/bottom of the minimap on `Main_PCX` (right/bottom are not used for drawing) |
+| +0x18 | `PCX_1` | **terrain image**: bilinear terrain colours (17.4) |
+| +0x2D0 | `PCX_2` | **political image**: darkened terrain, owned land tinted, city squares |
+| +0x588 | `PCX_3` | darkened terrain (PCX_1 averaged with grey) |
+| +0x840 | `u16 (x,y)[w*h]` | pixel coordinate list; the cell lists point into it |
+| +0x844 | `Navigator_Cell[Width*Height]` | one 0x18-byte record per **lattice** cell (both parities), index `Width*y + x`: +0 x, +2 y, +4..+0x10 vector of pointers to the pixels whose nearest tile is this cell, **+0x14 byte "not yet revealed"** (1 at init) |
+| +0x848 | `per_col` | `w / Map.Width` (integer) |
+| +0x84C | `ratio` | `Map.Width / Map.Height` (integer) |
+| +0x850/+0x854 | | w, h before the aspect correction |
+| +0x858 | `PCX_4` | **displayed image**: black, with revealed cells copied from `PCX_0` |
+| +0xB10/+0xB14 | `w`, `h` | image size (all four images are `w x h`, 16 bpp, created by 0x578430) |
+| +0xB18 | flags | bit0 "process the newly-visible list on the next draw" (set by init and after every main-map draw, cleared by the draw) |
+
+Functions [X]: init 0x578050 `(w, h, bool tint)` `ret 0xC`; create images 0x578430; reset 0x5786F0 (= `Navigator_Data_reset` in the C3X csv); reveal pass 0x578970 `(bool all)`; territory update 0x578E00 `(x, y, r)`; tint one cell 0x578BA0 `(PCX_Image* dst, Navigator_Cell*, colour)`; tint all 0x579D90; city square 0x579090 `(cell)` / 0x5797B0 `(x, y)`; erase city 0x5799B0; re-tint/un-tint one cell 0x579290/0x579510; pixel->tile 0x57A5D0 (cdecl); tile->pixel 0x57A6D0 (cdecl); build terrain image 0x57A760 (cdecl `(PCX_Image*, w, h)`); **draw 0x57ACE0** `(PCX_Image* dst, RECT* r, flags)` `ret 0xC`; viewport rectangle 0x579F20; terrain/political toggle 0x579E70; click -> centre the map 0x57AF00 `(px, py)` (calls MSF 0x4DFAA0 with the tile from 0x57A5D0).
+
+### 17.2 Size and position [X formulas; D values for 1920x1080]
+
+The HUD box is a RECT at **Main_GUI+0x13FF8** (canvas coordinates). It is set by the layout and is runtime-only. Main_GUI first erases it (0x602250) and derives the inner rect **Main_GUI+0x13F38** = box shrunk by 26 px horizontally and 12 px vertically (0x553730(rect, 0x1A, 0xC)). The draw (0x553470) fills that inner rect black. Init with `w, h < 0` (the Main_GUI call 0x557613 passes `-1, -1, 1`) computes:
+
+```
+w = (box.R - 26) - (box.L + 26)                 // = box width - 52
+h = (box.B - 12 + 1) - (box.T + 12)             // = box height - 23
+ratio = Map.Width / Map.Height                  // lattice dims (Width = 2 * tiles per row), C int division
+if ratio > 1:  h = h / ratio;  dy = (h_orig - h) / 2     // letterbox
+if ratio < 1:  w = w / (Map.Height / Map.Width); dx = (w_orig - w) / 2
+if w odd: w += 1                                // the builders walk pixels linearly (stride = 2w)
+Rect.left = box.L + 26 + dx;  Rect.top = box.T + 12 + dy
+per_col = w / Map.Width
+```
+When `ratio != 1`, Main_GUI also draws two white separator lines in the letterbox (0x5535A4..0x5536BB): for `ratio > 1`, horizontal lines at `top + d - 1` and `bottom - d` with `d = (h_orig - h)/2`; for `ratio < 1`, vertical lines at `left + d - 1` and `right - d`. Both span the inner rect and are white 0x7FFF [X; not exercised by the traces, every traced map has ratio 1].
+
+At **1920x1080 [D]** (fitted over 28 screenshots; also the only geometry with exact matches): `w x h = 230 x 108` (ratio 1), minimap pixel (0,0) at **screen (31, 961)**. So the HUD box is screen (5, 949)-(287, 1080). I did not find statically how the box, or the Main_GUI form origin, depends on the resolution [?]. Read Main_GUI+0x13F38 and `local_to_screen` (16.5) at runtime.
+
+`PCX_4` is copied **opaque** (0x5FCB30, `copy_rect(dst, 0, 0, Rect.left, Rect.top, w, h)`, at 0x57AED0) onto the Main_GUI canvas. Then the viewport rectangle is drawn (17.7). Afterwards Main_GUI draws the HUD frame over it: alpha-mask blit 0x5F8310 of sprite Main_GUI+0x14AD0 with mask +0x14AFC, background = the map canvas 0x9F8934 (0x5536FD) [X]. At 1920x1080 the frame covers the minimap's **last 3 rows and last 2 columns** plus a few corner pixels (921 pixels with the standard frame, 899 with the WW2 frame) [D].
+
+### 17.3 Pixel <-> tile mapping (0x57A5D0, 0x57A6D0) [X]
+
+The minimap is the main map's lattice **scaled, not rotated**: lattice x spans `w` pixels, lattice y spans `h` pixels over `Height - 1` rows. Pixel -> tile rounds to the nearest tile in diamond distance:
+
+```
+D = 2*w*h
+s1 = Width*px*h - (Height-1)*py*w + w*h ;  fx = s1 % D ; if s1 < 0: s1 -= D ; A = s1 / D     // C division
+s2 = Width*px*h + (Height-1)*py*w + w*h ;  fy = s2 % D ;                     B = s2 / D
+x = A + B ; y = B - A ; if x >= Width: x -= Width ;  if fx < 0: fx += D
+// returns 1 (invalid) if x or y is outside the map
+```
+i.e. with `X' = px*Width/w`, `Y' = py*(Height-1)/h`: `u = floor((X'-Y'+1)/2)`, `v = floor((X'+Y'+1)/2)`, tile `(u+v, v-u)`. `(fx, fy)` are the position inside the rotated cell (0..D). Every minimap pixel is appended to the `Navigator_Cell` of its tile (row-major, 0x578430). Tile -> pixel (0x57A6D0, also inlined in the city and rectangle code): `px = x*w/Width`, `py = y*h/(Height-1)` after wrapping x/y.
+
+### 17.4 Terrain image `PCX_1` (0x57A760) [X]
+
+For each pixel (row-major; the out pointer only advances on valid pixels):
+```
+(x, y, fx, fy) = pixel_to_tile(px, py)
+if fx < D/2: fx += D/2; x -= 1; y += 1   else fx -= D/2
+if fy < D/2: fy += D/2; x -= 1; y -= 1   else fy -= D/2
+for i in 0..3:                                   // corners (x,y) (x+1,y-1) (x+1,y+1) (x+2,y)
+    xx = wrap_h(x + (i+1)/2);  yy = wrap_v(y + i/2 - (i&1))    // 0x426C80/0x426CC0
+    c  = off-map ? (Map.Flags & 3 ? white 0x7FFF : black 0) : TERRAIN[tile.m50()]
+    wx = (i&1) ? fx : D - fx ;  wy = (i>>1) ? fy : D - fy
+    r += R(c)*wx/D*wy/D ; g += G(c)*wx/D*wy/D ; b += B(c)*wx/D*wy/D      // unsigned, truncating each step
+pixel = rgb(min(r,255), min(g,255), min(b,255))
+```
+So it is a bilinear blend of the four surrounding tile colours, keyed by the **effective terrain** (`Tile::m50_Get_Square_BaseType` = `SquareType` bits 12..15). On wrapping maps the off-map samples at the top and bottom edge are **white**. On non-wrapping maps they are black [X; D: the wrap maps cr1/sp*/nat match exactly].
+
+Terrain colours (switch at 0x57A90D, jump table 0x57ACA4) [X; D]. "Darkened" = the `PCX_3` value, i.e. what an explored, unowned, single-terrain area shows:
+
+| id terrain | 565 | **555** | RGB (screen) | darkened RGB |
+|---|---|---|---|---|
+| 0 desert | 0xF7B7 | 0x7BD7 | (247,247,189) | (148,148,123) |
+| 1 plains | 0xD56A | 0x6AAA | (214,173,82) | (132,115,66) |
+| 2 grassland | 0x8CA6 | 0x4646 | (140,148,49) | (99,99,49) |
+| 3 tundra | 0xDF5D | 0x6FBD | (222,239,239) | (140,148,148) |
+| 4 flood plain | 0x61A2 | 0x30C2 | (99,49,16) | (74,49,33) |
+| 5 hills | 0x3326 | 0x1986 | (49,99,49) | (49,74,49) |
+| 6 mountains | 0xCE59 | 0x6739 | (206,206,206) | (132,132,132) |
+| 7 forest | 0x4BC6 | 0x25E6 | (74,123,49) | (66,90,49) |
+| 8 jungle | 0x1AE0 | 0x0D60 | (24,90,0) | (41,74,24) |
+| 9 swamp | 0x63CB | 0x31EB | (99,123,90) | (74,90,74) |
+| 10 volcano | 0x6801 | 0x3401 | (107,0,8) | (82,24,33) |
+| 11 coast | 0x2515 | 0x1295 | (33,165,173) | (41,107,115) |
+| 12 sea | 0x1C11 | 0x0E11 | (24,132,140) | (41,90,99) |
+| 13 ocean | 0x026B | 0x012B | (0,74,90) | (24,66,74) |
+| other | | 0 | black | |
+
+### 17.5 Darkened and political images [X]
+
+- `PCX_3` = `PCX_1` averaged per channel with grey `0x1CE7` (565 `0x39E7`, 8-bit (56,56,56)): `rgb((R(c)+56)>>1, (G(c)+56)>>1, (B(c)+56)>>1)` (0x578430, 0x5786F0).
+- `PCX_2` starts as a copy of `PCX_3`. **Territory** (0x579D90 at init; 0x578E00 on change): for every tile with `0 < owner < 32` (`Tile::m38` = `Territory_OwnerID`, Tile+0x05, **no visibility test**), every pixel of its cell **that is not water** (`Tile::m35_Check_Is_Water`: coast/sea/ocean keep the darkened colour) becomes `rgb((3*R(k) + R(p)) >> 2, (3*G(k) + G(p)) >> 2, (3*B(k) + B(p)) >> 2)`, where `p` is the **bright** `PCX_1` pixel and `k` the owner colour. In 0x578E00 an unowned tile's cell is restored from `PCX_3`.
+- Owner colour `k` = `Leader 0x55A350` -> `Race 0x539E20(Color_Table_ID)` = **entry 66 (0x42) of `Art/Units/Palettes/ntpNN.pcx`**, `NN = leaders[owner].Color_Table_ID` (+0x10F8), converted to 555 (the same colour as the team disc and the unit-path line, section 10) [X; D]. The colour-table array is 0x73DA04. Scenario `Art/Units/Palettes` override it through the asset search path [I]. Values (palette entry 66 -> screen RGB):
+
+| NN | screen RGB | NN | screen RGB | NN | screen RGB | NN | screen RGB |
+|---|---|---|---|---|---|---|---|
+| 0 | (231,231,231) | 8 | (123,0,156) | 16 | (57,57,57) | 24 | (198,214,148) |
+| 1 | (231,8,8) | 9 | (148,107,0) | 17 | (198,0,255) | 25 | (115,255,173) |
+| 2 | (255,140,0) | 10 | (123,222,0) | 18 | (206,181,0) | 26 | (189,206,66) |
+| 3 | (231,231,0) | 11 | (148,8,8) | 19 | (123,0,255) | 27 | (173,132,82) |
+| 4 | (0,115,0) | 12 | (148,148,148) | 20 | (173,222,239) | 28 | (107,82,8) |
+| 5 | (24,222,222) | 13 | (0,33,148) | 21 | (115,132,49) | 29 | (74,90,41) |
+| 6 | (49,99,255) | 14 | (8,132,148) | 22 | (255,198,0) | 30 | (255,198,255) |
+| 7 | (255,74,239) | 15 | (247,198,255) | 23 | (255,107,0) | 31 | (198,165,239) |
+
+- **Cities** (0x579090, called for each revealed cell that has `city_at(x,y)` (0x56D230, any owner), and by the city create/capture handlers 0x58B6AE.. via 0x5797B0): `s = clamp(per_col >> 2, 1, 4)`; centre `(cx, cy) = (x*w/Width + (per_col>>2), y*h/(Height-1) + (per_col>>4))`; every pixel `(cx-s..cx+s, cy-s..cy+s)` with `0 < px < w` and `0 < py < h` (**strictly > 0**) of `PCX_2` becomes **white 0x7FFF**, and that `(2s+1)^2` square is copied from `PCX_2` to `PCX_4` (0x5FCB60) when `PCX_0 == PCX_2`. For every traced map (`w = 230`, Width 60..256) this gives a **3x3 white square** centred on the city's pixel. City squares are not owner-coloured and do not depend on size or capital status. City removal: 0x5799B0 restores the square from `PCX_1` averaged with grey.
+- **Units are not drawn** on the minimap. Nothing in 0x578050..0x57AF90 reads units [X].
+
+### 17.6 Revealing: which tiles are shown [X]
+
+`PCX_4` starts filled with `0x80000000` = black (0x5FFF30). Reveal pass 0x578970 (from init/reset, and with `all = 0` from 0x4FA600/0x56E511): for each tile `(x, y)` (`x+y` even, row-major) whose **`Tile.Body.Fog_Of_War` (Tile+0x58) has bit `leaders[Player_CivID].ID`** (the explored mask, `Civ3Tile::explored`; read through C3X's `Map_get_tile_to_check_visibility` replacement at 0x5789D7, which handles shared hot-seat vision): if `all` or the cell's "not revealed" byte is set, copy the cell's pixels from `PCX_0` to `PCX_4`, clear the byte, and draw the city square if there is a city. **There is no fog distinction**: explored = full colour, unexplored = black. Current visibility (`FOWStatus`/`Visibility`/V3) is not read. The territory tint uses the live `Territory_OwnerID` of every explored tile, not a remembered owner.
+
+Debug: if `p_debug_mode_bits & 8` (0xA52640, "reveal map"; cleared to `& ~0xC` when 0x47B5B0 returns true) or draw flag 0x10, the draw blits `PCX_0` instead of `PCX_4` (whole map, no black).
+
+### 17.7 Viewport rectangle (0x579F20) [X; D]
+
+Drawn on `Main_PCX` after the blit, every time the minimap is drawn, unless draw flag bit 0 is set. Colour **white** 0x7FFF (565 0xFFFF). One pixel wide. The canvas clip is reset while drawing and restored afterwards. Inputs are the **MSF tile range** `TileX_Min/Max`, `TileY_Min/Max` (0x9FD530/34/38/3C, section 3; one tile larger than the screen on each side):
+```
+xa = TileX_Min, ya = TileY_Min, xb = TileX_Max, yb = TileY_Max
+non-wrapping axis: clamp to [0, Width-1] / [0, Height-1];  wrapping axis: wrap (twice, one step each)
+if !in_map(xa,ya) or !in_map(xb,yb): draw nothing
+x0 = xa*w/Width ; y0 = ya*h/(Height-1) ; x1 = xb*w/Width ; y1 = yb*h/(Height-1)
+L = Rect.left, T = Rect.top ; lines have inclusive endpoints (hline 0x5FFFE0, vline 0x600010)
+x0<=x1, y0<=y1 : outline (L+x0, T+y0) .. (L+x1-1, T+y1-1)         (0x600940, right/bottom exclusive)
+x0> x1, y0<=y1 : split at the x wrap: vline(L+x1-1, T+y0..T+y1-1), hline(L..L+x1-1, T+y0), hline(L..L+x1-1, T+y1-1),
+                 vline(L+x0, T+y0..T+y1-1), hline(L+x0..L+w-1, T+y0), hline(L+x0..L+w-1, T+y1-1)
+x0<=x1, y0> y1 : hline(L+x0..L+x1-1, T+y1-1), vline(L+x0, T..T+y1-1), vline(L+x1-1, T..T+y1-1),
+                 hline(L+x0..L+x1-1, T+y0), vline(L+x0, T+y0..T+h-1), vline(L+x1-1, T+y0..T+h-1)
+both wrapped   : the four corner pieces: hlines (L..L+x1-1) and (L+x0..L+w-1) at T+y0 and T+y1-1,
+                 vlines at L+x0 and L+x1-1 over (T..T+y1-1) and (T+y0..T+h-1)
+```
+[D: bc1 `TileX 27..59, TileY 0..35`, 140x140 map -> screen x 75..126, y 961..987, exactly as computed.] No blinking: nothing in the minimap code reads a timer or a frame counter [X].
+
+### 17.8 When it is (re)built [X]
+
+The images are **retained**. They are not regenerated per frame.
+- **Init** 0x578050 (game start/load: Main_GUI 0x557613, 0x494F16, 0x495053, 0x495104, 0x4F6322; other forms with their own `Navigator_Data`: 0x58C8F1 (426x202), 0x593212..): sizes, cell lists, all images, tint (if arg3), reveal all explored.
+- **Reset** 0x5786F0 (0x47901E player switch, 0x494F20, 0x49510E, 0x4F5B7A, 0x4FA60B, 0x56E51C, 0x59322A, 0x593266): rebuilds `PCX_1/3/2/4`, marks every cell unrevealed, tints, then reveals.
+- **Territory/terrain change** 0x578E00(x, y, r) over lattice `x-2r..x+2r`, `y-2r..y+2r` (callers 0x4AE68E, 0x4AF30A, 0x4B0D62 (culture/borders), 0x565301, 0x5D29A2/0x5D2A11): re-tint or restore each tile's cell in `PCX_2`. For already revealed cells it copies to `PCX_4` and redraws the city square. A city square that reaches into a neighbouring cell can be partly overwritten by that cell's re-tint (history-dependent) [I].
+- **City events** 0x58B6AE.. (0x5797B0 / 0x5799B0 / 0x579290 / 0x579510): add/remove squares, re-tint single cells.
+- **Newly explored tiles**: after every main-map draw (0x4EEEBB, 0x4EF0A3) and in 0x494C04/0x55B2DB, `+0xB18 |= 1` and Main_GUI is redrawn (`m73` 0x6026B0). The next draw 0x57ACE0 walks the vector at 0xA26860..0xA26864 (the tiles whose visibility changed, filled by the map/fog code) and reveals each still-unrevealed cell (copy + city). Then it clears `+0xB18`.
+- **Draw** 0x57ACE0 runs on every Main_GUI redraw (0x553470 -> 0x5536D5; 0x5579A0 after the toggle; 0x58E0C8 etc. for the other forms with flags 0x11). It blits `PCX_4` and draws the rectangle. So the rectangle follows the camera on every map redraw.
+- Toggle 0x579E70 (Main_GUI command handler 0x557979, a HUD minimap button [I which one]) swaps `PCX_0` between `PCX_2` and `PCX_1` and recopies every **non-zero** pixel of `PCX_4` from the new source. Terrain mode therefore shows bright untinted terrain without city squares (squares already copied stay white) [X].
+
+### 17.9 Verification [D]
+
+`tools/minimap-proto.py TRACE GAME.png [--diff out.png]` builds `PCX_1 -> PCX_3 -> PCX_2 -> PCX_4` from a civ3-bridge trace (`tile`: `SquareType`, owner, explored; `city`; `color_tables`; `map` flags; `view` tile range; `player`), adds the rectangle and compares with the screenshot. It assumes the init state, i.e. no history effects from 17.8. Results with `w x h = 230 x 108` at screen (31, 961):
+- 28 screenshots (bc1-3, bd1-4, cr1, nat, off, sel, sp1-5, lm1, live2, u1, u2, txt2, ww1-7). Maps: 60x60 wrap X (flags 0x5), 60x60 wrap X+Y (0x3), 136x120, 140x140, 160x160 wrap X, 256x256. **Every pixel not covered by the HUD frame matches exactly.** The only mismatches are the frame pixels: 921 per shot (899 with the WW2 frame). That is 96.29 % / 96.38 % of the 24,840 minimap pixels, and **100.00 %** of the uncovered ones.
+- `act` has no HUD in its screenshot (the minimap is not on screen) and was excluded.
+
+### 17.10 Open points
+
+- How the HUD box (Main_GUI+0x13FF8) and the Main_GUI origin depend on the screen resolution. Only 1920x1080 was measured [?].
+- Letterbox lines and aspect correction for non-square maps (`Width/Height != 1` after integer division, e.g. 200x100) are [X] only, not checked against data.
+- History effects (city squares partly overwritten by later re-tints, owner changes on revealed cells while `PCX_0` is the terrain image) cannot be reproduced from a single snapshot. Rebuilding from scratch matches a freshly loaded game.
+- Which HUD button triggers the terrain/political toggle, and whether the choice persists (it is not saved in the Navigator object) [?].
