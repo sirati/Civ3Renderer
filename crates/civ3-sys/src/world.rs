@@ -38,6 +38,18 @@ pub struct CityInfo {
     pub civ: i32,
     /// Population.
     pub size: i32,
+    /// Bit i: has improvement i (the first 256).
+    pub improvements: [u8; 32],
+}
+
+/// An improvement that makes a town look walled (`Combat_Bombard > 0`,
+/// docs §8): its id, the government it needs (-1: any), and which players
+/// know the tech that obsoletes it (bit per player).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct WallBuilding {
+    pub id: i32,
+    pub government: i32,
+    pub obsolete_for: u32,
 }
 
 /// Per player, the data city and unit art depends on.
@@ -52,6 +64,8 @@ pub struct Players {
     /// `General.MaximumSize_Town` / `MaximumSize_City`.
     pub max_town: i32,
     pub max_city: i32,
+    pub governments: Vec<i32>,
+    pub wall_buildings: Vec<WallBuilding>,
 }
 
 /// Shape of the map.
@@ -217,6 +231,25 @@ impl Civ3 {
         Ok(Ptr32::<u8>::new(self.addrs.bic_data).offset::<T>(offset)?.read()?)
     }
 
+    /// The folder the running scenario's art overrides live in (searched
+    /// before the install's), if any: a C string at BIC+0x128 (docs §11,
+    /// `BIC_get_asset_path`; inside the header's unnamed `field_1C`).
+    pub fn scenario_folder(&self) -> Result<Option<String>, Civ3Error> {
+        let bytes: [u8; 260] = self.bic(0x128)?;
+        let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        let path = String::from_utf8_lossy(&bytes[..len]).trim().to_owned();
+        Ok((!path.is_empty()).then_some(path))
+    }
+
+    /// The `;`-separated art search roots tried after the scenario folder
+    /// (docs §11: a string at BIC+0xC7C, filled at runtime; holds the
+    /// scenario's search folders, e.g. `Conquests\WWII in the Pacific`).
+    pub fn search_roots(&self) -> Result<Vec<String>, Civ3Error> {
+        let bytes: [u8; 1024] = self.bic(0xC7C)?;
+        let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+        Ok(String::from_utf8_lossy(&bytes[..len]).split(';').map(|r| r.trim().to_owned()).filter(|r| !r.is_empty()).collect())
+    }
+
     /// Icon index (into resources.pcx) of every resource type.
     pub fn resource_icons(&self) -> Result<Vec<i32>, Civ3Error> {
         let count: i32 = self.bic(L::BIC_RESOURCETYPECOUNT)?;
@@ -281,7 +314,25 @@ impl Civ3 {
             culture_groups,
             max_town: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_TOWN)?,
             max_city: self.bic(L::BIC_GENERAL + L::GENERAL_MAXIMUMSIZE_CITY)?,
+            governments: self.leader_field(L::LEADER_GOVERNMENTTYPE)?,
+            wall_buildings: self.wall_buildings()?,
         })
+    }
+
+    fn wall_buildings(&self) -> Result<Vec<WallBuilding>, Civ3Error> {
+        let base: Ptr32<u8> = self.bic(L::BIC_IMPROVEMENTS)?;
+        let count: i32 = self.bic(L::BIC_IMPROVEMENTSCOUNT)?;
+        let mut out = Vec::new();
+        for id in 0..count.clamp(0, 256) as u32 {
+            let field = |offset| -> Result<i32, Civ3Error> { Ok(base.offset::<i32>(id * L::IMPROVEMENT_SIZE + offset)?.read()?) };
+            if field(L::IMPROVEMENT_COMBAT_BOMBARD)? <= 0 {
+                continue;
+            }
+            let obsolete = field(L::IMPROVEMENT_OBSOLETEID)?;
+            let obsolete_for = (0..32).filter(|&civ| obsolete >= 0 && self.has_tech(civ, obsolete) == Some(true)).fold(0, |m, civ| m | 1 << civ);
+            out.push(WallBuilding { id: id as i32, government: field(L::IMPROVEMENT_GOVERNMENTID)?, obsolete_for });
+        }
+        Ok(out)
     }
 
     /// All cities.
@@ -306,6 +357,7 @@ impl Civ3 {
                 y: body.offset::<i16>(L::CITY_BODY_Y)?.read()?.into(),
                 civ: body.offset::<i8>(L::CITY_BODY_CIVID)?.read()?.into(),
                 size: body.offset::<i32>(L::CITY_BODY_POPULATION + L::POPULATION_SIZE)?.read()?,
+                improvements: body.offset::<[u8; 32]>(L::CITY_BODY_IMPROVEMENTS_1 + L::CITY_IMPROVEMENTS_IMPROVEMENTS)?.read()?,
             });
         }
         Ok(out)

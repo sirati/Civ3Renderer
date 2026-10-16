@@ -11,7 +11,7 @@ use render_desc::{Compiled, Description};
 use scene::Link;
 
 use crate::scene_map::Mapper;
-use crate::world::{Civ3City, Civ3Tile, Civ3View, Civ3World};
+use crate::world::{Civ3City, Civ3Tile, Civ3View, Civ3World, WallBuilding};
 
 /// The render description built into the DLL; `CIV3R_DESC` overrides it.
 const BUILTIN_DESC: &str = include_str!("../../../assets/civ3/civ3.toml");
@@ -48,7 +48,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
     let cities = game
         .cities()?
         .into_iter()
-        .map(|c| Civ3City { id: c.id, x: c.x, y: c.y, civ: c.civ, size: c.size })
+        .map(|c| Civ3City { id: c.id, x: c.x, y: c.y, civ: c.civ, size: c.size, improvements: c.improvements })
         .collect();
     let world = Civ3World {
         player: view.player_civ,
@@ -62,6 +62,12 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         max_town: players.max_town,
         max_city: players.max_city,
         cities,
+        governments: players.governments,
+        wall_buildings: players
+            .wall_buildings
+            .iter()
+            .map(|b| WallBuilding { id: b.id, government: b.government, obsolete_for: b.obsolete_for })
+            .collect(),
         width: map.width,
         height: map.height,
         wrap_x: map.wrap_x,

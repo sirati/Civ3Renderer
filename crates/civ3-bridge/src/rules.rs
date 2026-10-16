@@ -464,6 +464,14 @@ pub fn city(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     };
     let capital = world.capitals.get(civ) == Some(&city.id);
     let size_class = (size_class + capital as i32).min(2);
+    // A walled town: one of its working buildings defends against bombard
+    // (Walls). Free buildings from wonders (the Great Wall) are not
+    // modelled yet.
+    let government = world.governments.get(civ).copied().unwrap_or(-1);
+    let walled = world.wall_buildings.iter().any(|b| {
+        city.has_improvement(b.id) && (b.government < 0 || b.government == government) && b.obsolete_for & (1 << civ) == 0
+    });
+    let size_class = if size_class == 0 && walled { 3 } else { size_class };
     let era = world.eras.get(civ).copied().unwrap_or(0).clamp(0, 3);
     let race = world.races.get(civ).copied().unwrap_or(0);
     let culture = world.culture_groups.get(race.max(0) as usize).copied().unwrap_or(0).clamp(0, 4);
