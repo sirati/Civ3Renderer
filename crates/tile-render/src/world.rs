@@ -128,6 +128,44 @@ impl ColorModel {
     }
 }
 
+/// A sprite (animation) placed freely, see [`TileWorld::free`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PlacedSprite {
+    pub set: SpriteSetId,
+    /// Anchor position: world pixels, or viewport pixels if `screen`.
+    pub x: i32,
+    pub y: i32,
+    pub screen: bool,
+    /// Drawn after this render pass (index into [`TileWorld::passes`];
+    /// past the last pass: on top of everything).
+    pub after_pass: usize,
+    pub phase: u32,
+    pub ticks_per_frame: u32,
+    pub blend: Blend,
+}
+
+impl PlacedSprite {
+    pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha }
+    }
+
+    pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
+        tile_render_shared::FreeSprite {
+            set: self.set.0,
+            phase: self.phase,
+            ticks_per_frame: self.ticks_per_frame.max(1),
+            flags: if self.screen { tile_render_shared::FREE_SCREEN } else { 0 },
+            x: self.x,
+            y: self.y,
+            scale_den: match self.blend {
+                Blend::Alpha => 0,
+                Blend::Scale { denominator } => denominator.max(1),
+            },
+            _pad: 0,
+        }
+    }
+}
+
 /// A range of layers drawn together, see [`TileWorld::passes`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Pass {
@@ -180,6 +218,9 @@ pub struct TileWorld {
     pub grid: Grid,
     pub sets: SpriteSets,
     pub color: ColorModel,
+    /// Sprites not on the grid, drawn in list order after the pass each
+    /// names.
+    pub free: Vec<PlacedSprite>,
     layers: Vec<LayerSpec>,
     /// Each layer's records, packed, little endian.
     data: Vec<Vec<u8>>,
@@ -191,7 +232,7 @@ pub struct LayerId(pub usize);
 
 impl TileWorld {
     pub fn new(grid: Grid, sets: SpriteSets) -> Self {
-        Self { grid, sets, color: ColorModel::Direct, layers: Vec::new(), data: Vec::new() }
+        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), layers: Vec::new(), data: Vec::new() }
     }
 
     pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {

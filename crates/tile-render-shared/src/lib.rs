@@ -148,6 +148,33 @@ pub struct LayerDesc {
     pub scale_den: u32,
 }
 
+/// A sprite placed freely rather than on a grid cell (units, effects, UI).
+/// Drawn by instance index from its own buffer.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]
+pub struct FreeSprite {
+    /// Offset of its sprite set (animation) in `sprite_sets`; 0 = nothing.
+    pub set: u32,
+    /// Shown frame: `(frame / ticks_per_frame + phase) % frames`.
+    pub phase: u32,
+    pub ticks_per_frame: u32,
+    /// `FREE_*` flags.
+    pub flags: u32,
+
+    /// Where the sprites' anchor offsets are measured from: world pixels, or
+    /// viewport pixels with `FREE_SCREEN`.
+    pub x: i32,
+    pub y: i32,
+    /// Non-zero: darkens like a scale layer (see `LayerDesc::scale_den`).
+    pub scale_den: u32,
+    pub _pad: u32,
+}
+
+/// The free sprite's position is in viewport pixels, unaffected by the
+/// camera (UI).
+pub const FREE_SCREEN: u32 = 1 << 0;
+
 /// One sprite: a rectangle of an atlas page and where to draw it.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -276,6 +303,7 @@ mod tests {
 
     #[test]
     fn layouts_are_16_byte_multiples() {
+        assert_eq!(size_of::<FreeSprite>() % 16, 0);
         assert_eq!(size_of::<FrameParams>() % 16, 0);
         assert_eq!(size_of::<GridParams>() % 16, 0);
         assert_eq!(size_of::<LayerDesc>() % 16, 0);

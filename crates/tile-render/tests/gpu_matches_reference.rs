@@ -1,7 +1,7 @@
 //! The GPU renderer must produce exactly the reference renderer's pixels.
 
 use tile_render::{
-    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
+    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
     reference,
 };
 
@@ -56,7 +56,7 @@ fn scene_with(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
     let anim = sets.add(&anim_frames);
 
     let mut world = TileWorld::new(grid, sets);
-    let base = world.add_layer(LayerSpec::new("terrain", terrain));
+    let base = world.add_layer(LayerSpec::new("terrain", terrain.clone()));
     let mut overlay_spec = LayerSpec::new("overlay", vec![tile_render::SpriteSetId::EMPTY, anim]);
     overlay_spec.per_cell_phase = true;
     overlay_spec.ticks_per_frame = 3;
@@ -86,6 +86,12 @@ fn scene_with(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
         }
     }
     if shading {
+        // Free sprites: an animated one in the world after pass 0, a
+        // darkening one, and a screen-space one on top.
+        world.free.push(PlacedSprite { after_pass: 0, ticks_per_frame: 2, phase: 1, ..PlacedSprite::new(anim, 200, 90) });
+        world.free.push(PlacedSprite { after_pass: 1, blend: Blend::Scale { denominator: 16 }, ..PlacedSprite::new(shade_set, 150, 70) });
+        world.free.push(PlacedSprite { screen: true, ..PlacedSprite::new(terrain[2], 30, 20) });
+        world.free.push(PlacedSprite { screen: true, ..PlacedSprite::new(anim, -10, 300) });
         let shadow = world.add_layer(LayerSpec {
             pass: 1,
             blend: Blend::Scale { denominator: 16 },

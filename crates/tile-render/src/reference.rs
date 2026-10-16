@@ -105,7 +105,23 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
 fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw: impl FnMut(Draw)) {
     let packed = world.pack();
     let data = ByteReader::new(&packed.data);
-    for (pass_index, pass) in world.passes().iter().enumerate() {
+    let passes = world.passes();
+    // Free sprites following pass `p`, in list order.
+    let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p) {
+            let set = s.set.0 as usize;
+            let frames = packed.sets[set];
+            if set == 0 || frames == 0 {
+                continue;
+            }
+            let f = (frame / s.ticks_per_frame.max(1) + s.phase) % frames;
+            let sprite_id = packed.sets[set + 1 + f as usize];
+            let sprite = atlas.sprites[sprite_id as usize];
+            let (cx, cy) = if s.screen { (0, 0) } else { (camera.x, camera.y) };
+            draw(Draw { sprite: crate::SpriteId(sprite_id), x: s.x + sprite.anchor_x - cx, y: s.y + sprite.anchor_y - cy, pass: p, blend: s.blend });
+        }
+    };
+    for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
         let params = camera.frame_params(&world.grid, world.color, frame, pass);
         for local in 0..params.cols * params.rows {
@@ -146,7 +162,9 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, mut draw
                 });
             }
         }
+        free_after(pass_index, &mut draw);
     }
+    free_after(passes.len(), &mut draw);
 }
 
 /// `BlendState::ALPHA_BLENDING` in 8-bit: colour = src·a + dst·(1−a),

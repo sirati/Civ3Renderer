@@ -17,7 +17,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ByteReader, FrameParams, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ByteReader, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
     QUANTIZED_BIAS, expand, quantize, scale_offset, wrap_cell,
 };
 
@@ -124,6 +124,51 @@ pub fn tile_vs(
     // interpolated values keep float precision exact for big atlases, and the
     // IVec2 varying also gives naga's SPIR-V frontend the ivec2 type it needs
     // for integer fetches from an arrayed image.
+    *out_local = Vec2::new(u * sprite.width as f32, v * sprite.height as f32);
+    *out_origin = IVec2::new(sprite.atlas_x as i32, sprite.atlas_y as i32);
+    *out_page = sprite.page;
+}
+
+/// Free sprites: instance `i` is `free[i]` (draw calls select a range with
+/// their first instance).
+#[spirv(vertex)]
+pub fn free_vs(
+    #[spirv(vertex_index)] vertex: u32,
+    #[spirv(instance_index)] instance: u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 4)] sprite_sets: &[u32],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 5)] sprites: &[SpriteDesc],
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 7)] free: &[FreeSprite],
+    #[spirv(position)] out_pos: &mut Vec4,
+    out_local: &mut Vec2,
+    #[spirv(flat)] out_origin: &mut IVec2,
+    #[spirv(flat)] out_page: &mut u32,
+    #[spirv(flat)] out_scale_den: &mut u32,
+) {
+    let f = &free[instance as usize];
+    *out_local = Vec2::ZERO;
+    *out_origin = IVec2::ZERO;
+    *out_page = 0;
+    *out_scale_den = f.scale_den;
+    let frames = sprite_sets[f.set as usize];
+    if f.set == 0 || frames == 0 {
+        *out_pos = CULLED;
+        return;
+    }
+    let ticks = if f.ticks_per_frame == 0 { 1 } else { f.ticks_per_frame };
+    let frame = (params.frame / ticks + f.phase) % frames;
+    let sprite = &sprites[sprite_sets[(f.set + 1 + frame) as usize] as usize];
+    let (u, v) = quad_corner(vertex);
+    let (sx, sy) = if f.flags & FREE_SCREEN != 0 {
+        ((f.x + sprite.anchor_x) as f32 + u * sprite.width as f32, (f.y + sprite.anchor_y) as f32 + v * sprite.height as f32)
+    } else {
+        let zoom = params.zoom_num as f32 / params.zoom_den as f32;
+        (
+            ((f.x + sprite.anchor_x - params.camera_x) as f32 + u * sprite.width as f32) * zoom,
+            ((f.y + sprite.anchor_y - params.camera_y) as f32 + v * sprite.height as f32) * zoom,
+        )
+    };
+    *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
     *out_local = Vec2::new(u * sprite.width as f32, v * sprite.height as f32);
     *out_origin = IVec2::new(sprite.atlas_x as i32, sprite.atlas_y as i32);
     *out_page = sprite.page;

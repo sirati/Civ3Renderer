@@ -2,7 +2,7 @@
 
 use std::num::NonZeroU64;
 
-use tile_render_shared::{FrameParams, LayerDesc, QUAD_VERTICES, SpriteDesc};
+use tile_render_shared::{FrameParams, FreeSprite, LayerDesc, QUAD_VERTICES, SpriteDesc};
 use wgpu::util::DeviceExt;
 
 use crate::atlas::Atlas;
@@ -27,6 +27,9 @@ pub struct TileRenderer {
     pipeline: wgpu::RenderPipeline,
     /// Draws into the internal target (quantized colour models).
     quantized_pipeline: wgpu::RenderPipeline,
+    /// The same for free sprites.
+    free_pipeline: wgpu::RenderPipeline,
+    free_quantized_pipeline: wgpu::RenderPipeline,
     /// Expands the internal target into the caller's target.
     output_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
@@ -52,6 +55,10 @@ struct WorldBuffers {
     grid: Grid,
     color: ColorModel,
     passes: Vec<Pass>,
+    /// Free sprites, ordered by the pass they follow, and per pass the
+    /// range of them to draw after it (the last entry: after all passes).
+    free: wgpu::Buffer,
+    free_after: Vec<std::ops::Range<u32>>,
     layers: wgpu::Buffer,
     tile_data: wgpu::Buffer,
     lut: wgpu::Buffer,
@@ -111,6 +118,7 @@ impl TileRenderer {
                 storage_entry(3),
                 storage_entry(4),
                 storage_entry(5),
+                storage_entry(7),
                 wgpu::BindGroupLayoutEntry {
                     binding: 6,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -170,8 +178,11 @@ impl TileRenderer {
         let tiles = ("tile_vs", "tile_fs");
         let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
         let direct = pipeline("tile-render", tiles, &layout, target_format, alpha);
+        let frees = ("free_vs", "tile_fs");
+        let free_direct = pipeline("tile-render free", frees, &layout, target_format, alpha);
         let premultiplied = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
         let quantized = pipeline("tile-render quantized", tiles, &layout, QUANTIZED_FORMAT, premultiplied);
+        let free_quantized = pipeline("tile-render free quantized", frees, &layout, QUANTIZED_FORMAT, premultiplied);
         let output = pipeline("tile-render output", ("fullscreen_vs", "output_fs"), &output_layout, target_format, None);
         let bits = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render colour bits"),
@@ -188,6 +199,8 @@ impl TileRenderer {
         Self {
             pipeline: direct,
             quantized_pipeline: quantized,
+            free_pipeline: free_direct,
+            free_quantized_pipeline: free_quantized,
             output_pipeline: output,
             layout,
             output_layout,
@@ -246,10 +259,13 @@ impl TileRenderer {
         let packed = world.pack();
         let empty = [LayerDesc::default()];
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
+        let (free, free_after) = free_sprites(world);
         self.world = Some(WorldBuffers {
             grid: world.grid,
             color: world.color,
             passes: world.passes(),
+            free: storage(device, "tile-render free sprites", bytemuck::cast_slice(&free)),
+            free_after,
             layers: storage(device, "tile-render layers", bytemuck::cast_slice(layers)),
             tile_data: storage(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
             lut: storage(device, "tile-render lut", bytemuck::cast_slice(&packed.lut)),
@@ -263,8 +279,15 @@ impl TileRenderer {
     pub fn update_world(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
         let packed = world.pack();
         match &self.world {
-            Some(w) if w.grid == world.grid && w.color == world.color && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
+            Some(w) if w.grid == world.grid
+                && w.color == world.color
+                && w.tile_data.size() == (packed.data.len() * 4) as u64
+                && w.free.size() >= (world.free.len().max(1) * size_of::<FreeSprite>()) as u64 =>
+            {
                 queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
+                let (free, free_after) = free_sprites(world);
+                queue.write_buffer(&w.free, 0, bytemuck::cast_slice(&free));
+                self.world.as_mut().unwrap().free_after = free_after;
             }
             _ => self.set_world(device, world),
         }
@@ -291,6 +314,7 @@ impl TileRenderer {
                 wgpu::BindGroupEntry { binding: 4, resource: world.sets.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 5, resource: sprites.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(atlas) },
+                wgpu::BindGroupEntry { binding: 7, resource: world.free.as_entire_binding() },
             ],
         }));
     }
@@ -326,7 +350,9 @@ impl TileRenderer {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, bind_group, &[offset as u32]);
                 pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+                draw_free(&mut pass, world, i, &self.free_pipeline);
             }
+            draw_free_last(&self.params, queue, encoder, &view, world, camera, frame, bind_group, &self.free_pipeline);
             return;
         }
 
@@ -344,12 +370,72 @@ impl TileRenderer {
             pass.set_pipeline(&self.quantized_pipeline);
             pass.set_bind_group(0, bind_group, &[offset as u32]);
             pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+            draw_free(&mut pass, world, i, &self.free_quantized_pipeline);
         }
+        draw_free_last(&self.params, queue, encoder, &main, world, camera, frame, bind_group, &self.free_quantized_pipeline);
         let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
         pass.set_pipeline(&self.output_pipeline);
         pass.set_bind_group(0, &scratch.output, &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+/// Free sprites that follow pass `i`, into `pass` (whose bind group is
+/// already set).
+fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipeline: &wgpu::RenderPipeline) {
+        let Some(range) = world.free_after.get(i).filter(|r| !r.is_empty()) else { return };
+        pass.set_pipeline(pipeline);
+        pass.draw(0..QUAD_VERTICES, range.clone());
+    }
+
+/// Free sprites after the last pass, in a pass of their own.
+#[allow(clippy::too_many_arguments)]
+fn draw_free_last(
+        params_buffer: &wgpu::Buffer,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        world: &WorldBuffers,
+        camera: &Camera,
+        frame: u32,
+        bind_group: &wgpu::BindGroup,
+        pipeline: &wgpu::RenderPipeline,
+    ) {
+        let last = world.passes.len().min(MAX_PASSES);
+        let Some(range) = world.free_after.get(last).filter(|r| !r.is_empty()) else { return };
+        let params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 });
+        let offset = last.min(MAX_PASSES - 1) as u64 * PARAMS_STRIDE;
+        if last == MAX_PASSES {
+            log::warn!("free sprites after the last of {MAX_PASSES} passes share its parameters");
+        } else {
+            queue.write_buffer(params_buffer, offset, bytemuck::bytes_of(&params));
+        }
+        let mut pass = begin_pass(encoder, view, wgpu::LoadOp::Load);
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, bind_group, &[offset as u32]);
+        pass.draw(0..QUAD_VERTICES, range.clone());
+}
+
+/// The world's free sprites in drawing order (by the pass they follow,
+/// then list order) and per pass the range of them that follows it; the
+/// last range follows all passes.
+fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<std::ops::Range<u32>>) {
+    let passes = world.passes().len().min(MAX_PASSES);
+    let mut order: Vec<&crate::PlacedSprite> = world.free.iter().collect();
+    order.sort_by_key(|s| s.after_pass.min(passes));
+    let mut ranges = vec![0..0; passes + 1];
+    for (i, s) in order.iter().enumerate() {
+        let p = s.after_pass.min(passes);
+        if ranges[p].is_empty() {
+            ranges[p] = i as u32..i as u32;
+        }
+        ranges[p].end = i as u32 + 1;
+    }
+    let mut gpu: Vec<FreeSprite> = order.iter().map(|s| s.gpu()).collect();
+    if gpu.is_empty() {
+        gpu.push(FreeSprite::default());
+    }
+    (gpu, ranges)
 }
 
 fn begin_pass<'e>(

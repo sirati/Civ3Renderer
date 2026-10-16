@@ -18,4 +18,4 @@ pub use atlas::{Atlas, AtlasBuilder, RgbaImage, SpriteId};
 pub use camera::Camera;
 pub use gpu::Headless;
 pub use renderer::TileRenderer;
-pub use world::{Blend, ColorModel, Grid, LayerId, LayerSpec, Layout, Pass, SpriteSetId, SpriteSets, TileWorld};
+pub use world::{Blend, ColorModel, Grid, LayerId, LayerSpec, Layout, Pass, PlacedSprite, SpriteSetId, SpriteSets, TileWorld};
