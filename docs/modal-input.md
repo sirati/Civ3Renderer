@@ -113,3 +113,15 @@ This loses scroll and tab state, so the mirror should hold the last frame while 
 - The bridge stops its `Look` minimap clicks while `[0xCAD384] != 0`.
 
 **v2:** the city screen through (c), go-to walking inside (a), and attacks.
+
+## v1 as built
+
+- `crates/civ3-bridge/src/modal.rs` runs the actions; `crates/civ3-sys/src/modal.rs` has the sites. The pump calls at 0x6053B4, 0x4DFE24, 0x4DFE5C, 0x4DBF29 and 0x4D7AE8 are patched after checking their bytes. The human-turn and animation sites only count how many of their calls are running, which is how "inside 0x4DFC50, outside an animation" is checked.
+- Advisor_GUI really is the modal form while an advisor is open (F1 sets `[0xCAD384] = 0x9AFD58`).
+- The left button selects, the right button sends the unit, and keys act through an allowlist. Outside such a menu, world keys reach the game as plain keys.
+- Seen in the game (PCGames, Wine), with the domestic advisor open:
+  - A next-tile move happens at once.
+  - A farther go-to only sets the order (state 0x10). The unit walks once the menu closes.
+  - After sentry or wait, the game does not pick the next unit while the menu is open.
+  - `can_perform_command` refuses sentry and fortify for a unit with no moves left.
+- Not done: redrawing the open advisor; the city screen (approach (c)); attacks.
