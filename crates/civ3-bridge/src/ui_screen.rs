@@ -48,41 +48,42 @@ pub fn relative_path(path: &str, roots: &[PathBuf]) -> String {
 /// itself that we make ourselves (others are left out); `unit_colors`: the
 /// colour table of unit pictures.
 pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32) -> Vec<Item> {
-    frame
-        .draws
-        .iter()
-        .enumerate()
-        .filter_map(|(i, d)| {
-            let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
-            Some(match d {
-                ScreenDraw::Image { path, rect, x, y, keyed, clip, mask } => Item::Element(Element::Image {
-                    region: Region {
-                        source: relative_path(path, roots),
-                        rect: *rect,
-                        keyed: *keyed,
-                        mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
-                    },
-                    at: (*x, *y),
-                    clip: *clip,
-                }, under),
-                ScreenDraw::Fill { rect, rgb, alpha, clip } => {
-                    Item::Element(Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip }, under)
-                }
-                ScreenDraw::Text { run, clip } => Item::Text(run.clone(), *clip, under),
-                // Unit pictures, from our unit art in the viewing player's
-                // colours (§16.9).
-                ScreenDraw::Flc { path, chunk, x, y, clip } => {
-                    let name = format!("UnitArt@{}#{unit_colors}/{chunk}", relative_path(path, roots));
-                    Item::Element(Element::Sprite { name, at: (*x, *y), clip: *clip }, under)
-                }
-                ScreenDraw::Surface { image, rect, x, y, clip, size } => {
-                    let name = generated.iter().find(|g| g.0 == *image)?.1;
-                    let size = (size.0.max(0) as u32, size.1.max(0) as u32);
-                    Item::Element(Element::Dynamic { name: name.to_owned(), size, rect: *rect, at: (*x, *y), clip: *clip }, under)
-                }
-            })
-        })
-        .collect()
+    let mut out = Vec::new();
+    for (i, d) in frame.draws.iter().enumerate() {
+        let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
+        let element = match d {
+            ScreenDraw::Image { path, rect, x, y, keyed, clip, mask } => Element::Image {
+                region: Region {
+                    source: relative_path(path, roots),
+                    rect: *rect,
+                    keyed: *keyed,
+                    mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
+                },
+                at: (*x, *y),
+                clip: *clip,
+            },
+            ScreenDraw::Fill { rect, rgb, alpha, clip } => Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip },
+            ScreenDraw::Text { run, clip } => {
+                out.push(Item::Text(run.clone(), *clip, under));
+                continue;
+            }
+            // Unit pictures, from our unit art in the viewing player's
+            // colours (§16.9), over their shadow as on the map.
+            ScreenDraw::Flc { path, chunk, x, y, clip } => {
+                let path = relative_path(path, roots);
+                let shadow = format!("UnitShadow@{path}/{chunk}");
+                out.push(Item::Element(Element::Sprite { name: shadow, at: (*x, *y), clip: *clip, scale_den: 16 }, under));
+                Element::Sprite { name: format!("UnitArt@{path}#{unit_colors}/{chunk}"), at: (*x, *y), clip: *clip, scale_den: 0 }
+            }
+            ScreenDraw::Surface { image, rect, x, y, clip, size } => {
+                let Some(&(_, name)) = generated.iter().find(|g| g.0 == *image) else { continue };
+                let size = (size.0.max(0) as u32, size.1.max(0) as u32);
+                Element::Dynamic { name: name.to_owned(), size, rect: *rect, at: (*x, *y), clip: *clip }
+            }
+        };
+        out.push(Item::Element(element, under));
+    }
+    out
 }
 
 /// The unit animation files `frame` shows in panels (relative paths).
