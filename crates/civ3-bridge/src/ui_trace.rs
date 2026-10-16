@@ -13,6 +13,8 @@ use crate::text::TextRun;
 use crate::ui::{Event, Frame, UiModel, rgb555};
 
 static MODEL: Mutex<Option<UiModel>> = Mutex::new(None);
+/// The game's build, once the hooks are installed.
+static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
 thread_local! {
     /// The canvas the game's text functions are drawing on (their `this`),
@@ -66,14 +68,34 @@ fn rect_xywh(at: u32) -> Option<[i32; 4]> {
 }
 
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
-fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool) {
+/// `ct`: the colour table it is drawn through (0: its own palette).
+fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
     // A frame of an FLC animation in its own colours (a leader head).
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
         emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), plain: true });
         return;
     }
-    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas) });
+    // Through a civ colour table: that table's palette.
+    let palette = BUILD.get().and_then(|&b| h::civ_color_table(b, ct)).map(|n| format!("Art/Units/Palettes/ntp{n:02}.pcx"));
+    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), palette });
+}
+
+/// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`, within
+/// the canvas's clip rectangle (the game's copies keep to it: e.g. a list
+/// box redrawing one row through tiles of its background).
+fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
+    let (mut src, mut x, mut y) = (src, x, y);
+    if let Some([l, t, r, b]) = h::canvas_clip(canvas) {
+        let (dl, dt) = ((l - x).max(0), (t - y).max(0));
+        let (w, hh) = ((src[2] - dl).min(r - x - dl), (src[3] - dt).min(b - y - dt));
+        if w <= 0 || hh <= 0 {
+            return;
+        }
+        src = [src[0] + dl, src[1] + dt, w, hh];
+        (x, y) = (x + dl, y + dt);
+    }
+    emit(Event::Copy { from, src, canvas, x, y, keyed });
 }
 
 fn fill(canvas: u32, rect: [i32; 4], color: u32) {
@@ -91,6 +113,7 @@ pub struct UiTracer {
 /// own content we draw, mirrored without the art in `underlay_art` (§16).
 pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underlay_art: Vec<String>) -> Result<UiTracer, HookError> {
     let sites = h::ui_sites(game.build).ok_or(HookError::Unsupported)?;
+    let _ = BUILD.set(game.build);
     *MODEL.lock().unwrap_or_else(|e| e.into_inner()) =
         Some(
             UiModel::new(Vec::new(), skip_canvases)
@@ -139,19 +162,19 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         c.original()
     });
     hook!(sprite_draw, sites.sprite_draw, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true);
+        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         c.original()
     });
     hook!(sprite_draw_variant, sites.sprite_draw_variant, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true);
+        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         c.original()
     });
     hook!(sprite_draw_a4, sites.sprite_draw_a4, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true);
+        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         c.original()
     });
     hook!(sprite_draw_a4b, sites.sprite_draw_a4b, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true);
+        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         c.original()
     });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
@@ -161,7 +184,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(pcx_draw_onto, sites.pcx_draw_onto, |c| {
         if let Some((w, hh)) = obj::image_size(c.image) {
-            emit(Event::Copy { from: c.image, src: [0, 0, w, hh], canvas: c.dst, x: c.x as i32, y: c.y as i32, keyed: true });
+            copy(c.image, [0, 0, w, hh], c.dst, c.x as i32, c.y as i32, true);
         }
         c.original()
     });
@@ -169,21 +192,21 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         size_of(c.dst);
         size_of(c.image);
         let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
-        emit(Event::Copy { from: c.image, src, canvas: c.dst, x: c.dx as i32, y: c.dy as i32, keyed: false });
+        copy(c.image, src, c.dst, c.dx as i32, c.dy as i32, false);
         c.original()
     });
     hook!(pcx_copy_same, sites.pcx_copy_same, |c| {
         size_of(c.dst);
         size_of(c.image);
         let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
-        emit(Event::Copy { from: c.image, src, canvas: c.dst, x: src[0], y: src[1], keyed: false });
+        copy(c.image, src, c.dst, src[0], src[1], false);
         c.original()
     });
     hook!(pcx_copy_rect, sites.pcx_copy_rect, |c| {
         size_of(c.dst);
         size_of(c.image);
         if let Some(src) = rect_xywh(c.rect) {
-            emit(Event::Copy { from: c.image, src, canvas: c.dst, x: src[0], y: src[1], keyed: false });
+            copy(c.image, src, c.dst, src[0], src[1], false);
         }
         c.original()
     });
@@ -191,7 +214,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         size_of(c.dst);
         size_of(c.image);
         if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
-            emit(Event::Copy { from: c.image, src, canvas: c.dst, x: dst[0], y: dst[1], keyed: false });
+            copy(c.image, src, c.dst, dst[0], dst[1], false);
         }
         c.original()
     });

@@ -53,12 +53,13 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
     for (i, d) in frame.draws.iter().enumerate() {
         let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
         let element = match d {
-            ScreenDraw::Image { path, rect, x, y, keyed, clip, mask } => Element::Image {
+            ScreenDraw::Image { path, rect, x, y, keyed, clip, mask, palette } => Element::Image {
                 region: Region {
                     source: relative_path(path, roots),
                     rect: *rect,
                     keyed: *keyed,
                     mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
+                    palette: palette.clone(),
                 },
                 at: (*x, *y),
                 clip: *clip,

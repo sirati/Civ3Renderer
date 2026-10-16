@@ -578,6 +578,7 @@ impl Trace {
                         keyed: v[2] != 0,
                         clip: [v[3], v[4], v[5], v[6]],
                         mask: None,
+                        palette: None,
                     });
                 }
                 Some("ui_surface") if f.len() >= 12 => {
@@ -608,6 +609,11 @@ impl Trace {
                 Some("ui_underlay") => {
                     let range = n(1)? as usize..n(2)? as usize;
                     t.ui.get_or_insert_with(Default::default).underlay_draws.push(range);
+                }
+                Some("ui_image_palette") if f.len() >= 2 => {
+                    if let Some(crate::ui::ScreenDraw::Image { palette, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
+                        *palette = Some(f[1..].join(" "));
+                    }
                 }
                 Some("ui_image_mask") if f.len() >= 4 => {
                     let at = (n(1)? as i32, n(2)? as i32);
