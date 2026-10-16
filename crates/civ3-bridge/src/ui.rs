@@ -87,6 +87,8 @@ pub struct Frame {
     pub forms: Vec<(u32, u32, (i32, i32), (i32, i32))>,
     /// Per composed form: its canvas and the range of `draws` it made.
     pub form_draws: Vec<(u32, std::ops::Range<usize>)>,
+    /// The draws of underlays (the map canvas: drawn under the fog of war).
+    pub underlay_draws: Vec<std::ops::Range<usize>>,
 }
 
 /// The game's colour key as 8-bit RGB (0x7C1F).
@@ -150,6 +152,14 @@ impl UiModel {
         self
     }
 
+
+    /// Forgets what the underlays show: the game redraws the map under them
+    /// (painting over what they showed, unseen by the mirror).
+    pub fn reset_underlays(&mut self) {
+        for c in &self.underlays {
+            self.canvases.remove(c);
+        }
+    }
 
     /// `generated`: surfaces passed on as they are.
     pub fn with_generated(mut self, generated: Vec<u32>) -> Self {
@@ -277,6 +287,9 @@ impl UiModel {
                     let start = frame.draws.len();
                     frame.draws.extend(ops.into_iter().flatten().filter_map(|op| screen_draw(op, origin, clip)));
                     frame.form_draws.push((canvas, start..frame.draws.len()));
+                    if underlay {
+                        frame.underlay_draws.push(start..frame.draws.len());
+                    }
                 }
             }
             Event::PaintEnd => {

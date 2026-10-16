@@ -183,6 +183,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
             let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
             s.depth += 1;
             if s.depth == 1 {
+                crate::ui_trace::map_redraw();
                 if let Some((mr, draws, _)) = s.frame.take() {
                     s.previous = Some((mr, draws));
                 }
@@ -435,6 +436,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
         for (canvas, range) in &frame.form_draws {
             let _ = writeln!(out, "# ui_canvas_draws {canvas:#x} {} {}", range.start, range.end);
+        }
+        for range in &frame.underlay_draws {
+            let _ = writeln!(out, "ui_underlay {} {}", range.start, range.end);
         }
         for d in &frame.draws {
             let _ = match d {
