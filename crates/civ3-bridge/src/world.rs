@@ -44,6 +44,8 @@ pub struct Civ3World {
     pub player: i32,
     /// `BIC.ResourceTypes[i].IconID`.
     pub resource_icons: Vec<i32>,
+    /// Per resource type: shown to `player` (prerequisite tech known).
+    pub resource_visible: Vec<bool>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -97,6 +99,8 @@ pub struct TraceDraw {
     pub sprite: Option<(String, u32)>,
     pub x: i32,
     pub y: i32,
+    /// Which blit: "map", "blend" or "colored".
+    pub kind: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -143,6 +147,9 @@ impl Trace {
                 Some("resource_icons") => {
                     t.world.resource_icons = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
+                Some("resource_visible") => {
+                    t.world.resource_visible = f[1..].iter().map(|v| *v == "1").collect();
+                }
                 Some("file") if f.len() >= 3 => {
                     let path = f[3..].join(" ");
                     t.files.insert((f[1].to_owned(), n(2)? as u32), path);
@@ -176,7 +183,8 @@ impl Trace {
                 }
                 Some("draw") => {
                     let sprite = (f[1] != "?").then(|| Ok::<_, TraceError>((f[1].to_owned(), n(2)? as u32))).transpose()?;
-                    t.draws.push(TraceDraw { sprite, x: n(3)? as i32, y: n(4)? as i32 });
+                    let kind = f.get(5).filter(|k| !k.starts_with("0x")).map_or("map", |k| k).to_owned();
+                    t.draws.push(TraceDraw { sprite, x: n(3)? as i32, y: n(4)? as i32, kind });
                 }
                 _ => {}
             }

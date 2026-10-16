@@ -138,10 +138,23 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
     let ours_set: HashSet<_> = ours.iter().map(|d| (&d.name, d.x, d.y)).collect();
     let theirs_set: HashSet<_> = theirs.iter().map(|d| (&d.name, d.x, d.y)).collect();
     println!("only in game: {}  only ours: {}", theirs_set.difference(&ours_set).count(), ours_set.difference(&theirs_set).count());
+    let mut by_array: std::collections::BTreeMap<(&str, &str), usize> = Default::default();
+    for d in theirs_set.difference(&ours_set) {
+        *by_array.entry(("game-only", d.0.split('/').next().unwrap())).or_default() += 1;
+    }
+    for d in ours_set.difference(&theirs_set) {
+        *by_array.entry(("ours-only", d.0.split('/').next().unwrap())).or_default() += 1;
+    }
+    for ((side, array), n) in &by_array {
+        println!("  {side:9} {array}: {n}");
+    }
     for d in theirs_set.difference(&ours_set).take(5) {
         println!("  game-only {d:?}");
     }
-    for d in ours_set.difference(&theirs_set).take(5) {
+    let mut extra: Vec<_> = ours_set.difference(&theirs_set).collect();
+    extra.sort_by_key(|d| !d.0.starts_with("Resources"));
+    extra.reverse();
+    for d in extra.into_iter().take(5) {
         println!("  ours-only {d:?}");
     }
     Ok(ExitCode::FAILURE)

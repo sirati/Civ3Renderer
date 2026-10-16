@@ -167,3 +167,5 @@ Map Seed
 Tile_Body CircuitFlags
 Tile_Body Visibile_Overlays
 Tile_Body field_D0_Visibility
+
+Resource_Type RequireID

@@ -6,6 +6,8 @@
 //!   (default: both, Civ III's green and magenta keys).
 //! * `alpha = { 1 = 128, 2 = 64 }` palette index → alpha, for translucent
 //!   colours such as shadows.
+//! * `rgba = { 248 = [0, 0, 0, 64] }` palette index → exact RGBA, bypassing
+//!   the palette (translucent shadow ramps).
 //! * `quantize = "rgb555"` reduce colours to 15 bits the way Civ III's
 //!   renderer does (5 bits per channel, expanded as `(v << 3) | (v >> 2)`).
 //! * `palette = "Art/Units/Palettes/ntp00.pcx"` substitute the palette of
@@ -68,7 +70,7 @@ fn alpha_table(options: &toml::Table) -> Result<[u8; 256], String> {
 }
 
 pub fn to_rgba(width: u32, height: u32, pixels: &[u8], palette: &Palette, alpha: &[u8; 256]) -> RgbaImage {
-    to_rgba_with(width, height, pixels, palette, alpha, |v| v)
+    to_rgba_with(width, height, pixels, palette, alpha, &[None; 256], |v| v)
 }
 
 /// 8-bit channel through 5 bits and back, as a 15-bit framebuffer stores it.
@@ -77,16 +79,37 @@ pub fn rgb555(v: u8) -> u8 {
     (v5 << 3) | (v5 >> 2)
 }
 
+/// Explicit RGBA per palette index from the options.
+fn rgba_table(options: &toml::Table) -> Result<[Option<[u8; 4]>; 256], String> {
+    let mut out = [None; 256];
+    if let Some(table) = options.get("rgba").and_then(|v| v.as_table()) {
+        for (k, v) in table {
+            let i: usize = k.parse().map_err(|_| format!("rgba key {k:?} is not an index"))?;
+            let c = v.as_array().filter(|a| a.len() == 4).ok_or_else(|| format!("rgba.{k} must be [r, g, b, a]"))?;
+            let mut px = [0u8; 4];
+            for (slot, val) in px.iter_mut().zip(c) {
+                *slot = int(val)?.min(255) as u8;
+            }
+            out[i.min(255)] = Some(px);
+        }
+    }
+    Ok(out)
+}
+
 fn to_rgba_with(
     width: u32,
     height: u32,
     pixels: &[u8],
     palette: &Palette,
     alpha: &[u8; 256],
+    explicit: &[Option<[u8; 4]>; 256],
     q: impl Fn(u8) -> u8,
 ) -> RgbaImage {
     RgbaImage::from_fn(width, height, |x, y| {
         let i = pixels[(y * width + x) as usize];
+        if let Some(px) = explicit[i as usize] {
+            return px;
+        }
         let a = alpha[i as usize];
         if a == 0 {
             return [0, 0, 0, 0];
@@ -100,6 +123,7 @@ impl ImageLoader for Civ3Loader {
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
         let alpha = alpha_table(options)?;
+        let explicit = rgba_table(options)?;
         let q: fn(u8) -> u8 = match options.get("quantize").and_then(|v| v.as_str()) {
             None => |v| v,
             Some("rgb555") => rgb555,
@@ -109,12 +133,12 @@ impl ImageLoader for Civ3Loader {
         if lower.ends_with(".pcx") {
             let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             let palette = self.options_palette(options, &img.palette)?;
-            Ok(vec![to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, q)])
+            Ok(vec![to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, &explicit, q)])
         } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
             let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             anim.frames
                 .iter()
-                .map(|f| Ok(to_rgba_with(anim.width, anim.height, &f.pixels, &self.options_palette(options, &f.palette)?, &alpha, q)))
+                .map(|f| Ok(to_rgba_with(anim.width, anim.height, &f.pixels, &self.options_palette(options, &f.palette)?, &alpha, &explicit, q)))
                 .collect()
         } else {
             Err(format!("{source}: unknown image format"))

@@ -265,6 +265,7 @@ pub const MAP_SEED: u32 = 492;
 pub const TILE_BODY_CIRCUITFLAGS: u32 = 44;
 pub const TILE_BODY_VISIBILE_OVERLAYS: u32 = 114;
 pub const TILE_BODY_FIELD_D0_VISIBILITY: u32 = 148;
+pub const RESOURCE_TYPE_REQUIREID: u32 = 76;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),

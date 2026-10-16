@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use civ3_sys::hooks::{draw_tiles, sprite_draw_on_map};
+use civ3_sys::hooks::{draw_tiles, sprite_draw_on_map, sprite_draw_on_map_blend, sprite_draw_with_color_table};
 use civ3_sys::sprites::{SpriteRef, identify_canonical};
 use civ3_sys::{Civ3, hooks};
 
@@ -22,7 +22,9 @@ pub struct Draw {
     pub sprite_addr: u32,
     pub x: i32,
     pub y: i32,
-    pub params: [u32; 4],
+    pub params: Vec<u32>,
+    /// Which blit: "map", "blend" (with a blend table) or "colored".
+    pub kind: &'static str,
 }
 
 struct State {
@@ -33,6 +35,9 @@ struct State {
     depth: u32,
 }
 
+/// Cap on recorded draws per redraw.
+const MAX_DRAWS: usize = 20_000;
+
 static STATE: Mutex<State> = Mutex::new(State { frame: None, depth: 0 });
 
 /// Calls seen, for diagnostics.
@@ -42,6 +47,25 @@ pub static DRAW_TILES_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::A
 pub struct Tracer {
     _draw_tiles: draw_tiles::Installed,
     _sprite: Option<sprite_draw_on_map::Installed>,
+    _blend: Option<sprite_draw_on_map_blend::Installed>,
+    _colored: Option<sprite_draw_with_color_table::Installed>,
+}
+
+fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) {
+    if let Ok(mut s) = STATE.lock() {
+        if let Some((_, frame, at)) = s.frame.as_mut() {
+            // Only map sprites say the redraw is still going: other blits
+            // (UI, unit flags) run continuously.
+            if kind == "map" {
+                *at = std::time::Instant::now();
+            }
+            if frame.len() >= MAX_DRAWS {
+                return;
+            }
+            let resolved = if map_renderer != 0 { identify_canonical(map_renderer, sprite) } else { None };
+            frame.push(Draw { sprite: resolved, sprite_addr: sprite, x: x as i32, y: y as i32, params, kind });
+        }
+    }
 }
 
 fn request_path() -> PathBuf {
@@ -52,24 +76,30 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let sprite = match hooks::sprite_draw_on_map_site(game.build) {
         Some((addr, prologue)) => Some(sprite_draw_on_map::install_inline(addr, prologue, |call| {
             SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if let Ok(mut s) = STATE.lock() {
-                if let Some((_, frame, at)) = s.frame.as_mut() {
-                    *at = std::time::Instant::now();
-                    frame.push(Draw {
-                        sprite: identify_canonical(call.map_renderer, call.sprite),
-                        sprite_addr: call.sprite,
-                        x: call.pixel_x as i32,
-                        y: call.pixel_y as i32,
-                        params: [call.p4, call.p5, call.p6, call.p7],
-                    });
-                }
-            }
+            record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
             call.original()
         })?),
         None => {
             log::warn!("no Sprite_draw_on_map site for {:?}; tracing disabled", game.build);
             None
         }
+    };
+    let blend = match hooks::sprite_draw_on_map_blend_site(game.build) {
+        Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_inline(addr, prologue, |call| {
+            record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
+            call.original()
+        })?),
+        None => None,
+    };
+    // Its arguments are not decoded: record them raw, resolve the sprite
+    // against the map renderer of the redraw in progress.
+    let colored = match hooks::sprite_draw_with_color_table_site(game.build) {
+        Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_inline(addr, prologue, |call| {
+            let mr = STATE.lock().ok().and_then(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
+            record(mr, call.sprite, 0, 0, vec![call.a1, call.a2, call.a3, call.a4, call.a5, call.a6], "colored");
+            call.original()
+        })?),
+        None => None,
     };
     let draw_tiles = draw_tiles::install_slot(hooks::draw_tiles_slot(game.build), move |call| {
         DRAW_TILES_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -84,7 +114,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
         STATE.lock().unwrap_or_else(|e| e.into_inner()).depth -= 1;
     })?;
     std::thread::spawn(move || serve_requests(game));
-    Ok(Tracer { _draw_tiles: draw_tiles, _sprite: sprite })
+    Ok(Tracer { _draw_tiles: draw_tiles, _sprite: sprite, _blend: blend, _colored: colored })
 }
 
 /// Answers trace requests with the latest redraw, once it has been quiet
@@ -132,6 +162,12 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     if let Ok(z) = game.zoomed_out() {
         let _ = writeln!(out, "zoomed_out {}", z as u8);
     }
+    if let Ok(view) = game.view() {
+        if let Ok(vis) = game.resources_visible_to(view.player_civ) {
+            let list: Vec<&str> = vis.iter().map(|&v| if v { "1" } else { "0" }).collect();
+            let _ = writeln!(out, "resource_visible {}", list.join(" "));
+        }
+    }
     if let Ok(icons) = game.resource_icons() {
         let list: Vec<String> = icons.iter().map(|i| i.to_string()).collect();
         let _ = writeln!(out, "resource_icons {}", list.join(" "));
@@ -165,11 +201,11 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             }
         }
     }
-    let _ = writeln!(out, "# array index x y p4 p5 p6 p7");
+    let _ = writeln!(out, "# draw array index x y kind params...");
     for d in draws {
         let (array, index) = d.sprite.map_or(("?", d.sprite_addr), |s| (s.array, s.index));
-        let [a, b, c, e] = d.params;
-        let _ = writeln!(out, "draw {array} {index} {} {} {a:#x} {b:#x} {c:#x} {e:#x}", d.x, d.y);
+        let params: Vec<String> = d.params.iter().map(|p| format!("{p:#x}")).collect();
+        let _ = writeln!(out, "draw {array} {index} {} {} {} {}", d.x, d.y, d.kind, params.join(" "));
     }
     out
 }
