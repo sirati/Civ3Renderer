@@ -403,7 +403,6 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         art_pending |= recompile;
         if art_pending && last_compile.elapsed() >= RECOMPILE_EVERY {
             art_pending = false;
-            last_compile = std::time::Instant::now();
             match compiler.compile(&folders, &have, &fonts, &screen_art, zoomed_out) {
                 Ok((c, wire)) => {
                     presenter.set_assets(&c, &wire);
@@ -414,6 +413,9 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 }
                 Err(e) => log::error!("recompiling for {folders:?}: {e}"),
             }
+            // From the end: on a slow machine a compile can take longer than
+            // the interval itself.
+            last_compile = std::time::Instant::now();
         }
         seq += 1;
         let mut scene = match shown {
