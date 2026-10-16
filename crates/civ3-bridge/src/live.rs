@@ -469,6 +469,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
 struct InputForwarder {
     window: Option<inproc::window::Window>,
     held: inproc::window::Buttons,
+    clicks: inproc::window::DoubleClicks,
     /// The viewer's size, as it last reported.
     viewport: (u32, u32),
 }
@@ -521,7 +522,8 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
                         MouseButton::Middle
                     }
                 };
-                window.mouse_button(button, down, x, y, forwarder.held);
+                let double = down && forwarder.clicks.press(button, x, y) && window.wants_double_clicks();
+                window.mouse_button(button, down, double, x, y, forwarder.held);
             }
             Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
             Input::Key { vk, down, text } => {
