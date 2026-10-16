@@ -44,6 +44,9 @@ static STATE: Mutex<State> = Mutex::new(State { frame: None, depth: 0 });
 /// The running build, for resolving sprites of global arrays.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
+/// Skip the game's own map drawing (`Draw_Tiles`).
+pub static GAME_MAP_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Calls seen, for diagnostics.
 pub static SPRITE_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static DRAW_TILES_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -116,7 +119,11 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
                 s.frame = Some((call.map_renderer, Vec::new(), std::time::Instant::now()));
             }
         }
-        call.original();
+        // With the game's map rendering switched off, the map stays as the
+        // UI left it; our renderer draws the map instead.
+        if !GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) {
+            call.original();
+        }
         STATE.lock().unwrap_or_else(|e| e.into_inner()).depth -= 1;
     })?;
     std::thread::spawn(move || serve_requests(game));

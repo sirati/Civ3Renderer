@@ -26,6 +26,10 @@ fn init() {
         Err(e) => return log::error!("not attaching: {e}"),
     };
     log::info!("detected build {:?}", game.build);
+    if std::env::var("CIV3R_GAME_MAP").is_ok_and(|v| v == "off") {
+        log::info!("the game's map rendering is off");
+        trace::GAME_MAP_OFF.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     match trace::install(game) {
         // Hooks stay installed for the life of the process.
         Ok(tracer) => std::mem::forget(tracer),
