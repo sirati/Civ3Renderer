@@ -128,8 +128,16 @@ impl TileRecord {
     pub fn square_parts(&self) -> i16 {
         self.i16(L::TILE_SQUAREPARTS)
     }
+    /// The header's `VictoryPoint`; stays 0 in scenarios with victory
+    /// locations (measured), see `victory_location`.
     pub fn victory_point(&self) -> i16 {
         self.i16(L::TILE_VICTORYPOINT)
+    }
+    /// The upper half of the header's `field_20`: -1, or the victory
+    /// location on this tile (measured: set exactly on the tiles the game
+    /// draws `Victory_Image` on).
+    pub fn victory_location(&self) -> i16 {
+        self.i16(L::TILE_FIELD_20 + 2)
     }
     pub fn city_id(&self) -> i16 {
         self.i16(L::TILE_CITYID)

@@ -217,7 +217,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     // Every tile's raw fields, for correlating draws with world state.
     if let Ok(map) = game.map() {
         if let Ok(tiles) = game.tiles(&map) {
-            let _ = writeln!(out, "# tile x y square_type square_parts overlays terrain_overlays river resource owner city fow visibility explored v3 vis_d0 visible_overlays victory_point");
+            let _ = writeln!(out, "# tile x y square_type square_parts overlays terrain_overlays river resource owner city fow visibility explored v3 vis_d0 visible_overlays victory_location");
             for y in 0..map.height {
                 for x in (y & 1..map.width).step_by(2) {
                     let t = &tiles[map.tile_index(x, y)];
@@ -238,8 +238,19 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         t.v3(),
                         t.visibility_d0(),
                         t.visible_overlays().iter().map(|b| format!("{b:02x}")).collect::<String>(),
-                        t.victory_point()
+                        t.victory_location()
                     );
+                }
+            }
+        }
+    }
+    // Raw bytes of city tiles, for finding undecoded members.
+    if let (Ok(map), Ok(cities)) = (game.map(), game.cities()) {
+        if let Ok(tiles) = game.tiles(&map) {
+            for c in cities {
+                if let Some(t) = tiles.get(map.tile_index(c.x, c.y)) {
+                    let hex: String = t.bytes().iter().map(|b| format!("{b:02x}")).collect();
+                    let _ = writeln!(out, "tile_raw {} {} {hex}", c.x, c.y);
                 }
             }
         }

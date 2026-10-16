@@ -505,6 +505,15 @@ group = "City_Images"
 first_index = 64
 index_stride = 5
 
+[images.victory]
+source = "Art/Terrain/x_victory.pcx"
+
+[sheets.victory]
+image = "victory"
+cell = [128, 64]
+grid = [1, 1]
+group = "Victory_Image"
+
 # §6.4: rivers (32 interleaved: slot 2·mask = deltaRivers, 2·mask+1 =
 # mtnRivers) and flood plains, per vertex.
 
@@ -1063,6 +1072,11 @@ sets = ["Resources/*"]
 name = "city"
 pass = 3
 sets = ["City_Images/*"]
+
+[[layers]]
+name = "victory_location"
+pass = 3
+sets = ["Victory_Image/*"]
 
 [[layers]]
 name = "rivers_over"

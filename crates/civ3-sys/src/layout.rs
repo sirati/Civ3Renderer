@@ -298,6 +298,7 @@ pub const IMPROVEMENT_GOVERNMENTID: u32 = 212;
 pub const BIC_IMPROVEMENTS: u32 = 2980;
 pub const BIC_IMPROVEMENTSCOUNT: u32 = 2168;
 pub const LEADER_GOVERNMENTTYPE: u32 = 160;
+pub const TILE_FIELD_20: u32 = 32;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),
