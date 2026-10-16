@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Installs civ3-bridge into a Civilization III Conquests folder as ifc23.dll,
+# keeping the original as ifc23_orig.dll (which the bridge forwards to).
+#
+#   tools/install-bridge [Conquests dir] [debug|release]
+#   tools/install-bridge --uninstall [Conquests dir]
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+uninstall=0
+if [ "${1:-}" = --uninstall ]; then uninstall=1; shift; fi
+dir=${1:-"/mnt/datasets/winvm/wine-civ3/drive_c/Games/Civilization III Complete/Conquests"}
+profile=${2:-debug}
+
+orig=$(find "$dir" -maxdepth 1 -iname 'ifc23_orig.dll' | head -1)
+cur=$(find "$dir" -maxdepth 1 -iname 'ifc23.dll' | head -1)
+if [ $uninstall = 1 ]; then
+  [ -n "$orig" ] || { echo "not installed"; exit 0; }
+  mv -f "$orig" "${cur:-$dir/IFC23.dll}"
+  echo "restored original ifc23.dll"
+  exit 0
+fi
+if [ -z "$orig" ]; then
+  [ -n "$cur" ] || { echo "no ifc23.dll in $dir" >&2; exit 1; }
+  mv "$cur" "$dir/ifc23_orig.dll"
+  cur=$dir/IFC23.dll
+fi
+cp -f "$repo/target/i686-pc-windows-gnu/$profile/ifc23.dll" "${cur:-$dir/IFC23.dll}"
+echo "installed $profile civ3-bridge into $dir"

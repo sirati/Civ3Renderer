@@ -1,0 +1,16 @@
+[package]
+name = "civ3-bridge"
+description = "The Civilization III specific part: runs inside the game, turns its state into a game-agnostic scene, and feeds input back"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+# Built as the game's ifc23.dll, see ifc23.def.
+name = "ifc23"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+inproc = { path = "../inproc" }
+civ3-sys = { path = "../civ3-sys" }
+log.workspace = true

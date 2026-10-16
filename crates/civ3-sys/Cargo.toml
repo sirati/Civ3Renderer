@@ -1,0 +1,12 @@
+[package]
+name = "civ3-sys"
+description = "Civilization III: Conquests process interface: build detection, global addresses, memory layouts, hook declarations"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+inproc = { path = "../inproc" }
+bytemuck.workspace = true
+thiserror.workspace = true
+log.workspace = true
