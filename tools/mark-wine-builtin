@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Marks a PE file as a Wine builtin DLL, exactly like `winebuild --builtin`:
+# write the 32-byte, NUL-padded string "Wine builtin DLL" right after the
+# 64-byte IMAGE_DOS_HEADER (file offset 0x40). Requires e_lfanew >= 0x60
+# (GNU ld puts the PE header at 0x80, so this only overwrites the DOS stub).
+set -euo pipefail
+f=$1
+[ "$(head -c2 "$f")" = MZ ] || { echo "$f: not MZ" >&2; exit 1; }
+lfanew=$(od -An -tu4 -j60 -N4 "$f" | tr -d ' ')
+[ "$lfanew" -ge 96 ] || { echo "$f: e_lfanew=$lfanew too small" >&2; exit 1; }
+{ printf 'Wine builtin DLL'; head -c16 /dev/zero; } | dd of="$f" bs=1 seek=64 conv=notrunc status=none

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Builds and installs the native Linux renderer for Civ III under Wine
+# (new WoW64 mode): the builtin DLL civ3r_native.dll (i686 PE, carries the
+# unixlib) and its unixlib civ3r_native.so (x86_64 Linux, crate
+# civ3r-native), laid out the way Wine searches WINEDLLPATH, plus the copy
+# of the DLL in the game folder that makes Wine look there.
+#
+#   tools/install-native [Conquests dir]      (inside `nix develop`)
+#
+# Run the game with (see tools/civ3-native):
+#   WINEDLLPATH=$out  CIV3R_VIEWER=native  [CIV3R_GAME_MAP=off]
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+game=${1:-"/mnt/datasets/winvm/wine-civ3-wow64/drive_c/Games/Civilization III Complete/Conquests"}
+out=${CIV3R_NATIVE_DIR:-/mnt/datasets/winvm/civ3r-native}
+cd "$repo"
+cargo build -q --release -p civ3r-native
+cargo build -q --release -p civ3r-native -p civ3-bridge --target i686-pc-windows-gnu
+mkdir -p "$out/i386-windows" "$out/x86_64-unix"
+cp -f target/release/libciv3r_native.so "$out/x86_64-unix/civ3r_native.so"
+cp -f target/i686-pc-windows-gnu/release/civ3r_native.dll "$out/i386-windows/civ3r_native.dll"
+tools/mark-wine-builtin "$out/i386-windows/civ3r_native.dll"
+cp -f "$out/i386-windows/civ3r_native.dll" "$game/civ3r_native.dll"
+tools/install-bridge "$game" release
+echo "native renderer in $out"
