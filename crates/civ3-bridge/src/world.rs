@@ -17,6 +17,12 @@ pub struct Civ3Tile {
     pub city: i16,
     pub fow_status: u32,
     pub visibility: u32,
+    /// Bit c: explored by civ c.
+    pub explored: u32,
+    pub v3: u32,
+    pub visibility_d0: u32,
+    /// Per civ: the improvements (overlay bits 0..7) that civ remembers.
+    pub visible_overlays: [u8; 32],
 }
 
 impl Civ3Tile {
@@ -25,15 +31,19 @@ impl Civ3Tile {
         (self.square_type >> 8) & 0xF
     }
 
-    /// Effective terrain id (with hills/forest/... overlays), bits 0..4.
+    /// Effective terrain id (hills, forest, ... when present), bits 12..16.
     pub fn terrain(&self) -> u32 {
-        self.square_type & 0xF
+        (self.square_type >> 12) & 0xF
     }
 }
 
 /// The map: shape plus every tile.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Civ3World {
+    /// The civ whose view is drawn (fog of war, remembered improvements).
+    pub player: i32,
+    /// `BIC.ResourceTypes[i].IconID`.
+    pub resource_icons: Vec<i32>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -129,6 +139,10 @@ impl Trace {
                         t.world.seed = n(7)? as u32;
                     }
                 }
+                Some("player") => t.world.player = n(1)? as i32,
+                Some("resource_icons") => {
+                    t.world.resource_icons = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
+                }
                 Some("file") if f.len() >= 3 => {
                     let path = f[3..].join(" ");
                     t.files.insert((f[1].to_owned(), n(2)? as u32), path);
@@ -145,6 +159,18 @@ impl Trace {
                         city: n(10)? as i16,
                         fow_status: n(11)? as u32,
                         visibility: n(12)? as u32,
+                        explored: f.get(13).map(|_| n(13)).transpose()?.unwrap_or(0) as u32,
+                        v3: f.get(14).map(|_| n(14)).transpose()?.unwrap_or(0) as u32,
+                        visibility_d0: f.get(15).map(|_| n(15)).transpose()?.unwrap_or(0) as u32,
+                        visible_overlays: {
+                            let mut v = [0u8; 32];
+                            if let Some(hex) = f.get(16) {
+                                for (k, b) in v.iter_mut().enumerate() {
+                                    *b = hex.get(2 * k..2 * k + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(0);
+                                }
+                            }
+                            v
+                        },
                     };
                     tiles.push((n(1)? as i32, n(2)? as i32, tile));
                 }

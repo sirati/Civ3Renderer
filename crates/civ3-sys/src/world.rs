@@ -39,6 +39,8 @@ pub struct MapInfo {
     pub tile_count: i32,
     pub wrap_x: bool,
     pub wrap_y: bool,
+    /// Seed of the per-tile art randomness (docs §9).
+    pub seed: u32,
     tiles: Ptr32<Ptr32<TileRecord>>,
 }
 
@@ -106,6 +108,21 @@ impl TileRecord {
     pub fn visibility(&self) -> u32 {
         self.u32(L::TILE_BODY + L::TILE_BODY_VISIBILITY)
     }
+    /// Bit c: explored by civ c.
+    pub fn explored(&self) -> u32 {
+        self.u32(L::TILE_BODY + L::TILE_BODY_FOG_OF_WAR)
+    }
+    pub fn v3(&self) -> u32 {
+        self.u32(L::TILE_BODY + L::TILE_BODY_V3)
+    }
+    pub fn visibility_d0(&self) -> u32 {
+        self.u32(L::TILE_BODY + L::TILE_BODY_FIELD_D0_VISIBILITY)
+    }
+    /// Per civ: the overlays (improvements) that civ remembers here.
+    pub fn visible_overlays(&self) -> [u8; 32] {
+        let at = (L::TILE_BODY + L::TILE_BODY_VISIBILE_OVERLAYS) as usize;
+        self.0[at..at + 32].try_into().unwrap()
+    }
     /// Raw bytes at `offset`, for fields not (yet) given a name.
     pub fn bytes(&self) -> &[u8] {
         &self.0
@@ -148,6 +165,7 @@ impl Civ3 {
             tile_count: self.map_field(L::MAP_TILECOUNT)?,
             wrap_x: flags & 1 != 0,
             wrap_y: flags & 2 != 0,
+            seed: self.map_field(L::MAP_SEED)?,
             tiles: self.map_field(L::MAP_TILES)?,
         };
         if info.tiles.is_null() || info.width <= 0 || info.height <= 0 {
@@ -160,6 +178,25 @@ impl Civ3 {
     pub fn tiles(&self, map: &MapInfo) -> Result<Vec<TileRecord>, Civ3Error> {
         let pointers = map.tiles.read_array(map.tile_count.max(0) as usize)?;
         pointers.into_iter().map(|p| Ok(p.read()?)).collect()
+    }
+}
+
+impl Civ3 {
+    fn bic<T: Pod>(&self, offset: u32) -> Result<T, Civ3Error> {
+        Ok(Ptr32::<u8>::new(self.addrs.bic_data).offset::<T>(offset)?.read()?)
+    }
+
+    /// Icon index (into resources.pcx) of every resource type.
+    pub fn resource_icons(&self) -> Result<Vec<i32>, Civ3Error> {
+        let count: i32 = self.bic(L::BIC_RESOURCETYPECOUNT)?;
+        let base: Ptr32<u8> = self.bic(L::BIC_RESOURCETYPES)?;
+        (0..count.clamp(0, 1024) as u32)
+            .map(|i| Ok(base.offset::<i32>(i * L::RESOURCE_TYPE_SIZE + L::RESOURCE_TYPE_ICONID)?.read()?))
+            .collect()
+    }
+
+    pub fn zoomed_out(&self) -> Result<bool, Civ3Error> {
+        Ok(self.bic::<u8>(L::BIC_IS_ZOOMED_OUT)? != 0)
     }
 }
 

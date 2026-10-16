@@ -22,6 +22,34 @@ const POINTER_ARRAYS: &[&str] = &["Resources", "ResourcesShadows"];
 /// Upper bound on the length of the pointed-to arrays (BIQ resource count).
 const MAX_POINTED: u32 = 256;
 
+/// Runs of consecutive arrays the game indexes as one array (docs §6):
+/// the first member names the run, later members continue its numbering.
+const RUNS: &[&[&str]] = &[
+    &["Mountains_Images", "Mountains_Forests_Images", "Mountains_Jungles_Images", "Mountains_Snow_Images"],
+    &["Volcanos_Images", "Volcanos_Forests_Images", "Volcanos_Jungles_Images", "Volcanos_Snow_Images"],
+    &["Hills_Images", "Hills_Forests_Images", "Hills_Jungle_Images"],
+    &["Irrigation_Desert_Images", "Irrigation_Plains_Images", "Irrigation_Images", "Irrigation_Tundra_Images"],
+    // Interleaved: slot 2m = deltaRivers cell m, 2m+1 = mtnRivers cell m.
+    &["Delta_Rivers_Images", "Mountain_Rivers_Images"],
+];
+
+/// Like [`identify`], but members of a run are reported as their run's
+/// first array with a continuous index (`Mountains_Snow_Images/2` becomes
+/// `Mountains_Images/50`), which is how the game's code indexes them.
+pub fn identify_canonical(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
+    let r = identify(map_renderer, sprite)?;
+    for run in RUNS {
+        if let Some(pos) = run.iter().position(|&a| a == r.array) {
+            let before: u32 = run[..pos]
+                .iter()
+                .map(|a| L::MAP_RENDERER_FIELDS.iter().find(|f| f.0 == *a).map_or(0, |f| f.2 / L::SPRITE_SIZE))
+                .sum();
+            return Some(SpriteRef { array: run[0], index: before + r.index });
+        }
+    }
+    Some(r)
+}
+
 /// Resolves `sprite` against the `Map_Renderer` at `map_renderer`.
 pub fn identify(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
     for &(name, offset, size) in L::MAP_RENDERER_FIELDS {
