@@ -84,7 +84,12 @@ pub struct Frame {
     /// The forms composed, bottom to top: vtable, canvas, origin, size
     /// (mirrored or not; for finding out what is what).
     pub forms: Vec<(u32, u32, (i32, i32), (i32, i32))>,
+    /// Per composed form: its canvas and the range of `draws` it made.
+    pub form_draws: Vec<(u32, std::ops::Range<usize>)>,
 }
+
+/// The game's colour key as 8-bit RGB (0x7C1F).
+const KEY_RGB: [u8; 3] = [255, 0, 255];
 
 /// Longest display list a canvas keeps (older operations are dropped).
 const MAX_OPS: usize = 8192;
@@ -113,6 +118,8 @@ pub struct UiModel {
     /// The back buffer: drawing into it during a paint lands on the screen
     /// directly (frames, the tooltip, the mouse cursor).
     screen: u32,
+    /// Whether `skip_canvases` are left out now.
+    skipping: bool,
     /// Surfaces the game fills itself (pixel by pixel): not followed,
     /// passed on as [`ScreenDraw::Surface`].
     generated: Vec<u32>,
@@ -122,7 +129,12 @@ impl UiModel {
     /// `skip_vtables`: forms not mirrored (e.g. the map); `skip_canvases`:
     /// canvases not mirrored.
     pub fn new(skip_vtables: Vec<u32>, skip_canvases: Vec<u32>) -> Self {
-        Self { skip: skip_vtables, skip_canvases, ..Default::default() }
+        Self { skip: skip_vtables, skip_canvases, skipping: true, ..Default::default() }
+    }
+
+    /// Leave the skipped canvases out (or not, e.g. between games).
+    pub fn set_skipping(&mut self, on: bool) {
+        self.skipping = on;
     }
 
     /// `generated`: surfaces passed on as they are.
@@ -178,6 +190,11 @@ impl UiModel {
                 }
             }
             Event::Copy { from, src, canvas, x, y, keyed } => {
+                // The map canvas is ours: its content (terrain, the fog tiles drawn on it)
+                // must not reach the screen through the form's own copy onto the back buffer.
+                if self.skipping && self.skip_canvases.contains(&from) {
+                    return;
+                }
                 let source = match self.files.get(&from) {
                     Some(path) => Source::File { path: path.clone(), rect: src },
                     None => Source::Surface { image: from, rect: src },
@@ -199,6 +216,23 @@ impl UiModel {
                 }
             }
             Event::Fill { canvas, rect, rgb } => {
+                // The colour key (255, 0, 255) clears to transparent: nothing to draw.
+                if rgb == KEY_RGB {
+                    if self.covers(canvas, rect) {
+                        self.canvases.remove(&canvas);
+                    } else if let Some(ops) = self.canvases.get_mut(&canvas) {
+                        // Clearing part of an overlay (the game redraws e.g. the unit
+                        // selection every frame): drop what lies inside.
+                        let [x, y, w, h] = rect;
+                        let inside = |l: i32, t: i32, r: i32, b: i32| l >= x && t >= y && r <= x + w && b <= y + h;
+                        ops.retain(|op| match op {
+                            Op::Fill { rect: [fx, fy, fw, fh], .. } => !inside(*fx, *fy, fx + fw, fy + fh),
+                            Op::Text(run) => !inside(run.x, run.y, run.x + 1, run.y + 1),
+                            Op::Image { .. } => true,
+                        });
+                    }
+                    return;
+                }
                 if self.covers(canvas, rect) {
                     self.canvases.remove(&canvas);
                 }
@@ -210,7 +244,7 @@ impl UiModel {
                 if let Some(f) = self.painting.as_mut() {
                     f.forms.push((vtable, canvas, origin, size));
                 }
-                if self.skip.contains(&vtable) || self.skip_canvases.contains(&canvas) {
+                if self.skip.contains(&vtable) || (self.skipping && self.skip_canvases.contains(&canvas)) {
                     return;
                 }
                 if self.painting.is_none() {
@@ -224,7 +258,9 @@ impl UiModel {
                 self.sizes.insert(canvas, size);
                 let ops = self.canvases.get(&canvas).map(|ops| ops.iter().flat_map(|op| self.resolve(op, 0)).collect::<Vec<_>>());
                 if let Some(frame) = self.painting.as_mut() {
+                    let start = frame.draws.len();
                     frame.draws.extend(ops.into_iter().flatten().filter_map(|op| screen_draw(op, origin, clip)));
+                    frame.form_draws.push((canvas, start..frame.draws.len()));
                 }
             }
             Event::PaintEnd => {

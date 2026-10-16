@@ -433,6 +433,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         for &(vtable, canvas, (x, y), (w, h)) in &frame.forms {
             let _ = writeln!(out, "ui_form {vtable:#x} {canvas:#x} {x} {y} {w} {h}");
         }
+        for (canvas, range) in &frame.form_draws {
+            let _ = writeln!(out, "# ui_canvas_draws {canvas:#x} {} {}", range.start, range.end);
+        }
         for d in &frame.draws {
             let _ = match d {
                 crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] } => {

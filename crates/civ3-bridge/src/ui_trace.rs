@@ -142,10 +142,6 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>) -> Result<UiTracer, HookErr
         blit(c.sprite, c.canvas, c.x, c.y, true);
         c.original()
     });
-    hook!(sprite_draw_blend, sites.sprite_draw_blend, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true);
-        c.original()
-    });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
         blit(c.sprite, c.dest, c.x, c.y, false);
         c.original()
@@ -221,9 +217,14 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>) -> Result<UiTracer, HookErr
         c.original();
         emit(Event::PaintEnd);
     });
+    hook!(text_worker, sites.text_worker, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw, sites.text_draw, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw_centered, sites.text_draw_centered, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
+    hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
+        blit(c.sprite, c.dest, c.x, c.y, false);
+        c.original()
+    });
     log::info!("UI mirror: {} hooks", hooks.len());
     Ok(UiTracer { _hooks: hooks })
 }
@@ -254,6 +255,16 @@ fn line_points((x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> Vec<(i32, i32)> {
         if e2 <= dx {
             err += dx;
             y += sy;
+        }
+    }
+}
+
+/// Whether the skipped canvases (the map) are left out: while a game runs.
+/// Between games the title screen is drawn on the same canvas.
+pub fn set_skipping(on: bool) {
+    if let Ok(mut m) = MODEL.lock() {
+        if let Some(m) = m.as_mut() {
+            m.set_skipping(on);
         }
     }
 }
