@@ -47,6 +47,23 @@ pub struct Civ3City {
     pub civ: i32,
     /// Population.
     pub size: i32,
+    /// Bit i: has improvement i.
+    pub improvements: [u8; 32],
+}
+
+impl Civ3City {
+    pub fn has_improvement(&self, id: i32) -> bool {
+        (0..256).contains(&id) && self.improvements[id as usize >> 3] & (1 << (id & 7)) != 0
+    }
+}
+
+/// An improvement that makes towns look walled: id, government it needs
+/// (-1 any), bit per player that knows the tech obsoleting it.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct WallBuilding {
+    pub id: i32,
+    pub government: i32,
+    pub obsolete_for: u32,
 }
 
 /// The map: shape plus every tile.
@@ -71,6 +88,8 @@ pub struct Civ3World {
     pub max_town: i32,
     pub max_city: i32,
     pub cities: Vec<Civ3City>,
+    pub governments: Vec<i32>,
+    pub wall_buildings: Vec<WallBuilding>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -125,6 +144,10 @@ pub struct Civ3View {
 /// A tracer dump (`civ3-trace.txt`): world, view and the game's draw list.
 #[derive(Clone, Debug, Default)]
 pub struct Trace {
+    /// The scenario's art folder and its search folders, as the game
+    /// names them (relative to the install's `Conquests` folders).
+    pub scenario_folder: Option<String>,
+    pub search_roots: Vec<String>,
     /// Address of the `Map_Renderer` the redraw used (also the canvas of
     /// map blits).
     pub map_renderer: u32,
@@ -177,6 +200,8 @@ impl Trace {
                 Some("#") if f.get(1) == Some(&"civ3-bridge") && f.get(3) == Some(&"map_renderer") => {
                     t.map_renderer = n(4)? as u32;
                 }
+                Some("scenario_folder") => t.scenario_folder = Some(f[1..].join(" ")),
+                Some("search_root") => t.search_roots.push(f[1..].join(" ")),
                 Some("view") => {
                     t.view = Civ3View {
                         camera_x: n(2)? as i32,
@@ -219,6 +244,21 @@ impl Trace {
                     y: n(3)? as i32,
                     civ: n(4)? as i32,
                     size: n(5)? as i32,
+                    improvements: {
+                        let mut v = [0u8; 32];
+                        if let Some(hex) = f.get(6) {
+                            for (k, b) in v.iter_mut().enumerate() {
+                                *b = hex.get(2 * k..2 * k + 2).and_then(|h| u8::from_str_radix(h, 16).ok()).unwrap_or(0);
+                            }
+                        }
+                        v
+                    },
+                }),
+                Some("governments") => t.world.governments = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,
+                Some("wall_building") => t.world.wall_buildings.push(WallBuilding {
+                    id: n(1)? as i32,
+                    government: n(2)? as i32,
+                    obsolete_for: n(3)? as u32,
                 }),
                 Some("eras") => {
                     t.world.eras = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;

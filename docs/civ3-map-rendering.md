@@ -336,11 +336,42 @@ Pixel semantics [D]: palette is a grey ramp (`R = idx*17`); the sprite is **blac
 
 - Sheets: `Art/Cities/r{AMER,EURO,ROMAN,MIDEAST,ASIAN}.PCX` (501x380) and `{...}WALL.PCX` (167x380). **Culture group index 0 AMER, 1 EURO, 2 ROMAN, 3 MIDEAST, 4 ASIAN** (loader switch order), = `Races[leader.RaceID].CultureGroupID`. `r*.PCX`: 3 columns (size class 0/1/2) x 4 rows (era 0..3) of **167 x 95**; `*WALL.PCX`: 1 column x 4 rows of 167x95 (size class 3).
 - Sprite array at 0xB3CE60 (stride 0x2C): `index = size_class*20 + era*5 + culture_group`, 80 entries.
-- `era = leaders[city.CivID].Era` (0..3). `size_class`: `pop > General.MaximumSize_City` -> 2; else `pop > General.MaximumSize_Town` -> 1; else 0, where `pop = Population.Size` (body+0x11C). **The capital** (`city.ID == leaders[civ].CapitalID`) is drawn one size class larger (`+1`, max 2) (C3X comments confirm). Size class 3 (the wall sheet) is selected only when the class would be 0 *and* a helper says the city has a wall-type improvement (`0x4C0D00`: iterates city improvements) and `0x4275C0` (size class helper) is `<= 0`; the full condition is not fully understood [?].
+- `era = leaders[city.CivID].Era` (0..3). `size_class`: `pop > General.MaximumSize_City` -> 2; else `pop > General.MaximumSize_Town` -> 1; else 0, where `pop = Population.Size` (body+0x11C). **The capital** (`city.ID == leaders[civ].CapitalID`) is drawn one size class larger (`+1`, max 2) (C3X comments confirm). Size class 3 (the wall sheet) replaces class 0 for walled towns; exact rule under "Walled towns" below [X].
 - Position: anchor = tile centre `(px + 64, py + 32)` (zoomed-out `(px+32, py+16)`); top-left = `anchor - (sprite.Width >> z, sprite.Height >> z)` with `z = 1` normal, `2` zoomed-out, giving `(px + 64 - 83, py + 32 - 47) = (px - 19, py - 15)` at normal zoom (the sprite is centred on the tile) [X from `City_draw_on_map` 0x4BFC80 and caller 0x4C37A0; the `>> z` with z in {1,2} is the scale handling].
 - City ruins: `DESTROY.PCX` (Conquests, 501x95: 3 cells of 167x95), randomly picked (`rand_int`, seed `Seed + 0x20C7D*a`) in the tile-building layer [X].
 - City name banner, size number, production icon, flags (`City_draw_hud_icon`, `m25` helper 0x4E5640) are UI-level drawing done after the unit pass; not specified here [?].
 - Colony: `Tile_has_colony` draws `Terrain_Buldings_Camp[era?]`; unverified era choice [?].
+
+**Walled towns [X].** The rule below uses City_Body-relative offsets (`b = City+0x1C`, which is what `CityItem.City` points at). The BIC is a static object at PCG 0x9C34C8 (C3X's csv lists it as `p_bic_data`), so `General.MaximumSize_Town` = 0x9C72A4 (BIC+0x3DDC) and `General.MaximumSize_City` = 0x9C72A8 (BIC+0x3DE0); `ImprovementsCount` = 0x9C3D40 (BIC+0x878); `Improvements` (pointer, stride 0x110) = 0x9C406C (BIC+0xBA4); `leaders` = 0xA52E58 (stride 0x20E4).
+```
+size = b.Population.Size (b+0x11C)
+L    = leaders[b.CivID (b+0xC, byte)]
+cls  = size > MaxCity ? 2 : size > MaxTown ? 1 : 0      // 0x4BFC85..0x4BFCA8 (inline copy of 0x4275C0)
+if b.ID (b+0x4) == L.CapitalID (L+0x2C):                 // 0x4BFCC1
+    cls = min(cls + 1, 2)                                // capital bump happens first, so a capital never gets walls
+if cls == 0 and town_class(city) <= 0                    // 0x4275C0: the same 0/1/2 test without the capital bump; always 0 here
+            and walls_value(city) > 0:                   // 0x4C0D00
+    cls = 3                                              // 0x4BFCFE
+walls_value(city):                                       // 0x4C0D00
+    if size > MaxCity or size > MaxTown: return 0
+    best = 0
+    for i in 0..ImprovementsCount:
+        imp = Improvements[i]
+        if not City_has_improvement(city, i, include_auto=1): continue   // 0x4ACBE0
+        if imp.ObsoleteID (+0xE0) >= 0 and Leader_has_tech(L, imp.ObsoleteID): continue  // 0x5613F0
+        best = max(best, (Leader_count_wonders_with_flag(L, ITW_Doubles_City_Defenses=0x1000, NULL) + 1)
+                         * imp.Combat_Bombard (+0x9C))   // 0x55A880
+    return best
+City_has_improvement(city, i, include_auto):             // 0x4ACBE0
+    if i == -1: return true
+    if imp.GovernmentID (+0xD4) != -1 and != L.GovernmentType (L+0xA0): return false
+    if include_auto and L.Auto_Improvements (L+0x20D0, hash table) is non-empty:
+        if it contains key i: return true                // civ-wide free building
+        c = Map_get_tile((b.X>>1) + b.Y*(Map.Width>>1))->m46_Get_ContinentID()   // b+0x8/+0xA shorts; Map.Width = Map+0x168
+        if it contains key (c+1)*ImprovementsCount + i: return true              // continent-wide free building
+    return bit i of b.Improvements_1.Improvements (b+0x274, byte i>>3, bit i&7)  // City_Improvements_contains 0x5DF800
+```
+The multiplier `(count+1)` is always >= 1, so the test reduces to this: the city is not the capital, `size <= MaxTown` (and `<= MaxCity`), and it has, directly or as a civ- or continent-wide auto improvement, a building whose government requirement is met, that is not made obsolete by a tech the owner knows, and that has `Combat_Bombard` (+0x9C) > 0. In the BIQ BLDG record this field is the first int after Culture (BIQ name "bombard defence"; the C3X header calls it `Combat_Bombard`). In `conquests.biq` only Walls (id 7, value 8, ObsoleteID -1, GovernmentID -1) has a nonzero value. The Great Wall (id 36) has `Gain_Building_Continent = 7`, so towns on the owner's Great Wall continent also show walls through the continent key in `Auto_Improvements`. This doc does not check whether that auto entry is removed when the wonder goes obsolete (ObsoleteID 38). Other C3X details: `City_draw_on_map` starts with a hook (`patch_City_draw_on_map`, 0xCFDF75). When `ai_multi_city_start > 1`, it temporarily sets `CapitalID` so that an AI city with an extra palace gets the capital bump and so never shows walls. `City_Improvements_contains` is hooked only for ids >= 256 (`remove_city_improvement_limit`). With `optimize_improvement_loops`, C3X's own `City_get_building_defense_bonus` patch uses the same "Combat_Bombard > 0 counts only at town size" idea.
 
 ---
 

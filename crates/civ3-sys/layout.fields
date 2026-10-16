@@ -195,3 +195,14 @@ BIC RacesCount
 BIC General
 General MaximumSize_City
 General MaximumSize_Town
+
+# Walled towns (docs §8).
+City_Body Improvements_1
+City_Improvements Improvements
+Improvement
+Improvement Combat_Bombard
+Improvement ObsoleteID
+Improvement GovernmentID
+BIC Improvements
+BIC ImprovementsCount
+Leader GovernmentType

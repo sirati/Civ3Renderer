@@ -156,6 +156,17 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     for (name, i, path) in civ3_sys::sprites::sheet_files(map_renderer) {
         let _ = writeln!(out, "file {name} {i} {path}");
     }
+    if let Ok(Some(folder)) = game.scenario_folder() {
+        let _ = writeln!(out, "scenario_folder {folder}");
+    }
+    match game.search_roots() {
+        Ok(roots) => {
+            for root in roots {
+                let _ = writeln!(out, "search_root {root}");
+            }
+        }
+        Err(e) => log::warn!("reading search roots: {e}"),
+    }
     if let Ok(view) = game.view() {
         let _ = writeln!(out, "view camera {} {} visible_x {} {} visible_y {} {}", view.camera_x, view.camera_y, view.tile_x.0, view.tile_x.1, view.tile_y.0, view.tile_y.1);
     }
@@ -185,11 +196,16 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         let _ = writeln!(out, "races {}", join(&p.races));
         let _ = writeln!(out, "culture_groups {}", join(&p.culture_groups));
         let _ = writeln!(out, "city_sizes {} {}", p.max_town, p.max_city);
+        let _ = writeln!(out, "governments {}", join(&p.governments));
+        for b in &p.wall_buildings {
+            let _ = writeln!(out, "wall_building {} {} {:#x}", b.id, b.government, b.obsolete_for);
+        }
     }
     match game.cities() {
         Ok(cities) => {
             for c in cities {
-                let _ = writeln!(out, "city {} {} {} {} {}", c.id, c.x, c.y, c.civ, c.size);
+                let bits: String = c.improvements.iter().map(|b| format!("{b:02x}")).collect();
+                let _ = writeln!(out, "city {} {} {} {} {} {bits}", c.id, c.x, c.y, c.civ, c.size);
             }
         }
         Err(e) => log::warn!("reading cities: {e}"),
