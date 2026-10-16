@@ -141,9 +141,10 @@ fn colors(world: &Civ3World, civ: i32) -> i32 {
 }
 
 impl Needed {
-    /// Every animation of every unit type the world shows, in the colours
-    /// of the civs showing it (so starting to move or fight needs no new
-    /// art).
+    /// The animations the world's units show now, plus each type's DEFAULT
+    /// (what idle units return to), in the colours of the civs showing
+    /// them. Other animations are added when a unit starts them: loading
+    /// all of them up front does not fit a 32-bit process.
     pub fn of(world: &Civ3World, art: &mut UnitArt) -> Needed {
         let mut out = Needed::default();
         if let Some(cursor) = art.cursor() {
@@ -151,7 +152,7 @@ impl Needed {
         }
         for u in &world.units {
             let Some(type_key) = world.unit_type_keys.get(u.unit_type.max(0) as usize) else { continue };
-            for animation in 0..ANIMATION_NAMES.len() as i32 {
+            for animation in [1, u.animation] {
                 if let Some(file) = art.file(type_key, era_key(world, u.civ), animation) {
                     out.files.entry(file.path.clone()).or_insert_with(|| (file.clone(), BTreeSet::new())).1.insert(colors(world, u.civ));
                 }

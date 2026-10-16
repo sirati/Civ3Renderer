@@ -172,7 +172,14 @@ impl Compiler {
     fn compile(&self, folders: &ArtFolders, units: &units::Needed, fonts: &text::Fonts) -> Result<Arc<Compiled>, LiveError> {
         let text = format!("{}{}{}", self.text, units.description(), fonts.description());
         let compiled = assets::compile(&text, self.files(folders)).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
-        log::info!("live renderer: {} layers, {} sprites ({folders:?})", compiled.layers.len(), compiled.sprite_names.len());
+        let pages = &compiled.atlas.pages;
+        let mb = pages.iter().map(|p| p.width as u64 * p.height as u64 * 4).sum::<u64>() >> 20;
+        log::info!(
+            "live renderer: {} layers, {} sprites, {} atlas pages ({mb} MiB) ({folders:?})",
+            compiled.layers.len(),
+            compiled.sprite_names.len(),
+            pages.len()
+        );
         Ok(Arc::new(compiled))
     }
 }
