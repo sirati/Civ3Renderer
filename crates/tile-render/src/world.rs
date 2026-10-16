@@ -1,0 +1,271 @@
+//! CPU-side description of a tile world: grid, layers and their cell values.
+
+use tile_render_shared::{GridParams, LAYER_HIDDEN, LAYOUT_ORTHOGONAL, LAYOUT_STAGGERED, LayerDesc, WRAP_X, WRAP_Y};
+
+use crate::atlas::SpriteId;
+
+/// How cells are positioned (see `tile_render_shared::LAYOUT_*`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Layout {
+    Orthogonal,
+    /// Odd rows shifted half a cell: the isometric diamond map.
+    Staggered,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Grid {
+    pub cols: u32,
+    pub rows: u32,
+    pub layout: Layout,
+    pub wrap_x: bool,
+    pub wrap_y: bool,
+    /// Distance between neighbouring cell origins in pixels.
+    pub step: (u32, u32),
+}
+
+impl Grid {
+    pub fn cells(&self) -> u32 {
+        self.cols * self.rows
+    }
+
+    pub(crate) fn params(&self) -> GridParams {
+        GridParams {
+            cols: self.cols,
+            rows: self.rows,
+            layout: match self.layout {
+                Layout::Orthogonal => LAYOUT_ORTHOGONAL,
+                Layout::Staggered => LAYOUT_STAGGERED,
+            },
+            wrap: if self.wrap_x { WRAP_X } else { 0 } | if self.wrap_y { WRAP_Y } else { 0 },
+            step_x: self.step.0,
+            step_y: self.step.1,
+            _pad0: 0,
+            _pad1: 0,
+        }
+    }
+
+    /// World-pixel origin of cell (`col`, `row`).
+    pub fn origin(&self, col: i32, row: i32) -> (i32, i32) {
+        tile_render_shared::cell_origin(&self.params(), col, row)
+    }
+}
+
+/// An animation: the frames a cell cycles through. One frame = static.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SpriteSetId(pub(crate) u32);
+
+impl SpriteSetId {
+    /// The set that draws nothing.
+    pub const EMPTY: SpriteSetId = SpriteSetId(0);
+}
+
+/// All sprite sets, flattened as `[n, sprite_0, .., sprite_n-1]` records.
+#[derive(Clone, Debug)]
+pub struct SpriteSets {
+    words: Vec<u32>,
+}
+
+impl Default for SpriteSets {
+    fn default() -> Self {
+        // Offset 0 is the empty set.
+        Self { words: vec![0] }
+    }
+}
+
+impl SpriteSets {
+    pub fn add(&mut self, frames: &[SpriteId]) -> SpriteSetId {
+        if frames.is_empty() {
+            return SpriteSetId::EMPTY;
+        }
+        let id = SpriteSetId(self.words.len() as u32);
+        self.words.push(frames.len() as u32);
+        self.words.extend(frames.iter().map(|s| s.0));
+        id
+    }
+
+    pub fn single(&mut self, sprite: SpriteId) -> SpriteSetId {
+        self.add(&[sprite])
+    }
+
+    pub(crate) fn words(&self) -> &[u32] {
+        &self.words
+    }
+}
+
+/// Static configuration of one layer.
+#[derive(Clone, Debug)]
+pub struct LayerSpec {
+    pub name: String,
+    /// Value → sprite set. Values outside the table draw nothing.
+    pub lut: Vec<SpriteSetId>,
+    /// Store a per-cell animation phase next to every value.
+    pub per_cell_phase: bool,
+    /// Pixel offset of the whole layer relative to cell origins.
+    pub offset: (i32, i32),
+    pub ticks_per_frame: u32,
+    pub hidden: bool,
+}
+
+impl LayerSpec {
+    pub fn new(name: impl Into<String>, lut: Vec<SpriteSetId>) -> Self {
+        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false }
+    }
+
+    /// Smallest value width (bytes) that can index the whole table.
+    pub fn value_bytes(&self) -> u32 {
+        match self.lut.len() {
+            0..=0x100 => 1,
+            0x101..=0x1_0000 => 2,
+            0x1_0001..=0x100_0000 => 3,
+            _ => 4,
+        }
+    }
+
+    fn record_bytes(&self) -> u32 {
+        self.value_bytes() + self.per_cell_phase as u32
+    }
+}
+
+/// A tile world: grid + layers + one value (and phase) per layer and cell.
+#[derive(Clone, Debug)]
+pub struct TileWorld {
+    pub grid: Grid,
+    pub sets: SpriteSets,
+    layers: Vec<LayerSpec>,
+    /// Each layer's records, packed, little endian.
+    data: Vec<Vec<u8>>,
+}
+
+/// Index of a layer in a `TileWorld`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LayerId(pub usize);
+
+impl TileWorld {
+    pub fn new(grid: Grid, sets: SpriteSets) -> Self {
+        Self { grid, sets, layers: Vec::new(), data: Vec::new() }
+    }
+
+    pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {
+        let bytes = (spec.record_bytes() * self.grid.cells()) as usize;
+        self.layers.push(spec);
+        self.data.push(vec![0; bytes]);
+        LayerId(self.layers.len() - 1)
+    }
+
+    pub fn layers(&self) -> &[LayerSpec] {
+        &self.layers
+    }
+
+    pub fn layer_mut(&mut self, layer: LayerId) -> &mut LayerSpec {
+        &mut self.layers[layer.0]
+    }
+
+    /// Sets the value of a cell (the index into the layer's table).
+    pub fn set(&mut self, layer: LayerId, col: u32, row: u32, value: u32) {
+        let spec = &self.layers[layer.0];
+        let n = spec.value_bytes() as usize;
+        let at = self.record_at(layer, col, row);
+        self.data[layer.0][at..at + n].copy_from_slice(&value.to_le_bytes()[..n]);
+    }
+
+    pub fn get(&self, layer: LayerId, col: u32, row: u32) -> u32 {
+        let n = self.layers[layer.0].value_bytes() as usize;
+        let at = self.record_at(layer, col, row);
+        let mut b = [0u8; 4];
+        b[..n].copy_from_slice(&self.data[layer.0][at..at + n]);
+        u32::from_le_bytes(b)
+    }
+
+    /// Sets the cell's animation phase. Requires `per_cell_phase`.
+    pub fn set_phase(&mut self, layer: LayerId, col: u32, row: u32, phase: u8) {
+        let spec = &self.layers[layer.0];
+        assert!(spec.per_cell_phase, "layer {} has no per-cell phase", spec.name);
+        let at = self.record_at(layer, col, row) + spec.value_bytes() as usize;
+        self.data[layer.0][at] = phase;
+    }
+
+    fn record_at(&self, layer: LayerId, col: u32, row: u32) -> usize {
+        assert!(col < self.grid.cols && row < self.grid.rows, "cell ({col}, {row}) outside the grid");
+        let spec = &self.layers[layer.0];
+        ((row * self.grid.cols + col) * spec.record_bytes()) as usize
+    }
+
+    /// GPU layer table, lookup tables and packed data, in the layout the
+    /// shader expects.
+    pub(crate) fn pack(&self) -> PackedWorld {
+        let mut layers = Vec::with_capacity(self.layers.len());
+        let mut lut = Vec::new();
+        let mut data = Vec::new();
+        for (spec, bytes) in self.layers.iter().zip(&self.data) {
+            layers.push(LayerDesc {
+                data_byte_offset: data.len() as u32,
+                value_bytes: spec.value_bytes(),
+                phase_bytes: spec.per_cell_phase as u32,
+                lut_offset: lut.len() as u32,
+                lut_len: spec.lut.len() as u32,
+                offset_x: spec.offset.0,
+                offset_y: spec.offset.1,
+                flags: if spec.hidden { LAYER_HIDDEN } else { 0 },
+                ticks_per_frame: spec.ticks_per_frame.max(1),
+                _pad: [0; 3],
+            });
+            lut.extend(spec.lut.iter().map(|s| s.0));
+            data.extend_from_slice(bytes);
+        }
+        // Word-align, plus one spare word: the shader may read the word after
+        // a record that ends exactly on a word boundary.
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&[0; 4]);
+        if lut.is_empty() {
+            lut.push(0);
+        }
+        PackedWorld { layers, lut, data: bytemuck::pod_collect_to_vec(&data), sets: self.sets.words().to_vec() }
+    }
+}
+
+pub(crate) struct PackedWorld {
+    pub layers: Vec<LayerDesc>,
+    pub lut: Vec<u32>,
+    pub data: Vec<u32>,
+    pub sets: Vec<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tile_render_shared::ByteReader;
+
+    #[test]
+    fn packed_records_read_back_through_the_shader_reader() {
+        let grid = Grid { cols: 7, rows: 5, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+        let mut sets = SpriteSets::default();
+        let a = sets.single(SpriteId(3));
+        let mut w = TileWorld::new(grid, sets);
+        let small = w.add_layer(LayerSpec::new("small", vec![SpriteSetId::EMPTY, a]));
+        let mut big_spec = LayerSpec::new("big", vec![a; 70_000]);
+        big_spec.per_cell_phase = true;
+        let big = w.add_layer(big_spec);
+        for r in 0..5 {
+            for c in 0..7 {
+                w.set(small, c, r, (c + r) % 2);
+                w.set(big, c, r, c * 9_000 + r);
+                w.set_phase(big, c, r, (c * r) as u8);
+            }
+        }
+        let p = w.pack();
+        let reader = ByteReader::new(&p.data);
+        for r in 0..5u32 {
+            for c in 0..7u32 {
+                let l = &p.layers[1];
+                let byte = l.data_byte_offset + (r * 7 + c) * (l.value_bytes + l.phase_bytes);
+                assert_eq!(l.value_bytes, 3);
+                assert_eq!(reader.uint(byte, 3), c * 9_000 + r);
+                assert_eq!(reader.u8(byte + 3), c * r);
+                let l = &p.layers[0];
+                assert_eq!(reader.uint(l.data_byte_offset + r * 7 + c, 1), (c + r) % 2);
+            }
+        }
+    }
+}

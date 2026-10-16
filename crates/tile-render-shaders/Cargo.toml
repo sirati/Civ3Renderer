@@ -1,0 +1,16 @@
+[package]
+name = "tile-render-shaders"
+description = "rust-gpu shaders of the tile renderer (built by tile-render's build script)"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+
+[lib]
+crate-type = ["dylib", "lib"]
+
+[dependencies]
+spirv-std = "0.11"
+tile-render-shared = { path = "../tile-render-shared" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spirv"))'] }

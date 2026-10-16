@@ -1,0 +1,16 @@
+[package]
+name = "tile-render-shared"
+description = "Types shared between the tile renderer's host code and its rust-gpu shaders"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+# Only plain `repr(C)` scalars are shared, so the host and the shader side can
+# use different glam builds without layout disagreements.
+
+[target.'cfg(not(target_arch = "spirv"))'.dependencies]
+bytemuck = { version = "1.24", features = ["derive"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_arch, values("spirv"))'] }

@@ -1,0 +1,20 @@
+[package]
+name = "tile-render"
+description = "GPU-driven, pixel-exact renderer for layered 2D/isometric tile worlds"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+tile-render-shared.workspace = true
+bytemuck.workspace = true
+wgpu.workspace = true
+log.workspace = true
+thiserror.workspace = true
+pollster.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+
+[build-dependencies]
+cargo-gpu-install = "0.11"
