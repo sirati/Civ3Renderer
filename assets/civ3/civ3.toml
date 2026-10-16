@@ -1519,6 +1519,38 @@ name = "victory_point"
 pass = 3
 sets = ["Victory_Image/*"]
 
+# C3X districts: drawn instead of a tile's buildings (C3X replaces
+# m12_Draw_Tile_Buildings), up to six slices per tile (crate::district_art).
+[[layers]]
+name = "district_0"
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_1"
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_2"
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_3"
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_4"
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_5"
+pass = 3
+sets = ["District@*"]
+
 [[layers]]
 name = "craters"
 pass = 3
