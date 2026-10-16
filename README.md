@@ -68,20 +68,32 @@ exhaustive test of the rounding.
 
 `civ3-bridge` is installed as the game's `ifc23.dll` (a proxy forwarding to
 the original). With `CIV3R_VIEWER=1` (or `=fullscreen`) it opens the reimplemented renderer in a
-window of its own inside the game process: a publisher thread snapshots the
-game's memory (`civ3-sys`), maps it to a scene (`rules`, `scene_map`) and the
-viewer draws it with the game's camera; mouse and keyboard input in that
+window of its own inside the game process. The renderer runs on its own
+thread and owns the whole world: a publisher thread snapshots the game's
+memory (`civ3-sys`), maps it to a scene (`rules`, `scene_map`) and sends
+only what changed (`scene::Update` batches: cells, sprites, views,
+overlays, run-time sprite pixels) through an mpsc queue; input flows back
+through another, which any number of views or windows may feed. The tile
+renderer draws any number of views of the one world into a window, each
+with its own camera and screen-space overlay: the game's view (its
+camera), the city screen's view of the city's surroundings while it is
+open, and the mirrored interface on top. Mouse and keyboard input in the
 window is forwarded to the game's window; `CIV3R_GAME_MAP=off` stops the
-game drawing its own map. When a scenario brings its own art,
-the description is recompiled against the scenario's folders.
+game drawing its own map. When a scenario brings its own art, the
+description is recompiled against the scenario's folders.
 
 The game's interface is mirrored (`CIV3R_UI=off` turns it off): hooks on
 its UI drawing (image loads, sprite slices, blits, copies, fills, lines,
 text, and the composition of forms onto the screen) keep a display list per
-canvas; every paint becomes screen draws — regions of the game's art files,
-fills and text, clipped — that the `menu` crate's run-time screens draw.
-The map form's canvas is left out: that is ours. See
-`docs/civ3-map-rendering.md` §16.
+canvas (scrolling, opaque covers, clip rectangles and colour keys
+followed); the screen is composed from the canvases' current content —
+regions of the game's art files (alpha-masked where the game masks them),
+fills, translucent shades, lines, text and unit animation frames, clipped —
+that the `menu` crate's run-time screens draw. The map canvas is mirrored
+without the map itself (ours): the city labels on it go under our fog of
+war; the unit overlay is left out (we draw units). Pictures the game makes
+pixel by pixel (the minimap) are generated from the world state and sent
+as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
 
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
 game's sprite blits and records one redraw — every sprite, position and
