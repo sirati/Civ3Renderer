@@ -1,7 +1,7 @@
 //! The GPU renderer must produce exactly the reference renderer's pixels.
 
 use tile_render::{
-    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, RgbaImage, ScreenCopy, SpriteSets, TileRenderer, TileWorld,
+    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, RgbaImage, ScreenCopy, SpriteSets, TileRenderer, TileWorld, ZoomArt,
     reference,
 };
 
@@ -456,5 +456,29 @@ fn subpixel_sprites_blend_each_channel_on_its_own() {
         let got = gpu.render_views(&mut renderer, &[camera], (320, 200), 2, CLEAR);
         let want = reference::render_views(&world, &atlas, &[camera], (320, 200), 2, CLEAR);
         assert_same(&got, &want, &format!("subpixel sprites, {color:?}"));
+    }
+}
+
+#[test]
+fn zoomed_art_replaces_its_low_twin_in_a_scaled_view() {
+    // A label as a low (1:1) sprite and a zoomed one (art at the view's
+    // zoom): a scaled view showing zoomed art draws the zoomed one after
+    // scaling, other views the low one; the zoomed one follows the view's
+    // screen shift scaled.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let s = world.free.iter().find(|s| s.screen).cloned().unwrap();
+    world.free.push(PlacedSprite { view: Some(0), x: 40, y: 30, zoom_art: ZoomArt::Low, clip: Some([30, 20, 120, 90]), ..s });
+    world.free.push(PlacedSprite { view: Some(0), x: 80, y: 60, zoom_art: ZoomArt::Zoomed, clip: Some([60, 40, 240, 180]), ..s });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let main = Camera { x: 30, y: 10, zoom: (2, 1), screen_shift: (5, -3), zoomed_art: true, overhang: (0, 40, 0, 0), ..Camera::new((320, 200)) };
+    for cameras in [[main], [Camera { zoomed_art: false, ..main }], [Camera { zoom: (1, 1), ..main }]] {
+        let got = gpu.render_views(&mut renderer, &cameras, (320, 200), 1, CLEAR);
+        let want = reference::render_views(&world, &atlas, &cameras, (320, 200), 1, CLEAR);
+        assert_same(&got, &want, &format!("zoom art, {:?}", cameras[0].zoomed_art));
     }
 }

@@ -36,11 +36,14 @@ pub struct Camera {
     /// (given in target pixels) are moved (e.g. a driver's labels following
     /// the world when the viewer moves the camera).
     pub screen_shift: (i32, i32),
+    /// Whether the view shows its `ZoomArt::Zoomed` sprites (made for its
+    /// zoom) instead of their `ZoomArt::Low` twins.
+    pub zoomed_art: bool,
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0) }
+        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0), zoomed_art: false }
     }
 
     /// Whether the view is scaled (zoom other than 1).
@@ -73,7 +76,8 @@ impl Camera {
         ((rel(px, self.origin.0) * d / n).min(sw - 1), (rel(py, self.origin.1) * d / n).min(sh - 1))
     }
 
-    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32) -> FrameParams {
+    /// `zoom_art`: see `FrameParams::zoom_art`.
+    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32) -> FrameParams {
         let (ew, eh) = self.source_size();
         let (ol, ot, or, ob) = self.overhang;
         let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
@@ -117,7 +121,7 @@ impl Camera {
             origin_x: self.origin.0 - self.screen_shift.0,
             origin_y: self.origin.1 - self.screen_shift.1,
             world: self.cells as u32,
-            _pad3: 0,
+            zoom_art,
         }
     }
 }
@@ -134,7 +138,7 @@ mod tests {
         cam.x = 300;
         cam.y = 200;
         cam.overhang = (0, 24, 0, 0);
-        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 }, 0);
+        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 }, 0, 0);
         // Every cell whose 128×64 footprint (+24 px upwards) touches the
         // viewport must be inside the window.
         for row in -10..120 {

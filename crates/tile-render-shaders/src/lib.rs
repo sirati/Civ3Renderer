@@ -17,7 +17,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
 };
 
@@ -152,7 +152,11 @@ pub fn free_vs(
     *out_page = 0;
     *out_scale_den = f.scale_den;
     let frames = sprite_sets[f.set as usize];
-    if f.set == 0 || frames == 0 || (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) {
+    // Zoom art: zoomed sprites only in the pass after scaling, low ones not
+    // where zoomed ones are shown.
+    let zoomed = f.flags & FREE_ZOOMED != 0;
+    let wrong_art = (params.zoom_art == 2) != zoomed || (params.zoom_art == 1 && f.flags & FREE_LOW != 0);
+    if f.set == 0 || frames == 0 || wrong_art || (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) {
         *out_pos = CULLED;
         return;
     }

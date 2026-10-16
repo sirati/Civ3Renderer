@@ -156,7 +156,7 @@ impl TileRenderer {
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render params"),
-            size: PARAMS_STRIDE * ((MAX_PASSES + 1) * MAX_VIEWS) as u64,
+            size: PARAMS_STRIDE * ((MAX_PASSES + 2) * MAX_VIEWS) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -526,15 +526,18 @@ impl TileRenderer {
                     (flat, source_view.as_ref().expect("created above"), (viewport, r), pipelines)
                 }
             };
+            // Which zoom art the view's passes draw (see `FrameParams::zoom_art`).
+            let zoomed_art = camera.zoomed_art && sources[v].is_some();
+            let art = u32::from(zoomed_art);
             // Each (view, pass) has its own parameter slot: buffer writes all
             // land before the commands run.
             let write_params = |slot: usize, params: FrameParams| {
-                let offset = (v * (MAX_PASSES + 1) + slot) as u64 * PARAMS_STRIDE;
+                let offset = (v * (MAX_PASSES + 2) + slot) as u64 * PARAMS_STRIDE;
                 queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
                 offset as u32
             };
             for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-                let params = drawn.frame_params(&world.grid, world.color, frame, p, v as u32);
+                let params = drawn.frame_params(&world.grid, world.color, frame, p, v as u32, art);
                 let offset = write_params(i, params);
                 let mut pass = begin_view(encoder, into, rect, bind_group, offset);
                 if drawn.cells {
@@ -544,7 +547,7 @@ impl TileRenderer {
                 draw_free(&mut pass, world, i, free);
             }
             if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {
-                let params = drawn.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32);
+                let params = drawn.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, art);
                 let offset = write_params(MAX_PASSES, params);
                 let mut pass = begin_view(encoder, into, rect, bind_group, offset);
                 draw_free(&mut pass, world, passes, free);
@@ -566,6 +569,20 @@ impl TileRenderer {
                 pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
                 pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
                 pass.draw(0..3, 0..1);
+            }
+            // Sprites made for the view's zoom, at full resolution over it: in
+            // target pixels from its scaled screen origin.
+            if zoomed_art {
+                let mut params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, 2);
+                let (n, d) = (camera.zoom.0.max(1) as i32, camera.zoom.1.max(1) as i32);
+                (params.origin_x, params.origin_y) = (-camera.screen_shift.0 * n / d, -camera.screen_shift.1 * n / d);
+                let offset = write_params(MAX_PASSES + 1, params);
+                let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
+                let mut pass = begin_view(encoder, &canvas, (viewport, on_target), bind_group, offset);
+                let free = if direct { self.free_pipelines(device, 0) } else if bits == 0 { self.free_pipelines(device, 2) } else { self.free_pipelines(device, 1) };
+                for i in 0..=passes {
+                    draw_free(&mut pass, world, i, free);
+                }
             }
         }
         if direct {

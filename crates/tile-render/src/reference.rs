@@ -28,7 +28,7 @@ pub struct Draw {
 /// clipping to the viewport).
 pub fn draw_list(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32) -> Vec<Draw> {
     let mut out = Vec::new();
-    visit(world, atlas, camera, 0, frame, &mut |d| out.push(d));
+    visit(world, atlas, camera, 0, frame, 0, &mut |d| out.push(d));
     out
 }
 
@@ -157,7 +157,7 @@ fn compose<P: Copy>(
     let mut out = vec![background; (w * h) as usize];
     for (v, camera) in cameras.iter().enumerate().take(crate::renderer::MAX_VIEWS) {
         if !camera.is_scaled() {
-            visit(world, atlas, camera, v as u32, frame, &mut |d| {
+            visit(world, atlas, camera, v as u32, frame, 0, &mut |d| {
                 each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
             });
             continue;
@@ -166,13 +166,24 @@ fn compose<P: Copy>(
         let flat = Camera { zoom: (1, 1), viewport: (sw, sh), ..*camera };
         let (ox, oy) = camera.origin;
         let mut source = vec![background; (sw * sh) as usize];
-        visit(world, atlas, &flat, v as u32, frame, &mut |d| {
+        let zoomed_art = camera.zoomed_art;
+        visit(world, atlas, &flat, v as u32, frame, u32::from(zoomed_art), &mut |d| {
             let d = Draw { x: d.x - ox, y: d.y - oy, clip: d.clip.map(|[x0, y0, x1, y1]| [x0 - ox, y0 - oy, x1 - ox, y1 - oy]), ..d };
             each_texel(atlas, &d, (sw, sh), |px, py, src| put(&mut source[(py * sw + px) as usize], &d, src));
         });
         for (px, py) in camera.target_rect((w, h)) {
             let (sx, sy) = camera.source_texel((px, py));
             out[(py * w + px) as usize] = source[(sy * sw + sx) as usize];
+        }
+        // Sprites made for the zoom, at full resolution: from the view's
+        // scaled screen origin.
+        if zoomed_art {
+            let (n, d) = (camera.zoom.0.max(1) as i32, camera.zoom.1.max(1) as i32);
+            let shift = (ox + camera.screen_shift.0 * n / d, oy + camera.screen_shift.1 * n / d);
+            let post = Camera { screen_shift: shift, ..*camera };
+            visit(world, atlas, &post, v as u32, frame, 2, &mut |d| {
+                each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
+            });
         }
     }
     out
@@ -201,7 +212,12 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
 
 /// Calls `draw` for every sprite view `view` (seen by `camera`) shows, in
 /// order, in target pixels, clipped to the view.
-fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u32, draw: &mut dyn FnMut(Draw)) {
+/// `art`: which free sprites by their zoom art (`FrameParams::zoom_art`).
+fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u32, art: u32, draw: &mut dyn FnMut(Draw)) {
+    let art_fits = |s: &crate::PlacedSprite| {
+        let zoomed = s.zoom_art == crate::ZoomArt::Zoomed;
+        (art == 2) == zoomed && !(art == 1 && s.zoom_art == crate::ZoomArt::Low)
+    };
     let (vx, vy) = camera.origin;
     let rect = [vx, vy, vx + camera.viewport.0 as i32, vy + camera.viewport.1 as i32];
     let within = |clip: Option<[i32; 4]>| {
@@ -213,7 +229,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     let passes = world.passes();
     // Free sprites following pass `p`, in list order.
     let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
-        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| sv == view)) {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| sv == view) && art_fits(s)) {
             let set = s.set.0 as usize;
             let frames = packed.sets[set];
             if set == 0 || frames == 0 {
@@ -237,8 +253,8 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     };
     for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
-        let params = camera.frame_params(&world.grid, world.color, frame, pass, view);
-        for local in 0..if camera.cells { params.cols * params.rows } else { 0 } {
+        let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0);
+        for local in 0..if camera.cells && art != 2 { params.cols * params.rows } else { 0 } {
             let col = params.first_col + (local % params.cols) as i32;
             let row = params.first_row + (local / params.cols) as i32;
             let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };

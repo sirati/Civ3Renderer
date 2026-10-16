@@ -115,7 +115,10 @@ pub struct FrameParams {
     /// 0: the view shows no world (cells, world-space sprites), only its own
     /// sprites.
     pub world: u32,
-    pub _pad3: u32,
+    /// Which free sprites by their zoom art (`FREE_LOW`, `FREE_ZOOMED`):
+    /// 0 all but zoomed ones; 1 all but zoomed and low ones (a view showing
+    /// the zoomed ones); 2 only zoomed ones (drawn after the view is scaled).
+    pub zoom_art: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -215,6 +218,12 @@ pub const FREE_SCREEN: u32 = 1 << 0;
 pub const ALL_VIEWS: u32 = u32::MAX;
 /// The free sprite is clipped to its `clip` rectangle.
 pub const FREE_CLIP: u32 = 1 << 1;
+/// The 1:1 twin of a `FREE_ZOOMED` sprite: left out where the view shows those.
+pub const FREE_LOW: u32 = 1 << 2;
+/// A screen sprite made for its view's zoom (e.g. text rasterised at that
+/// size): drawn after the view is scaled, its position in target pixels
+/// from where the view's screen sprites start, scaled.
+pub const FREE_ZOOMED: u32 = 1 << 3;
 
 /// One sprite: a rectangle of an atlas page and where to draw it.
 #[repr(C)]

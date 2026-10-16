@@ -189,6 +189,21 @@ impl ColorModel {
     }
 }
 
+/// Which zoom a screen sprite's art is made for. A driver may give a view
+/// that it knows to be scaled (`Camera::zoomed_art`) sprites made for its
+/// zoom (`Zoomed`, e.g. text rasterised at that size) next to their 1:1
+/// twins (`Low`): such a view draws the zoomed ones after scaling, at
+/// full resolution, other views the low ones.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum ZoomArt {
+    #[default]
+    Any,
+    Low,
+    /// Positioned in target pixels from where the view's screen sprites
+    /// start (its origin less its screen shift), scaled by its zoom.
+    Zoomed,
+}
+
 /// A sprite (animation) placed freely, see [`TileWorld::free`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct PlacedSprite {
@@ -209,11 +224,13 @@ pub struct PlacedSprite {
     /// Drawn only in this view (`None`: in every view; see
     /// `TileRenderer::render_views`).
     pub view: Option<u32>,
+    /// Art for a zoom (screen sprites of a view; see [`ZoomArt`]).
+    pub zoom_art: ZoomArt,
 }
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, zoom_art: ZoomArt::Any }
     }
 
     pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
@@ -222,7 +239,12 @@ impl PlacedSprite {
             phase: self.phase,
             ticks_per_frame: self.ticks_per_frame.max(1),
             flags: if self.screen { tile_render_shared::FREE_SCREEN } else { 0 }
-                | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 },
+                | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 }
+                | match self.zoom_art {
+                    ZoomArt::Any => 0,
+                    ZoomArt::Low => tile_render_shared::FREE_LOW,
+                    ZoomArt::Zoomed => tile_render_shared::FREE_ZOOMED,
+                },
             x: self.x,
             y: self.y,
             scale_den: self.blend.scale_den(),
