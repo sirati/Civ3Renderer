@@ -59,7 +59,8 @@ pub struct FontStyle {
 pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     #[cfg(windows)]
     {
-        if std::env::var_os("CIV3R_FONT_CACHE").is_some() {
+        // Wine's GDI is not Windows': there the sheets measured on Windows.
+        if std::env::var_os("CIV3R_FONT_CACHE").is_some() || gdi_text::under_wine() {
             return from_cache(font, color);
         }
         // The game installs its font from LSANS.TTF; make sure we have it.
@@ -98,10 +99,7 @@ pub fn cache_stem(font: &FontStyle) -> String {
 }
 
 fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
-    let dir = std::env::var_os("CIV3R_FONT_CACHE")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cache/civ3r/fonts")))
-        .ok_or("no font cache directory")?;
+    let dir = cache_dir().ok_or("no font cache directory")?;
     let stem = dir.join(cache_stem(font));
     let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
     let meta: toml::Table = std::fs::read_to_string(stem.with_extension("toml"))
@@ -138,4 +136,28 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image });
     }
     Ok(GlyphFont { ascent, underline, glyphs })
+}
+
+/// `$CIV3R_FONT_CACHE`, else `~/.cache/civ3r/fonts`. A Windows path to the
+/// Unix side's `Z:` drive also works on Linux, and in Wine the home folder
+/// is the Unix one (`WINEHOMEDIR`), so both sides of a Wine process find
+/// the same sheets.
+fn cache_dir() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if let Some(dir) = std::env::var_os("CIV3R_FONT_CACHE") {
+        let s = dir.to_string_lossy();
+        if !cfg!(windows) {
+            if let Some(rest) = s.strip_prefix("Z:").or_else(|| s.strip_prefix("z:")) {
+                return Some(PathBuf::from(rest.replace('\\', "/")));
+            }
+        }
+        return Some(PathBuf::from(dir));
+    }
+    if cfg!(windows) {
+        if let Some(home) = std::env::var_os("WINEHOMEDIR") {
+            let home = home.to_string_lossy().trim_start_matches(r"\??\").to_owned();
+            return Some(PathBuf::from(home).join(r".cache\civ3r\fonts"));
+        }
+    }
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/civ3r/fonts"))
 }

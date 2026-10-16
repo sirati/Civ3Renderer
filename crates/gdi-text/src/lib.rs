@@ -74,6 +74,15 @@ pub enum GdiError {
 #[cfg(windows)]
 mod win;
 
+/// Whether this Windows process runs in Wine (whose GDI draws text its own
+/// way).
+pub fn under_wine() -> bool {
+    #[cfg(windows)]
+    return win::under_wine();
+    #[cfg(not(windows))]
+    false
+}
+
 /// Makes the fonts in a font file available to this process.
 pub fn add_font_file(path: &std::path::Path) -> Result<(), GdiError> {
     #[cfg(windows)]

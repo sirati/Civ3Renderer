@@ -151,3 +151,14 @@ fn underline(canvas: &Canvas, metrics: &TEXTMETRICW) -> (i32, i32) {
     let size = (otm.otmsUnderscoreSize as i32).max(1);
     (-otm.otmsUnderscorePosition - size / 2, size)
 }
+
+pub fn under_wine() -> bool {
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    let ntdll: Vec<u16> = "ntdll.dll".encode_utf16().chain([0]).collect();
+    // SAFETY: NUL-terminated names that outlive the calls; a missing
+    // module or export gives null.
+    unsafe {
+        let module = GetModuleHandleW(ntdll.as_ptr());
+        !module.is_null() && GetProcAddress(module, c"wine_get_version".as_ptr().cast()).is_some()
+    }
+}
