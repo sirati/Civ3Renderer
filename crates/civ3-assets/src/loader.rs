@@ -12,7 +12,8 @@
 //!   renderer does (5 bits per channel, expanded as `(v << 3) | (v >> 2)`).
 //! * `palette = "Art/Units/Palettes/ntp00.pcx"` substitute the palette of
 //!   this PCX (whole, or `palette_range = [first, count]` of it), e.g. to
-//!   recolour units to a civilisation's colours.
+//!   recolour units to a civilisation's colours; `palette_map = { 247 = 66 }`
+//!   also copies its entry 66 to entry 247.
 //!
 //! PCX sources yield one image, FLC sources one image per frame.
 
@@ -41,6 +42,12 @@ impl Civ3Loader {
         let mut out = base.clone();
         for i in first..(first + count).min(256) {
             out.0[i] = other.0[i];
+        }
+        if let Some(map) = options.get("palette_map").and_then(|v| v.as_table()) {
+            for (dst, src) in map {
+                let dst: usize = dst.parse().map_err(|_| format!("palette_map key {dst:?} is not an index"))?;
+                out.0[dst.min(255)] = other.0[int(src)?.min(255)];
+            }
         }
         Ok(out)
     }

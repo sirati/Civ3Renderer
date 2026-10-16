@@ -13,6 +13,7 @@ Main_Screen_Form camera_x
 Main_Screen_Form camera_y
 Main_Screen_Form mouse_x
 Main_Screen_Form mouse_y
+Main_Screen_Form animator
 
 BIC Map
 
@@ -207,3 +208,43 @@ BIC Improvements
 BIC ImprovementsCount
 Leader GovernmentType
 Tile field_20
+
+# Units (docs §10).
+Unit
+Unit Body
+Unit_Body ID
+Unit_Body X
+Unit_Body Y
+Unit_Body CivID
+Unit_Body UnitTypeID
+Unit_Body Damage
+Unit_Body Moves
+Unit_Body Container_Unit
+Unit_Body UnitState
+Unit_Body always_on_top
+Unit_Body Animation
+FLC_Animation summary.pixel_loc_x
+FLC_Animation summary.pixel_loc_y
+FLC_Animation summary.direction_2
+FLC_Animation summary.current_anim_type
+FLC_Animation field_FC
+FLC_Animation Last
+Animator Units
+Animator Units_Count
+UnitType
+UnitType Civilipedia_Entry
+Era_Type
+Era_Type Civ_Entry
+BIC UnitTypes
+BIC UnitTypeCount
+BIC Eras
+BIC ErasCount
+UnitType Attack
+UnitType Defence
+UnitType Movement
+UnitType Hit_Point_Bonus
+Unit_Body Combat_Experience
+Combat_Experience
+Combat_Experience Base_Hit_Points
+BIC CombatExperience
+BIC CombatExperienceCount

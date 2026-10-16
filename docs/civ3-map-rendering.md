@@ -393,16 +393,198 @@ every consumer does 4 plain advance() calls first, then its rand_int(...) calls
 
 ---
 
-## 10. Units [X for the pipeline; most details are [I]/[S]/[?]]
+## 10. Units
 
-- One unit per tile is shown: `Main_Screen_Form_find_visible_unit(x, y, ...)` (0x4E3F50) picks the displayed unit for each tile of the visible rectangle (list built by 0x4EF4D0, capped at 0x3FF, stored at MSF+8, count at MSF+0x1008); drawn after tiles+fog.
-- Animation files: `Art/Units/<UnitTypeName>/<Name>.INI` (C3X header `UnitType.Name`; Conquests units under `Conquests/Art/Units/<name>/`). The INI sections: `[Speed]` (`Normal Speed=`, `Fast Speed=`), `[Animations]` (BLANK, DEFAULT, WALK, RUN, ATTACK1-3, DEFEND, DEATH, DEAD, FORTIFY, FORTIFYHOLD, FIDGET, VICTORY, TURNLEFT, TURNRIGHT, BUILD, ROAD, MINE, IRRIGATE, FORTRESS, CAPTURE, STOP_AT_LAST_FRAME, PauseROAD/MINE/IRRIGATE), `[Timing]` (a float per animation, 0.5 in Archer), `[Sound Effects]` [D: `Archer.INI`].
-- **FLC format (Civ3 variant)** [D]: header `size u32, magic 0xAF12 @4, frames @6, width @8, height @10, depth 8, speed @16 (u32, ms/frame)`, first-frame chunk offset @80, **@0x60 u16 = 8 (directions)**, **@0x62 u16 = frames per direction**, @100 u16 OffsetLeft, @102 OffsetTop, @104/@106 original canvas 240x240, @108 animation time (ms). E.g. `ArcherDefault.flc`: 46x50 per frame, 8 dirs x 15 frames (header `frames = 120`), speed 125 ms, offset (96, 81) inside a 240x240 canvas; the file holds **8 x (15 + 1 ring frame) = 128 frame chunks** (`0xF1FA`): each direction's frames followed by a ring (loop-back) frame that must be skipped [D][S C7]. Chunk types seen in `ArcherDefault.flc`: 4 (COLOR_256 palette, in the first frame), 15 (BYTE_RUN keyframe; positive count = repeat byte, negative = literal copy), 7 (DELTA_FLC / SS2 word-based deltas); the same three are what C7's `ReadFlic.cs` handles. My decoder (C7's logic) walked all 128 chunks of that file without error [D]; correctness of every pixel and behaviour for other units (e.g. other chunk types, per-direction keyframes) was not checked [?].
-- **Direction order inside the file** (animation index): 0 SW, 1 S, 2 SE, 3 E, 4 NE, 5 N, 6 NW, 7 W [S: C7 `AnimationManager.flicRowToAnimationDirection`]. Unit sprites are placed relative to the tile centre: `top_left = tile_centre + animation_move_offset + (OffsetLeft, OffsetTop) - (OriginalWidth/2, OriginalHeight/2)` (frame is `width x height` cropped from the 240x240 canvas) [S: C7 `GetFramePosition`; consistent with the FLC header] [I].
-- Frame timing: `speed` ms per frame from the FLC header (125 ms for Archer, 15 frames = `animation time` 1875 ms); INI `[Timing]` value scales it (0.5) and `[Speed]` gives the normal/fast animation setting [I/?].
-- **Palette handling** [D][S]: the FLC carries its own 256-colour palette (entries 0..~99 meaningful, 100..254 are placeholder green (0,255,0), 255 magenta). **Civ colour**: indices **0..15 and the even indices 16..62** (and, from palette spread analysis, 64..69) are *replaced* by the same index of `Art/Units/Palettes/ntpNN.pcx` where **NN = `leaders[civ].Color_Table_ID`** (0..31; `ntp00` is white/neutral). In the 32 `ntp` files, entries 0..69 differ between civs (spread 142-171 on the tinted ones, only ~4 on the odd 17..63 which stay civ-independent) and entries 70..255 are magenta placeholders [D]. C7 uses `tinted = idx < 16 || (idx < 64 && idx % 2 == 0)` [S]; the 64..69 range is my addition from the palette analysis [I]. The `ntp*.pcx` files are 1x1 images used only for their palette. (`otp00-16.pcx` are an older 17-colour set.)
-- **Shadows** [D][S]: FLC index 255 = transparent, indices 251-254 form a soft elliptical ground shadow (254 outermost, 253, 252, 251 darkest in the Archer sprite). C7 renders indices 240-254 as black with alpha `(255 - idx)*16/255` (254 = 6 %, 253 = 12.5 %, 252 = 19 %, 251 = 25 %); the engine's own blend (JGL.dll) I could not read [I]. C7 uses 224-239 as a second shadow ramp in its tint code; I saw no use of it in Archer [?].
-- Health bar, fortify frame, movement LED, stack indicators, active-unit blink (`Main_Screen_Form.Current_Unit`, timers in the form), unit flag colours: rendered by UI code I did not trace. C7's reconstruction (for reference, not verified against the original): bar 2 px wide at tile-centre `-26 px` in x, one rectangle per HP with 1 px gaps, colour by HP fraction, white outline when fortified, movement LED from `Art/interface/MovementLED.pcx` (6x6 cells, index 0 full, 2 partial, 4 none) [S].
+Tags as in section 0. **[D]** here means checked against the WW2-Pacific trace `ww2j.txt` and its screenshot `ww2j-game.png`: 31 unit draws, the art of each unit identified by brute force over every `*default*.flc` in the install, 8 directions x all frames x the 5 civ palettes in use. All 31 matched pixel-exactly (Infantry 20, Guerilla 9, Japanese Rifleman 1, Fighter 1). Struct offsets come from `Civ3Conquests.h` compiled with `i686-w64-mingw32-gcc` (as in `tools/gen-civ3-layout`). Addresses are PCG. This section replaces the unit parts of section 4 item 3 and section 14 item 1. In particular, the draw list lives in the **Animator** (`Main_Screen_Form.animator`, MSF+0x2E1B8 = **0xA26878**), not at MSF+8.
+
+### 10.1 Unit data [H][X]
+
+`Unit` = `{vtable, field_4, "UNIT", field_C[4], Unit_Body Body}`. `Body` is at **Unit+0x1C**. `sizeof(Unit)` = 0x404. Below, "B+" is the offset in `Unit_Body` and "U+" the offset in `Unit`. The renderer code works with `Unit*` (U+).
+
+| Field | B+ | U+ | Notes |
+|---|---|---|---|
+| `ID` | 0x04 | 0x20 | = index in the `Units` list; the draw-list builder appends always-on-top units only if `ID >= 0` [X 0x4EF7DB] |
+| `X`, `Y` | 0x08, 0x0C | 0x24, 0x28 | tile coordinates [X] |
+| `CivID` | 0x18 | 0x34 | owner. Colour = `leaders[CivID].Color_Table_ID` (Leader+0x10F8) [X] |
+| `UnitTypeID` | 0x24 | 0x40 | `BIC.UnitTypes` (0x9C71A0 = BIC+0x3CD8), stride 0x138: `Name`+0x08, `Civilopedia_Entry`+0x28, `Bombard_Strength`+0x48, `Unit_Class`+0x9C (0 land, 1 sea, 2 air), `Hit_Point_Bonus`+0xA4 [X] |
+| `Combat_Experience` | 0x28 | 0x44 | index into `BIC.CombatExperience` (BIC+0xBC4, stride 0x2C, `Base_Hit_Points`+0x24) [X 0x5BE3A5] |
+| `Status` | 0x2C | 0x48 | 0x04 attacked, 0x40 def. bombard, 0x80 sentry, 0x100 sentry-enemy-only. Not read by the drawing code [H] |
+| `Damage` | 0x30 | 0x4C | HP lost [X] |
+| `Moves` | 0x34 | 0x50 | move points **used**. Remaining = `Unit_get_max_move_points` (0x5BE180) - `Moves` [X 0x5BA391] |
+| `Container_Unit` | 0x44 | 0x60 | -1 = not loaded. Loaded units (transport or army) are never the displayed unit [X 0x4E4117] |
+| `UnitState` | 0x48 | 0x64 | `UnitStateType`; **1 = fortified/fortifying** (drives the fortify bonus in 10.2 and the white bar frame in 10.6) [X] |
+| `automated` | 0x4C | 0x68 | byte [X 0x4E410C] |
+| byte at B+0x41 | 0x41 | 0x5D | the high byte of the header's `short Active`. It acts as a "moving / animating" flag: the unit is returned at once by `find_visible_unit`, the stack lines are suppressed, and the unit under it is drawn too (10.2) [X; meaning I] |
+| `field_1CC` | 0x1CC | 0x1E8 | byte; if set and `0x5B2BE0(unit)` is true, the unit is skipped [X; meaning ?] |
+| `always_on_top` | 0x232 | 0x24E | byte [X] |
+| `Animation` (`FLC_Animation`, 0x188 bytes) | 0x260 | **0x27C** | see below |
+
+Fields inside `Unit.Body.Animation` (anim = U+0x27C) [X][H]:
+
+| Field | anim+ | U+ | Meaning |
+|---|---|---|---|
+| `summary.direction` | 0x08 | 0x284 | queued facing (`enum direction`) |
+| `summary.tile_x/y` | 0x10/0x14 | 0x28C/0x290 | |
+| **`summary.pixel_loc_x/y`** | 0x18/0x1C | **0x294/0x298** | world pixel of the unit's anchor (normal zoom). The setter 0x403A80 stores `(px+64, py+32)`. Callers pass the tile box top-left `(64x, 32y)` (e.g. 0x46CC6A..0x46CC92), so an idle unit's anchor is the **tile centre `(64x+64, 32y+32)`**. Moving units are interpolated between tiles (0x5BA9F6) [X] |
+| **`summary.direction_2`** | 0x20 | **0x29C** | **displayed facing**. Copied from `direction` when the frame advances (0x4033C2) [X] |
+| **`summary.current_anim_type`** | 0x24 | **0x2A0** | `AnimationType`: 0 BLANK, 1 DEFAULT, 2 RUN, 3-5 ATTACK1-3, 6 DEATH, 7 FORTIFY, 8 FIDGET, 9 VICTORY, 10 CAPTURE, 11 FORTRESS, 12 BUILD, 13 ROAD, 14 MINE, 15 IRRIGATE, 16 JUNGLE, 17 FOREST, 18 PLANT [H, names X from the table at 0x680758] |
+| `Frame_1` (`FLC_Frame_Image`) | 0x58 | 0x2D4 | the decoded current frame |
+| **`Frame_1.sprite`** | 0x60 | **0x2DC** | **the `Sprite` that is blitted** (see 10.3) |
+| `Animation_Info*` | 0xE4 | 0x360 | per unit type (and era) art; `Animations[type]` (`Flic_Anim_Info*`) at +0x13C, `float *frame_time` at +0x1D8, `int *frame_count` at +0x1E8 [X 0x4058C0..0x4058F0] |
+| **frame index** (`field_FC`) | 0xFC | **0x378** | current frame within the direction block [X 0x402631, 0x403386] |
+| time accumulator / frame time | 0xEC / 0x100 | 0x368 / 0x37C | [X 0x403330] |
+| `field_110` | 0x110 | 0x38C | "stop at last frame" for FORTIFY/DEATH/BUILD [X 0x402821] |
+| `field_111` | 0x111 | 0x38D | "plays a combat animation" [X] |
+| fidget timer (float, s) | 0x130 | 0x3AC | [X, 10.4] |
+| visible flag | 0x184 | 0x400 | the animator skips the draw if 0. Set to 1 by the constructor, cleared when DEATH ends [X 0x4F0BFD, 0x402332, 0x402800] |
+
+**Iterating units** [X]: `Units` object at 0xA52E40: `UnitItem *Units` at +4 (**0xA52E44**), `LastIndex` at +0x10 (**0xA52E50**). `UnitItem = {int field_0; Unit_Body *body}` (8 bytes). **The item points at the `Unit_Body`**. Every lookup does `p = Units[i].body; if (p) unit = p - 0x1C` (e.g. 0x4E401C..0x4E4028, 0x4EF53C..0x4EF544). Valid ids are `0..LastIndex` inclusive, and a NULL item is a free slot. Units on a tile: `Tile` vfunc m40 (+0xA0) gives a key, `TileUnits` (0xA52D94) method 0x426D00 returns the first unit id and an iterator index, and the loop follows the node array at 0xA52D98 (`{next_index, unit_id}`, `LastIndex` at 0xA52DA4; -1 ends it) [X 0x4E3FD3..0x4E42BD; node semantics I]. For an offline renderer it is equivalent to group `Units` by `(X, Y)`, except for the tie order in 10.2.
+
+### 10.2 Which unit a tile shows, and draw order [X][D]
+
+**Draw list.** `Animator::build_unit_list` (0x4EF4D0) clears `Animator.Units_Count` (+0x1008) and fills `Animator.Units[1024]` (+0x8, cap 0x3FF), as follows:
+
+```
+for y in TileY_Min ..= TileY_Max:                     // MSF 0x9FD538 / 0x9FD53C
+  for x in TileX_Max-1 down to TileX_Min:             // 0x9FD534-1 .. 0x9FD530, DESCENDING
+    (wx, wy) = wrap(x, y); skip if off-map or (wx ^ wy) & 1
+    u = find_visible_unit(wx, wy, excluded = NULL)    // 0x4E3F50
+    skip if !u or u.U+0x259
+    if !u.U+0x24F and !u.always_on_top:
+        skip unless tile_visible_now(u, Player_CivID, wx, wy)   // 0x4F0DE0
+    if u.U+0x5D (moving) or u.always_on_top:          // draw the unit under it as well
+        u2 = find_visible_unit(wx, wy, excluded = u)
+        if u2 and u2.Container_Unit == -1 and (debug-see-all or 0x4A83E0(...) or leaders[viewer]+0xEB0[u2.CivID] bit 6):
+            append u2
+    mark u (U+0x24D = 1); if !u.always_on_top: append u
+append every always-on-top unit kept in the vector at Animator+0x1900 (if ID >= 0)
+```
+
+`tile_visible_now` (0x4F0DE0) is true in debug mode (`p_debug_mode_bits` & 8), or when the tile's `Body+0x20|0x24|0x28|0x94` (Tile+0x5C/0x60/0x64/0xD0) has the viewer's bit, or when `leaders[viewer]+0xEB0+4*unit.CivID` has bit 6 (shared vision) [X]. Units on fogged or unexplored tiles are therefore never drawn.
+
+So the order is **row-major, top row first, and right-to-left inside a row** (x decreasing). **[D]:** the 31 unit draws of the trace follow it with no violation, and each is on a different tile.
+
+**`Main_Screen_Form_find_visible_unit(x, y, excluded)`** (0x4E3F50; in the installed exe its first 5 bytes jump to C3X's `patch_Main_Screen_Form_find_visible_unit`, which returns `is->unit_display_override` if set and otherwise calls the original). It walks the tile's units and:
+
+1. skips `excluded`, units inside an army (`Unit_get_containing_army` 0x5BC7A0 != NULL), and units with `U+0x1E8 && 0x5B2BE0(u)`;
+2. **returns at once** a unit with `always_on_top`, `U+0x1DC` (byte) or `U+0x5D` set;
+3. skips units the viewer cannot see (`Unit_is_visible_to_civ(Player_CivID, 1)`, 0x5BB360; this is where invisible units drop out [I]), unless in debug-see-all mode or the unit plays ATTACK1/ATTACK2/DEATH;
+4. **returns at once** a unit whose `current_anim_type` is in 3..6 or 9 (attack, death, victory);
+5. **returns at once** `Main_Screen_Form.Current_Unit` (0x9FD434) if it belongs to the viewer and is not `automated`;
+6. skips loaded units (`Container_Unit != -1`);
+7. otherwise scores `s = Unit_get_defense_strength(u) * (100 + f) * hp / 100`, with `hp = clamp(Unit_get_max_hp(u) - Damage, 0, 9999)`. `f = [0x9C72B0]` (a BIC `General` percentage, the fortification bonus [I]) applies only for a land unit on a land tile with `UnitState == 1` and moves left (`clamp(max_moves - Moves, 0, 9999) > 0`), else 0. It keeps the best per `Unit_Class` with the comparator `0x4A1360(u, s, best, best_s, 0)`:
+   - a King (`UTA_King` 0x1D, via C3X's hooked check 0xCF8161) loses to a non-King when `s > 0`;
+   - the higher `s` wins;
+   - on a tie, the unit with **fewer** carried units (`Unit_count_contained_units`, 0 for armies) wins, then lower `Unit_get_attack_strength` (0x5BE3F0), then lower `UnitType.Bombard_Strength`, then lower max HP;
+   - otherwise the earlier unit in tile order stays.
+8. Result: on a **water** tile (`Tile` vfunc m35 `Is_Water`, +0x8C) the best **sea** unit, else the best air unit, else the best land unit. On a **land** tile the best **land** unit, else sea, else air.
+
+So the map shows **the strongest defender** (HP- and fortification-weighted), not the top of the stack. The exceptions are the selected own unit, animating or attacking units, and always-on-top units.
+
+**Frame composition** (`Animator` tick 0x4EED00) [X]:
+1. When the camera moved: `Map_Renderer` m71 (all terrain passes, section 4) and the fog pass 0x4C4F10, both into the map canvas MSF+0x274 (0x9F8934). Cities are part of terrain pass 3.
+2. `build_unit_list` (0x4EF4D0), then 0x4EFC30.
+3. `0x405FF0` (ecx = `Units_Image_Data` 0x73DA00) advances every listed unit's animation by the elapsed time. Then the non-unit effect animations in the vector at Animator+0x18DC are drawn.
+4. **`Animator::draw_units` (0x4F09B0)**: for each list entry in order, skip off-map units and update the frame image (`0x402620(0, -1)` on U+0x27C). Then pick the camera copy for map wrapping (0x4F0C50: `Animator+0x191C/0x1920` = `camera_x/camera_y` (0x9FD558/55C), +0x1924.. = the same minus one map width or height). If the visible flag `U+0x400` is set, call **`Unit_draw(unit, canvas2 = 0x9FD80C, cam_x, cam_y, 1)` (0x5CBC60)**.
+5. 0x4F0840 (other effect animations), then UI.
+
+Units are therefore drawn **after terrain, cities and fog**, which matches the trace: every `colored 240 240` draw comes after the last fog draw, and the sequence is repeated 173 times while the idle animation runs. `0x9FD80C` is the canvas of `Main_Screen_Form.Units_Control` (MSF+0x4ED8, canvas at +0x274) [X].
+
+**`Unit_draw` (0x5CBC60)** in order [X]:
+1. Return unless `Unit_is_visible_to_civ(Player_CivID, 1)` or debug-see-all.
+2. Colour civ: `c = CivID`. If the unit has `UTA_Hidden_Nationality` (0x11) and the viewer is a real civ other than the owner, `c = 0` (barbarian colours), unless debug bit 8 is set. Colour table: `FLC_Animation::civ_color_table(c)` (0x403040), see 10.5. Armies (`UTA_Army`) use a 3-colour table built at 0x5CBD25 and their own draw routine 0x5CC140 when `U+0x1D0 != -1` [?].
+3. `(x, y) = pixel_loc` (halved when zoomed out) `- (cam_x, cam_y)`. This is the **unit anchor in canvas pixels**.
+4. **Units in cities**: unless `p_preferences` (0xA52638) has `P_SHOW_UNITS_OVER_CITIES` (0x2000), a unit on a city tile is not drawn. Exceptions: it is `Current_Unit`, `always_on_top`, or (`field_111` and anim in 3..6). [D: in this game 11 of the 31 drawn units stand on city tiles, so the preference is on.]
+5. **Team-colour disc**: if `p_preferences & P_SHOW_TEAM_COLOR_DISC` (0x800) and the tile has **no city**, draw the disc sprite (10.6).
+6. If the unit is `Current_Unit` (0x9FD434): the **selection cursor** `Animator::draw_cursor(x, y)` (0x4F04A0, 10.6).
+7. **The unit sprite** (10.3/10.4).
+8. **HUD**: `Unit_draw_hud(canvas2, x - 32, y - 32, stack_flag)` (0x5BA460; -16/-16 zoomed out). `stack_flag` = 1 when called from the animator and the unit is neither moving (`U+0x5D`) nor always-on-top.
+
+### 10.3 Draw position and the drawn Sprite [X][D]
+
+`Sprite_draw_with_color_table(sprite, canvas, canvas2, px, py, flags, color_table)` (0x5F87E0) blits through JGL vfunc +0x8C at **`(px + sprite.+0x20, py + sprite.+0x24)`**. Sprite +0x20/+0x24 (the header's `Width2/Height2`) hold the FLC frame offset, and `flags` = `[0x9C7304]` = 0x0A000020 [X 0x5F8835..0x5F8849]. `color_table` is passed as `table->jgl` (+4). The trace tool labels the four extra columns `canvas, canvas2, table, p6`, but the third (`0xa000020`) is really this flags word (the same holds for the `Territory_Images` draws of section 6.9). The **fourth (`0x1104eb50` etc.) is the colour table, which is the FLC's own `Flic_Anim_Info.Color_Table`** (10.5). It therefore identifies the art: 4 distinct values in `ww2j` for 4 distinct (unit type, animation) pairs: 20 Infantry, 9 Guerilla, 1 Japanese Rifleman, 1 Fighter [D].
+
+The sprite is `&unit->Body.Animation.Frame_1.sprite`, so **`Unit* = sprite_address - 0x2DC`** (`Unit_Body* = sprite - 0x2C0`). The sprite is a per-unit object whose JGL bitmap is overwritten with the current frame, which is why its address stays the same over all 173 redraws. [X: `lea ebx,[esi+0x2D4]` + `0x5F7CF0` (returns +8) at 0x5CBFEE..0x5CC049; D: all 31 addresses are 4 mod 8, as expected for an 8-aligned heap block + 0x2DC.] From the `Unit*` everything else follows: type U+0x40, anim U+0x2A0, facing U+0x29C, frame U+0x378, owner U+0x34. No per-unit-type sprite array exists. Frames are decoded on demand from the `Flic_Anim_Info` into the unit's own `Frame_1`.
+
+Sprite geometry (set by `FLC_Frame_Image::load` 0x5F7A90 from the FLC header) [X]: JGL bitmap = frame size (`@8` width, `@10` height). Sprite `Width/Height` (+0x18/+0x1C) = `@0x68/@0x6A` (the 240x240 canvas), +0x20/+0x24 = `@0x64/@0x66` (`OffsetLeft/OffsetTop`).
+
+Position, normal zoom [X 0x5CBDD6..0x5CC04B][D]:
+
+```
+x = 64*tile_x + 64 - camera_x          // unit anchor = tile centre, canvas coordinates
+y = 32*tile_y + 32 - camera_y
+px = x - (W >> 1)        with W = FLC@0x68 (240)  -> x - 120    (the trace's X)
+py = y - (H >> 1)        with H = FLC@0x6A (240)  -> y - 120    (the trace's Y)
+frame image top-left = (px + OffsetLeft, py + OffsetTop)   // e.g. Infantry: (93, 82), frame 49x47
+```
+
+With `camera = (64, 580)` this reproduces all 31 trace draws, e.g. `(840,-60)` = tile (15,19) and `(776,356)` = tile (14,32). The tile assignment is unambiguous: with the anchor at the tile centre, 11 units land on city tiles and none on water; the shifted alternative gives 0 cities and a unit on water. The frame pixels then match the screenshot **exactly at this position** for all 31 units [D]. Screen = canvas coordinates in this capture (viewport L = T = 0, as for terrain).
+
+Zoomed out [X 0x5CC052..0x5CC0B1]: the anchor is `pixel_loc/2 - camera`, the sprite is drawn with the scaled colour blit 0x5F8870 (scale 2) at `x - W/4, y - H/4`. The HUD offsets become 16 [X]. The resampling is not checked [?].
+
+### 10.4 Unit art, animation, direction, frame [X][D]
+
+**Path** (`BIC` method 0x5987B0, `Art\Units\` 0x72E1A8, `.INI` 0x72E1A0): look up `Text\PediaIcons.txt` key **`#ANIMNAME_<UnitType.Civilopedia_Entry>_<Eras[era].Civilopedia_Entry>`** first (e.g. `#ANIMNAME_PRTO_Settler_ERAS_Industrial_Age` -> `Settler Modern Times`), then **`#ANIMNAME_<Civilopedia_Entry>`** (`#ANIMNAME_PRTO_Infantry` -> `Infantry`). The value `N` gives **`Art\Units\N\N.INI`**, resolved through `BIC_get_asset_path` (scenario folder first, section 11). Kings and flag units (`UTA_King` 0x1D, `UTA_Flag_unit` 0xD) take a race-specific name from 0x72D9A8.. (C3X hook 0xCF81DA) [X; which era index is passed: ?]. [D: the Guerilla art came from `civ3PTW/Art/Units/Guerilla/`, the Japanese Rifleman from the scenario folder.]
+
+**INI** (`Animation_Info::load` around 0x404B98..0x4057DB) [X]:
+- `[Speed]`: `Normal Speed` (default 100) to +0x12C, `Fast Speed` (default 150) to +0x130. These are movement speed, not frame timing [I].
+- `[Version]`/`[Palette]`: optional.
+- `[Animations]`: `ShowLaunch` (default 1), `ShowDrop` (default 1), `ShowAttackAnimOnce` (default 0). Then one key per `AnimationType` name from the table at 0x680758: `BLANK DEFAULT RUN ATTACK1 ATTACK2 ATTACK3 DEATH FORTIFY FIDGET VICTORY CAPTURE FORTRESS BUILD ROAD MINE IRRIGATE JUNGLE FOREST PLANT`, each value an FLC file name relative to the INI. Keys the engine never reads, although the shipped INIs contain them: `WALK DEFEND DEAD FORTIFYHOLD TURNLEFT TURNRIGHT STOP_AT_LAST_FRAME`.
+- `[Timing]`: a float per name (default 0.5) is read (0x4053C4) **but not used for frame timing**.
+- **Frame time** = `FLC@0x6C (animation time, ms) / FLC@0x62 (frames per direction) * 0.001` s (0x4053F7..0x405442). For Infantry: 1875/15 = 0.125 s.
+- A missing animation falls back to DEFAULT (`0x4026A0`: `Animations[type] == NULL` gives type 1).
+
+**FLC layout** [D]: header `@0x60` directions (8), `@0x62` frames per direction `n`. The file holds `8*(n+1)` frame chunks: each direction block has `n` frames plus one ring frame. **Block `b`, frame `k` = chunk `b*(n+1) + k`** (verified by the exact matches). The decoder is the one in `crates/civ3-assets/src/flc.rs`.
+
+**Direction to block** (table 0x73DD7C, filled at runtime by 0x406D60) [X]: `enum direction` -> FLC block: `DIR_ZERO 0 -> 0`, `NE 1 -> 4`, `E 2 -> 3`, `SE 3 -> 2`, `S 4 -> 1`, `SW 5 -> 0`, `W 6 -> 7`, `NW 7 -> 6`, `N 8 -> 5`. **The blocks in file order are therefore SW, S, SE, E, NE, N, NW, W** (C7 agrees). `0x402620` loads `Animations[current_anim_type]` and seeks to `(block[direction_2], frame U+0x378)`.
+
+**Default facing** [X][D]: the `FLC_Animation` constructor (0x4036D0 -> `AnimationSummary` ctor 0x403C30) sets `direction = direction_2 = 3` (**SE**, block 2) and `current_anim_type = 1` (DEFAULT). All 31 units in `ww2j` show block 2 (SE).
+
+**Idle animation and frame** [X][D]:
+- An idle unit loops DEFAULT. The frame index advances by elapsed real time (QueryPerformanceCounter delta in seconds, 0x4EED00) in steps of the frame time (0x403330).
+- FORTIFY, DEATH and BUILD with `field_110` stop on their last frame (`frame = count-1`, 0x402841..0x402866). FORTIFY is the fortify animation, which then holds [I].
+- **Fidget**: each `FLC_Animation` has a timer (anim+0x130) initialised to `90 + 0.1*(rand() % 1000)` s (90.0..189.9 s, 0x402355..0x402369; constants 0.1 at 0x665440 and 90.0 at 0x66543C) and decreased by the tick's dt (0x402F8D). When an idle unit (DEFAULT, back to idle) finds the timer negative, it re-arms it the same way and plays **FIDGET** once (0x40270C..0x40275D), then returns to DEFAULT.
+- For a static reimplementation: read `current_anim_type` (U+0x2A0), facing (U+0x29C) and frame (U+0x378) from memory. Without memory, use DEFAULT, block 2, frame 0. [D: in `ww2j` every 15-frame DEFAULT unit (Infantry, Guerilla, Japanese Rifleman) was on **frame 4**, all in sync. The Fighter's DEFAULT has 1 frame per direction and showed frame 0.]
+
+### 10.5 Colours and shadows [X][D]
+
+**Civ colour** (`FLC_Animation::civ_color_table(civ)`, 0x403040) [X]: take `Units_Image_Data.Color_Tables[leaders[civ].Color_Table_ID]` (array at **0x73DA04**, 32 tables loaded from `Art\Units\Palettes\ntpNN.pcx`, NN two-digit, 0x406570). Read entries **0..63** of that table and write them into entries **0..63** of the current animation's own FLC table (`Flic_Anim_Info+0x78`), using JGL get/set `(buf, 0, 0x40)`. That FLC table is passed to the blit. So **palette indices 0-63 come from `ntpNN`, and 64-254 keep the FLC's own palette** (ntp entries 64-69 are UI colours, e.g. 66 for the team disc). [D: over all 31 units every opaque pixel (index < 224) matched exactly: ntp03 for Chinese units (civ 1, `Color_Table_ID` 3), ntp01 for the Japanese one (civ 5, id 1).]
+
+**Transparency and shadows** [D]: index 255 is transparent. Shadow indices darken what is already on the canvas, per RGB555 channel:
+
+```
+c' = floor(c * (idx - 239) / 16)        // idx 248 -> 9/16, 249 -> 10/16, ..., 254 -> 15/16
+```
+
+Measured on all 31 units against the offline terrain render (`civ3-tool render`): 248 1323/1323, 249 3366/3366, 250 3088/3108, 251 1686/1695, 252 2210/2301, 253 2523/2802, 254 4386/4731 channel samples exact. The best k was `idx - 239` for every unit and index. The misses at the outer indices 252-254 are where the shadow falls on the team disc, which the offline render lacks [I]. This is the same `floor(c*k/16)` rule as section 6.7a, with k = idx - 239. Indices 224-247 did not occur in these frames, so extending the rule to 240-247 is [I] and the meaning of 224-239 is [?]. The JGL `flags` word 0x0A000020 is not decoded [?].
+
+### 10.6 Selection cursor, team disc, health bar, LED, stack lines, fortify frame [X][D]
+
+All positions below are canvas pixels relative to the anchor `(x, y)` of 10.3 (normal zoom). `X = x - 32` and `Y = y - 32` are the HUD origin.
+
+- **Selection cursor** (`Animator::draw_cursor` 0x4F04A0, only for `Current_Unit`, drawn *before* the unit sprite). Skipped while `Animator+0x1914 & 1` (the blink phase [I]). It draws the frame of `Animator.Unit_Cursor_Animation` (Animator+0x193C, art `Art\Animations\Cursor\Cursor.INI` -> `Cursor.flc`, block for direction 5, running frame) with `Sprite_draw_with_color_table` at `(x - W/2, y - H/2)`, coloured with the viewer's civ table [X]. It is not present in `ww2j` (no unit selected).
+- **Team-colour disc** (only with `P_SHOW_TEAM_COLOR_DISC`, not on city tiles; drawn before the cursor and the unit): sprite 0xB3F2BC = `Art\Cursor.pcx` cell (259, 155, 128x64), a 1-px green (index 247) ellipse ring. Zoomed out it is sprite 0xB3F290, cell (259, 90, 128x64) (0x54B048..0x54B088). It is drawn with 0x5F83E0 at `(x - 64, y - 32)` (the tile box; zoomed out `x - W/4, y - H/4`) in a single colour = **`ntpNN` palette entry 66** of the owner's `Color_Table_ID` (`Leader` 0x55A350 -> 0x539E20 reads entry 0x42 and converts it to 555/565). [D: ring pixels at (896, 476) - (64, 32) are (231,231,0) = ntp03[66] (230,230,0) in RGB555; no ring on city tiles.]
+- **Health bar** (`Unit_draw_hud` 0x5BA460). Skipped entirely for units inside an army. Drawn only if attack > 0 or defence > 0. With `max = Unit_get_max_hp` = `max(1, CombatExperience[exp].Base_Hit_Points + UnitType.Hit_Point_Bonus)` (0x5BE2C0) and `hp = clamp(max - Damage, 0, 9999)`:
+  ```
+  pitch = (5*max - 1 > 40) ? max(2, 41 / max) : 5
+  barH  = min(pitch*max - 1, 40)
+  rect  = [X+6, X+8) x [Y+24-barH, Y+24)        // 2 px wide, bottom row y-9; X -= 4 for PRTO_Mech_Infantry unless 0x539310(2)
+  fill rect black; colour = green (0,255,0) if 3*Damage < max or Damage == 0,
+                            yellow (255,255,0) if 3*Damage < 2*max, else red (255,0,0); red if hp <= 1
+  for i in 0 .. min(hp, 20): fill [X+6, X+8) x [bottom - pitch + 1, bottom) with colour; bottom -= pitch
+  ```
+  So each HP is a `pitch-1` px segment with a 1 px black gap, filled from the bottom. [D: unit at anchor (896, 476), Infantry with 3 HP: black/green column at x = 870-871, rows 454-467, green 454-457, 459-462, 464-467, black 458 and 463.]
+- **Fortified frame**: for a land unit on land with `UnitState == 1`, fortification bonus `0x467D60(u) > 0` and `[0x9C72B0] > 0` (armies use 0x42B630), the outline 0x6008D0 is drawn in white at `(left-1, top-1, right, bottom)` around the bar [X; not in the data].
+- **Movement LED** (0x5BA380, own units only, i.e. `CivID == Player_CivID`). The 6x6 sprites are cut from `Art\interface\MovementLED.pcx` at (1,1) green, (15,1) yellow and (29,1) red (0x54B986..0x54B9C1); magenta is transparent. Selection: remaining move points `max_moves - Moves <= 0` (and not `U+0x5D`) -> red; remaining != max -> yellow; full -> green. Position: `((left + right - 6)/2, top - 6)` = `(X+4, Y+18-barH)`, drawn with `Sprite_draw` 0x5F8210 [X]. [D: (868, 448) holds the red LED exactly.]
+- **Stack lines** (when `stack_flag`): `n = 1 +` the number of other units on the tile for which `0x4E3E50(u')` is false, clamped to 8. If `n > 1`, draw `n` white lines from `(X+5, Y+26+2i)` to `(X+8, Y+26+2i)` (0x5FFFB0), i.e. below the bar [X]. [D: the unit at anchor (640, 92) in a 4-unit city shows white 4-px lines at x = 613-616, y = 86, 88, 90, 92.]
+- City labels and the other UI are drawn later by the form, outside this pipeline.
+
+### 10.7 Open points
+
+- Armies (`U+0x1D0 != -1` path 0x5CC140, the 3-colour table at 0x5CBD25), the meaning of `U+0x1DC`, `U+0x1E8`/0x5B2BE0, `U+0x24F`, `U+0x259`, and the exact semantics of `Unit_is_visible_to_civ` for invisible/submarine units.
+- The JGL blit flags `0x0A000020`, shadow indices 224-247, and zoomed-out resampling.
+- Which era index selects the `_ERAS_` art variant (probably the owner's era).
+- Wrapping: the alternate camera copies at Animator+0x1924..0x1938 are set only when the view straddles the map edge (0x4EEF49..0x4EF067); not exercised by `ww2j` (no wrap).
 
 ---
 

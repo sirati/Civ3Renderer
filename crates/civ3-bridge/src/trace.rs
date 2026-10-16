@@ -208,6 +208,47 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             let _ = writeln!(out, "wall_building {} {} {:#x}", b.id, b.government, b.obsolete_for);
         }
     }
+    if let Ok(keys) = game.unit_type_keys() {
+        for (i, k) in keys.iter().enumerate() {
+            let _ = writeln!(out, "unit_type_key {i} {k}");
+        }
+    }
+    if let Ok(stats) = game.unit_type_stats() {
+        for (i, s) in stats.iter().enumerate() {
+            let _ = writeln!(out, "unit_type_stats {i} {} {} {} {}", s[0], s[1], s[2], s[3]);
+        }
+    }
+    if let Ok(hp) = game.experience_hit_points() {
+        let list: Vec<String> = hp.iter().map(|h| h.to_string()).collect();
+        let _ = writeln!(out, "experience_hit_points {}", list.join(" "));
+    }
+    if let Ok(tiles) = game.unit_tiles() {
+        for (x, y, c) in tiles {
+            let _ = writeln!(out, "unit_tile {x} {y} {c}");
+        }
+    }
+    if let Ok(p) = game.preferences() {
+        let _ = writeln!(out, "preferences {p:#x}");
+    }
+    if let Ok(keys) = game.era_keys() {
+        for (i, k) in keys.iter().enumerate() {
+            let _ = writeln!(out, "era_key {i} {k}");
+        }
+    }
+    match game.drawn_units() {
+        Ok(units) => {
+            let _ = writeln!(out, "# unit id x y civ type damage moves container state on_top px py direction animation frame visible experience");
+            for u in units {
+                let _ = writeln!(
+                    out,
+                    "unit {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                    u.id, u.x, u.y, u.civ, u.unit_type, u.damage, u.moves, u.container, u.state, u.always_on_top as u8,
+                    u.pixel.0, u.pixel.1, u.direction, u.animation, u.frame, u.visible as u8, u.experience
+                );
+            }
+        }
+        Err(e) => log::warn!("reading units: {e}"),
+    }
     match game.cities() {
         Ok(cities) => {
             for c in cities {
@@ -248,6 +289,16 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         t.victory_location()
                     );
                 }
+            }
+        }
+    }
+    // The game's font objects (get_font): any member that is a GDI font.
+    for i in 0..40u32 {
+        let base = 0xB3_DF00 + i * 0x2C;
+        for k in 0..11u32 {
+            let Ok(v) = inproc::Ptr32::<u32>::new(base + 4 * k).read() else { continue };
+            if let Some(f) = inproc::gdi::font(v) {
+                let _ = writeln!(out, "font_object {base:#x} +{:#x} {f:?}", 4 * k);
             }
         }
     }

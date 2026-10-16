@@ -42,6 +42,33 @@ pub struct CityInfo {
     pub improvements: [u8; 32],
 }
 
+/// A unit as the animator draws it (docs §10).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct DrawnUnit {
+    pub id: i32,
+    /// Tile.
+    pub x: i32,
+    pub y: i32,
+    pub civ: i32,
+    pub unit_type: i32,
+    pub experience: i32,
+    pub damage: i32,
+    /// Move points used.
+    pub moves: i32,
+    pub container: i32,
+    pub state: i32,
+    pub always_on_top: bool,
+    /// World pixel of the unit's anchor (the tile centre when idle).
+    pub pixel: (i32, i32),
+    /// Displayed facing (`enum direction`, 1 NE .. 8 N).
+    pub direction: i32,
+    /// `AnimationType` (1 DEFAULT ...).
+    pub animation: i32,
+    /// Frame within the direction's block.
+    pub frame: i32,
+    pub visible: bool,
+}
+
 /// An improvement that makes a town look walled (`Combat_Bombard > 0`,
 /// docs §8): its id, the government it needs (-1: any), and which players
 /// know the tech that obsoletes it (bit per player).
@@ -341,6 +368,112 @@ impl Civ3 {
             out.push(WallBuilding { id: id as i32, government: field(L::IMPROVEMENT_GOVERNMENTID)?, obsolete_for });
         }
         Ok(out)
+    }
+
+    /// The units the animator draws this frame, in drawing order.
+    pub fn drawn_units(&self) -> Result<Vec<DrawnUnit>, Civ3Error> {
+        let animator = Ptr32::<u8>::new(self.addrs.main_screen_form + L::MAIN_SCREEN_FORM_ANIMATOR);
+        let count: i32 = animator.offset::<i32>(L::ANIMATOR_UNITS_COUNT)?.read()?;
+        let mut out = Vec::new();
+        for i in 0..count.clamp(0, 1024) as u32 {
+            let unit: Ptr32<u8> = animator.offset::<Ptr32<u8>>(L::ANIMATOR_UNITS + 4 * i)?.read()?;
+            if unit.is_null() {
+                continue;
+            }
+            let body = unit.offset::<u8>(L::UNIT_BODY)?;
+            let anim = body.offset::<u8>(L::UNIT_BODY_ANIMATION)?;
+            let i32_at = |p: Ptr32<u8>, at: u32| -> Result<i32, Civ3Error> { Ok(p.offset::<i32>(at)?.read()?) };
+            out.push(DrawnUnit {
+                id: i32_at(body, L::UNIT_BODY_ID)?,
+                x: i32_at(body, L::UNIT_BODY_X)?,
+                y: i32_at(body, L::UNIT_BODY_Y)?,
+                civ: i32_at(body, L::UNIT_BODY_CIVID)?,
+                unit_type: i32_at(body, L::UNIT_BODY_UNITTYPEID)?,
+                experience: i32_at(body, L::UNIT_BODY_COMBAT_EXPERIENCE)?,
+                damage: i32_at(body, L::UNIT_BODY_DAMAGE)?,
+                moves: i32_at(body, L::UNIT_BODY_MOVES)?,
+                container: i32_at(body, L::UNIT_BODY_CONTAINER_UNIT)?,
+                state: i32_at(body, L::UNIT_BODY_UNITSTATE)?,
+                always_on_top: body.offset::<u8>(L::UNIT_BODY_ALWAYS_ON_TOP)?.read()? != 0,
+                pixel: (i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X)?, i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y)?),
+                direction: i32_at(anim, L::FLC_ANIMATION_SUMMARY_DIRECTION_2)?,
+                animation: i32_at(anim, L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE)?,
+                frame: i32_at(anim, L::FLC_ANIMATION_FIELD_FC)?,
+                // The header's `Last` member of `FLC_Animation`.
+                visible: i32_at(anim, L::FLC_ANIMATION_LAST)? & 0xFF != 0,
+            });
+        }
+        Ok(out)
+    }
+
+    fn strings(&self, list: u32, count: u32, stride: u32, member: u32, len: usize) -> Result<Vec<String>, Civ3Error> {
+        let base: Ptr32<u8> = self.bic(list)?;
+        let n: i32 = self.bic(count)?;
+        (0..n.clamp(0, 4096) as u32)
+            .map(|i| {
+                let bytes = base.offset::<u8>(i * stride + member)?.read_array(len)?;
+                let end = bytes.iter().position(|&b| b == 0).unwrap_or(len);
+                Ok(String::from_utf8_lossy(&bytes[..end]).into_owned())
+            })
+            .collect()
+    }
+
+    /// Every unit type's numbers the map shows: attack, defence, movement
+    /// (whole tiles), hit point bonus.
+    pub fn unit_type_stats(&self) -> Result<Vec<[i32; 4]>, Civ3Error> {
+        let base: Ptr32<u8> = self.bic(L::BIC_UNITTYPES)?;
+        let n: i32 = self.bic(L::BIC_UNITTYPECOUNT)?;
+        (0..n.clamp(0, 4096) as u32)
+            .map(|i| {
+                let f = |at| -> Result<i32, Civ3Error> { Ok(base.offset::<i32>(i * L::UNITTYPE_SIZE + at)?.read()?) };
+                Ok([f(L::UNITTYPE_ATTACK)?, f(L::UNITTYPE_DEFENCE)?, f(L::UNITTYPE_MOVEMENT)?, f(L::UNITTYPE_HIT_POINT_BONUS)?])
+            })
+            .collect()
+    }
+
+    /// Base hit points of each experience level.
+    pub fn experience_hit_points(&self) -> Result<Vec<i32>, Civ3Error> {
+        let base: Ptr32<u8> = self.bic(L::BIC_COMBATEXPERIENCE)?;
+        let n: i32 = self.bic(L::BIC_COMBATEXPERIENCECOUNT)?;
+        (0..n.clamp(0, 64) as u32)
+            .map(|i| Ok(base.offset::<i32>(i * L::COMBAT_EXPERIENCE_SIZE + L::COMBAT_EXPERIENCE_BASE_HIT_POINTS)?.read()?))
+            .collect()
+    }
+
+    /// Tile and container of every unit (for counting stacks).
+    pub fn unit_tiles(&self) -> Result<Vec<(i32, i32, i32)>, Civ3Error> {
+        let list = Ptr32::<u8>::new(self.addrs.units);
+        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        let mut out = Vec::new();
+        if items.is_null() {
+            return Ok(out);
+        }
+        // `Units` has the same shape as `Cities`; items point at the body.
+        for i in 0..=last.clamp(-1, 0xFFFF) as u32 {
+            let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
+            if body.is_null() {
+                continue;
+            }
+            let f = |at| -> Result<i32, Civ3Error> { Ok(body.offset::<i32>(at)?.read()?) };
+            out.push((f(L::UNIT_BODY_X)?, f(L::UNIT_BODY_Y)?, f(L::UNIT_BODY_CONTAINER_UNIT)?));
+        }
+        Ok(out)
+    }
+
+    /// The `P_*` preference flags.
+    pub fn preferences(&self) -> Result<u32, Civ3Error> {
+        Ok(Ptr32::<u32>::new(self.addrs.preferences).read()?)
+    }
+
+    /// Every unit type's Civilopedia key (`PRTO_...`), by type id.
+    pub fn unit_type_keys(&self) -> Result<Vec<String>, Civ3Error> {
+        self.strings(L::BIC_UNITTYPES, L::BIC_UNITTYPECOUNT, L::UNITTYPE_SIZE, L::UNITTYPE_CIVILIPEDIA_ENTRY, 32)
+    }
+
+    /// Every era's Civilopedia key (`ERAS_...`).
+    pub fn era_keys(&self) -> Result<Vec<String>, Civ3Error> {
+        self.strings(L::BIC_ERAS, L::BIC_ERASCOUNT, L::ERA_TYPE_SIZE, L::ERA_TYPE_CIV_ENTRY, 32)
     }
 
     /// All cities.

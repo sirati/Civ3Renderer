@@ -21,6 +21,7 @@ use std::process::ExitCode;
 use civ3_assets::GameFiles;
 use ifc23::assets;
 use ifc23::scene_map::Mapper;
+use ifc23::units;
 use ifc23::world::Trace;
 use render_desc::Compiled;
 use tile_render::reference;
@@ -44,22 +45,47 @@ fn viewport(args: &[String]) -> Result<(u32, u32), String> {
     Ok((w.parse().map_err(|_| "bad width")?, h.parse().map_err(|_| "bad height")?))
 }
 
-fn compile(trace: Option<&Trace>) -> Result<Compiled, String> {
+/// The description compiled against the game's art (the trace's scenario
+/// folders first), with the unit art the trace's world needs.
+fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<units::UnitArt>), String> {
     let install = std::env::var("CIV3_INSTALL")
         .unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
     let desc_path = std::env::var("CIV3_DESC")
         .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/civ3/civ3.toml").into());
-    let text = std::fs::read_to_string(&desc_path).map_err(|e| format!("{desc_path}: {e}"))?;
-    let files = match trace {
+    let mut text = std::fs::read_to_string(&desc_path).map_err(|e| format!("{desc_path}: {e}"))?;
+    let files = || match trace {
         Some(t) => assets::game_files(install.as_ref(), t.scenario_folder.as_deref(), &t.search_roots),
         None => GameFiles::complete(&install),
     };
-    assets::compile(&text, files).map_err(|e| e.to_string())
+    let mut art = None;
+    if let Some(t) = trace {
+        let mut a = units::UnitArt::new(files());
+        text.push_str(&units::Needed::of(&t.world, &mut a).description());
+        art = Some(a);
+    }
+    Ok((assets::compile(&text, files()).map_err(|e| e.to_string())?, art))
+}
+
+/// The scene of a trace, units included.
+fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut units::UnitArt>, viewport: (u32, u32)) -> scene::Scene {
+    let mut scene = Mapper::new(compiled).scene(&trace.world, &trace.view, viewport, 0);
+    if let Some(art) = art {
+        scene.sprites = units::sprites(&trace.world, art, compiled);
+    }
+    scene
 }
 
 fn load_trace(path: &str) -> Result<Trace, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    Trace::parse(&text).map_err(|e| e.to_string())
+    let mut trace = Trace::parse(&text).map_err(|e| e.to_string())?;
+    // CIV3_UNIT_FRAME_SHIFT=n: units n animation frames later (screenshots
+    // are taken a moment after the trace while units keep animating).
+    if let Some(n) = std::env::var("CIV3_UNIT_FRAME_SHIFT").ok().and_then(|v| v.parse::<i32>().ok()) {
+        for u in &mut trace.world.units {
+            u.frame += n;
+        }
+    }
+    Ok(trace)
 }
 
 fn run(args: &[String]) -> Result<ExitCode, String> {
@@ -71,8 +97,8 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         Some("render") => {
             let trace = load_trace(args.get(1).ok_or("render TRACE OUT.png")?)?;
             let out = args.get(2).ok_or("render TRACE OUT.png")?;
-            let compiled = compile(Some(&trace))?;
-            let scene = Mapper::new(&compiled).scene(&trace.world, &trace.view, viewport(args)?, 0);
+            let (compiled, mut art) = compile(Some(&trace))?;
+            let scene = trace_scene(&trace, &compiled, art.as_mut(), viewport(args)?);
             let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
             let config = tile_viewer::ViewerConfig { overhang: (0, 64, 0, 64), ..Default::default() };
             let img = tile_viewer::render_offscreen(&gpu, &compiled, &scene, &config);
@@ -112,7 +138,7 @@ struct Named {
 }
 
 fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
-    let compiled = compile(Some(trace))?;
+    let (compiled, _) = compile(Some(trace))?;
     let scene = Mapper::new(&compiled).scene(&trace.world, &trace.view, viewport, 0);
     let world = tile_viewer::scene_world(&compiled, &scene);
     let camera = tile_viewer::scene_camera(&scene, (0, 128, 0, 128));
@@ -199,8 +225,8 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
 
 fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Result<ExitCode, String> {
     let viewport = (game.width(), game.height());
-    let compiled = compile(Some(trace))?;
-    let scene = Mapper::new(&compiled).scene(&trace.world, &trace.view, viewport, 0);
+    let (compiled, mut art) = compile(Some(trace))?;
+    let scene = trace_scene(trace, &compiled, art.as_mut(), viewport);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     let config = tile_viewer::ViewerConfig { overhang: (0, 128, 0, 128), ..Default::default() };
     let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, &config);

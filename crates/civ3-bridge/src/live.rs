@@ -9,9 +9,9 @@ use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
 use scene::Link;
 
-use crate::assets;
+use crate::{assets, units};
 use crate::scene_map::Mapper;
-use crate::world::{Civ3City, Civ3Tile, Civ3View, Civ3World, WallBuilding};
+use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, WallBuilding};
 
 /// The viewer window's title (also how we tell it from the game's window).
 const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
@@ -63,6 +63,34 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         max_city: players.max_city,
         cities,
         governments: players.governments,
+        units: game
+            .drawn_units()?
+            .into_iter()
+            .map(|u| Civ3Unit {
+                id: u.id,
+                x: u.x,
+                y: u.y,
+                civ: u.civ,
+                unit_type: u.unit_type,
+                experience: u.experience,
+                damage: u.damage,
+                moves: u.moves,
+                container: u.container,
+                state: u.state,
+                always_on_top: u.always_on_top,
+                pixel: u.pixel,
+                direction: u.direction,
+                animation: u.animation,
+                frame: u.frame,
+                visible: u.visible,
+            })
+            .collect(),
+        unit_type_keys: game.unit_type_keys()?,
+        era_keys: game.era_keys()?,
+        unit_type_stats: game.unit_type_stats()?,
+        experience_hit_points: game.experience_hit_points()?,
+        unit_tiles: game.unit_tiles()?,
+        preferences: game.preferences()?,
         wall_buildings: players
             .wall_buildings
             .iter()
@@ -129,9 +157,13 @@ struct Compiler {
 }
 
 impl Compiler {
-    fn compile(&self, folders: &ArtFolders) -> Result<Arc<Compiled>, LiveError> {
-        let files = assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search);
-        let compiled = assets::compile(&self.text, files).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
+    fn files(&self, folders: &ArtFolders) -> civ3_assets::GameFiles {
+        assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search)
+    }
+
+    fn compile(&self, folders: &ArtFolders, units: &units::Needed) -> Result<Arc<Compiled>, LiveError> {
+        let text = format!("{}{}", self.text, units.description());
+        let compiled = assets::compile(&text, self.files(folders)).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
         log::info!("live renderer: {} layers, {} sprites ({folders:?})", compiled.layers.len(), compiled.sprite_names.len());
         Ok(Arc::new(compiled))
     }
@@ -142,7 +174,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let (name, text) = description()?;
     let compiler = Compiler { install: install_root()?, name, text };
     let folders = ArtFolders::of(&game);
-    let assets = tile_viewer::Assets::new(compiler.compile(&folders)?);
+    let assets = tile_viewer::Assets::new(compiler.compile(&folders, &units::Needed::default())?);
     let link = Link::new();
     {
         let (assets, link) = (assets.clone(), link.clone());
@@ -176,21 +208,18 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
     let mut last: Option<(Civ3World, Civ3View)> = None;
     let mut seq = 0;
     let mut input = InputForwarder::default();
+    let mut art = units::UnitArt::new(compiler.files(&folders));
+    let mut have = units::Needed::default();
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
         let now = ArtFolders::of(&game);
+        let mut recompile = false;
         if now != folders {
-            match compiler.compile(&now) {
-                Ok(c) => {
-                    assets.replace(c.clone());
-                    compiled = c;
-                    mapper = Mapper::new(&compiled);
-                    last = None;
-                }
-                Err(e) => log::error!("recompiling for {now:?}: {e}"),
-            }
             folders = now;
+            art = units::UnitArt::new(compiler.files(&folders));
+            have = units::Needed::default();
+            recompile = true;
         }
         forward_input(&mut input, link.take_input());
         let state = match snapshot(&game) {
@@ -202,12 +231,26 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
                 continue;
             }
         };
-        if last.as_ref() == Some(&state) {
+        if last.as_ref() == Some(&state) && !recompile {
             continue;
         }
         let (world, view) = &state;
+        // Unit art the description does not have yet.
+        let needed = units::Needed::of(world, &mut art);
+        if recompile || !have.covers(&needed) {
+            have.merge(&needed);
+            match compiler.compile(&folders, &have) {
+                Ok(c) => {
+                    assets.replace(c.clone());
+                    compiled = c;
+                    mapper = Mapper::new(&compiled);
+                }
+                Err(e) => log::error!("recompiling for {folders:?}: {e}"),
+            }
+        }
         seq += 1;
         let mut scene = mapper.scene(world, view, (1024, 768), 0);
+        scene.sprites = units::sprites(world, &mut art, &compiled);
         scene.seq = seq;
         link.publish(scene);
         last = Some(state);
