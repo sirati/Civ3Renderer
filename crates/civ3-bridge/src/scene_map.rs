@@ -76,7 +76,8 @@ impl<'a> Mapper<'a> {
                 self.put(&mut scene, "flood_plain", col, row, river.flood_plain);
                 let layer = if river.under_objects { "rivers_under" } else { "rivers_over" };
                 self.put(&mut scene, layer, col, row, river.river);
-                self.put(&mut scene, "fog", col, row, rules::fog(world, x, y - 1).filter(|_| !off_map));
+                // (The fog of war is drawn there, measured.)
+                self.put(&mut scene, "fog", col, row, rules::fog(world, x, y - 1));
                 // Tile layers.
                 if tile.is_none() {
                     continue;
