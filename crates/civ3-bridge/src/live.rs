@@ -470,6 +470,8 @@ struct InputForwarder {
     window: Option<inproc::window::Window>,
     held: inproc::window::Buttons,
     clicks: inproc::window::DoubleClicks,
+    /// A world pixel the viewer asked to see (`Input::Look`), not yet acted on.
+    look: Option<(i32, i32)>,
     /// The viewer's size, as it last reported.
     viewport: (u32, u32),
 }
@@ -536,6 +538,7 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
             }
             Input::Resized { width, height } => forwarder.viewport = (width, height),
             Input::Quit => {}
+            Input::Look { x, y } => forwarder.look = Some((x, y)),
         }
     }
 }
