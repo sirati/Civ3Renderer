@@ -224,13 +224,15 @@ pub struct PlacedSprite {
     /// Drawn only in this view (`None`: in every view; see
     /// `TileRenderer::render_views`).
     pub view: Option<u32>,
+    /// With a `view`: drawn in every view showing the world but that one.
+    pub except_view: bool,
     /// Art for a zoom (screen sprites of a view; see [`ZoomArt`]).
     pub zoom_art: ZoomArt,
 }
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, zoom_art: ZoomArt::Any }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any }
     }
 
     pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
@@ -240,6 +242,7 @@ impl PlacedSprite {
             ticks_per_frame: self.ticks_per_frame.max(1),
             flags: if self.screen { tile_render_shared::FREE_SCREEN } else { 0 }
                 | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 }
+                | if self.except_view && self.view.is_some() { tile_render_shared::FREE_EXCEPT_VIEW } else { 0 }
                 | match self.zoom_art {
                     ZoomArt::Any => 0,
                     ZoomArt::Low => tile_render_shared::FREE_LOW,

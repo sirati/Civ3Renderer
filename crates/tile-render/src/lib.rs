@@ -19,3 +19,4 @@ pub use camera::Camera;
 pub use gpu::Headless;
 pub use renderer::{ScreenCopy, TileRenderer};
 pub use world::{Blend, ColorModel, Grid, LayerId, LayerSpec, Layout, Pass, PlacedSprite, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
+pub use tile_render_shared::wrap_distance;

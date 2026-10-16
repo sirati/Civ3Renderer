@@ -190,6 +190,39 @@ impl<F: std::ops::Deref<Target = GameFiles>> Env for FileEnv<F> {
     }
 }
 
+/// `E`, but text measured by the system's own text routine where there is
+/// one (`civ3_assets::fonts::measure`): in the game's process the widths the
+/// game measures, whatever system it runs on.
+pub struct SystemTextEnv<E> {
+    pub inner: E,
+    widths: HashMap<(FontStyle, String), i32>,
+}
+
+impl<E> SystemTextEnv<E> {
+    pub fn new(inner: E) -> Self {
+        Self { inner, widths: HashMap::new() }
+    }
+}
+
+impl<E: Env> Env for SystemTextEnv<E> {
+    fn text_width(&mut self, font: &FontStyle, text: &str) -> i32 {
+        if let Some(&w) = self.widths.get(&(font.clone(), text.to_owned())) {
+            return w;
+        }
+        let w = civ3_assets::fonts::measure(font, text).unwrap_or_else(|| self.inner.text_width(font, text));
+        self.widths.insert((font.clone(), text.to_owned()), w);
+        w
+    }
+
+    fn table_color(&mut self, table: i32) -> [u8; 3] {
+        self.inner.table_color(table)
+    }
+
+    fn sprite_width(&mut self, path: &str, cell: [i32; 4]) -> i32 {
+        self.inner.sprite_width(path, cell)
+    }
+}
+
 /// What the game keeps of the cell `cell` (x, y, w, h) of `image`: the rows
 /// and columns that are not entirely colour 255 (§16.3, `0x62B170`), as
 /// (x, y, w, h) of the image; `None` if nothing is left.
