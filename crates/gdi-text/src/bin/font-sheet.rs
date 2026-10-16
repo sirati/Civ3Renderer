@@ -2,7 +2,8 @@
 //!
 //!   font-sheet FONT.TTF "Face Name" HEIGHT WEIGHT OUT.png [FIRST LAST [QUALITY]]
 //!
-//! Writes OUT.png (white glyphs on transparent, one cell per character
+//! Writes OUT.png (red: opacity of black text over white, green: of white
+//! text over black (see `gdi_text::Glyph`); one cell per character
 //! FIRST..=LAST, 16 per row, cell = widest glyph × line height) and
 //! OUT.toml with each glyph's left bearing and advance.
 
@@ -35,15 +36,14 @@ fn main() -> ExitCode {
     let ch = glyphs.iter().map(|g| g.height).max().unwrap_or(1).max(1);
     let rows = glyphs.len().div_ceil(16) as u32;
     let mut img = image::RgbaImage::new(cw * 16, ch * rows);
-    let mut toml = format!("# {} {}px weight {}: cell {cw}x{ch}, 16 per row, from {first}\ncell = [{cw}, {ch}]\nfirst = {first}\nascent = {}\nunderline = [{}, {}]\n[glyphs]\n", font.face, font.height, font.weight, rendered.ascent, rendered.underline.0, rendered.underline.1);
+    let mut toml = format!("# {} {}px weight {}: cell {cw}x{ch}, 16 per row, from {first}\ncell = [{cw}, {ch}]\nfirst = {first}\nascent = {}\nunderline = [{}, {}]\ncoverage = \"dark-light\"\n[glyphs]\n", font.face, font.height, font.weight, rendered.ascent, rendered.underline.0, rendered.underline.1);
     for (i, g) in glyphs.iter().enumerate() {
         let (ox, oy) = ((i as u32 % 16) * cw, (i as u32 / 16) * ch);
         for y in 0..g.height {
             for x in 0..g.width {
-                let a = g.ink[(y * g.width + x) as usize];
-                if a != 0 {
-                    img.put_pixel(ox + x, oy + y, image::Rgba([255, 255, 255, a]));
-                }
+                let i = (y * g.width + x) as usize;
+                let (d, l) = (g.dark[i], g.light[i]);
+                img.put_pixel(ox + x, oy + y, image::Rgba([d, l, 0, d.max(l)]));
             }
         }
         let _ = writeln!(toml, "{} = {{ left = {}, advance = {}, width = {} }}", g.ch as u32, g.left, g.advance, g.width);

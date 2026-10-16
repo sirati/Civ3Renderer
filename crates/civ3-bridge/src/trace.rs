@@ -96,12 +96,21 @@ static RECENT_TEXT: Mutex<std::collections::VecDeque<(std::time::Instant, TextRu
 /// often than this.
 const TEXT_WINDOW: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// Fonts text was drawn in (logged once each).
+static FONTS_SEEN: Mutex<Vec<inproc::gdi::LogFont>> = Mutex::new(Vec::new());
+
 fn record_text(call: &hooks::text_out::Call) {
     let len = (call.len as i32).clamp(0, 1024) as usize;
     let Ok(bytes) = inproc::Ptr32::<u8>::new(call.text).read_array(len) else { return };
     // Windows-1252, read as Latin-1 (the glyph set covers the same codes).
     let text: String = bytes.iter().map(|&b| b as char).collect();
     let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
+    if let Ok(mut seen) = FONTS_SEEN.lock()
+        && !seen.contains(&font)
+    {
+        log::info!("text font {font:?}");
+        seen.push(font.clone());
+    }
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
     let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text };
     crate::ui_trace::on_text(&run);
