@@ -1244,6 +1244,35 @@ Seek 0x601490 (`Flic_Anim_Info*` in ECX; args slot, frame, img, a4) [X]:
 3. **Shadows**: only `Frame_1` is blitted (slot +0x8C, flags `[0x9C7304]`). Palette indices 248..254 darken the destination as on the map (10.5) [I: same jgl path]. Compile the frame with `UnitArt` (not `UnitShadow`).
 4. The units_32 fallback and the garrison icons need nothing new.
 
+### 16.10 Text colours
+
+Why the button letters (minimap "G", unit box tabs "D"/"E"/"I", city-view "Wealth") are traced as `color 0 0 255` but show black: they are not blue. Their COLORREF is **`DIBINDEX(0)` = 0x10FF0000**. `inproc::gdi::dc_text_color` drops the top byte, which turns it into (0,0,255). Nothing recolours text afterwards. There is no mask surface and no LUT pass: every pass is one `TextOutA` straight into the canvas's 16-bit DIB section, with its own `SetTextColor` [X].
+
+**Text state in `PCX_Image`** [X: setters 0x5FD240/0x5FD270/0x5FD2A0/0x5FD2D0 = styles 0..3]. `set_text_effects(color, shadow, dx, dy)` for style *s* writes `+0x6C+4s` = colour, `+0x7C+4s` = shadow colour, `+0x8C+4s` = shadow dx, `+0x9C+4s` = shadow dy. Fonts are at `+0x5C+4s` (`set_font` 0x5FD200 sets style 0). Plain strings (`+0x40 == 0`) use style 0. With markup, the style is `+0x30`, falling back to 0 when that style's colour is -1.
+
+**Drawing, 0x5FD980** (reached from 0x5FE7B0 and the other text entry points) [X]:
+1. **Palette choice.** The canvas format comes from JGL_Image vt+0xE4. On a **16-bit** canvas it takes `pal = [[0xCAAE34]+4]` and sets flag *f*. On other canvases `pal` stays 0. `[0xCAAE34]` is set to the static `PCX_Color_Table` 0xB428F8 at 0x56C3D4. Nothing ever loads that table: its only references are the ctor/dtor 0x56BEB0/0x56BED0 and this read, and the ctor 0x5FBE80 sets +4 = 0. So **`pal` is always NULL** in practice, and the canvas palette that Button draw sets (0x5FFDF0 with 0xCAAE2C) has no effect on text.
+2. **Shadow pass**, if `shadow != -1`, and not `shadow == 0xFF` when *f* is set: set colour `shadow` (decoded as below), then `TextOutA(x + dx, y + dy)` (JGL_Image vt+0xB8).
+3. **Main pass**: set colour `+0x6C[s]`, then `TextOutA(x, y)`.
+4. **Colour decoding** (same for both passes):
+   - **`c < 0`** (bit 31 set): packed high-colour RGB. If `[0xCAB28C]`->vt+0xB4() == 1 it is 565: `r = (c>>8)&0xF8, g = (c>>3)&0xFC, b = (c&0x1F)<<3`. Otherwise it is 555: `r = (c>>7)&0xF8, g = (c>>2)&0xF8, b = (c&0x1F)<<3`. The result goes to jgl vt+0xB4 (0x10001D70) = `SetTextColor(RGB(r,g,b))`. Almost all interface text uses this path: e.g. 0x80007FFF gives (248,248,248), and 0x80000000 gives black.
+   - **`c >= 0`**: a palette index. If `pal` is set, it is looked up through `pal`->vt+0x20, which never happens on 16-bit canvases (step 1). If `PCX_Image+0x20 & 4`, no colour is set at all and the DC keeps its previous colour. Otherwise it goes to jgl vt+0xB0 (0x10001DB0) = **`SetTextColor(0x10FF0000 | (c & 0xFFFF))`**, i.e. `DIBINDEX(c)`. jgl's vtable 0x10068238: +0xB0 = 0x10001DB0, +0xB4 = 0x10001D70, +0xB8 = 0x10001DE0 (TextOutA). jgl never calls `SetTextColor` any other way.
+5. `DIBINDEX` on a 16-bpp DIB section, which has no colour table: Wine (`make_rgb_colorref`/`get_pixel_color`) writes pixel value **0**, whatever the index. For index 0, Windows gives the same result. In mk5-game.png the "D"/"E"/"I"/"G" glyph pixels are exactly #000000, with no second shade and no shadow [X]. For indices other than 0, Windows may write the raw index as the pixel value [?]. No such index appears in the traces (all 118 `0 0 255` runs have index byte 0).
+
+**Where the buttons get index 0** [X]. In `Button` (vtable 0x6656C0), the canvas is at `Button+0x274`. The create path (around 0x60B05B) sets the text styles from globals. Style 0 is `(0x72FFB4 = 0, 0x72FFC0 = -1, 0x72FFCC = 1, 0x72FFD8 = 1)`: colour **index 0**, no shadow. Styles 1 and 2 have colour -1, so they fall back to style 0. The font comes from 0xCAD460. Button draw 0x60A010 creates the 16-bit canvas (0x60A13E). Then, if the label `+0x5F4` is not empty (0x60A858):
+- If the per-state override `Button+0x63C + 4*state` (state = `+0x634`) is >= 0, it calls `Button_set_text_color` 0x60B0E0 `(color, -1, 1, 1)`. That function sets palette 0xCAAE2C on the canvas, then calls 0x5FD240. The ctors 0x609E70/0x609F50 set the overrides to -1, and nothing in .text writes them later.
+- The owner's `+0x130`->vt+0x14 can take over the drawing.
+- The label is drawn with 0x5FF720 `(str, x, y, w)` when it fits, else with 0x5FEEF0 `(str, RECT*, len)` plus "..." (0x684EEC).
+
+Some script/dialog forms (0x611F7E, 0x612334, 0x612793) call 0x60B0E0 with a byte index (`form+0x2050`). These also go through `DIBINDEX`, so they are black on 16-bit canvases.
+
+**Other colours in the traces.** 248/248/248, 0/0/0, 64/64/64, 0/112/184 and 24/224/240 cannot be DIBINDEX values, which always decode as (index, 0, 255). They are plain RGB from the packed path, so they are already right.
+
+**Recipe for the mirror.**
+1. Simplest fix, in the `TextOutA` hook: keep the full COLORREF from `GetTextColor`. If `c >> 16 == 0x10FF` (DIBINDEX) and the DC's bitmap is 16-bit (every UI canvas), draw the text black (0,0,0), i.e. pixel 0. Otherwise use `c & 0xFFFFFF` as RGB. Do not decode the top byte as part of the colour (`inproc::gdi::dc_text_color`). PALETTEINDEX (0x01xxxxxx) never occurs.
+2. No shadow or effect handling is needed beyond what is traced. A shadow is a separate, earlier `TextOutA` at `(x+dx, y+dy)` with its own colour, so the hook already records it. Buttons have none.
+3. Semantic alternative, if the colour is wanted before `TextOutA`: at 0x5FD980 entry (ECX = `PCX_Image*`), read `s` (0, or `+0x30` with the -1 fallback), `+0x6C[s]`, `+0x7C[s]`, `+0x8C[s]`, `+0x9C[s]` and the canvas depth, then apply the decoding in step 4 above. On a 16-bit canvas, `c >= 0` means black, and `c < 0` means RGB555/565.
+
 ---
 
 ## 17. Minimap
