@@ -289,6 +289,12 @@ impl Civ3 {
         Ok(info)
     }
 
+    /// The `Tile` pointers, indexed like [`Civ3::tiles`] (to tell which tile
+    /// a pointer kept elsewhere means).
+    pub fn tile_pointers(&self, map: &MapInfo) -> Result<Vec<u32>, Civ3Error> {
+        Ok(map.tiles.read_array(map.tile_count.max(0) as usize)?.into_iter().map(|p| p.raw()).collect())
+    }
+
     /// All tiles, indexed like the game: tile (x, y) is at `(y·width + x) / 2`.
     pub fn tiles(&self, map: &MapInfo) -> Result<Vec<TileRecord>, Civ3Error> {
         let pointers = map.tiles.read_array(map.tile_count.max(0) as usize)?;
