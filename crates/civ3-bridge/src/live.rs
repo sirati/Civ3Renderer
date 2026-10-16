@@ -13,6 +13,9 @@ use crate::assets;
 use crate::scene_map::Mapper;
 use crate::world::{Civ3City, Civ3Tile, Civ3View, Civ3World, WallBuilding};
 
+/// The viewer window's title (also how we tell it from the game's window).
+const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
+
 /// How often the publisher looks at the game.
 const POLL: Duration = Duration::from_millis(33);
 
@@ -152,7 +155,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         .name("civ3r-viewer".into())
         .spawn(move || {
             let config = tile_viewer::ViewerConfig {
-                title: "Civ III (reimplemented renderer)".into(),
+                title: VIEWER_TITLE.into(),
                 size: (1024, 768),
                 overhang: (0, 128, 0, 128),
                 ..Default::default()
@@ -171,6 +174,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
     let mut mapper = Mapper::new(&compiled);
     let mut last: Option<(Civ3World, Civ3View)> = None;
     let mut seq = 0;
+    let mut input = InputForwarder::default();
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
@@ -187,9 +191,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
             }
             folders = now;
         }
-        for input in link.take_input() {
-            log::trace!("input {input:?}");
-        }
+        forward_input(&mut input, link.take_input());
         let state = match snapshot(&game) {
             Ok(s) => s,
             // Between games, or while loading.
@@ -208,5 +210,69 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, assets: &ti
         scene.seq = seq;
         link.publish(scene);
         last = Some(state);
+    }
+}
+
+/// Delivers the viewer's input to the game's window. The viewer shows the
+/// game's map with the game's camera at its own top-left corner, 1:1, so a
+/// viewer pixel is the same game client pixel.
+#[derive(Default)]
+struct InputForwarder {
+    window: Option<inproc::window::Window>,
+    held: inproc::window::Buttons,
+}
+
+impl InputForwarder {
+    fn game_window(&mut self) -> Option<inproc::window::Window> {
+        if self.window.is_none() {
+            self.window = inproc::window::Window::of_this_process()
+                .into_iter()
+                .filter(|w| w.title() != VIEWER_TITLE)
+                .max_by_key(|w| w.client_size().map_or(0, |(w, h)| w as u64 * h as u64));
+            if let Some(w) = self.window {
+                log::info!("forwarding input to {:?} ({:?})", w.title(), w.client_size());
+            }
+        }
+        self.window
+    }
+}
+
+fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
+    use inproc::window::MouseButton;
+    use scene::{Button, Input};
+    if inputs.is_empty() {
+        return;
+    }
+    let Some(window) = forwarder.game_window() else { return };
+    for input in inputs {
+        log::trace!("input {input:?}");
+        match input {
+            Input::MouseMove { x, y } => window.mouse_move(x, y, forwarder.held),
+            Input::MouseButton { button, down, x, y } => {
+                let button = match button {
+                    Button::Left => {
+                        forwarder.held.left = down;
+                        MouseButton::Left
+                    }
+                    Button::Right => {
+                        forwarder.held.right = down;
+                        MouseButton::Right
+                    }
+                    Button::Middle => {
+                        forwarder.held.middle = down;
+                        MouseButton::Middle
+                    }
+                };
+                window.mouse_button(button, down, x, y, forwarder.held);
+            }
+            Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
+            Input::Key { vk, down, text } => {
+                window.key(vk, down);
+                if let (true, Some(c)) = (down, text) {
+                    window.char(c);
+                }
+            }
+            Input::Resized { .. } | Input::Quit => {}
+        }
     }
 }
