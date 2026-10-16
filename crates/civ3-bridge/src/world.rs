@@ -211,6 +211,8 @@ pub struct Civ3View {
     pub camera_y: i32,
     pub tile_x: (i32, i32),
     pub tile_y: (i32, i32),
+    /// The zoomed-out view (half size; camera in its pixels, §3).
+    pub zoomed_out: bool,
 }
 
 /// A tracer dump (`civ3-trace.txt`): world, view and the game's draw list.
@@ -304,6 +306,7 @@ impl Trace {
                         t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Text { run, clip });
                     }
                 }
+                Some("zoomed_out") => t.view.zoomed_out = n(1)? != 0,
                 Some("scenario_folder") => t.scenario_folder = Some(f[1..].join(" ")),
                 Some("search_root") => t.search_roots.push(f[1..].join(" ")),
                 Some("view") => {
@@ -312,6 +315,7 @@ impl Trace {
                         camera_y: n(3)? as i32,
                         tile_x: (n(5)? as i32, n(6)? as i32),
                         tile_y: (n(8)? as i32, n(9)? as i32),
+                        zoomed_out: f.get(11).is_some_and(|z| *z == "1"),
                     }
                 }
                 Some("map") => {

@@ -5,6 +5,8 @@
 #   tools/civ3-session start            start sway + the game (fullscreen), wait for the menu
 #   tools/civ3-session newgame          New Game with the saved settings, found nothing, wait for turn 1
 #   tools/civ3-session scenario         Conquests scenario "WW2 in the Pacific" (as China), wait for turn 1
+#   tools/civ3-session load NAME       Load Game screen: load save NAME (file in the install's Saves folder, from the main menu)
+#   tools/civ3-session goto X Y        centre the view on tile (X, Y) via the minimap (game running, map showing)
 #   tools/civ3-session trace [out.txt]  have civ3-bridge write one frame's draw list
 #   tools/civ3-session shot [out.png]   screenshot of the session
 #   tools/civ3-session state            print the bridge's log tail
@@ -74,6 +76,79 @@ scenario)
   "$WLH" click 1416 895; sleep 25   # player setup (China): OK, scenario loads
   "$WLH" click 1861 1035; sleep 4   # dismiss the scenario intro text
   echo "turn 1"
+  ;;
+load)
+  name=${2:?usage: load NAME}
+  [ -n "$(find "$GAME/Saves" -maxdepth 1 -iname "$name" -print -quit)" ] || { echo "no such save: $GAME/Saves/$name" >&2; exit 1; }
+  # The Load Game dialog opens with its file name field selected, so typing
+  # replaces it (the field takes the keys lower-cased; the file system is
+  # case-insensitive under Wine). Only letters, digits, enter and esc are safe
+  # key names for the input daemon, so no backspace/home/ctrl.
+  # The first click on a menu entry may only hover: hover first, then click
+  # until the dialog (its parchment box, bright at the probe spot) is up.
+  probe() { # x y min_mean : screenshot region mean brightness >= min_mean
+    "$WLH" shot "${TMPDIR:-/tmp}/civ3-session-probe.png" >/dev/null
+    nix shell --impure --expr 'let p = import <nixpkgs> {}; in p.python3.withPackages (ps: [ps.pillow ps.numpy])' -c python3 -c '
+import sys
+from PIL import Image
+import numpy as np
+x, y, m = map(int, sys.argv[2:5])
+a = np.asarray(Image.open(sys.argv[1]).convert("RGB"))[y:y+20, x:x+20]
+sys.exit(0 if a.mean() >= m else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png" "$1" "$2" "$3"
+  }
+  "$WLH" move 710 574; sleep 1
+  for _ in 1 2 3 4; do
+    "$WLH" click 710 574; sleep 3
+    probe 900 716 180 && break   # parchment of the Load Game box
+  done
+  probe 900 716 180 || { echo "Load Game dialog did not open (not at the main menu?)" >&2; exit 1; }
+  "$WLH" type "$name"; sleep 1
+  "$WLH" key enter    # load; the "Saved Game" summary box (parchment at its bottom left) comes up
+  t=0
+  until probe 720 235 190; do
+    sleep 1; t=$((t + 1))
+    [ $t -lt 90 ] || { echo "no summary box after loading $name" >&2; exit 1; }
+  done
+  sleep 1
+  "$WLH" key enter; sleep 3     # dismiss it
+  # The bridge only logs call counts for the first minute, so wait for the
+  # map by asking for a trace (it is only written once the map is drawn).
+  t=0
+  until "$0" trace "${TMPDIR:-/tmp}/civ3-load.txt" >/dev/null 2>&1 && [ "$(grep -c '^draw' "${TMPDIR:-/tmp}/civ3-load.txt")" -gt 0 ]; do
+    t=$((t + 1))
+    [ $t -lt 12 ] || { echo "timeout waiting for the map of $name" >&2; exit 1; }
+  done
+  echo "loaded $name"
+  ;;
+goto)
+  # Centre the view on tile (X, Y) with a click on the minimap (bottom left, 1920x1080:
+  # interior x 30..260, y 959..1066, stretched over the whole map), then check
+  # the trace's `view camera` and correct. Succeeds when the tile centre is on
+  # screen, clear of the corner panels (near the map's top/bottom edge the
+  # camera is clamped, so it may not be centred).
+  tx=${2:?usage: goto X Y}; ty=${3:?usage: goto X Y}
+  g=${TMPDIR:-/tmp}/civ3-goto.txt
+  "$0" trace "$g" >/dev/null
+  read -r _ mw mh wrapx wrapy < <(grep "^map " "$g" | awk "{print \$1, \$2, \$3, \$5, \$6}")
+  tw=$((mw * 64)); th=$((mh * 32))
+  wx=$((tx * 64 + 64)); wy=$((ty * 32 + 32))
+  for _ in 1 2 3 4; do
+    read -r mx my < <(awk -v wx=$wx -v wy=$wy -v tw=$tw -v th=$th 'BEGIN{
+      x=int(29.5+((wx%tw+tw)%tw)/tw*230+0.5); y=int(959.5+((wy%th+th)%th)/th*107+0.5);
+      if(x<31)x=31; if(x>259)x=259; if(y<960)y=960; if(y>1065)y=1065; print x, y}')
+    "$WLH" move $mx $my; sleep 0.5; "$WLH" click $mx $my; sleep 2; "$WLH" move 960 200; sleep 1
+    "$0" trace "$g" >/dev/null
+    read -r cx cy < <(grep '^view camera' "$g" | awk '{print $3, $4}')
+    dx=$((wx - cx)); dy=$((wy - cy))
+    if [ "$wrapx" = 1 ]; then dx=$(( ((dx % tw) + tw) % tw )); [ $dx -le $((tw / 2)) ] || dx=$((dx - tw)); fi
+    if [ "$wrapy" = 1 ]; then dy=$(( ((dy % th) + th) % th )); [ $dy -le $((th / 2)) ] || dy=$((dy - th)); fi
+    if [ $dx -ge 100 ] && [ $dx -le 1820 ] && [ $dy -ge 80 ] && [ $dy -le 900 ]; then
+      echo "tile $tx,$ty at screen $dx,$dy (camera $cx $cy)"; exit 0
+    fi
+    # aim the next click off by the miss
+    wx=$((wx + dx - 960)); wy=$((wy + dy - 540))
+  done
+  echo "goto $tx,$ty failed: camera $cx $cy, tile at screen $dx,$dy" >&2; exit 1
   ;;
 trace)
   out=${2:-$PWD/civ3-trace.txt}

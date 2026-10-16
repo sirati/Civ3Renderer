@@ -75,7 +75,8 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
         text.push_str(&fonts.description());
         art = Some((a, fonts));
     }
-    Ok((assets::compile(&text, files()).map_err(|e| e.to_string())?, art))
+    let scale_down = if trace.is_some_and(|t| t.view.zoomed_out) { 2 } else { 1 };
+    Ok((assets::compile_scaled(&text, files(), scale_down).map_err(|e| e.to_string())?, art))
 }
 
 /// The scene of a trace, units included.
@@ -94,6 +95,9 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
                 scene.sprites.extend(city_hud::sprites(&trace.world, compiled));
                 scene.sprites.extend(fonts.sprites(&trace.texts, compiled));
             }
+        }
+        if trace.view.zoomed_out {
+            ifc23::scene_map::zoom_out(&mut scene.sprites);
         }
     }
     scene
