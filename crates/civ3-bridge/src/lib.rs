@@ -3,11 +3,17 @@
 // that `inproc::entry!` generates (an unsafe *attribute*, `no_mangle`).
 #![deny(unsafe_code)]
 
+pub mod scene_map;
+pub mod world;
+#[cfg(windows)]
 pub mod trace;
 
+#[cfg(windows)]
 use civ3_sys::Civ3;
 
 inproc::entry!(init);
+
+#[cfg(windows)]
 
 fn init() {
     let _ = inproc::log_to_file(std::path::Path::new("civ3-bridge.log"), log::LevelFilter::Debug);
