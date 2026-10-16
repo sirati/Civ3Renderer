@@ -7,6 +7,8 @@
 pub mod files;
 pub mod flc;
 pub mod ini;
+#[cfg(feature = "render-desc")]
+pub mod loader;
 pub mod pcx;
 
 pub use files::GameFiles;
