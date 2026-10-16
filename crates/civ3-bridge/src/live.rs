@@ -126,7 +126,13 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         flags: map.flags,
         tiles,
     };
-    let view = Civ3View { camera_x: view.camera_x, camera_y: view.camera_y, tile_x: view.tile_x, tile_y: view.tile_y };
+    let view = Civ3View {
+        camera_x: view.camera_x,
+        camera_y: view.camera_y,
+        tile_x: view.tile_x,
+        tile_y: view.tile_y,
+        zoomed_out: game.zoomed_out().unwrap_or(false),
+    };
     Ok((world, view))
 }
 
@@ -200,14 +206,16 @@ impl Compiler {
         units: &units::Needed,
         fonts: &text::Fonts,
         screen: &menu::screen::ScreenArt,
+        zoomed_out: bool,
     ) -> Result<(Arc<Compiled>, scene::wire::Assets), LiveError> {
         let text = format!("{}{}{}{}", self.text, units.description(), fonts.description(), ui_screen::description(screen));
         let files = self.files(folders);
         let wire = scene::wire::Assets {
             description: text.clone(),
             roots: files.roots().iter().map(|r| r.to_string_lossy().into_owned()).collect(),
+            scale_down: if zoomed_out { 2 } else { 1 },
         };
-        let compiled = assets::compile(&text, files).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
+        let compiled = assets::compile_scaled(&text, files, wire.scale_down).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
         let pages = &compiled.atlas.pages;
         let mb = pages.iter().map(|p| p.width as u64 * p.height as u64 * 4).sum::<u64>() >> 20;
         log::info!(
@@ -238,7 +246,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("not mirroring the interface: {e}"),
         }
     }
-    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default())?;
+    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), false)?;
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     let mut presenter = if mode.starts_with("native") {
         let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
@@ -284,6 +292,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut have = units::Needed::default();
     let mut fonts = text::Fonts::default();
     let mut screen_art = menu::screen::ScreenArt::default();
+    let mut zoomed_out = false;
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
@@ -328,6 +337,13 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let files = compiler.files(&folders);
         let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots())).unwrap_or_default();
         recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files);
+        // The zoomed-out view has its own (half-size) art.
+        if let Shown::Map(_, view) = shown {
+            if view.zoomed_out != zoomed_out {
+                zoomed_out = view.zoomed_out;
+                recompile = true;
+            }
+        }
         // Art the description does not have yet: units, text fonts.
         if let Shown::Map(world, _) = shown {
             let needed = units::Needed::of(world, &mut art);
@@ -338,7 +354,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         }
         recompile |= fonts.add(&compiler.files(&folders), texts);
         if recompile {
-            match compiler.compile(&folders, &have, &fonts, &screen_art) {
+            match compiler.compile(&folders, &have, &fonts, &screen_art, zoomed_out) {
                 Ok((c, wire)) => {
                     presenter.set_assets(&c, &wire);
                     compiled = c;
@@ -357,6 +373,9 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));
+                }
+                if view.zoomed_out {
+                    crate::scene_map::zoom_out(&mut scene.sprites);
                 }
                 scene
             }

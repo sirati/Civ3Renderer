@@ -55,7 +55,8 @@ impl<'a> Mapper<'a> {
         // The game draws lattice cells TileX_Min..=TileX_Max ×
         // TileY_Min..=TileY_Max only (§3), even where a tall sprite from
         // outside that range would reach into the screen.
-        let cull = (view.tile_x.0 * 64, view.tile_y.0 * 32, (view.tile_x.1 + 1) * 64, (view.tile_y.1 + 1) * 32);
+        let (sx, sy) = if view.zoomed_out { (32, 16) } else { (64, 32) };
+        let cull = (view.tile_x.0 * sx, view.tile_y.0 * sy, (view.tile_x.1 + 1) * sx, (view.tile_y.1 + 1) * sy);
         scene.view = View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull) };
 
         for row in 0..shape.rows {
@@ -103,5 +104,15 @@ impl<'a> Mapper<'a> {
             }
         }
         scene
+    }
+}
+
+/// World-space free sprites (units and their HUD) in the zoomed-out view:
+/// at half their positions, as the game draws them (§3; their art is
+/// halved by the description).
+pub fn zoom_out(sprites: &mut [scene::FreeSprite]) {
+    for s in sprites.iter_mut().filter(|s| !s.screen) {
+        s.x /= 2;
+        s.y /= 2;
     }
 }

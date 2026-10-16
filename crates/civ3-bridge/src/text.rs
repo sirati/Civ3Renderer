@@ -83,7 +83,7 @@ impl Fonts {
                 let Some(glyph) = font.glyphs.get(&c) else { continue };
                 let _ = writeln!(
                     out,
-                    "[sheets.text{n}_{k}]\nimage = \"text{n}\"\nframe = {k}\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = \"Text@{n}\"\nfirst_index = {}\n",
+                    "[sheets.text{n}_{k}]\nimage = \"text{n}\"\nframe = {k}\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = \"Text@{n}\"\nfirst_index = {}\nscaling = \"keep\"\n",
                     glyph.image.width,
                     glyph.image.height,
                     glyph.left,

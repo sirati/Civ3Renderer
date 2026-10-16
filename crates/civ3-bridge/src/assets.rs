@@ -38,3 +38,11 @@ pub fn compile(text: &str, files: GameFiles) -> Result<Compiled, DescError> {
     // small enough for 32-bit processes and software renderers.
     Description::parse(text)?.compile(&Civ3Loader::new(files), 2048)
 }
+
+/// Like [`compile`], for the zoomed-out view when `scale_down` is 2: the
+/// art at half size (§3).
+pub fn compile_scaled(text: &str, files: GameFiles, scale_down: u32) -> Result<Compiled, DescError> {
+    let desc = Description::parse(text)?;
+    let desc = if scale_down > 1 { desc.scaled_down(scale_down) } else { desc };
+    desc.compile(&Civ3Loader::new(files), 2048)
+}

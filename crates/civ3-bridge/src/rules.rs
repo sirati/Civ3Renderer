@@ -515,7 +515,8 @@ pub fn pollution(world: &Civ3World, x: i32, y: i32) -> Vec<(&'static str, String
 /// group.
 pub fn city(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     let tile = world.tile(x, y)?;
-    if tile.city < 0 {
+    // Not on tiles the viewer has never seen (measured).
+    if tile.city < 0 || tile.explored & (1 << (world.player & 31)) == 0 {
         return None;
     }
     let city = world.city(tile.city as i32)?;
