@@ -93,7 +93,9 @@ pub struct FrameParams {
     /// are given in target pixels.
     pub origin_x: i32,
     pub origin_y: i32,
-    pub _pad2: u32,
+    /// 0: the view shows no world (cells, world-space sprites), only its own
+    /// sprites.
+    pub world: u32,
     pub _pad3: u32,
 }
 

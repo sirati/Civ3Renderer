@@ -133,7 +133,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     let passes = world.passes();
     // Free sprites following pass `p`, in list order.
     let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
-        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.is_none_or(|sv| sv == view)) {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| sv == view)) {
             let set = s.set.0 as usize;
             let frames = packed.sets[set];
             if set == 0 || frames == 0 {
@@ -157,7 +157,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
         let params = camera.frame_params(&world.grid, world.color, frame, pass, view);
-        for local in 0..params.cols * params.rows {
+        for local in 0..if camera.cells { params.cols * params.rows } else { 0 } {
             let col = params.first_col + (local % params.cols) as i32;
             let row = params.first_row + (local / params.cols) as i32;
             let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };

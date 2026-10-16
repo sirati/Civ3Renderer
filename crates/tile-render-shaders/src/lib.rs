@@ -151,7 +151,7 @@ pub fn free_vs(
     *out_page = 0;
     *out_scale_den = f.scale_den;
     let frames = sprite_sets[f.set as usize];
-    if f.set == 0 || frames == 0 || (f.view != ALL_VIEWS && f.view != params.view) {
+    if f.set == 0 || frames == 0 || (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) {
         *out_pos = CULLED;
         return;
     }

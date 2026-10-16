@@ -431,8 +431,10 @@ impl TileRenderer {
                 let params = camera.frame_params(&world.grid, world.color, frame, p, v as u32);
                 let offset = write_params(i, params);
                 let mut pass = begin_view(encoder, &canvas, camera, scissor, bind_group, offset);
-                pass.set_pipeline(tiles);
-                pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+                if camera.cells {
+                    pass.set_pipeline(tiles);
+                    pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+                }
                 draw_free(&mut pass, world, i, free);
             }
             if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {

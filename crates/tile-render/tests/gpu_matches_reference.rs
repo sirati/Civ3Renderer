@@ -310,3 +310,25 @@ fn several_views_share_one_target() {
     let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 5, CLEAR);
     assert_same(&got, &want, "two views");
 }
+
+#[test]
+fn interface_views_show_only_their_own_sprites() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let screen_sprite = world.free.iter().find(|s| s.screen).cloned().unwrap();
+    world.free.push(PlacedSprite { view: Some(1), x: 60, y: 40, ..screen_sprite });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let main = Camera::new((300, 200));
+    let interface = Camera { cells: false, ..Camera::new((300, 200)) };
+    let cameras = [main, interface];
+    let got = gpu.render_views(&mut renderer, &cameras, (300, 200), 2, CLEAR);
+    assert_same(&got, &reference::render_views(&world, &atlas, &cameras, (300, 200), 2, CLEAR), "interface view");
+    // The interface adds only its sprite to what the main view shows.
+    let alone = gpu.render_views(&mut renderer, &cameras[..1], (300, 200), 2, CLEAR);
+    let changed = got.pixels.iter().zip(&alone.pixels).filter(|(a, b)| a != b).count();
+    assert!(changed > 0 && changed < 64 * 64, "{changed} pixels changed");
+}
