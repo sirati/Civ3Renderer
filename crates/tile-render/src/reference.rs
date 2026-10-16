@@ -16,19 +16,15 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
     let (w, h) = camera.viewport;
     let mut out = RgbaImage::from_fn(w, h, |_, _| clear);
     let packed = world.pack();
-    let layer_count = packed.layers.len() as u32;
-    if layer_count == 0 {
-        return out;
-    }
-    let params = camera.frame_params(&world.grid, frame, layer_count);
     let data = ByteReader::new(&packed.data);
-
+    for (first, count) in world.passes() {
+    let params = camera.frame_params(&world.grid, frame, (first, count));
     for local in 0..params.cols * params.rows {
         let col = params.first_col + (local % params.cols) as i32;
         let row = params.first_row + (local / params.cols) as i32;
         let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };
         let (ox, oy) = cell_origin(&params.grid, col, row);
-        for layer in &packed.layers {
+        for layer in &packed.layers[first as usize..(first + count) as usize] {
             if layer.flags & tile_render_shared::LAYER_HIDDEN != 0 {
                 continue;
             }
@@ -63,6 +59,7 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
                 }
             }
         }
+    }
     }
     out
 }

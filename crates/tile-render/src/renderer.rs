@@ -11,6 +11,12 @@ use crate::world::{Grid, TileWorld};
 
 const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
 
+/// Per-pass `FrameParams` live in one buffer at this stride (the minimum
+/// uniform offset alignment wgpu guarantees).
+const PARAMS_STRIDE: u64 = 256;
+/// Most passes a world may have.
+pub const MAX_PASSES: usize = 16;
+
 /// Draws one `TileWorld` with one `Atlas`.
 pub struct TileRenderer {
     pipeline: wgpu::RenderPipeline,
@@ -24,7 +30,7 @@ pub struct TileRenderer {
 
 struct WorldBuffers {
     grid: Grid,
-    layer_count: u32,
+    passes: Vec<(u32, u32)>,
     layers: wgpu::Buffer,
     tile_data: wgpu::Buffer,
     lut: wgpu::Buffer,
@@ -61,7 +67,7 @@ impl TileRenderer {
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
+                        has_dynamic_offset: true,
                         min_binding_size: NonZeroU64::new(size_of::<FrameParams>() as u64),
                     },
                     count: None,
@@ -115,7 +121,7 @@ impl TileRenderer {
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render params"),
-            size: size_of::<FrameParams>() as u64,
+            size: PARAMS_STRIDE * MAX_PASSES as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -169,7 +175,7 @@ impl TileRenderer {
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
         self.world = Some(WorldBuffers {
             grid: world.grid,
-            layer_count: packed.layers.len() as u32,
+            passes: world.passes(),
             layers: storage(device, "tile-render layers", bytemuck::cast_slice(layers)),
             tile_data: storage(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
             lut: storage(device, "tile-render lut", bytemuck::cast_slice(&packed.lut)),
@@ -197,7 +203,14 @@ impl TileRenderer {
             label: Some("tile-render"),
             layout: &self.layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.params.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.params,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(size_of::<FrameParams>() as u64),
+                    }),
+                },
                 wgpu::BindGroupEntry { binding: 1, resource: world.layers.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 2, resource: world.tile_data.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: world.lut.as_entire_binding() },
@@ -212,15 +225,14 @@ impl TileRenderer {
     /// `frame`. Does nothing until both an atlas and a world are set.
     pub fn draw(&self, queue: &wgpu::Queue, pass: &mut wgpu::RenderPass<'_>, camera: &Camera, frame: u32) {
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else { return };
-        if world.layer_count == 0 {
-            return;
-        }
-        let params = camera.frame_params(&world.grid, frame, world.layer_count);
-        queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
-        let instances = params.cols * params.rows * world.layer_count;
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, bind_group, &[]);
-        pass.draw(0..QUAD_VERTICES, 0..instances);
+        for (i, &layers) in world.passes.iter().enumerate().take(MAX_PASSES) {
+            let params = camera.frame_params(&world.grid, frame, layers);
+            let offset = i as u64 * PARAMS_STRIDE;
+            queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
+            pass.set_bind_group(0, bind_group, &[offset as u32]);
+            pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * layers.1);
+        }
     }
 }
 

@@ -104,11 +104,13 @@ pub struct LayerSpec {
     pub offset: (i32, i32),
     pub ticks_per_frame: u32,
     pub hidden: bool,
+    /// Render pass. A world's layers must be ordered by pass.
+    pub pass: u32,
 }
 
 impl LayerSpec {
     pub fn new(name: impl Into<String>, lut: Vec<SpriteSetId>) -> Self {
-        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false }
+        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false, pass: 0 }
     }
 
     /// Smallest value width (bytes) that can index the whole table.
@@ -146,6 +148,10 @@ impl TileWorld {
     }
 
     pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {
+        assert!(self.layers.len() < 255);
+        if let Some(prev) = self.layers.last() {
+            assert!(spec.pass >= prev.pass, "layer {} (pass {}) after pass {}: layers must be ordered by pass", spec.name, spec.pass, prev.pass);
+        }
         let bytes = (spec.record_bytes() * self.grid.cells()) as usize;
         self.layers.push(spec);
         self.data.push(vec![0; bytes]);
@@ -154,6 +160,21 @@ impl TileWorld {
 
     pub fn layers(&self) -> &[LayerSpec] {
         &self.layers
+    }
+
+    /// (first layer, layer count) of every non-empty pass, in drawing order.
+    pub fn passes(&self) -> Vec<(u32, u32)> {
+        let mut out: Vec<(u32, u32)> = Vec::new();
+        let mut last_pass = None;
+        for (i, l) in self.layers.iter().enumerate() {
+            if last_pass == Some(l.pass) {
+                out.last_mut().unwrap().1 += 1;
+            } else {
+                out.push((i as u32, 1));
+                last_pass = Some(l.pass);
+            }
+        }
+        out
     }
 
     pub fn layer_mut(&mut self, layer: LayerId) -> &mut LayerSpec {

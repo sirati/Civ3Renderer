@@ -44,11 +44,16 @@ fn scene(grid: Grid) -> (TileWorld, Atlas) {
     overlay_spec.ticks_per_frame = 3;
     let overlay = world.add_layer(overlay_spec);
     // Enough distinct values to need 2-byte cells; all map to one set.
-    let wide = world.add_layer(LayerSpec::new("wide", {
-        let mut lut = vec![tile_render::SpriteSetId::EMPTY; 300];
-        lut[299] = anim;
-        lut
-    }));
+    // A second render pass: drawn after the whole first pass, so its tall
+    // sprites are not covered by the terrain of later rows.
+    let wide = world.add_layer(LayerSpec {
+        pass: 1,
+        ..LayerSpec::new("wide", {
+            let mut lut = vec![tile_render::SpriteSetId::EMPTY; 300];
+            lut[299] = anim;
+            lut
+        })
+    });
     for r in 0..grid.rows {
         for c in 0..grid.cols {
             world.set(base, c, r, (c * 3 + r * 7) % 5);

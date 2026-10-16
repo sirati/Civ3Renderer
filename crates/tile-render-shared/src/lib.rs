@@ -57,6 +57,8 @@ pub struct FrameParams {
     pub zoom_den: u32,
     /// Animation clock in ticks.
     pub frame: u32,
+    /// Layers drawn by this draw call (one render pass): `layer_count`
+    /// layers starting at `layer_first`.
     pub layer_count: u32,
 
     /// Window of cells to draw: `cols × rows` cells starting at
@@ -67,6 +69,11 @@ pub struct FrameParams {
     pub rows: u32,
 
     pub grid: GridParams,
+
+    pub layer_first: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -92,8 +99,10 @@ pub struct GridParams {
 pub const WRAP_X: u32 = 1 << 0;
 pub const WRAP_Y: u32 = 1 << 1;
 
-/// Describes one layer. Layers are drawn in index order within each cell, and
-/// cells in row-major order, so a cell's tall sprites overlap the rows behind.
+/// Describes one layer. Layers are grouped into *passes* (consecutive layer
+/// ranges); each pass sweeps the visible cells in row-major order, drawing
+/// its layers in index order within each cell, so a cell's tall sprites
+/// overlap the rows behind. Passes are drawn one after the other.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]

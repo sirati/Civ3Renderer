@@ -31,7 +31,7 @@ impl Camera {
         ((self.viewport.0 * d).div_ceil(n), (self.viewport.1 * d).div_ceil(n))
     }
 
-    pub(crate) fn frame_params(&self, grid: &Grid, frame: u32, layer_count: u32) -> FrameParams {
+    pub(crate) fn frame_params(&self, grid: &Grid, frame: u32, layers: (u32, u32)) -> FrameParams {
         let (ew, eh) = self.world_extent();
         let (ol, ot, or, ob) = self.overhang;
         let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
@@ -58,7 +58,11 @@ impl Camera {
             zoom_num: self.zoom.0,
             zoom_den: self.zoom.1,
             frame,
-            layer_count,
+            layer_first: layers.0,
+            layer_count: layers.1,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
             first_col,
             first_row,
             cols: (last_col - first_col + 1) as u32,
@@ -80,7 +84,7 @@ mod tests {
         cam.x = 300;
         cam.y = 200;
         cam.overhang = (0, 24, 0, 0);
-        let p = cam.frame_params(&grid, 0, 3);
+        let p = cam.frame_params(&grid, 0, (0, 3));
         // Every cell whose 128×64 footprint (+24 px upwards) touches the
         // viewport must be inside the window.
         for row in -10..120 {

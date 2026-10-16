@@ -1,10 +1,11 @@
 //! Tile renderer shaders.
 //!
-//! One instanced draw renders the whole visible window: instance `i` is layer
-//! `i % layer_count` of visible cell `i / layer_count`, so all layers of a cell
-//! are drawn before the next cell, in row-major order. That is the order an
-//! isometric renderer needs for tall sprites (hills, buildings, units) to
-//! overlap the rows behind them.
+//! One instanced draw per render pass covers the whole visible window:
+//! instance `i` is layer `layer_first + i % layer_count` of visible cell
+//! `i / layer_count`, so all of the pass's layers of a cell are drawn before
+//! the next cell, in row-major order. That is the order an isometric renderer
+//! needs for tall sprites (hills, buildings, units) to overlap the rows
+//! behind them.
 //!
 //! The vertex shader pulls everything from storage buffers (see
 //! `tile_render_shared` for the data model) and emits a quad per instance, or
@@ -88,7 +89,7 @@ pub fn tile_vs(
     #[spirv(flat)] out_origin: &mut IVec2,
     #[spirv(flat)] out_page: &mut u32,
 ) {
-    let layer_index = instance % params.layer_count;
+    let layer_index = params.layer_first + instance % params.layer_count;
     let local_cell = instance / params.layer_count;
     let layer = &layers[layer_index as usize];
 
