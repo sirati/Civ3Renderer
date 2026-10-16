@@ -95,7 +95,7 @@ struct ShadersResources {
 }
 
 impl ShadersResources {
-    
+
 
     fn create_shader_resources(device: &wgpu::Device) -> ShadersResources {
         let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -104,35 +104,35 @@ impl ShadersResources {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-    
+
         let vertices_generated_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Vertices Generated Buffer"),
             size: 100 * std::mem::size_of::<Vec4>() as wgpu::BufferAddress, // assuming a size for demonstration
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-    
+
         let world_data_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("World Data Buffer"),
             size: 1024, // assuming a size for demonstration
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-    
+
         let layer_lookup_table_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Layer Lookup Table Buffer"),
             size: 256, // assuming a size for demonstration
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-    
+
         let texture_lookup_table_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Texture Lookup Table Buffer"),
             size: 256, // assuming a size for demonstration
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-    
+
         ShadersResources {
             params_buffer,
             vertices_generated_buffer,
@@ -229,7 +229,7 @@ impl State {
             source: wgpu::ShaderSource::SpirV(Cow::Borrowed(arr_u8_to_u32(SHADER))),
         });
 
-        
+
 
         let render_pipeline = Self::create_pipeline(&device, &config, &shader);
 
@@ -265,7 +265,7 @@ impl State {
                 bind_group_layouts: &[],
                 push_constant_ranges: &[],
             });
-        
+
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&render_pipeline_layout),
@@ -369,7 +369,7 @@ impl State {
             /*render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);*/
             render_pass.draw(0..(self.buffers.vertices_generated_buffer.size() as usize / mem::size_of::<Vec4>()) as u32, 0..1);
-            
+
         }
 
         self.queue.submit(iter::once(encoder.finish()));
