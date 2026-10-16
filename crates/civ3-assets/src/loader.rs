@@ -6,6 +6,8 @@
 //!   (default: both, Civ III's green and magenta keys).
 //! * `alpha = { 1 = 128, 2 = 64 }` palette index → alpha, for translucent
 //!   colours such as shadows.
+//! * `quantize = "rgb555"` reduce colours to 15 bits the way Civ III's
+//!   renderer does (5 bits per channel, expanded as `(v << 3) | (v >> 2)`).
 //! * `palette = "Art/Units/Palettes/ntp00.pcx"` substitute the palette of
 //!   this PCX (whole, or `palette_range = [first, count]` of it), e.g. to
 //!   recolour units to a civilisation's colours.
@@ -66,6 +68,23 @@ fn alpha_table(options: &toml::Table) -> Result<[u8; 256], String> {
 }
 
 pub fn to_rgba(width: u32, height: u32, pixels: &[u8], palette: &Palette, alpha: &[u8; 256]) -> RgbaImage {
+    to_rgba_with(width, height, pixels, palette, alpha, |v| v)
+}
+
+/// 8-bit channel through 5 bits and back, as a 15-bit framebuffer stores it.
+pub fn rgb555(v: u8) -> u8 {
+    let v5 = v >> 3;
+    (v5 << 3) | (v5 >> 2)
+}
+
+fn to_rgba_with(
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+    palette: &Palette,
+    alpha: &[u8; 256],
+    q: impl Fn(u8) -> u8,
+) -> RgbaImage {
     RgbaImage::from_fn(width, height, |x, y| {
         let i = pixels[(y * width + x) as usize];
         let a = alpha[i as usize];
@@ -73,7 +92,7 @@ pub fn to_rgba(width: u32, height: u32, pixels: &[u8], palette: &Palette, alpha:
             return [0, 0, 0, 0];
         }
         let c = palette.get(i);
-        [c.0, c.1, c.2, a]
+        [q(c.0), q(c.1), q(c.2), a]
     })
 }
 
@@ -81,16 +100,21 @@ impl ImageLoader for Civ3Loader {
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
         let alpha = alpha_table(options)?;
+        let q: fn(u8) -> u8 = match options.get("quantize").and_then(|v| v.as_str()) {
+            None => |v| v,
+            Some("rgb555") => rgb555,
+            Some(other) => return Err(format!("unknown quantize mode {other:?}")),
+        };
         let lower = source.to_lowercase();
         if lower.ends_with(".pcx") {
             let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             let palette = self.options_palette(options, &img.palette)?;
-            Ok(vec![to_rgba(img.width, img.height, &img.pixels, &palette, &alpha)])
+            Ok(vec![to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, q)])
         } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
             let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             anim.frames
                 .iter()
-                .map(|f| Ok(to_rgba(anim.width, anim.height, &f.pixels, &self.options_palette(options, &f.palette)?, &alpha)))
+                .map(|f| Ok(to_rgba_with(anim.width, anim.height, &f.pixels, &self.options_palette(options, &f.palette)?, &alpha, q)))
                 .collect()
         } else {
             Err(format!("{source}: unknown image format"))
