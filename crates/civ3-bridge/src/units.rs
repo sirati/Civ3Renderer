@@ -319,7 +319,8 @@ pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
     world.units.iter().find(|u| u.id == id && u.visible).map(|u| u.pixel)
 }
 
-pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled) -> Vec<scene::FreeSprite> {
+/// `rings`: second rings around foreign units (`crate::rings`).
+pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>) -> Vec<scene::FreeSprite> {
     let mut out = Vec::new();
     for u in world.units.iter().filter(|u| u.visible) {
         let (x, y) = u.pixel;
@@ -349,6 +350,13 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled) -> Vec
         };
         if world.preferences & SHOW_TEAM_COLOR_DISC != 0 && !in_city {
             put(&format!("TeamDisc@{}/0", colors(world, u.civ)), (mx - 64, my - 32), 0);
+        }
+        // Around it, how the viewer stands with a foreign owner.
+        if let (Some(rings), false, false) = (rings, in_city, u.civ == world.player) {
+            let relation = world.relations.get(u.civ.max(0) as usize).copied().unwrap_or(civ3_sys::world::Relation::None);
+            if let Some((name, scale_den)) = rings.sprite(relation) {
+                put(&name, (mx - 64, my - 32), scale_den);
+            }
         }
         if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
             let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];

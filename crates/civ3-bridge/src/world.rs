@@ -157,6 +157,8 @@ pub struct Civ3World {
     pub preferences: u32,
     /// The selected unit (id) and the selection cursor's frame, while shown.
     pub selection: Option<(i32, i32)>,
+    /// How `player` stands with each civ (by civ; empty if unknown).
+    pub relations: Vec<civ3_sys::world::Relation>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -459,6 +461,18 @@ impl Trace {
                 }),
                 Some("eras") => {
                     t.world.eras = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
+                }
+                Some("relations") => {
+                    use civ3_sys::world::Relation;
+                    t.world.relations = f[1..]
+                        .iter()
+                        .map(|v| match *v {
+                            "w" => Relation::War,
+                            "d" => Relation::Defense,
+                            "p" => Relation::Peace,
+                            _ => Relation::None,
+                        })
+                        .collect();
                 }
                 Some("resource_visible") => {
                     t.world.resource_visible = f[1..].iter().map(|v| *v == "1").collect();
