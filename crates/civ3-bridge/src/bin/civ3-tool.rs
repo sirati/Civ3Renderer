@@ -107,7 +107,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         if ui.is_none() {
             scene.sprites = city_site::sprites(&trace.world, compiled);
         }
-        scene.sprites.extend(units::sprites(&trace.world, art, compiled, None));
+        scene.sprites.extend(units::sprites(&trace.world, art, compiled, None, trace.view.zoomed_out));
         match &ui {
             // The mirrored interface has the city icons and all text.
             Some(frame) => {

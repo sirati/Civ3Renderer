@@ -806,15 +806,22 @@ palette_range = [0, 0]
 palette_map = { 247 = 66 }
 variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
+# Zoomed out the game draws another sprite: the cell at (259, 90) holds a filled
+# ellipse (848 pixels of index 247 against the ring's 308), drawn at half size
+# like everything else (0x5CBF57..0x5CBFAD: sprite 0xB3F290 instead of 0xB3F2BC,
+# both cut with the box rule, §3.1).
 [sheets.team_disc]
 image = "team_disc@{v}"
 origin = [259, 155]
+scaled_origin = [259, 90]
 cell = [128, 64]
 grid = [1, 1]
 group = "TeamDisc@{v}"
+sample_from = "box"
 variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
-# Movement LED: green, yellow, red.
+# Movement LED: green, yellow, red. The unit HUD (this and the bar below) is drawn
+# at full size zoomed out too, only 16 px instead of 32 px from the unit (§10.2).
 [images.movement_led]
 source = "Art/interface/MovementLED.pcx"
 transparent = [255]
@@ -826,6 +833,7 @@ cell = [6, 6]
 spacing = [8, 0]
 grid = [3, 1]
 group = "MovementLED"
+scaling = "keep"
 
 [images.hud_black]
 source = "solid:0,0,0,255:1x1"
@@ -834,6 +842,7 @@ source = "solid:0,0,0,255:1x1"
 image = "hud_black"
 cell = [1, 1]
 group = "Hud_black"
+scaling = "keep"
 
 [images.hud_green]
 source = "solid:0,255,0,255:1x1"
@@ -842,6 +851,7 @@ source = "solid:0,255,0,255:1x1"
 image = "hud_green"
 cell = [1, 1]
 group = "Hud_green"
+scaling = "keep"
 
 [images.hud_yellow]
 source = "solid:255,255,0,255:1x1"
@@ -850,6 +860,7 @@ source = "solid:255,255,0,255:1x1"
 image = "hud_yellow"
 cell = [1, 1]
 group = "Hud_yellow"
+scaling = "keep"
 
 [images.hud_red]
 source = "solid:255,0,0,255:1x1"
@@ -858,6 +869,7 @@ source = "solid:255,0,0,255:1x1"
 image = "hud_red"
 cell = [1, 1]
 group = "Hud_red"
+scaling = "keep"
 
 [images.hud_white]
 source = "solid:255,255,255,255:1x1"
@@ -866,6 +878,7 @@ source = "solid:255,255,255,255:1x1"
 image = "hud_white"
 cell = [1, 1]
 group = "Hud_white"
+scaling = "keep"
 
 # Title screen (menus.toml): background and the menu's dot buttons
 # (normal, hover, highlighted), feathered by a mask.
