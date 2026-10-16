@@ -250,6 +250,11 @@ impl TileRenderer {
         self.atlas = None;
         self.atlas_texture = None;
         self.sprites = None;
+        // Dropped resources are only freed once the GPU is done with them:
+        // wait for that, so the old atlas is really gone.
+        if let Err(e) = device.poll(wgpu::PollType::wait_indefinitely()) {
+            log::warn!("waiting for the GPU before a new atlas: {e}");
+        }
         let size = wgpu::Extent3d {
             width: atlas.page_size.max(atlas.pages[0].width),
             height: atlas.page_size.max(atlas.pages[0].height),

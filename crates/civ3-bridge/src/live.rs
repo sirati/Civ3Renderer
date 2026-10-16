@@ -16,6 +16,9 @@ use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, IconBuildi
 /// The viewer window's title (also how we tell it from the game's window).
 const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
 
+/// Shortest time between two art rebuilds.
+const RECOMPILE_EVERY: Duration = Duration::from_secs(2);
+
 /// How often the publisher looks at the game.
 const POLL: Duration = Duration::from_millis(33);
 
@@ -301,6 +304,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut screen_art = menu::screen::ScreenArt::default();
     let mut zoomed_out = false;
     let mut table_colors = std::collections::HashMap::new();
+    let mut art_pending = false;
+    let mut last_compile = std::time::Instant::now() - RECOMPILE_EVERY;
     let mut city_bands = std::collections::HashMap::new();
     loop {
         std::thread::sleep(POLL);
@@ -340,7 +345,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let ui = ui_trace::frame();
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
         let state = (shown, texts, ui);
-        if last.as_ref() == Some(&state) && !recompile {
+        if last.as_ref() == Some(&state) && !recompile && !art_pending {
             continue;
         }
         let (shown, texts, ui) = &state;
@@ -391,7 +396,13 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
         }
         recompile |= fonts.add(&compiler.files(&folders), texts);
-        if recompile {
+        // Rebuild the art at most every `RECOMPILE_EVERY`: a new screen asks
+        // for new art several times in a row, and each atlas is big (a 32-bit
+        // process with a software renderer runs out of memory otherwise).
+        art_pending |= recompile;
+        if art_pending && last_compile.elapsed() >= RECOMPILE_EVERY {
+            art_pending = false;
+            last_compile = std::time::Instant::now();
             match compiler.compile(&folders, &have, &fonts, &screen_art, zoomed_out) {
                 Ok((c, wire)) => {
                     presenter.set_assets(&c, &wire);
