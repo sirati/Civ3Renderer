@@ -450,7 +450,8 @@ impl Civ3 {
             return Ok(out);
         }
         // `Units` has the same shape as `Cities`; items point at the body.
-        for i in 0..=last.clamp(-1, 0xFFFF) as u32 {
+        // LastIndex is -1 for an empty list.
+        for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
             let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
             if body.is_null() {
                 continue;
@@ -503,7 +504,8 @@ impl Civ3 {
         if items.is_null() {
             return Ok(out);
         }
-        for i in 0..=last.clamp(-1, 0xFFFF) as u32 {
+        // LastIndex is -1 for an empty list.
+        for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
             // `CityItem.City` points at the city's body (as the header types
             // it), not at the `City` around it.
             let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
