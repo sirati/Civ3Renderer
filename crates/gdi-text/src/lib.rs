@@ -13,6 +13,8 @@ pub struct FontSpec {
     /// 400 normal, 700 bold.
     pub weight: i32,
     pub italic: bool,
+    /// `lfQuality`: 0 default (what the game uses), 3 non-antialiased.
+    pub quality: u8,
 }
 
 /// One rendered glyph: a 1-bit bitmap of `width × height` (cell height of
@@ -53,8 +55,16 @@ pub fn add_font_file(path: &std::path::Path) -> Result<(), GdiError> {
     }
 }
 
+/// A rendered font: its ascent (pixels from the cell top to the baseline)
+/// and glyphs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Font {
+    pub ascent: i32,
+    pub glyphs: Vec<Glyph>,
+}
+
 /// Renders `chars` one by one with `font`, aliased.
-pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<Vec<Glyph>, GdiError> {
+pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<Font, GdiError> {
     #[cfg(windows)]
     return win::render_glyphs(font, chars);
     #[cfg(not(windows))]

@@ -194,6 +194,8 @@ pub struct Trace {
     /// Sheet file names by (Map_Renderer member, element).
     pub files: HashMap<(String, u32), String>,
     pub draws: Vec<TraceDraw>,
+    /// The game's text output during the redraw.
+    pub texts: Vec<crate::text::TextRun>,
 }
 
 /// One `Sprite_draw_on_map` call the game made.
@@ -238,6 +240,7 @@ impl Trace {
                 Some("#") if f.get(1) == Some(&"civ3-bridge") && f.get(3) == Some(&"map_renderer") => {
                     t.map_renderer = n(4)? as u32;
                 }
+                Some("text") => t.texts.extend(crate::text::TextRun::parse(line)),
                 Some("scenario_folder") => t.scenario_folder = Some(f[1..].join(" ")),
                 Some("search_root") => t.search_roots.push(f[1..].join(" ")),
                 Some("view") => {

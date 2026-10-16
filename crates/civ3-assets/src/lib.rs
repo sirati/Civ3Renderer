@@ -8,6 +8,8 @@ pub mod files;
 pub mod flc;
 pub mod ini;
 #[cfg(feature = "render-desc")]
+pub mod fonts;
+#[cfg(feature = "render-desc")]
 pub mod loader;
 pub mod pcx;
 

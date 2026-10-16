@@ -45,7 +45,7 @@ impl Canvas {
             let hfont = CreateFontW(
                 -font.height, 0, 0, 0, font.weight, font.italic as u32, 0, 0,
                 DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32,
-                NONANTIALIASED_QUALITY as u32, DEFAULT_PITCH as u32, face.as_ptr(),
+                font.quality as u32, DEFAULT_PITCH as u32, face.as_ptr(),
             );
             let mut info: BITMAPINFO = std::mem::zeroed();
             info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
@@ -82,7 +82,7 @@ impl Canvas {
     }
 }
 
-pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<Vec<Glyph>, GdiError> {
+pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<crate::Font, GdiError> {
     let cell = font.height.abs() * 3;
     let mut canvas = Canvas::new(font, (cell * 2, cell))?;
     let mut metrics: TEXTMETRICW = unsafe { std::mem::zeroed() };
@@ -115,5 +115,5 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
         let ink = (0..height as i32).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| ink_at(x, y)).collect();
         out.push(Glyph { ch, left: x0 - origin, advance: size.cx, width: (x1 - x0) as u32, height, ink });
     }
-    Ok(out)
+    Ok(crate::Font { ascent: metrics.tmAscent, glyphs: out })
 }

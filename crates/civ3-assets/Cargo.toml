@@ -10,8 +10,11 @@ thiserror.workspace = true
 render-desc = { path = "../render-desc", optional = true }
 tile-render = { workspace = true, optional = true }
 toml = { version = "0.9", optional = true }
+image = { workspace = true, optional = true }
+gdi-text = { path = "../gdi-text", optional = true }
 
 [features]
 default = ["render-desc"]
-# Image loader for render descriptions (pulls in the renderer's image type).
-render-desc = ["dep:render-desc", "dep:tile-render", "dep:toml"]
+# Image loader for render descriptions (pulls in the renderer's image type),
+# including the game's text glyphs.
+render-desc = ["dep:render-desc", "dep:tile-render", "dep:toml", "dep:image", "dep:gdi-text"]

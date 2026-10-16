@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Renders the game's text font (Lucida Sans, as jgl.dll draws it with GDI)
+# into glyph sheets for the Linux-side tools: civ3-assets reads them from
+# $CIV3R_FONT_CACHE (default ~/.cache/civ3r/fonts). Inside the game the
+# glyphs are rendered directly; this is only for offline rendering.
+#
+#   tools/gen-civ3-fonts [SIZES...]      (run inside `nix develop`; uses Wine)
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+install=${CIV3_INSTALL:-/mnt/datasets/winvm/civ3-src/Civilization III Complete}
+out=${CIV3R_FONT_CACHE:-$HOME/.cache/civ3r/fonts}
+mkdir -p "$out"
+cargo build -q -p gdi-text --target x86_64-pc-windows-gnu
+exe=$repo/target/x86_64-pc-windows-gnu/debug/font-sheet.exe
+for h in "${@:-8 9 10 11 12 13 14 15 16 18 20 22 24}"; do
+  for size in $h; do
+    "$repo/tools/wine-run" "$exe" "Z:$install/LSANS.TTF" "Lucida Sans" "$size" 0 "Z:$out/Lucida_Sans-$size.png" 32 255 0 2>/dev/null | tail -1
+  done
+done

@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use civ3_assets::GameFiles;
 use ifc23::assets;
 use ifc23::scene_map::Mapper;
-use ifc23::units;
+use ifc23::{text, units};
 use ifc23::world::Trace;
 use render_desc::Compiled;
 use tile_render::reference;
@@ -47,7 +47,7 @@ fn viewport(args: &[String]) -> Result<(u32, u32), String> {
 
 /// The description compiled against the game's art (the trace's scenario
 /// folders first), with the unit art the trace's world needs.
-fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<units::UnitArt>), String> {
+fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, text::Fonts)>), String> {
     let install = std::env::var("CIV3_INSTALL")
         .unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
     let desc_path = std::env::var("CIV3_DESC")
@@ -61,16 +61,23 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<units::UnitArt>), 
     if let Some(t) = trace {
         let mut a = units::UnitArt::new(files());
         text.push_str(&units::Needed::of(&t.world, &mut a).description());
-        art = Some(a);
+        let mut fonts = text::Fonts::default();
+        // CIV3_TEXT=0: leave the game's text out.
+        if std::env::var("CIV3_TEXT").as_deref() != Ok("0") {
+            fonts.add(&files(), &t.texts);
+        }
+        text.push_str(&fonts.description());
+        art = Some((a, fonts));
     }
     Ok((assets::compile(&text, files()).map_err(|e| e.to_string())?, art))
 }
 
 /// The scene of a trace, units included.
-fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut units::UnitArt>, viewport: (u32, u32)) -> scene::Scene {
+fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::UnitArt, text::Fonts)>, viewport: (u32, u32)) -> scene::Scene {
     let mut scene = Mapper::new(compiled).scene(&trace.world, &trace.view, viewport, 0);
-    if let Some(art) = art {
+    if let Some((art, fonts)) = art {
         scene.sprites = units::sprites(&trace.world, art, compiled);
+        scene.sprites.extend(fonts.sprites(&trace.texts, compiled));
     }
     scene
 }

@@ -30,6 +30,12 @@ inproc::fastcall_hook! {
     pub mod draw_tiles(map_renderer, edx; p1, p2, p3) -> ();
 }
 
+inproc::stdcall_hook! {
+    /// GDI `TextOutA(HDC, x, y, LPCSTR, len)` as `jgl.dll` (the game's
+    /// graphics library) imports it: all of the game's text.
+    pub mod text_out(dc, x, y, text, len) -> i32;
+}
+
 /// Where `Sprite_draw_on_map` starts, and its first instructions (checked
 /// before patching). Only verified on the builds listed.
 pub fn sprite_draw_on_map_site(build: Build) -> Option<(u32, &'static [u8])> {
