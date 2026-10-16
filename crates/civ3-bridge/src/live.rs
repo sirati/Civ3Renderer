@@ -272,6 +272,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
     };
     presenter.set_assets(&compiled, &wire);
+    let compiled = Arc::new(compiled.without_pixels());
     std::thread::Builder::new()
         .name("civ3r-publish".into())
         .spawn(move || publish(game, &compiler, folders, compiled, presenter))
@@ -406,7 +407,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             match compiler.compile(&folders, &have, &fonts, &screen_art, zoomed_out) {
                 Ok((c, wire)) => {
                     presenter.set_assets(&c, &wire);
-                    compiled = c;
+                    // The viewer has the pixels; this side needs the rest only.
+                    compiled = Arc::new(c.without_pixels());
                     mapper = Mapper::new(&compiled);
                     menus = menus_of(&compiled);
                 }
