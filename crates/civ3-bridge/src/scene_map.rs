@@ -156,7 +156,8 @@ impl<'a> Mapper<'a> {
 
 /// World-space free sprites (units and their HUD) in the zoomed-out view:
 /// at half their positions, as the game draws them (§3; their art is
-/// halved by the description).
+/// halved by the description, except what stays full size: the HUD, which
+/// `units::sprites` spreads for it).
 pub fn zoom_out(sprites: &mut [scene::FreeSprite]) {
     for s in sprites.iter_mut().filter(|s| !s.screen) {
         s.x /= 2;

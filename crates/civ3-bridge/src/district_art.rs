@@ -83,9 +83,12 @@ impl DistrictArt {
         }
         for (n, s) in self.slices.iter().enumerate() {
             let ((x, y), (w, h), (dx, dy)) = (s.origin, s.size, s.offset);
+            // (C3X cuts these with the game's own sprite slicing, so they are
+            // stored cropped to their boxes like the game's own art, and a
+            // zoomed-out view samples them from there.)
             let _ = writeln!(
                 out,
-                "[sheets.district_{n}]\nimage = \"district_image_{}\"\norigin = [{x}, {y}]\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{dx}, {dy}]\ngroup = {}\n{}",
+                "[sheets.district_{n}]\nimage = \"district_image_{}\"\norigin = [{x}, {y}]\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{dx}, {dy}]\ngroup = {}\nsample_from = \"box\"\n{}",
                 index(&s.image),
                 toml_str(s.sprite().trim_end_matches("/0")),
                 if s.zoomed_out { "scaling = \"scale_keep_anchor\"\n" } else { "" }
@@ -107,6 +110,8 @@ mod tests {
         assert!(!art.add([&s]));
         let d = art.description();
         assert!(d.contains("origin = [176, 112]\ncell = [176, 112]\ngrid = [1, 1]\nanchor = [-24, -48]"));
+        // Cut by the game's slicing: sampled from the box when zoomed out.
+        assert!(d.contains("sample_from = \"box\""));
         assert!(d.contains(&format!("group = \"{}\"", s.sprite().trim_end_matches("/0"))));
     }
 }

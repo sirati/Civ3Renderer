@@ -24,6 +24,15 @@ quantize = "rgb555"
 # Palette 255 (magenta) is transparent, 254 is sheet filler (§11).
 transparent = [254, 255]
 
+[blank_loader]
+# The game keeps every sprite of the map as the box of pixels that are not palette index 255 (sprite
+# slicing, §3.1): rows and columns that only hold 254, the filler that is drawn as transparent all
+# the same, stay inside it. Sheets with sample_from = "box" find their boxes in this load of their
+# images: no per-image alpha or colour tables, only 255 blank.
+transparent = [255]
+alpha = {}
+rgba = {}
+
 # §5: base terrain, nine 9x9 sheets of 128x64 in SquareParts file order.
 
 [images.xtgc]
@@ -36,6 +45,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 0
+sample_from = "box"
 
 [images.xpgc]
 source = "Art/Terrain/xpgc.pcx"
@@ -47,6 +57,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 81
+sample_from = "box"
 
 [images.xdgc]
 source = "Art/Terrain/xdgc.pcx"
@@ -58,6 +69,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 162
+sample_from = "box"
 
 [images.xdpc]
 source = "Art/Terrain/xdpc.pcx"
@@ -69,6 +81,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 243
+sample_from = "box"
 
 [images.xdgp]
 source = "Art/Terrain/xdgp.pcx"
@@ -80,6 +93,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 324
+sample_from = "box"
 
 [images.xggc]
 source = "Art/Terrain/xggc.pcx"
@@ -91,6 +105,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 405
+sample_from = "box"
 
 [images.wCSO]
 source = "Art/Terrain/wCSO.pcx"
@@ -102,6 +117,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 486
+sample_from = "box"
 
 [images.wSSS]
 source = "Art/Terrain/wSSS.pcx"
@@ -113,6 +129,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 567
+sample_from = "box"
 
 [images.wOOO]
 source = "Art/Terrain/wOOO.pcx"
@@ -124,6 +141,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "Std_Terrain_Images"
 first_index = 648
+sample_from = "box"
 
 
 # §7: landmark terrain (Terrain_Overlays bit 29), same layout as the
@@ -139,6 +157,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 0
+sample_from = "box"
 
 [images.lxpgc]
 source = "Art/Terrain/lxpgc.pcx"
@@ -150,6 +169,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 81
+sample_from = "box"
 
 [images.lxdgc]
 source = "Art/Terrain/lxdgc.pcx"
@@ -161,6 +181,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 162
+sample_from = "box"
 
 [images.lxdpc]
 source = "Art/Terrain/lxdpc.pcx"
@@ -172,6 +193,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 243
+sample_from = "box"
 
 [images.lxdgp]
 source = "Art/Terrain/lxdgp.pcx"
@@ -183,6 +205,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 324
+sample_from = "box"
 
 [images.lxggc]
 source = "Art/Terrain/lxggc.pcx"
@@ -194,6 +217,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 405
+sample_from = "box"
 
 [images.lwCSO]
 source = "Art/Terrain/lwCSO.pcx"
@@ -205,6 +229,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 486
+sample_from = "box"
 
 [images.lwSSS]
 source = "Art/Terrain/lwSSS.pcx"
@@ -216,6 +241,7 @@ grid = [9, 9]
 anchor = [0, -32]
 group = "LM_Terrain_Images"
 first_index = 567
+sample_from = "box"
 
 [images.lwOOO]
 source = "Art/Terrain/lwOOO.pcx"
@@ -232,6 +258,7 @@ first_index = 648
 # (sheet rows 2/3) 64 px left and 32 px down.
 [images.polar]
 source = "Art/Terrain/polarICEcaps-final.pcx"
+sample_from = "box"
 
 [sheets.polar_top]
 image = "polar"
@@ -239,6 +266,7 @@ cell = [128, 64]
 grid = [8, 2]
 anchor = [-64, -64]
 group = "Polar_Icecaps_Images"
+sample_from = "box"
 
 [sheets.polar_bottom]
 image = "polar"
@@ -248,6 +276,7 @@ grid = [8, 2]
 anchor = [-64, 0]
 group = "Polar_Icecaps_Images"
 first_index = 16
+sample_from = "box"
 
 # §6.6: roads (16x16) and railroads (16x17; row 16 not decoded), drawn at
 # the tile.
@@ -259,6 +288,7 @@ image = "roads"
 cell = [128, 64]
 grid = [16, 16]
 group = "Roads_Images"
+sample_from = "box"
 
 [images.railroads]
 source = "Art/Terrain/railroads.pcx"
@@ -268,6 +298,7 @@ image = "railroads"
 cell = [128, 64]
 grid = [16, 17]
 group = "Railroads_Images"
+sample_from = "box"
 
 # §6.7: TerrainBuildings.PCX columns: fortress, camp, (barbarian camp, mine),
 # barricade; rows are eras.
@@ -279,6 +310,7 @@ image = "terrain_buildings"
 cell = [128, 64]
 grid = [1, 4]
 group = "Terrain_Buldings_Fortress"
+sample_from = "box"
 
 [sheets.mine]
 image = "terrain_buildings"
@@ -286,6 +318,7 @@ origin = [256, 64]
 cell = [128, 64]
 grid = [1, 1]
 group = "Terrain_Buldings_Mines"
+sample_from = "box"
 
 [sheets.barricade]
 image = "terrain_buildings"
@@ -293,6 +326,7 @@ origin = [384, 0]
 cell = [128, 64]
 grid = [1, 4]
 group = "Terrain_Buldings_Barricade"
+sample_from = "box"
 
 [sheets.barbarian_camp]
 image = "terrain_buildings"
@@ -300,6 +334,7 @@ origin = [256, 0]
 cell = [128, 64]
 grid = [1, 1]
 group = "Terrain_Buldings_Barbarian_Camp"
+sample_from = "box"
 
 [images.goody_huts]
 source = "Art/Terrain/goodyhuts.pcx"
@@ -310,6 +345,7 @@ cell = [128, 64]
 grid = [3, 3]
 only = [0, 1, 2, 3, 4, 5, 6, 7]
 group = "Goody_Huts_Images"
+sample_from = "box"
 
 # Pollution and craters: 5x5 cells, index = mask of linked diagonal
 # neighbours (NW, NE, SE, SW) + 9, else random 0..9 (§6.7b).
@@ -321,6 +357,7 @@ image = "pollution"
 cell = [128, 64]
 grid = [5, 5]
 group = "Pollution"
+sample_from = "box"
 
 [images.craters]
 source = "Art/Terrain/craters.pcx"
@@ -330,6 +367,7 @@ image = "craters"
 cell = [128, 64]
 grid = [5, 5]
 group = "Craters"
+sample_from = "box"
 
 [images.airfields]
 source = "Art/Terrain/x_airfields and detect.PCX"
@@ -339,6 +377,7 @@ image = "airfields"
 cell = [128, 64]
 grid = [2, 1]
 group = "Terrain_Buldings_Airfields"
+sample_from = "box"
 
 # Shadows: a translucency ramp drawn through the game's blend table, as
 # resource shadows are (index 248..251 darken to 8..14/16).
@@ -351,6 +390,7 @@ image = "airfields_shadow"
 cell = [128, 64]
 grid = [2, 1]
 group = "Terrain_Buldings_Airfields_Shadow"
+sample_from = "box"
 
 # §6.7b: ruins (DESTROY.PCX: three 166x95 sprites in 167-wide cells,
 # centred like cities), colonies (TerrainBuildings column 1, rows = era),
@@ -367,6 +407,7 @@ grid = [1, 1]
 anchor = [-19, -15]
 group = "Ruins"
 first_index = 0
+sample_from = "box"
 
 [sheets.ruins_1]
 image = "ruins"
@@ -376,6 +417,7 @@ grid = [1, 1]
 anchor = [-19, -15]
 group = "Ruins"
 first_index = 1
+sample_from = "box"
 
 [sheets.ruins_2]
 image = "ruins"
@@ -385,6 +427,7 @@ grid = [1, 1]
 anchor = [-19, -15]
 group = "Ruins"
 first_index = 2
+sample_from = "box"
 
 [sheets.colony]
 image = "terrain_buildings"
@@ -392,6 +435,7 @@ origin = [128, 0]
 cell = [128, 64]
 grid = [1, 4]
 group = "Terrain_Buldings_Camp"
+sample_from = "box"
 
 [sheets.outposts]
 image = "airfields"
@@ -400,6 +444,7 @@ cell = [128, 128]
 grid = [3, 1]
 anchor = [0, -64]
 group = "Terrain_Buldings_Outposts"
+sample_from = "box"
 
 [sheets.outposts_shadow]
 image = "airfields_shadow"
@@ -408,6 +453,7 @@ cell = [128, 128]
 grid = [3, 1]
 anchor = [0, -64]
 group = "Terrain_Buldings_Outposts_Shadow"
+sample_from = "box"
 
 [sheets.radar]
 image = "airfields"
@@ -416,6 +462,7 @@ cell = [128, 128]
 grid = [1, 1]
 anchor = [0, -64]
 group = "Terrain_Buldings_Radar"
+sample_from = "box"
 
 [sheets.radar_shadow]
 image = "airfields_shadow"
@@ -424,13 +471,17 @@ cell = [128, 128]
 grid = [1, 1]
 anchor = [0, -64]
 group = "Terrain_Buldings_Radar_Shadow"
+sample_from = "box"
 
 # §6.9: territory borders, in the owner's colours: palette entries 64/65
 # come from its ntpNN.pcx; 1 is transparent; 249/252 darken to 10/16 and
-# 13/16 (measured), drawn as a separate "shade" layer.
+# 13/16 (measured), drawn as a separate "shade" layer. The game turns the
+# file's pixels 0 and 1 into 255 before it cuts the sprites (0x4C6ABA,
+# 0x4C6ACA), so those are blank as well when it crops them to their boxes.
 [images.territory]
 source = "Art/Terrain/Territory.pcx"
-transparent = [1, 249, 252, 254, 255]
+transparent = [0, 1, 249, 252, 254, 255]
+blank = { transparent = [0, 1, 255] }
 palette = "Art/Units/Palettes/ntp{v:02}.pcx"
 palette_range = [64, 2]
 variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
@@ -442,10 +493,12 @@ grid = [2, 4]
 anchor = [0, -8]
 group = "Territory_Images@{v}"
 variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+sample_from = "box"
 
 [images.territory_shade]
 source = "Art/Terrain/Territory.pcx"
-transparent = [1, 64, 65, 254, 255]
+transparent = [0, 1, 64, 65, 254, 255]
+blank = { transparent = [0, 1, 255] }
 rgba = { 249 = [10, 0, 0, 255], 252 = [13, 0, 0, 255] }
 
 [sheets.territory_shade]
@@ -454,6 +507,7 @@ cell = [128, 72]
 grid = [2, 4]
 anchor = [0, -8]
 group = "Territory_Shade"
+sample_from = "box"
 
 # §8: cities, Art/Cities/r<culture>.PCX: columns = size class (town,
 # city, metropolis), rows = era; *WALL.PCX: walled towns. 166x95 sprites in
@@ -473,6 +527,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 0
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_amer_1]
 image = "city_amer"
@@ -483,6 +538,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 20
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_amer_2]
 image = "city_amer"
@@ -493,6 +549,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 40
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_amer_wall]
 image = "city_amer_wall"
@@ -502,6 +559,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 60
 index_stride = 5
+sample_from = "box"
 
 [images.city_euro]
 source = "Art/Cities/rEURO.PCX"
@@ -518,6 +576,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 1
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_euro_1]
 image = "city_euro"
@@ -528,6 +587,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 21
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_euro_2]
 image = "city_euro"
@@ -538,6 +598,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 41
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_euro_wall]
 image = "city_euro_wall"
@@ -547,6 +608,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 61
 index_stride = 5
+sample_from = "box"
 
 [images.city_roman]
 source = "Art/Cities/rROMAN.PCX"
@@ -563,6 +625,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 2
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_roman_1]
 image = "city_roman"
@@ -573,6 +636,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 22
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_roman_2]
 image = "city_roman"
@@ -583,6 +647,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 42
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_roman_wall]
 image = "city_roman_wall"
@@ -592,6 +657,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 62
 index_stride = 5
+sample_from = "box"
 
 [images.city_mideast]
 source = "Art/Cities/rMIDEAST.PCX"
@@ -608,6 +674,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 3
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_mideast_1]
 image = "city_mideast"
@@ -618,6 +685,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 23
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_mideast_2]
 image = "city_mideast"
@@ -628,6 +696,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 43
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_mideast_wall]
 image = "city_mideast_wall"
@@ -637,6 +706,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 63
 index_stride = 5
+sample_from = "box"
 
 [images.city_asian]
 source = "Art/Cities/rASIAN.PCX"
@@ -653,6 +723,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 4
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_asian_1]
 image = "city_asian"
@@ -663,6 +734,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 24
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_asian_2]
 image = "city_asian"
@@ -673,6 +745,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 44
 index_stride = 5
+sample_from = "box"
 
 [sheets.city_asian_wall]
 image = "city_asian_wall"
@@ -682,6 +755,7 @@ anchor = [-19, -15]
 group = "City_Images"
 first_index = 64
 index_stride = 5
+sample_from = "box"
 
 [images.victory]
 source = "Art/Terrain/x_victory.pcx"
@@ -691,6 +765,7 @@ image = "victory"
 cell = [128, 64]
 grid = [1, 1]
 group = "Victory_Image"
+sample_from = "box"
 
 # §10.8: harbour, airport and barracks icons beside cities (25x17 cells,
 # transparent border; drawn at the cell's top-left).
@@ -731,15 +806,22 @@ palette_range = [0, 0]
 palette_map = { 247 = 66 }
 variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
+# Zoomed out the game draws another sprite: the cell at (259, 90) holds a filled
+# ellipse (848 pixels of index 247 against the ring's 308), drawn at half size
+# like everything else (0x5CBF57..0x5CBFAD: sprite 0xB3F290 instead of 0xB3F2BC,
+# both cut with the box rule, §3.1).
 [sheets.team_disc]
 image = "team_disc@{v}"
 origin = [259, 155]
+scaled_origin = [259, 90]
 cell = [128, 64]
 grid = [1, 1]
 group = "TeamDisc@{v}"
+sample_from = "box"
 variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
-# Movement LED: green, yellow, red.
+# Movement LED: green, yellow, red. The unit HUD (this and the bar below) is drawn
+# at full size zoomed out too, only 16 px instead of 32 px from the unit (§10.2).
 [images.movement_led]
 source = "Art/interface/MovementLED.pcx"
 transparent = [255]
@@ -751,6 +833,7 @@ cell = [6, 6]
 spacing = [8, 0]
 grid = [3, 1]
 group = "MovementLED"
+scaling = "keep"
 
 [images.hud_black]
 source = "solid:0,0,0,255:1x1"
@@ -759,6 +842,7 @@ source = "solid:0,0,0,255:1x1"
 image = "hud_black"
 cell = [1, 1]
 group = "Hud_black"
+scaling = "keep"
 
 [images.hud_green]
 source = "solid:0,255,0,255:1x1"
@@ -767,6 +851,7 @@ source = "solid:0,255,0,255:1x1"
 image = "hud_green"
 cell = [1, 1]
 group = "Hud_green"
+scaling = "keep"
 
 [images.hud_yellow]
 source = "solid:255,255,0,255:1x1"
@@ -775,6 +860,7 @@ source = "solid:255,255,0,255:1x1"
 image = "hud_yellow"
 cell = [1, 1]
 group = "Hud_yellow"
+scaling = "keep"
 
 [images.hud_red]
 source = "solid:255,0,0,255:1x1"
@@ -783,6 +869,7 @@ source = "solid:255,0,0,255:1x1"
 image = "hud_red"
 cell = [1, 1]
 group = "Hud_red"
+scaling = "keep"
 
 [images.hud_white]
 source = "solid:255,255,255,255:1x1"
@@ -791,6 +878,7 @@ source = "solid:255,255,255,255:1x1"
 image = "hud_white"
 cell = [1, 1]
 group = "Hud_white"
+scaling = "keep"
 
 # Title screen (menus.toml): background and the menu's dot buttons
 # (normal, hover, highlighted), feathered by a mask.
@@ -829,6 +917,7 @@ anchor = [0, -32]
 group = "Delta_Rivers_Images"
 first_index = 0
 index_stride = 2
+sample_from = "box"
 
 [images.mtnRivers]
 source = "Art/Terrain/mtnRivers.pcx"
@@ -841,6 +930,7 @@ anchor = [0, -32]
 group = "Delta_Rivers_Images"
 first_index = 1
 index_stride = 2
+sample_from = "box"
 
 [images.floodplains]
 source = "Art/Terrain/floodplains.pcx"
@@ -852,6 +942,7 @@ grid = [4, 4]
 anchor = [0, -32]
 group = "Flood_Plains_Images"
 first_index = 0
+sample_from = "box"
 
 # §6.1: mountains, volcanoes (128x88, 24 px up) and hills (128x72, 8 px up),
 # index kind·16 + neighbour mask.
@@ -866,6 +957,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Mountains_Images"
 first_index = 0
+sample_from = "box"
 
 [images.mtn1]
 source = "Art/Terrain/mountain forests.pcx"
@@ -877,6 +969,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Mountains_Images"
 first_index = 16
+sample_from = "box"
 
 [images.mtn2]
 source = "Art/Terrain/mountain jungles.pcx"
@@ -888,6 +981,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Mountains_Images"
 first_index = 32
+sample_from = "box"
 
 [images.mtn3]
 source = "Art/Terrain/Mountains-snow.pcx"
@@ -899,6 +993,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Mountains_Images"
 first_index = 48
+sample_from = "box"
 
 [images.vol0]
 source = "Art/Terrain/Volcanos.pcx"
@@ -910,6 +1005,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Volcanos_Images"
 first_index = 0
+sample_from = "box"
 
 [images.vol1]
 source = "Art/Terrain/Volcanos forests.pcx"
@@ -921,6 +1017,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Volcanos_Images"
 first_index = 16
+sample_from = "box"
 
 [images.vol2]
 source = "Art/Terrain/Volcanos jungles.pcx"
@@ -932,6 +1029,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Volcanos_Images"
 first_index = 32
+sample_from = "box"
 
 [images.vol3]
 source = "Art/Terrain/Volcanos-snow.pcx"
@@ -943,6 +1041,7 @@ grid = [4, 4]
 anchor = [0, -24]
 group = "Volcanos_Images"
 first_index = 48
+sample_from = "box"
 
 [images.hill0]
 source = "Art/Terrain/xhills.pcx"
@@ -954,6 +1053,7 @@ grid = [4, 4]
 anchor = [0, -8]
 group = "Hills_Images"
 first_index = 0
+sample_from = "box"
 
 [images.hill1]
 source = "Art/Terrain/hill forests.pcx"
@@ -965,6 +1065,7 @@ grid = [4, 4]
 anchor = [0, -8]
 group = "Hills_Images"
 first_index = 16
+sample_from = "box"
 
 [images.hill2]
 source = "Art/Terrain/hill jungle.pcx"
@@ -976,6 +1077,7 @@ grid = [4, 4]
 anchor = [0, -8]
 group = "Hills_Images"
 first_index = 32
+sample_from = "box"
 
 
 # §7: landmark mountains and hills (by neighbour mask only) and forests.
@@ -988,6 +1090,7 @@ cell = [128, 88]
 grid = [4, 4]
 anchor = [0, -24]
 group = "LM_Mountains_Images"
+sample_from = "box"
 
 [images.lm_hills]
 source = "Art/Terrain/LMHills.pcx"
@@ -998,6 +1101,7 @@ cell = [128, 72]
 grid = [4, 4]
 anchor = [0, -8]
 group = "LM_Hills_Images"
+sample_from = "box"
 
 [images.lm_forests]
 source = "Art/Terrain/LMForests.pcx"
@@ -1010,6 +1114,7 @@ anchor = [0, -12]
 scaling = "scale_keep_anchor"
 group = "LM_Forests_Large_Images"
 origin = [0, 0]
+sample_from = "box"
 
 [sheets.LM_Forests_Small]
 image = "lm_forests"
@@ -1019,6 +1124,7 @@ anchor = [0, -12]
 scaling = "scale_keep_anchor"
 group = "LM_Forests_Small_Images"
 origin = [0, 176]
+sample_from = "box"
 
 [sheets.LM_Forests_Pines]
 image = "lm_forests"
@@ -1029,6 +1135,7 @@ scaling = "scale_keep_anchor"
 group = "LM_Forests_Pines_Images"
 origin = [0, 352]
 # §6.3: irrigation, index kind·16 + mask (desert, plains, grassland, tundra).
+sample_from = "box"
 
 [images.irr0]
 source = "Art/Terrain/irrigation DESETT.pcx"
@@ -1040,6 +1147,7 @@ grid = [4, 4]
 anchor = [0, 0]
 group = "Irrigation_Desert_Images"
 first_index = 0
+sample_from = "box"
 
 [images.irr1]
 source = "Art/Terrain/irrigation PLAINS.pcx"
@@ -1051,6 +1159,7 @@ grid = [4, 4]
 anchor = [0, 0]
 group = "Irrigation_Desert_Images"
 first_index = 16
+sample_from = "box"
 
 [images.irr2]
 source = "Art/Terrain/irrigation.pcx"
@@ -1062,6 +1171,7 @@ grid = [4, 4]
 anchor = [0, 0]
 group = "Irrigation_Desert_Images"
 first_index = 32
+sample_from = "box"
 
 [images.irr3]
 source = "Art/Terrain/irrigation TUNDRA.pcx"
@@ -1073,6 +1183,7 @@ grid = [4, 4]
 anchor = [0, 0]
 group = "Irrigation_Desert_Images"
 first_index = 48
+sample_from = "box"
 
 # §6.2: forests, jungles, swamps: 128x88 blocks, 12 px up (also zoomed
 # out, §3).
@@ -1089,6 +1200,7 @@ scaling = "scale_keep_anchor"
 group = "Grassland_Jungles_Large"
 first_index = 0
 origin = [0, 0]
+sample_from = "box"
 
 [sheets.Grassland_Jungles_Small]
 image = "grassland_forests"
@@ -1099,6 +1211,7 @@ scaling = "scale_keep_anchor"
 group = "Grassland_Jungles_Small"
 first_index = 0
 origin = [0, 176]
+sample_from = "box"
 
 [sheets.Grassland_Forests_Large]
 image = "grassland_forests"
@@ -1109,6 +1222,7 @@ scaling = "scale_keep_anchor"
 group = "Grassland_Forests_Large"
 first_index = 0
 origin = [0, 352]
+sample_from = "box"
 
 [sheets.Grassland_Forests_Small]
 image = "grassland_forests"
@@ -1119,6 +1233,7 @@ scaling = "scale_keep_anchor"
 group = "Grassland_Forests_Small"
 first_index = 0
 origin = [0, 528]
+sample_from = "box"
 
 [sheets.Grassland_Forests_Pines]
 image = "grassland_forests"
@@ -1129,6 +1244,7 @@ scaling = "scale_keep_anchor"
 group = "Grassland_Forests_Pines"
 first_index = 0
 origin = [0, 704]
+sample_from = "box"
 
 [images.plains_forests]
 source = "Art/Terrain/plains forests.pcx"
@@ -1142,6 +1258,7 @@ scaling = "scale_keep_anchor"
 group = "Plains_Forests_Large"
 first_index = 0
 origin = [0, 352]
+sample_from = "box"
 
 [sheets.Plains_Forests_Small]
 image = "plains_forests"
@@ -1152,6 +1269,7 @@ scaling = "scale_keep_anchor"
 group = "Plains_Forests_Small"
 first_index = 0
 origin = [0, 528]
+sample_from = "box"
 
 [sheets.Plains_Forests_Pines]
 image = "plains_forests"
@@ -1162,6 +1280,7 @@ scaling = "scale_keep_anchor"
 group = "Plains_Forests_Pines"
 first_index = 0
 origin = [0, 704]
+sample_from = "box"
 
 [images.tundra_forests]
 source = "Art/Terrain/tundra forests.pcx"
@@ -1175,6 +1294,7 @@ scaling = "scale_keep_anchor"
 group = "Tundra_Forests_Large"
 first_index = 0
 origin = [0, 352]
+sample_from = "box"
 
 [sheets.Tundra_Forests_Small]
 image = "tundra_forests"
@@ -1185,6 +1305,7 @@ scaling = "scale_keep_anchor"
 group = "Tundra_Forests_Small"
 first_index = 0
 origin = [0, 528]
+sample_from = "box"
 
 [sheets.Tundra_Forests_Pines]
 image = "tundra_forests"
@@ -1195,6 +1316,7 @@ scaling = "scale_keep_anchor"
 group = "Tundra_Forests_Pines"
 first_index = 0
 origin = [0, 704]
+sample_from = "box"
 
 [images.marsh]
 source = "Art/Terrain/marsh.pcx"
@@ -1208,6 +1330,7 @@ scaling = "scale_keep_anchor"
 group = "Marsh_Large"
 first_index = 0
 origin = [0, 0]
+sample_from = "box"
 
 [sheets.Marsh_Small]
 image = "marsh"
@@ -1218,6 +1341,7 @@ scaling = "scale_keep_anchor"
 group = "Marsh_Small"
 first_index = 0
 origin = [0, 176]
+sample_from = "box"
 
 # §6.7: ground decorations on bonus grassland (row = terrain, 3 variants).
 
@@ -1234,6 +1358,7 @@ cell = [128, 64]
 grid = [3, 1]
 group = "Tnt_Images"
 first_index = 0
+sample_from = "box"
 
 [sheets.tnt_row5]
 image = "tnt"
@@ -1242,6 +1367,7 @@ cell = [128, 64]
 grid = [3, 1]
 group = "Tnt_Images"
 first_index = 3
+sample_from = "box"
 
 [sheets.tnt_row0]
 image = "tnt"
@@ -1250,6 +1376,7 @@ cell = [128, 64]
 grid = [3, 1]
 group = "Tnt_Images"
 first_index = 6
+sample_from = "box"
 
 [sheets.tnt_row1]
 image = "tnt"
@@ -1258,6 +1385,7 @@ cell = [128, 64]
 grid = [3, 1]
 group = "Tnt_Images"
 first_index = 9
+sample_from = "box"
 
 [sheets.tnt_row2]
 image = "tnt"
@@ -1266,6 +1394,7 @@ cell = [128, 64]
 grid = [3, 1]
 group = "Tnt_Images"
 first_index = 12
+sample_from = "box"
 
 [sheets.tnt_row4]
 image = "tnt"
@@ -1274,22 +1403,27 @@ cell = [128, 64]
 grid = [3, 1]
 group = "Tnt_Images"
 first_index = 15
+sample_from = "box"
 
 # §6.7: resources, 49x49 cells at (1 + 50c, 1 + 50r), drawn at (+40, +8);
-# the shadow first. Shadow sheet indices 248..251 are a translucency ramp.
+# the shadow first. The game cuts an odd width down to the even number below
+# (0x5F7EFF..0x5F7F08: its sprites are 48x49, traces "Resources 48 49"), so the cells
+# here are 48 wide with 2 pixels between them. Shadow sheet indices 248..251
+# are a translucency ramp.
 
 [images.resources]
 source = "Art/resources.pcx"
 
 [sheets.resources]
 image = "resources"
-cell = [49, 49]
+cell = [48, 49]
 grid = [6, 6]
 anchor = [40, 8]
 group = "Resources"
 first_index = 0
 origin = [1, 1]
-spacing = [1, 1]
+spacing = [2, 1]
+sample_from = "box"
 
 # Indices 248..251 darken what is below to 8/16 .. 14/16 (measured).
 [images.resources_shadows]
@@ -1298,13 +1432,14 @@ rgba = { 248 = [8, 0, 0, 255], 249 = [10, 0, 0, 255], 250 = [12, 0, 0, 255], 251
 
 [sheets.resources_shadows]
 image = "resources_shadows"
-cell = [49, 49]
+cell = [48, 49]
 grid = [6, 6]
 anchor = [40, 8]
 group = "ResourcesShadows"
 first_index = 0
 origin = [1, 1]
-spacing = [1, 1]
+spacing = [2, 1]
+sample_from = "box"
 
 # §6.8: fog of war, per vertex. The sheet's palette is a grey ramp; the game
 # darkens what is below by index/16 in RGB555 (measured), so the red channel
@@ -1319,6 +1454,7 @@ cell = [128, 64]
 grid = [9, 9]
 anchor = [0, -32]
 group = "Fog_Of_War_Images"
+sample_from = "box"
 
 # The viewer's markers (tile-viewer: `Viewer@cursor`, `Viewer@arrow`): the world
 # cursor of views following the mouse, and the arrow over the active unit

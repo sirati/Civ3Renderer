@@ -320,7 +320,10 @@ pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
 }
 
 /// `rings`: second rings around foreign units (`crate::rings`).
-pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>) -> Vec<scene::FreeSprite> {
+/// `zoomed_out`: the positions are those `scene_map::zoom_out` halves; the
+/// HUD is not drawn smaller there, so its pieces keep their distances from
+/// its origin by being placed twice as far from it here.
+pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>, zoomed_out: bool) -> Vec<scene::FreeSprite> {
     let mut out = Vec::new();
     for u in world.units.iter().filter(|u| u.visible) {
         let (x, y) = u.pixel;
@@ -385,7 +388,7 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings:
             }
             None => body(u, Recolor::civ(colors(world, u.civ)), (x, y), true),
         }
-        for (name, at) in hud(world, u, (mx, my)) {
+        for (name, at) in hud(world, u, (mx, my), if zoomed_out { 2 } else { 1 }) {
             put(name, at, 0);
         }
     }
@@ -394,8 +397,22 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings:
 
 /// §10.6: health bar, movement LED and stack lines of a unit, as 1×1
 /// colour pixels and LED sprites at world positions.
-/// `anchor`: where it is drawn (an army's HUD sits at its member).
-fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<(&'static str, (i32, i32))> {
+/// `anchor`: where it is drawn (an army's HUD sits at its member). `spread`:
+/// the factor the pieces' distances from the HUD's origin are multiplied by
+/// (2 where positions are halved afterwards and the HUD keeps its size).
+fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32), spread: i32) -> Vec<(&'static str, (i32, i32))> {
+    let mut out = hud_pieces(world, u, anchor);
+    let origin = (anchor.0 - 32, anchor.1 - 32);
+    if spread != 1 {
+        for (_, (x, y)) in &mut out {
+            *x = origin.0 + spread * (*x - origin.0);
+            *y = origin.1 + spread * (*y - origin.1);
+        }
+    }
+    out
+}
+
+fn hud_pieces(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<(&'static str, (i32, i32))> {
     let mut out = Vec::new();
     let Some(&[attack, defence, movement, hp_bonus, class, _]) = world.unit_type_stats.get(u.unit_type.max(0) as usize) else {
         return out;
@@ -471,4 +488,34 @@ fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<(&'static str
 fn chunk(file: &AnimFile, u: &Civ3Unit) -> u32 {
     let block = DIRECTION_BLOCK.get(u.direction.max(0) as usize).copied().unwrap_or(2);
     (block * (file.frames_per_direction + 1) + u.frame.max(0) as u32).min(file.chunks.saturating_sub(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One unit type (attack 1, defence 1, one move) and one experience level
+    /// (3 hit points).
+    fn world() -> Civ3World {
+        Civ3World { unit_type_stats: vec![[1, 1, 1, 0, 0, 0]], experience_hit_points: vec![3], ..Default::default() }
+    }
+
+    #[test]
+    fn a_zoomed_out_hud_keeps_its_size_at_half_the_distance() {
+        // Zoomed out the sprites' positions are halved afterwards, but the
+        // HUD is not drawn smaller: its pieces are 16 px from the unit's
+        // half-scale anchor, at the distances they have 32 px from the
+        // anchor at full scale.
+        let (world, unit) = (world(), Civ3Unit::default());
+        let anchor = (200, 100);
+        let full = hud(&world, &unit, anchor, 1);
+        let spread = hud(&world, &unit, anchor, 2);
+        assert!(full.len() > 4);
+        assert_eq!(full.len(), spread.len());
+        let origin = (anchor.0 - 32, anchor.1 - 32);
+        for ((name, (x, y)), (spread_name, (sx, sy))) in full.into_iter().zip(spread) {
+            assert_eq!(name, spread_name);
+            assert_eq!((sx / 2, sy / 2), (origin.0 / 2 + x - origin.0, origin.1 / 2 + y - origin.1), "{name} at ({x}, {y})");
+        }
+    }
 }

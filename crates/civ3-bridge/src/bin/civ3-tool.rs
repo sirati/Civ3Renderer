@@ -10,7 +10,10 @@
 //!       renders the trace's world and compares it with a screenshot of the
 //!       game taken at the same moment, ignoring the screen rectangles of
 //!       game draws we do not model (units, cities, borders); DIFF.png shows
-//!       differing pixels in magenta and ignored areas darkened
+//!       differing pixels in magenta (violet under our own unit, label and
+//!       interface sprites) and ignored areas darkened. A second
+//!       line gives the share for the terrain alone: the pixels none of our
+//!       unit, label or interface sprites covers
 //!
 //! Environment: CIV3_INSTALL (game folder), CIV3_DESC (render description,
 //! default assets/civ3/civ3.toml).
@@ -112,7 +115,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         if ui.is_none() {
             scene.sprites = city_site::sprites(&trace.world, compiled);
         }
-        scene.sprites.extend(units::sprites(&trace.world, art, compiled, None));
+        scene.sprites.extend(units::sprites(&trace.world, art, compiled, None, trace.view.zoomed_out));
         match &ui {
             // The mirrored interface has the city icons and all text.
             Some(frame) => {
@@ -328,6 +331,16 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     let config = tile_viewer::ViewerConfig { overhang: (0, 128, 0, 128), ..Default::default() };
     let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, viewport, &config);
+    // The map alone: the pixels no unit, label or interface sprite of ours
+    // covers are the terrain's (layers of the world: terrain, objects,
+    // cities, districts, fog of war).
+    let terrain_of = {
+        let mut bare = scene.clone();
+        bare.sprites.clear();
+        bare.patches.clear();
+        bare.views.iter_mut().for_each(|v| v.overlay.clear());
+        tile_viewer::render_offscreen(&gpu, &compiled, &bare, viewport, &config)
+    };
 
     // Pixels the game drew with sprites we do not model.
     let groups: HashSet<&str> = compiled.sprite_names.iter().filter_map(|n| n.split_once(['/', '@']).map(|(g, _)| g)).collect();
@@ -352,6 +365,7 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
         }
     }
     let (mut same, mut compared) = (0u64, 0u64);
+    let (mut terrain_same, mut terrain_compared) = (0u64, 0u64);
     let mut diff = game.clone();
     for y in 0..h {
         for x in 0..w {
@@ -363,10 +377,15 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
             }
             compared += 1;
             let o = ours.get(x, y);
+            let terrain = o == terrain_of.get(x, y);
+            terrain_compared += terrain as u64;
             if g[..3] == o[..3] {
                 same += 1;
+                terrain_same += terrain as u64;
             } else {
-                diff.put_pixel(x, y, image::Rgba([255, 0, 255, 255]));
+                // Magenta where the terrain differs, violet under our unit,
+                // label and interface sprites.
+                diff.put_pixel(x, y, image::Rgba(if terrain { [255, 0, 255, 255] } else { [100, 0, 255, 255] }));
             }
         }
     }
@@ -377,6 +396,11 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
         if unsized_draws > 0 { format!(", {unsized_draws} unmodelled draws without size not masked") } else { String::new() },
         100.0 * same as f64 / compared.max(1) as f64,
         compared - same
+    );
+    println!(
+        "terrain (the {terrain_compared} of them no unit, label or interface sprite of ours covers): {:.3}% identical, {} differ",
+        100.0 * terrain_same as f64 / terrain_compared.max(1) as f64,
+        terrain_compared - terrain_same
     );
     if let Some(path) = out {
         diff.save(path).map_err(|e| e.to_string())?;
