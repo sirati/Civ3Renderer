@@ -415,7 +415,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 recompile = true;
             }
         }
-        recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files);
+        recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, input.view_zoom());
         // The zoomed-out view has its own (half-size) art.
         if let Shown::Map(_, view) = shown {
             if view.zoomed_out != zoomed_out {
@@ -483,7 +483,11 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
-        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled)));
+        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), input.view_zoom()));
+        // The zoom the labels' zoomed text is made for.
+        if let Some(v) = scene.views.iter_mut().find(|v| v.id == crate::scene_map::GAME_VIEW) {
+            v.view.zoom = input.view_zoom();
+        }
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {
@@ -510,11 +514,19 @@ struct InputForwarder {
     clicks: inproc::window::DoubleClicks,
     /// A world pixel the viewer asked to see (`Input::Look`), not yet acted on.
     look: Option<(i32, i32)>,
+    /// The zoom the viewer shows the game's map at (`Input::ViewZoom`; 0/0:
+    /// not told, 1:1).
+    zoom: (u32, u32),
     /// The viewer's size, as it last reported.
     viewport: (u32, u32),
 }
 
 impl InputForwarder {
+    /// The zoom the viewer shows the game's map at.
+    fn view_zoom(&self) -> (u32, u32) {
+        if self.zoom.0 == 0 { (1, 1) } else { self.zoom }
+    }
+
     /// A left click at client position `p`.
     fn click(&mut self, (x, y): (i32, i32)) {
         use inproc::window::{Buttons, MouseButton};
@@ -586,6 +598,7 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
             Input::Resized { width, height } => forwarder.viewport = (width, height),
             Input::Quit => {}
             Input::Look { x, y } => forwarder.look = Some((x, y)),
+            Input::ViewZoom { num, den } => forwarder.zoom = (num, den.max(1)),
         }
     }
 }

@@ -83,6 +83,11 @@ impl Fonts {
         added
     }
 
+    /// Whether the font of `run` is loaded.
+    pub fn has(&self, run: &TextRun) -> bool {
+        self.fonts.get(&key(run)).is_some_and(Option::is_some)
+    }
+
     fn index(&self, key: &FontKey) -> Option<usize> {
         self.fonts.keys().position(|k| k == key)
     }
@@ -164,6 +169,7 @@ impl Fonts {
                     ticks_per_frame: 1,
                     scale_den: blend.scale_den(),
                     tint: blend.tint(),
+                    zoom_art: 0,
                     clip,
                 });
             }

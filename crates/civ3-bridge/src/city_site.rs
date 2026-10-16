@@ -142,6 +142,7 @@ pub fn sprites(world: &Civ3World, compiled: &Compiled) -> Vec<scene::FreeSprite>
                 ticks_per_frame: 1,
                 scale_den: 0,
                 tint: 0,
+                zoom_art: 0,
                 clip: None,
             })
         })
