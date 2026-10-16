@@ -347,6 +347,22 @@ impl TileRenderer {
         }
     }
 
+    /// Re-uploads only the free sprites of an already uploaded world whose
+    /// cells did not change (e.g. markers moving every frame).
+    pub fn update_free(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
+        let (free, free_after) = free_sprites(world);
+        let bytes: &[u8] = bytemuck::cast_slice(&free);
+        let Some(w) = &mut self.world else { return self.set_world(device, world) };
+        if w.free.size() >= bytes.len() as u64 {
+            queue.write_buffer(&w.free, 0, bytes);
+            w.free_after = free_after;
+            return;
+        }
+        w.free = storage(device, "tile-render free sprites", bytes);
+        w.free_after = free_after;
+        self.rebuild_bind_group(device);
+    }
+
     fn rebuild_bind_group(&mut self, device: &wgpu::Device) {
         self.bind_group = None;
         let (Some(atlas), Some(sprites), Some(world)) = (&self.atlas, &self.sprites, &self.world) else { return };
