@@ -17,6 +17,7 @@ const OPAQUE: &str = "transparent = []";
 
 /// One thing to draw, in order; `true`: part of an underlay (drawn under
 /// the fog of war, see [`sprites`]).
+#[derive(Clone, Debug)]
 pub enum Item {
     Element(Element, bool),
     Text(TextRun, [i32; 4], bool),
@@ -190,10 +191,10 @@ pub fn minimap_patches(
     let mut done = Vec::new();
     for i in items {
         let Item::Element(Element::Dynamic { name, size, .. }, _) = i else { continue };
-        if name != "minimap" || done.contains(size) {
+        if !name.starts_with("minimap") || done.contains(&(name.clone(), *size)) {
             continue;
         }
-        done.push(*size);
+        done.push((name.clone(), *size));
         let colors: Vec<u16> = (0..32)
             .map(|civ| crate::minimap::from_rgb(table_color(world.color_tables.get(civ).copied().unwrap_or(0))))
             .collect();
@@ -251,6 +252,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lines_are_made_of_power_of_two_pieces() {
+        assert_eq!(pieces(13), [(0, 8), (8, 4), (12, 1)]);
+        assert_eq!(pieces(0), []);
+    }
+
+    #[test]
     fn paths_become_relative_to_their_root() {
         let roots = [PathBuf::from("C:\\Games\\Civ3\\Conquests"), PathBuf::from("C:\\Games\\Civ3")];
         assert_eq!(relative_path("C:\\Games\\Civ3\\Conquests\\Art\\Advisors\\a.pcx", &roots), "Art/Advisors/a.pcx");
@@ -275,4 +282,41 @@ pub fn minimap_point(items: &[Item], world: &crate::world::Civ3World, tile: (i32
         let clipped = sx < clip[0] || sy < clip[1] || sx >= clip[2] || sy >= clip[3];
         (shown && !clipped).then_some((sx, sy))
     })
+}
+
+/// Marks `views` (world pixel rectangles x, y, w, h, the renderer's own
+/// views) on the interface's minimap like the game marks its own view
+/// (§17.7: their tile range as one-pixel lines), in `color`: fills right
+/// after the minimap's picture (under its frame), made of power-of-two
+/// pieces so their art stays the same as the views move.
+pub fn mark_views(items: &mut Vec<Item>, world: &crate::world::Civ3World, views: &[(i32, i32, i32, i32)], zoomed_out: bool, color: [u8; 3]) {
+    let Some(at) = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap")) else { return };
+    let Item::Element(Element::Dynamic { size, rect: [rx, ry, _, _], at: (x, y), clip, .. }, under) = items[at].clone() else { return };
+    // A tile's footprint starts at (64·x, 32·y) (half that zoomed out).
+    let (sx, sy) = if zoomed_out { (32, 16) } else { (64, 32) };
+    let mut fills = Vec::new();
+    for &(vx, vy, vw, vh) in views.iter().filter(|v| v.2 > 0 && v.3 > 0) {
+        let tiles = (vx.div_euclid(sx), vy.div_euclid(sy), (vx + vw - 1).div_euclid(sx), (vy + vh - 1).div_euclid(sy));
+        for [lx, ly, lw, lh] in crate::minimap::view_rect(world, size, tiles) {
+            let (px, py) = (x + lx - rx, y + ly - ry);
+            for (offset, len) in pieces(lw.max(lh)) {
+                let rect = if lw >= lh { [px + offset, py, len, 1] } else { [px, py + offset, 1, len] };
+                fills.push(Item::Element(Element::Fill { rect, rgb: color, alpha: 255, clip }, under));
+            }
+        }
+    }
+    items.splice(at + 1..at + 1, fills);
+}
+
+/// `len` as consecutive power-of-two pieces: (offset, length).
+fn pieces(len: i32) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    for bit in (0..31).rev() {
+        if len & (1 << bit) != 0 {
+            out.push((offset, 1 << bit));
+            offset += 1 << bit;
+        }
+    }
+    out
 }

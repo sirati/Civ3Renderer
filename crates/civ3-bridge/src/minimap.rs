@@ -251,3 +251,57 @@ pub fn pixel_of(world: &Civ3World, (w, h): (u32, u32), (x, y): (i32, i32)) -> Op
     }
     best.map(|(_, p)| p)
 }
+
+/// The viewport rectangle the game draws on a `size` minimap for tile range
+/// `xa..=xb`, `ya..=yb` (0x579F20, docs §17.7), as one-pixel lines (x, y,
+/// width, height) in the minimap's pixels; split where it wraps; none if a
+/// corner is off the map.
+pub fn view_rect(world: &Civ3World, (w, h): (u32, u32), (xa, ya, xb, yb): (i32, i32, i32, i32)) -> Vec<[i32; 4]> {
+    let (width, height) = (world.width, world.height);
+    if width <= 0 || height <= 1 {
+        return Vec::new();
+    }
+    let fit = |v: i32, size: i32, wraps: bool| if wraps { v.rem_euclid(size) } else { v.clamp(0, size - 1) };
+    let (xa, xb) = (fit(xa, width, world.flags & 1 != 0), fit(xb, width, world.flags & 1 != 0));
+    let (ya, yb) = (fit(ya, height, world.flags & 2 != 0), fit(yb, height, world.flags & 2 != 0));
+    if world.tile(xa, ya).is_none() && world.tile(xa ^ 1, ya).is_none() || world.tile(xb, yb).is_none() && world.tile(xb ^ 1, yb).is_none() {
+        return Vec::new();
+    }
+    let (w, h) = (w as i32, h as i32);
+    let (x0, y0) = (xa * w / width, ya * h / (height - 1));
+    let (x1, y1) = (xb * w / width, yb * h / (height - 1));
+    let hline = |xs: i32, xe: i32, y: i32| [xs, y, xe - xs + 1, 1];
+    let vline = |x: i32, ys: i32, ye: i32| [x, ys, 1, ye - ys + 1];
+    let mut out = Vec::new();
+    match (x0 <= x1, y0 <= y1) {
+        (true, true) => out.extend([hline(x0, x1 - 1, y0), hline(x0, x1 - 1, y1 - 1), vline(x0, y0, y1 - 1), vline(x1 - 1, y0, y1 - 1)]),
+        (false, true) => out.extend([
+            vline(x1 - 1, y0, y1 - 1),
+            hline(0, x1 - 1, y0),
+            hline(0, x1 - 1, y1 - 1),
+            vline(x0, y0, y1 - 1),
+            hline(x0, w - 1, y0),
+            hline(x0, w - 1, y1 - 1),
+        ]),
+        (true, false) => out.extend([
+            hline(x0, x1 - 1, y1 - 1),
+            vline(x0, 0, y1 - 1),
+            vline(x1 - 1, 0, y1 - 1),
+            hline(x0, x1 - 1, y0),
+            vline(x0, y0, h - 1),
+            vline(x1 - 1, y0, h - 1),
+        ]),
+        (false, false) => out.extend([
+            hline(0, x1 - 1, y0),
+            hline(x0, w - 1, y0),
+            hline(0, x1 - 1, y1 - 1),
+            hline(x0, w - 1, y1 - 1),
+            vline(x0, 0, y1 - 1),
+            vline(x0, y0, h - 1),
+            vline(x1 - 1, 0, y1 - 1),
+            vline(x1 - 1, y0, h - 1),
+        ]),
+    }
+    out.retain(|r| r[2] > 0 && r[3] > 0);
+    out
+}
