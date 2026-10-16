@@ -1,5 +1,5 @@
-//! The game's text glyphs: Lucida Sans rasterised by GDI without
-//! anti-aliasing, exactly as the game's `jgl.dll` draws text.
+//! The game's text glyphs: Lucida Sans rasterised by GDI (smoothed at the
+//! sizes the font asks for), exactly as the game's `jgl.dll` draws text.
 //!
 //! Inside a Windows (or Wine) process the glyphs are rendered on the spot
 //! with `gdi-text`. Elsewhere they come from sheets that `font-sheet`
@@ -26,6 +26,8 @@ pub struct Glyph {
 pub struct GlyphFont {
     /// Cell top to baseline.
     pub ascent: i32,
+    /// Underline: top row below the baseline, thickness.
+    pub underline: (i32, i32),
     pub glyphs: BTreeMap<char, Glyph>,
 }
 
@@ -69,7 +71,7 @@ pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<Glyph
             .into_iter()
             .map(|g| (g.ch, Glyph { left: g.left, advance: g.advance, image: paint(&g.ink, g.width, g.height, color) }))
             .collect();
-        Ok(GlyphFont { ascent: font.ascent, glyphs })
+        Ok(GlyphFont { ascent: font.ascent, underline: font.underline, glyphs })
     }
     #[cfg(not(windows))]
     {
@@ -109,6 +111,10 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     let (cw, ch) = (int(cell.first()) as u32, int(cell.get(1)) as u32);
     let first = int(meta.get("first")) as u32;
     let ascent = int(meta.get("ascent")) as i32;
+    let underline = match meta.get("underline").and_then(|u| u.as_array()) {
+        Some(u) => (int(u.first()) as i32, int(u.get(1)) as i32),
+        None => (1, 1),
+    };
     let table = meta.get("glyphs").and_then(|g| g.as_table()).ok_or_else(|| missing(&"no glyphs"))?;
     let mut glyphs = BTreeMap::new();
     for (code, m) in table {
@@ -120,5 +126,5 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         let ink: Vec<u8> = (0..ch).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| sheet.get_pixel(ox + x, oy + y)[3]).collect();
         glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image: paint(&ink, w, ch, color) });
     }
-    Ok(GlyphFont { ascent, glyphs })
+    Ok(GlyphFont { ascent, underline, glyphs })
 }

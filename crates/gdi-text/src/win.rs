@@ -123,5 +123,19 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
         let ink = (0..height as i32).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| ink_at(x, y)).collect();
         out.push(Glyph { ch, left: x0 - origin, advance: size.cx, width: (x1 - x0) as u32, height, ink });
     }
-    Ok(crate::Font { ascent: metrics.tmAscent, glyphs: out })
+    Ok(crate::Font { ascent: metrics.tmAscent, underline: underline(&canvas, &metrics), glyphs: out })
+}
+
+/// GDI's underline: centred on `otmsUnderscorePosition` (up from the
+/// baseline), `otmsUnderscoreSize` thick; one row under the baseline if
+/// the font has no outline metrics.
+fn underline(canvas: &Canvas, metrics: &TEXTMETRICW) -> (i32, i32) {
+    let mut otm: OUTLINETEXTMETRICW = unsafe { std::mem::zeroed() };
+    // SAFETY: writes at most `size_of::<OUTLINETEXTMETRICW>()` bytes into `otm`.
+    let n = unsafe { GetOutlineTextMetricsW(canvas.dc, size_of::<OUTLINETEXTMETRICW>() as u32, &mut otm) };
+    if n == 0 {
+        return (1.min(metrics.tmDescent), 1);
+    }
+    let size = (otm.otmsUnderscoreSize as i32).max(1);
+    (-otm.otmsUnderscorePosition - size / 2, size)
 }

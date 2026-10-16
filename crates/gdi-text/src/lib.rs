@@ -55,15 +55,18 @@ pub fn add_font_file(path: &std::path::Path) -> Result<(), GdiError> {
     }
 }
 
-/// A rendered font: its ascent (pixels from the cell top to the baseline)
-/// and glyphs.
+/// A rendered font: its ascent (pixels from the cell top to the baseline),
+/// underline and glyphs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Font {
     pub ascent: i32,
+    /// Where GDI draws an underline: top row below the baseline, and
+    /// thickness.
+    pub underline: (i32, i32),
     pub glyphs: Vec<Glyph>,
 }
 
-/// Renders `chars` one by one with `font`, aliased.
+/// Renders `chars` one by one with `font`.
 pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<Font, GdiError> {
     #[cfg(windows)]
     return win::render_glyphs(font, chars);
