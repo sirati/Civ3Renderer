@@ -510,7 +510,9 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
             Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
             Input::Key { vk, down, text } => {
                 window.key(vk, down);
-                if let (true, Some(c)) = (down, text) {
+                // The game's message loop makes the character from the key
+                // (TranslateMessage); only text without a key is sent as such.
+                if let (true, Some(c), 0) = (down, text, vk) {
                     window.char(c);
                 }
             }

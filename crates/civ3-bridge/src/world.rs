@@ -301,6 +301,10 @@ impl Trace {
                         y: v[2] as i32,
                         clip: [v[3] as i32, v[4] as i32, v[5] as i32, v[6] as i32],
                         rect: [v[7] as i32, v[8] as i32, v[9] as i32, v[10] as i32],
+                        size: (
+                            f.get(12).and_then(|s| s.parse().ok()).unwrap_or((v[7] + v[9]) as i32),
+                            f.get(13).and_then(|s| s.parse().ok()).unwrap_or((v[8] + v[10]) as i32),
+                        ),
                     });
                 }
                 Some("ui_flc") if f.len() >= 9 => {

@@ -445,9 +445,10 @@ pub fn focus_city_slot(build: Build) -> Option<u32> {
 }
 
 inproc::fastcall_hook! {
-    /// `int Flic_Anim_Info::load(this, char *path)` (0x600FA0): an FLC
+    /// `int Flic_Anim_Info::load(this, char *path, a2, a3, a4)` (0x600FA0,
+    /// `ret 0x10`; the other arguments not decoded): an FLC
     /// animation (unit art) loaded from `path`.
-    pub mod flc_load(flic, edx; path) -> i32;
+    pub mod flc_load(flic, edx; path, a2, a3, a4) -> i32;
 }
 
 /// `Flic_Anim_Info::load`: address and first instructions (push -1 / push
@@ -477,4 +478,13 @@ pub fn flc_frame(sprite: u32) -> Option<(u32, u32)> {
     let header = u32_at(flic + 0x58).filter(|&h| h != 0)?;
     let fpd = Ptr32::<u16>::new(header + 0x62).read().ok()? as i32;
     (frame >= 0 && block >= 0).then(|| (flic, (block * (fpd + 1) + frame) as u32))
+}
+
+/// A canvas's clip rectangle (its `JGL_Image`'s `Clip_Rect`, left, top,
+/// right, bottom), when it is smaller than the canvas.
+pub fn canvas_clip(image: u32) -> Option<[i32; 4]> {
+    let jgl = Ptr32::<u32>::new(image.wrapping_add(4)).read().ok().filter(|&p| p != 0)?;
+    let clip = obj::rect(jgl + 0x44)?;
+    let full = obj::rect(jgl + 0x54)?;
+    (clip != full && clip[2] > clip[0] && clip[3] > clip[1]).then_some(clip)
 }

@@ -70,10 +70,9 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
                     let name = format!("UnitArt@{}#{unit_colors}/{chunk}", relative_path(path, roots));
                     Item::Element(Element::Sprite { name, at: (*x, *y), clip: *clip }, under)
                 }
-                ScreenDraw::Surface { image, rect, x, y, clip } => {
+                ScreenDraw::Surface { image, rect, x, y, clip, size } => {
                     let name = generated.iter().find(|g| g.0 == *image)?.1;
-                    // The surface is at least as big as the region read from it.
-                    let size = ((rect[0] + rect[2]).max(0) as u32, (rect[1] + rect[3]).max(0) as u32);
+                    let size = (size.0.max(0) as u32, size.1.max(0) as u32);
                     Item::Element(Element::Dynamic { name: name.to_owned(), size, rect: *rect, at: (*x, *y), clip: *clip }, under)
                 }
             })
