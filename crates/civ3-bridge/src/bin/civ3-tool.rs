@@ -111,6 +111,22 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         }
     }
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
+    // The city screen's map, as live does.
+    if let (Some(_), Some(frame)) = (trace.world.focus_city, &trace.ui) {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        let files = assets::game_files(install.as_ref(), trace.scenario_folder.as_deref(), &trace.search_roots);
+        if let Some([x, y, w, h]) = ui_screen::city_view_rect(frame, &files, &[], &mut Default::default()) {
+            let game = scene.view(ifc23::scene_map::GAME_VIEW).map(|v| v.view).unwrap_or_default();
+            scene.view_mut(ifc23::scene_map::CITY_VIEW).view = scene::View {
+                camera_x: game.camera_x + x,
+                camera_y: game.camera_y + y,
+                zoom: (1, 1),
+                viewport: (w as u32, h as u32),
+                origin: (x, y),
+                ..Default::default()
+            };
+        }
+    }
     scene
 }
 

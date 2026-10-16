@@ -301,6 +301,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut screen_art = menu::screen::ScreenArt::default();
     let mut zoomed_out = false;
     let mut table_colors = std::collections::HashMap::new();
+    let mut city_bands = std::collections::HashMap::new();
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
@@ -425,6 +426,20 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             });
         }
         crate::scene_map::overlay_screen_sprites(&mut scene);
+        // The city screen's map: a view of its own, in the gap of its art.
+        if let (Shown::Map(world, view), Some(frame)) = (shown, ui) {
+            let rect = world.focus_city.and_then(|_| ui_screen::city_view_rect(frame, &files, files.roots(), &mut city_bands));
+            if let Some([x, y, w, h]) = rect {
+                scene.view_mut(crate::scene_map::CITY_VIEW).view = scene::View {
+                    camera_x: view.camera_x + x,
+                    camera_y: view.camera_y + y,
+                    zoom: (1, 1),
+                    viewport: (w as u32, h as u32),
+                    origin: (x, y),
+                    ..Default::default()
+                };
+            }
+        }
         scene.seq = seq;
         presenter.publish(scene);
         last = Some(state);

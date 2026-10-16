@@ -16,13 +16,22 @@ use crate::world::{Civ3View, Civ3World};
 
 /// The view showing what the game shows.
 pub const GAME_VIEW: u32 = 0;
+/// The city screen's view of the city's surroundings (while it is open).
+pub const CITY_VIEW: u32 = 1;
+/// The interface, over every view (no world of its own).
+pub const INTERFACE_VIEW: u32 = 255;
 
-/// Moves the screen-space sprites among the scene's sprites into the game
-/// view's overlay (they are its interface).
+/// Moves the screen-space sprites among the scene's sprites into overlays:
+/// those drawn between render passes (map labels, under the fog of war)
+/// into the game view's, the rest into the interface view's.
 pub fn overlay_screen_sprites(scene: &mut Scene) {
     let (screen, world): (Vec<_>, Vec<_>) = std::mem::take(&mut scene.sprites).into_iter().partition(|s| s.screen);
     scene.sprites = world;
-    scene.view_mut(GAME_VIEW).overlay.extend(screen);
+    let (top, under): (Vec<_>, Vec<_>) = screen.into_iter().partition(|s| s.after_pass == u32::MAX);
+    scene.view_mut(GAME_VIEW).overlay.extend(under);
+    let interface = scene.view_mut(INTERFACE_VIEW);
+    interface.view.interface_only = true;
+    interface.overlay.extend(top);
 }
 
 /// Resolves (layer, sprite) names to cell values, caching the lookups.
@@ -71,7 +80,7 @@ impl<'a> Mapper<'a> {
         let cull = (view.tile_x.0 * sx, view.tile_y.0 * sy, (view.tile_x.1 + 1) * sx, (view.tile_y.1 + 1) * sy);
         // The game's view (id 0), at the window's top-left.
         scene.view_mut(GAME_VIEW).view =
-            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), origin: (0, 0) };
+            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), ..Default::default() };
 
         for row in 0..shape.rows {
             for col in 0..shape.cols {

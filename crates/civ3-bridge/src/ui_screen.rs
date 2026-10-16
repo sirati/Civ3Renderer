@@ -159,6 +159,47 @@ pub fn minimap_patches(
     }
     out
 }
+
+/// Where the city screen shows the map (§16.8): the transparent band
+/// (palette index 255) of its background art, as the mirrored interface
+/// places it. Bands are measured once per file (`bands`).
+pub fn city_view_rect(
+    frame: &Frame,
+    files: &civ3_assets::GameFiles,
+    roots: &[PathBuf],
+    bands: &mut std::collections::HashMap<String, Option<[i32; 4]>>,
+) -> Option<[i32; 4]> {
+    frame.draws.iter().find_map(|d| {
+        let ScreenDraw::Image { path, rect, x, y, .. } = d else { return None };
+        let p = path.to_ascii_lowercase().replace('/', "\\");
+        if !p.ends_with("city screen\\background.pcx") {
+            return None;
+        }
+        let rel = relative_path(path, roots);
+        let band = *bands.entry(rel.clone()).or_insert_with(|| transparent_band(files, &rel));
+        let [bl, bt, br, bb] = band?;
+        // The band within the drawn region, on the screen.
+        let (l, t) = (bl.max(rect[0]), bt.max(rect[1]));
+        let (r, b) = (br.min(rect[0] + rect[2]), bb.min(rect[1] + rect[3]));
+        (r > l && b > t).then(|| [x + l - rect[0], y + t - rect[1], r - l, b - t])
+    })
+}
+
+/// The bounding box (left, top, right, bottom; exclusive) of palette index
+/// 255 in an image file.
+fn transparent_band(files: &civ3_assets::GameFiles, path: &str) -> Option<[i32; 4]> {
+    let img = civ3_assets::pcx::decode(&files.read(path).ok()?).ok()?;
+    let (mut l, mut t, mut r, mut b) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+    for y in 0..img.height {
+        for x in 0..img.width {
+            if img.get(x, y) == 255 {
+                let (x, y) = (x as i32, y as i32);
+                (l, t, r, b) = (l.min(x), t.min(y), r.max(x + 1), b.max(y + 1));
+            }
+        }
+    }
+    (r > l).then_some([l, t, r, b])
+}
 #[cfg(test)]
 mod tests {
     use super::*;
