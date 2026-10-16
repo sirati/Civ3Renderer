@@ -33,6 +33,8 @@ struct State {
     /// The redraw in progress: map renderer, draws, and the time of the
     /// last draw.
     frame: Option<(u32, Vec<Draw>, std::time::Instant)>,
+    /// The redraw before the one in progress (complete).
+    previous: Option<(u32, Vec<Draw>)>,
     /// Draw_Tiles nesting depth.
     depth: u32,
 }
@@ -40,7 +42,7 @@ struct State {
 /// Cap on recorded draws per redraw.
 const MAX_DRAWS: usize = 20_000;
 
-static STATE: Mutex<State> = Mutex::new(State { frame: None, depth: 0 });
+static STATE: Mutex<State> = Mutex::new(State { frame: None, previous: None, depth: 0 });
 /// The running build, for resolving sprites of global arrays.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
@@ -116,6 +118,9 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
             let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
             s.depth += 1;
             if s.depth == 1 {
+                if let Some((mr, draws, _)) = s.frame.take() {
+                    s.previous = Some((mr, draws));
+                }
                 s.frame = Some((call.map_renderer, Vec::new(), std::time::Instant::now()));
             }
         }
@@ -140,10 +145,13 @@ fn serve_requests(game: Civ3) {
         }
         let frame = {
             let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
-            match &s.frame {
-                Some((mr, draws, at)) if s.depth == 0 && at.elapsed() > std::time::Duration::from_millis(300) => {
+            match (&s.frame, &s.previous) {
+                (Some((mr, draws, at)), _) if s.depth == 0 && at.elapsed() > std::time::Duration::from_millis(300) => {
                     Some((*mr, draws.clone()))
                 }
+                // Redrawn continuously (e.g. a blinking cursor): the last
+                // complete redraw.
+                (_, Some((mr, draws))) => Some((*mr, draws.clone())),
                 _ => None,
             }
         };
@@ -226,6 +234,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         for (x, y, c) in tiles {
             let _ = writeln!(out, "unit_tile {x} {y} {c}");
         }
+    }
+    if let Ok(Some((id, frame))) = game.selection() {
+        let _ = writeln!(out, "selection {id} {frame}");
     }
     if let Ok(p) = game.preferences() {
         let _ = writeln!(out, "preferences {p:#x}");

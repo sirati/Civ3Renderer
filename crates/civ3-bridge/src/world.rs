@@ -126,6 +126,8 @@ pub struct Civ3World {
     pub unit_tiles: Vec<(i32, i32, i32)>,
     /// The game's `P_*` preference flags.
     pub preferences: u32,
+    /// The selected unit (id) and the selection cursor's frame, while shown.
+    pub selection: Option<(i32, i32)>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -320,6 +322,7 @@ impl Trace {
                 }
                 Some("unit_tile") => t.world.unit_tiles.push((n(1)? as i32, n(2)? as i32, n(3)? as i32)),
                 Some("preferences") => t.world.preferences = n(1)? as u32,
+                Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),
                 Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("era_key") => t.world.era_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("governments") => t.world.governments = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,

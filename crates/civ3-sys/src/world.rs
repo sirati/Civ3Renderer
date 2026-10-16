@@ -461,6 +461,24 @@ impl Civ3 {
         Ok(out)
     }
 
+    /// The selected unit's id and the selection cursor's frame, unless the
+    /// cursor is in the hidden half of its blink (docs §10.6).
+    pub fn selection(&self) -> Result<Option<(i32, i32)>, Civ3Error> {
+        let current: Ptr32<u8> = self.screen(L::MAIN_SCREEN_FORM_CURRENT_UNIT)?;
+        if current.is_null() {
+            return Ok(None);
+        }
+        let animator = Ptr32::<u8>::new(self.addrs.main_screen_form + L::MAIN_SCREEN_FORM_ANIMATOR);
+        // The header's `field_18E4[12]`: bit 0 = cursor blinked off.
+        let blink: u32 = animator.offset::<u32>(L::ANIMATOR_FIELD_18E4_12)?.read()?;
+        if blink & 1 != 0 {
+            return Ok(None);
+        }
+        let id: i32 = current.offset::<i32>(L::UNIT_BODY + L::UNIT_BODY_ID)?.read()?;
+        let frame: i32 = animator.offset::<i32>(L::ANIMATOR_UNIT_CURSOR_ANIMATION + L::FLC_ANIMATION_FIELD_FC)?.read()?;
+        Ok(Some((id, frame)))
+    }
+
     /// The `P_*` preference flags.
     pub fn preferences(&self) -> Result<u32, Civ3Error> {
         Ok(Ptr32::<u32>::new(self.addrs.preferences).read()?)

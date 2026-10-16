@@ -57,6 +57,11 @@ impl AnimFile {
     }
 }
 
+/// The selection cursor's animation (`Art/Animations/Cursor/Cursor.INI`).
+const CURSOR_FLC: &str = "Art/Animations/Cursor/Cursor.flc";
+/// The cursor shows the block of direction 5.
+const CURSOR_DIRECTION: i32 = 5;
+
 /// Resolves unit types to animation files.
 pub struct UnitArt {
     files: GameFiles,
@@ -64,6 +69,7 @@ pub struct UnitArt {
     anim_names: HashMap<String, String>,
     /// (unit type key, era key, animation) → file, cached.
     resolved: HashMap<(String, String, i32), Option<AnimFile>>,
+    cursor: Option<Option<AnimFile>>,
 }
 
 impl UnitArt {
@@ -78,7 +84,15 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new() }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None }
+    }
+
+    /// The selection cursor's animation file.
+    pub fn cursor(&mut self) -> Option<&AnimFile> {
+        if self.cursor.is_none() {
+            self.cursor = Some(AnimFile::read(&self.files, CURSOR_FLC));
+        }
+        self.cursor.as_ref().and_then(Option::as_ref)
     }
 
     /// The animation file a unit of type `type_key` (`PRTO_...`) shows for
@@ -129,6 +143,9 @@ impl Needed {
     /// art).
     pub fn of(world: &Civ3World, art: &mut UnitArt) -> Needed {
         let mut out = Needed::default();
+        if let Some(cursor) = art.cursor() {
+            out.files.insert(cursor.path.clone(), (cursor.clone(), [colors(world, world.player)].into()));
+        }
         for u in &world.units {
             let Some(type_key) = world.unit_type_keys.get(u.unit_type.max(0) as usize) else { continue };
             for animation in 0..ANIMATION_NAMES.len() as i32 {
@@ -224,6 +241,11 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled) -> Vec
         let in_city = world.tile(u.x, u.y).is_some_and(|t| t.city >= 0);
         if world.preferences & SHOW_TEAM_COLOR_DISC != 0 && !in_city {
             put(&format!("TeamDisc@{}/0", colors(world, u.civ)), (x - 64, y - 32), 0);
+        }
+        if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
+            let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
+            let chunk = (block * (cursor.frames_per_direction + 1) + frame.max(0) as u32).min(cursor.chunks.saturating_sub(1));
+            put(&format!("UnitArt@{}#{}/{chunk}", cursor.path, colors(world, world.player)), (x, y), 0);
         }
         let type_key = world.unit_type_keys.get(u.unit_type.max(0) as usize);
         if let Some(file) = type_key.and_then(|k| art.file(k, era_key(world, u.civ), u.animation)) {
