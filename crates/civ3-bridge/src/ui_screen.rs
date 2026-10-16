@@ -236,3 +236,20 @@ mod tests {
         assert_eq!(relative_path("D:\\x\\Conquests\\Art\\Civilopedia\\a.pcx", &[]), "Art/Civilopedia/a.pcx");
     }
 }
+
+/// Where on screen the mirrored interface shows tile `tile` on the minimap
+/// (to click there: the game centres its view on that tile).
+pub fn minimap_point(items: &[Item], world: &crate::world::Civ3World, tile: (i32, i32)) -> Option<(i32, i32)> {
+    items.iter().find_map(|i| {
+        let Item::Element(Element::Dynamic { name, size, rect: [rx, ry, rw, rh], at: (x, y), clip }, _) = i else { return None };
+        if name != "minimap" {
+            return None;
+        }
+        let (px, py) = crate::minimap::pixel_of(world, *size, tile)?;
+        let (px, py) = (px as i32, py as i32);
+        let shown = px >= *rx && py >= *ry && px < rx + rw && py < ry + rh;
+        let (sx, sy) = (x + px - rx, y + py - ry);
+        let clipped = sx < clip[0] || sy < clip[1] || sx >= clip[2] || sy >= clip[3];
+        (shown && !clipped).then_some((sx, sy))
+    })
+}
