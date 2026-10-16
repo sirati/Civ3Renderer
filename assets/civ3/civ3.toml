@@ -1,0 +1,128 @@
+# Civilization III: Conquests — the main map, as the game draws it.
+#
+# Every number here is a fact about the original renderer, see
+# docs/civ3-map-rendering.md (section numbers in comments). Sprites are named
+# after the game's own Map_Renderer arrays ("Std_Terrain_Images/540"), so a
+# draw list from civ3-bridge's tracer can be compared with ours name by name.
+#
+# Cells are the map's real tiles (x + y even), on a staggered grid: tile
+# (x, y) is cell (x/2, y) with its 128x64 box at (64x, 32y). Things the game
+# draws per *vertex* (the point between four tiles: terrain, rivers, fog)
+# are stored in the tile below the vertex and anchored 32 px up.
+
+[grid]
+layout = "staggered"
+step = [64, 32]
+
+[loader]
+# The game composes in 15-bit colour (§11; measured on screenshots).
+quantize = "rgb555"
+# Palette 255 (magenta) is transparent, 254 is sheet filler (§11).
+transparent = [254, 255]
+
+# §5: base terrain, nine 9x9 sheets of 128x64 in SquareParts file order.
+
+[images.xtgc]
+source = "Art/Terrain/xtgc.pcx"
+
+[sheets.terrain_xtgc]
+image = "xtgc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 0
+
+[images.xpgc]
+source = "Art/Terrain/xpgc.pcx"
+
+[sheets.terrain_xpgc]
+image = "xpgc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 81
+
+[images.xdgc]
+source = "Art/Terrain/xdgc.pcx"
+
+[sheets.terrain_xdgc]
+image = "xdgc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 162
+
+[images.xdpc]
+source = "Art/Terrain/xdpc.pcx"
+
+[sheets.terrain_xdpc]
+image = "xdpc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 243
+
+[images.xdgp]
+source = "Art/Terrain/xdgp.pcx"
+
+[sheets.terrain_xdgp]
+image = "xdgp"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 324
+
+[images.xggc]
+source = "Art/Terrain/xggc.pcx"
+
+[sheets.terrain_xggc]
+image = "xggc"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 405
+
+[images.wCSO]
+source = "Art/Terrain/wCSO.pcx"
+
+[sheets.terrain_wCSO]
+image = "wCSO"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 486
+
+[images.wSSS]
+source = "Art/Terrain/wSSS.pcx"
+
+[sheets.terrain_wSSS]
+image = "wSSS"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 567
+
+[images.wOOO]
+source = "Art/Terrain/wOOO.pcx"
+
+[sheets.terrain_wOOO]
+image = "wOOO"
+cell = [128, 64]
+grid = [9, 9]
+anchor = [0, -32]
+group = "Std_Terrain_Images"
+first_index = 648
+
+# Pass 1 (§4): odd (vertex) cells — base terrain.
+[[layers]]
+name = "terrain"
+pass = 1
+sets = ["Std_Terrain_Images/*"]
