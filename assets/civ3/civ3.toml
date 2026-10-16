@@ -12,9 +12,11 @@
 # position (for the game's tile-range clipping) is the vertex: cull_offset.
 
 
+# Civ III composes in an RGB555 frame buffer.
 [grid]
 layout = "staggered"
 step = [64, 32]
+color_bits = 5
 
 [loader]
 # The game composes in 15-bit colour (§11; measured on screenshots).
@@ -576,9 +578,10 @@ first_index = 0
 origin = [1, 1]
 spacing = [1, 1]
 
+# Indices 248..251 darken what is below to 8/16 .. 14/16 (measured).
 [images.resources_shadows]
 source = "Art/resources_shadows.pcx"
-rgba = { 248 = [0, 0, 0, 32], 249 = [0, 0, 0, 64], 250 = [0, 0, 0, 96], 251 = [0, 0, 0, 128] }
+rgba = { 248 = [8, 0, 0, 255], 249 = [10, 0, 0, 255], 250 = [12, 0, 0, 255], 251 = [14, 0, 0, 255] }
 
 [sheets.resources_shadows]
 image = "resources_shadows"
@@ -689,6 +692,7 @@ sets = ["Terrain_Buldings_Fortress/*"]
 [[layers]]
 name = "resource_shadow"
 pass = 3
+blend = { scale = 16 }
 sets = ["ResourcesShadows/*"]
 
 [[layers]]
@@ -706,5 +710,5 @@ sets = ["Delta_Rivers_Images/*"]
 name = "fog"
 cull_offset = [0, -32]
 pass = 5
-blend = { scale = { bits = 5, denominator = 16 } }
+blend = { scale = 16 }
 sets = ["Fog_Of_War_Images/*"]

@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 
 use crate::atlas::Atlas;
 use crate::camera::Camera;
-use crate::world::{Blend, Grid, Pass, TileWorld};
+use crate::world::{ColorModel, Grid, Pass, TileWorld};
 
 const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
 
@@ -17,35 +17,63 @@ const PARAMS_STRIDE: u64 = 256;
 /// Most passes a world may have.
 pub const MAX_PASSES: usize = 16;
 
+/// Format of the internal target of quantized colour models: holds raw
+/// channel values (0..31 for 5 bits) and blends them exactly.
+const QUANTIZED_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
 /// Draws one `TileWorld` with one `Atlas`.
 pub struct TileRenderer {
-    /// For `Blend::Alpha` passes.
+    /// Draws into the caller's target (direct colour model).
     pipeline: wgpu::RenderPipeline,
-    /// For `Blend::Scale` passes: blending off, reads the backdrop.
-    scale_pipeline: wgpu::RenderPipeline,
+    /// Draws into the internal target (quantized colour models).
+    quantized_pipeline: wgpu::RenderPipeline,
+    /// Rounds the internal target down after a pass.
+    quantize_pipeline: wgpu::RenderPipeline,
+    /// Expands the internal target into the caller's target.
+    output_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
-    backdrop_layout: wgpu::BindGroupLayout,
-    /// Copy of the target taken before a `Blend::Scale` pass.
-    backdrop: Option<Backdrop>,
+    quantize_layout: wgpu::BindGroupLayout,
+    output_layout: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
+    /// The colour depth for `output_fs`.
+    bits: wgpu::Buffer,
+    scratch: Option<Scratch>,
     atlas: Option<wgpu::TextureView>,
     sprites: Option<wgpu::Buffer>,
     world: Option<WorldBuffers>,
     bind_group: Option<wgpu::BindGroup>,
 }
 
-struct Backdrop {
-    texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
+/// The internal target of quantized colour models, a copy of it to read
+/// while rounding, and the bind groups reading them.
+struct Scratch {
+    main: wgpu::Texture,
+    copy: wgpu::Texture,
+    quantize: wgpu::BindGroup,
+    output: wgpu::BindGroup,
 }
 
 struct WorldBuffers {
     grid: Grid,
+    color: ColorModel,
     passes: Vec<Pass>,
     layers: wgpu::Buffer,
     tile_data: wgpu::Buffer,
     lut: wgpu::Buffer,
     sets: wgpu::Buffer,
+}
+
+fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
 }
 
 fn storage_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -100,23 +128,30 @@ impl TileRenderer {
                 },
             ],
         });
-        let backdrop_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("tile-render backdrop"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
+        let quantize_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("tile-render quantize"),
+            entries: &[texture_entry(0)],
         });
-        let pipeline = |name: &str, entry: &str, groups: &[Option<&wgpu::BindGroupLayout>], blend| {
+        let output_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("tile-render output"),
+            entries: &[
+                texture_entry(0),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let pipeline = |name: &str, (vs, fs): (&str, &str), group: &wgpu::BindGroupLayout, format, blend| {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(name),
-                bind_group_layouts: groups,
+                bind_group_layouts: &[Some(group)],
                 immediate_size: 0,
             });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -124,7 +159,7 @@ impl TileRenderer {
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("tile_vs"),
+                    entry_point: Some(vs),
                     compilation_options: Default::default(),
                     buffers: &[],
                 },
@@ -133,16 +168,26 @@ impl TileRenderer {
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some(entry),
+                    entry_point: Some(fs),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState { format: target_format, blend, write_mask: wgpu::ColorWrites::ALL })],
+                    targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask: wgpu::ColorWrites::ALL })],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
-        let alpha = pipeline("tile-render", "tile_fs", &[Some(&layout)], Some(wgpu::BlendState::ALPHA_BLENDING));
-        let scale = pipeline("tile-render scale", "tile_fs_scale", &[Some(&layout), Some(&backdrop_layout)], None);
+        let tiles = ("tile_vs", "tile_fs");
+        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
+        let direct = pipeline("tile-render", tiles, &layout, target_format, alpha);
+        let quantized = pipeline("tile-render quantized", tiles, &layout, QUANTIZED_FORMAT, alpha);
+        let quantize = pipeline("tile-render quantize", ("fullscreen_vs", "quantize_fs"), &quantize_layout, QUANTIZED_FORMAT, None);
+        let output = pipeline("tile-render output", ("fullscreen_vs", "output_fs"), &output_layout, target_format, None);
+        let bits = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tile-render colour bits"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render params"),
             size: PARAMS_STRIDE * MAX_PASSES as u64,
@@ -150,12 +195,16 @@ impl TileRenderer {
             mapped_at_creation: false,
         });
         Self {
-            pipeline: alpha,
-            scale_pipeline: scale,
+            pipeline: direct,
+            quantized_pipeline: quantized,
+            quantize_pipeline: quantize,
+            output_pipeline: output,
             layout,
-            backdrop_layout,
-            backdrop: None,
+            quantize_layout,
+            output_layout,
             params,
+            bits,
+            scratch: None,
             atlas: None,
             sprites: None,
             world: None,
@@ -210,6 +259,7 @@ impl TileRenderer {
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
         self.world = Some(WorldBuffers {
             grid: world.grid,
+            color: world.color,
             passes: world.passes(),
             layers: storage(device, "tile-render layers", bytemuck::cast_slice(layers)),
             tile_data: storage(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
@@ -224,7 +274,7 @@ impl TileRenderer {
     pub fn update_world(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
         let packed = world.pack();
         match &self.world {
-            Some(w) if w.grid == world.grid && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
+            Some(w) if w.grid == world.grid && w.color == world.color && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
                 queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
             }
             _ => self.set_world(device, world),
@@ -256,10 +306,10 @@ impl TileRenderer {
         }));
     }
 
-    /// Renders the world into `target` as seen by `camera` at animation
-    /// tick `frame`, clearing it to `clear` first. Only draws once both an
-    /// atlas and a world are set. Worlds with `Blend::Scale` passes need a
-    /// target with `COPY_SRC` usage; without it those passes are skipped.
+    /// Renders the world into `target` (`RENDER_ATTACHMENT`, of the format
+    /// given to `new`) as seen by `camera` at animation tick `frame`, on a
+    /// background of `clear`. Only clears until both an atlas and a world
+    /// are set.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -272,34 +322,52 @@ impl TileRenderer {
         clear: [u8; 4],
     ) {
         let view = target.create_view(&Default::default());
-        // Clear on its own, so every pass can load.
-        drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
-        let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else { return };
-        let copyable = target.usage().contains(wgpu::TextureUsages::COPY_SRC);
+        let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
+            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
+            return;
+        };
+        let bits = world.color.bits();
+        if bits == 0 {
+            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
+            for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
+                let params = camera.frame_params(&world.grid, world.color, frame, p);
+                let offset = i as u64 * PARAMS_STRIDE;
+                queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
+                let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, bind_group, &[offset as u32]);
+                pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+            }
+            return;
+        }
+
+        queue.write_buffer(&self.bits, 0, bytemuck::bytes_of(&[bits, 0, 0, 0]));
+        let scratch = scratch_for(&mut self.scratch, device, &self.quantize_layout, &self.output_layout, &self.bits, target.size());
+        let main = scratch.main.create_view(&Default::default());
+        let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits));
+        let background = wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 };
+        drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
         for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-            let params = camera.frame_params(&world.grid, frame, p);
+            let params = camera.frame_params(&world.grid, world.color, frame, p);
             let offset = i as u64 * PARAMS_STRIDE;
             queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
-            let backdrop = match p.blend {
-                Blend::Alpha => None,
-                Blend::Scale { .. } if !copyable => {
-                    log::warn!("skipping a scale-blend pass: the target is not COPY_SRC");
-                    continue;
-                }
-                Blend::Scale { .. } => {
-                    let b = backdrop_for(&mut self.backdrop, device, &self.backdrop_layout, target);
-                    encoder.copy_texture_to_texture(target.as_image_copy(), b.texture.as_image_copy(), target.size());
-                    Some(&b.bind_group)
-                }
-            };
-            let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
-            pass.set_pipeline(if backdrop.is_some() { &self.scale_pipeline } else { &self.pipeline });
-            pass.set_bind_group(0, bind_group, &[offset as u32]);
-            if let Some(b) = backdrop {
-                pass.set_bind_group(1, b, &[]);
+            {
+                let mut pass = begin_pass(encoder, &main, wgpu::LoadOp::Load);
+                pass.set_pipeline(&self.quantized_pipeline);
+                pass.set_bind_group(0, bind_group, &[offset as u32]);
+                pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
             }
-            pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+            // Round down what this pass blended.
+            encoder.copy_texture_to_texture(scratch.main.as_image_copy(), scratch.copy.as_image_copy(), target.size());
+            let mut pass = begin_pass(encoder, &main, wgpu::LoadOp::Load);
+            pass.set_pipeline(&self.quantize_pipeline);
+            pass.set_bind_group(0, &scratch.quantize, &[]);
+            pass.draw(0..3, 0..1);
         }
+        let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
+        pass.set_pipeline(&self.output_pipeline);
+        pass.set_bind_group(0, &scratch.output, &[]);
+        pass.draw(0..3, 0..1);
     }
 }
 
@@ -323,35 +391,45 @@ fn begin_pass<'e>(
     })
 }
 
-/// The backdrop texture for `target`, (re)created when its size or format
-/// changed.
-fn backdrop_for<'a>(
-    slot: &'a mut Option<Backdrop>,
+/// The scratch textures for a target of `size`, (re)created when it changed.
+fn scratch_for<'a>(
+    slot: &'a mut Option<Scratch>,
     device: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    target: &wgpu::Texture,
-) -> &'a Backdrop {
-    let fits = slot.as_ref().is_some_and(|b| b.texture.size() == target.size() && b.texture.format() == target.format());
-    if !fits {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("tile-render backdrop"),
-            size: target.size(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: target.format(),
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
+    quantize_layout: &wgpu::BindGroupLayout,
+    output_layout: &wgpu::BindGroupLayout,
+    bits: &wgpu::Buffer,
+    size: wgpu::Extent3d,
+) -> &'a Scratch {
+    if slot.as_ref().is_none_or(|s| s.main.size() != size) {
+        let texture = |label, usage| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: QUANTIZED_FORMAT,
+                usage,
+                view_formats: &[],
+            })
+        };
+        use wgpu::TextureUsages as U;
+        let main = texture("tile-render quantized target", U::RENDER_ATTACHMENT | U::COPY_SRC | U::TEXTURE_BINDING);
+        let copy = texture("tile-render quantized copy", U::COPY_DST | U::TEXTURE_BINDING);
+        let quantize = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tile-render quantize"),
+            layout: quantize_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&copy.create_view(&Default::default())) }],
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("tile-render backdrop"),
-            layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
-            }],
+        let output = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tile-render output"),
+            layout: output_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&main.create_view(&Default::default())) },
+                wgpu::BindGroupEntry { binding: 1, resource: bits.as_entire_binding() },
+            ],
         });
-        *slot = Some(Backdrop { texture, bind_group });
+        *slot = Some(Scratch { main, copy, quantize, output });
     }
     slot.as_ref().unwrap()
 }

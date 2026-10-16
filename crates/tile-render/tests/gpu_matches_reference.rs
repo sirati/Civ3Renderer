@@ -1,7 +1,7 @@
 //! The GPU renderer must produce exactly the reference renderer's pixels.
 
 use tile_render::{
-    Atlas, AtlasBuilder, Blend, Camera, Grid, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
+    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld,
     reference,
 };
 
@@ -41,13 +41,19 @@ fn shade() -> RgbaImage {
 }
 
 fn scene(grid: Grid) -> (TileWorld, Atlas) {
+    scene_with(grid, false)
+}
+
+/// `shading`: add darkening layers, one in the middle of pass 1 and one
+/// in a pass of its own.
+fn scene_with(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
     let mut atlas = AtlasBuilder::new(512);
     let mut sets = SpriteSets::default();
+    let shade_set = sets.single(atlas.add(&shade(), (0, 0)).unwrap());
+    let shadow_set = sets.single(atlas.add(&shade(), (20, -30)).unwrap());
     let terrain: Vec<_> = (0..5u8).map(|i| sets.single(atlas.add(&diamond(i * 40), (0, 0)).unwrap())).collect();
     let anim_frames: Vec<_> = (0..4u8).map(|i| atlas.add(&tall(i * 60), (34, -40)).unwrap()).collect();
     let anim = sets.add(&anim_frames);
-
-    let shade_set = sets.single(atlas.add(&shade(), (0, 0)).unwrap());
 
     let mut world = TileWorld::new(grid, sets);
     let base = world.add_layer(LayerSpec::new("terrain", terrain));
@@ -66,17 +72,9 @@ fn scene(grid: Grid) -> (TileWorld, Atlas) {
             lut
         })
     });
-    // A third pass that darkens in RGB555, like Civ III's fog of war.
-    let shaded = world.add_layer(LayerSpec {
-        pass: 2,
-        blend: Blend::Scale { bits: 5, denominator: 16 },
-        ..LayerSpec::new("shade", vec![tile_render::SpriteSetId::EMPTY, shade_set])
-    });
     for r in 0..grid.rows {
         for c in 0..grid.cols {
-            if (c + r) % 4 != 1 {
-                world.set(shaded, c, r, 1);
-            }
+
             world.set(base, c, r, (c * 3 + r * 7) % 5);
             if (c + 2 * r) % 3 == 0 {
                 world.set(overlay, c, r, 1);
@@ -84,6 +82,32 @@ fn scene(grid: Grid) -> (TileWorld, Atlas) {
             }
             if (c * r) % 11 == 5 {
                 world.set(wide, c, r, 299);
+            }
+        }
+    }
+    if shading {
+        let shadow = world.add_layer(LayerSpec {
+            pass: 1,
+            blend: Blend::Scale { denominator: 16 },
+            ..LayerSpec::new("shadow", vec![tile_render::SpriteSetId::EMPTY, shadow_set])
+        });
+        let after = world.add_layer(LayerSpec { pass: 1, ..LayerSpec::new("after", vec![tile_render::SpriteSetId::EMPTY, anim]) });
+        let shaded = world.add_layer(LayerSpec {
+            pass: 2,
+            blend: Blend::Scale { denominator: 16 },
+            ..LayerSpec::new("shade", vec![tile_render::SpriteSetId::EMPTY, shade_set])
+        });
+        for r in 0..grid.rows {
+            for c in 0..grid.cols {
+                if (c * 3 + r) % 5 == 2 {
+                    world.set(shadow, c, r, 1);
+                }
+                if (c + r) % 7 == 3 {
+                    world.set(after, c, r, 1);
+                }
+                if (c + r) % 4 != 1 {
+                    world.set(shaded, c, r, 1);
+                }
             }
         }
     }
@@ -141,4 +165,26 @@ fn orthogonal_world_is_pixel_exact() {
     assert_same(&got, &want, "orthogonal");
     // Something was actually drawn.
     assert!(got.pixels.iter().any(|p| *p != CLEAR));
+}
+
+#[test]
+fn quantized_world_with_scale_layers_is_pixel_exact() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for (x, y) in [(0, 0), (333, 101), (-517, 40)] {
+        let mut camera = Camera::new((640, 360));
+        camera.x = x;
+        camera.y = y;
+        camera.overhang = (0, 40, 0, 0);
+        let got = gpu.render(&mut renderer, &camera, 5, CLEAR);
+        let want = reference::render(&world, &atlas, &camera, 5, CLEAR);
+        assert_same(&got, &want, &format!("quantized camera ({x}, {y})"));
+        // Every channel is a 5-bit value expanded.
+        assert!(got.pixels.iter().all(|p| p[..3].iter().all(|&c| c == ((c >> 3) << 3 | c >> 5))));
+    }
 }

@@ -98,12 +98,33 @@ pub enum Blend {
     /// Standard "over" alpha blending.
     #[default]
     Alpha,
-    /// Scales what is underneath by `k / denominator` (`k` = the sprite's
-    /// red channel), rounding down in a space of `bits`-bit channels — how
-    /// games that compose in e.g. RGB555 darken (fog of war, shadows). See
-    /// `tile_render_shared::scale_channel`. Sees the target as it was when
-    /// its pass started, so the sprites of such a pass must not overlap.
-    Scale { bits: u32, denominator: u32 },
+    /// Darkens what is underneath to `k / denominator` (`k` = the sprite's
+    /// red channel) — how games darken with blend tables (fog of war,
+    /// shadows). Exact (rounded down per channel) in a quantized
+    /// [`ColorModel`]; plain alpha blending with black otherwise.
+    Scale { denominator: u32 },
+}
+
+/// The colour space the world is composed in.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum ColorModel {
+    /// 8-bit channels as they are.
+    #[default]
+    Direct,
+    /// Channels of `bits` bits (4..=8), like a game drawing into an RGB555
+    /// frame buffer: sprite colours keep their top bits, blending happens on
+    /// those values and is rounded down after every pass, and the result is
+    /// expanded to 8 bits by bit replication.
+    Quantized { bits: u32 },
+}
+
+impl ColorModel {
+    pub(crate) fn bits(self) -> u32 {
+        match self {
+            ColorModel::Direct => 0,
+            ColorModel::Quantized { bits } => bits,
+        }
+    }
 }
 
 /// A range of layers drawn together, see [`TileWorld::passes`].
@@ -111,7 +132,6 @@ pub enum Blend {
 pub struct Pass {
     pub first: u32,
     pub count: u32,
-    pub blend: Blend,
 }
 
 /// Static configuration of one layer.
@@ -130,7 +150,6 @@ pub struct LayerSpec {
     pub pass: u32,
     /// Point tested against `Camera::cull`, relative to the cell origin.
     pub cull_offset: (i32, i32),
-    /// Must be the same for all layers of a pass.
     pub blend: Blend,
 }
 
@@ -159,6 +178,7 @@ impl LayerSpec {
 pub struct TileWorld {
     pub grid: Grid,
     pub sets: SpriteSets,
+    pub color: ColorModel,
     layers: Vec<LayerSpec>,
     /// Each layer's records, packed, little endian.
     data: Vec<Vec<u8>>,
@@ -170,7 +190,7 @@ pub struct LayerId(pub usize);
 
 impl TileWorld {
     pub fn new(grid: Grid, sets: SpriteSets) -> Self {
-        Self { grid, sets, layers: Vec::new(), data: Vec::new() }
+        Self { grid, sets, color: ColorModel::Direct, layers: Vec::new(), data: Vec::new() }
     }
 
     pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {
@@ -196,7 +216,7 @@ impl TileWorld {
             if last_pass == Some(l.pass) {
                 out.last_mut().unwrap().count += 1;
             } else {
-                out.push(Pass { first: i as u32, count: 1, blend: l.blend });
+                out.push(Pass { first: i as u32, count: 1 });
                 last_pass = Some(l.pass);
             }
         }
@@ -256,7 +276,10 @@ impl TileWorld {
                 ticks_per_frame: spec.ticks_per_frame.max(1),
                 cull_offset_x: spec.cull_offset.0,
                 cull_offset_y: spec.cull_offset.1,
-                _pad: 0,
+                scale_den: match spec.blend {
+                    Blend::Alpha => 0,
+                    Blend::Scale { denominator } => denominator.max(1),
+                },
             });
             lut.extend(spec.lut.iter().map(|s| s.0));
             data.extend_from_slice(bytes);

@@ -76,11 +76,11 @@ pub struct FrameParams {
     /// (world pixels, unwrapped). For games that clip by tile range rather
     /// than by sprite bounds.
     pub cull: u32,
-    /// Blend of this pass: 0 = alpha blending; otherwise "scale" (see
-    /// `scale_channel`) with channels quantized to `blend_bits` bits and
-    /// this denominator.
-    pub blend_bits: u32,
-    pub blend_den: u32,
+    /// 0: colours are composed as they are. 4..=8: the world composes in
+    /// channels of this many bits (see `quantize`); the target holds such
+    /// channel values.
+    pub color_bits: u32,
+    pub _pad1: u32,
 
     pub cull_x0: i32,
     pub cull_y0: i32,
@@ -142,7 +142,10 @@ pub struct LayerDesc {
     /// camera's cull rectangle.
     pub cull_offset_x: i32,
     pub cull_offset_y: i32,
-    pub _pad: u32,
+    /// Non-zero: a "scale" layer. Its sprites darken what is below to
+    /// `k / scale_den` (`k` = the sprite's red channel) instead of covering
+    /// it.
+    pub scale_den: u32,
 }
 
 /// One sprite: a rectangle of an atlas page and where to draw it.
@@ -199,14 +202,16 @@ impl<'a> ByteReader<'a> {
     }
 }
 
-/// The "scale" blend of one 8-bit channel `dst` (a value of a game that
-/// composes in `bits`-bit channels, expanded by bit replication) by the
-/// fraction `num / den`, rounded down in the quantized space, as such games
-/// darken: `expand(floor((dst >> (8 - bits)) · num / den))`. `bits` is 4..=8.
-pub fn scale_channel(dst: u32, num: u32, den: u32, bits: u32) -> u32 {
+/// An 8-bit channel value in a `bits`-bit colour space (4..=8): the top
+/// bits, as games that compose in e.g. RGB555 store it.
+pub fn quantize(c8: u32, bits: u32) -> u32 {
+    c8 >> (8 - bits)
+}
+
+/// A `bits`-bit channel value back to 8 bits by bit replication, as such
+/// games' colours reach the screen (31 -> 255, 16 -> 132 for 5 bits).
+pub fn expand(q: u32, bits: u32) -> u32 {
     let shift = 8 - bits;
-    let q = (dst >> shift) * num / den.max(1);
-    let q = if q > (255 >> shift) { 255 >> shift } else { q };
     if shift == 0 { q } else { (q << shift) | (q >> (bits - shift)) }
 }
 
@@ -254,12 +259,13 @@ mod tests {
     }
 
     #[test]
-    fn scale_channel_is_rgb555_darkening() {
-        // 5-bit 20 expands to 165; half of it is 10, which expands to 82.
-        assert_eq!(scale_channel(165, 8, 16, 5), 82);
-        assert_eq!(scale_channel(255, 16, 16, 5), 255);
-        assert_eq!(scale_channel(255, 0, 16, 5), 0);
-        assert_eq!(scale_channel(200, 1, 2, 8), 100);
+    fn quantize_expand_round_trip_rgb555() {
+        for q in 0..32 {
+            assert_eq!(quantize(expand(q, 5), 5), q);
+        }
+        assert_eq!(expand(31, 5), 255);
+        assert_eq!(expand(20, 5), 165);
+        assert_eq!(expand(200, 8), 200);
     }
 
     #[test]
