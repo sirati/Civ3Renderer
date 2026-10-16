@@ -9,6 +9,7 @@
 //! content we render ourselves (the map) are left out.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::text::TextRun;
 
@@ -80,6 +81,9 @@ pub enum Event {
     CompositeEnd,
     /// The paint is complete.
     PaintEnd,
+    /// The back buffer's `rect` (left, top, right, bottom; all of it if
+    /// none) copied to the window: from now on the screen shows it there.
+    Present { rect: Option<[i32; 4]> },
 }
 
 /// What a canvas shows: drawing operations, oldest first.
@@ -129,13 +133,53 @@ const MAX_OPS: usize = 8192;
 const MAX_DEPTH: u32 = 8;
 
 
+/// What a form's canvas showed when it was put on the back buffer: each
+/// operation with what it resolves to.
+type Snapshot = Arc<Vec<(Op, Vec<Op>)>>;
+
+/// The whole screen, as a clip rectangle.
+const ALL: [i32; 4] = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
+/// Most pieces a layer of the shown screen is kept in (beyond, it shows
+/// what the back buffer has).
+const MAX_PIECES: usize = 16;
+
 /// One layer of the composed screen.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Layer {
     /// A form's canvas put on the screen with its (0, 0) at `origin`.
     Form { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool },
     /// Drawn straight onto the screen (frames, the tooltip, the cursor).
     Screen(Vec<Op>),
+}
+
+/// Part of a layer as the window shows it: the layer as it was presented,
+/// within `region` (left, top, right, bottom) of the screen.
+#[derive(Clone, Debug)]
+struct Piece {
+    layer: Layer,
+    /// A form's content (none for a screen layer, or a form never composed).
+    ops: Option<Snapshot>,
+    region: [i32; 4],
+}
+
+impl Piece {
+    /// Whether `self` shows the same as `other` (outside the region).
+    fn same(&self, other: &Piece) -> bool {
+        let ops = match (&self.ops, &other.ops) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        ops && self.layer == other.layer
+    }
+
+    /// Where the layer can show (left, top, right, bottom); the whole screen
+    /// for one drawn straight onto it.
+    fn extent(&self) -> [i32; 4] {
+        match self.layer {
+            Layer::Form { origin, size, clip, .. } => intersect(clip, [origin.0, origin.1, origin.0 + size.0, origin.1 + size.1]),
+            Layer::Screen(_) => ALL,
+        }
+    }
 }
 /// The mirrored UI state.
 #[derive(Default)]
@@ -153,10 +197,18 @@ pub struct UiModel {
     /// What each form's canvas showed when the game last put it on the
     /// screen (each operation with what it resolves to): the frame is made
     /// of these, never of a canvas the game is still painting.
-    presented: HashMap<u32, Vec<(Op, Vec<Op>)>>,
+    presented: HashMap<u32, Snapshot>,
     /// What the screen is composed of, bottom to top, as the last paint
     /// composed it (forms later composed on their own update their place).
     order: Vec<Layer>,
+    /// What the window shows, per layer of the back buffer as last
+    /// presented (bottom to top): the game puts a form on the back buffer
+    /// whole, but copies only a rectangle of it to the window, so a form it
+    /// composes while redrawing it (e.g. the cultural advisor around its
+    /// graph) shows there only in that rectangle, and the rest of the window
+    /// keeps what was presented before. `None` until the first present: the
+    /// back buffer is what shows then.
+    shown: Option<Vec<Vec<Piece>>>,
     /// The paint in progress.
     pending: Option<Vec<Layer>>,
     /// Inside a form's composition.
@@ -233,55 +285,113 @@ impl UiModel {
         (self.canvases.len(), ops, presented)
     }
 
-    /// The screen now: the forms of the last paint with their canvases'
-    /// current content (the game composes changed forms on their own,
-    /// outside a full paint).
+    /// The back buffer now: the forms of the last paint with what their
+    /// canvases showed when last put on it (the game composes changed forms
+    /// on their own, outside a full paint).
     pub fn frame(&self) -> Frame {
+        self.compose_layers(self.order.iter().map(|layer| [self.piece(layer)]))
+    }
+
+    /// The screen now: what the window shows (see `shown`), as of the last
+    /// present.
+    pub fn shown_frame(&self) -> Frame {
+        match &self.shown {
+            Some(layers) => self.compose_layers(layers),
+            None => self.frame(),
+        }
+    }
+
+    /// `layer` as it is on the back buffer now, everywhere.
+    fn piece(&self, layer: &Layer) -> Piece {
+        let ops = match layer {
+            Layer::Form { canvas, .. } => self.presented.get(canvas).cloned(),
+            Layer::Screen(_) => None,
+        };
+        Piece { layer: layer.clone(), ops, region: ALL }
+    }
+
+    /// The screen made of `layers` (bottom to top), each in pieces.
+    fn compose_layers<L: AsRef<[Piece]>>(&self, layers: impl IntoIterator<Item = L>) -> Frame {
         let mut frame = Frame::default();
-        for layer in &self.order {
-            match layer {
-                Layer::Screen(ops) => {
-                    let all = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
-                    frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), all)));
+        for pieces in layers {
+            let pieces = pieces.as_ref();
+            match pieces.last().map(|p| &p.layer) {
+                Some(Layer::Screen(_)) => {
+                    for p in pieces {
+                        if let Layer::Screen(ops) = &p.layer {
+                            frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), p.region)));
+                        }
+                    }
                 }
-                &Layer::Form { canvas, vtable, origin, size, clip, keyed } => self.compose(&mut frame, canvas, vtable, origin, size, clip, keyed),
+                Some(&Layer::Form { canvas, vtable, origin, size, .. }) => self.compose(&mut frame, canvas, vtable, origin, size, pieces),
+                None => {}
             }
         }
         frame
     }
 
-    /// Adds form `canvas` as composed at `origin` to `frame`.
-    #[allow(clippy::too_many_arguments)]
-    fn compose(&self, frame: &mut Frame, canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool) {
+    /// Adds form `canvas` (last composed at `origin`) to `frame`, from what
+    /// `pieces` of it show.
+    fn compose(&self, frame: &mut Frame, canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), pieces: &[Piece]) {
         frame.forms.push((vtable, canvas, origin, size));
         if self.skip.contains(&vtable) || (self.skipping && self.skip_canvases.contains(&canvas)) {
             return;
         }
-        // The canvas never extends beyond its size.
-        let clip = intersect(clip, [origin.0, origin.1, origin.0 + size.0, origin.1 + size.1]);
-        if clip[2] <= clip[0] || clip[3] <= clip[1] {
+        let parts: Vec<_> = pieces
+            .iter()
+            .filter_map(|p| {
+                let Layer::Form { origin, clip, keyed, .. } = p.layer else { return None };
+                // The canvas never extends beyond its size.
+                let clip = intersect(p.extent(), intersect(clip, p.region));
+                (clip[2] > clip[0] && clip[3] > clip[1]).then_some((p.ops.as_ref()?, origin, clip, keyed))
+            })
+            .collect();
+        if parts.is_empty() {
             return;
         }
         let underlay = self.skipping && self.underlays.contains(&canvas);
-        // A colour-keyed form shows nothing where it is black (measured: the
-        // city screen clears to black and the map shows through its art).
-        let black = |op: &&Op| keyed && matches!(op, Op::Fill { rgb: [0, 0, 0], alpha: 255, .. });
-        let keep = |op: &&Op| (!underlay || self.underlay_keeps(canvas, op)) && !black(op);
-        let Some(ops) = self.presented.get(&canvas) else { return };
         let start = frame.draws.len();
-        frame.draws.extend(ops.iter().filter(|(op, _)| keep(&op)).flat_map(|(_, resolved)| resolved.iter().cloned()).filter_map(|op| screen_draw(op, origin, clip)).map(|mut d| {
-            // Generated surfaces: their whole size, as far as known.
-            if let ScreenDraw::Surface { image, size, .. } = &mut d {
-                if let Some(&s) = self.sizes.get(image) {
-                    *size = s;
+        // In pieces, each has what reaches into it.
+        let split = parts.len() > 1;
+        for (ops, origin, clip, keyed) in parts {
+            // A colour-keyed form shows nothing where it is black (measured: the
+            // city screen clears to black and the map shows through its art).
+            let black = |op: &&Op| keyed && matches!(op, Op::Fill { rgb: [0, 0, 0], alpha: 255, .. });
+            let keep = |op: &&Op| (!underlay || self.underlay_keeps(canvas, op)) && !black(op);
+            let draws = ops.iter().filter(|(op, _)| keep(&op)).flat_map(|(_, resolved)| resolved.iter().cloned()).filter_map(|op| screen_draw(op, origin, clip));
+            frame.draws.extend(draws.filter(|d| !split || reaches_clip(d)).map(|mut d| {
+                // Generated surfaces: their whole size, as far as known.
+                if let ScreenDraw::Surface { image, size, .. } = &mut d {
+                    if let Some(&s) = self.sizes.get(image) {
+                        *size = s;
+                    }
                 }
-            }
-            d
-        }));
+                d
+            }));
+        }
         frame.form_draws.push((canvas, start..frame.draws.len()));
         if underlay {
             frame.underlay_draws.push(start..frame.draws.len());
         }
+    }
+
+    /// The back buffer's `rect` (all of it if none) is copied to the window:
+    /// the layers being composed (or else those of the last paint) show
+    /// there now, and what was shown before stays elsewhere.
+    fn present(&mut self, rect: Option<[i32; 4]>) {
+        let now: Vec<Piece> = self.pending.as_ref().unwrap_or(&self.order).iter().map(|l| self.piece(l)).collect();
+        // All of the back buffer: everywhere.
+        let whole = |r: [i32; 4]| self.sizes.get(&self.screen).is_some_and(|&(w, h)| r[0] <= 0 && r[1] <= 0 && r[2] >= w && r[3] >= h);
+        let region = rect.filter(|&r| !whole(r)).unwrap_or(ALL);
+        let shown = match self.shown.take() {
+            // The same layers: each in its pieces.
+            Some(old) if old.len() == now.len() && old.iter().zip(&now).all(|(o, n)| o.last().is_some_and(|o| same_slot(&o.layer, &n.layer))) => {
+                old.into_iter().zip(now).map(|(before, new)| present_layer(before, new, region)).collect()
+            }
+            // Other layers (a form opened or closed): the back buffer.
+            _ => now.into_iter().map(|p| vec![p]).collect(),
+        };
+        self.shown = Some(shown);
     }
 
     pub fn apply(&mut self, e: Event) {
@@ -429,8 +539,12 @@ impl UiModel {
             Event::PaintBegin => self.pending = Some(Vec::new()),
             Event::Composite { canvas, vtable, origin, size, clip, keyed } => {
                 self.sizes.insert(canvas, size);
-                let shown = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
-                self.presented.insert(canvas, shown);
+                let shown: Vec<_> = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
+                // The same content keeps its snapshot (what the window shows
+                // of it is then known to be unchanged).
+                if self.presented.get(&canvas).is_none_or(|old| **old != shown) {
+                    self.presented.insert(canvas, Arc::new(shown));
+                }
                 self.compositing = true;
                 let layer = Layer::Form { canvas, vtable, origin, size, clip, keyed };
                 match self.pending.as_mut() {
@@ -449,6 +563,7 @@ impl UiModel {
                     self.order = layers;
                 }
             }
+            Event::Present { rect } => self.present(rect),
         }
     }
 
@@ -535,6 +650,68 @@ impl UiModel {
         }
         out
     }
+}
+
+/// Whether `d` may draw inside its clip rectangle (text and animations by a
+/// generous guess of their size).
+fn reaches_clip(d: &ScreenDraw) -> bool {
+    let overlaps = |[l, t, r, b]: [i32; 4], c: &[i32; 4]| l < c[2] && t < c[3] && r > c[0] && b > c[1];
+    match d {
+        ScreenDraw::Image { rect, x, y, clip, .. } | ScreenDraw::Surface { rect, x, y, clip, .. } => overlaps([*x, *y, x + rect[2], y + rect[3]], clip),
+        ScreenDraw::Fill { rect: [x, y, w, h], clip, .. } => overlaps([*x, *y, x + w, y + h], clip),
+        ScreenDraw::Flc { x, y, clip, .. } => *x < clip[2] && *y < clip[3],
+        ScreenDraw::Text { run, clip } => {
+            let h = run.height.abs().max(16);
+            let w = h * run.text.chars().count() as i32;
+            overlaps([run.x - w, run.y - h, run.x + w, run.y + 2 * h], clip)
+        }
+    }
+}
+
+/// Whether two layers are the same one of the screen (a form by its
+/// canvas, wherever it is).
+fn same_slot(a: &Layer, b: &Layer) -> bool {
+    match (a, b) {
+        (Layer::Form { canvas: x, .. }, Layer::Form { canvas: y, .. }) => x == y,
+        (Layer::Screen(_), Layer::Screen(_)) => true,
+        _ => false,
+    }
+}
+
+/// What the window shows of a layer after `region` of the back buffer, where
+/// it is `new`, is presented: `new` there and what it showed (`before`)
+/// elsewhere.
+fn present_layer(before: Vec<Piece>, new: Piece, region: [i32; 4]) -> Vec<Piece> {
+    let e = new.extent();
+    let covered = region[0] <= e[0] && region[1] <= e[1] && region[2] >= e[2] && region[3] >= e[3];
+    if covered || before.iter().all(|p| p.same(&new)) {
+        return vec![new];
+    }
+    let mut pieces: Vec<Piece> = before
+        .into_iter()
+        .flat_map(|p| subtract(p.region, region).into_iter().map(move |r| Piece { region: r, ..p.clone() }))
+        .collect();
+    pieces.push(Piece { region: intersect(new.region, region), ..new.clone() });
+    if pieces.len() > MAX_PIECES {
+        return vec![new];
+    }
+    pieces
+}
+
+/// The parts of `a` outside `b` (both left, top, right, bottom), as up to
+/// four rectangles.
+fn subtract(a: [i32; 4], b: [i32; 4]) -> Vec<[i32; 4]> {
+    let i = intersect(a, b);
+    if i[2] <= i[0] || i[3] <= i[1] {
+        return vec![a];
+    }
+    let parts = [
+        [a[0], a[1], a[2], i[1]], // above
+        [a[0], i[3], a[2], a[3]], // below
+        [a[0], i[1], i[0], i[3]], // left
+        [i[2], i[1], a[2], i[3]], // right
+    ];
+    parts.into_iter().filter(|r| r[2] > r[0] && r[3] > r[1]).collect()
 }
 
 /// `op` limited to `window` (left, top, right, bottom, in its canvas) and
@@ -833,6 +1010,122 @@ mod tests {
         m.apply(Event::PaintEnd);
         let clip = [0, 0, 100, 100];
         assert_eq!(m.frame().draws, vec![ScreenDraw::Fill { rect: [10, 30, 30, 5], rgb: [1, 1, 1], alpha: 128, clip }]);
+    }
+
+    fn text(x: i32, y: i32, s: &str) -> TextRun {
+        TextRun { x, y, color: [0, 0, 0], face: "Times".into(), height: -12, weight: 400, italic: false, underline: false, text: s.into() }
+    }
+
+    /// The cultural advisor (measured): every few seconds it clears its
+    /// canvas and draws it again; once its graph is drawn it composes the
+    /// screen and presents only the graph's rectangle, then draws its text,
+    /// and a paint presents all of it.
+    fn advisor_redraw(m: &mut UiModel, partial_present: Option<[i32; 4]>) -> (Frame, Frame) {
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 200, 100], rgb: [1, 1, 1], alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 300, rect: [10, 10, 30, 20], rgb: [5, 5, 5], alpha: 255, clip: None });
+        // The graph is composed (outside a paint) and presented.
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(composite(300, (100, 100), (200, 100)));
+        m.apply(Event::CompositeEnd);
+        m.apply(Event::Present { rect: partial_present });
+        let partial = (m.frame(), m.shown_frame());
+        m.apply(Event::Text { canvas: 300, run: text(150, 60, "Culture") });
+        m.apply(Event::Fill { canvas: 300, rect: [120, 40, 20, 5], rgb: [6, 6, 6], alpha: 255, clip: None });
+        partial
+    }
+
+    fn advisor() -> UiModel {
+        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+        m.apply(Event::Size { image: 999, size: (1000, 800) });
+        m.apply(Event::Size { image: 300, size: (200, 100) });
+        m.apply(Event::Fill { canvas: 400, rect: [0, 0, 1000, 800], rgb: [2, 2, 2], alpha: 255, clip: None });
+        advisor_redraw(&mut m, None);
+        m.apply(Event::PaintBegin);
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(composite(300, (100, 100), (200, 100)));
+        m.apply(Event::Present { rect: Some([100, 100, 300, 200]) });
+        m.apply(Event::PaintEnd);
+        m
+    }
+
+    fn texts(f: &Frame) -> Vec<String> {
+        f.draws.iter().filter_map(|d| if let ScreenDraw::Text { run, .. } = d { Some(run.text.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn a_form_composed_mid_redraw_shows_only_where_it_was_presented() {
+        let mut m = advisor();
+        let complete = m.shown_frame();
+        assert_eq!(texts(&complete), vec!["Culture"]);
+        // Its graph's rectangle presented: on the back buffer the advisor has
+        // no text yet, but the window still shows it outside that rectangle.
+        let (back, shown) = advisor_redraw(&mut m, Some([110, 110, 140, 130]));
+        assert!(texts(&back).is_empty());
+        assert_eq!(texts(&shown), vec!["Culture"]);
+        let clips: Vec<_> = shown.draws.iter().filter_map(|d| if let ScreenDraw::Text { clip, .. } = d { Some(*clip) } else { None }).collect();
+        // (Of the pieces above, below, left and right of the presented
+        // rectangle, only the one below reaches the text.)
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0], [100, 130, 300, 200]);
+        // In the rectangle the window shows the new graph.
+        assert!(shown.draws.contains(&ScreenDraw::Fill { rect: [110, 110, 30, 20], rgb: [5, 5, 5], alpha: 255, clip: [110, 110, 140, 130] }));
+        // Forms whose content did not change stay whole.
+        assert_eq!(shown.forms.len(), 2);
+        assert_eq!(shown.form_draws.len(), 2);
+        // The paint then presents the whole advisor: complete again, in one piece.
+        m.apply(Event::PaintBegin);
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(composite(300, (100, 100), (200, 100)));
+        m.apply(Event::Present { rect: Some([100, 100, 300, 200]) });
+        m.apply(Event::PaintEnd);
+        assert_eq!(m.shown_frame(), complete);
+        assert_eq!(m.shown_frame(), m.frame());
+    }
+
+    #[test]
+    fn a_present_of_all_of_it_shows_the_back_buffer() {
+        let mut m = advisor();
+        let (back, shown) = advisor_redraw(&mut m, Some([0, 0, 1000, 800]));
+        assert_eq!(shown, back);
+        let (back, shown) = advisor_redraw(&mut m, None);
+        assert_eq!(shown, back);
+    }
+
+    #[test]
+    fn until_the_first_present_the_back_buffer_shows() {
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Fill { canvas: 300, rect: [1, 1, 2, 2], rgb: [3, 3, 3], alpha: 255, clip: None });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (10, 10)));
+        m.apply(Event::PaintEnd);
+        assert_eq!(m.shown_frame().draws.len(), 1);
+        assert_eq!(m.shown_frame(), m.frame());
+    }
+
+    #[test]
+    fn a_form_opened_by_a_paint_shows_at_its_present() {
+        // The present comes before the end of the paint: the forms it
+        // composed are what it shows.
+        let mut m = advisor();
+        m.apply(Event::Fill { canvas: 500, rect: [0, 0, 5, 5], rgb: [9, 9, 9], alpha: 255, clip: None });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(composite(300, (100, 100), (200, 100)));
+        m.apply(composite(500, (500, 500), (5, 5)));
+        m.apply(Event::Present { rect: Some([500, 500, 505, 505]) });
+        let shown = m.shown_frame();
+        m.apply(Event::PaintEnd);
+        assert_eq!(shown.forms.len(), 3);
+        assert!(shown.draws.contains(&ScreenDraw::Fill { rect: [500, 500, 5, 5], rgb: [9, 9, 9], alpha: 255, clip: [500, 500, 505, 505] }));
+        assert_eq!(m.shown_frame(), shown);
+    }
+
+    #[test]
+    fn rectangles_subtract_into_bands() {
+        assert_eq!(subtract([0, 0, 10, 10], [20, 20, 30, 30]), vec![[0, 0, 10, 10]]);
+        assert_eq!(subtract([0, 0, 10, 10], [-5, -5, 15, 15]), Vec::<[i32; 4]>::new());
+        assert_eq!(subtract([0, 0, 10, 10], [2, 3, 4, 5]), vec![[0, 0, 10, 3], [0, 5, 10, 10], [0, 3, 2, 5], [4, 3, 10, 5]]);
+        assert_eq!(subtract([0, 0, 10, 10], [0, 0, 10, 4]), vec![[0, 4, 10, 10]]);
     }
 
     #[test]
