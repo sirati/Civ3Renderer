@@ -18,7 +18,8 @@
 //!
 //! * `alpha_image = "Art/mask.pcx"` alpha per pixel from another PCX (repeated
 //!   if smaller), whose palette indices are inverted weights (alpha = 255 −
-//!   index), as the game's button masks are.
+//!   index), as the game's button masks are; `alpha_offset = [dx, dy]`: image
+//!   pixel (x, y) takes the mask's (x + dx, y + dy).
 //!
 //! PCX sources yield one image, FLC sources one image per frame.
 //!
@@ -69,6 +70,10 @@ fn map_entries(out: &mut Palette, from: &Palette, map: Option<&toml::Value>) -> 
         out.0[dst.min(255)] = from.0[int(src)?.min(255)];
     }
     Ok(())
+}
+
+fn signed(v: &toml::Value) -> Result<i64, String> {
+    v.as_integer().ok_or_else(|| format!("expected an integer, got {v}"))
 }
 
 fn int(v: &toml::Value) -> Result<usize, String> {
@@ -176,10 +181,17 @@ impl ImageLoader for Civ3Loader {
             let mut out = to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, &explicit, q);
             if let Some(mask) = options.get("alpha_image").and_then(|v| v.as_str()) {
                 let m = pcx::decode(&self.files.read(mask).map_err(|e| e.to_string())?).map_err(|e| format!("{mask}: {e}"))?;
+                let (dx, dy) = match options.get("alpha_offset").and_then(|v| v.as_array()) {
+                    Some(o) if o.len() == 2 => (signed(&o[0])?, signed(&o[1])?),
+                    _ => (0, 0),
+                };
                 for y in 0..out.height {
                     for x in 0..out.width {
                         let mut p = out.get(x, y);
-                        p[3] = 255 - m.pixels[((y % m.height) * m.width + x % m.width) as usize];
+                        let mx = (x as i64 + dx).rem_euclid(m.width as i64) as u32;
+                        let my = (y as i64 + dy).rem_euclid(m.height as i64) as u32;
+                        // Transparent stays transparent.
+                        p[3] = p[3].min(255 - m.pixels[(my * m.width + mx) as usize]);
                         out.put(x, y, p);
                     }
                 }

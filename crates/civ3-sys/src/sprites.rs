@@ -78,6 +78,10 @@ pub fn identify_global(build: crate::Build, sprite: u32) -> Option<SpriteRef> {
 
 /// Resolves `sprite` against the `Map_Renderer` at `map_renderer`.
 pub fn identify(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
+    // The pointed-to arrays have no known length: of those that could hold
+    // the sprite, the one starting closest below it (the heap may place
+    // one right after another).
+    let mut pointed: Option<SpriteRef> = None;
     for &(name, offset, size) in L::MAP_RENDERER_FIELDS {
         if name.starts_with("PCX_") {
             continue; // file names, not sprites
@@ -94,10 +98,16 @@ pub fn identify(map_renderer: u32, sprite: u32) -> Option<SpriteRef> {
         };
         let rel = sprite.wrapping_sub(base);
         if rel < len && rel % L::SPRITE_SIZE == 0 {
-            return Some(SpriteRef { array: name, index: rel / L::SPRITE_SIZE });
+            let found = SpriteRef { array: name, index: rel / L::SPRITE_SIZE };
+            if !POINTER_ARRAYS.contains(&name) {
+                return Some(found);
+            }
+            if pointed.is_none_or(|p| found.index < p.index) {
+                pointed = Some(found);
+            }
         }
     }
-    None
+    pointed
 }
 
 #[cfg(test)]

@@ -145,7 +145,8 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         c.original()
     });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
-        blit(c.sprite, c.dest, c.x, c.y, false);
+        // No crop offset: the stored pixels go to (x, y).
+        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: h::canvas_clip(c.dest) });
         c.original()
     });
     hook!(pcx_draw_onto, sites.pcx_draw_onto, |c| {
@@ -229,7 +230,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     hook!(text_draw_centered, sites.text_draw_centered, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
     hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
-        blit(c.sprite, c.dest, c.x, c.y, false);
+        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: h::canvas_clip(c.dest) });
         c.original()
     });
     if let Some(site) = h::flc_load_site(game.build) {

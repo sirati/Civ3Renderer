@@ -55,8 +55,13 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
         .filter_map(|(i, d)| {
             let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
             Some(match d {
-                ScreenDraw::Image { path, rect, x, y, keyed, clip } => Item::Element(Element::Image {
-                    region: Region { source: relative_path(path, roots), rect: *rect, keyed: *keyed },
+                ScreenDraw::Image { path, rect, x, y, keyed, clip, mask } => Item::Element(Element::Image {
+                    region: Region {
+                        source: relative_path(path, roots),
+                        rect: *rect,
+                        keyed: *keyed,
+                        mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
+                    },
                     at: (*x, *y),
                     clip: *clip,
                 }, under),
@@ -116,7 +121,9 @@ pub fn add_art(items: &[Item], art: &mut ScreenArt, fonts: &mut Fonts, files: &c
 
 /// The description entries of `art`.
 pub fn description(art: &ScreenArt) -> String {
-    art.description(KEYED, OPAQUE)
+    art.description(KEYED, OPAQUE, |mask, (dx, dy)| {
+        format!("alpha_image = \"{}\"\nalpha_offset = [{dx}, {dy}]", mask.replace('\\', "\\\\").replace('"', "\\\""))
+    })
 }
 
 /// The free sprites of `items`, in order: underlay items after render pass

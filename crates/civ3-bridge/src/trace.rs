@@ -451,8 +451,12 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
         for d in &frame.draws {
             let _ = match d {
-                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] } => {
-                    writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8)
+                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask } => {
+                    let _ = writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8);
+                    match mask {
+                        Some(m) => writeln!(out, "ui_image_mask {} {} {}", m.at.0, m.at.1, m.path),
+                        None => Ok(()),
+                    }
                 }
                 crate::ui::ScreenDraw::Fill { rect: [x, y, w, h], rgb: [r, g, b], alpha, clip: [c0, c1, c2, c3] } => {
                     writeln!(out, "ui_fill {x} {y} {w} {h} {r} {g} {b} {c0} {c1} {c2} {c3} {alpha}")
