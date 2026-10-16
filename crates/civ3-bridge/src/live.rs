@@ -308,6 +308,15 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("not mirroring the interface: {e}"),
         }
     }
+    // Playing in the viewer's own views while a menu is open
+    // (`crate::modal`, `CIV3R_MODAL_INPUT=off`: not).
+    if std::env::var("CIV3R_MODAL_INPUT").as_deref() != Ok("off") {
+        match crate::modal::install(game) {
+            // The pump calls stay patched for the life of the process.
+            Ok(hooks) => std::mem::forget(hooks),
+            Err(e) => log::warn!("no map input while menus are open: {e}"),
+        }
+    }
     let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), false)?;
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     let mut presenter = if mode.starts_with("native") {
@@ -406,12 +415,12 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
             Err(e) => {
                 log::debug!("snapshot: {e}");
-                forward_input(&mut input, inputs);
+                forward_input(&game, &mut input, inputs);
                 continue;
             }
         };
         ui_trace::set_skipping(matches!(shown, Shown::Map(..)));
-        forward_input(&mut input, inputs);
+        forward_input(&game, &mut input, inputs);
         if input.viewport == (0, 0) {
             input.game_window();
         }
@@ -419,7 +428,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let ui = ui_trace::frame();
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
         let state = (shown, texts, ui);
-        if last.as_ref() == Some(&state) && !recompile && !art_pending && input.look.is_none() {
+        if last.as_ref() == Some(&state) && !recompile && !art_pending && input.look.is_none() && input.world_buttons.is_empty() {
             continue;
         }
         let (shown, texts, ui) = &state;
@@ -453,6 +462,21 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             match crate::scene_map::tile_at(world, look, view.zoomed_out).and_then(|t| ui_screen::minimap_point(&ui_items, world, t)) {
                 Some(p) => input.click(p),
                 None => log::debug!("look at {look:?}: not on the minimap"),
+            }
+        }
+        // Presses on the world in the viewer's own views: acted on by the
+        // game's thread while a menu is open that allows it.
+        for (button, at) in std::mem::take(&mut input.world_buttons) {
+            let Shown::Map(world, view) = shown else { continue };
+            let action = crate::scene_map::tile_at(world, at, view.zoomed_out).and_then(|t| crate::modal::button_action(button, t));
+            match action {
+                Some(action) if crate::modal::world_input(&game) => {
+                    crate::modal::queue(action);
+                    if let Some(w) = input.game_window() {
+                        w.wake();
+                    }
+                }
+                _ => log::debug!("modal input: {button:?} at world {at:?} ({action:?}): no menu that allows it"),
             }
         }
         if let Some(f) = ui {
@@ -594,6 +618,12 @@ struct InputForwarder {
     zooms: Vec<(u32, u32)>,
     /// The viewer's size, as it last reported.
     viewport: (u32, u32),
+    /// Presses on world pixels of the viewer's own views
+    /// (`Input::WorldButton`), not yet acted on.
+    world_buttons: Vec<(scene::Button, (i32, i32))>,
+    /// World keys (`Input::WorldKey`) whose press went to the game's window
+    /// as a plain key.
+    plain_keys: Vec<u32>,
 }
 
 impl InputForwarder {
@@ -627,7 +657,17 @@ impl InputForwarder {
     }
 }
 
-fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
+/// A key to the game's window.
+fn key(window: inproc::window::Window, vk: u32, down: bool, text: Option<char>) {
+    window.key(vk, down);
+    // The game's message loop makes the character from the key
+    // (TranslateMessage); only text without a key is sent as such.
+    if let (true, Some(c), 0) = (down, text, vk) {
+        window.char(c);
+    }
+}
+
+fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
     use inproc::window::MouseButton;
     use scene::{Button, Input};
     if inputs.is_empty() {
@@ -657,14 +697,31 @@ fn forward_input(forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
                 window.mouse_button(button, down, double, x, y, forwarder.held);
             }
             Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
-            Input::Key { vk, down, text } => {
-                window.key(vk, down);
-                // The game's message loop makes the character from the key
-                // (TranslateMessage); only text without a key is sent as such.
-                if let (true, Some(c), 0) = (down, text, vk) {
-                    window.char(c);
+            Input::Key { vk, down, text } => key(window, vk, down, text),
+            // A key over a view of the viewer's own: acted on (a few of
+            // them) while a menu is open that allows it, else the key it is.
+            // A release goes where its press went.
+            Input::WorldKey { vk, down, text, .. } => {
+                let plain = forwarder.plain_keys.iter().position(|&k| k == vk);
+                if plain.is_some() || !crate::modal::world_input(game) {
+                    match (down, plain) {
+                        (true, None) => forwarder.plain_keys.push(vk),
+                        (false, Some(k)) => drop(forwarder.plain_keys.swap_remove(k)),
+                        _ => {}
+                    }
+                    key(window, vk, down, text);
+                } else if down {
+                    match crate::modal::key_action(vk) {
+                        Some(action) => {
+                            crate::modal::queue(action);
+                            window.wake();
+                        }
+                        None => log::debug!("modal input: key {vk:#x} is not one acted on"),
+                    }
                 }
             }
+            Input::WorldButton { button, down: true, x, y } => forwarder.world_buttons.push((button, (x, y))),
+            Input::WorldButton { .. } => {}
             Input::Resized { width, height } => forwarder.viewport = (width, height),
             Input::Quit => {}
             Input::Look { x, y } => forwarder.look = Some((x, y)),

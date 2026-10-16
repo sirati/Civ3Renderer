@@ -9,6 +9,7 @@ pub mod city_site;
 pub mod district_art;
 pub mod districts;
 pub mod minimap;
+pub mod modal;
 pub mod rings;
 pub mod rules;
 pub mod scene_map;
