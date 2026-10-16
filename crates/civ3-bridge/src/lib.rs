@@ -6,6 +6,7 @@
 pub mod assets;
 pub mod rules;
 pub mod scene_map;
+pub mod units;
 pub mod world;
 #[cfg(windows)]
 pub mod live;

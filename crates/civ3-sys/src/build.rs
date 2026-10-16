@@ -31,6 +31,8 @@ pub struct Addresses {
     /// `Leader[32]` — the players.
     pub leaders: u32,
     pub current_turn_no: u32,
+    /// `p_preferences` (C3X's civ_prog_objects.csv): `P_*` flag word.
+    pub preferences: u32,
 }
 
 impl Build {
@@ -44,6 +46,7 @@ impl Build {
                 cities: 0xA5_2E68,
                 leaders: 0xA5_2E98,
                 current_turn_no: 0xA5_26AC,
+                preferences: 0xA5_2678,
             },
             Build::Steam => Addresses {
                 bic_data: 0x9E_5D08,
@@ -53,6 +56,7 @@ impl Build {
                 cities: 0xA7_5668,
                 leaders: 0xA7_5698,
                 current_turn_no: 0xA7_4EA4,
+                preferences: 0xA7_4E70,
             },
             Build::PcGames => Addresses {
                 bic_data: 0x9C_34C8,
@@ -62,6 +66,7 @@ impl Build {
                 cities: 0xA5_2E28,
                 leaders: 0xA5_2E58,
                 current_turn_no: 0xA5_266C,
+                preferences: 0xA5_2638,
             },
         }
     }

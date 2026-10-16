@@ -67,6 +67,28 @@ pub struct WallBuilding {
     pub obsolete_for: u32,
 }
 
+/// A unit the game draws, in the animator's drawing order (docs §10).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Civ3Unit {
+    pub id: i32,
+    pub x: i32,
+    pub y: i32,
+    pub civ: i32,
+    pub unit_type: i32,
+    pub experience: i32,
+    pub damage: i32,
+    pub moves: i32,
+    pub container: i32,
+    pub state: i32,
+    pub always_on_top: bool,
+    /// World pixel of the anchor (tile centre when idle).
+    pub pixel: (i32, i32),
+    pub direction: i32,
+    pub animation: i32,
+    pub frame: i32,
+    pub visible: bool,
+}
+
 /// The map: shape plus every tile.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Civ3World {
@@ -91,6 +113,19 @@ pub struct Civ3World {
     pub cities: Vec<Civ3City>,
     pub governments: Vec<i32>,
     pub wall_buildings: Vec<WallBuilding>,
+    /// Drawn units, in drawing order.
+    pub units: Vec<Civ3Unit>,
+    /// Civilopedia keys of unit types (`PRTO_...`) and eras (`ERAS_...`).
+    pub unit_type_keys: Vec<String>,
+    pub era_keys: Vec<String>,
+    /// Per unit type: attack, defence, movement (tiles), hit point bonus.
+    pub unit_type_stats: Vec<[i32; 4]>,
+    /// Base hit points per experience level.
+    pub experience_hit_points: Vec<i32>,
+    /// Every unit's tile and container (-1: not loaded).
+    pub unit_tiles: Vec<(i32, i32, i32)>,
+    /// The game's `P_*` preference flags.
+    pub preferences: u32,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -255,6 +290,38 @@ impl Trace {
                         v
                     },
                 }),
+                Some("unit") => {
+                    let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
+                    let at = |i: usize| v.get(i).copied().unwrap_or(0) as i32;
+                    t.world.units.push(Civ3Unit {
+                        id: at(0),
+                        x: at(1),
+                        y: at(2),
+                        civ: at(3),
+                        unit_type: at(4),
+                        damage: at(5),
+                        moves: at(6),
+                        container: at(7),
+                        state: at(8),
+                        always_on_top: at(9) != 0,
+                        pixel: (at(10), at(11)),
+                        direction: at(12),
+                        animation: at(13),
+                        frame: at(14),
+                        visible: at(15) != 0,
+                        experience: at(16),
+                    });
+                }
+                Some("unit_type_stats") => {
+                    t.world.unit_type_stats.push([n(2)? as i32, n(3)? as i32, n(4)? as i32, n(5)? as i32]);
+                }
+                Some("experience_hit_points") => {
+                    t.world.experience_hit_points = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
+                }
+                Some("unit_tile") => t.world.unit_tiles.push((n(1)? as i32, n(2)? as i32, n(3)? as i32)),
+                Some("preferences") => t.world.preferences = n(1)? as u32,
+                Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
+                Some("era_key") => t.world.era_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("governments") => t.world.governments = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,
                 Some("wall_building") => t.world.wall_buildings.push(WallBuilding {
                     id: n(1)? as i32,

@@ -1,0 +1,13 @@
+[package]
+name = "gdi-text"
+description = "Safe wrapper around Windows GDI text rasterisation (aliased glyphs, as old games drew them); for generating glyph sheets"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+image.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
