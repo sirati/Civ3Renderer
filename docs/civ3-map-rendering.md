@@ -1115,6 +1115,135 @@ All hooks are thiscall. Read args at entry and results at return.
 
 Open: the exact pixel semantics of JGLSprite slots +0x50/+0x58/+0x5C/+0x74/+0x84/+0x88/+0x8C/+0x94 (need tracing of jgl's inner loops, e.g. 0x1000A1D0 for +0x44 8->16 bit); the role of `+0xB0` when it is not `this`; the frame images drawn by m80 (form+0x11C..+0x128, [I] PCX_Image* edge/scroll pieces).
 
+### 16.8 City view
+
+**Summary.** The terrain in the middle of the city screen is the main map. There is no second renderer and no extra canvas. Opening the city screen re-centres the normal map camera on the city and switches the existing `Map_Renderer` into a "focus city" mode. In that mode the fog pass leaves only the city's own workable tiles lit. The city form canvas (0x740C34) is transparent in the middle, so the map shows through it [X; D: ui4/ui5 traces and screenshots].
+
+**There is one `Map_Renderer`, and it is a `PCX_Image`** [X]. Its vtable 0x66A508 is written in three places: the constructor 0x4C29A0 (sole caller 0x5D892D, inside the `Map` constructor), the destructor 0x4C7Bxx and the `Map` destructor 0x5DC2C0. So the only instance is `Map+0x234` = **0x9C7560**. The renderer derives from `PCX_Image`: +0x00 is the vtable and +0x04 is the `JGL_Image*` (the header's `field_4[173]` = 0x2B4 bytes, so the `PCX_Image` part is 0x2B8 bytes, as in 16.2). Proof:
+- `Map_Renderer_init` **0x4C30A0** `(this, x, y, w, h, a5)`, `ret 0x14`, is called once (0x4C8E4B). It runs `PCX_Image_create(this, w, h, 16, 1, 0, 0)` on `this`, then stores the **destination RECT `(x, y, x+w, y+h)` at renderer+0x3E9C**. These are the globals 0x9CB3FC/0x9CB400/0x9CB404/0x9CB408, i.e. the "viewport rectangle" of section 3. Finally it clears **renderer+0x3E94 (focus city)**.
+- Every layer method gets its destination as a stack argument. `m71` passes **the renderer itself**: original `m71` = **0x4C3100** (vtable slot +0x11C; the installed exe has C3X's 0xCF2FC8 there). 0x4C3100 calls 0x5F4480(civ, canvas = `this`, a3), which calls `m20`(civ, -1, -1, canvas, a3, -1, -1), and from there `m21`/`m19`/the layers. For example, the LM-terrain layer at 0x4C392D loads that argument, sets it as the clip image (`0x5FC990`) and pushes it as the first argument of `Sprite_draw_on_map`.
+- So **`Sprite_draw_on_map` 0x5F8060 `(Sprite* this, PCX_Image* dest, x, y, num_x, num_y, den, ct)`**: the first stack argument is the destination image (it reads `[arg1+4]` as a `JGL_Image*`, and the lazy-file path calls `PCX_Image_draw_onto(arg1, x, y)`). C3X types it as `Map_Renderer*` only because every map caller passes the renderer. The `colored` `Territory_Images` draws in ui5 show `canvas = canvas2 = 0x9c7560` [D].
+
+**Path of a map pixel** [X]:
+```
+m71 0x4C3100 (this = 0x9C7560, civ, dest, a3)          // the Animator calls it with dest = 0x9F8934 (MSF canvas), 0x4EF07B
+  if byte [0x74238D] (= City_Form 0x7409C0 + 0x19CD, "city screen open"):
+      PCX_Image_fill_area(this, &this->rect_3E9C, 0x80000000)   // black, on the renderer image
+  0x5F4480(civ, this, a3)                              // all terrain passes (section 4) -> Sprite_draw_on_map(spr, 0x9C7560, x, y, ...)
+  if !m5 (debug bit 0 clear):                          // m5 = vt+0x14 = 0x4C3190
+      MSF 0x4E5640(this)                               // city name labels etc., drawn into the renderer image
+      MSF 0x4E4990(this)                               // further map labels [I]
+  this.0x5FCCB0(dest, JGL vt+0xD4() /*whole image rect*/, &this->rect_3E9C)   // opaque copy onto the MSF canvas
+Fog pass 0x4C4F10 (this = renderer, civ, dest = 0x9F8934, RECT* = 0)   // 0x4EF09E; draws directly on the MSF canvas
+```
+- `draw` coordinates in the traces are **renderer-image pixels**. They land on the MSF canvas at `+ (rect.left, rect.top)` of renderer+0x3E9C. The copy uses JGL `Copy(dst, src_rect, dst_rect)`. 0x4C30A0 makes the image exactly `w x h` and the rect `(x, y, x+w, y+h)`, so the copy is 1:1 with no scaling [X sizes; I: no other writer of +0x3E9C exists in .text; the only `[reg+0x3e9c]` stores are 0x4C30C4..0x4C30DE]. The MSF canvas is at screen (0, 0) (`ui_form 0x66b3d8 0x9f8934 0 0 1920 1080`), so screen = renderer pixel + rect origin. In ui4/ui5 the origin is (0, 0) [D: draws span x = -64..2024].
+- Fog tiles (`Fog_Of_War_Images`, +0x41F8) are drawn by 0x4C4E60 with **0x5F86A0** `(spr, dest, x, y, [0x9C7304], 1, 1, den, 0)` (push order at 0x4C4ED2..0x4C4F05). That is not `Sprite_draw_on_map`, so `trace.rs` does not record fog, and the fog lands on the MSF canvas, not on the renderer.
+
+**What opening the city screen changes.** `City_Form_open` is 0x421720; C3X redirects its entry to 0xCE9BCD, and the body continues at 0x421725 [X]:
+1. Saves the zoom (`0x7409BB = [0x9C7300]`) and **forces normal zoom** (`[0x9C7300] = 0`, 0x4218A5). `City_Form_close` (0x421BA0) restores it (0x421BC3).
+2. **Focus city**: `[0x9CB3F4] = City*` (0x4218AB). This is renderer+0x3E94. Close sets it to 0 (0x421C7D).
+3. Sets `City_Form+0x19CD = 1` (0x4218B6). The camera setter 0x4DF7C0 then **skips its clamping** (test at 0x4DF846), and `m71` fills the renderer image black first.
+4. **Re-centres the camera**: `MSF 0x4DFAA0(city.X, city.Y + 2, 0, 1, 0)` (0x4218D3; City+0x24/+0x26 = Body X/Y). The view centre is the tile one tile south of the city, so the city sits 64 px above the screen centre. ui5 shows this: camera (1536, 68), the city sprite at (877, 429), i.e. city (38, 16), and the screen centre (960, 540) = tile (38, 18) [D].
+5. Erases the city form canvas with the JGL colour key (`0x602120(color = JGL_Image vt+0xC0())`, 0x421858) and hides the HUD (`Main_GUI 0x556460(0)`).
+
+**Focus-city fog** (in the fog pass 0x4C4F10; the only readers of renderer+0x3E94 are 0x4C5260 and 0x4C53B3) [X]. For each of the four tiles k around a vertex, the pass first builds the usual masks (6.8): `explored |= bit k` if `Tile.Body.Fog_Of_War` has the viewer's bit (or `civ <= 0`). **If a focus city C is set, the normal "visible" test is replaced:**
+```
+n = Map.vt[+0x70](C.X, C.Y, tx, ty, 21)       // index of (tx, ty) among C's 21 neighbours, -1 if outside the fat cross
+if n != -1 and City_tile_in_view 0x4BB560(C, n, 0):  visible |= bit k; explored |= bit k
+```
+`0x4BB560(city, n, check_units)`, `ret 8`: `n == 0` -> true; `n >= 21` -> false; tile off the map -> false; **tile's territory owner (`Tile vt+0x98`) != city's civ -> false**; otherwise true (`check_units = 0` here, so the enemy-unit test after 0x4BB644 is skipped). Then 0x4C4E60 builds the digits `2 = visible, 1 = explored, 0 = unexplored` exactly as in 6.8 and skips index 80. So:
+- Tiles of the city's fat cross that its civ owns (and the city tile) are lit.
+- Every other explored tile is fogged (cell 40, about 40 % black).
+- Unexplored tiles are black.
+- The soft "vignette" is just the partial FogOfWar cells along the boundary. ui4-game.png shows exactly this: the lit fat cross, dimmed explored land around it, black beyond [D].
+
+**What the city form draws over it** [X calls; D: ui4/ui5 `ui_image` lines]. All of this goes into the city form canvas 0x740C34 (`p_city_form` 0x7409C0 + 0x274), which is at screen (0, 0), size 1920x1080:
+- `Art/City Screen/background.pcx` (1024x768) at (448, 156). Its middle band is colour 255 across the full width (decoded: every sampled pixel of rows 150..470 is 255; row 510 is not), so the map shows through. The canvas is composited colour-keyed [I: required by the screenshot; the Status1 bit was not traced].
+- The worked-tile icons: food/shield/commerce cells of `Art/City Screen/CityIcons.pcx` (`City_Icons_Images`, enum `City_Icons_Small`), e.g. `ui_image 915 470 ... 474 10 16 15 CityIcons.pcx`.
+- The white outline of the workable area: the function around 0x4210CA walks the 21 neighbours with `0x5F3E80` / `0x4BB560` and draws white (`0x8000FFFF` / 555 `0x80007FFF`) edge lines at `MSF 0x4E3BD0` tile positions. The mirror already reproduces this (ui5-ours.png).
+
+These are ordinary UI blits. The mirror already has them. **What the mirror lacks is the map under the city form.**
+
+**Hook plan (city view).** Pick one of:
+- **(A) Record the game's blits.** The existing `Sprite_draw_on_map` hook already records the city view; it is the normal map redraw (ui5 `draw` lines). Changes needed:
+  1. Treat arg1 as the **destination image**, and resolve sprites against the renderer from `Draw_Tiles`' `this` (always 0x9C7560), not against arg1. Today `trace.rs` passes arg1 to `identify_canonical`. That works only because the two are equal for map layers.
+  2. Hook `m71` 0x4C3100 (or the C3X slot as now). Record `dest = [esp+8]` and `rect = *(RECT*)(0x9C7560+0x3E9C)`, and translate every recorded draw by `(rect.left, rect.top)` onto `dest`. Also record the black pre-fill when `byte[0x74238D] != 0`.
+  3. Hook **0x5F86A0** (fog: `Fog_Of_War_Images[idx]` at `(x, y)` on `dest` 0x9F8934), or keep computing fog yourself (B).
+  4. Then emit `UnitArt`/map sprites as "named sprite S at (x, y) on canvas 0x9F8934".
+- **(B) Keep rendering the map ourselves** under the city form. Read the same camera (`MSF+0x4E98/0x4E9C`; the game has already moved it). Assume normal zoom. Fill black. Apply the focus-city fog rule above whenever `[0x9CB3F4] != 0` (focus City*: territory owner == `City.CivID` (City+0x28 byte) and neighbour index < 21 via the 21-tile table `0x5E6D80(n, &dx, &dy)` [I: table semantics]). Draw city labels as usual. The ui model must keep the map underlay when the city form (vtable 0x6658B0) covers it: its canvas is keyed, not opaque.
+
+Detect the mode with `byte [0x74238D]` (City_Form+0x19CD) or `[0x9CB3F4] != 0`.
+
+### 16.9 Unit pictures in panels
+
+**Unit info box (HUD, bottom right)** [X]: `Main_GUI` method **0x554230 `(Main_GUI* this = 0x9FDB10, Unit* u)`**, `ret 4`. It is called from the box painter at 0x5549D0 with the current unit (`MSF.Current_Unit`, 0x9FD434).
+- **Picture rect** (Main_GUI-canvas coordinates): with `RECT box = Main_GUI+0x13FE8` (L, T, R, B):
+  ```
+  left = L;  top = T + (B - T)/2 + 11;  right = R - 27;  bottom = B - 2*K - 27,   K = *(int*)([Main_GUI+0x10618] + 0x10)  [I: a font/line height]
+  ```
+  (C division truncates toward zero.)
+- **If the unit's animation is loaded** (`byte Unit+0x38D` = `FLC_Animation+0x111`, the flag 0x403120 also tests): `Unit_draw_picture 0x5CC710(u, canvas = Main_GUI+0x274 = 0x9FDD84, &rect)`.
+- **Otherwise**: the 32x32 icon. `Sprite_draw(&units32[i], 0x9FDD84, x, y, 0)` with `units32 = *(Sprite**)0xB42184` and `i = 0x54C660(Current_Unit.UnitTypeID, Player_CivID, 0)`, centred the same way as below. `units32` is sliced by 0x54A33x from `Art\units\units_32.PCX` (string 0x72BFC4): cell i = `(1 + 33*(i % cols), 1 + 33*(i / cols), 32, 32)` with `cols = W/33` and `rows = H/33`. These are ordinary UI sprites, and the slice hooks of 16.7 already name them. The city screen's garrison icons are the same sprites (ui5: `ui_image 743 887 ... 34 1 32 32 Art\units\units_32.PCX`) [D].
+
+**`Unit_draw_picture` 0x5CC710 `(Unit* this, PCX_Image* canvas, RECT* r)`**, `ret 8` [X]. `Unit+0x27C` is the unit's `FLC_Animation` (Body+0x260):
+```
+img   = Unit+0x2D4                                   // FLC_Animation.Frame_1 (FLC_Frame_Image)
+info  = *(Animation_Info**)(Unit+0x360)              // FLC_Animation+0xE4
+flic  = info->Animations[1]                          // Animation_Info+0x13C (Flic_Anim_Info**), index 1 = DEFAULT
+FLC_Frame_Image_load 0x5F7A90(img, flic, 0)          // (re)binds the unit's own Frame_1 to the DEFAULT animation
+FLC_seek 0x5F7D00(img, slot = [0x73DD88], frame = 1, 0)   // [0x73DD88] = direction->block table 0x73DD7C [3] = 2 (SE), see 10.4
+spr   = img + 8                                      // 0x5F7CF0
+save = Unit+0x2A0; Unit+0x2A0 = 1                    // FLC_Animation summary.current_anim_type := DEFAULT
+ct    = FLC_Animation_civ_color_table 0x403040(Unit+0x27C, Player_CivID [0x9FD47C])   // 10.5: DEFAULT flic's table +0x78, entries 0..63 := ntp[leaders[viewer].Color_Table_ID]
+Unit+0x2A0 = save
+if Unit_has_ability 0x5BC5C0(u, 0x12 = UTA_Army):   // entries 64..127 := owner's ntp entries 0..15, repeated 4 times
+    tmp = ntp[leaders[u.CivID (Unit+0x34)].Color_Table_ID].get(0, 16); replicate x4; ct.set(64, 64, tmp)
+x = r.left + (r.right  - r.left)/2 - spr[0x20] - spr[0x10]/2
+y = r.top  + (r.bottom - r.top )/2 - spr[0x24] - spr[0x14]/2
+Sprite_draw_with_color_table 0x5F87E0(spr, canvas, canvas, x, y, [0x9C7304], ct)
+```
+The wrapper adds `spr[0x20]/[0x24]` back, so the **FLC frame bitmap (size `spr[0x10] x spr[0x14]` = FLC header @8 x @10) is centred in `r`**. Its top-left is `(r.left + (r.right-r.left)/2 - spr[0x10]/2, r.top + (r.bottom-r.top)/2 - spr[0x14]/2)`. The colour comes from the **viewing player** (not the owner), except for the army overlay. Side effect: the unit's live map `Frame_1` is left on DEFAULT/SE/frame 1 until the animator seeks again (0x402620) [X calls; I visible effect].
+
+**City screen production picture** [X calls, I purpose]: `City_Form` method **0x424A50**, `ret 0x10`. It draws the `FLC_Animation` embedded at **City_Form+0x96C8** (`struct_188`; its `Frame_1` is at +0x9720):
+- `0x402620(anim, 3, 0)` (direction SE, frame 0 [I]).
+- `ct = 0x403040(anim, city.CivID)` (City+0x28 byte, the owner).
+- `0x5F87E0(spr, canvas, canvas, x, y, [0x9C7304], ct)` with x centred horizontally in the target image (canvas = the method's 2nd argument).
+- The animation is loaded in `City_Form_open` by `0x4062D0(path 0xCAB298, City_Form+0x96C8, civ, -1, -1, 0)` when `City+0x50 == 2` (0x4217CD; [I] = "producing a unit"), with the path from `BIC 0x5987B0`.
+
+The same identification works for every FLC sprite drawn in a panel. Other `0x5F87E0` callers are map-only: 0x403120 (FLC_Animation draw, from the animator), 0x4C3C42 (borders), 0x4E46A0 (selection cursor, `FLC_Animation` at 0xA281B4), 0x4F0522 and 0x5CC04B/0x5CC571 (`Unit_draw`, armies). FLC files are also loaded at 0x4C8297/0x4C82D0 (renderer) and 0x5892F9 (a dialog [?]).
+
+**From a `Sprite*` to (FLC file, colour table, chunk)** [X layout; I chunk numbering, which matches units.rs/10.4]:
+
+| Where | Field |
+|---|---|
+| `*(u32*)(spr - 8) == 0x665450` | `FLC_Frame_Image` vtable (ctor 0x5F7A60). This is the test for "this Sprite is an FLC frame". `Flic_Anim_Info` begins with its own `FLC_Frame_Image`, but its vtable is overwritten with 0x66A634 (ctor 0x600BB0), so that one does not match |
+| `*(Flic_Anim_Info**)(spr - 4)` | the animation (`FLC_Frame_Image+0x04`, set by 0x5F7A90) |
+| `*(i32*)(spr + 0x34)` | `Current_Frame_ID` = frame within the block (`img+0x3C`) |
+| `*(i32*)(spr + 0x38)` | **block** (`img+0x40`, -1 before the first seek) |
+| `flic+0x58` -> FLIC header | `@0x60` u16 = number of blocks, `@0x62` u16 = frames per block (fpd), `@0x70` u32 = present-direction mask (0 = all) |
+| `flic+0x48` | `Direction_Frames`: start chunk of each block |
+| `flic+0x78` | the FLC's own `PCX_Color_Table*` (what 0x403040 rewrites and returns) |
+
+Seek 0x601490 (`Flic_Anim_Info*` in ECX; args slot, frame, img, a4) [X]:
+- `block = slot` if `frame == -1`; otherwise, if mask != 0, `block = popcount(mask & ((1<<slot)-1))` (it fails if bit `slot` is clear); otherwise `block = slot % @0x60`.
+- `frame %= @0x62`.
+- It decodes from `Direction_Frames[block]` and steps forward until `Current_Frame_ID == frame`.
+- So **`chunk = block*(fpd+1) + frame`**, the index units.rs uses.
+- For the HUD: `chunk = 2*(fpd+1) + 1` when the file has all 8 directions.
+
+**File path**: hook **`Flic_Anim_Info_load` 0x600FA0** (ECX = `Flic_Anim_Info*`, `[esp+4]` = `char*` path, already resolved by `BIC_get_asset_path`). Keep `flic -> path`; return 0 = success, and 0x600C00 clears it. Alternative without a hook: `flic == Unit.Animation_Info->Animations[k]` gives the animation type k (1 for the HUD). Then `UnitArt::file(type_key, era_key(owner), k)` names the same file.
+
+**Hook plan (unit pictures).**
+1. **Share the existing inline hook on 0x5F87E0** with `trace.rs`; do not patch it twice. It is `(spr, canvas, canvas2, x, y, flags, ct)`. For a destination that is a UI canvas (not 0x9F8934 / 0x9FD80C):
+   - if `*(spr-8) == 0x665450`, emit `Blit { source: UnitArt@<path>#<table>/<chunk>, canvas, x: x + spr[0x20], y: y + spr[0x24] }`;
+   - otherwise fall through to the 16.7 sprite origin (`units_32`).
+2. **Colour table**: hook `0x403040` (thiscall, 1 arg `civ`). At return, remember `ret_ct -> civ` (the table is the same object for every draw of that animation, rewritten each time, so take the latest mapping). Then `#<table>` = `leaders[civ].Color_Table_ID` (`0xA52E58 + civ*0x20E4 + 0x10F8`).
+   - HUD: `civ = Player_CivID`.
+   - City production: `civ = city owner`.
+   - When the return address is 0x5CC85D and the unit has `UTA_Army`, add the army overlay (entries 64..127 = owner's ntp 0..15 x4). This needs a recolor variant beside the existing `Recolor { army }` (map armies, 10.11, use different entries).
+3. **Shadows**: only `Frame_1` is blitted (slot +0x8C, flags `[0x9C7304]`). Palette indices 248..254 darken the destination as on the map (10.5) [I: same jgl path]. Compile the frame with `UnitArt` (not `UnitShadow`).
+4. The units_32 fallback and the garrison icons need nothing new.
+
 ---
 
 ## 17. Minimap

@@ -322,6 +322,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             let _ = writeln!(out, "outpost {id} {owner}");
         }
     }
+    if let Ok(Some(id)) = game.focus_city() {
+        let _ = writeln!(out, "focus_city {id}");
+    }
     if let Ok(Some(id)) = game.current_unit() {
         let _ = writeln!(out, "current_unit {id}");
     }

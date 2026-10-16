@@ -65,8 +65,7 @@ pub fn needed(world: &Civ3World) -> BTreeSet<i32> {
 /// The 21 tiles of a city's radius around (0, 0): the 5×5 block of tile
 /// diamonds without its corners.
 fn in_radius(dx: i32, dy: i32) -> bool {
-    let (u, v) = ((dx + dy) / 2, (dy - dx) / 2);
-    (dx + dy) % 2 == 0 && u.abs() <= 2 && v.abs() <= 2 && !(u.abs() == 2 && v.abs() == 2)
+    crate::rules::in_city_radius(dx, dy)
 }
 
 /// Whether a city could be founded at (x, y) [I: the game asks
