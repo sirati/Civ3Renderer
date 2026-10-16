@@ -39,7 +39,26 @@ newgame)
   # Every button needs a hover first: the first click after the pointer jumps
   # somewhere may only hover, so move there, wait, then click.
   hclick() { "$WLH" move "$1" "$2"; sleep 1; "$WLH" click "$1" "$2"; }
-  hclick 708 498; sleep 4     # main menu: New Game
+  # Main menu: New Game is at y=498 with or without the "Play Last World" entry
+  # (that one sits above it, at y=460, and only exists in some prefixes). The
+  # first click on the menu often only hovers, so repeat until the screen has
+  # left the menu: its probe area (bottom left of the panel) is near black
+  # there, and light parchment on the world setup screen.
+  on_menu() {
+    "$WLH" shot "${TMPDIR:-/tmp}/civ3-session-probe.png" >/dev/null
+    nix shell --impure --expr 'let p = import <nixpkgs> {}; in p.python3.withPackages (ps: [ps.pillow ps.numpy])' -c python3 -c '
+import sys
+from PIL import Image
+import numpy as np
+a = np.asarray(Image.open(sys.argv[1]).convert("RGB"))[860:900, 480:600]
+sys.exit(0 if a.mean() < 90 else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png"
+  }
+  for _ in 1 2 3 4; do
+    hclick 708 498; sleep 3   # main menu: New Game
+    on_menu || break
+  done
+  if on_menu; then echo "stuck on the main menu" >&2; exit 1; fi
+  sleep 1
   hclick 1416 895; sleep 4    # world: OK
   hclick 1416 895; sleep 10   # players: OK, world generation
   hclick 1233 256; sleep 3    # dismiss "Dawn of Civilization"
