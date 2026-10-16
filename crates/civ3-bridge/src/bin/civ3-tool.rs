@@ -85,6 +85,11 @@ fn load_trace(path: &str) -> Result<Trace, String> {
             u.frame += n;
         }
     }
+    if let Some(n) = std::env::var("CIV3_CURSOR_FRAME_SHIFT").ok().and_then(|v| v.parse::<i32>().ok()) {
+        if let Some(sel) = &mut trace.world.selection {
+            sel.1 += n;
+        }
+    }
     Ok(trace)
 }
 
