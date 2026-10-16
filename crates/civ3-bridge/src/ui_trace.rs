@@ -391,11 +391,14 @@ pub fn set_skipping(on: bool) {
     }
 }
 
-/// The game starts redrawing the map (terrain over the old labels).
-pub fn map_redraw() {
+/// The game starts redrawing the map (terrain over the old labels) into
+/// `map_renderer`, an image it then copies onto the map canvas: what both
+/// showed is replaced.
+pub fn map_redraw(map_renderer: u32) {
     if let Ok(mut m) = MODEL.lock() {
         if let Some(m) = m.as_mut() {
             m.reset_underlays();
+            m.reset(map_renderer);
         }
     }
 }
@@ -405,6 +408,9 @@ pub fn map_redraw() {
 /// destination (the blit's second canvas argument).
 pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32) {
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32, y: y as i32, clip: h::canvas_clip(canvas) });
+        // The frame's image lies at its offset from (x, y), as for map
+        // units (§10.3).
+        let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas) });
     }
 }
