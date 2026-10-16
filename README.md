@@ -18,6 +18,7 @@ game could drive the same renderer, with or without Civ III's art.
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
 | `scene` | no | world snapshots and input events between driver and renderer |
+| `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing |
 | `tile-viewer` | no | window that draws scenes and reports input |
 | `civ3-assets` | format reader | PCX, FLC, INI readers; game file lookup; `render-desc` image loader |
 | `inproc` | no | safe abstractions for injected code: guarded memory reads, hooks, DLL entry |
@@ -39,8 +40,34 @@ cell *i / L*. All layers of a cell are drawn before the next cell, row by row,
 which is the order an isometric map needs for tall sprites to overlap the rows
 behind. Sprites are anchored quads fetched texel-exact from an atlas.
 
+Beyond the grid, a world has *free sprites* (units, effects, UI): animated
+sprite sets placed in world or screen space and drawn after any pass.
+
+Colour: a world may compose in a *quantized colour model* (e.g. RGB555, as
+Civ III does). The target then stores `q + bias` per channel in 8 bits, and
+*scale* sprites — the blend tables games use for fog of war and shadows,
+`c' = floor(c·k/den)` — are ordinary premultiplied blends whose offset makes
+the 8-bit rounding land exactly on the floor, after every sprite, in drawing
+order. A final pass expands the channels to 8 bits.
+
 `tile_render::reference` renders the same thing on the CPU; the GPU output is
-tested byte for byte against it (`cargo test -p tile-render`).
+tested byte for byte against it (`cargo test -p tile-render`), including an
+exhaustive test of the rounding.
+
+## In the game
+
+`civ3-bridge` is installed as the game's `ifc23.dll` (a proxy forwarding to
+the original). With `CIV3R_VIEWER=1` it opens the reimplemented renderer in a
+window of its own inside the game process: a publisher thread snapshots the
+game's memory (`civ3-sys`), maps it to a scene (`rules`, `scene_map`) and the
+viewer draws it with the game's camera; mouse and keyboard input in that
+window is forwarded to the game's window. When a scenario brings its own art,
+the description is recompiled against the scenario's folders.
+
+Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
+game's sprite blits and records one redraw — every sprite, position and
+order — plus the world state; `civ3-tool drawdiff` compares our draw list
+with it, `civ3-tool pixeldiff` compares our image with a screenshot.
 
 ## Building
 
