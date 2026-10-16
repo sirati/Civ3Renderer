@@ -91,3 +91,28 @@ NaturalWonderConfig name
 NaturalWonderConfig img_path
 NaturalWonderConfig img_row
 NaturalWonderConfig img_column
+
+# What the renderer needs besides the districts themselves: which kinds are
+# switched on, the work area (city radius) and the mod folder (art lives there).
+State current_config.enable_neighborhood_districts
+State current_config.enable_wonder_districts
+State current_config.enable_distribution_hub_districts
+State current_config.enable_energy_grid_districts
+State current_config.enable_bridge_districts
+State current_config.enable_canal_districts
+State current_config.enable_great_wall_districts
+State workable_tile_count
+State mod_rel_dir
+
+value SQ_RIVER SQ_RIVER
+value MF_NO_TECH_REQ MF_NO_TECH_REQ
+value DT_TILE_IMPROVEMENT DT_TILE_IMPROVEMENT
+
+DistrictConfig allow_irrigation_from
+DistrictConfig generated_resource_flags
+
+DistrictInfos resource_prereq_count
+DistrictInfos resource_prereq_on_tile_id
+
+WonderConfig buildable_square_types_mask
+WonderConfig buildable_on_rivers

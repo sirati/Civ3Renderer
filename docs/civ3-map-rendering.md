@@ -13,6 +13,7 @@ Every claim carries one tag:
 | **[H]** | Taken from the C3X reverse-engineered header (`Civ3Conquests.h`, `civ_prog_objects.csv`) and cross-checked: I compiled the header with `gcc -m32` (stubbing `windows.h`) and every offset I compared against disassembly matched (Map.Width 0x168, Map.Height 0x154, Map.Flags 0x1F0, Map.Seed 0x1EC, Renderer.Map 0x2E0, Leader.Color_Table_ID 0x10F8, BIC.Map 0x3E64, ...). |
 | **[S]** | Stated by an external source (OpenCiv3/C7, CivFanatics, ...), not independently verified. |
 | **[I]** | Inferred (plausible, not proven). |
+| **[C]** | Read from C3X's source (`injected_code.c`, section 18), not compared with the game's output yet. |
 | **[?]** | Open question. |
 
 Local files used (read-only): `/mnt/datasets/winvm/civ3-src/Civilization III Complete/` (`Art/`, `Conquests/Art/`, `civ3PTW/Art/`, `Conquests/Civ3Conquests*.exe`, `Conquests/Civ3Conquests.h`, `civ_prog_objects.csv`, `injected_code.c`, `ep.c`, `conquests.biq`, `*.SAV`). Method: static x86 disassembly (capstone) of the unmodded exe, following the vtables named in the C3X header; PKWare-DCL ("blast") decompression of SAV/BIQ files; PCX/FLC decoding with Pillow/NumPy.
@@ -1439,3 +1440,101 @@ The images are **retained**. They are not regenerated per frame.
 - Letterbox lines and aspect correction for non-square maps (`Width/Height != 1` after integer division, e.g. 200x100) are [X] only, not checked against data.
 - History effects (city squares partly overwritten by later re-tints, owner changes on revealed cells while `PCX_0` is the terrain image) cannot be reproduced from a single snapshot. Rebuilding from scratch matches a freshly loaded game.
 - Which HUD button triggers the terrain/political toggle, and whether the choice persists (it is not saved in the Navigator object) [?].
+
+---
+
+## 18. C3X districts [C]
+
+C3X (release 28 preview, `d4e71c4`) adds districts, wonder districts and natural wonders: buildings on the map that belong to a tile rather than a city. It draws them by replacing `Map_Renderer::m12_Draw_Tile_Buildings` and hooking a few more layers. This section is read from its source, `injected_code.c` (line numbers below are that file's), and has not been compared with the game's output yet [C]; the open points are in 18.11. The port is `crates/civ3-bridge/src/districts.rs` and `districts/`; the choices that depend on the neighbours (bridge, canal, port, Neighborhood) are checked against C3X's own functions, cut out of its source, over every combination of their inputs by `tools/district-oracle`. Without C3X districts, or with them switched off (`enable_districts`, `enable_natural_wonders`), nothing here applies and the game draws as in 6.7b.
+
+### 18.1 What C3X changes in the map drawing [C]
+
+Its `Map_Renderer_m19` wrapper (27258) records the tile being drawn and its district for the hooks below.
+
+| Hook | Effect |
+|---|---|
+| m12 tile buildings (40493) | no district on the tile: the game's m12. A district: if its kind is `draw_over_resources`, the tile's resources are drawn first (40515); then `draw_district_on_tile` (40276). So **a tile with a district shows none of the game's tile buildings** (ruins, airfield, mine, barricade, fortress, goody hut, barbarian camp, colony, radar, outpost, victory marker), finished or not. The one exception: with `enable_districts` off and natural wonders on, the game's m12 is called for every district but the natural wonders (40489). |
+| m09 resources (40522) | with a district on the tile and not `draw_over_resources`: `draw_district_generated_resource_on_tile` (40112) draws the resources in the game's place (after pollution, before the city); drawn over resources, m09 does nothing (40576). No district: the game's. |
+| m11 irrigation (40588) | not drawn on a completed district whose kind `allow_irrigation_from` (an irrigation source). |
+| m52 roads and railroads (27404, 27426) | not drawn on a Bridge district (`enable_bridge_districts`), finished or not: the bridge art has them. |
+| river special (40609) | the four `Tile_has_city` calls of the river drawing (m15, 6.4; call sites in `civ_prog_objects.csv` 872-875) ask `Tile_has_city || district instance`. A district of any kind and state next to a river vertex makes it "special": drawn in pass 2, under the objects. |
+
+### 18.2 State [C]
+
+C3X's state is at the start of its PE section `.c3xdat` (`crates/civ3-sys/src/c3x.rs`; offsets generated into `c3x_layout.rs` from `C3X.h` by `tools/gen-civ3-layout`, valid only for the release they were generated from, checked by its `mod_version` and size). `district_tile_map` (tile pointer to `struct district_instance`, C3X.h:1673) holds every district: `state` (`DS_COMPLETED`), `district_id`, `tile_x/y`, `built_by_civ_id`, the wonder state (`wonder_info`: state, city id, wonder index) and the natural wonder id. The kinds are `district_configs[]` (ids 0-10 are the special ones: Neighborhood, Wonder District, Distribution Hub, Aerodrome, Natural Wonder, Port, Central Rail Hub, Energy Grid, Bridge, Canal, Great Wall; then the ones of `*.districts_config.txt`), their buildings `district_infos[].dependent_building_ids`, the wonders `wonder_district_configs[]` and `natural_wonder_configs[]`. `get_district_instance` (3879) ignores instances whose id is out of range. A district under construction counts as completed as soon as its tile has the mine the building worker makes (`district_is_complete`, 7399; it also marks it completed).
+
+The bridge copies this into `Civ3World` (`districts`, `district_configs`, `improvements`, `free_improvements`; `Civ3Tile::district`, `city_area`, `continent`) once per snapshot, and the tracer dump has it as `district_*`, `wonder_kind`, `natural_wonder_kind`, `improvement`, `free_improvements` and `district` lines (parsed back by `Trace::parse`). The configs are read again only when a hash of their memory changes.
+
+### 18.3 Art files [C]
+
+`init_district_images` (39088) slices every sheet once, when first needed (the first district drawn). A sheet is `Districts/<season>/1200/<file>`: `<season>` is `Summer` unless the seasonal cycle is on (then the season of the moment, or of the clock), `1200` the hour of the day/night art. The file name is the one of the config, in its letter case (`Neighborhood_AMER.pcx`; the files on disk are `.PCX`, Windows does not mind). `get_mod_art_path` (19111) turns it into `Art\Districts/...` and asks `BIC_get_asset_path`, so a scenario's own file wins; else it is `<mod_rel_dir>\Art\...`, **in C3X's own folder** (`C3X_R28`, relative to `Conquests`; `DistrictConfigs::mod_dir`), which is not one of the game's art roots. `DistrictDraw::image` is `Art/Districts/Summer/1200/<file>`. Day/night and seasonal art (`DayNight/...`, `build_sprite_proxies`) swaps the sprites at draw time and is not modelled.
+
+| Sheet | Cells |
+|---|---|
+| a district kind, one file per variant (`img_paths`) | `img_column_count` columns, one row per era if `vary_img_by_era` (4), else one; cells `custom_width` × `custom_height` (default 128 × 64) at `(w·column, h·row)` |
+| `Abandoned.pcx` | land sprite at (0, 0), maritime one at (128, 0), both 128 × 64 |
+| a wonder (`Wonders.pcx` if the config names none) | 128 × 64 unless the wonder has a size: `(w·img_column, h·img_row)`; the same for the building site and, if `enable_img_alt_dir`, the two alternative cells |
+| a natural wonder | 128 × 88 at `(128·img_column, 88·img_row)` |
+
+### 18.4 Which sprite, where [C]
+
+`draw_district_on_tile` (40276). The tile's `Territory_OwnerID` is `owner`; `era` and `culture` are the owner's `Leader.Era` and `Races[RaceID].CultureGroupID`. A sprite's cell is `[variant][era][column]`: `variant` is the culture if `vary_img_by_culture` (else 0; the Port's sheet is chosen in 18.8, the Neighborhood's is always the culture), `era` the owner's if `vary_img_by_era` (else 0).
+
+1. **Natural wonder** (40286): needs `enable_natural_wonders` only, no completion. The 128 × 88 cell at `(0, -24)` from the cell origin (bottom-aligned to the 64-high tile).
+2. Other kinds need `enable_districts` and a completed district (40303).
+3. **Owner** `> 0`: as above; a kind with `align_to_coast` goes through 18.8. **No owner** (`<= 0`): the district is **abandoned** (40332) unless it is a Wonder District, Natural Wonder, Bridge or Canal: `Abandoned.pcx` land cell, or the maritime one if the tile is water, at `(x_offset, y_offset)` of the kind (not its size). Those four draw with variant 0 and era 0; if the tile's owner is negative and the builder is known, with the builder's culture and era (40343).
+4. The sprite of a kind is centred and bottom-aligned: `at = (x_offset - (w - 128) / 2, y_offset - (h - 64))` from the cell origin (40352).
+5. Per kind (the switch, 40361): 
+   - **Wonder District** (`enable_wonder_districts`): 18.9. 
+   - **Neighborhood** (`enable_neighborhood_districts`): the culture's sheet whatever `vary_img_by_culture` says; column `hash(x, y) & 3` (40420): `v = x·0x9E3779B1 + y·0x85EBCA6B; v ^= v >> 16; v *= 0x7FEB352D; v ^= v >> 15; v *= 0x846CA68B; v ^= v >> 16` in 32 bits.
+   - **Distribution Hub** (`enable_distribution_hub_districts`): column 0. 
+   - **Energy Grid** (`enable_energy_grid_districts`): column 0, or `i + 1` for the first of its dependent buildings (in config order) that a city serving it has (39782). 
+   - **Bridge** (`enable_bridge_districts`): 18.6. **Canal** (`enable_canal_districts`): 18.7. **Great Wall** (`enable_great_wall_districts`): 18.7.
+   - every other kind (also Aerodrome, Port, Central Rail Hub): `render_strategy` **by-count**: column = how many of its dependent buildings some city serving it has (40243); **by-building**: column 0, then, for each dependent building `i` that a city has, column `i + 1` over it (40257).
+6. Nothing is drawn for a kind that is switched off, and no tile building either (the game's m12 is not called).
+
+**Which cities serve a district** (`tile_coords_has_city_with_building_in_district_radius`, 39331): none if the tile has no owner; for a kind of type `tile-improvement`, the city `Tile_Body.CityAreaID` names, if the tile is in its work area; else the cities of the tile's owner standing on tiles of that owner in the work area around it (`FOR_CITIES_AROUND`: the work area is `workable_tile_count` tiles, in the order of `cultural_ni_to_diffs`, 380; skipping polluted tiles and ones with an enemy unit). A city has a building (`has_active_building`, 17459) if `City_has_improvement(.., include_auto = 1)` (the city built it, or a wonder gives it to all of its owner's cities or those on its continent: `Leader.Auto_Improvements`, keys `id` and `(continent + 1) · ImprovementsCount + id`, §8), the building's government (`GovernmentID`) is none or the owner's, and the owner does not know its `ObsoleteID` tech.
+
+**Zoomed out** (`draw_district_on_map_or_canvas`, 39770): C3X draws the same sprites with scale 2 but **does not scale its offsets**: `at` is the same number of pixels, in the 64 × 32 cell, so tall sprites sit higher than half their zoomed-in place. `districts::draws` gives the zoomed-in numbers (to be halved like the game's own art); `districts::draws_at(.., true)` gives what C3X passes [C, to be verified].
+
+### 18.5 Offsets summary [C]
+
+| Kind | Size | Offset | Sprite position |
+|---|---|---|---|
+| default | 128 × 64 | (0, 0) | the cell origin |
+| Energy Grid, Great Wall, Municipal, Ski Resort, Water Park | custom height 88 | (0, 0) | `(0, -24)`; the Great Wall ignores it: its sprites are drawn at the cell origin (40101) |
+| Bridge, Canal | 176 × 112 | (0, 24) | `(-24, -24)` |
+| Abandoned | 128 × 64 | the kind's | the kind's offset only |
+| Natural wonder | 128 × 88 | | `(0, -24)` |
+
+### 18.6 Bridge [C]
+
+Column (`get_bridge_image_index`, 39797): 0 SW-NE, 1 NW-SE, 2 N-S, 3 W-E; +4 if the bridge tile has a railroad (the real overlays). With bridge districts around (completed, any of the eight neighbours): two opposite ones decide (SW+NE, NW+SE, N+S, W+E, in that order), else one (NE or SW, NW or SE, N or S, W or E). With no bridge around, land decides the same way (any land, whoever owns it); none: SW-NE.
+
+### 18.7 Canal and Great Wall [C]
+
+**Canal** (`get_canal_directions`, 39889; `draw_canal_district`, 40046): sprites by direction (column = `enum direction`, 1 NE .. 8 N), era row. First direction: with canals around, the first of NE, NW, SE, SW, N, E, S, W that has a canal; else the first that has a canal or water. Second: the first in that order, other than the first, that has a canal (else canal or water), is not side by side with the first (N/NE, NE/E, ... NW/N), then the one higher on the screen goes first, so that the lower one is drawn in front (NE/NW/N, then E/W, then SE/SW, then S). Nine fixes for corner cases follow (40002-40010, e.g. no canal and water at NE and SW: NE and SW). Each sprite is drawn again 18 pixels sideways and 9 up or down (not for N and S: only the 9) towards a direction whose neighbour is water (40027). Edge offsets: NE+S moves the first sprite `(+7, -2)`, N+W the second `(-12, 0)`, N+SE the second `(+4, 0)`.
+
+**Great Wall** (`draw_great_wall_district`, 40080): variant 0, era 0. For the NW and NE neighbours that are Great Wall districts **of the same owner**, their piece (column = direction); then the pillar (column 0); then the SW and SE pieces. All at the cell origin. The kind is drawn over resources: its resource sprites come first (18.10).
+
+### 18.8 Port: coast alignment [C]
+
+`align_variant_and_pixel_offsets_with_coastline` (39423), for a kind with `align_to_coast` and an owner. The sheet (variant: 0 NW, 1 NE, 2 SE, 3 SW; the Port's `img_paths` are in that order) and the anchor tile (one of the eight neighbours) come from the position of the **first** city around the port in `FOR_CITIES_AROUND` order and from which neighbours are land of the port's owner. A city on a diagonal next to the port decides alone (NE: SW sheet, anchor NE; SE: NW, SE; SW: NE, SW; NW: SE, NW). A city straight above, below, east or west prefers the owner's land on the sides that face it, and when there is none moves the sprite by a fixed amount (above: 4 left and up, below: 4 right and down, west: 30 left and 24 down, east: 30 right and 24 up). A city in a quadrant prefers the owner's land on its two sides. Else, or if there is none: the first land of the owner in the order NE, SE, SW, NW, N, E, S, W; else the same for any land; else SW and NE. The sprite then moves by a table of 7 cases for (sheet, anchor), and by edge cases for the **base terrain image** of the anchor tile (its sheet 0-5 and image number, from `SquareParts`) unless the anchor is hills or mountains or the city is on a diagonal (which have 4 cases of their own). The decision tree is `districts/port.rs::coast_choice`, a transcription of the function, checked against it for 300000 random neighbourhoods.
+
+### 18.9 Wonder districts [C]
+
+`draw_district_on_tile`, 40362. State `WDS_COMPLETED`: the wonder `wonder_index` (an index into `wonder_district_configs`), its finished cell. Else, if the district is `WDS_UNDER_CONSTRUCTION` (reserved by a city) and that city (`wonder_info.city_id`) still builds a wonder (`Order_Type` improvement with the wonder or small wonder characteristic) whose config is found by name (`find_wonder_config_index_by_improvement_id`, 7006: the first improvement with exactly the wonder's name) and has the tile in its work area (17195): the building-site cell of that wonder. Else the plain Wonder District cell (column 0, era row). For a wonder, the position uses the wonder's own size and the district's offsets, after moving towards the river if the wonder `wonder_requires_river` (square-type mask has the river bit 14, or `buildable_on_rivers`): `get_primary_river_direction` (4460: E, W, SE, NE, SW, NW, S, N, by `River_Code` bit) moves it by the **tile step** of the direction in x (-2 to 2 pixels, not a distance) and by 0, ±18 or ±36 in y (39388). The alternative art (`enable_img_alt_dir`) is chosen (39680) if the owner is `> 0` and: for a river wonder, the river direction's step is positive but not 2; else the nearest city of the owner in the work area (by `|dx| + |dy|`, the one with the smaller `|dx|` on a tie) is **east** of the wonder (`dx > 0`), or is straight above or below and any of the NE, E, SE neighbours is the owner's land.
+
+### 18.10 Resources [C]
+
+`draw_district_generated_resource_on_tile` (40112) draws a district tile's resources. The tile's own (`get_visible_non_subsumed_tile_resource`, 17798): the one the viewer's techs show, unless the district is completed (`DS_COMPLETED`, not merely complete by the mine) and its kind `subsumes_tile_resource`: then none. A kind with a `generated_resource` also shows that resource when: the district is completed, the tile's owner `>= 0` and, **given the viewer `visible_to_civ_id`**, equal to it (or the viewer `< 0`), the owner knows the resource's tech (unless `MF_NO_TECH_REQ`), and the tile holds the resource the kind wants on it (`resource_prereq_on_tile`; the connection the kind's other `resource_prereqs` need from the Trade Net is not checked here) (`district_generates_resource_for_civ`, 15091). With one, the tile's own resource is drawn by the game's code 16 pixels (`tile_width / 8`) to the left, the generated icon (no shadow) 16 pixels to the right of the centre `((tile_width - 49) >> 1, (tile_height - 49) >> 1)`; without a resource of the tile's own it is centred alone. Zoomed out C3X uses `tile_width = 64` for that while the sprite's width stays 49, which leaves it above and left of the centre.
+
+Order: for a kind drawn over resources (the Great Wall) the resources come **before** the district, at the place of m12; for the others in the game's resource place, after pollution. The game's resource layer (`rules::resource`) draws exactly the cases C3X leaves to the game; `districts::takes_over_resource` says when it must not.
+
+### 18.11 Open points [C]
+
+- Seasonal and day/night art, `dc_img_state` failures (a missing sheet makes C3X draw nothing for districts at all, 40282) and online games (no district art) are not modelled.
+- `FOR_CITIES_AROUND` also skips tiles with an enemy unit (4798); not modelled (a city tile has none).
+- A generated resource needs its kind's other `resource_prereqs` connected to a city by the Trade Net (14651); taken as met.
+- Read from the exe, not from C3X [X]: `Leader.Auto_Improvements` (Leader+0x20D0, a `Hash_Table`: items +4, key count +8, `Capacity` +0xC, mask +0x10) is open addressed: `Get_Key_Index` (0x56BB40) is `key & mask`, `Init_Items` (0x56B880) fills unused items with the key -1, `Hash_Table_look_up` (0x4C2010) probes linearly until the key is found or every item was seen, and `City_has_improvement` (0x4ACBE0) asks it for the building and for the continent key, as the port reads it. The continent is `m46_Get_ContinentID` = `Tile+0x1E`; `m18_Check_Mines` and `m20_Check_Pollution` test bits 2 and 6 of `m42_Get_Overlays(civ)`; `m35_Check_Is_Water` is effective terrain 11..13; `Territory_OwnerID` is a signed `char`.
+- To be compared with the game: the zoomed-out offsets (18.4, 18.10), the places the district and the resources are drawn in relative to pollution and the city (18.1, 18.10), that a bridge really has no roads or railroads of its own on top (18.1), the alignment of ports (18.8) and wonders on rivers (18.9), and the colours of the resource shadows under a district.

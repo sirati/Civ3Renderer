@@ -2,6 +2,9 @@
 //! live from the game's memory, or parsed from a tracer dump.
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use civ3_sys::c3x::{District, DistrictConfigs, DistrictFlags, DistrictKind, NaturalWonderKind, WonderKind};
 
 /// The fields of a `Tile` the renderer needs.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -28,6 +31,11 @@ pub struct Civ3Tile {
     /// The tile building (colony, airfield, radar, outpost) here.
     pub building: Option<i16>,
     pub ruins: bool,
+    /// The city whose area the tile belongs to (-1: none).
+    pub city_area: i16,
+    pub continent: i16,
+    /// The district on this tile: its index in [`Civ3World::districts`].
+    pub district: Option<u32>,
 }
 
 impl Civ3Tile {
@@ -53,6 +61,8 @@ pub struct Civ3City {
     pub size: i32,
     /// Bit i: has improvement i.
     pub improvements: [u8; 32],
+    /// The wonder or small wonder the city is building (an improvement id).
+    pub wonder_in_production: Option<i32>,
 }
 
 impl Civ3City {
@@ -76,6 +86,16 @@ pub struct IconBuilding {
 pub struct WallBuilding {
     pub id: i32,
     pub government: i32,
+    pub obsolete_for: u32,
+}
+
+/// What an improvement's rules say about a city counting as having it
+/// (C3X's `has_active_building`, docs §18).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Civ3Improvement {
+    /// The government it needs (`None`: any).
+    pub government: Option<i32>,
+    /// Bit per player that knows the tech obsoleting it.
     pub obsolete_for: u32,
 }
 
@@ -159,6 +179,17 @@ pub struct Civ3World {
     pub selection: Option<(i32, i32)>,
     /// How `player` stands with each civ (by civ; empty if unknown).
     pub relations: Vec<civ3_sys::world::Relation>,
+    /// C3X's districts (docs §18): empty without C3X districts or while
+    /// they are off. Link them to their tiles with [`Civ3World::set_districts`].
+    pub districts: Vec<District>,
+    /// What C3X loaded to draw them with (shared: it changes with the game).
+    pub district_configs: Arc<DistrictConfigs>,
+    /// Every improvement's rules for counting as present, by id (read only
+    /// while districts are on).
+    pub improvements: Vec<Civ3Improvement>,
+    /// Per civ, the keys of the buildings wonders give it for free (see
+    /// `Civ3::free_improvements`).
+    pub free_improvements: Vec<Vec<i32>>,
     /// In Civ III x units: tiles exist where x + y is even.
     pub width: i32,
     pub height: i32,
@@ -206,6 +237,233 @@ impl Civ3World {
         }
         self.tiles.get(self.index(x, y))
     }
+
+    /// Takes the districts and links each one to its tile
+    /// ([`Civ3Tile::district`]), so a tile finds its district at once.
+    pub fn set_districts(&mut self, districts: Vec<District>) {
+        for old in std::mem::take(&mut self.districts) {
+            if let Some(tile) = self.district_tile(&old) {
+                tile.district = None;
+            }
+        }
+        for (i, d) in districts.iter().enumerate() {
+            if let Some(tile) = self.district_tile(d) {
+                tile.district = Some(i as u32);
+            }
+        }
+        self.districts = districts;
+    }
+
+    fn district_tile(&mut self, d: &District) -> Option<&mut Civ3Tile> {
+        let on_map = (0..self.width).contains(&d.x) && (0..self.height).contains(&d.y) && (d.x + d.y) % 2 == 0;
+        let at = self.index(d.x, d.y);
+        self.tiles.get_mut(at).filter(|_| on_map)
+    }
+}
+
+/// The districts' part of a tracer dump: what draws them and where they are
+/// (read back by [`Trace::parse`]). Nothing when C3X has none.
+pub fn district_lines(configs: &DistrictConfigs, improvements: &[Civ3Improvement], free: &[Vec<i32>], districts: &[District]) -> Vec<String> {
+    if !configs.flags.any() && districts.is_empty() {
+        return Vec::new();
+    }
+    // Lists are comma separated, `-` for none; a name, which can have spaces,
+    // goes last.
+    let list = |v: Vec<String>| if v.is_empty() { "-".to_owned() } else { v.join(",") };
+    let on: Vec<&str> = FLAG_NAMES.iter().filter(|(_, get)| get(&configs.flags)).map(|(name, _)| *name).collect();
+    let mut out = vec![
+        format!("district_flags {}", on.join(" ")),
+        format!("district_work_area {} {}", configs.workable_tiles, configs.mod_dir),
+    ];
+    out.push("# district_kind index render_strategy type columns width height x_offset y_offset bits generated flags on_tile resources images buildings name".to_owned());
+    for (i, k) in configs.districts.iter().enumerate() {
+        out.push(format!(
+            "district_kind {i} {} {} {} {} {} {} {} {:#x} {} {} {} {} {} {} {}",
+            k.render_strategy,
+            k.kind,
+            k.columns,
+            k.size.0,
+            k.size.1,
+            k.offset.0,
+            k.offset.1,
+            kind_bits(k),
+            k.generated_resource,
+            k.generated_resource_flags,
+            k.resource_prereq_on_tile,
+            k.resource_prereqs,
+            list(k.images.clone()),
+            list(k.dependent_buildings.iter().map(|b| b.to_string()).collect()),
+            k.name
+        ));
+    }
+    out.push("# wonder_kind index improvement column row construct_column construct_row alt width height square_types on_rivers image name".to_owned());
+    for (i, w) in configs.wonders.iter().enumerate() {
+        let alt = w.alt.map_or("-".to_owned(), |(a, b)| format!("{},{},{},{}", a.0, a.1, b.0, b.1));
+        out.push(format!(
+            "wonder_kind {i} {} {} {} {} {} {alt} {} {} {:#x} {} {} {}",
+            w.improvement.unwrap_or(-1),
+            w.cell.0,
+            w.cell.1,
+            w.construct_cell.0,
+            w.construct_cell.1,
+            w.size.0,
+            w.size.1,
+            w.buildable_square_types,
+            w.buildable_on_rivers as u8,
+            list(Some(w.image.clone()).filter(|s| !s.is_empty()).into_iter().collect()),
+            w.name
+        ));
+    }
+    for (i, n) in configs.natural_wonders.iter().enumerate() {
+        let image = list(Some(n.image.clone()).filter(|s| !s.is_empty()).into_iter().collect());
+        out.push(format!("natural_wonder_kind {i} {} {} {image} {}", n.cell.0, n.cell.1, n.name));
+    }
+    out.push("# improvement id government obsolete_for".to_owned());
+    for (i, b) in improvements.iter().enumerate() {
+        out.push(format!("improvement {i} {} {:#x}", b.government.unwrap_or(-1), b.obsolete_for));
+    }
+    out.push("# free_improvements civ keys".to_owned());
+    for (civ, keys) in free.iter().enumerate().filter(|(_, keys)| !keys.is_empty()) {
+        out.push(format!("free_improvements {civ} {}", keys.iter().map(i32::to_string).collect::<Vec<_>>().join(",")));
+    }
+    out.push("# district x y kind completed built_by wonder_state wonder wonder_city natural_wonder".to_owned());
+    for d in districts {
+        out.push(format!(
+            "district {} {} {} {} {} {} {} {} {}",
+            d.x, d.y, d.kind, d.completed as u8, d.built_by, d.wonder_state, d.wonder, d.wonder_city, d.natural_wonder
+        ));
+    }
+    out
+}
+
+/// The names of the `DistrictFlags` in the dump's `district_flags` line.
+const FLAG_NAMES: [(&str, fn(&DistrictFlags) -> bool); 9] = [
+    ("districts", |f| f.districts),
+    ("natural_wonders", |f| f.natural_wonders),
+    ("neighborhood", |f| f.neighborhood),
+    ("wonder", |f| f.wonder),
+    ("distribution_hub", |f| f.distribution_hub),
+    ("energy_grid", |f| f.energy_grid),
+    ("bridge", |f| f.bridge),
+    ("canal", |f| f.canal),
+    ("great_wall", |f| f.great_wall),
+];
+
+/// `DistrictKind`'s yes/no settings as the dump's bit set.
+fn kind_bits(k: &DistrictKind) -> u32 {
+    [k.by_era, k.by_culture, k.align_to_coast, k.draw_over_resources, k.subsumes_tile_resource, k.allow_irrigation_from]
+        .iter()
+        .enumerate()
+        .fold(0, |bits, (i, &on)| bits | (on as u32) << i)
+}
+
+/// A list field of a dump line (`-`: empty).
+fn list_field(s: &str) -> impl Iterator<Item = &str> {
+    s.split(',').filter(move |_| s != "-")
+}
+
+/// Reads one of the district lines of a dump into `world`; the `district`
+/// lines are collected in `districts` until the tiles are known.
+fn parse_district_line(world: &mut Civ3World, districts: &mut Vec<District>, f: &[&str]) -> Result<(), &'static str> {
+    let at = |k: usize| f.get(k).and_then(|s| num(s)).map(|v| v as i32).ok_or("bad number");
+    let bits = |k: usize| f.get(k).and_then(|s| num(s)).map(|v| v as u32).ok_or("bad number");
+    let text = |k: usize| f.get(k).copied().ok_or("missing field");
+    let image = |k: usize| text(k).map(|s| if s == "-" { String::new() } else { s.to_owned() });
+    let rest = |k: usize| f.get(k..).unwrap_or_default().join(" ");
+    let configs = Arc::make_mut(&mut world.district_configs);
+    match f[0] {
+        "district_flags" => {
+            let on = |name: &str| f[1..].contains(&name);
+            configs.flags = DistrictFlags {
+                districts: on("districts"),
+                natural_wonders: on("natural_wonders"),
+                neighborhood: on("neighborhood"),
+                wonder: on("wonder"),
+                distribution_hub: on("distribution_hub"),
+                energy_grid: on("energy_grid"),
+                bridge: on("bridge"),
+                canal: on("canal"),
+                great_wall: on("great_wall"),
+            };
+        }
+        "district_work_area" => {
+            configs.workable_tiles = at(1)?;
+            configs.mod_dir = rest(2);
+        }
+        "district_kind" => {
+            let flag = |i: u32| bits(9).map(|b| b >> i & 1 != 0);
+            configs.districts.push(DistrictKind {
+                render_strategy: at(2)?,
+                kind: at(3)?,
+                columns: at(4)?,
+                size: (at(5)?, at(6)?),
+                offset: (at(7)?, at(8)?),
+                by_era: flag(0)?,
+                by_culture: flag(1)?,
+                align_to_coast: flag(2)?,
+                draw_over_resources: flag(3)?,
+                subsumes_tile_resource: flag(4)?,
+                allow_irrigation_from: flag(5)?,
+                generated_resource: at(10)?,
+                generated_resource_flags: at(11)?,
+                resource_prereq_on_tile: at(12)?,
+                resource_prereqs: at(13)?,
+                images: list_field(text(14)?).map(str::to_owned).collect(),
+                dependent_buildings: list_field(text(15)?).filter_map(|s| s.parse().ok()).collect(),
+                name: rest(16),
+            });
+        }
+        "wonder_kind" => {
+            let alt = match text(7)? {
+                "-" => None,
+                s => {
+                    let v: Vec<i32> = s.split(',').filter_map(|v| v.parse().ok()).collect();
+                    (v.len() == 4).then(|| ((v[0], v[1]), (v[2], v[3])))
+                }
+            };
+            configs.wonders.push(WonderKind {
+                improvement: Some(at(2)?).filter(|&i| i >= 0),
+                cell: (at(3)?, at(4)?),
+                construct_cell: (at(5)?, at(6)?),
+                alt,
+                size: (at(8)?, at(9)?),
+                buildable_square_types: bits(10)?,
+                buildable_on_rivers: at(11)? != 0,
+                image: image(12)?,
+                name: rest(13),
+            });
+        }
+        "natural_wonder_kind" => {
+            configs.natural_wonders.push(NaturalWonderKind { cell: (at(2)?, at(3)?), image: image(4)?, name: rest(5) });
+        }
+        "improvement" => {
+            let id = usize::try_from(at(1)?).map_err(|_| "bad improvement")?;
+            if world.improvements.len() <= id {
+                world.improvements.resize(id + 1, Civ3Improvement::default());
+            }
+            world.improvements[id] = Civ3Improvement { government: Some(at(2)?).filter(|&g| g >= 0), obsolete_for: bits(3)? };
+        }
+        "free_improvements" => {
+            let civ = usize::try_from(at(1)?).map_err(|_| "bad civ")?;
+            if world.free_improvements.len() <= civ {
+                world.free_improvements.resize(civ + 1, Vec::new());
+            }
+            world.free_improvements[civ] = list_field(text(2)?).filter_map(|s| s.parse().ok()).collect();
+        }
+        "district" => districts.push(District {
+            x: at(1)?,
+            y: at(2)?,
+            kind: at(3)?,
+            completed: at(4)? != 0,
+            built_by: at(5)?,
+            wonder_state: at(6)?,
+            wonder: at(7)?,
+            wonder_city: at(8)?,
+            natural_wonder: at(9)?,
+        }),
+        _ => {}
+    }
+    Ok(())
 }
 
 /// What the main map view shows.
@@ -274,6 +532,7 @@ impl Trace {
     pub fn parse(text: &str) -> Result<Trace, TraceError> {
         let mut t = Trace::default();
         let mut tiles: Vec<(i32, i32, Civ3Tile)> = Vec::new();
+        let mut districts: Vec<District> = Vec::new();
         for (i, line) in text.lines().enumerate() {
             let err = |message: &str| TraceError { line: i + 1, message: message.to_owned() };
             let f: Vec<&str> = line.split_whitespace().collect();
@@ -401,6 +660,7 @@ impl Trace {
                         }
                         v
                     },
+                    wonder_in_production: f.get(7).map(|_| n(7)).transpose()?.map(|w| w as i32).filter(|&w| w >= 0),
                 }),
                 Some(kind @ ("unit" | "army_unit")) => {
                     let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
@@ -477,6 +737,10 @@ impl Trace {
                 Some("resource_visible") => {
                     t.world.resource_visible = f[1..].iter().map(|v| *v == "1").collect();
                 }
+                Some(
+                    "district_flags" | "district_work_area" | "district_kind" | "wonder_kind" | "natural_wonder_kind" | "improvement"
+                    | "free_improvements" | "district",
+                ) => parse_district_line(&mut t.world, &mut districts, &f).map_err(|m| err(m))?,
                 Some("file") if f.len() >= 3 => {
                     let path = f[3..].join(" ");
                     t.files.insert((f[1].to_owned(), n(2)? as u32), path);
@@ -508,6 +772,9 @@ impl Trace {
                         victory_location: f.get(17).map(|_| n(17)).transpose()?.unwrap_or(-1) as i16,
                         building: f.get(18).map(|_| n(18)).transpose()?.map(|b| b as i16).filter(|&b| b >= 0),
                         ruins: f.get(19).map(|_| n(19)).transpose()?.unwrap_or(0) != 0,
+                        city_area: f.get(20).map(|_| n(20)).transpose()?.unwrap_or(-1) as i16,
+                        continent: f.get(21).map(|_| n(21)).transpose()?.unwrap_or(-1) as i16,
+                        district: None,
                     };
                     tiles.push((n(1)? as i32, n(2)? as i32, tile));
                 }
@@ -534,6 +801,7 @@ impl Trace {
                 *slot = tile;
             }
         }
+        w.set_districts(districts);
         Ok(t)
     }
 }

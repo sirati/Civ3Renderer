@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# Runs C3X's own district drawing choices over every combination of what they
+# depend on and prints a checksum of the results of each, for the tests in
+# crates/civ3-bridge/src/districts/tests.rs to compare their port with.
+#
+#   tools/district-oracle [C3X dir]      (run inside `nix develop`, needs gcc)
+#
+# The functions are cut out of C3X's injected_code.c as they are (nothing of
+# C3X is copied into this repository); only the game calls they make are
+# replaced, by lookups in tables the harness below fills in:
+#   neighborhood  the Neighborhood's column from its tile (x, y in 0..128)
+#   bridge        get_bridge_image_index, for the bridges and the land around
+#                 and a railroad (2^17 combinations)
+#   canal         get_canal_directions, for the canals and the water around
+#                 (2^16 combinations)
+#   coast         align_variant_and_pixel_offsets_with_coastline, for 300000
+#                 pseudo-random positions of the city, land and anchor tiles
+# Each line is "name 0x<FNV-1a 64 over the results as 32-bit integers>".
+set -euo pipefail
+c3x=${1:-/mnt/datasets/winvm/c3x-src}
+src=$c3x/injected_code.c
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+
+# extract FUNCTION: a top-level function of C3X, from its return type line to
+# its closing brace.
+extract() {
+  awk -v name="$1" '
+    $0 ~ "^" name " *\\(" { on = 1; print prev }
+    on { print; if ($0 ~ /^}/) exit }
+    { prev = $0 }
+  ' "$src" | tr -d '\r'
+}
+
+{
+cat <<'EOF'
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#define __ 0
+
+enum direction { DIR_ZERO, DIR_NE, DIR_E, DIR_SE, DIR_S, DIR_SW, DIR_W, DIR_NW, DIR_N };
+enum SquareTypes { SQ_Desert, SQ_Plains, SQ_Grassland, SQ_Tundra, SQ_FloodPlain, SQ_Hills, SQ_Mountains, SQ_Forest,
+                   SQ_Jungle, SQ_Swamp, SQ_Volcano, SQ_Coast, SQ_Sea, SQ_Ocean };
+#define BRIDGE_DISTRICT_ID 8
+#define CANAL_DISTRICT_ID 9
+#define TILE_FLAG_RAILROAD 2
+
+/* The game's objects, as far as these functions look. */
+typedef struct Tile Tile;
+struct Tile_vtable {
+	unsigned (*m42_Get_Overlays) (Tile *, int, int);
+	int (*m50_Get_Square_BaseType) (Tile *);
+};
+struct Tile { struct Tile_vtable * vtable; int Territory_OwnerID; int rough; int sheet, sprite; };
+typedef struct { int Flags, Width, Height; } Map;
+typedef struct { Map Map; } BIC;
+typedef struct { int X, Y; } City_Body;
+typedef struct { City_Body Body; } City;
+struct district_instance { int tile_x, tile_y; };
+struct wai_t { City * city; };
+
+/* The situation: the tile is at (100, 100), the tables say what is around it. */
+#define X0 100
+#define Y0 100
+static bool g_bridge[9], g_canal[9], g_water[9], g_same[9], g_any[9];
+static int g_railroad;
+static Tile g_anchor[9];
+static City the_city;
+static BIC bic = { { 0, 400, 400 } };
+static BIC * p_bic_data = &bic;
+static struct district_instance the_inst = { X0, Y0 };
+
+static int dir_of (int x, int y)
+{
+	static const int dx[9] = { 0, 1, 2, 1, 0, -1, -2, -1, 0 }, dy[9] = { 0, -1, 0, 1, 2, 1, 0, -1, -2 };
+	for (int d = 1; d <= 8; d++)
+		if ((x - X0 == dx[d]) && (y - Y0 == dy[d]))
+			return d;
+	return 0;
+}
+static unsigned get_overlays (Tile * t, int edx, int civ) { return g_railroad ? TILE_FLAG_RAILROAD : 0; }
+static int base_type (Tile * t) { return t->rough ? SQ_Hills : SQ_Plains; }
+static struct Tile_vtable vt = { get_overlays, base_type };
+static Tile the_tile = { &vt, 3 };
+static Tile null_tile;
+#define p_null_tile (&null_tile)
+
+static int clamp (int lower_lim, int upper_lim, int x) { return (x < lower_lim) ? lower_lim : ((x > upper_lim) ? upper_lim : x); }
+static bool tile_has_district_at (int x, int y, int id)
+{
+	int d = dir_of (x, y);
+	return d && ((id == BRIDGE_DISTRICT_ID) ? g_bridge[d] : g_canal[d]);
+}
+static bool tile_is_water (int x, int y) { int d = dir_of (x, y); return d && g_water[d]; }
+static bool tile_is_land (int civ, int x, int y, bool same_owner)
+{
+	int d = dir_of (x, y);
+	return d && (same_owner ? g_same[d] : g_any[d]);
+}
+static struct district_instance * get_district_instance (Tile * t) { return &the_inst; }
+static Tile * get_tile_sprite_indices (int x, int y, int * sheet, int * sprite)
+{
+	Tile * t = &g_anchor[dir_of (x, y)];
+	*sheet = t->sheet;
+	*sprite = t->sprite;
+	return t;
+}
+#define FOR_CITIES_AROUND(wai_name, _x, _y) for (struct wai_t wai_name = { &the_city }; wai_name.city != NULL; wai_name.city = NULL)
+
+/* C3X's functions. */
+EOF
+extract get_bridge_image_index
+extract get_canal_directions
+extract align_variant_and_pixel_offsets_with_coastline
+cat <<'EOF'
+
+static uint64_t h;
+static void start (void) { h = 0xcbf29ce484222325ULL; }
+static void feed (int v) { h ^= (uint32_t)v; h *= 0x100000001b3ULL; }
+static void report (char const * name) { printf ("%s 0x%016llx\n", name, (unsigned long long)h); }
+static uint64_t lcg = 12345;
+static unsigned next (void) { lcg = lcg * 6364136223846793005ULL + 1442695040888963407ULL; return (unsigned)(lcg >> 33); }
+
+int main (void)
+{
+	start ();
+	for (int tile_x = 0; tile_x < 128; tile_x++)
+		for (int tile_y = 0; tile_y < 128; tile_y++) {
+			int buildings;
+EOF
+awk '/unsigned v = \(unsigned\)tile_x/ { on = 1 } on { print } /buildings = clamp/ { exit }' "$src" | tr -d '\r'
+cat <<'EOF'
+			feed (buildings);
+		}
+	report ("neighborhood");
+
+	start ();
+	for (unsigned mask = 0; mask < (1u << 17); mask++) {
+		for (int d = 1; d <= 8; d++) {
+			g_bridge[d] = (mask >> (d - 1)) & 1;
+			g_any[d] = (mask >> (8 + d - 1)) & 1;
+		}
+		g_railroad = (mask >> 16) & 1;
+		feed (get_bridge_image_index (&the_tile, X0, Y0));
+	}
+	report ("bridge");
+
+	start ();
+	for (unsigned mask = 0; mask < (1u << 16); mask++) {
+		for (int d = 1; d <= 8; d++) {
+			g_canal[d] = (mask >> (d - 1)) & 1;
+			g_water[d] = (mask >> (8 + d - 1)) & 1;
+		}
+		bool water_out[9];
+		int one, two;
+		get_canal_directions (&the_tile, X0, Y0, water_out, &one, &two);
+		feed (one);
+		feed (two);
+	}
+	report ("canal");
+
+	start ();
+	for (int n = 0; n < 300000; n++) {
+		int cx = (int)(next () % 23) - 11, cy = (int)(next () % 23) - 11;
+		if ((cx + cy) & 1)
+			cy += 1;
+		the_city.Body.X = X0 + cx;
+		the_city.Body.Y = Y0 + cy;
+		for (int d = 1; d <= 8; d++) {
+			g_same[d] = next () & 1;
+			g_any[d] = next () & 1;
+			g_anchor[d].rough = (next () % 4) == 0;
+			g_anchor[d].sheet = (int)(next () % 7) - 1;
+			g_anchor[d].sprite = (int)(next () % 80);
+		}
+		g_anchor[0].sheet = g_anchor[0].sprite = -1;
+		for (int d = 0; d <= 8; d++)
+			g_anchor[d].vtable = &vt;
+		int variant = 99, px = 0, py = 0;
+		align_variant_and_pixel_offsets_with_coastline (&the_tile, &variant, &px, &py);
+		feed (variant);
+		feed (px);
+		feed (py);
+	}
+	report ("coast");
+	return 0;
+}
+EOF
+} > "$tmp/oracle.c"
+
+gcc -O1 -w -o "$tmp/oracle" "$tmp/oracle.c"
+"$tmp/oracle"

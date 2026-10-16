@@ -106,6 +106,18 @@ impl<'a> Mapper<'a> {
                 if tile.is_none() {
                     continue;
                 }
+                // C3X's districts (drawn instead of the tile's buildings, and in
+                // its resources' place), as slices of their art.
+                if !world.districts.is_empty() {
+                    let stages = crate::districts::stages(world, x, y, view.zoomed_out);
+                    let slice = |d: Option<&crate::districts::DistrictDraw>| d.map(|d| crate::district_art::Slice::of(d, view.zoomed_out).sprite());
+                    for (i, layer) in crate::district_art::LAYERS.iter().enumerate() {
+                        self.put(&mut scene, layer, col, row, slice(stages.buildings.get(i)));
+                    }
+                    for (i, layer) in crate::district_art::RESOURCE_LAYERS.iter().enumerate() {
+                        self.put(&mut scene, layer, col, row, slice(stages.resources.get(i)));
+                    }
+                }
                 self.put(&mut scene, "mountain", col, row, rules::mountain(world, x, y));
                 self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
                 self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));

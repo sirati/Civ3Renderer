@@ -253,6 +253,7 @@ fn serve_requests(game: Civ3) {
 
 fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     let mut out = String::new();
+    let districts = game.map().map(|map| crate::districts::read(game, &map)).unwrap_or_default();
     let _ = writeln!(out, "# civ3-bridge trace: map_renderer {map_renderer:#x}");
     for (name, i, path) in civ3_sys::sprites::sheet_files(map_renderer) {
         let _ = writeln!(out, "file {name} {i} {path}");
@@ -296,6 +297,10 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             };
             let list: Vec<&str> = (0..32).map(code).collect();
             let _ = writeln!(out, "relations {}", list.join(" "));
+        }
+        // C3X's districts (docs §18), if it has any.
+        for line in crate::world::district_lines(&districts.configs, &districts.improvements, &districts.free_improvements, &districts.districts) {
+            let _ = writeln!(out, "{line}");
         }
         if let Ok(vis) = game.resources_visible_to(view.player_civ) {
             let list: Vec<&str> = vis.iter().map(|&v| if v { "1" } else { "0" }).collect();
@@ -392,7 +397,8 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         Ok(cities) => {
             for c in cities {
                 let bits: String = c.improvements.iter().map(|b| format!("{b:02x}")).collect();
-                let _ = writeln!(out, "city {} {} {} {} {} {bits}", c.id, c.x, c.y, c.civ, c.size);
+                let wonder = c.improvement_in_production().filter(|&i| districts.is_wonder(i)).unwrap_or(-1);
+                let _ = writeln!(out, "city {} {} {} {} {} {bits} {wonder}", c.id, c.x, c.y, c.civ, c.size);
             }
         }
         Err(e) => log::warn!("reading cities: {e}"),
@@ -404,13 +410,13 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     // Every tile's raw fields, for correlating draws with world state.
     if let Ok(map) = game.map() {
         if let Ok(tiles) = game.tiles(&map) {
-            let _ = writeln!(out, "# tile x y square_type square_parts overlays terrain_overlays river resource owner city fow visibility explored v3 vis_d0 visible_overlays victory_location building ruins");
+            let _ = writeln!(out, "# tile x y square_type square_parts overlays terrain_overlays river resource owner city fow visibility explored v3 vis_d0 visible_overlays victory_location building ruins city_area continent");
             for y in 0..map.height {
                 for x in (y & 1..map.width).step_by(2) {
                     let t = &tiles[map.tile_index(x, y)];
                     let _ = writeln!(
                         out,
-                        "tile {x} {y} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {}",
+                        "tile {x} {y} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {:#x} {:#x} {:#x} {:#x} {:#x} {} {} {} {} {} {}",
                         t.square_type(),
                         t.square_parts() as u16,
                         t.overlays(),
@@ -427,7 +433,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         t.visible_overlays().iter().map(|b| format!("{b:02x}")).collect::<String>(),
                         t.victory_location(),
                         t.building_id(),
-                        t.ruins() as u8
+                        t.ruins() as u8,
+                        t.city_area(),
+                        t.continent()
                     );
                 }
             }

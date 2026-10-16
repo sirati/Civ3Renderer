@@ -21,7 +21,7 @@ pub mod ui_hooks;
 pub mod world;
 
 pub use build::{Addresses, Build};
-pub use world::{Civ3, CityInfo, DrawnUnit, MapInfo, Players, TileRecord, IconBuilding, ViewState, WallBuilding};
+pub use world::{Civ3, CityInfo, DrawnUnit, IconBuilding, ImprovementInfo, MapInfo, Players, TileRecord, ViewState, WallBuilding};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Civ3Error {
