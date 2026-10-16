@@ -363,30 +363,15 @@ pub fn in_city_radius(dx: i32, dy: i32) -> bool {
     (dx + dy) % 2 == 0 && u.abs() <= 2 && v.abs() <= 2 && !(u.abs() == 2 && v.abs() == 2)
 }
 
-/// `City_tile_in_view` (§16.8): a tile of the city's radius in its civ's
-/// territory (the city tile always).
-fn in_city_view(world: &Civ3World, city: &crate::world::Civ3City, x: i32, y: i32, tile: &Civ3Tile) -> bool {
-    let mut dx = x - city.x;
-    if world.wrap_x {
-        dx = (dx + world.width / 2).rem_euclid(world.width) - world.width / 2;
-    }
-    let dy = y - city.y;
-    (dx == 0 && dy == 0) || (in_city_radius(dx, dy) && i32::from(tile.owner) == city.civ)
-}
-
 /// §6.8: the fog-of-war sprite at vertex (vx, vy): per surrounding tile
 /// N, W, E, S a digit 2 (visible to the player), 1 (explored) or 0
 /// (unexplored, also off the map), weighted 1, 3, 9, 27. All visible (80)
 /// draws nothing.
 pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
     let bit = 1u32 << (world.player & 31);
-    // With the city screen open only the city's own tiles (in its radius and
-    // territory) count as visible, and they count as explored (§16.8).
-    let focus = world.focus_city.and_then(|id| world.city(id));
-    let digit = |x: i32, y: i32| match (world.tile(x, y), focus) {
-        (Some(t), Some(c)) if in_city_view(world, c, x, y, t) => 2,
-        (Some(t), None) if world.visible_now(t) => 2,
-        (Some(t), _) if t.explored & bit != 0 => 1,
+    let digit = |x: i32, y: i32| match world.tile(x, y) {
+        Some(t) if world.visible_now(t) => 2,
+        Some(t) if t.explored & bit != 0 => 1,
         _ => 0,
     };
     let corners = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)];
