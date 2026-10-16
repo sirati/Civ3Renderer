@@ -34,10 +34,11 @@ pub fn charset() -> impl Iterator<Item = char> {
     (32u32..=126).chain(160..=255).filter_map(char::from_u32)
 }
 
-fn paint(ink: &[bool], w: u32, h: u32, color: [u8; 3]) -> RgbaImage {
+fn paint(ink: &[u8], w: u32, h: u32, color: [u8; 3]) -> RgbaImage {
     let [r, g, b] = color;
     RgbaImage::from_fn(w.max(1), h.max(1), |x, y| {
-        if x < w && ink[(y * w + x) as usize] { [r, g, b, 255] } else { [0, 0, 0, 0] }
+        let a = if x < w { ink[(y * w + x) as usize] } else { 0 };
+        if a != 0 { [r, g, b, a] } else { [0, 0, 0, 0] }
     })
 }
 
@@ -116,7 +117,7 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         let i = code - first;
         let (ox, oy) = ((i % 16) * cw, (i / 16) * ch);
         let w = int(m.get("width")) as u32;
-        let ink: Vec<bool> = (0..ch).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| sheet.get_pixel(ox + x, oy + y)[3] > 0).collect();
+        let ink: Vec<u8> = (0..ch).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| sheet.get_pixel(ox + x, oy + y)[3]).collect();
         glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image: paint(&ink, w, ch, color) });
     }
     Ok(GlyphFont { ascent, glyphs })

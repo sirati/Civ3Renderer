@@ -17,8 +17,8 @@ pub struct FontSpec {
     pub quality: u8,
 }
 
-/// One rendered glyph: a 1-bit bitmap of `width × height` (cell height of
-/// the font), the pen advance, and where the bitmap starts relative to the
+/// One rendered glyph: a coverage bitmap of `width × height` (cell height of
+/// the font; GDI smooths larger sizes), the pen advance, and where the bitmap starts relative to the
 /// pen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Glyph {
@@ -27,8 +27,8 @@ pub struct Glyph {
     pub advance: i32,
     pub width: u32,
     pub height: u32,
-    /// Row-major, true = ink.
-    pub ink: Vec<bool>,
+    /// Row-major ink coverage, 0 (none) to 255 (full).
+    pub ink: Vec<u8>,
 }
 
 #[derive(Debug, thiserror::Error)]
