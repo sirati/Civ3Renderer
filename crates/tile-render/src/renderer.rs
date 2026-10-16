@@ -472,10 +472,10 @@ impl TileRenderer {
             queue.write_buffer(&self.output_params, offset, bytemuck::bytes_of(&params));
             offset as u32
         };
-        // Zoomed views' pictures, side by side in rows.
-        let sources = source_rects(cameras);
-        let source_extent = sources.iter().flatten().fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
-        if sources.iter().any(Option::is_some) {
+        // Scaled groups' pictures, side by side in rows.
+        let placements = crate::camera::placements(cameras);
+        let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
+        if placements.iter().any(|p| p.source.is_some()) {
             let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
             drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background)));
         }
@@ -493,42 +493,36 @@ impl TileRenderer {
         };
         let source_view = self.sources.as_ref().map(|s| s.main.create_view(&Default::default()));
         let passes = world.passes.len().min(MAX_PASSES);
-        for (v, camera) in cameras.iter().enumerate() {
-            // The view's rectangle, inside the target.
-            let (x0, y0) = (camera.origin.0.max(0) as u32, camera.origin.1.max(0) as u32);
-            let x1 = (camera.origin.0 + camera.viewport.0 as i32).clamp(0, size.width as i32) as u32;
-            let y1 = (camera.origin.1 + camera.viewport.1 as i32).clamp(0, size.height as i32) as u32;
-            if x1 <= x0 || y1 <= y0 {
-                continue;
-            }
-            let on_target = [x0, y0, x1 - x0, y1 - y0];
-            // Where it is drawn at zoom 1: its rectangle, or its source picture.
-            let (drawn, into, rect, (tiles, free)) = match sources[v] {
-                None => {
-                    let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
-                    let pipelines = if direct {
-                        (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0))
-                    } else if bits == 0 {
-                        (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
-                    } else {
-                        (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
-                    };
-                    (*camera, &canvas, (viewport, on_target), pipelines)
-                }
-                Some(r) => {
-                    let flat = Camera { zoom: (1, 1), viewport: (r[2], r[3]), ..*camera };
-                    let viewport = [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32];
-                    let pipelines = if bits == 0 {
-                        (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
-                    } else {
-                        (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
-                    };
-                    (flat, source_view.as_ref().expect("created above"), (viewport, r), pipelines)
-                }
+        // The part of rectangle (x, y, w, h) inside `bounds` (x, y, w, h).
+        let clipped = |[x, y, w, h]: [i32; 4], [bx, by, bw, bh]: [i32; 4]| {
+            let (x0, y0) = (x.max(bx).max(0), y.max(by).max(0));
+            let (x1, y1) = ((x + w).min(bx + bw), (y + h).min(by + bh));
+            (x1 > x0 && y1 > y0).then_some([x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32])
+        };
+        let target_rect = [0, 0, size.width as i32, size.height as i32];
+        // Zoomed art of the group being drawn, for after its scaling.
+        let mut posts: Vec<(usize, Camera)> = Vec::new();
+        for (v, place) in placements.iter().enumerate() {
+            let rect = place.rect;
+            let scissor = match place.source {
+                Some(r) => clipped(rect, [r[0] as i32, r[1] as i32, r[2] as i32, r[3] as i32]),
+                None => clipped(rect, target_rect),
+            };
+            let (into, (tiles, free)) = match place.source {
+                None if direct => (&canvas, (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0))),
+                None => (&canvas, if bits == 0 {
+                    (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
+                } else {
+                    (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
+                }),
+                Some(_) => (source_view.as_ref().expect("created above"), if bits == 0 {
+                    (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
+                } else {
+                    (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
+                }),
             };
             // Which zoom art the view's passes draw (see `FrameParams::zoom_art`).
-            let zoomed_art = camera.zoomed_art && sources[v].is_some();
-            let art = u32::from(zoomed_art);
+            let art = u32::from(place.post.is_some());
             // Each (view, pass) has its own parameter slot: buffer writes all
             // land before the commands run.
             let write_params = |slot: usize, params: FrameParams| {
@@ -536,46 +530,60 @@ impl TileRenderer {
                 queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
                 offset as u32
             };
-            for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-                let params = drawn.frame_params(&world.grid, world.color, frame, p, v as u32, art);
-                let offset = write_params(i, params);
-                let mut pass = begin_view(encoder, into, rect, bind_group, offset);
-                if drawn.cells {
-                    pass.set_pipeline(tiles);
-                    pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+            if let Some(scissor) = scissor {
+                let drawn = place.drawn;
+                let viewport = [rect[0] as f32, rect[1] as f32, rect[2] as f32, rect[3] as f32];
+                for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
+                    let params = drawn.frame_params(&world.grid, world.color, frame, p, v as u32, art);
+                    let offset = write_params(i, params);
+                    let mut pass = begin_view(encoder, into, (viewport, scissor), bind_group, offset);
+                    if drawn.cells {
+                        pass.set_pipeline(tiles);
+                        pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
+                    }
+                    draw_free(&mut pass, world, i, free);
                 }
-                draw_free(&mut pass, world, i, free);
+                if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {
+                    let params = drawn.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, art);
+                    let offset = write_params(MAX_PASSES, params);
+                    let mut pass = begin_view(encoder, into, (viewport, scissor), bind_group, offset);
+                    draw_free(&mut pass, world, passes, free);
+                }
             }
-            if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {
-                let params = drawn.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, art);
-                let offset = write_params(MAX_PASSES, params);
-                let mut pass = begin_view(encoder, into, rect, bind_group, offset);
-                draw_free(&mut pass, world, passes, free);
+            if let Some(post) = place.post {
+                posts.push((v, post));
             }
-            if let Some(r) = sources[v] {
-                let params = OutputParams {
-                    src_x: r[0] as i32,
-                    src_y: r[1] as i32,
-                    dst_x: camera.origin.0,
-                    dst_y: camera.origin.1,
-                    zoom_num: camera.zoom.0.max(1),
-                    zoom_den: camera.zoom.1.max(1),
-                    bits: 0,
-                    _pad: 0,
-                };
-                let offset = write_output(v, params);
-                let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
-                pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
-                pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
-                pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
-                pass.draw(0..3, 0..1);
-            }
-            // Sprites made for the view's zoom, at full resolution over it.
-            if zoomed_art {
-                let params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, 2);
-                let offset = write_params(MAX_PASSES + 1, params);
-                let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
-                let mut pass = begin_view(encoder, &canvas, (viewport, on_target), bind_group, offset);
+            // The group's picture, scaled into its rectangle; then the zoomed
+            // art of its views, at full resolution over it.
+            let Some((group, r)) = place.blit else { continue };
+            let group_rect = [group.origin.0, group.origin.1, group.viewport.0 as i32, group.viewport.1 as i32];
+            let Some(on_target) = clipped(group_rect, target_rect) else {
+                posts.clear();
+                continue;
+            };
+            let params = OutputParams {
+                src_x: r[0] as i32,
+                src_y: r[1] as i32,
+                dst_x: group.origin.0,
+                dst_y: group.origin.1,
+                zoom_num: group.zoom.0.max(1),
+                zoom_den: group.zoom.1.max(1),
+                bits: 0,
+                _pad: 0,
+            };
+            let offset = write_output(v, params);
+            let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
+            pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
+            pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
+            pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
+            pass.draw(0..3, 0..1);
+            drop(pass);
+            for (pv, post) in posts.drain(..) {
+                let params = post.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, pv as u32, 2);
+                let offset = (pv * (MAX_PASSES + 2) + MAX_PASSES + 1) as u64 * PARAMS_STRIDE;
+                queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
+                let viewport = [post.origin.0 as f32, post.origin.1 as f32, post.viewport.0 as f32, post.viewport.1 as f32];
+                let mut pass = begin_view(encoder, &canvas, (viewport, on_target), bind_group, offset as u32);
                 let free = if direct { self.free_pipelines(device, 0) } else if bits == 0 { self.free_pipelines(device, 2) } else { self.free_pipelines(device, 1) };
                 for i in 0..=passes {
                     draw_free(&mut pass, world, i, free);
@@ -645,27 +653,6 @@ impl ScreenCopy {
     }
 }
 
-/// Where each zoomed view's picture goes in the source texture (x, y, w,
-/// h), in rows at most `MAX_SOURCE` wide; `None` for views at zoom 1.
-fn source_rects(cameras: &[Camera]) -> Vec<Option<[u32; 4]>> {
-    let (mut x, mut y, mut row) = (0, 0, 0);
-    cameras
-        .iter()
-        .map(|c| {
-            if !c.is_scaled() {
-                return None;
-            }
-            let (w, h) = c.source_size();
-            if x + w > crate::camera::MAX_SOURCE {
-                (x, y, row) = (0, y + row, 0);
-            }
-            let r = [x, y, w, h];
-            x += w;
-            row = row.max(h);
-            Some(r)
-        })
-        .collect()
-}
 
 /// Where free sprites are drawn, to get their pipelines from.
 #[derive(Copy, Clone)]

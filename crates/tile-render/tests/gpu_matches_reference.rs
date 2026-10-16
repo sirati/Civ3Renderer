@@ -487,3 +487,30 @@ fn zoomed_art_replaces_its_low_twin_in_a_scaled_view() {
         assert_same(&got, &want, &format!("zoom art, {:?}", cameras[0].zoomed_art));
     }
 }
+
+#[test]
+fn stacked_views_scale_with_their_group() {
+    // A game's screen fitted into a pane: its map view scaled to 3/4 with
+    // its interface stacked on it (one picture, scaled once; the
+    // interface's zoomed text at full resolution), a second view beside it;
+    // and the same unscaled.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let s = world.free.iter().find(|s| s.screen).cloned().unwrap();
+    world.free.push(PlacedSprite { view: Some(1), x: 30, y: 40, zoom_art: ZoomArt::Low, ..s });
+    world.free.push(PlacedSprite { view: Some(1), x: 30, y: 40, zoom_art: ZoomArt::Zoomed { zoom: (3, 4), offset: (2, 1) }, ..s });
+    world.free.push(PlacedSprite { view: Some(1), x: 150, y: 90, clip: Some([140, 80, 200, 120]), ..s });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let game = Camera { x: 40, y: 20, zoom: (3, 4), origin: (10, 5), overhang: (0, 40, 0, 0), ..Camera::new((240, 150)) };
+    let interface = Camera { cells: false, stacked: true, zoomed_art: true, ..Camera::new((320, 200)) };
+    let other = Camera { x: 300, y: 200, origin: (260, 0), overhang: (0, 40, 0, 0), ..Camera::new((140, 200)) };
+    for cameras in [[game, interface, other], [Camera { zoom: (1, 1), viewport: (250, 200), ..game }, interface, other]] {
+        let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 2, CLEAR);
+        let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 2, CLEAR);
+        assert_same(&got, &want, &format!("stacked views, zoom {:?}", cameras[0].zoom));
+    }
+}

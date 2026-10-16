@@ -115,7 +115,10 @@ arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
 (the bridge clicks its minimap). `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
-The game's minimap also marks what the split pane and the insets show
+With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
+menus too, into the main pane as one picture (views stacked into one
+scaled picture, `Camera::stacked`); `ui=window` keeps the menus 1:1 over
+the window and resizes only the world. The game's minimap also marks what the split pane and the insets show
 (`CIV3R_VIEW_RECT_COLOR`, `R;G;B`, yellow by default). Zoomed views show
 text rasterised at their zoom (`text=sharp`, Ctrl+Shift+T; `pixel`: its
 pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a

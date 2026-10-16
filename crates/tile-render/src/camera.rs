@@ -39,11 +39,15 @@ pub struct Camera {
     /// Whether the view shows its `ZoomArt::Zoomed` sprites (made for its
     /// zoom) instead of their `ZoomArt::Low` twins.
     pub zoomed_art: bool,
+    /// Drawn into the previous view's picture (before that is scaled), as
+    /// part of it: its `origin` is then relative to that view's, its zoom
+    /// that view's (e.g. a game's interface over its map, scaled together).
+    pub stacked: bool,
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0), zoomed_art: false }
+        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0), zoomed_art: false, stacked: false }
     }
 
     /// Whether the view is scaled (zoom other than 1).
@@ -152,4 +156,85 @@ mod tests {
             }
         }
     }
+}
+
+/// How a view is drawn (see `TileRenderer::render_views`): views are drawn
+/// at zoom 1, those of a scaled group (a scaled view and the views stacked
+/// on it) into a picture of their own that is then copied scaled.
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct Placement {
+    /// The camera it is drawn with, at zoom 1.
+    pub drawn: Camera,
+    /// Where (x, y, w, h): in its group's picture (`source`), else in the
+    /// target.
+    pub rect: [i32; 4],
+    /// The group's picture in the source texture, if the group is scaled.
+    pub source: Option<[u32; 4]>,
+    /// The group's camera and picture, when this is the group's last view:
+    /// the picture is copied scaled after it.
+    pub blit: Option<(Camera, [u32; 4])>,
+    /// The camera its zoomed art is drawn with after scaling, if it shows any.
+    pub post: Option<Camera>,
+}
+
+/// Where in the source texture each scaled group's picture goes (rows at
+/// most `MAX_SOURCE` wide), and how each view is drawn.
+pub(crate) fn placements(cameras: &[Camera]) -> Vec<Placement> {
+    let (mut x, mut y, mut row) = (0, 0, 0);
+    let mut out: Vec<Placement> = Vec::with_capacity(cameras.len());
+    let mut head: Option<(Camera, Option<[u32; 4]>)> = None;
+    for (i, c) in cameras.iter().enumerate() {
+        let last = !cameras.get(i + 1).is_some_and(|n| n.stacked);
+        let (drawn, rect, source, group) = match head {
+            Some((g, source)) if c.stacked => match source {
+                // Into the group's picture, at its own origin there.
+                Some(r) => {
+                    let drawn = Camera { zoom: (1, 1), ..*c };
+                    (drawn, [r[0] as i32 + c.origin.0, r[1] as i32 + c.origin.1, c.viewport.0 as i32, c.viewport.1 as i32], Some(r), g)
+                }
+                // An unscaled group: at its origin in the target.
+                None => {
+                    let origin = (g.origin.0 + c.origin.0, g.origin.1 + c.origin.1);
+                    let drawn = Camera { zoom: (1, 1), origin, screen_shift: (c.screen_shift.0 + g.origin.0, c.screen_shift.1 + g.origin.1), ..*c };
+                    (drawn, [origin.0, origin.1, c.viewport.0 as i32, c.viewport.1 as i32], None, g)
+                }
+            },
+            _ if c.is_scaled() => {
+                let (w, h) = c.source_size();
+                if x + w > MAX_SOURCE {
+                    (x, y, row) = (0, y + row, 0);
+                }
+                let r = [x, y, w, h];
+                x += w;
+                row = row.max(h);
+                head = Some((*c, Some(r)));
+                let drawn = Camera { zoom: (1, 1), viewport: (w, h), ..*c };
+                (drawn, [r[0] as i32, r[1] as i32, w as i32, h as i32], Some(r), *c)
+            }
+            _ => {
+                head = Some((*c, None));
+                (*c, [c.origin.0, c.origin.1, c.viewport.0 as i32, c.viewport.1 as i32], None, *c)
+            }
+        };
+        let blit = source.filter(|_| last).map(|r| (group, r));
+        // Zoomed art goes over the scaled picture: a stacked view's in its
+        // group's frame (its screen sprites from its origin there, its world
+        // ones from its camera there).
+        let post = (source.is_some() && c.zoomed_art).then(|| {
+            if !c.stacked {
+                return *c;
+            }
+            Camera {
+                x: c.x - c.origin.0,
+                y: c.y - c.origin.1,
+                zoom: group.zoom,
+                origin: group.origin,
+                viewport: group.viewport,
+                screen_shift: (group.origin.0 + c.screen_shift.0, group.origin.1 + c.screen_shift.1),
+                ..*c
+            }
+        });
+        out.push(Placement { drawn, rect, source, blit, post });
+    }
+    out
 }

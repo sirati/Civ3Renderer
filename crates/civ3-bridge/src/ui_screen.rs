@@ -118,7 +118,7 @@ pub fn add_art(items: &[Item], art: &mut ScreenArt, fonts: &mut Fonts, files: &c
     let elements: Vec<Element> = items.iter().filter_map(|i| if let Item::Element(e, _) = i { Some(e.clone()) } else { None }).collect();
     let mut runs: Vec<TextRun> = items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(r.clone()) } else { None }).collect();
     for &zoom in zooms {
-        runs.extend(items.iter().filter_map(|i| if let Item::Text(r, _, true) = i { Some(crate::text::zoomed(r, zoom)) } else { None }));
+        runs.extend(items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(crate::text::zoomed(r, zoom)) } else { None }));
     }
     let new_art = art.add(&elements);
     let new_fonts = fonts.add(files, &runs);
@@ -135,29 +135,30 @@ pub fn description(art: &ScreenArt) -> String {
 /// Of `zooms`, those the labels among `items` can be drawn at (their fonts
 /// at that size are in the art): what the scene has zoomed art for.
 pub fn label_zooms(items: &[Item], fonts: &Fonts, compiled: &Compiled, zooms: &[(u32, u32)]) -> Vec<(u32, u32)> {
-    let labels: Vec<&TextRun> = items.iter().filter_map(|i| if let Item::Text(r, _, true) = i { Some(r) } else { None }).collect();
+    let labels: Vec<&TextRun> = items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(r) } else { None }).collect();
     zooms.iter().copied().filter(|&z| labels.iter().all(|r| fonts.compiled(&crate::text::zoomed(r, z), compiled))).collect()
 }
 
 /// The free sprites of `items`, in order: underlay items after render pass
 /// `under_pass` (the one before the fog of war, which the game draws over
-/// them), the rest on top. With `zooms` (from [`label_zooms`]), labels —
-/// underlay text — come 1:1 (`zoom_art` 1) and rasterised at each zoom
-/// (`zoom_art` 2), for views at those zooms.
+/// them), the rest on top. With `zooms` (from [`label_zooms`]), text comes
+/// 1:1 (`zoom_art` 1) and rasterised at each zoom (`zoom_art` 2), for views
+/// at those zooms (the map's labels in zoomed views, the whole interface
+/// in a scaled screen).
 pub fn sprites(items: &[Item], fonts: &Fonts, compiled: &Compiled, under_pass: u32, zooms: &[(u32, u32)]) -> Vec<scene::FreeSprite> {
     let mut out = Vec::new();
     for i in items {
         let pass = |under: bool| if under { under_pass } else { u32::MAX };
         match i {
             Item::Element(e, under) => out.extend(menu::screen::sprites(std::slice::from_ref(e), compiled, pass(*under))),
-            Item::Text(run, clip, true) if !zooms.is_empty() => {
+            Item::Text(run, clip, under) if !zooms.is_empty() => {
                 let start = out.len();
-                fonts.run_sprites(run, Some(*clip), compiled, under_pass, &mut out);
+                fonts.run_sprites(run, Some(*clip), compiled, pass(*under), &mut out);
                 for s in &mut out[start..] {
                     s.zoom_art = 1;
                 }
                 for &zoom in zooms {
-                    fonts.run_sprites_at(run, Some(*clip), compiled, under_pass, Some(zoom), &mut out);
+                    fonts.run_sprites_at(run, Some(*clip), compiled, pass(*under), Some(zoom), &mut out);
                 }
             }
             Item::Text(run, clip, under) => fonts.run_sprites(run, Some(*clip), compiled, pass(*under), &mut out),

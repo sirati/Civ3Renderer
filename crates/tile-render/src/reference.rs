@@ -155,30 +155,48 @@ fn compose<P: Copy>(
     mut put: impl FnMut(&mut P, &Draw, [u8; 4]),
 ) -> Vec<P> {
     let mut out = vec![background; (w * h) as usize];
-    for (v, camera) in cameras.iter().enumerate().take(crate::renderer::MAX_VIEWS) {
-        if !camera.is_scaled() {
-            visit(world, atlas, camera, v as u32, frame, 0, &mut |d| {
-                each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
-            });
-            continue;
-        }
-        let (sw, sh) = camera.source_size();
-        let flat = Camera { zoom: (1, 1), viewport: (sw, sh), ..*camera };
-        let (ox, oy) = camera.origin;
-        let mut source = vec![background; (sw * sh) as usize];
-        let zoomed_art = camera.zoomed_art;
-        visit(world, atlas, &flat, v as u32, frame, u32::from(zoomed_art), &mut |d| {
-            let d = Draw { x: d.x - ox, y: d.y - oy, clip: d.clip.map(|[x0, y0, x1, y1]| [x0 - ox, y0 - oy, x1 - ox, y1 - oy]), ..d };
-            each_texel(atlas, &d, (sw, sh), |px, py, src| put(&mut source[(py * sw + px) as usize], &d, src));
+    let cameras = &cameras[..cameras.len().min(crate::renderer::MAX_VIEWS)];
+    let placements = crate::camera::placements(cameras);
+    // The source texture: every scaled group's picture, laid out the same.
+    let (sw, sh) = placements.iter().filter_map(|p| p.source).fold((1, 1), |(sw, sh), r| (sw.max(r[0] + r[2]), sh.max(r[1] + r[3])));
+    let mut source = vec![background; (sw * sh) as usize];
+    let mut posts: Vec<(usize, Camera)> = Vec::new();
+    for (v, place) in placements.iter().enumerate() {
+        // Draws come in target pixels from the drawn camera's origin; they
+        // land in the view's rectangle, clipped to it (and to its group's
+        // picture or the target).
+        let drawn = place.drawn;
+        let [rx, ry, rw, rh] = place.rect;
+        let (dx, dy) = (rx - drawn.origin.0, ry - drawn.origin.1);
+        let bounds = match place.source {
+            Some(r) => [r[0] as i32, r[1] as i32, (r[0] + r[2]) as i32, (r[1] + r[3]) as i32],
+            None => [0, 0, w as i32, h as i32],
+        };
+        let rect = [rx.max(bounds[0]), ry.max(bounds[1]), (rx + rw).min(bounds[2]), (ry + rh).min(bounds[3])];
+        let art = u32::from(place.post.is_some());
+        let (buffer, bw, size) = match place.source {
+            Some(_) => (&mut source, sw, (sw, sh)),
+            None => (&mut out, w, (w, h)),
+        };
+        visit(world, atlas, &drawn, v as u32, frame, art, &mut |d| {
+            let clip = d.clip.unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+            let clip = [clip[0].saturating_add(dx), clip[1].saturating_add(dy), clip[2].saturating_add(dx), clip[3].saturating_add(dy)];
+            let clip = [clip[0].max(rect[0]), clip[1].max(rect[1]), clip[2].min(rect[2]), clip[3].min(rect[3])];
+            let d = Draw { x: d.x + dx, y: d.y + dy, clip: Some(clip), ..d };
+            each_texel(atlas, &d, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src));
         });
-        for (px, py) in camera.target_rect((w, h)) {
-            let (sx, sy) = camera.source_texel((px, py));
-            out[(py * w + px) as usize] = source[(sy * sw + sx) as usize];
+        if let Some(post) = place.post {
+            posts.push((v, post));
         }
-        // Sprites made for the zoom, at full resolution: from the view's
-        // scaled screen origin.
-        if zoomed_art {
-            visit(world, atlas, camera, v as u32, frame, 2, &mut |d| {
+        // The group's picture scaled into its rectangle, then its views'
+        // zoomed art at full resolution.
+        let Some((group, r)) = place.blit else { continue };
+        for (px, py) in group.target_rect((w, h)) {
+            let (sx, sy) = group.source_texel((px, py));
+            out[(py * w + px) as usize] = source[((r[1] + sy) * sw + r[0] + sx) as usize];
+        }
+        for (pv, post) in posts.drain(..) {
+            visit(world, atlas, &post, pv as u32, frame, 2, &mut |d| {
                 each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
             });
         }
