@@ -337,7 +337,7 @@ pub fn district_lines(configs: &DistrictConfigs, improvements: &[Civ3Improvement
 }
 
 /// The names of the `DistrictFlags` in the dump's `district_flags` line.
-const FLAG_NAMES: [(&str, fn(&DistrictFlags) -> bool); 9] = [
+const FLAG_NAMES: [(&str, fn(&DistrictFlags) -> bool); 10] = [
     ("districts", |f| f.districts),
     ("natural_wonders", |f| f.natural_wonders),
     ("neighborhood", |f| f.neighborhood),
@@ -347,6 +347,7 @@ const FLAG_NAMES: [(&str, fn(&DistrictFlags) -> bool); 9] = [
     ("bridge", |f| f.bridge),
     ("canal", |f| f.canal),
     ("great_wall", |f| f.great_wall),
+    ("forests_over_roads", |f| f.forests_over_roads),
 ];
 
 /// `DistrictKind`'s yes/no settings as the dump's bit set.
@@ -384,6 +385,7 @@ fn parse_district_line(world: &mut Civ3World, districts: &mut Vec<District>, f: 
                 bridge: on("bridge"),
                 canal: on("canal"),
                 great_wall: on("great_wall"),
+                forests_over_roads: on("forests_over_roads"),
             };
         }
         "district_work_area" => {

@@ -78,6 +78,14 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
             text.push_str(&ui_screen::description(&screen));
         }
         text.push_str(&fonts.description());
+        // C3X's districts on the map.
+        let mut districts = ifc23::district_art::DistrictArt::default();
+        for d in &t.world.districts {
+            let stages = ifc23::districts::stages(&t.world, d.x, d.y, t.view.zoomed_out);
+            let slices: Vec<_> = stages.buildings.iter().chain(&stages.resources).map(|s| ifc23::district_art::Slice::of(s, t.view.zoomed_out)).collect();
+            districts.add(&slices);
+        }
+        text.push_str(&districts.description());
         art = Some((a, fonts));
     }
     let scale_down = if trace.is_some_and(|t| t.view.zoomed_out) { 2 } else { 1 };
