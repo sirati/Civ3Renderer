@@ -230,6 +230,8 @@ pub struct Trace {
     pub draws: Vec<TraceDraw>,
     /// The game's text output during the redraw.
     pub texts: Vec<crate::text::TextRun>,
+    /// The mirrored interface, if recorded.
+    pub ui: Option<crate::ui::Frame>,
 }
 
 /// One `Sprite_draw_on_map` call the game made.
@@ -275,6 +277,33 @@ impl Trace {
                     t.map_renderer = n(4)? as u32;
                 }
                 Some("text") => t.texts.extend(crate::text::TextRun::parse(line)),
+                Some("ui_image") if f.len() >= 12 => {
+                    let v = (1..12).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
+                    let path = f[12..].join(" ");
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Image {
+                        path,
+                        rect: [v[7], v[8], v[9], v[10]],
+                        x: v[0],
+                        y: v[1],
+                        keyed: v[2] != 0,
+                        clip: [v[3], v[4], v[5], v[6]],
+                    });
+                }
+                Some("ui_fill") if f.len() >= 12 => {
+                    let v = (1..12).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Fill {
+                        rect: [v[0], v[1], v[2], v[3]],
+                        rgb: [v[4] as u8, v[5] as u8, v[6] as u8],
+                        clip: [v[7], v[8], v[9], v[10]],
+                    });
+                }
+                Some("ui_text") if f.len() >= 6 => {
+                    let clip = [n(1)? as i32, n(2)? as i32, n(3)? as i32, n(4)? as i32];
+                    let rest = line.splitn(6, ' ').nth(5).unwrap_or("");
+                    if let Some(run) = crate::text::TextRun::parse(rest) {
+                        t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Text { run, clip });
+                    }
+                }
                 Some("scenario_folder") => t.scenario_folder = Some(f[1..].join(" ")),
                 Some("search_root") => t.search_roots.push(f[1..].join(" ")),
                 Some("view") => {

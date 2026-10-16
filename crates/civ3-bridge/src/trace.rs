@@ -98,6 +98,7 @@ fn record_text(call: &hooks::text_out::Call) {
     let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
     let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, text };
+    crate::ui_trace::on_text(&run);
     if let Ok(mut recent) = RECENT_TEXT.lock() {
         let now = std::time::Instant::now();
         while recent.front().is_some_and(|(t, _)| now.duration_since(*t) > TEXT_WINDOW) {
@@ -421,6 +422,26 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     for t in recent_texts() {
         let [r, g, b] = t.color;
         let _ = writeln!(out, "text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/0/0 str {}", t.x, t.y, t.face, t.height, t.text);
+    }
+    // The mirrored interface (docs §16).
+    if let Some(frame) = crate::ui_trace::frame() {
+        for &(vtable, canvas, (x, y), (w, h)) in &frame.forms {
+            let _ = writeln!(out, "ui_form {vtable:#x} {canvas:#x} {x} {y} {w} {h}");
+        }
+        for d in &frame.draws {
+            let _ = match d {
+                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] } => {
+                    writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8)
+                }
+                crate::ui::ScreenDraw::Fill { rect: [x, y, w, h], rgb: [r, g, b], clip: [c0, c1, c2, c3] } => {
+                    writeln!(out, "ui_fill {x} {y} {w} {h} {r} {g} {b} {c0} {c1} {c2} {c3}")
+                }
+                crate::ui::ScreenDraw::Text { run: t, clip: [c0, c1, c2, c3] } => {
+                    let [r, g, b] = t.color;
+                    writeln!(out, "ui_text {c0} {c1} {c2} {c3} text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/0/0 str {}", t.x, t.y, t.face, t.height, t.text)
+                }
+            };
+        }
     }
     let _ = writeln!(out, "# draw array index x y kind w h params...");
     for d in draws {

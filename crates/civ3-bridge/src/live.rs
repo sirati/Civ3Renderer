@@ -9,7 +9,7 @@ use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
 
 use crate::presenter::{self, Presenter};
-use crate::{assets, city_hud, city_site, text, trace, units};
+use crate::{assets, city_hud, city_site, text, trace, ui_screen, ui_trace, units};
 use crate::scene_map::Mapper;
 use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, IconBuilding, WallBuilding};
 
@@ -199,8 +199,9 @@ impl Compiler {
         folders: &ArtFolders,
         units: &units::Needed,
         fonts: &text::Fonts,
+        screen: &menu::screen::ScreenArt,
     ) -> Result<(Arc<Compiled>, scene::wire::Assets), LiveError> {
-        let text = format!("{}{}{}", self.text, units.description(), fonts.description());
+        let text = format!("{}{}{}{}", self.text, units.description(), fonts.description(), ui_screen::description(screen));
         let files = self.files(folders);
         let wire = scene::wire::Assets {
             description: text.clone(),
@@ -227,7 +228,17 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let (name, text) = description()?;
     let compiler = Compiler { install: install_root()?, name, text };
     let folders = ArtFolders::of(&game);
-    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default())?;
+    // Mirror the game's interface (`CIV3R_UI=off`: only its text). The map
+    // canvas (the main screen form's) is ours.
+    if std::env::var("CIV3R_UI").as_deref() != Ok("off") {
+        // `Base_Form` is its vtable, then `Base_Form_Data`.
+        let map_canvas = game.addrs.main_screen_form + 4 + civ3_sys::layout::BASE_FORM_DATA_CANVAS;
+        match ui_trace::install(&game, vec![map_canvas]) {
+            Ok(tracer) => std::mem::forget(tracer),
+            Err(e) => log::warn!("not mirroring the interface: {e}"),
+        }
+    }
+    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default())?;
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     let mut presenter = if mode.starts_with("native") {
         let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
@@ -265,13 +276,14 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
-    let mut last: Option<(Shown, Vec<text::TextRun>)> = None;
+    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>)> = None;
     let mut seq = 0;
     let mut input = InputForwarder::default();
     let mut title = menu::MenuState::default();
     let mut art = units::UnitArt::new(compiler.files(&folders));
     let mut have = units::Needed::default();
     let mut fonts = text::Fonts::default();
+    let mut screen_art = menu::screen::ScreenArt::default();
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
@@ -305,12 +317,17 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         if input.viewport == (0, 0) {
             input.game_window();
         }
-        let texts = trace::recent_texts();
-        let state = (shown, texts);
+        // The game's interface, mirrored (else its text only).
+        let ui = ui_trace::frame();
+        let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
+        let state = (shown, texts, ui);
         if last.as_ref() == Some(&state) && !recompile {
             continue;
         }
-        let (shown, texts) = &state;
+        let (shown, texts, ui) = &state;
+        let files = compiler.files(&folders);
+        let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots())).unwrap_or_default();
+        recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files);
         // Art the description does not have yet: units, text fonts.
         if let Shown::Map(world, _) = shown {
             let needed = units::Needed::of(world, &mut art);
@@ -321,7 +338,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         }
         recompile |= fonts.add(&compiler.files(&folders), texts);
         if recompile {
-            match compiler.compile(&folders, &have, &fonts) {
+            match compiler.compile(&folders, &have, &fonts, &screen_art) {
                 Ok((c, wire)) => {
                     presenter.set_assets(&c, &wire);
                     compiled = c;
@@ -337,18 +354,23 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 let mut scene = mapper.scene(world, view, (1024, 768), 0);
                 scene.sprites = city_site::sprites(world, &compiled);
                 scene.sprites.extend(units::sprites(world, &mut art, &compiled));
-                scene.sprites.extend(city_hud::sprites(world, &compiled));
+                // The mirrored interface has the city icons already.
+                if ui.is_none() {
+                    scene.sprites.extend(city_hud::sprites(world, &compiled));
+                }
                 scene
             }
             Shown::Title(state) => {
                 let mut scene = scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len());
-                if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))) {
+                // Our own title menu, unless the game's is mirrored.
+                if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| ui.is_none()) {
                     scene.sprites = m.0.sprites(m.1, state, input.viewport, u32::MAX);
                 }
                 scene
             }
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
+        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled));
         scene.seq = seq;
         presenter.publish(scene);
         last = Some(state);

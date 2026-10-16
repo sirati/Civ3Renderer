@@ -101,30 +101,34 @@ impl Fonts {
         let mut seen = HashSet::new();
         for r in runs {
             // The game redraws some lines several times per frame.
-            if !seen.insert(r) {
-                continue;
-            }
-            let key = (r.face.clone(), r.height.abs(), r.color);
-            let (Some(n), Some(Some(font))) = (self.index(&key), self.fonts.get(&key)) else { continue };
-            let mut pen = r.x;
-            for c in r.text.chars() {
-                let Some(glyph) = font.glyphs.get(&c) else { continue };
-                if let Some((set, _)) = compiled.set(&format!("Text@{n}/{}", c as u32)) {
-                    out.push(scene::FreeSprite {
-                        set: set.raw(),
-                        x: pen,
-                        y: r.y,
-                        screen: true,
-                        after_pass: u32::MAX,
-                        phase: 0,
-                        ticks_per_frame: 1,
-                        scale_den: 0,
-                        clip: None,
-                    });
-                }
-                pen += glyph.advance;
+            if seen.insert(r) {
+                self.run_sprites(r, None, compiled, &mut out);
             }
         }
         out
+    }
+
+    /// Glyph sprites of one run, clipped to `clip` (screen rectangle).
+    pub fn run_sprites(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled, out: &mut Vec<scene::FreeSprite>) {
+        let key = (r.face.clone(), r.height.abs(), r.color);
+        let (Some(n), Some(Some(font))) = (self.index(&key), self.fonts.get(&key)) else { return };
+        let mut pen = r.x;
+        for c in r.text.chars() {
+            let Some(glyph) = font.glyphs.get(&c) else { continue };
+            if let Some((set, _)) = compiled.set(&format!("Text@{n}/{}", c as u32)) {
+                out.push(scene::FreeSprite {
+                    set: set.raw(),
+                    x: pen,
+                    y: r.y,
+                    screen: true,
+                    after_pass: u32::MAX,
+                    phase: 0,
+                    ticks_per_frame: 1,
+                    scale_den: 0,
+                    clip,
+                });
+            }
+            pen += glyph.advance;
+        }
     }
 }
