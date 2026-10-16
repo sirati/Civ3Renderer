@@ -214,6 +214,7 @@ pub fn tnt(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     if tile.terrain_overlays & terrain_overlay::BONUS_SHIELD == 0 {
         return None;
     }
+    // Rows of the game's array (not of tnt.pcx, see civ3.toml).
     let row = match tile.terrain() {
         GRASSLAND => 0,
         PLAINS => 1,
