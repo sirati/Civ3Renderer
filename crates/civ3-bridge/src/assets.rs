@@ -34,5 +34,7 @@ pub fn game_files(install: &Path, scenario_folder: Option<&str>, search_roots: &
 
 /// Compiles a description (TOML text) against the game's art.
 pub fn compile(text: &str, files: GameFiles) -> Result<Compiled, DescError> {
-    Description::parse(text)?.compile(&Civ3Loader::new(files), 4096)
+    // 2048² pages: the atlas texture is sized to the pages in use, and stays
+    // small enough for 32-bit processes and software renderers.
+    Description::parse(text)?.compile(&Civ3Loader::new(files), 2048)
 }
