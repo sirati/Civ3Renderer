@@ -433,3 +433,28 @@ fn inverting_sprites_invert_what_is_under_them() {
         assert_same(&got, &want, &format!("inverting sprites, {color:?}"));
     }
 }
+
+#[test]
+fn subpixel_sprites_blend_each_channel_on_its_own() {
+    // The art's colours read as coverage per channel, drawn in a tint over
+    // the world and over each other, between ordinary and inverting ones.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    // (The quantized model: the direct one rounds as the GPU's blender does.)
+    for color in [ColorModel::Quantized { bits: 5 }] {
+        let (mut world, atlas) = scene_with(grid, color != ColorModel::Direct);
+        world.color = color;
+        let some = scene_with(grid, true).0.free[0];
+        let blends = [Blend::Subpixel { color: [250, 30, 90] }, Blend::Alpha, Blend::Subpixel { color: [0, 0, 0] }, Blend::Invert, Blend::Subpixel { color: [255, 255, 255] }];
+        for (i, blend) in blends.into_iter().enumerate() {
+            world.free.push(PlacedSprite { x: 50 + 19 * i as i32, y: 30 + 13 * i as i32, blend, after_pass: usize::MAX, ..some });
+        }
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let camera = Camera { overhang: (0, 40, 0, 0), ..Camera::new((320, 200)) };
+        let got = gpu.render_views(&mut renderer, &[camera], (320, 200), 2, CLEAR);
+        let want = reference::render_views(&world, &atlas, &[camera], (320, 200), 2, CLEAR);
+        assert_same(&got, &want, &format!("subpixel sprites, {color:?}"));
+    }
+}

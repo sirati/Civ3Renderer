@@ -148,8 +148,11 @@ impl Fonts {
         let mut pen = r.x;
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
-            let line = r.underline.then(|| format!("TextLine@{n}/{}", glyph.advance));
-            for name in [Some(format!("Text@{n}/{}", c as u32)), line].into_iter().flatten() {
+            // Glyphs hold coverage per colour channel (ClearType); the
+            // underline is a plain bar.
+            let glyph_blend = tile_render::Blend::Subpixel { color: r.color };
+            let line = r.underline.then(|| (format!("TextLine@{n}/{}", glyph.advance), tile_render::Blend::Alpha));
+            for (name, blend) in [Some((format!("Text@{n}/{}", c as u32), glyph_blend)), line].into_iter().flatten() {
                 let Some((set, _)) = compiled.set(&name) else { continue };
                 out.push(scene::FreeSprite {
                     set: set.raw(),
@@ -159,7 +162,8 @@ impl Fonts {
                     after_pass,
                     phase: 0,
                     ticks_per_frame: 1,
-                    scale_den: 0,
+                    scale_den: blend.scale_den(),
+                    tint: blend.tint(),
                     clip,
                 });
             }

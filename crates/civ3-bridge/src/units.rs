@@ -335,6 +335,7 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings:
                     phase: 0,
                     ticks_per_frame: 1,
                     scale_den,
+                    tint: 0,
                     clip: None,
                 });
             }

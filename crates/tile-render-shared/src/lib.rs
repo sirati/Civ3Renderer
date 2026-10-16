@@ -203,6 +203,9 @@ pub struct FreeSprite {
     /// With `FREE_CLIP`: only the part inside this viewport rectangle
     /// (left, top, right, bottom; right and bottom exclusive) is drawn.
     pub clip: [i32; 4],
+    /// With `scale_den == SCALE_SUBPIXEL`: the colour drawn (0xRRGGBB).
+    pub tint: u32,
+    pub _pad: [u32; 3],
 }
 
 /// The free sprite's position is in viewport pixels, unaffected by the
@@ -275,6 +278,10 @@ pub const QUANTIZED_BIAS: u32 = 16;
 /// A free sprite's `scale_den` that inverts what is under its opaque
 /// texels (`Blend::Invert`).
 pub const SCALE_INVERT: u32 = u32::MAX;
+/// A free sprite's `scale_den` for ClearType-like text: its texels hold
+/// coverage per colour channel (red, green, blue; alpha: any), it draws
+/// `FreeSprite::tint` with that coverage per channel (`Blend::Subpixel`).
+pub const SCALE_SUBPIXEL: u32 = u32::MAX - 1;
 /// Largest scale denominator the bias supports (`2·QUANTIZED_BIAS`).
 pub const MAX_SCALE_DENOMINATOR: u32 = 32;
 

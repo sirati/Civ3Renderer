@@ -129,6 +129,11 @@ pub enum Blend {
     /// matter): `c' = max − c` per channel, exact in a quantized model.
     /// Free sprites only (a layer draws it as `Alpha`).
     Invert,
+    /// ClearType-like text: the texels hold coverage per colour channel
+    /// (red, green, blue), `color` is drawn with it, each channel blending
+    /// with its own alpha (in whole steps, rounded down, in a quantized
+    /// model). Free sprites only (a layer draws it as `Alpha`).
+    Subpixel { color: [u8; 3] },
 }
 
 impl Blend {
@@ -139,13 +144,24 @@ impl Blend {
             Blend::Alpha => 0,
             Blend::Scale { denominator } => denominator.max(1),
             Blend::Invert => tile_render_shared::SCALE_INVERT,
+            Blend::Subpixel { .. } => tile_render_shared::SCALE_SUBPIXEL,
         }
     }
 
-    pub fn from_scale_den(d: u32) -> Blend {
+    /// The colour free sprites carry for it (0xRRGGBB, `FreeSprite::tint`).
+    pub fn tint(self) -> u32 {
+        match self {
+            Blend::Subpixel { color: [r, g, b] } => (r as u32) << 16 | (g as u32) << 8 | b as u32,
+            _ => 0,
+        }
+    }
+
+    /// From [`Blend::scale_den`] and [`Blend::tint`].
+    pub fn from_scale_den(d: u32, tint: u32) -> Blend {
         match d {
             0 => Blend::Alpha,
             tile_render_shared::SCALE_INVERT => Blend::Invert,
+            tile_render_shared::SCALE_SUBPIXEL => Blend::Subpixel { color: [(tint >> 16) as u8, (tint >> 8) as u8, tint as u8] },
             d => Blend::Scale { denominator: d },
         }
     }
@@ -212,6 +228,8 @@ impl PlacedSprite {
             scale_den: self.blend.scale_den(),
             view: self.view.unwrap_or(tile_render_shared::ALL_VIEWS),
             clip: self.clip.unwrap_or_default(),
+            tint: self.blend.tint(),
+            _pad: [0; 3],
         }
     }
 }
@@ -369,7 +387,7 @@ impl TileWorld {
                 cull_offset_x: spec.cull_offset.0,
                 cull_offset_y: spec.cull_offset.1,
                 scale_den: match spec.blend {
-                    Blend::Invert => 0,
+                    Blend::Invert | Blend::Subpixel { .. } => 0,
                     b => b.scale_den(),
                 },
             });

@@ -58,6 +58,14 @@ pub fn render_composed(
         ColorModel::Direct => {
             let mut out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
                 Blend::Alpha => *dst = blend(src, *dst),
+                // Each channel with its own coverage (the GPU draws one channel
+                // at a time).
+                Blend::Subpixel { color } => {
+                    for c in 0..3 {
+                        let a = src[c] as f32 / 255.0;
+                        dst[c] = (color[c] as f32 * a + dst[c] as f32 * (1.0 - a)).round() as u8;
+                    }
+                }
                 Blend::Invert => *dst = [255 - dst[0], 255 - dst[1], 255 - dst[2], dst[3]],
                 // Black at alpha 1 − k/den, as the shader blends it.
                 Blend::Scale { denominator } if (src[0] as u32) < denominator => {
@@ -84,6 +92,15 @@ pub fn render_composed(
         }
         Blend::Scale { .. } => {}
         // Translucent texels mix in whole alpha steps, rounded down.
+        // ClearType-like: each channel with its own coverage.
+        Blend::Subpixel { color } => {
+            for (c, i) in dst.iter_mut().zip(0..3) {
+                let k = alpha_steps(src[i].into());
+                if k > 0 {
+                    *c = mix_stored(stored(color[i]), *c, k);
+                }
+            }
+        }
         // (Inverting: the highest stored value less what is there.)
         Blend::Invert => {
             let top = (1 << bits) - 1 + 2 * QUANTIZED_BIAS;

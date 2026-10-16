@@ -364,7 +364,9 @@ pub fn generated_surfaces(build: Build) -> &'static [(u32, &'static str)] {
 
 /// [`generated_surfaces`] of the PCGames build, usable in constants.
 pub const fn generated_surfaces_pcg() -> &'static [(u32, &'static str)] {
-    &[(0xA0_E230 + 0x858, "minimap")]
+    // The navigators' images (`Navigator_Data` + 0x858): the interface's
+    // minimap, and the one of the military and cultural advisors (300×145).
+    &[(0xA0_E230 + 0x858, "minimap"), (0x9B_3F38 + 0x858, "minimap")]
 }
 
 inproc::fastcall_hook! {

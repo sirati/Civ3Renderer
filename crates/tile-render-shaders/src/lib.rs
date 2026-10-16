@@ -143,8 +143,10 @@ pub fn free_vs(
     #[spirv(flat)] out_origin: &mut IVec2,
     #[spirv(flat)] out_page: &mut u32,
     #[spirv(flat)] out_scale_den: &mut u32,
+    #[spirv(flat)] out_tint: &mut u32,
 ) {
     let f = &free[instance as usize];
+    *out_tint = f.tint;
     *out_local = Vec2::ZERO;
     *out_origin = IVec2::ZERO;
     *out_page = 0;
@@ -237,6 +239,77 @@ pub fn tile_fs(
     } else {
         *output = color;
     }
+}
+
+/// One colour channel (0 red, 1 green, 2 blue) of a ClearType-like sprite
+/// (`SCALE_SUBPIXEL`): its texels hold that channel's coverage in the same
+/// channel, `tint` is the colour. Drawn three times, the pipeline writing
+/// one channel each time, so each channel blends with its own alpha (in
+/// whole alpha steps, rounded down, in a quantized model).
+fn subpixel(local: Vec2, origin: IVec2, page: u32, tint: u32, params: &FrameParams, atlas: &Image!(2D, type = f32, sampled, arrayed), channel: u32) -> Vec4 {
+    let xy = origin + IVec2::new(local.x.floor() as i32, local.y.floor() as i32);
+    let texel: Vec4 = atlas.fetch(xy.extend(page as i32));
+    let coverage = if channel == 0 { texel.x } else if channel == 1 { texel.y } else { texel.z };
+    let c8 = (tint >> (16 - 8 * channel)) & 0xFF;
+    let bits = params.color_bits;
+    if bits != 0 {
+        let k = alpha_steps(to_u8(coverage));
+        if k == 0 {
+            spirv_std::arch::kill();
+        }
+        let a = k as f32 / ALPHA_STEPS as f32;
+        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
+        let v = (quantize(c8, bits) + QUANTIZED_BIAS) as f32 / 255.0 * a + o;
+        Vec4::new(v, v, v, a)
+    } else {
+        if coverage == 0.0 {
+            spirv_std::arch::kill();
+        }
+        let c = c8 as f32 / 255.0;
+        Vec4::new(c, c, c, coverage)
+    }
+}
+
+#[spirv(fragment)]
+pub fn subpixel_r_fs(
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(flat)] _scale_den: u32,
+    #[spirv(flat)] tint: u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    output: &mut Vec4,
+) {
+    *output = subpixel(local, origin, page, tint, params, atlas, 0);
+}
+
+#[spirv(fragment)]
+pub fn subpixel_g_fs(
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(flat)] _scale_den: u32,
+    #[spirv(flat)] tint: u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    output: &mut Vec4,
+) {
+    *output = subpixel(local, origin, page, tint, params, atlas, 1);
+}
+
+#[spirv(fragment)]
+pub fn subpixel_b_fs(
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(flat)] _scale_den: u32,
+    #[spirv(flat)] tint: u32,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    output: &mut Vec4,
+) {
+    *output = subpixel(local, origin, page, tint, params, atlas, 2);
 }
 
 /// A triangle covering the viewport, for the full-screen pass.

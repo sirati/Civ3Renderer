@@ -1,26 +1,45 @@
 #!/usr/bin/env bash
-# Renders the game's text font (Lucida Sans, as jgl.dll draws it with GDI)
-# into glyph sheets for the Linux-side tools: civ3-assets reads them from
-# $CIV3R_FONT_CACHE (default ~/.cache/civ3r/fonts). Inside the game the
-# glyphs are rendered directly; this is only for offline rendering.
+# Measures the game's text font (Lucida Sans, as jgl.dll draws it with GDI)
+# on Windows — ClearType, per colour channel — into glyph sheets for the
+# tools and processes that cannot ask Windows' GDI themselves (Linux, Wine):
+# civ3-assets reads them from $CIV3R_FONT_CACHE (default
+# ~/.cache/civ3r/fonts). font-sheet.exe runs in a throwaway Windows VM
+# (~/winvm), as Windows' own text rendering is what the game shows there.
 #
-#   tools/gen-civ3-fonts [SIZES...]      (run inside `nix develop`; uses Wine)
+#   tools/gen-civ3-fonts [SIZES...]      (run inside `nix develop`)
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 install=${CIV3_INSTALL:-/mnt/datasets/winvm/civ3-src/Civilization III Complete}
 out=${CIV3R_FONT_CACHE:-$HOME/.cache/civ3r/fonts}
+target=${CARGO_TARGET_DIR:-$repo/target}
+vm=fontsheets
 mkdir -p "$out"
-cargo build -q -p gdi-text --target x86_64-pc-windows-gnu
-exe=$repo/target/x86_64-pc-windows-gnu/debug/font-sheet.exe
+cargo build -q --release -p gdi-text --target x86_64-pc-windows-gnu --bin font-sheet
+stage=$(mktemp -d -p /mnt/datasets/winvm civ3-fonts.XXXXXX)
+trap '~/winvm/bin/winvm down "$vm" >/dev/null 2>&1 || true; rm -rf "$stage"' EXIT
+cp "$target/x86_64-pc-windows-gnu/release/font-sheet.exe" "$install/LSANS.TTF" "$stage/"
+mkdir "$stage/out"
 # Regular, bold, italic and bold italic (file names as civ3-assets'
 # `cache_stem`: -w<weight> for bold, -i for italic).
-for h in "${@:-8 9 10 11 12 13 14 15 16 18 20 22 24}"; do
-  for size in $h; do
+{
+  echo '@echo off'
+  for size in ${@:-8 9 10 11 12 13 14 15 16 18 20 22 24}; do
     for style in "0 0 -" "700 0 -w700" "0 1 -i" "700 1 -w700-i"; do
       read -r weight italic suffix <<<"$style"
       [ "$suffix" = - ] && suffix=
-      "$repo/tools/wine-run" "$exe" "Z:$install/LSANS.TTF" "Lucida Sans" "$size" "$weight" \
-        "Z:$out/Lucida_Sans-$size$suffix.png" 32 255 0 "$italic" 2>/dev/null | tail -1
+      echo "Z:\\font-sheet.exe Z:\\LSANS.TTF \"Lucida Sans\" $size $weight Z:\\out\\Lucida_Sans-$size$suffix.png 32 255 0 $italic"
     done
   done
-done
+  echo 'echo done> Z:\out\done.txt'
+} | sed 's/$/\r/' > "$stage/run.cmd"
+~/winvm/bin/winvm up "$vm" --share "$stage" --mem 2G --res 1024x768
+# In the interactive session (the desktop's font smoothing settings apply),
+# then wait for it to finish.
+~/winvm/bin/winvm ps "$vm" - <<'EOF'
+schtasks /Create /TN fontsheets /TR "cmd /c Z:\run.cmd > Z:\out\log.txt 2>&1" /SC ONCE /ST 23:59 /IT /F | Out-Null
+schtasks /Run /TN fontsheets | Out-Null
+for ($i = 0; $i -lt 600 -and -not (Test-Path Z:\out\done.txt); $i++) { Start-Sleep 1 }
+EOF
+[ -f "$stage/out/done.txt" ] || { echo "font sheets: not finished, see $stage/out/log.txt" >&2; cat "$stage/out/log.txt" >&2 || true; exit 1; }
+cp "$stage"/out/*.png "$stage"/out/*.toml "$out/"
+echo "wrote $(ls "$stage"/out/*.toml | wc -l) fonts to $out"

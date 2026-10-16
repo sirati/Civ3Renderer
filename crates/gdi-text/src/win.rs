@@ -1,6 +1,5 @@
 //! The GDI calls.
 
-use windows_sys::Win32::Foundation::SIZE;
 use windows_sys::Win32::Graphics::Gdi::*;
 
 use crate::{FontSpec, GdiError, Glyph};
@@ -67,8 +66,8 @@ impl Canvas {
     }
 
     /// `text` drawn with its pen at (x, 0) in `color` over `background`
-    /// (0xRRGGBB); the pixels' grey levels (mean of the channels).
-    fn draw(&mut self, text: &[u16], x: i32, color: u32, background: u32) -> Vec<u8> {
+    /// (0xRRGGBB); the pixels as (red, green, blue).
+    fn draw(&mut self, text: &[u16], x: i32, color: u32, background: u32) -> Vec<[u8; 3]> {
         let n = (self.size.0 * self.size.1) as usize;
         // SAFETY: the DIB section holds n pixels and lives as long as `self`,
         // exclusive through &mut self; GDI is flushed before it is read.
@@ -77,15 +76,23 @@ impl Canvas {
             SetTextColor(self.dc, (color & 0xFF) << 16 | (color & 0xFF00) | (color >> 16 & 0xFF));
             TextOutW(self.dc, x, 0, text.as_ptr(), text.len() as i32);
             GdiFlush();
-            std::slice::from_raw_parts(self.bits, n).iter().map(|&p| (((p >> 16 & 0xFF) + (p >> 8 & 0xFF) + (p & 0xFF)) / 3) as u8).collect()
+            std::slice::from_raw_parts(self.bits, n).iter().map(|&p| [(p >> 16) as u8, (p >> 8) as u8, p as u8]).collect()
         }
     }
 
-    fn extent(&self, text: &[u16]) -> i32 {
-        let mut size = SIZE { cx: 0, cy: 0 };
-        // SAFETY: `text` outlives the call; writes only `size`.
-        unsafe { GetTextExtentPoint32W(self.dc, text.as_ptr(), text.len() as i32, &mut size) };
-        size.cx
+    /// The pen advance of each character of `text` as text output places
+    /// them (`GetCharacterPlacementW`; text extents can differ from it).
+    fn advances(&self, text: &[u16]) -> Vec<i32> {
+        let mut dx = vec![0i32; text.len()];
+        // SAFETY: a plain C struct, all zeroes is valid.
+        let mut results: GCP_RESULTSW = unsafe { std::mem::zeroed() };
+        results.lStructSize = size_of::<GCP_RESULTSW>() as u32;
+        results.lpDx = dx.as_mut_ptr();
+        results.nGlyphs = text.len() as u32;
+        // SAFETY: `text` and `dx` (`nGlyphs` entries) outlive the call, which
+        // writes at most that many advances.
+        unsafe { GetCharacterPlacementW(self.dc, text.as_ptr(), text.len() as i32, 0, &mut results, 0) };
+        dx
     }
 }
 
@@ -103,21 +110,21 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
     for ch in chars {
         let mut units = [0u16; 2];
         let units: &[u16] = ch.encode_utf16(&mut units);
-        // The pen advance as text runs see it: one character's extent
-        // includes the overhang of synthesised bold and italic once more.
+        // The pen advance as text output places it (of the first of two, so
+        // no end-of-string adjustment applies).
         let twice: Vec<u16> = units.iter().chain(units).copied().collect();
-        let advance = canvas.extent(&twice) - canvas.extent(units);
+        let advance = canvas.advances(&twice).first().copied().unwrap_or(0);
         let light = canvas.draw(units, origin, 0xFF_FFFF, 0);
-        let dark: Vec<u8> = canvas.draw(units, origin, 0, 0xFF_FFFF).into_iter().map(|g| 255 - g).collect();
+        let dark: Vec<[u8; 3]> = canvas.draw(units, origin, 0, 0xFF_FFFF).into_iter().map(|p| p.map(|c| 255 - c)).collect();
         let (w, h) = canvas.size;
         let height = line.min(h);
         let at = |x: i32, y: i32| (y * w + x) as usize;
-        let cols: Vec<i32> = (0..w).filter(|&x| (0..height).any(|y| dark[at(x, y)] != 0 || light[at(x, y)] != 0)).collect();
+        let cols: Vec<i32> = (0..w).filter(|&x| (0..height).any(|y| dark[at(x, y)] != [0; 3] || light[at(x, y)] != [0; 3])).collect();
         let (x0, x1) = match (cols.first(), cols.last()) {
             (Some(&a), Some(&b)) => (a, b + 1),
             _ => (origin, origin),
         };
-        let crop = |m: &[u8]| (0..height).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| m[at(x, y)]).collect();
+        let crop = |m: &[[u8; 3]]| (0..height).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| m[at(x, y)]).collect();
         out.push(Glyph {
             ch,
             left: x0 - origin,

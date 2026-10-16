@@ -1,9 +1,11 @@
-//! The game's text glyphs: Lucida Sans rasterised by GDI (smoothed at the
-//! sizes the font asks for), exactly as the game's `jgl.dll` draws text.
+//! The game's text glyphs: Lucida Sans as Windows' GDI draws it for the
+//! game's `jgl.dll` (ClearType: each colour channel with its own coverage),
+//! measured per channel (`gdi_text::Glyph`).
 //!
-//! Inside a Windows (or Wine) process the glyphs are rendered on the spot
-//! with `gdi-text`. Elsewhere they come from sheets that `font-sheet`
-//! rendered under Wine beforehand (`tools/gen-civ3-fonts`), in
+//! In a Windows process the glyphs are measured on the spot with
+//! `gdi-text`. Elsewhere, and wherever `$CIV3R_FONT_CACHE` is set (Wine,
+//! whose GDI draws text its own way), they come from sheets `font-sheet`
+//! made on Windows beforehand (`tools/gen-civ3-fonts`), in
 //! `$CIV3R_FONT_CACHE` (default `~/.cache/civ3r/fonts`).
 
 use std::collections::BTreeMap;
@@ -12,8 +14,10 @@ use tile_render::RgbaImage;
 
 use crate::GameFiles;
 
-/// One glyph: its pixels (ink opaque in `color`, the rest transparent),
-/// where they start relative to the pen, and the pen advance.
+/// One glyph: per pixel its opacity in each colour channel (red, green,
+/// blue; alpha: their maximum) for the colour it was loaded for, drawn with
+/// that colour per channel (`tile_render::Blend::Subpixel`); where it
+/// starts relative to the pen, and the pen advance.
 #[derive(Clone, Debug)]
 pub struct Glyph {
     pub left: i32,
@@ -55,6 +59,9 @@ pub struct FontStyle {
 pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     #[cfg(windows)]
     {
+        if std::env::var_os("CIV3R_FONT_CACHE").is_some() {
+            return from_cache(font, color);
+        }
         // The game installs its font from LSANS.TTF; make sure we have it.
         for f in ["LSANS.TTF", "../LSANS.TTF"] {
             if let Ok(p) = files.resolve(f) {
@@ -90,7 +97,6 @@ pub fn cache_stem(font: &FontStyle) -> String {
     s
 }
 
-#[cfg(not(windows))]
 fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     let dir = std::env::var_os("CIV3R_FONT_CACHE")
         .map(std::path::PathBuf::from)
@@ -103,11 +109,12 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         .parse()
         .map_err(|e| missing(&e))?;
     let sheet = image::open(stem.with_extension("png")).map_err(|e| missing(&e))?.to_rgba8();
+    let light_sheet = image::open(stem.with_file_name(format!("{}-light.png", cache_stem(font)))).map_err(|e| missing(&e))?.to_rgba8();
     let int = |v: Option<&toml::Value>| v.and_then(|v| v.as_integer()).unwrap_or(0);
     let cell = meta.get("cell").and_then(|c| c.as_array()).ok_or_else(|| missing(&"no cell"))?;
     let (cw, ch) = (int(cell.first()) as u32, int(cell.get(1)) as u32);
     let first = int(meta.get("first")) as u32;
-    if meta.get("coverage").and_then(|c| c.as_str()) != Some("dark-light") {
+    if meta.get("coverage").and_then(|c| c.as_str()) != Some("rgb") {
         return Err(missing(&"old sheet format"));
     }
     let ascent = int(meta.get("ascent")) as i32;
@@ -123,10 +130,10 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         let i = code - first;
         let (ox, oy) = ((i % 16) * cw, (i / 16) * ch);
         let w = int(m.get("width")) as u32;
-        let at = |(x, y): (u32, u32)| sheet.get_pixel(ox + x, oy + y);
+        let rgb = |s: &image::RgbaImage, (x, y): (u32, u32)| { let p = s.get_pixel(ox + x, oy + y); [p[0], p[1], p[2]] };
         let cells: Vec<(u32, u32)> = (0..ch).flat_map(|y| (0..w).map(move |x| (x, y))).collect();
-        let dark: Vec<u8> = cells.iter().map(|&p| at(p)[0]).collect();
-        let light: Vec<u8> = cells.iter().map(|&p| at(p)[1]).collect();
+        let dark: Vec<[u8; 3]> = cells.iter().map(|&p| rgb(&sheet, p)).collect();
+        let light: Vec<[u8; 3]> = cells.iter().map(|&p| rgb(&light_sheet, p)).collect();
         let image = image(gdi_text::paint(&dark, &light, color), w, ch);
         glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image });
     }

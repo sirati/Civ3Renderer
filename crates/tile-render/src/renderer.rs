@@ -25,23 +25,11 @@ const QUANTIZED_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// Draws one `TileWorld` with one `Atlas`.
 pub struct TileRenderer {
-    /// Draws into the caller's target (direct colour model).
-    pipeline: wgpu::RenderPipeline,
-    /// Draws into the internal target (quantized colour models).
-    quantized_pipeline: wgpu::RenderPipeline,
-    /// The same for free sprites.
-    free_pipeline: wgpu::RenderPipeline,
-    free_quantized_pipeline: wgpu::RenderPipeline,
-    /// Zoomed views of direct-colour worlds, into their source texture.
-    source_pipeline: wgpu::RenderPipeline,
-    free_source_pipeline: wgpu::RenderPipeline,
-    /// Inverting free sprites, into the caller's target and internally.
-    free_invert_pipeline: wgpu::RenderPipeline,
-    free_invert_internal_pipeline: wgpu::RenderPipeline,
-    /// Copies (scaled) into the caller's target, expanding quantized values.
-    output_pipeline: wgpu::RenderPipeline,
-    /// Copies (scaled) into the internal target.
-    blit_pipeline: wgpu::RenderPipeline,
+    /// The pipelines ([`P`]), made when first used: a software renderer
+    /// compiles each one, at a cost in memory, and a frame needs a few only.
+    pipelines: [std::sync::OnceLock<wgpu::RenderPipeline>; P::COUNT],
+    shader: wgpu::ShaderModule,
+    target_format: wgpu::TextureFormat,
     layout: wgpu::BindGroupLayout,
     output_layout: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
@@ -160,54 +148,6 @@ impl TileRenderer {
                 },
             ],
         });
-        let pipeline = |name: &str, (vs, fs): (&str, &str), group: &wgpu::BindGroupLayout, format, blend| {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(name),
-                bind_group_layouts: &[Some(group)],
-                immediate_size: 0,
-            });
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(name),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vs),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(fs),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask: wgpu::ColorWrites::ALL })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let tiles = ("tile_vs", "tile_fs");
-        let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
-        let direct = pipeline("tile-render", tiles, &layout, target_format, alpha);
-        let frees = ("free_vs", "tile_fs");
-        let free_direct = pipeline("tile-render free", frees, &layout, target_format, alpha);
-        let premultiplied = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
-        let quantized = pipeline("tile-render quantized", tiles, &layout, QUANTIZED_FORMAT, premultiplied);
-        let free_quantized = pipeline("tile-render free quantized", frees, &layout, QUANTIZED_FORMAT, premultiplied);
-        let source = pipeline("tile-render source", tiles, &layout, QUANTIZED_FORMAT, alpha);
-        let free_source = pipeline("tile-render free source", frees, &layout, QUANTIZED_FORMAT, alpha);
-        // What is there subtracted from the shader's maximum; alpha kept.
-        let invert = Some(wgpu::BlendState {
-            color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Subtract },
-            alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
-        });
-        let free_invert = pipeline("tile-render free invert", frees, &layout, target_format, invert);
-        let free_invert_internal = pipeline("tile-render free invert internal", frees, &layout, QUANTIZED_FORMAT, invert);
-        let copy = ("fullscreen_vs", "output_fs");
-        let output = pipeline("tile-render output", copy, &output_layout, target_format, None);
-        let blit = pipeline("tile-render blit", copy, &output_layout, QUANTIZED_FORMAT, None);
         let output_params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render output params"),
             size: PARAMS_STRIDE * (MAX_VIEWS + 1 + MAX_COPIES) as u64,
@@ -221,16 +161,9 @@ impl TileRenderer {
             mapped_at_creation: false,
         });
         Self {
-            pipeline: direct,
-            quantized_pipeline: quantized,
-            free_pipeline: free_direct,
-            free_quantized_pipeline: free_quantized,
-            source_pipeline: source,
-            free_source_pipeline: free_source,
-            free_invert_pipeline: free_invert,
-            free_invert_internal_pipeline: free_invert_internal,
-            output_pipeline: output,
-            blit_pipeline: blit,
+            pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            shader,
+            target_format,
             layout,
             output_layout,
             params,
@@ -243,6 +176,68 @@ impl TileRenderer {
             world: None,
             bind_group: None,
         }
+    }
+
+    /// Pipeline `p`, made the first time it is asked for.
+    fn pipeline(&self, device: &wgpu::Device, p: P) -> &wgpu::RenderPipeline {
+        self.pipelines[p.index()].get_or_init(|| {
+            let alpha = Some(wgpu::BlendState::ALPHA_BLENDING);
+            let premultiplied = Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING);
+            // What is there subtracted from the shader's maximum; alpha kept.
+            let invert = Some(wgpu::BlendState {
+                color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Subtract },
+                alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+            });
+            let (tiles, free, copy) = (("tile_vs", "tile_fs"), ("free_vs", "tile_fs"), ("fullscreen_vs", "output_fs"));
+            let all = wgpu::ColorWrites::ALL;
+            let (target, internal) = (self.target_format, QUANTIZED_FORMAT);
+            let (stages, layout, format, blend, mask) = match p {
+                P::Tiles => (tiles, &self.layout, target, alpha, all),
+                P::Free => (free, &self.layout, target, alpha, all),
+                P::TilesQuantized => (tiles, &self.layout, internal, premultiplied, all),
+                P::FreeQuantized => (free, &self.layout, internal, premultiplied, all),
+                P::TilesSource => (tiles, &self.layout, internal, alpha, all),
+                P::FreeSource => (free, &self.layout, internal, alpha, all),
+                P::FreeInvert => (free, &self.layout, target, invert, all),
+                P::FreeInvertInternal => (free, &self.layout, internal, invert, all),
+                P::Subpixel(into, channel) => {
+                    let (fs, mask) = [("subpixel_r_fs", wgpu::ColorWrites::RED), ("subpixel_g_fs", wgpu::ColorWrites::GREEN), ("subpixel_b_fs", wgpu::ColorWrites::BLUE)][channel as usize];
+                    let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
+                    (("free_vs", fs), &self.layout, format, blend, mask)
+                }
+                P::Output => (copy, &self.output_layout, target, None, all),
+                P::Blit => (copy, &self.output_layout, internal, None, all),
+            };
+            let name = format!("tile-render {p:?}");
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(&name),
+                bind_group_layouts: &[Some(layout)],
+                immediate_size: 0,
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&name),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState { module: &self.shader, entry_point: Some(stages.0), compilation_options: Default::default(), buffers: &[] },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &self.shader,
+                    entry_point: Some(stages.1),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend, write_mask: mask })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        })
+    }
+
+    /// The pipelines free sprites are drawn with into `into` (0 the
+    /// caller's target, 1 the quantized internal one, 2 a direct internal
+    /// one), made as runs need them.
+    fn free_pipelines<'a>(&'a self, device: &'a wgpu::Device, into: u8) -> FreePipelines<'a> {
+        FreePipelines { renderer: self, device, into }
     }
 
     /// Replaces the pixels of atlas sprite `sprite` (sprites whose content
@@ -512,19 +507,22 @@ impl TileRenderer {
                 None => {
                     let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
                     let pipelines = if direct {
-                        (&self.pipeline, (&self.free_pipeline, &self.free_invert_pipeline))
+                        (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0))
                     } else if bits == 0 {
-                        (&self.source_pipeline, (&self.free_source_pipeline, &self.free_invert_internal_pipeline))
+                        (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
                     } else {
-                        (&self.quantized_pipeline, (&self.free_quantized_pipeline, &self.free_invert_internal_pipeline))
+                        (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
                     };
                     (*camera, &canvas, (viewport, on_target), pipelines)
                 }
                 Some(r) => {
                     let flat = Camera { zoom: (1, 1), viewport: (r[2], r[3]), ..*camera };
                     let viewport = [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32];
-                    let pipelines =
-                        if bits == 0 { (&self.source_pipeline, (&self.free_source_pipeline, &self.free_invert_internal_pipeline)) } else { (&self.quantized_pipeline, (&self.free_quantized_pipeline, &self.free_invert_internal_pipeline)) };
+                    let pipelines = if bits == 0 {
+                        (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
+                    } else {
+                        (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
+                    };
                     (flat, source_view.as_ref().expect("created above"), (viewport, r), pipelines)
                 }
             };
@@ -564,7 +562,7 @@ impl TileRenderer {
                 };
                 let offset = write_output(v, params);
                 let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
-                pass.set_pipeline(if direct { &self.output_pipeline } else { &self.blit_pipeline });
+                pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
                 pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
                 pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
                 pass.draw(0..3, 0..1);
@@ -577,7 +575,7 @@ impl TileRenderer {
         let params = OutputParams { zoom_num: 1, zoom_den: 1, bits, ..Default::default() };
         let offset = write_output(MAX_VIEWS, params);
         let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
-        pass.set_pipeline(&self.output_pipeline);
+        pass.set_pipeline(self.pipeline(device, P::Output));
         pass.set_bind_group(0, &scratch.output, &[offset]);
         pass.draw(0..3, 0..1);
         for (i, c) in copies.iter().enumerate() {
@@ -655,19 +653,52 @@ fn source_rects(cameras: &[Camera]) -> Vec<Option<[u32; 4]>> {
         .collect()
 }
 
-/// Free sprites that follow pass `i`, into `pass` (whose bind group is
-/// already set): runs of ordinary ones with `pipelines.0`, of inverting
-/// ones with `pipelines.1`.
-fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: (&wgpu::RenderPipeline, &wgpu::RenderPipeline)) {
-    for (range, invert) in world.free_after.get(i).into_iter().flatten() {
-        pass.set_pipeline(if *invert { pipelines.1 } else { pipelines.0 });
-        pass.draw(0..QUAD_VERTICES, range.clone());
+/// Where free sprites are drawn, to get their pipelines from.
+#[derive(Copy, Clone)]
+struct FreePipelines<'a> {
+    renderer: &'a TileRenderer,
+    device: &'a wgpu::Device,
+    into: u8,
+}
+
+impl FreePipelines<'_> {
+    /// The pipelines a run of `kind` is drawn with, in order (ClearType-like
+    /// sprites once per colour channel).
+    fn of(&self, kind: FreeKind) -> Vec<&wgpu::RenderPipeline> {
+        let get = |p| self.renderer.pipeline(self.device, p);
+        match (kind, self.into) {
+            (FreeKind::Normal, 0) => vec![get(P::Free)],
+            (FreeKind::Normal, 1) => vec![get(P::FreeQuantized)],
+            (FreeKind::Normal, _) => vec![get(P::FreeSource)],
+            (FreeKind::Invert, 0) => vec![get(P::FreeInvert)],
+            (FreeKind::Invert, _) => vec![get(P::FreeInvertInternal)],
+            (FreeKind::Subpixel, into) => (0..3).map(|c| get(P::Subpixel(into, c))).collect(),
+        }
     }
 }
 
-/// Runs of free sprites in drawing order: which instances, and whether
-/// they invert ([`crate::Blend::Invert`], drawn with their own pipeline).
-type FreeRuns = Vec<(std::ops::Range<u32>, bool)>;
+/// Free sprites that follow pass `i`, into `pass` (whose bind group is
+/// already set), each run with its pipelines.
+fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: FreePipelines<'_>) {
+    for (range, kind) in world.free_after.get(i).into_iter().flatten() {
+        for p in pipelines.of(*kind) {
+            pass.set_pipeline(p);
+            pass.draw(0..QUAD_VERTICES, range.clone());
+        }
+    }
+}
+
+/// How a run of free sprites is drawn.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum FreeKind {
+    Normal,
+    Invert,
+    Subpixel,
+}
+
+/// Runs of free sprites in drawing order: which instances, and how they
+/// are drawn.
+type FreeRuns = Vec<(std::ops::Range<u32>, FreeKind)>;
 
 /// The world's free sprites in drawing order (by the pass they follow,
 /// then list order) and per pass the runs of them that follow it; the last
@@ -678,10 +709,15 @@ fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<FreeRuns>) {
     order.sort_by_key(|s| s.after_pass.min(passes));
     let mut runs: Vec<FreeRuns> = vec![Vec::new(); passes + 1];
     for (i, s) in order.iter().enumerate() {
-        let (p, invert, i) = (s.after_pass.min(passes), s.blend == crate::Blend::Invert, i as u32);
+        let kind = match s.blend {
+            crate::Blend::Invert => FreeKind::Invert,
+            crate::Blend::Subpixel { .. } => FreeKind::Subpixel,
+            _ => FreeKind::Normal,
+        };
+        let (p, i) = (s.after_pass.min(passes), i as u32);
         match runs[p].last_mut() {
-            Some((range, inv)) if *inv == invert && range.end == i => range.end = i + 1,
-            _ => runs[p].push((i..i + 1, invert)),
+            Some((range, k)) if *k == kind && range.end == i => range.end = i + 1,
+            _ => runs[p].push((i..i + 1, kind)),
         }
     }
     let mut gpu: Vec<FreeSprite> = order.iter().map(|s| s.gpu()).collect();
@@ -782,4 +818,48 @@ fn storage(device: &wgpu::Device, label: &str, contents: &[u8]) -> wgpu::Buffer 
         contents,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     })
+}
+
+/// The pipelines [`TileRenderer`] draws with.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum P {
+    /// Cells and free sprites into the caller's target (direct colour).
+    Tiles,
+    Free,
+    /// Into the internal target (quantized colour models).
+    TilesQuantized,
+    FreeQuantized,
+    /// Into an internal target in direct colour (zoomed views' pictures,
+    /// pictures screen copies read).
+    TilesSource,
+    FreeSource,
+    /// Inverting free sprites, into the caller's target and internally.
+    FreeInvert,
+    FreeInvertInternal,
+    /// ClearType-like free sprites: into (as `free_pipelines`), channel.
+    Subpixel(u8, u8),
+    /// Copies (scaled) into the caller's target, expanding quantized values.
+    Output,
+    /// Copies (scaled) into the internal target.
+    Blit,
+}
+
+impl P {
+    const COUNT: usize = 19;
+
+    fn index(self) -> usize {
+        match self {
+            P::Tiles => 0,
+            P::Free => 1,
+            P::TilesQuantized => 2,
+            P::FreeQuantized => 3,
+            P::TilesSource => 4,
+            P::FreeSource => 5,
+            P::FreeInvert => 6,
+            P::FreeInvertInternal => 7,
+            P::Output => 8,
+            P::Blit => 9,
+            P::Subpixel(into, channel) => 10 + 3 * into.min(2) as usize + channel.min(2) as usize,
+        }
+    }
 }
