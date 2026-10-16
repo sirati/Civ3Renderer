@@ -1,0 +1,65 @@
+#!/usr/bin/env -S nix shell nixpkgs#python3 -c python3
+"""Summarises a civ3-bridge trace (tools/civ3-session trace).
+
+  tools/trace-stats TRACE            per sprite array: anchor (draw position
+                                     relative to the 64x32 tile grid), index
+                                     histogram, extra parameters
+  tools/trace-stats TRACE --terrain  checks base terrain draws against the
+                                     tiles' cached SquareParts
+"""
+import collections
+import sys
+
+
+def load(path):
+    lines = open(path).read().splitlines()
+    view = next(l for l in lines if l.startswith("view")).split()
+    cam = (int(view[2]), int(view[3]))
+    m = next(l for l in lines if l.startswith("map")).split()
+    size = (int(m[1]), int(m[2]))
+    tiles = {}
+    draws = []
+    for l in lines:
+        f = l.split()
+        if l.startswith("tile "):
+            tiles[(int(f[1]), int(f[2]))] = [int(v, 0) for v in f[3:]]
+        elif l.startswith("draw "):
+            draws.append((f[1], int(f[2]), int(f[3]), int(f[4]), f[5:9]))
+    return cam, size, tiles, draws
+
+
+def stats(path):
+    (cx, cy), _, _, draws = load(path)
+    pos, idx, par = (collections.defaultdict(collections.Counter) for _ in range(3))
+    for a, i, x, y, p in draws:
+        pos[a][((x + cx) % 64, (y + cy) % 32)] += 1
+        idx[a][i] += 1
+        par[a][" ".join(p)] += 1
+    for a in sorted(pos, key=lambda a: -sum(pos[a].values())):
+        print(f"{a:30s} n={sum(pos[a].values()):4d} anchor%(64,32)={dict(pos[a].most_common(2))} "
+              f"idx={dict(idx[a].most_common(5))} params={dict(par[a].most_common(1))}")
+
+
+def terrain(path):
+    (cx, cy), (w, h), tiles, draws = load(path)
+    ok = bad = 0
+    for a, i, x, y, _ in draws:
+        if a != "Std_Terrain_Images":
+            continue
+        tx, ty = (x + cx) // 64, (y + cy) // 32 + 1
+        t = tiles.get((tx % w, ty))
+        if t is None:
+            continue
+        sp = t[1]
+        if (sp >> 8) * 81 + (sp & 0xFF) == i:
+            ok += 1
+        else:
+            bad += 1
+    print(f"base terrain: {ok} match SquareParts, {bad} differ")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[2] == "--terrain":
+        terrain(sys.argv[1])
+    else:
+        stats(sys.argv[1])

@@ -39,3 +39,74 @@ Tile_Body Fog_Of_War
 Tile_Body FOWStatus
 Tile_Body V3
 Tile_Body Visibility
+
+# The map sprites (see civ3_sys::sprites).
+Sprite
+Sprite Width
+Sprite Height
+SpriteList
+Map_Renderer Resources sizeof
+Map_Renderer ResourcesShadows sizeof
+Map_Renderer Terrain_Buldings_Barbarian_Camp sizeof
+Map_Renderer Terrain_Buldings_Mines sizeof
+Map_Renderer Victory_Image sizeof
+Map_Renderer Flood_Plains_Images sizeof
+Map_Renderer Fog_Of_War_Images sizeof
+Map_Renderer Polar_Icecaps_Images sizeof
+Map_Renderer Railroads_Images sizeof
+Map_Renderer Roads_Images sizeof
+Map_Renderer Terrain_Buldings_Airfields sizeof
+Map_Renderer Terrain_Buldings_Airfields_Shadow sizeof
+Map_Renderer Terrain_Buldings_Camp sizeof
+Map_Renderer Terrain_Buldings_Fortress sizeof
+Map_Renderer Terrain_Buldings_Barricade sizeof
+Map_Renderer Goody_Huts_Images sizeof
+Map_Renderer Terrain_Buldings_Outposts sizeof
+Map_Renderer Terrain_Buldings_Outposts_Shadow sizeof
+Map_Renderer Pollution sizeof
+Map_Renderer Craters sizeof
+Map_Renderer Terrain_Buldings_Radar sizeof
+Map_Renderer Terrain_Buldings_Radar_Shadow sizeof
+Map_Renderer Tnt_Images sizeof
+Map_Renderer Waterfalls_Images sizeof
+Map_Renderer LM_Terrain sizeof
+Map_Renderer Marsh_Large sizeof
+Map_Renderer Marsh_Small sizeof
+Map_Renderer field_C650 sizeof
+Map_Renderer field_C67C sizeof
+Map_Renderer Volcanos_Images sizeof
+Map_Renderer Volcanos_Forests_Images sizeof
+Map_Renderer Volcanos_Jungles_Images sizeof
+Map_Renderer Volcanos_Snow_Images sizeof
+Map_Renderer Grassland_Forests_Large sizeof
+Map_Renderer Plains_Forests_Large sizeof
+Map_Renderer Tundra_Forests_Large sizeof
+Map_Renderer Grassland_Forests_Small sizeof
+Map_Renderer Plains_Forests_Small sizeof
+Map_Renderer Tundra_Forests_Small sizeof
+Map_Renderer Grassland_Forests_Pines sizeof
+Map_Renderer Plains_Forests_Pines sizeof
+Map_Renderer Tundra_Forests_Pines sizeof
+Map_Renderer Irrigation_Desert_Images sizeof
+Map_Renderer Irrigation_Plains_Images sizeof
+Map_Renderer Irrigation_Images sizeof
+Map_Renderer Irrigation_Tundra_Images sizeof
+Map_Renderer Grassland_Jungles_Large sizeof
+Map_Renderer Grassland_Jungles_Small sizeof
+Map_Renderer Mountains_Images sizeof
+Map_Renderer Mountains_Forests_Images sizeof
+Map_Renderer Mountains_Jungles_Images sizeof
+Map_Renderer Mountains_Snow_Images sizeof
+Map_Renderer Hills_Images sizeof
+Map_Renderer Hills_Forests_Images sizeof
+Map_Renderer Hills_Jungle_Images sizeof
+Map_Renderer Std_Terrain_Images sizeof
+Map_Renderer Delta_Rivers_Images sizeof
+Map_Renderer Mountain_Rivers_Images sizeof
+Map_Renderer Territory_Images sizeof
+Map_Renderer LM_Mountains_Images sizeof
+Map_Renderer LM_Forests_Large_Images sizeof
+Map_Renderer LM_Forests_Small_Images sizeof
+Map_Renderer LM_Forests_Pines_Images sizeof
+Map_Renderer LM_Hills_Images sizeof
+Map_Renderer LM_Terrain_Images sizeof

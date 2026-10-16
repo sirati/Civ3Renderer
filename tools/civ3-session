@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Drives a Civilization III session in Wine on a private headless Wayland
+# session (~/winvm/bin/wlh), for tests.
+#
+#   tools/civ3-session start            start sway + the game (fullscreen), wait for the menu
+#   tools/civ3-session newgame          New Game with the saved settings, found nothing, wait for turn 1
+#   tools/civ3-session trace [out.txt]  have civ3-bridge write one frame's draw list
+#   tools/civ3-session shot [out.png]   screenshot of the session
+#   tools/civ3-session state            print the bridge's log tail
+#   tools/civ3-session stop             end the game
+#
+# The menu coordinates below are for the game at 1920x1080 (KeepRes=1).
+set -euo pipefail
+WLH=${WLH:-$HOME/winvm/bin/wlh}
+CIV3_WINE=${CIV3_WINE:-$HOME/winvm/civ3/civ3-wine}
+GAME=${CIV3_GAME:-"/mnt/datasets/winvm/wine-civ3/drive_c/Games/Civilization III Complete/Conquests"}
+eval "$("$WLH" env)"
+
+wait_for_log() { # pattern timeout
+  local t=0
+  until grep -q "$1" "$GAME/civ3-bridge.log" 2>/dev/null; do
+    sleep 1; t=$((t + 1))
+    [ $t -lt "$2" ] || { echo "timeout waiting for '$1'" >&2; return 1; }
+  done
+}
+
+case ${1:-} in
+start)
+  "$WLH" start >/dev/null
+  "$CIV3_WINE" kill 2>/dev/null || true
+  rm -f "$GAME/civ3-bridge.log" "$GAME/civ3-trace.request" "$GAME/civ3-trace.txt"
+  "$WLH" run "$CIV3_WINE" fullscreen >/dev/null
+  wait_for_log "detected build" 60
+  sleep 8   # main menu up
+  echo "game at main menu"
+  ;;
+newgame)
+  "$WLH" click 708 498; sleep 3     # New Game
+  "$WLH" click 1416 895; sleep 3    # world: OK
+  "$WLH" click 1416 895; sleep 14   # players: OK, world generation
+  "$WLH" click 1233 256; sleep 3    # dismiss "Dawn of Civilization"
+  echo "turn 1"
+  ;;
+trace)
+  out=${2:-$PWD/civ3-trace.txt}
+  rm -f "$GAME/civ3-trace.txt"
+  touch "$GAME/civ3-trace.request"
+  # The game redraws the map continuously (animations), so a frame comes soon.
+  for _ in $(seq 100); do [ -f "$GAME/civ3-trace.txt" ] && [ ! -f "$GAME/civ3-trace.request" ] && break; sleep 0.1; done
+  [ -f "$GAME/civ3-trace.txt" ] || { echo "no trace written" >&2; exit 1; }
+  cp "$GAME/civ3-trace.txt" "$out"
+  echo "$out ($(grep -c '^draw' "$out") draws)"
+  ;;
+shot) "$WLH" shot "${2:-$PWD/civ3-shot.png}" ;;
+state) tail -n "${2:-20}" "$GAME/civ3-bridge.log" ;;
+stop) "$CIV3_WINE" kill 2>/dev/null || true; echo stopped ;;
+*) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//' ;;
+esac

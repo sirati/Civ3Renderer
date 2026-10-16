@@ -3,7 +3,7 @@
 // that `inproc::entry!` generates (an unsafe *attribute*, `no_mangle`).
 #![deny(unsafe_code)]
 
-use std::time::Duration;
+pub mod trace;
 
 use civ3_sys::Civ3;
 
@@ -17,24 +17,14 @@ fn init() {
         Err(e) => return log::error!("not attaching: {e}"),
     };
     log::info!("detected build {:?}", game.build);
-    let mut last = None;
-    loop {
-        std::thread::sleep(Duration::from_millis(500));
-        let state = game.view().map(|v| (v, game.map().ok()));
-        if state.as_ref().ok() != last.as_ref() {
-            match &state {
-                Ok((view, map)) => log::info!("view {view:?} map {map:?}"),
-                Err(e) => log::warn!("reading view: {e}"),
-            }
-            if let Ok((_, Some(map))) = &state {
-                match game.tiles(map) {
-                    Ok(tiles) => {
-                        log::info!("{} tiles; first {:?}", tiles.len(), tiles.first());
-                    }
-                    Err(e) => log::warn!("reading tiles: {e}"),
-                }
-            }
-            last = state.ok();
-        }
+    match trace::install(game) {
+        // Hooks stay installed for the life of the process.
+        Ok(tracer) => std::mem::forget(tracer),
+        Err(e) => log::error!("installing tracer: {e}"),
+    }
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let r = std::sync::atomic::Ordering::Relaxed;
+        log::debug!("calls: draw_tiles {} sprite_draw_on_map {}", trace::DRAW_TILES_CALLS.load(r), trace::SPRITE_CALLS.load(r));
     }
 }

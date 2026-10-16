@@ -8,6 +8,7 @@
 # Fields to export are listed in crates/civ3-sys/layout.fields:
 #   Struct                -> SIZE of the struct
 #   Struct field.sub[3]   -> OFFSET of that member (any offsetof designator)
+#   Struct field sizeof   -> its OFFSET and its SIZE
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 c3x=${1:-"/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests"}
@@ -22,14 +23,26 @@ ident() { echo "$1" | tr '.[]' '___' | sed 's/__*/_/g; s/_$//' | tr '[:lower:]' 
   echo '#include <stddef.h>'
   echo "#include \"$c3x/C3X.h\""
   echo 'int main(void) {'
-  while read -r struct member; do
+  while read -r struct member extra; do
     [[ -z "$struct" || "$struct" == \#* ]] && continue
     if [ -z "${member:-}" ]; then
       echo "  printf(\"pub const $(ident "$struct")_SIZE: u32 = %u;\\n\", (unsigned)sizeof($struct));"
     else
       echo "  printf(\"pub const $(ident "$struct")_$(ident "$member"): u32 = %u;\\n\", (unsigned)offsetof($struct, $member));"
+      if [ "${extra:-}" = sizeof ]; then
+        echo "  printf(\"pub const $(ident "$struct")_$(ident "$member")_SIZE: u32 = %u;\\n\", (unsigned)sizeof((($struct *)0)->$member));"
+      fi
     fi
   done < "$fields"
+  # Per struct, a table of the members exported with "sizeof":
+  #   pub const <STRUCT>_FIELDS: &[(&str, u32, u32)] = &[(name, offset, size), ..];
+  for s in $(awk '$3 == "sizeof" { print $1 }' "$fields" | sort -u); do
+    echo "  printf(\"\\npub const $(ident "$s")_FIELDS: &[(&str, u32, u32)] = &[\\n\");"
+    awk -v s="$s" '$1 == s && $3 == "sizeof" { print $2 }' "$fields" | while read -r m; do
+      echo "  printf(\"    (\\\"$m\\\", %u, %u),\\n\", (unsigned)offsetof($s, $m), (unsigned)sizeof((($s *)0)->$m));"
+    done
+    echo "  printf(\"];\\n\");"
+  done
   echo '  return 0;'
   echo '}'
 } > "$tmp/layout.c"
