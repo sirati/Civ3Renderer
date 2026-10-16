@@ -155,7 +155,9 @@ pub fn free_vs(
     // Zoom art: zoomed sprites only in the pass after scaling, low ones not
     // where zoomed ones are shown.
     let zoomed = f.flags & FREE_ZOOMED != 0;
-    let wrong_art = (params.zoom_art == 2) != zoomed || (params.zoom_art == 1 && f.flags & FREE_LOW != 0);
+    let wrong_art = (params.zoom_art == 2) != zoomed
+        || (params.zoom_art == 1 && f.flags & FREE_LOW != 0)
+        || (zoomed && f.zoom != (params.zoom_num << 16 | params.zoom_den));
     if f.set == 0 || frames == 0 || wrong_art || (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) {
         *out_pos = CULLED;
         return;
@@ -164,23 +166,26 @@ pub fn free_vs(
     let frame = (params.frame / ticks + f.phase) % frames;
     let sprite = &sprites[sprite_sets[(f.set + 1 + frame) as usize] as usize];
     let (u, v) = quad_corner(vertex);
-    // The sprite's top-left in the viewport (views are drawn at zoom 1).
-    let (x0, y0) = if f.flags & FREE_SCREEN != 0 {
-        // Given in target pixels; the viewport starts at the view's origin.
-        ((f.x + sprite.anchor_x - params.origin_x) as f32, (f.y + sprite.anchor_y - params.origin_y) as f32)
-    } else {
-        ((f.x + sprite.anchor_x - params.camera_x) as f32, (f.y + sprite.anchor_y - params.camera_y) as f32)
-    };
+    // Where 1:1 positions start in the viewport: screen sprites are given in
+    // target pixels from the view's screen origin, world sprites in world
+    // pixels from the camera. Views are drawn at zoom 1; zoomed art is
+    // placed at its position scaled to the view's zoom, plus its offset.
+    let (bx, by) = if f.flags & FREE_SCREEN != 0 { (params.origin_x, params.origin_y) } else { (params.camera_x, params.camera_y) };
+    let (zn, zd) = if zoomed { (params.zoom_num, params.zoom_den) } else { (1, 1) };
+    let (dx, dy) = if zoomed { (f.zoom_dx, f.zoom_dy) } else { (0, 0) };
+    let x0 = (scaled(f.x - bx, zn, zd) + dx + sprite.anchor_x) as f32;
+    let y0 = (scaled(f.y - by, zn, zd) + dy + sprite.anchor_y) as f32;
     let (mut l, mut t) = (x0, y0);
     let (mut r, mut b) = (x0 + sprite.width as f32, y0 + sprite.height as f32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
     if f.flags & FREE_CLIP != 0 {
-        // (Target pixels, like screen sprites.)
-        let (ox, oy) = (params.origin_x, params.origin_y);
-        l = l.max((f.clip[0] - ox) as f32);
-        t = t.max((f.clip[1] - oy) as f32);
-        r = r.min((f.clip[2] - ox) as f32);
-        b = b.min((f.clip[3] - oy) as f32);
+        // (Target pixels from the screen origin, like screen sprites; for
+        // zoomed art in its 1:1 coordinates, scaled.)
+        let (ox, oy) = if zoomed { (bx, by) } else { (params.origin_x, params.origin_y) };
+        l = l.max(scaled(f.clip[0] - ox, zn, zd) as f32);
+        t = t.max(scaled(f.clip[1] - oy, zn, zd) as f32);
+        r = r.min(scaled(f.clip[2] - ox, zn, zd) as f32);
+        b = b.min(scaled(f.clip[3] - oy, zn, zd) as f32);
         if r <= l || b <= t {
             *out_pos = CULLED;
             return;
@@ -339,6 +344,13 @@ pub fn output_fs(
     let v: Vec4 = source.fetch(IVec2::new(sx, sy));
     let bits = params.bits;
     *output = if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits), to_unorm(v.y, bits), to_unorm(v.z, bits), v.w) };
+}
+
+/// `v · num / den`, rounded down.
+fn scaled(v: i32, num: u32, den: u32) -> i32 {
+    let p = v * num as i32;
+    let d = den as i32;
+    if p >= 0 { p / d } else { -((-p + d - 1) / d) }
 }
 
 /// How far pixel coordinate `p` lies past `o` (0 before it).

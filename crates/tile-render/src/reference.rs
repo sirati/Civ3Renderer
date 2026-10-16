@@ -178,10 +178,7 @@ fn compose<P: Copy>(
         // Sprites made for the zoom, at full resolution: from the view's
         // scaled screen origin.
         if zoomed_art {
-            let (n, d) = (camera.zoom.0.max(1) as i32, camera.zoom.1.max(1) as i32);
-            let shift = (ox + camera.screen_shift.0 * n / d, oy + camera.screen_shift.1 * n / d);
-            let post = Camera { screen_shift: shift, ..*camera };
-            visit(world, atlas, &post, v as u32, frame, 2, &mut |d| {
+            visit(world, atlas, camera, v as u32, frame, 2, &mut |d| {
                 each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
             });
         }
@@ -214,9 +211,15 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
 /// order, in target pixels, clipped to the view.
 /// `art`: which free sprites by their zoom art (`FrameParams::zoom_art`).
 fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u32, art: u32, draw: &mut dyn FnMut(Draw)) {
-    let art_fits = |s: &crate::PlacedSprite| {
-        let zoomed = s.zoom_art == crate::ZoomArt::Zoomed;
-        (art == 2) == zoomed && !(art == 1 && s.zoom_art == crate::ZoomArt::Low)
+    // Zoomed art only for a view at its zoom, in the pass after scaling.
+    let zoom = (camera.zoom.0.max(1), camera.zoom.1.max(1));
+    let zoomed_for = |s: &crate::PlacedSprite| match s.zoom_art {
+        crate::ZoomArt::Zoomed { zoom: z, offset } => Some((z, offset)),
+        _ => None,
+    };
+    let art_fits = |s: &crate::PlacedSprite| match zoomed_for(s) {
+        Some((z, _)) => art == 2 && z == zoom,
+        None => art != 2 && !(art == 1 && s.zoom_art == crate::ZoomArt::Low),
     };
     let (vx, vy) = camera.origin;
     let rect = [vx, vy, vx + camera.viewport.0 as i32, vy + camera.viewport.1 as i32];
@@ -241,6 +244,21 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
             // Screen sprites are given in target pixels (moved by the shift).
             let (sx, sy) = camera.screen_shift;
             let (cx, cy) = if s.screen { (-sx, -sy) } else { (camera.x - vx, camera.y - vy) };
+            if let Some(((n, d), (dx, dy))) = zoomed_for(s) {
+                // At its 1:1 position (from the screen origin or the camera)
+                // scaled, plus its offset; its clip likewise.
+                let (bx, by) = if s.screen { (vx - sx, vy - sy) } else { (camera.x, camera.y) };
+                let sc = |v: i32, b: i32| ((v - b) as i64 * n as i64).div_euclid(d as i64) as i32;
+                draw(Draw {
+                    sprite: crate::SpriteId(sprite_id),
+                    x: vx + sc(s.x, bx) + dx + sprite.anchor_x,
+                    y: vy + sc(s.y, by) + dy + sprite.anchor_y,
+                    pass: p,
+                    blend: s.blend,
+                    clip: within(s.clip.map(|[x0, y0, x1, y1]| [vx + sc(x0, bx), vy + sc(y0, by), vx + sc(x1, bx), vy + sc(y1, by)])),
+                });
+                continue;
+            }
             draw(Draw {
                 sprite: crate::SpriteId(sprite_id),
                 x: s.x + sprite.anchor_x - cx,

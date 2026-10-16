@@ -471,7 +471,12 @@ fn zoomed_art_replaces_its_low_twin_in_a_scaled_view() {
     world.color = ColorModel::Quantized { bits: 5 };
     let s = world.free.iter().find(|s| s.screen).cloned().unwrap();
     world.free.push(PlacedSprite { view: Some(0), x: 40, y: 30, zoom_art: ZoomArt::Low, clip: Some([30, 20, 120, 90]), ..s });
-    world.free.push(PlacedSprite { view: Some(0), x: 80, y: 60, zoom_art: ZoomArt::Zoomed, clip: Some([60, 40, 240, 180]), ..s });
+    world.free.push(PlacedSprite { view: Some(0), x: 40, y: 30, zoom_art: ZoomArt::Zoomed { zoom: (2, 1), offset: (5, -2) }, clip: Some([30, 20, 120, 90]), ..s });
+    // World-space: a twin for this zoom, and one for another zoom (unused).
+    let w = PlacedSprite { screen: false, view: None, x: 200, y: 140, after_pass: usize::MAX, ..s };
+    world.free.push(PlacedSprite { zoom_art: ZoomArt::Low, ..w });
+    world.free.push(PlacedSprite { zoom_art: ZoomArt::Zoomed { zoom: (2, 1), offset: (-3, 4) }, ..w });
+    world.free.push(PlacedSprite { zoom_art: ZoomArt::Zoomed { zoom: (3, 1), offset: (0, 0) }, ..w });
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);

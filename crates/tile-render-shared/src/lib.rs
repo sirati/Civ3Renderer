@@ -69,9 +69,10 @@ pub struct FrameParams {
     /// World pixel shown at the viewport's top-left corner, before zoom.
     pub camera_x: i32,
     pub camera_y: i32,
-    /// (Keeps `grid` 16-byte aligned.)
-    pub _pad0: u32,
-    pub _pad1: u32,
+    /// The view's zoom (`FREE_ZOOMED` sprites made for it are drawn in the
+    /// pass after scaling); it also keeps `grid` 16-byte aligned.
+    pub zoom_num: u32,
+    pub zoom_den: u32,
 
     /// Animation clock in ticks.
     pub frame: u32,
@@ -208,7 +209,12 @@ pub struct FreeSprite {
     pub clip: [i32; 4],
     /// With `scale_den == SCALE_SUBPIXEL`: the colour drawn (0xRRGGBB).
     pub tint: u32,
-    pub _pad: [u32; 3],
+    /// With `FREE_ZOOMED`: the zoom the art is made for (`num << 16 | den`)
+    /// and where its anchor goes from its 1:1 position scaled (pixels at
+    /// that zoom).
+    pub zoom: u32,
+    pub zoom_dx: i32,
+    pub zoom_dy: i32,
 }
 
 /// The free sprite's position is in viewport pixels, unaffected by the
@@ -220,9 +226,9 @@ pub const ALL_VIEWS: u32 = u32::MAX;
 pub const FREE_CLIP: u32 = 1 << 1;
 /// The 1:1 twin of a `FREE_ZOOMED` sprite: left out where the view shows those.
 pub const FREE_LOW: u32 = 1 << 2;
-/// A screen sprite made for its view's zoom (e.g. text rasterised at that
-/// size): drawn after the view is scaled, its position in target pixels
-/// from where the view's screen sprites start, scaled.
+/// A sprite made for a zoom (e.g. text rasterised at that size,
+/// `FreeSprite::zoom`): drawn only in the pass after a view at that zoom is
+/// scaled, at its 1:1 position scaled plus `zoom_dx, zoom_dy`.
 pub const FREE_ZOOMED: u32 = 1 << 3;
 
 /// One sprite: a rectangle of an atlas page and where to draw it.

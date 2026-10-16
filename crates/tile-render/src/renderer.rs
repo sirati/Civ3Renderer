@@ -570,12 +570,9 @@ impl TileRenderer {
                 pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
                 pass.draw(0..3, 0..1);
             }
-            // Sprites made for the view's zoom, at full resolution over it: in
-            // target pixels from its scaled screen origin.
+            // Sprites made for the view's zoom, at full resolution over it.
             if zoomed_art {
-                let mut params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, 2);
-                let (n, d) = (camera.zoom.0.max(1) as i32, camera.zoom.1.max(1) as i32);
-                (params.origin_x, params.origin_y) = (-camera.screen_shift.0 * n / d, -camera.screen_shift.1 * n / d);
+                let params = camera.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, 2);
                 let offset = write_params(MAX_PASSES + 1, params);
                 let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
                 let mut pass = begin_view(encoder, &canvas, (viewport, on_target), bind_group, offset);

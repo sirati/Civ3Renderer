@@ -189,19 +189,19 @@ impl ColorModel {
     }
 }
 
-/// Which zoom a screen sprite's art is made for. A driver may give a view
-/// that it knows to be scaled (`Camera::zoomed_art`) sprites made for its
-/// zoom (`Zoomed`, e.g. text rasterised at that size) next to their 1:1
-/// twins (`Low`): such a view draws the zoomed ones after scaling, at
-/// full resolution, other views the low ones.
+/// Which zoom a sprite's art is made for. A driver may give sprites made for
+/// a zoom (`Zoomed`, e.g. text rasterised at that size) next to their 1:1
+/// twins (`Low`): a view at that zoom showing zoomed art
+/// (`Camera::zoomed_art`) draws the zoomed ones after scaling, at full
+/// resolution, other views the low ones.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ZoomArt {
     #[default]
     Any,
     Low,
-    /// Positioned in target pixels from where the view's screen sprites
-    /// start (its origin less its screen shift), scaled by its zoom.
-    Zoomed,
+    /// For views at `zoom` (a reduced fraction): drawn at the sprite's 1:1
+    /// position scaled, plus `offset` (pixels at that zoom).
+    Zoomed { zoom: (u32, u32), offset: (i32, i32) },
 }
 
 /// A sprite (animation) placed freely, see [`TileWorld::free`].
@@ -243,7 +243,7 @@ impl PlacedSprite {
                 | match self.zoom_art {
                     ZoomArt::Any => 0,
                     ZoomArt::Low => tile_render_shared::FREE_LOW,
-                    ZoomArt::Zoomed => tile_render_shared::FREE_ZOOMED,
+                    ZoomArt::Zoomed { .. } => tile_render_shared::FREE_ZOOMED,
                 },
             x: self.x,
             y: self.y,
@@ -251,7 +251,18 @@ impl PlacedSprite {
             view: self.view.unwrap_or(tile_render_shared::ALL_VIEWS),
             clip: self.clip.unwrap_or_default(),
             tint: self.blend.tint(),
-            _pad: [0; 3],
+            zoom: match self.zoom_art {
+                ZoomArt::Zoomed { zoom: (n, d), .. } => n << 16 | d,
+                _ => 0,
+            },
+            zoom_dx: match self.zoom_art {
+                ZoomArt::Zoomed { offset, .. } => offset.0,
+                _ => 0,
+            },
+            zoom_dy: match self.zoom_art {
+                ZoomArt::Zoomed { offset, .. } => offset.1,
+                _ => 0,
+            },
         }
     }
 }
