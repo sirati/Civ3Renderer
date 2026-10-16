@@ -141,6 +141,14 @@ inproc::fastcall_hook! {
     pub mod paint(controller, edx; rect) -> ();
 }
 
+inproc::cdecl_hook! {
+    /// `void present(RECT *r)` (cdecl): draws the tooltip and the mouse
+    /// cursor onto the back buffer and copies its rectangle `r` (screen
+    /// coordinates; all of it if null) to the window. The only way the
+    /// back buffer reaches the screen (docs §16.5).
+    pub mod present(rect) -> ();
+}
+
 inproc::fastcall_hook! {
     /// The text worker `0x5FE7B0 (this, char *s, x, y, len)` every text function
     /// (left, centred, in a rectangle, right-aligned...) ends in.
@@ -192,6 +200,7 @@ pub struct UiSites {
     pub pcx_vline: Site,
     pub form_composite: Site,
     pub paint: Site,
+    pub present: Site,
     pub text_draw: Site,
     pub text_worker: Site,
     pub text_draw_centered: Site,
@@ -243,6 +252,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             form_composite: (0x60_2710, &[0x83, 0xEC, 0x18, 0x55, 0x56]),
             // push esi / mov esi,[esp+8]
             paint: (0x62_C3F0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
+            // mov eax,[0CAD2ECh]
+            present: (0x60_6680, &[0xA1, 0xEC, 0xD2, 0xCA, 0x00]),
             // sub esp,8 / mov eax,[esp+0Ch] / push ebp
             text_worker: (0x5F_E7B0, &[0x83, 0xEC, 0x08, 0x8B, 0x44, 0x24, 0x0C, 0x55]),
             // push ebx / push esi / mov esi,[esp+0Ch]

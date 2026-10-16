@@ -35,9 +35,9 @@ pub fn stats() -> Option<(usize, usize, usize)> {
     MODEL.lock().ok()?.as_ref().map(|m| m.stats())
 }
 
-/// The last composed screen, if the mirror runs.
+/// The screen as the game last showed it, if the mirror runs.
 pub fn frame() -> Option<Frame> {
-    MODEL.lock().ok()?.as_ref().map(|m| m.frame())
+    MODEL.lock().ok()?.as_ref().map(|m| m.shown_frame())
 }
 
 /// Text drawn with `TextOutA` (canvas coordinates): part of the canvas the
@@ -287,6 +287,13 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         emit(Event::PaintBegin);
         c.original();
         emit(Event::PaintEnd);
+    });
+    let back_buffer = h::back_buffer(game.build).unwrap_or(0);
+    hook!(present, sites.present, move |c| {
+        // (It draws the tooltip and the cursor onto the back buffer first.)
+        c.original();
+        size_of(back_buffer);
+        emit(Event::Present { rect: if c.rect == 0 { None } else { obj::rect(c.rect) } });
     });
     hook!(text_worker, sites.text_worker, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw, sites.text_draw, |c| with_text_canvas(c.image, || c.original()));
