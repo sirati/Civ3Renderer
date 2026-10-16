@@ -360,6 +360,22 @@ impl Civ3 {
         (0..32u32).map(|civ| Ok(Ptr32::<i32>::new(self.addrs.leaders + civ * L::LEADER_SIZE + offset).read()?)).collect()
     }
 
+    /// How `civ` stands with every other civ (indexed by civ).
+    pub fn diplomacy(&self, civ: i32) -> Result<Diplomacy, Civ3Error> {
+        let base = self.addrs.leaders + (civ.clamp(0, 31) as u32) * L::LEADER_SIZE;
+        let words = |offset: u32| -> Result<[i32; 32], Civ3Error> {
+            let v = Ptr32::<i32>::new(base + offset).read_array(32)?;
+            Ok(<[i32; 32]>::try_from(v).unwrap_or([0; 32]))
+        };
+        let at_war = Ptr32::<u8>::new(base + L::LEADER_AT_WAR).read_array(32)?;
+        Ok(Diplomacy {
+            at_war: std::array::from_fn(|i| at_war.get(i).is_some_and(|&b| b != 0)),
+            contacts: words(L::LEADER_CONTACTS)?,
+            treaties: words(L::LEADER_RELATION_TREATIES)?,
+            military_allies: words(L::LEADER_MILITARY_ALLIES)?,
+        })
+    }
+
     /// Every player's era (0 ancient .. 3 modern).
     pub fn eras(&self) -> Result<Vec<i32>, Civ3Error> {
         self.leader_field(L::LEADER_ERA)
@@ -666,5 +682,49 @@ mod tests {
     #[test]
     fn tile_record_mirrors_the_game_struct_size() {
         assert_eq!(size_of::<TileRecord>(), 220);
+    }
+}
+
+/// One civ's relations to every other civ (`Leader` fields, indexed by civ).
+/// Of `treaties` only bit 1 (right of passage) is known from C3X; the other
+/// bits are read as [`Diplomacy::relation`] says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diplomacy {
+    pub at_war: [bool; 32],
+    pub contacts: [i32; 32],
+    pub treaties: [i32; 32],
+    pub military_allies: [i32; 32],
+}
+
+/// How two civs stand, for drawing.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Relation {
+    War,
+    /// A mutual protection pact (or a military alliance).
+    Defense,
+    Peace,
+    /// No contact, or neither of the above.
+    None,
+}
+
+/// `treaties` bits: 2 right of passage (C3X tests it); 1 peace and 4 mutual
+/// protection pact are assumed, to be checked against the game's foreign
+/// advisor (the bridge logs the raw words when they change).
+pub const TREATY_PEACE: i32 = 1;
+pub const TREATY_RIGHT_OF_PASSAGE: i32 = 2;
+pub const TREATY_MUTUAL_PROTECTION: i32 = 4;
+
+impl Diplomacy {
+    pub fn relation(&self, other: i32) -> Relation {
+        let i = other.clamp(0, 31) as usize;
+        if self.at_war[i] {
+            Relation::War
+        } else if self.treaties[i] & TREATY_MUTUAL_PROTECTION != 0 || self.military_allies[i] != 0 {
+            Relation::Defense
+        } else if self.treaties[i] & TREATY_PEACE != 0 {
+            Relation::Peace
+        } else {
+            Relation::None
+        }
     }
 }

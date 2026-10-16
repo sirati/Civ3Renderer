@@ -208,6 +208,12 @@ Improvement ImprovementFlags
 BIC Improvements
 BIC ImprovementsCount
 Leader GovernmentType
+
+# Diplomacy (unit rings): per other civ.
+Leader At_War
+Leader Contacts
+Leader Relation_Treaties
+Leader Military_Allies
 Tile field_20
 
 # Units (docs §10).

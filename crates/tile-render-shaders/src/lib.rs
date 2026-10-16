@@ -18,7 +18,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, FREE_CLIP, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -208,7 +208,12 @@ pub fn tile_fs(
         spirv_std::arch::kill();
     }
     let bits = params.color_bits;
-    if scale_den != 0 {
+    if scale_den == SCALE_INVERT {
+        // The pipeline subtracts what is there from this: the highest
+        // stored value (direct: 1), so the result is the inverse.
+        let k = if bits != 0 { (((1u32 << bits) - 1) + 2 * QUANTIZED_BIAS) as f32 / 255.0 } else { 1.0 };
+        *output = Vec4::new(k, k, k, 0.0);
+    } else if scale_den != 0 {
         let k = to_u8(color.x);
         if k >= scale_den {
             spirv_std::arch::kill();

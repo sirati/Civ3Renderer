@@ -271,6 +271,10 @@ impl<'a> ByteReader<'a> {
 /// 8-bit value `q + QUANTIZED_BIAS`. The bias lets a "scale" blit round
 /// down with ordinary blending (see `scale_offset`).
 pub const QUANTIZED_BIAS: u32 = 16;
+
+/// A free sprite's `scale_den` that inverts what is under its opaque
+/// texels (`Blend::Invert`).
+pub const SCALE_INVERT: u32 = u32::MAX;
 /// Largest scale denominator the bias supports (`2·QUANTIZED_BIAS`).
 pub const MAX_SCALE_DENOMINATOR: u32 = 32;
 

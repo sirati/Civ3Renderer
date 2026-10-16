@@ -35,6 +35,9 @@ pub struct TileRenderer {
     /// Zoomed views of direct-colour worlds, into their source texture.
     source_pipeline: wgpu::RenderPipeline,
     free_source_pipeline: wgpu::RenderPipeline,
+    /// Inverting free sprites, into the caller's target and internally.
+    free_invert_pipeline: wgpu::RenderPipeline,
+    free_invert_internal_pipeline: wgpu::RenderPipeline,
     /// Copies (scaled) into the caller's target, expanding quantized values.
     output_pipeline: wgpu::RenderPipeline,
     /// Copies (scaled) into the internal target.
@@ -68,7 +71,7 @@ struct WorldBuffers {
     /// Free sprites, ordered by the pass they follow, and per pass the
     /// range of them to draw after it (the last entry: after all passes).
     free: wgpu::Buffer,
-    free_after: Vec<std::ops::Range<u32>>,
+    free_after: Vec<FreeRuns>,
     layers: wgpu::Buffer,
     tile_data: wgpu::Buffer,
     lut: wgpu::Buffer,
@@ -195,6 +198,13 @@ impl TileRenderer {
         let free_quantized = pipeline("tile-render free quantized", frees, &layout, QUANTIZED_FORMAT, premultiplied);
         let source = pipeline("tile-render source", tiles, &layout, QUANTIZED_FORMAT, alpha);
         let free_source = pipeline("tile-render free source", frees, &layout, QUANTIZED_FORMAT, alpha);
+        // What is there subtracted from the shader's maximum; alpha kept.
+        let invert = Some(wgpu::BlendState {
+            color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Subtract },
+            alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+        });
+        let free_invert = pipeline("tile-render free invert", frees, &layout, target_format, invert);
+        let free_invert_internal = pipeline("tile-render free invert internal", frees, &layout, QUANTIZED_FORMAT, invert);
         let copy = ("fullscreen_vs", "output_fs");
         let output = pipeline("tile-render output", copy, &output_layout, target_format, None);
         let blit = pipeline("tile-render blit", copy, &output_layout, QUANTIZED_FORMAT, None);
@@ -217,6 +227,8 @@ impl TileRenderer {
             free_quantized_pipeline: free_quantized,
             source_pipeline: source,
             free_source_pipeline: free_source,
+            free_invert_pipeline: free_invert,
+            free_invert_internal_pipeline: free_invert_internal,
             output_pipeline: output,
             blit_pipeline: blit,
             layout,
@@ -499,14 +511,20 @@ impl TileRenderer {
             let (drawn, into, rect, (tiles, free)) = match sources[v] {
                 None => {
                     let viewport = [camera.origin.0 as f32, camera.origin.1 as f32, camera.viewport.0 as f32, camera.viewport.1 as f32];
-                    let pipelines = if direct { (&self.pipeline, &self.free_pipeline) } else if bits == 0 { (&self.source_pipeline, &self.free_source_pipeline) } else { (&self.quantized_pipeline, &self.free_quantized_pipeline) };
+                    let pipelines = if direct {
+                        (&self.pipeline, (&self.free_pipeline, &self.free_invert_pipeline))
+                    } else if bits == 0 {
+                        (&self.source_pipeline, (&self.free_source_pipeline, &self.free_invert_internal_pipeline))
+                    } else {
+                        (&self.quantized_pipeline, (&self.free_quantized_pipeline, &self.free_invert_internal_pipeline))
+                    };
                     (*camera, &canvas, (viewport, on_target), pipelines)
                 }
                 Some(r) => {
                     let flat = Camera { zoom: (1, 1), viewport: (r[2], r[3]), ..*camera };
                     let viewport = [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32];
                     let pipelines =
-                        if bits == 0 { (&self.source_pipeline, &self.free_source_pipeline) } else { (&self.quantized_pipeline, &self.free_quantized_pipeline) };
+                        if bits == 0 { (&self.source_pipeline, (&self.free_source_pipeline, &self.free_invert_internal_pipeline)) } else { (&self.quantized_pipeline, (&self.free_quantized_pipeline, &self.free_invert_internal_pipeline)) };
                     (flat, source_view.as_ref().expect("created above"), (viewport, r), pipelines)
                 }
             };
@@ -638,33 +656,39 @@ fn source_rects(cameras: &[Camera]) -> Vec<Option<[u32; 4]>> {
 }
 
 /// Free sprites that follow pass `i`, into `pass` (whose bind group is
-/// already set).
-fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipeline: &wgpu::RenderPipeline) {
-    let Some(range) = world.free_after.get(i).filter(|r| !r.is_empty()) else { return };
-    pass.set_pipeline(pipeline);
-    pass.draw(0..QUAD_VERTICES, range.clone());
+/// already set): runs of ordinary ones with `pipelines.0`, of inverting
+/// ones with `pipelines.1`.
+fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: (&wgpu::RenderPipeline, &wgpu::RenderPipeline)) {
+    for (range, invert) in world.free_after.get(i).into_iter().flatten() {
+        pass.set_pipeline(if *invert { pipelines.1 } else { pipelines.0 });
+        pass.draw(0..QUAD_VERTICES, range.clone());
+    }
 }
 
+/// Runs of free sprites in drawing order: which instances, and whether
+/// they invert ([`crate::Blend::Invert`], drawn with their own pipeline).
+type FreeRuns = Vec<(std::ops::Range<u32>, bool)>;
+
 /// The world's free sprites in drawing order (by the pass they follow,
-/// then list order) and per pass the range of them that follows it; the
-/// last range follows all passes.
-fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<std::ops::Range<u32>>) {
+/// then list order) and per pass the runs of them that follow it; the last
+/// entry follows all passes.
+fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<FreeRuns>) {
     let passes = world.passes().len().min(MAX_PASSES);
     let mut order: Vec<&crate::PlacedSprite> = world.free.iter().collect();
     order.sort_by_key(|s| s.after_pass.min(passes));
-    let mut ranges = vec![0..0; passes + 1];
+    let mut runs: Vec<FreeRuns> = vec![Vec::new(); passes + 1];
     for (i, s) in order.iter().enumerate() {
-        let p = s.after_pass.min(passes);
-        if ranges[p].is_empty() {
-            ranges[p] = i as u32..i as u32;
+        let (p, invert, i) = (s.after_pass.min(passes), s.blend == crate::Blend::Invert, i as u32);
+        match runs[p].last_mut() {
+            Some((range, inv)) if *inv == invert && range.end == i => range.end = i + 1,
+            _ => runs[p].push((i..i + 1, invert)),
         }
-        ranges[p].end = i as u32 + 1;
     }
     let mut gpu: Vec<FreeSprite> = order.iter().map(|s| s.gpu()).collect();
     if gpu.is_empty() {
         gpu.push(FreeSprite::default());
     }
-    (gpu, ranges)
+    (gpu, runs)
 }
 
 

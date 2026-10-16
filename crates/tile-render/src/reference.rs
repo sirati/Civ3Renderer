@@ -58,6 +58,7 @@ pub fn render_composed(
         ColorModel::Direct => {
             let mut out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
                 Blend::Alpha => *dst = blend(src, *dst),
+                Blend::Invert => *dst = [255 - dst[0], 255 - dst[1], 255 - dst[2], dst[3]],
                 // Black at alpha 1 − k/den, as the shader blends it.
                 Blend::Scale { denominator } if (src[0] as u32) < denominator => {
                     let keep = src[0] as f32 / denominator as f32;
@@ -83,6 +84,13 @@ pub fn render_composed(
         }
         Blend::Scale { .. } => {}
         // Translucent texels mix in whole alpha steps, rounded down.
+        // (Inverting: the highest stored value less what is there.)
+        Blend::Invert => {
+            let top = (1 << bits) - 1 + 2 * QUANTIZED_BIAS;
+            for c in dst.iter_mut() {
+                *c = top - *c;
+            }
+        }
         Blend::Alpha => {
             let k = alpha_steps(src[3].into());
             if k > 0 {

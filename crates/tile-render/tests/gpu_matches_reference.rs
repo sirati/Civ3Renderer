@@ -409,3 +409,27 @@ fn screen_copies_magnify_the_finished_picture() {
         assert_ne!(got.pixels, plain.pixels);
     }
 }
+
+#[test]
+fn inverting_sprites_invert_what_is_under_them() {
+    // Rings in inverted colours over the world and over each other, between
+    // ordinary sprites (the pipeline switches back and forth).
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = scene_with(grid, color != ColorModel::Direct);
+        world.color = color;
+        // (Sprite sets are made before the shading, the same in both scenes.)
+        let some = scene_with(grid, true).0.free[0];
+        for (i, blend) in [Blend::Invert, Blend::Alpha, Blend::Invert, Blend::Invert].into_iter().enumerate() {
+            world.free.push(PlacedSprite { x: 60 + 23 * i as i32, y: 40 + 11 * i as i32, blend, after_pass: usize::MAX, ..some });
+        }
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let camera = Camera { overhang: (0, 40, 0, 0), ..Camera::new((320, 200)) };
+        let got = gpu.render_views(&mut renderer, &[camera], (320, 200), 2, CLEAR);
+        let want = reference::render_views(&world, &atlas, &[camera], (320, 200), 2, CLEAR);
+        assert_same(&got, &want, &format!("inverting sprites, {color:?}"));
+    }
+}
