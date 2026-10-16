@@ -147,23 +147,23 @@ pub trait Env {
 }
 
 /// [`Env`] reading the game's files: its fonts' advances (as `text` loads them
-/// for drawing), palettes and icons.
-pub struct FileEnv<'a> {
-    files: &'a GameFiles,
+/// for drawing), palettes and icons. `F`: the files, owned (`Box`) or borrowed.
+pub struct FileEnv<F: std::ops::Deref<Target = GameFiles>> {
+    files: F,
     fonts: HashMap<FontStyle, Option<GlyphFont>>,
     colors: HashMap<i32, [u8; 3]>,
     widths: HashMap<(String, [i32; 4]), i32>,
 }
 
-impl<'a> FileEnv<'a> {
-    pub fn new(files: &'a GameFiles) -> Self {
+impl<F: std::ops::Deref<Target = GameFiles>> FileEnv<F> {
+    pub fn new(files: F) -> Self {
         Self { files, fonts: HashMap::new(), colors: HashMap::new(), widths: HashMap::new() }
     }
 }
 
-impl Env for FileEnv<'_> {
+impl<F: std::ops::Deref<Target = GameFiles>> Env for FileEnv<F> {
     fn text_width(&mut self, font: &FontStyle, text: &str) -> i32 {
-        let files = self.files;
+        let files = &*self.files;
         let loaded = self.fonts.entry(font.clone()).or_insert_with(|| civ3_assets::fonts::load(files, font, WHITE).inspect_err(|e| log::warn!("font {font:?}: {e}")).ok());
         // The game measures text on a monochrome memory DC (`gdi_text::Glyph::extent`), not as it
         // draws it; a character the font does not have takes no room.
@@ -171,7 +171,7 @@ impl Env for FileEnv<'_> {
     }
 
     fn table_color(&mut self, table: i32) -> [u8; 3] {
-        let files = self.files;
+        let files = &*self.files;
         *self.colors.entry(table).or_insert_with(|| {
             let image = files.read(&format!("Art/Units/Palettes/ntp{table:02}.pcx")).ok().and_then(|b| civ3_assets::pcx::decode(&b).ok());
             image.map_or([0; 3], |i| {
@@ -182,7 +182,7 @@ impl Env for FileEnv<'_> {
     }
 
     fn sprite_width(&mut self, path: &str, cell: [i32; 4]) -> i32 {
-        let files = self.files;
+        let files = &*self.files;
         *self.widths.entry((path.to_owned(), cell)).or_insert_with(|| {
             let Some(image) = files.read(path).ok().and_then(|b| civ3_assets::pcx::decode(&b).ok()) else { return cell[2] };
             trimmed(&image, cell).map_or(0, |t| t[2])

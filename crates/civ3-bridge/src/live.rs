@@ -367,6 +367,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut fonts = text::Fonts::default();
     let mut screen_art = menu::screen::ScreenArt::default();
     let mut district_art = crate::district_art::DistrictArt::default();
+    let mut label_env = crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders)));
     let mut zoomed_out = false;
     let mut table_colors = std::collections::HashMap::new();
     let mut art_pending = false;
@@ -400,6 +401,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         if now != folders {
             folders = now;
             art = units::UnitArt::new(compiler.files(&folders));
+            label_env = crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders)));
             have = units::Needed::default();
             recompile = true;
         }
@@ -454,6 +456,18 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             None => ui.clone(),
         };
         let mut ui_items = visible_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        // City labels, made from the world as world sprites, so every view
+        // shows them (§10.8), in place of those the game drew on its map
+        // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
+        let label_items = match shown {
+            Shown::Map(world, view) if ui.is_some() && world_labels() => {
+                ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
+                let labels = crate::city_labels::labels(world, view.zoomed_out, &mut label_env);
+                let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
+                crate::city_labels::items(&labels, (0, 0), everywhere, true)
+            }
+            _ => Vec::new(),
+        };
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
@@ -482,6 +496,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
         }
         recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms);
+        recompile |= ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms);
         // The zoomed-out view has its own (half-size) art.
         if let Shown::Map(_, view) = shown {
             if view.zoomed_out != zoomed_out {
@@ -559,8 +574,12 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         // Labels also rasterised at the zooms the viewer shows (as far as
         // their fonts are there).
-        scene.zooms = ui_screen::label_zooms(&ui_items, &fonts, &compiled, &input.zooms);
+        scene.zooms = ui_screen::label_zooms(&[ui_items.as_slice(), &label_items].concat(), &fonts, &compiled, &input.zooms);
         scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms));
+        // The city labels go with the world.
+        scene.sprites.extend(ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms).into_iter().map(|s| {
+            scene::FreeSprite { screen: false, clip: None, ..s }
+        }));
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {
@@ -575,6 +594,13 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         // Held back while the renderer is busy: publish again next time.
         last = presenter.publish(scene).then_some(state);
     }
+}
+
+/// Whether city labels are made from the world (see `publish`), unless
+/// `CIV3R_MAP_LABELS=mirror`.
+fn world_labels() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CIV3R_MAP_LABELS").as_deref() != Ok("mirror"))
 }
 
 /// The colour the viewer's own views are marked with on the minimap:
