@@ -301,6 +301,20 @@ bit 0 road, 1 railroad, 2 mine, 3 irrigation, 4 fortress, 5 goody hut, 6 polluti
 
 **Resources** (`Art/resources.pcx` + `resources_shadows.pcx`, 300x300): 6x6 grid, each cell **49x49 at (1+50*col, 1+50*row)**; column index lines (x = 0,50,...) are palette index 254 [D]. `icon = BIC.ResourceTypes[Tile.ResourceType].IconID` (BIQ GOOD record: name[24], pedia[32], class, appearance, disappearance, icon, prereq, food, shield, commerce; conquests.biq: Horses 0, Iron 1, Saltpeter 2, Coal 3, Oil 4, Rubber 5, Aluminum 6, Uranium 7, Wines 8, Furs 9, Dyes 10, Incense 11, Spices 12, Ivory 13, Silks 14, Gems 15, Whales 16, Game 17, Fish 18, Cattle 19, Wheat 20, Gold 21, Tropical Fruit 22, Oasis 23, Sugar 24, Tobacco 25) -> `col = icon%6, row = icon/6` [X][D]. Draw position: icon top-left = `(px + 64 - 24, py + 32 - 24) = (px+40, py+8)` (zoomed-out `(px+20, py+4)`; i.e. `49/2 = 24`, `49/4 = 12` offset for scale 1/2) [X]. The shadow sprite (same cell index, `ResourcesShadows`) is drawn first at the same position, then the icon [X: 0x4C4AE0 draws the shadows array first]. Condition: `Tile_get_resource_visible_to(civ) != -1` (player knows the tech that reveals it) unless debug bit 8 [X].
 
+### 6.7a Blending in RGB555 (measured) [D]
+
+The game composes into an RGB555 frame buffer; translucent sprites darken
+through blend tables. Measured from screenshots against our unblended
+render (5-bit channel values c):
+- Fog of war (`FogOfWar.pcx`, palette index i = 0..15 of the grey ramp):
+  `c' = floor(c * i / 16)` (95.7 % of pixels exact by this alone; the
+  rest were inference noise / borders).
+- Resource shadows (`resources_shadows.pcx`, indices 248..251):
+  `c' = floor(c * k / 16)` with k = 8, 10, 12, 14 (99.8 % of
+  non-occluded shadow pixels exact, WW2 Pacific).
+- Screen values are the 5-bit values expanded by bit replication
+  (`(c << 3) | (c >> 2)`).
+
 ### 6.8 Fog of war / unexplored (pass after the tile sweep) [X][D]
 
 `FogOfWar.pcx` (1152x576, 9x9 cells of 128x64 = 81 images, `Fog_Of_War_Images[81]` at +0x41F8). Function 0x4C4E60 builds the index from two 4-bit masks over the **four tiles around an odd vertex cell** (bit order N=0? see below): per corner k = 0..3, digit d_k = **2** if that tile is *currently visible* to the viewer, **1** if explored but not visible (fogged), **0** if unexplored; `index = d0 + 3*d1 + 9*d2 + 27*d3` (weights 1,3,9,27). **Corner order k = 0,1,2,3 = N, W, E, S** of the vertex, i.e. tiles `(vx, vy-1)`, `(vx-1, vy)`, `(vx+1, vy)`, `(vx, vy+1)` [X: the explored-mask loop in `m21` (0x4C34EA) uses x' = vx + k/2 - (k&1), y' = vy + (k+1)/2 - 1; D: the alpha centroids of cells 1/3/9/27 sit south/east/west/north of the diamond centre, i.e. the lit corner is N/W/E/S]. The same N,W,E,S bit order is the `param_5` word given to the terrain/other layers. Visible = OR of `Body.FOWStatus | V3 | Visibility | (Body+0x94)` has bit civ_id; explored = `Body.Fog_Of_War` bit civ_id; `civ <= 0` / debug mode sees everything; hot-seat sharing is added by C3X.
