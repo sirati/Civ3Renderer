@@ -3,7 +3,7 @@
 //! font and colour. Drawn with the same GDI-rasterised glyphs
 //! (`civ3_assets::fonts`), as screen-space sprites on top of everything.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use civ3_assets::GameFiles;
@@ -19,14 +19,15 @@ pub struct TextRun {
     pub face: String,
     /// GDI `lfHeight` (negative: character height).
     pub height: i32,
-    /// GDI `lfWeight` (0 or 400 normal, 700 bold) and `lfItalic`.
+    /// GDI `lfWeight` (0 or 400 normal, 700 bold), `lfItalic`, `lfUnderline`.
     pub weight: i32,
     pub italic: bool,
+    pub underline: bool,
     pub text: String,
 }
 
 impl TextRun {
-    /// A trace line `text dc D at X Y color R G B font "Face"/H/WEIGHT/ITALIC str TEXT`.
+    /// A trace line `text dc D at X Y color R G B font "Face"/H/WEIGHT/ITALIC/UNDERLINE str TEXT`.
     pub fn parse(line: &str) -> Option<TextRun> {
         let rest = line.strip_prefix("text dc ")?;
         let (_, rest) = rest.split_once(" at ")?;
@@ -38,6 +39,7 @@ impl TextRun {
         let height = m.next()?.parse().ok()?;
         let weight = m.next().and_then(|w| w.parse().ok()).unwrap_or(0);
         let italic = m.next() == Some("1");
+        let underline = m.next() == Some("1");
         Some(TextRun {
             x: f.first()?.parse().ok()?,
             y: f.get(1)?.parse().ok()?,
@@ -46,6 +48,7 @@ impl TextRun {
             height,
             weight,
             italic,
+            underline,
             text: text.to_owned(),
         })
     }
@@ -104,6 +107,15 @@ impl Fonts {
                     c as u32
                 );
             }
+            // Underline segments, one per glyph advance.
+            let (top, thick) = font.underline;
+            let advances: BTreeSet<i32> = font.glyphs.values().map(|g| g.advance).filter(|&a| a > 0).collect();
+            for a in advances {
+                let _ = writeln!(
+                    out,
+                    "[images.text{n}_line{a}]\nsource = \"solid:{r},{g},{b},255:{a}x{thick}\"\n\n[sheets.text{n}_line{a}]\nimage = \"text{n}_line{a}\"\ncell = [{a}, {thick}]\ngrid = [1, 1]\nanchor = [0, {top}]\ngroup = \"TextLine@{n}\"\nfirst_index = {a}\nscaling = \"keep\"\n"
+                );
+            }
         }
         out
     }
@@ -136,7 +148,9 @@ impl Fonts {
         let mut pen = r.x;
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
-            if let Some((set, _)) = compiled.set(&format!("Text@{n}/{}", c as u32)) {
+            let line = r.underline.then(|| format!("TextLine@{n}/{}", glyph.advance));
+            for name in [Some(format!("Text@{n}/{}", c as u32)), line].into_iter().flatten() {
+                let Some((set, _)) = compiled.set(&name) else { continue };
                 out.push(scene::FreeSprite {
                     set: set.raw(),
                     x: pen,
@@ -151,5 +165,18 @@ impl Fonts {
             }
             pen += glyph.advance;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trace_lines_parse_with_and_without_style() {
+        let r = TextRun::parse("text dc 0 at 10 20 color 0 0 0 font \"Lucida Sans\"/-24/700/1/1 str Rome").unwrap();
+        assert_eq!((r.x, r.y, r.height, r.weight, r.italic, r.underline, r.text.as_str()), (10, 20, -24, 700, true, true, "Rome"));
+        let old = TextRun::parse("text dc 0 at 1 2 color 3 4 5 font \"Lucida Sans\"/-12 str a b").unwrap();
+        assert_eq!((old.color, old.weight, old.italic, old.underline, old.text.as_str()), ([3, 4, 5], 0, false, false, "a b"));
     }
 }

@@ -35,7 +35,7 @@ fn main() -> ExitCode {
     let ch = glyphs.iter().map(|g| g.height).max().unwrap_or(1).max(1);
     let rows = glyphs.len().div_ceil(16) as u32;
     let mut img = image::RgbaImage::new(cw * 16, ch * rows);
-    let mut toml = format!("# {} {}px weight {}: cell {cw}x{ch}, 16 per row, from {first}\ncell = [{cw}, {ch}]\nfirst = {first}\nascent = {}\n[glyphs]\n", font.face, font.height, font.weight, rendered.ascent);
+    let mut toml = format!("# {} {}px weight {}: cell {cw}x{ch}, 16 per row, from {first}\ncell = [{cw}, {ch}]\nfirst = {first}\nascent = {}\nunderline = [{}, {}]\n[glyphs]\n", font.face, font.height, font.weight, rendered.ascent, rendered.underline.0, rendered.underline.1);
     for (i, g) in glyphs.iter().enumerate() {
         let (ox, oy) = ((i as u32 % 16) * cw, (i as u32 / 16) * ch);
         for y in 0..g.height {
