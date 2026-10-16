@@ -1,14 +1,21 @@
-//! Where the scenes go: a viewer window on a thread of this (Windows)
-//! process, or — inside Wine — a native Linux viewer in the same process,
-//! reached through the unixlib of `civ3_native.dll` (`civ3r-native`).
+//! Where the scenes go: a viewer on a thread of this (Windows) process, or
+//! — inside Wine — a native Linux viewer in the same process, reached
+//! through the unixlib of `civ3_native.dll` (`civ3r-native`). Either way
+//! the renderer owns its copy of the world and gets only what changed.
 
 use std::sync::Arc;
 
 use render_desc::Compiled;
-use scene::{Input, Link, Scene};
+use scene::{Driver, Input, Scene, Update};
 
-pub enum Presenter {
-    InProcess { assets: tile_viewer::Assets, link: Link },
+pub struct Presenter {
+    sink: Sink,
+    /// The scene as the renderer has it (what was sent so far).
+    sent: Scene,
+}
+
+enum Sink {
+    InProcess { assets: tile_viewer::Assets, driver: Driver },
     Native(Native),
 }
 
@@ -16,36 +23,51 @@ impl Presenter {
     /// A viewer window on a thread of this process.
     pub fn in_process(config: tile_viewer::ViewerConfig, compiled: Arc<Compiled>) -> std::io::Result<Presenter> {
         let assets = tile_viewer::Assets::new(compiled);
-        let link = Link::new();
-        let (a, l) = (assets.clone(), link.clone());
+        let (driver, display) = scene::connect();
+        let a = assets.clone();
         std::thread::Builder::new().name("civ3r-viewer".into()).spawn(move || {
-            if let Err(e) = tile_viewer::run(config, a, l) {
+            if let Err(e) = tile_viewer::run(config, a, display) {
                 log::error!("viewer: {e}");
             }
         })?;
-        Ok(Presenter::InProcess { assets, link })
+        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default() })
+    }
+
+    /// The native Linux viewer (only in a Wine process with
+    /// `civ3r_native.dll`).
+    pub fn native(native: Native) -> Presenter {
+        Presenter { sink: Sink::Native(native), sent: Scene::default() }
     }
 
     /// New render assets: `compiled` for this side, `wire` for a renderer
     /// that compiles its own copy.
     pub fn set_assets(&mut self, compiled: &Arc<Compiled>, wire: &scene::wire::Assets) {
-        match self {
-            Presenter::InProcess { assets, .. } => assets.replace(compiled.clone()),
-            Presenter::Native(n) => n.set_assets(wire),
+        match &mut self.sink {
+            Sink::InProcess { assets, .. } => assets.replace(compiled.clone()),
+            Sink::Native(n) => n.set_assets(wire),
         }
     }
 
-    pub fn publish(&mut self, scene: Scene) {
-        match self {
-            Presenter::InProcess { link, .. } => link.publish(scene),
-            Presenter::Native(n) => n.publish(&scene),
+    /// Makes the renderer's scene `scene`, sending only what changed.
+    pub fn publish(&mut self, mut scene: Scene) {
+        let updates = scene.updates_since(&self.sent);
+        scene.patches.clear();
+        self.sent = scene;
+        if updates.is_empty() {
+            return;
+        }
+        match &mut self.sink {
+            Sink::InProcess { driver, .. } => {
+                driver.send(updates);
+            }
+            Sink::Native(n) => n.publish(&updates),
         }
     }
 
     pub fn take_input(&mut self) -> Vec<Input> {
-        match self {
-            Presenter::InProcess { link, .. } => link.take_input(),
-            Presenter::Native(n) => n.take_input(),
+        match &mut self.sink {
+            Sink::InProcess { driver, .. } => driver.take_input(),
+            Sink::Native(n) => n.take_input(),
         }
     }
 }
@@ -84,10 +106,10 @@ impl Native {
         let _ = (wire, self.fullscreen);
     }
 
-    fn publish(&mut self, scene: &Scene) {
+    fn publish(&mut self, updates: &[Update]) {
         #[cfg(all(windows, target_arch = "x86"))]
         {
-            let bytes = scene::wire::encode_scene(scene);
+            let bytes = scene::wire::encode_updates(updates);
             let mut args = civ3r_native::Publish { scene: wine_unixlib::pe::buffer(&bytes) };
             let status = self.lib.call(civ3r_native::CALL_PUBLISH, &mut args);
             if status != 0 {
@@ -95,7 +117,7 @@ impl Native {
             }
         }
         #[cfg(not(all(windows, target_arch = "x86")))]
-        let _ = scene;
+        let _ = updates;
     }
 
     fn take_input(&mut self) -> Vec<Input> {
