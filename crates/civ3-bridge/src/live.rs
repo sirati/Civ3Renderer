@@ -460,7 +460,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 if ui.is_none() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
-                scene.sprites.extend(units::sprites(world, &mut art, &compiled, compiler.rings.as_ref()));
+                scene.sprites.extend(units::sprites(world, &mut art, &compiled, compiler.rings.as_ref(), view.zoomed_out));
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));
