@@ -18,7 +18,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ByteReader, FREE_SCREEN, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, QUAD_VERTICES, SpriteDesc, cell_origin,
-    QUANTIZED_BIAS, expand, quantize, scale_offset, wrap_cell,
+    ALPHA_STEPS, QUANTIZED_BIAS, alpha_steps, expand, mix_offset, quantize, scale_offset, wrap_cell,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -208,8 +208,14 @@ pub fn tile_fs(
             Vec4::new(0.0, 0.0, 0.0, a)
         };
     } else if bits != 0 {
-        let a = color.w;
-        *output = Vec4::new(stored(color.x, bits) * a, stored(color.y, bits) * a, stored(color.z, bits) * a, a);
+        // Translucent texels: in whole alpha steps, rounded down.
+        let k = alpha_steps(to_u8(color.w));
+        if k == 0 {
+            spirv_std::arch::kill();
+        }
+        let a = k as f32 / ALPHA_STEPS as f32;
+        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
+        *output = Vec4::new(stored(color.x, bits) * a + o, stored(color.y, bits) * a + o, stored(color.z, bits) * a + o, a);
     } else {
         *output = color;
     }

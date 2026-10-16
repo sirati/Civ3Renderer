@@ -253,6 +253,30 @@ pub fn scale_stored(stored: u32, num: u32, den: u32) -> u32 {
     QUANTIZED_BIAS + (stored - QUANTIZED_BIAS) * num / den
 }
 
+/// Translucent texels in a quantized colour model blend in steps of
+/// `1/ALPHA_STEPS` and round down, like a game mixing two RGB555 values
+/// with integer arithmetic (50 % = `(src + dst) >> 1`).
+pub const ALPHA_STEPS: u32 = 32;
+
+/// A texel's 8-bit alpha as a number of [`ALPHA_STEPS`].
+pub fn alpha_steps(a8: u32) -> u32 {
+    (a8 * ALPHA_STEPS + 127) / 255
+}
+
+/// What a translucent texel with `k` alpha steps adds to its premultiplied
+/// colour: `S·k/n + D·(1 − k/n)` has a fractional part that is a multiple
+/// of `1/n` (n = [`ALPHA_STEPS`]), so this offset makes rounding to the
+/// nearest integer give the floor (see [`mix_stored`]).
+pub fn mix_offset() -> f32 {
+    -0.5 + 0.5 / ALPHA_STEPS as f32
+}
+
+/// The exact result of drawing stored value `src` with `k` alpha steps
+/// over stored value `dst`.
+pub fn mix_stored(src: u32, dst: u32, k: u32) -> u32 {
+    QUANTIZED_BIAS + ((src - QUANTIZED_BIAS) * k + (dst - QUANTIZED_BIAS) * (ALPHA_STEPS - k)) / ALPHA_STEPS
+}
+
 /// An 8-bit channel value in a `bits`-bit colour space (4..=8): the top
 /// bits, as games that compose in e.g. RGB555 store it.
 pub fn quantize(c8: u32, bits: u32) -> u32 {
@@ -308,6 +332,23 @@ mod tests {
         assert_eq!(size_of::<GridParams>() % 16, 0);
         assert_eq!(size_of::<LayerDesc>() % 16, 0);
         assert_eq!(size_of::<SpriteDesc>() % 16, 0);
+    }
+
+    #[test]
+    fn mix_offset_rounds_to_the_floor() {
+        for k in 1..ALPHA_STEPS {
+            for qs in 0..=127u32 {
+                for qd in (0..=127u32).step_by(3) {
+                    let (s, d) = (qs + QUANTIZED_BIAS, qd + QUANTIZED_BIAS);
+                    let a = k as f32 / ALPHA_STEPS as f32;
+                    let v = s as f32 * a + d as f32 * (1.0 - a) + mix_offset();
+                    assert_eq!(v.round() as u32, mix_stored(s, d, k), "src {qs} dst {qd} k {k}");
+                }
+            }
+        }
+        // 50 %: the average, rounded down.
+        assert_eq!(mix_stored(28 + QUANTIZED_BIAS, 16 + QUANTIZED_BIAS, 16), 22 + QUANTIZED_BIAS);
+        assert_eq!(mix_stored(1 + QUANTIZED_BIAS, 6 + QUANTIZED_BIAS, 16), 3 + QUANTIZED_BIAS);
     }
 
     #[test]

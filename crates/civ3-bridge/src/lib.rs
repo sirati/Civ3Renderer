@@ -4,6 +4,8 @@
 #![deny(unsafe_code)]
 
 pub mod assets;
+pub mod city_hud;
+pub mod city_site;
 pub mod rules;
 pub mod scene_map;
 pub mod text;

@@ -284,6 +284,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         for b in &p.wall_buildings {
             let _ = writeln!(out, "wall_building {} {} {:#x}", b.id, b.government, b.obsolete_for);
         }
+        for b in &p.icon_buildings {
+            let _ = writeln!(out, "icon_building {} {:#x} {:#x}", b.id, b.flags, b.obsolete_for);
+        }
     }
     if let Ok(keys) = game.unit_type_keys() {
         for (i, k) in keys.iter().enumerate() {
@@ -292,7 +295,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     }
     if let Ok(stats) = game.unit_type_stats() {
         for (i, s) in stats.iter().enumerate() {
-            let _ = writeln!(out, "unit_type_stats {i} {} {} {} {}", s[0], s[1], s[2], s[3]);
+            let _ = writeln!(out, "unit_type_stats {i} {} {} {} {} {} {}", s[0], s[1], s[2], s[3], s[4], s[5]);
         }
     }
     if let Ok(hp) = game.experience_hit_points() {
@@ -312,6 +315,12 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             let _ = writeln!(out, "outpost {id} {owner}");
         }
     }
+    if let Ok(Some(id)) = game.current_unit() {
+        let _ = writeln!(out, "current_unit {id}");
+    }
+    if let Ok(Some((x, y))) = game.mouse_tile() {
+        let _ = writeln!(out, "mouse_tile {x} {y}");
+    }
     if let Ok(p) = game.preferences() {
         let _ = writeln!(out, "preferences {p:#x}");
     }
@@ -322,14 +331,23 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     }
     match game.drawn_units() {
         Ok(units) => {
-            let _ = writeln!(out, "# unit id x y civ type damage moves container state on_top px py direction animation frame visible experience");
-            for u in units {
-                let _ = writeln!(
-                    out,
-                    "unit {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+            let _ = writeln!(out, "# unit id x y civ type damage moves container state on_top px py direction animation frame visible experience army_member army_size moving");
+            let line = |kind: &str, u: &civ3_sys::DrawnUnit| {
+                format!(
+                    "{kind} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
                     u.id, u.x, u.y, u.civ, u.unit_type, u.damage, u.moves, u.container, u.state, u.always_on_top as u8,
-                    u.pixel.0, u.pixel.1, u.direction, u.animation, u.frame, u.visible as u8, u.experience
-                );
+                    u.pixel.0, u.pixel.1, u.direction, u.animation, u.frame, u.visible as u8, u.experience,
+                    u.army_member, u.army_size, u.moving as u8
+                )
+            };
+            for u in &units {
+                let _ = writeln!(out, "{}", line("unit", u));
+            }
+            // The members armies show.
+            for u in units.iter().filter(|u| u.army_member >= 0) {
+                if let Ok(Some(m)) = game.unit(u.army_member) {
+                    let _ = writeln!(out, "{}", line("army_unit", &m));
+                }
             }
         }
         Err(e) => log::warn!("reading units: {e}"),

@@ -243,3 +243,39 @@ fn quantized_scale_rounds_down_after_every_blit() {
         }
     }
 }
+
+#[test]
+fn quantized_translucency_mixes_and_rounds_down() {
+    // Every 5-bit source value (column) at 50 % over every destination
+    // value (row), then the same again: the game's `(src + dst) >> 1`.
+    let gpu = Headless::new().expect("GPU");
+    let mut atlas = AtlasBuilder::new(64);
+    let mut sets = SpriteSets::default();
+    let expand = |q: u32| ((q << 3) | (q >> 2)) as u8;
+    let base = sets.single(atlas.add(&RgbaImage::from_fn(32, 32, |_, y| [expand(y), expand(31 - y), expand(y / 3), 255]), (0, 0)).unwrap());
+    let half = sets.single(atlas.add(&RgbaImage::from_fn(32, 32, |x, _| [expand(x), expand(x / 2), expand(31 - x), 128]), (0, 0)).unwrap());
+    let grid = Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (32, 32) };
+    let mut world = TileWorld::new(grid, sets);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let layers = [
+        world.add_layer(LayerSpec::new("base", vec![tile_render::SpriteSetId::EMPTY, base])),
+        world.add_layer(LayerSpec::new("once", vec![tile_render::SpriteSetId::EMPTY, half])),
+        world.add_layer(LayerSpec::new("twice", vec![tile_render::SpriteSetId::EMPTY, half])),
+    ];
+    for l in layers {
+        world.set(l, 0, 0, 1);
+    }
+    let atlas = atlas.finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let camera = Camera::new((32, 32));
+    let got = gpu.render(&mut renderer, &camera, 0, CLEAR);
+    assert_same(&got, &reference::render(&world, &atlas, &camera, 0, CLEAR), "exhaustive 50 %");
+    for y in 0..32u32 {
+        for x in 0..32u32 {
+            let want = expand((x + (x + y) / 2) / 2);
+            assert_eq!(got.get(x, y)[0], want, "src {x} dst {y}");
+        }
+    }
+}

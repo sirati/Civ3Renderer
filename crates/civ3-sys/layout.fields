@@ -204,6 +204,7 @@ Improvement
 Improvement Combat_Bombard
 Improvement ObsoleteID
 Improvement GovernmentID
+Improvement ImprovementFlags
 BIC Improvements
 BIC ImprovementsCount
 Leader GovernmentType
@@ -223,6 +224,8 @@ Unit_Body Container_Unit
 Unit_Body UnitState
 Unit_Body always_on_top
 Unit_Body Animation
+Unit_Body Active
+Unit_Body field_1B0
 FLC_Animation summary.pixel_loc_x
 FLC_Animation summary.pixel_loc_y
 FLC_Animation summary.direction_2
@@ -243,6 +246,8 @@ UnitType Attack
 UnitType Defence
 UnitType Movement
 UnitType Hit_Point_Bonus
+UnitType Unit_Class
+UnitType Worker_Actions
 Unit_Body Combat_Experience
 Combat_Experience
 Combat_Experience Base_Hit_Points
@@ -256,3 +261,4 @@ Tile Tile_BuildingID
 Tile Ruins
 Tile_Building_Body ID
 Tile_Building_Body OwnerID
+Main_Screen_Form field_4E80

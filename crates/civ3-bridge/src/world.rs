@@ -61,6 +61,15 @@ impl Civ3City {
     }
 }
 
+/// An improvement that gives its city an icon on the map (§10.8): id,
+/// `ITF_Veteran_*` flags, bit per player that knows the tech obsoleting it.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct IconBuilding {
+    pub id: i32,
+    pub flags: u32,
+    pub obsolete_for: u32,
+}
+
 /// An improvement that makes towns look walled: id, government it needs
 /// (-1 any), bit per player that knows the tech obsoleting it.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -90,6 +99,11 @@ pub struct Civ3Unit {
     pub animation: i32,
     pub frame: i32,
     pub visible: bool,
+    /// Armies (§10.11): the member shown, and how many members there are.
+    pub army_member: Option<i32>,
+    pub army_size: i32,
+    /// On its way between tiles.
+    pub moving: bool,
 }
 
 /// The map: shape plus every tile.
@@ -116,15 +130,23 @@ pub struct Civ3World {
     pub cities: Vec<Civ3City>,
     pub governments: Vec<i32>,
     pub wall_buildings: Vec<WallBuilding>,
+    pub icon_buildings: Vec<IconBuilding>,
     /// Outposts: (tile building id, owner).
     pub outposts: Vec<(i32, i32)>,
     /// Drawn units, in drawing order.
     pub units: Vec<Civ3Unit>,
+    /// The members armies show (not drawn themselves).
+    pub army_members: Vec<Civ3Unit>,
     /// Civilopedia keys of unit types (`PRTO_...`) and eras (`ERAS_...`).
     pub unit_type_keys: Vec<String>,
     pub era_keys: Vec<String>,
-    /// Per unit type: attack, defence, movement (tiles), hit point bonus.
-    pub unit_type_stats: Vec<[i32; 4]>,
+    /// Per unit type: attack, defence, movement (tiles), hit point bonus,
+    /// class (0 land, 1 sea, 2 air), worker actions (bit 1: found cities).
+    pub unit_type_stats: Vec<[i32; 6]>,
+    /// The tile under the mouse, if it is over the map.
+    pub mouse_tile: Option<(i32, i32)>,
+    /// The selected unit (also while its cursor blinks off).
+    pub current_unit: Option<i32>,
     /// Base hit points per experience level.
     pub experience_hit_points: Vec<i32>,
     /// Every unit's tile and container (-1: not loaded).
@@ -307,10 +329,10 @@ impl Trace {
                         v
                     },
                 }),
-                Some("unit") => {
+                Some(kind @ ("unit" | "army_unit")) => {
                     let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
                     let at = |i: usize| v.get(i).copied().unwrap_or(0) as i32;
-                    t.world.units.push(Civ3Unit {
+                    let unit = Civ3Unit {
                         id: at(0),
                         x: at(1),
                         y: at(2),
@@ -327,16 +349,27 @@ impl Trace {
                         frame: at(14),
                         visible: at(15) != 0,
                         experience: at(16),
-                    });
+                        army_member: Some(at(17)).filter(|&m| m >= 0 && v.len() > 17),
+                        army_size: at(18),
+                        moving: at(19) != 0,
+                    };
+                    if kind == "unit" {
+                        t.world.units.push(unit);
+                    } else {
+                        t.world.army_members.push(unit);
+                    }
                 }
                 Some("unit_type_stats") => {
-                    t.world.unit_type_stats.push([n(2)? as i32, n(3)? as i32, n(4)? as i32, n(5)? as i32]);
+                    let opt = |k: usize| -> Result<i32, TraceError> { Ok(f.get(k).map(|_| n(k)).transpose()?.unwrap_or(0) as i32) };
+                    t.world.unit_type_stats.push([n(2)? as i32, n(3)? as i32, n(4)? as i32, n(5)? as i32, opt(6)?, opt(7)?]);
                 }
                 Some("experience_hit_points") => {
                     t.world.experience_hit_points = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
                 Some("unit_tile") => t.world.unit_tiles.push((n(1)? as i32, n(2)? as i32, n(3)? as i32)),
                 Some("outpost") => t.world.outposts.push((n(1)? as i32, n(2)? as i32)),
+                Some("mouse_tile") => t.world.mouse_tile = Some((n(1)? as i32, n(2)? as i32)),
+                Some("current_unit") => t.world.current_unit = Some(n(1)? as i32),
                 Some("preferences") => t.world.preferences = n(1)? as u32,
                 Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),
                 Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
@@ -345,6 +378,11 @@ impl Trace {
                 Some("wall_building") => t.world.wall_buildings.push(WallBuilding {
                     id: n(1)? as i32,
                     government: n(2)? as i32,
+                    obsolete_for: n(3)? as u32,
+                }),
+                Some("icon_building") => t.world.icon_buildings.push(IconBuilding {
+                    id: n(1)? as i32,
+                    flags: n(2)? as u32,
                     obsolete_for: n(3)? as u32,
                 }),
                 Some("eras") => {

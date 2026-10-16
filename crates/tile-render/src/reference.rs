@@ -3,7 +3,7 @@
 //! It is the oracle for the GPU path (tests compare both byte for byte) and
 //! a fallback for tools that have no GPU.
 
-use tile_render_shared::{ByteReader, QUANTIZED_BIAS, cell_origin, expand, quantize, scale_stored, wrap_cell};
+use tile_render_shared::{ByteReader, QUANTIZED_BIAS, alpha_steps, cell_origin, expand, mix_stored, quantize, scale_stored, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
@@ -51,11 +51,13 @@ pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, cle
                     }
                 }
                 Blend::Scale { .. } => {}
-                // Exact for opaque texels, which is all quantized content uses.
+                // Translucent texels mix in whole alpha steps, rounded down.
                 Blend::Alpha => {
-                    let a = src[3] as f32 / 255.0;
-                    for (c, s) in dst.iter_mut().zip(src) {
-                        *c = (stored(s) as f32 * a + *c as f32 * (1.0 - a)).round() as u32;
+                    let k = alpha_steps(src[3].into());
+                    if k > 0 {
+                        for (c, s) in dst.iter_mut().zip(src) {
+                            *c = mix_stored(stored(s), *c, k);
+                        }
                     }
                 }
             }
