@@ -115,6 +115,15 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
             size: c.size,
             improvements: c.improvements,
             wonder_in_production: c.improvement_in_production().filter(|&i| district_state.is_wonder(i)),
+            order: c.order,
+            grow_turns: Some(c.grow_turns),
+            build_turns: Some(c.build_turns),
+            hud_icons: Some(c.hud_icons),
+            veteran_icons: Some(c.veteran_icons),
+            food_income: c.food_income,
+            policy: c.policy,
+            order_name: c.order_name,
+            name: c.name,
         })
         .collect();
     let mut world = Civ3World {
@@ -138,6 +147,8 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         experience_hit_points: optional("experience_hit_points", game.experience_hit_points()),
         unit_tiles: optional("unit_tiles", game.unit_tiles()),
         preferences: optional("preferences", game.preferences()),
+        debug_mode_bits: optional("debug_mode_bits", game.debug_mode_bits()),
+        civ_adjectives: players.adjectives,
         mouse_tile: optional("mouse_tile", game.mouse_tile()),
         current_unit: optional("current_unit", game.current_unit()),
         focus_city: optional("focus_city", game.focus_city()),
