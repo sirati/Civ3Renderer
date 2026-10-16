@@ -41,8 +41,18 @@ fn paint(ink: &[bool], w: u32, h: u32, color: [u8; 3]) -> RgbaImage {
     })
 }
 
-/// Loads `face` at `height` pixels (GDI's negative `lfHeight`) in `color`.
-pub fn load(files: &GameFiles, face: &str, height: i32, color: [u8; 3]) -> Result<GlyphFont, String> {
+/// A font as the game selects it: face, height in pixels (GDI's negative
+/// `lfHeight`), weight (0 or 400 normal, 700 bold), italic.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontStyle {
+    pub face: String,
+    pub height: i32,
+    pub weight: i32,
+    pub italic: bool,
+}
+
+/// Loads `font` in `color`.
+pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     #[cfg(windows)]
     {
         // The game installs its font from LSANS.TTF; make sure we have it.
@@ -51,7 +61,7 @@ pub fn load(files: &GameFiles, face: &str, height: i32, color: [u8; 3]) -> Resul
                 let _ = gdi_text::add_font_file(&p);
             }
         }
-        let spec = gdi_text::FontSpec { face: face.to_owned(), height, weight: 0, italic: false, quality: 0 };
+        let spec = gdi_text::FontSpec { face: font.face.clone(), height: font.height, weight: font.weight, italic: font.italic, quality: 0 };
         let font = gdi_text::render_glyphs(&spec, charset()).map_err(|e| e.to_string())?;
         let glyphs = font
             .glyphs
@@ -63,22 +73,30 @@ pub fn load(files: &GameFiles, face: &str, height: i32, color: [u8; 3]) -> Resul
     #[cfg(not(windows))]
     {
         let _ = files;
-        from_cache(face, height, color)
+        from_cache(font, color)
     }
 }
 
-/// The cache file stem for a font (`font-sheet` output name).
-pub fn cache_stem(face: &str, height: i32) -> String {
-    format!("{}-{height}", face.replace(' ', "_"))
+/// The cache file stem for a font (`font-sheet` output name): face and
+/// height, then `-w<weight>` if bold, `-i` if italic.
+pub fn cache_stem(font: &FontStyle) -> String {
+    let mut s = format!("{}-{}", font.face.replace(' ', "_"), font.height);
+    if font.weight > 400 {
+        s += &format!("-w{}", font.weight);
+    }
+    if font.italic {
+        s += "-i";
+    }
+    s
 }
 
 #[cfg(not(windows))]
-fn from_cache(face: &str, height: i32, color: [u8; 3]) -> Result<GlyphFont, String> {
+fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     let dir = std::env::var_os("CIV3R_FONT_CACHE")
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".cache/civ3r/fonts")))
         .ok_or("no font cache directory")?;
-    let stem = dir.join(cache_stem(face, height));
+    let stem = dir.join(cache_stem(font));
     let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
     let meta: toml::Table = std::fs::read_to_string(stem.with_extension("toml"))
         .map_err(|e| missing(&e))?
