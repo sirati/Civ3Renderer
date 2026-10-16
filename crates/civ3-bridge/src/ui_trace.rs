@@ -81,7 +81,11 @@ pub struct UiTracer {
 pub fn install(game: &Civ3, skip_canvases: Vec<u32>) -> Result<UiTracer, HookError> {
     let sites = h::ui_sites(game.build).ok_or(HookError::Unsupported)?;
     *MODEL.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some(UiModel::new(Vec::new(), skip_canvases).with_screen(h::back_buffer(game.build).unwrap_or(0)));
+        Some(
+            UiModel::new(Vec::new(), skip_canvases)
+                .with_screen(h::back_buffer(game.build).unwrap_or(0))
+                .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect()),
+        );
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     macro_rules! hook {
         ($module:ident, $site:expr, $handler:expr) => {

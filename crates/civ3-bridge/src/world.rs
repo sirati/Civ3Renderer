@@ -291,6 +291,16 @@ impl Trace {
                         clip: [v[3], v[4], v[5], v[6]],
                     });
                 }
+                Some("ui_surface") if f.len() >= 12 => {
+                    let v = (1..12).map(|k| n(k)).collect::<Result<Vec<_>, _>>()?;
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Surface {
+                        image: v[0] as u32,
+                        x: v[1] as i32,
+                        y: v[2] as i32,
+                        clip: [v[3] as i32, v[4] as i32, v[5] as i32, v[6] as i32],
+                        rect: [v[7] as i32, v[8] as i32, v[9] as i32, v[10] as i32],
+                    });
+                }
                 Some("ui_fill") if f.len() >= 12 => {
                     let v = (1..12).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
                     t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Fill {

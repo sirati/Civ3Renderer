@@ -39,6 +39,8 @@ pub struct TileRenderer {
     bits: wgpu::Buffer,
     scratch: Option<Scratch>,
     atlas: Option<wgpu::TextureView>,
+    /// The atlas texture and its sprites (for run-time pixel updates).
+    atlas_texture: Option<(wgpu::Texture, Vec<SpriteDesc>)>,
     sprites: Option<wgpu::Buffer>,
     world: Option<WorldBuffers>,
     bind_group: Option<wgpu::BindGroup>,
@@ -208,10 +210,34 @@ impl TileRenderer {
             bits,
             scratch: None,
             atlas: None,
+            atlas_texture: None,
             sprites: None,
             world: None,
             bind_group: None,
         }
+    }
+
+    /// Replaces the pixels of atlas sprite `sprite` (sprites whose content
+    /// changes at run time, e.g. a minimap). `image` must have the sprite's
+    /// size; returns whether it was written.
+    pub fn patch_sprite(&self, queue: &wgpu::Queue, sprite: crate::SpriteId, image: &crate::RgbaImage) -> bool {
+        let Some((texture, sprites)) = &self.atlas_texture else { return false };
+        let Some(s) = sprites.get(sprite.0 as usize) else { return false };
+        if (s.width, s.height) != (image.width, image.height) || s.width == 0 || s.height == 0 {
+            return false;
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x: s.atlas_x, y: s.atlas_y, z: s.page },
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.as_bytes(),
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(image.width * 4), rows_per_image: Some(image.height) },
+            wgpu::Extent3d { width: image.width, height: image.height, depth_or_array_layers: 1 },
+        );
+        true
     }
 
     /// Uploads the atlas pages and sprite table.
@@ -220,6 +246,7 @@ impl TileRenderer {
         // processes, software renderers).
         self.bind_group = None;
         self.atlas = None;
+        self.atlas_texture = None;
         self.sprites = None;
         let size = wgpu::Extent3d {
             width: atlas.page_size.max(atlas.pages[0].width),
@@ -253,6 +280,7 @@ impl TileRenderer {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         }));
+        self.atlas_texture = Some((texture, atlas.sprites.clone()));
         let empty = [SpriteDesc::default()];
         let sprites: &[SpriteDesc] = if atlas.sprites.is_empty() { &empty } else { &atlas.sprites };
         self.sprites = Some(storage(device, "tile-render sprites", bytemuck::cast_slice(sprites)));

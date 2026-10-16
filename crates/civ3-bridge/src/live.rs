@@ -293,6 +293,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut fonts = text::Fonts::default();
     let mut screen_art = menu::screen::ScreenArt::default();
     let mut zoomed_out = false;
+    let mut table_colors = std::collections::HashMap::new();
     loop {
         std::thread::sleep(POLL);
         // A scenario brings its own art.
@@ -335,7 +336,8 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         }
         let (shown, texts, ui) = &state;
         let files = compiler.files(&folders);
-        let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots())).unwrap_or_default();
+        let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
+        let ui_items = ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated)).unwrap_or_default();
         recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files);
         // The zoomed-out view has its own (half-size) art.
         if let Shown::Map(_, view) = shown {
@@ -390,6 +392,12 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled));
+        // Pictures the game makes itself: the minimap (§17).
+        if let Shown::Map(world, _) = shown {
+            scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {
+                *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
+            });
+        }
         scene.seq = seq;
         presenter.publish(scene);
         last = Some(state);

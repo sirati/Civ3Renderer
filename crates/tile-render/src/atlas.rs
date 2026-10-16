@@ -148,6 +148,20 @@ pub struct Atlas {
     pub sprites: Vec<SpriteDesc>,
 }
 
+impl Atlas {
+    /// Replaces the pixels of `sprite` (see `TileRenderer::patch_sprite`);
+    /// `image` must have its size. Returns whether it was written.
+    pub fn patch(&mut self, sprite: crate::SpriteId, image: &RgbaImage) -> bool {
+        let Some(s) = self.sprites.get(sprite.0 as usize).copied() else { return false };
+        let Some(page) = self.pages.get_mut(s.page as usize) else { return false };
+        if (s.width, s.height) != (image.width, image.height) {
+            return false;
+        }
+        page.blit(image, 0, 0, image.width, image.height, s.atlas_x, s.atlas_y);
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

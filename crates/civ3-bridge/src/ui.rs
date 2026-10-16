@@ -72,6 +72,9 @@ pub enum ScreenDraw {
     Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4] },
     Fill { rect: [i32; 4], rgb: [u8; 3], clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
+    /// Region `rect` (x, y, w, h) of a surface the game generates itself
+    /// (e.g. the minimap), at (x, y).
+    Surface { image: u32, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4] },
 }
 
 /// A composed screen.
@@ -110,6 +113,9 @@ pub struct UiModel {
     /// The back buffer: drawing into it during a paint lands on the screen
     /// directly (frames, the tooltip, the mouse cursor).
     screen: u32,
+    /// Surfaces the game fills itself (pixel by pixel): not followed,
+    /// passed on as [`ScreenDraw::Surface`].
+    generated: Vec<u32>,
 }
 
 impl UiModel {
@@ -117,6 +123,12 @@ impl UiModel {
     /// canvases not mirrored.
     pub fn new(skip_vtables: Vec<u32>, skip_canvases: Vec<u32>) -> Self {
         Self { skip: skip_vtables, skip_canvases, ..Default::default() }
+    }
+
+    /// `generated`: surfaces passed on as they are.
+    pub fn with_generated(mut self, generated: Vec<u32>) -> Self {
+        self.generated = generated;
+        self
     }
 
     /// `screen`: the back buffer.
@@ -224,6 +236,9 @@ impl UiModel {
     }
 
     fn push(&mut self, canvas: u32, op: Op) {
+        if self.generated.contains(&canvas) {
+            return;
+        }
         if canvas == self.screen && canvas != 0 {
             let ops = self.resolve(&op, 0);
             if let Some(frame) = self.painting.as_mut() {
@@ -250,6 +265,9 @@ impl UiModel {
         let Op::Image { source: Source::Surface { image, rect: [sx, sy, sw, sh] }, x, y, keyed } = op else {
             return vec![op.clone()];
         };
+        if self.generated.contains(image) {
+            return vec![op.clone()];
+        }
         if depth >= MAX_DEPTH {
             return Vec::new();
         }
@@ -312,8 +330,7 @@ fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDra
         Op::Image { source: Source::File { path, rect }, x, y, keyed } => {
             Some(ScreenDraw::Image { path, rect, x: x + ox, y: y + oy, keyed, clip })
         }
-        // A surface nobody drew into (e.g. generated pixels): unknown.
-        Op::Image { source: Source::Surface { .. }, .. } => None,
+        Op::Image { source: Source::Surface { image, rect }, x, y, .. } => Some(ScreenDraw::Surface { image, rect, x: x + ox, y: y + oy, clip }),
         Op::Fill { rect: [x, y, w, h], rgb } => Some(ScreenDraw::Fill { rect: [x + ox, y + oy, w, h], rgb, clip }),
         Op::Text(mut run) => {
             run.x += ox;

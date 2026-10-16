@@ -69,7 +69,7 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
         // The mirrored interface: its art and text.
         if let Some(frame) = &t.ui {
             let mut screen = menu::screen::ScreenArt::default();
-            ui_screen::add_art(&ui_screen::items(frame, &[]), &mut screen, &mut fonts, &files());
+            ui_screen::add_art(&ui_screen::items(frame, &[], GENERATED), &mut screen, &mut fonts, &files());
             text.push_str(&ui_screen::description(&screen));
         }
         text.push_str(&fonts.description());
@@ -89,7 +89,9 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
             // The mirrored interface has the city icons and all text.
             Some(frame) => {
                 let roots: Vec<std::path::PathBuf> = Vec::new();
-                scene.sprites.extend(ui_screen::sprites(&ui_screen::items(frame, &roots), fonts, compiled));
+                let items = ui_screen::items(frame, &roots, GENERATED);
+                scene.sprites.extend(ui_screen::sprites(&items, fonts, compiled));
+                scene.patches = ui_screen::minimap_patches(&items, &trace.world, compiled, |t| art.table_color(t, 66).unwrap_or_default());
             }
             None => {
                 scene.sprites.extend(city_hud::sprites(&trace.world, compiled));
@@ -146,7 +148,36 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             let game = image::open(args.get(2).ok_or(usage)?).map_err(|e| e.to_string())?.to_rgba8();
             pixeldiff(&trace, &game, args.get(3).map(String::as_str))
         }
-        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | pixeldiff TRACE GAME.png [DIFF.png]  [--viewport WxH]".into()),
+        Some("minimap") => {
+            // Our minimap against the game's (at 1920x1080: 230x108 at
+            // (31, 961), docs §17.2).
+            let usage = "minimap TRACE GAME.png [X Y W H]";
+            let trace = load_trace(args.get(1).ok_or(usage)?)?;
+            let game = image::open(args.get(2).ok_or(usage)?).map_err(|e| e.to_string())?.to_rgba8();
+            let n = |i: usize, d: u32| args.get(i).and_then(|v| v.parse().ok()).unwrap_or(d);
+            let (x0, y0, w, h) = (n(3, 31), n(4, 961), n(5, 230), n(6, 108));
+            let (_, art) = compile(Some(&trace))?;
+            let art = art.ok_or("no unit art")?.0;
+            let colors = |civ: i32| {
+                let table = trace.world.color_tables.get(civ as usize).copied().unwrap_or(0);
+                ifc23::minimap::from_rgb(art.table_color(table, 66).unwrap_or_default())
+            };
+            let ours = ifc23::minimap::image(&trace.world, (w, h), colors);
+            let (mut same, mut white) = (0, 0);
+            for y in 0..h {
+                for x in 0..w {
+                    let i = ((y * w + x) * 4) as usize;
+                    let g = game.get_pixel(x0 + x, y0 + y).0;
+                    same += (ours[i..i + 3] == g[..3]) as u32;
+                    // The viewport rectangle (interface drawing, not ours here).
+                    white += (ours[i..i + 3] != g[..3] && g[..3] == [255, 255, 255]) as u32;
+                }
+            }
+            let pct = 100.0 * same as f64 / (w * h) as f64;
+            println!("minimap: {same} of {} pixels identical ({pct:.2}%); {white} of the others white in the game", w * h);
+            Ok(ExitCode::SUCCESS)
+        }
+        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | pixeldiff TRACE GAME.png [DIFF.png] | minimap TRACE GAME.png  [--viewport WxH]".into()),
     }
 }
 
@@ -319,3 +350,6 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     }
     Ok(if same == compared { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
+
+/// The surfaces traces of the PCGames build name (the minimap).
+const GENERATED: &[(u32, &str)] = civ3_sys::ui_hooks::generated_surfaces_pcg();
