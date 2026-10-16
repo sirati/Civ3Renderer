@@ -8,7 +8,8 @@
 //! [`inproc::Ptr32`], so they are safe; interpretation of the data (what a
 //! tile *means* for rendering) is the business of the crates above.
 // No unsafe code of our own; the hook declarations in `hooks` expand
-// `inproc::fastcall_hook!`, whose generated trampolines are the exception.
+// `inproc::fastcall_hook!`, whose generated trampolines are the exception,
+// and so are the call-site hooks and foreign functions in `modal`.
 #![deny(unsafe_code)]
 
 pub mod build;
@@ -16,6 +17,7 @@ pub mod c3x;
 pub mod c3x_layout;
 pub mod hooks;
 pub mod layout;
+pub mod modal;
 pub mod sprites;
 pub mod ui_hooks;
 pub mod world;
