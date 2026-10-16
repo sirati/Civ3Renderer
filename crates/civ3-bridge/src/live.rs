@@ -9,7 +9,7 @@ use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
 
 use crate::presenter::{self, Presenter};
-use crate::{assets, city_hud, city_site, text, trace, ui_screen, ui_trace, units};
+use crate::{assets, city_hud, city_site, districts, text, trace, ui_screen, ui_trace, units};
 use crate::scene_map::Mapper;
 use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, IconBuilding, WallBuilding};
 
@@ -90,8 +90,12 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
             victory_location: t.victory_location(),
             building: Some(t.building_id()).filter(|&b| b >= 0),
             ruins: t.ruins(),
+            city_area: t.city_area(),
+            continent: t.continent(),
+            district: None,
         })
         .collect();
+    let district_state = districts::read(game, &map);
     let players = optional("players", game.players());
     let drawn = optional("units", game.drawn_units());
     // The members armies show (§10.11).
@@ -103,9 +107,17 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         .collect();
     let cities = optional("cities", game.cities())
         .into_iter()
-        .map(|c| Civ3City { id: c.id, x: c.x, y: c.y, civ: c.civ, size: c.size, improvements: c.improvements })
+        .map(|c| Civ3City {
+            id: c.id,
+            x: c.x,
+            y: c.y,
+            civ: c.civ,
+            size: c.size,
+            improvements: c.improvements,
+            wonder_in_production: c.improvement_in_production().filter(|&i| district_state.is_wonder(i)),
+        })
         .collect();
-    let world = Civ3World {
+    let mut world = Civ3World {
         player: view.player_civ,
         resource_icons: game.resource_icons()?,
         resource_visible: game.resources_visible_to(view.player_civ)?,
@@ -149,7 +161,12 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         seed: map.seed,
         flags: map.flags,
         tiles,
+        districts: Vec::new(),
+        district_configs: district_state.configs,
+        improvements: district_state.improvements,
+        free_improvements: district_state.free_improvements,
     };
+    world.set_districts(district_state.districts);
     let view = Civ3View {
         camera_x: view.camera_x,
         camera_y: view.camera_y,
