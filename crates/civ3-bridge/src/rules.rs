@@ -103,12 +103,15 @@ pub const DIAGONALS: [(i32, i32); 4] = [(-1, -1), (1, -1), (-1, 1), (1, 1)];
 
 /// The edge hash that prunes some links between neighbouring hills,
 /// irrigation and border segments (§6.1), for the edge from (x, y) to
-/// diagonal neighbour `n` (index into [`DIAGONALS`]).
-pub fn edge_keep(x: i32, y: i32, n: usize) -> bool {
+/// diagonal neighbour `n` (index into [`DIAGONALS`]). The neighbour is
+/// wrapped first, so across a wrap seam the midpoint is far off (§6.1).
+pub fn edge_keep(world: &Civ3World, x: i32, y: i32, n: usize) -> bool {
     let (dx, dy) = DIAGONALS[n];
+    let nx = if world.wrap_x { (x + dx).rem_euclid(world.width) } else { x + dx };
+    let ny = if world.wrap_y { (y + dy).rem_euclid(world.height) } else { y + dy };
     // C integer division (truncating) of the shared edge's midpoint.
-    let mx = (2 * x + dx) / 2;
-    let my = (2 * y + dy) / 2;
+    let mx = (x + nx) / 2;
+    let my = (y + ny) / 2;
     match n {
         // NW, SE
         0 | 3 => (3 * mx - my) % 5 != 0 && (mx - 2 * my) % 5 != 0,
@@ -132,7 +135,7 @@ pub fn mountain(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     };
     let mut mask = 0;
     for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
-        if world.tile(x + dx, y + dy).is_some_and(is_hilly) && edge_keep(x, y, n) {
+        if world.tile(x + dx, y + dy).is_some_and(is_hilly) && edge_keep(world, x, y, n) {
             mask |= 1 << n;
         }
     }
@@ -212,7 +215,7 @@ pub fn irrigation(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     }
     let mut mask = 0;
     for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
-        if world.tile(x + dx, y + dy).is_some_and(|t| world.seen_overlays(t) & overlay::IRRIGATION != 0) && edge_keep(x, y, n) {
+        if world.tile(x + dx, y + dy).is_some_and(|t| world.seen_overlays(t) & overlay::IRRIGATION != 0) && edge_keep(world, x, y, n) {
             mask |= 1 << n;
         }
     }
@@ -257,7 +260,7 @@ pub fn resource(world: &Civ3World, x: i32, y: i32) -> Option<(String, String)> {
 }
 
 /// What the game draws at one vertex for rivers (§6.4).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VertexRiver {
     /// Flood plain sprite (pass 1).
     pub flood_plain: Option<String>,
@@ -303,10 +306,13 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
         // A river end (one edge) takes precedence over the flood-plain
         // override (measured: a flood-plain river end uses variant 1).
         let variant = if mask.count_ones() == 1 {
-            if around.iter().flatten().any(|t| t.real_terrain() == COAST) { 0 } else { 1 }
+            // (The tile above is not asked, §6.4.)
+            if [w, e, s].iter().flatten().any(|t| t.real_terrain() == COAST) { 0 } else { 1 }
         } else if fp_mask != 0 {
             0
         } else {
+            // Seeded with the wrapped vertex row.
+            let vy = if world.wrap_y { vy.rem_euclid(world.height) } else { vy };
             Rng::new(world.seed, seed_k::RIVER, tile_a(world, vx, vy - 1)).rand_int(2)
         };
         format!("Delta_Rivers_Images/{}", mask * 2 + variant)
@@ -321,6 +327,9 @@ pub fn vertex_river(world: &Civ3World, vx: i32, vy: i32) -> VertexRiver {
         // in unexplored land still counts).
         || around.iter().flatten().any(|t| {
             t.city >= 0
+            // Tile buildings (colonies, airfields, radar, outposts) and ruins.
+            || t.building.is_some()
+            || t.ruins
             || t.overlays
                 & (overlay::FORTRESS
                     | overlay::GOODY_HUT
@@ -385,7 +394,9 @@ pub fn roads(world: &Civ3World, x: i32, y: i32) -> (Option<String>, Option<Strin
     let city = tile.city >= 0;
     let road = match (road, road_mask) {
         (false, _) => None,
-        (true, 0) if city || rail => None,
+        // The lone stub: left out on cities and on tiles that (really, not
+        // as remembered) have a railroad (§6.6).
+        (true, 0) if city || tile.overlays & overlay::RAILROAD != 0 => None,
         (true, mask) => Some(format!("Roads_Images/{mask}")),
     };
     let rail = match (rail, rail_mask) {
@@ -416,7 +427,7 @@ pub fn borders(world: &Civ3World, x: i32, y: i32) -> [Option<(i32, usize)>; 4] {
         if other.owner == tile.owner {
             continue;
         }
-        let hilly = is_hilly(tile) && is_hilly(other) && edge_keep(x, y, n);
+        let hilly = is_hilly(tile) && is_hilly(other) && edge_keep(world, x, y, n);
         out[n] = Some((colors, 2 * n + hilly as usize));
     }
     out

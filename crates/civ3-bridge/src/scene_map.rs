@@ -63,16 +63,20 @@ impl<'a> Mapper<'a> {
             for col in 0..shape.cols {
                 let (x, y) = (2 * col as i32 + (row as i32 & 1), row as i32);
                 let tile = world.tile(x, y);
-                // Vertex layers: the vertex above this tile, (x, y - 1).
-                let terrain = tile.map(|t| (t.square_parts >> 8) as u32 * 81 + (t.square_parts & 0xFF) as u32);
+                // Vertex layers: the vertex above this tile, (x, y - 1). Above
+                // the top row of a map that does not wrap vertically there is
+                // none: the game skips cells outside the map (§5.2; polar
+                // caps fill the gap).
+                let off_map = y == 0 && !world.wrap_y;
+                let terrain = tile.filter(|_| !off_map).map(|t| (t.square_parts >> 8) as u32 * 81 + (t.square_parts & 0xFF) as u32);
                 let array = if rules::landmark_vertex(world, x, y - 1) { "LM_Terrain_Images" } else { "Std_Terrain_Images" };
                 self.put(&mut scene, "terrain", col, row, terrain.map(|i| format!("{array}/{i}")));
                 self.put(&mut scene, "polar_cap", col, row, rules::polar_cap(world, x, y - 1));
-                let river = rules::vertex_river(world, x, y - 1);
+                let river = if off_map { rules::VertexRiver::default() } else { rules::vertex_river(world, x, y - 1) };
                 self.put(&mut scene, "flood_plain", col, row, river.flood_plain);
                 let layer = if river.under_objects { "rivers_under" } else { "rivers_over" };
                 self.put(&mut scene, layer, col, row, river.river);
-                self.put(&mut scene, "fog", col, row, rules::fog(world, x, y - 1));
+                self.put(&mut scene, "fog", col, row, rules::fog(world, x, y - 1).filter(|_| !off_map));
                 // Tile layers.
                 if tile.is_none() {
                     continue;
