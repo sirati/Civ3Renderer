@@ -122,7 +122,11 @@ peace.
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
 game's sprite blits and records one redraw — every sprite, position and
 order — plus the world state; `civ3-tool drawdiff` compares our draw list
-with it, `civ3-tool pixeldiff` compares our image with a screenshot.
+with it, `civ3-tool pixeldiff` compares our image with a screenshot,
+`civ3-tool labels` compares the city labels `civ3_bridge::city_labels`
+makes from the world (name, size, production and its turns, plates, frame,
+icons: docs §10.8, so that any view can draw them, not only the game's own)
+with the operations the interface mirror recorded for the game's own.
 
 The districts of the C3X mod (`civ3_bridge::districts`, docs §18) are read
 from C3X's state in the game and drawn by C3X's rules; `tools/district-oracle`
