@@ -17,11 +17,13 @@ use crate::GameFiles;
 /// One glyph: per pixel its opacity in each colour channel (red, green,
 /// blue; alpha: their maximum) for the colour it was loaded for, drawn with
 /// that colour per channel (`tile_render::Blend::Subpixel`); where it
-/// starts relative to the pen, and the pen advance.
+/// starts relative to the pen, and the pen advance. `extent` is the width the
+/// game's text measure gives the character (`gdi_text::Glyph::extent`).
 #[derive(Clone, Debug)]
 pub struct Glyph {
     pub left: i32,
     pub advance: i32,
+    pub extent: i32,
     pub image: RgbaImage,
 }
 
@@ -74,7 +76,7 @@ pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<Glyph
         let glyphs = font
             .glyphs
             .into_iter()
-            .map(|g| (g.ch, Glyph { left: g.left, advance: g.advance, image: image(g.paint(color), g.width, g.height) }))
+            .map(|g| (g.ch, Glyph { left: g.left, advance: g.advance, extent: g.extent, image: image(g.paint(color), g.width, g.height) }))
             .collect();
         Ok(GlyphFont { ascent: font.ascent, underline: font.underline, glyphs })
     }
@@ -133,7 +135,10 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         let dark: Vec<[u8; 3]> = cells.iter().map(|&p| rgb(&sheet, p)).collect();
         let light: Vec<[u8; 3]> = cells.iter().map(|&p| rgb(&light_sheet, p)).collect();
         let image = image(gdi_text::paint(&dark, &light, color), w, ch);
-        glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image });
+        // Sheets from before the text measure have no extent: the advance.
+        let advance = int(m.get("advance")) as i32;
+        let extent = m.get("extent").and_then(|e| e.as_integer()).map_or(advance, |e| e as i32);
+        glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance, extent, image });
     }
     Ok(GlyphFont { ascent, underline, glyphs })
 }
