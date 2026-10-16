@@ -56,7 +56,7 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)]) -> Vec
                     at: (*x, *y),
                     clip: *clip,
                 }),
-                ScreenDraw::Fill { rect, rgb, clip } => Item::Element(Element::Fill { rect: *rect, rgb: *rgb, clip: *clip }),
+                ScreenDraw::Fill { rect, rgb, alpha, clip } => Item::Element(Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip }),
                 ScreenDraw::Text { run, clip } => Item::Text(run.clone(), *clip),
                 ScreenDraw::Surface { image, rect, x, y, clip } => {
                     let name = generated.iter().find(|g| g.0 == *image)?.1;

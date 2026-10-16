@@ -68,7 +68,7 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool) {
 
 fn fill(canvas: u32, rect: [i32; 4], color: u32) {
     size_of(canvas);
-    emit(Event::Fill { canvas, rect, rgb: rgb555(color) });
+    emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255 });
 }
 
 /// The hooks; they stay installed while this lives.
@@ -76,15 +76,17 @@ pub struct UiTracer {
     _hooks: Vec<Box<dyn std::any::Any + Send>>,
 }
 
-/// Installs the hooks. `skip_canvases`: canvases whose content we render
-/// ourselves (the map).
-pub fn install(game: &Civ3, skip_canvases: Vec<u32>) -> Result<UiTracer, HookError> {
+/// Installs the hooks. `skip_canvases`: canvases left out while a game runs
+/// (we draw what they show); `underlays`: canvases under the interface whose
+/// own content we draw, mirrored without the art in `underlay_art` (§16).
+pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underlay_art: Vec<String>) -> Result<UiTracer, HookError> {
     let sites = h::ui_sites(game.build).ok_or(HookError::Unsupported)?;
     *MODEL.lock().unwrap_or_else(|e| e.into_inner()) =
         Some(
             UiModel::new(Vec::new(), skip_canvases)
                 .with_screen(h::back_buffer(game.build).unwrap_or(0))
-                .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect()),
+                .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
+                .with_underlays(underlays, underlay_art),
         );
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     macro_rules! hook {
@@ -225,10 +227,54 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>) -> Result<UiTracer, HookErr
         blit(c.sprite, c.dest, c.x, c.y, false);
         c.original()
     });
+    hook_shade_later();
     log::info!("UI mirror: {} hooks", hooks.len());
     Ok(UiTracer { _hooks: hooks })
 }
 
+
+/// Hooks jgl.dll's translucent rectangle fill once the game has loaded
+/// it (the hook stays for the life of the process).
+fn hook_shade_later() {
+    std::thread::spawn(|| {
+        for _ in 0..600 {
+            if let Some(base) = inproc::pe::module_base("jgl.dll") {
+                let (slot, expected) = h::jgl_shade_slot(base);
+                if slot.read().ok() != Some(expected) {
+                    return log::warn!("UI mirror: unknown jgl.dll, translucent fills not mirrored");
+                }
+                match h::jgl_shade::install_slot(slot, |c| {
+                    shade(c);
+                    c.original()
+                }) {
+                    Ok(installed) => std::mem::forget(installed),
+                    Err(e) => log::warn!("UI mirror: hooking translucent fills: {e}"),
+                }
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    });
+}
+
+/// `shade_rect`: the colour weighs `1 − a`, what is there `a = percent·256/100`
+/// (in 1/256), per 8-bit channel, rounded down — for the percentages the
+/// game uses, our translucency (1/32 steps, rounded down) exactly.
+fn shade(c: &h::jgl_shade::Call) {
+    let Some(canvas) = h::jgl_owner(c.image) else { return };
+    // Palette colours are not used by the interface code we know of.
+    if c.color & 0x8000_0000 == 0 {
+        return;
+    }
+    let rect = if c.rect == 0 { obj::image_size(canvas).map(|(w, hh)| [0, 0, w, hh]) } else { rect_xywh(c.rect) };
+    let Some(rect) = rect else { return };
+    let kept = (c.percent as i32).clamp(0, 100) * 256 / 100;
+    let alpha = ((256 - kept) * 255 / 256) as u8;
+    if alpha == 0 {
+        return;
+    }
+    emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha });
+}
 fn with_text_canvas<R>(canvas: u32, f: impl FnOnce() -> R) -> R {
     let outer = TEXT_CANVAS.with(|c| c.replace(canvas));
     let r = f();

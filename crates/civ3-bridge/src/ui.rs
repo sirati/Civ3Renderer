@@ -44,7 +44,8 @@ pub enum Event {
     /// `canvas`; `keyed`: colour 255 transparent.
     Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool },
     /// `rect` (x, y, w, h) of `canvas` filled (`rgb`).
-    Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3] },
+    /// `alpha`: 255 opaque, else a translucent shade (50 % = 128).
+    Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
     /// Text on `canvas` (its position canvas-relative).
     Text { canvas: u32, run: TextRun },
     /// A paint starts: the forms that follow are composed bottom to top.
@@ -61,7 +62,7 @@ pub enum Event {
 enum Op {
     /// An image region at (x, y); `keyed`: colour 255 transparent.
     Image { source: Source, x: i32, y: i32, keyed: bool },
-    Fill { rect: [i32; 4], rgb: [u8; 3] },
+    Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8 },
     Text(TextRun),
 }
 
@@ -70,7 +71,7 @@ enum Op {
 pub enum ScreenDraw {
     /// Region `rect` (x, y, w, h) of an image file at (x, y).
     Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4] },
-    Fill { rect: [i32; 4], rgb: [u8; 3], clip: [i32; 4] },
+    Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
     /// Region `rect` (x, y, w, h) of a surface the game generates itself
     /// (e.g. the minimap), at (x, y).
@@ -120,6 +121,11 @@ pub struct UiModel {
     screen: u32,
     /// Whether `skip_canvases` are left out now.
     skipping: bool,
+    /// Canvases under the interface whose own content we render (the map):
+    /// while skipping, mirrored without full-canvas fills and without
+    /// images from files containing one of `underlay_art` (lowercase).
+    underlays: Vec<u32>,
+    underlay_art: Vec<String>,
     /// Surfaces the game fills itself (pixel by pixel): not followed,
     /// passed on as [`ScreenDraw::Surface`].
     generated: Vec<u32>,
@@ -136,6 +142,14 @@ impl UiModel {
     pub fn set_skipping(&mut self, on: bool) {
         self.skipping = on;
     }
+
+    /// `canvases`: underlays (see the field); `art`: their images left out.
+    pub fn with_underlays(mut self, canvases: Vec<u32>, art: Vec<String>) -> Self {
+        self.underlays = canvases;
+        self.underlay_art = art;
+        self
+    }
+
 
     /// `generated`: surfaces passed on as they are.
     pub fn with_generated(mut self, generated: Vec<u32>) -> Self {
@@ -192,7 +206,7 @@ impl UiModel {
             Event::Copy { from, src, canvas, x, y, keyed } => {
                 // The map canvas is ours: its content (terrain, the fog tiles drawn on it)
                 // must not reach the screen through the form's own copy onto the back buffer.
-                if self.skipping && self.skip_canvases.contains(&from) {
+                if self.skipping && (self.skip_canvases.contains(&from) || self.underlays.contains(&from)) {
                     return;
                 }
                 let source = match self.files.get(&from) {
@@ -215,9 +229,9 @@ impl UiModel {
                     self.push(canvas, op);
                 }
             }
-            Event::Fill { canvas, rect, rgb } => {
+            Event::Fill { canvas, rect, rgb, alpha } => {
                 // The colour key (255, 0, 255) clears to transparent: nothing to draw.
-                if rgb == KEY_RGB {
+                if rgb == KEY_RGB && alpha == 255 {
                     if self.covers(canvas, rect) {
                         self.canvases.remove(&canvas);
                     } else if let Some(ops) = self.canvases.get_mut(&canvas) {
@@ -233,10 +247,10 @@ impl UiModel {
                     }
                     return;
                 }
-                if self.covers(canvas, rect) {
+                if alpha == 255 && self.covers(canvas, rect) {
                     self.canvases.remove(&canvas);
                 }
-                self.push(canvas, Op::Fill { rect, rgb });
+                self.push(canvas, Op::Fill { rect, rgb, alpha });
             }
             Event::Text { canvas, run } => self.push(canvas, Op::Text(run)),
             Event::PaintBegin => self.painting = Some(Frame::default()),
@@ -256,7 +270,9 @@ impl UiModel {
                     return;
                 }
                 self.sizes.insert(canvas, size);
-                let ops = self.canvases.get(&canvas).map(|ops| ops.iter().flat_map(|op| self.resolve(op, 0)).collect::<Vec<_>>());
+                let underlay = self.skipping && self.underlays.contains(&canvas);
+                let keep = |op: &&Op| !underlay || self.underlay_keeps(canvas, op);
+                let ops = self.canvases.get(&canvas).map(|ops| ops.iter().filter(keep).flat_map(|op| self.resolve(op, 0)).collect::<Vec<_>>());
                 if let Some(frame) = self.painting.as_mut() {
                     let start = frame.draws.len();
                     frame.draws.extend(ops.into_iter().flatten().filter_map(|op| screen_draw(op, origin, clip)));
@@ -268,6 +284,18 @@ impl UiModel {
                     self.frame = f;
                 }
             }
+        }
+    }
+
+    /// Whether an underlay shows `op` over our own rendering.
+    fn underlay_keeps(&self, canvas: u32, op: &Op) -> bool {
+        match op {
+            Op::Fill { rect, .. } => !self.covers(canvas, *rect),
+            Op::Image { source: Source::File { path, .. }, .. } => {
+                let p = path.to_ascii_lowercase();
+                !self.underlay_art.iter().any(|a| p.contains(a.as_str()))
+            }
+            _ => true,
         }
     }
 
@@ -343,9 +371,9 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
             // Through a keyed copy, transparent pixels stay transparent.
             Some(Op::Image { source, x: l + dx, y: t + dy, keyed: k || keyed })
         }
-        Op::Fill { rect: [x, y, w, h], rgb } => {
+        Op::Fill { rect: [x, y, w, h], rgb, alpha } => {
             let [l, t, r, b] = intersect(window, [x, y, x + w, y + h]);
-            (r > l && b > t).then(|| Op::Fill { rect: [l + dx, t + dy, r - l, b - t], rgb })
+            (r > l && b > t).then(|| Op::Fill { rect: [l + dx, t + dy, r - l, b - t], rgb, alpha })
         }
         Op::Text(mut run) => {
             let inside = run.x >= window[0] && run.x < window[2] && run.y >= window[1] && run.y < window[3];
@@ -367,7 +395,7 @@ fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDra
             Some(ScreenDraw::Image { path, rect, x: x + ox, y: y + oy, keyed, clip })
         }
         Op::Image { source: Source::Surface { image, rect }, x, y, .. } => Some(ScreenDraw::Surface { image, rect, x: x + ox, y: y + oy, clip }),
-        Op::Fill { rect: [x, y, w, h], rgb } => Some(ScreenDraw::Fill { rect: [x + ox, y + oy, w, h], rgb, clip }),
+        Op::Fill { rect: [x, y, w, h], rgb, alpha } => Some(ScreenDraw::Fill { rect: [x + ox, y + oy, w, h], rgb, alpha, clip }),
         Op::Text(mut run) => {
             run.x += ox;
             run.y += oy;
@@ -414,7 +442,7 @@ mod tests {
         // A temporary image composed from the file, then copied (a 10x10
         // region of it) to a form's canvas.
         m.apply(Event::Copy { from: 10, src: [0, 0, 64, 64], canvas: 50, x: 0, y: 0, keyed: false });
-        m.apply(Event::Fill { canvas: 50, rect: [20, 20, 4, 4], rgb: [1, 2, 3] });
+        m.apply(Event::Fill { canvas: 50, rect: [20, 20, 4, 4], rgb: [1, 2, 3], alpha: 255 });
         m.apply(Event::Copy { from: 50, src: [18, 18, 10, 10], canvas: 300, x: 2, y: 3, keyed: false });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (100, 100)));
@@ -424,7 +452,7 @@ mod tests {
             m.frame().draws,
             vec![
                 ScreenDraw::Image { path: "Art/bg.pcx".into(), rect: [18, 18, 10, 10], x: 2, y: 3, keyed: false, clip },
-                ScreenDraw::Fill { rect: [4, 5, 4, 4], rgb: [1, 2, 3], clip },
+                ScreenDraw::Fill { rect: [4, 5, 4, 4], rgb: [1, 2, 3], alpha: 255, clip },
             ]
         );
     }
@@ -433,12 +461,39 @@ mod tests {
     fn full_covers_reset_a_canvas_and_skipped_forms_stay_out() {
         let mut m = UiModel::new(vec![9], vec![]);
         m.apply(Event::Size { image: 300, size: (10, 10) });
-        m.apply(Event::Fill { canvas: 300, rect: [1, 1, 2, 2], rgb: [0, 0, 0] });
-        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [9, 9, 9] });
+        m.apply(Event::Fill { canvas: 300, rect: [1, 1, 2, 2], rgb: [0, 0, 0], alpha: 255 });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [9, 9, 9], alpha: 255 });
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (0, 0), (10, 10)));
         m.apply(Event::Composite { canvas: 300, vtable: 9, origin: (0, 0), size: (10, 10), clip: [0, 0, 10, 10], keyed: false });
         m.apply(Event::PaintEnd);
-        assert_eq!(m.frame().draws, vec![ScreenDraw::Fill { rect: [0, 0, 10, 10], rgb: [9, 9, 9], clip: [0, 0, 10, 10] }]);
+        assert_eq!(m.frame().draws, vec![ScreenDraw::Fill { rect: [0, 0, 10, 10], rgb: [9, 9, 9], alpha: 255, clip: [0, 0, 10, 10] }]);
+    }
+
+    #[test]
+    fn underlays_keep_labels_and_drop_our_art() {
+        let mut m = UiModel::new(vec![], vec![77]).with_underlays(vec![300], vec!["fogofwar.pcx".into()]);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        m.apply(Event::Loaded { image: 10, path: "Art\\Terrain\\FogOfWar.pcx".into(), size: (64, 64) });
+        m.apply(Event::Loaded { image: 11, path: "Art\\Cities\\barracks.pcx".into(), size: (64, 64) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0, 0, 8, 8] });
+        m.apply(Event::Sliced { sprite: 21, image: 11, rect: [1, 1, 23, 15] });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255 });
+        m.apply(Event::Fill { canvas: 300, rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128 });
+        m.apply(Event::Blit { sprite: 21, canvas: 300, x: 1, y: 2 });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 3, y: 4 });
+        m.apply(Event::Fill { canvas: 77, rect: [0, 0, 1, 1], rgb: [9, 9, 9], alpha: 255 });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (100, 100)));
+        m.apply(composite(77, (0, 0), (100, 100)));
+        m.apply(Event::PaintEnd);
+        let clip = [0, 0, 100, 100];
+        assert_eq!(
+            m.frame().draws,
+            vec![
+                ScreenDraw::Fill { rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128, clip },
+                ScreenDraw::Image { path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip },
+            ]
+        );
     }
 }

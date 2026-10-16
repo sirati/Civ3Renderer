@@ -366,3 +366,34 @@ pub fn generated_surfaces(build: Build) -> &'static [(u32, &'static str)] {
 pub const fn generated_surfaces_pcg() -> &'static [(u32, &'static str)] {
     &[(0xA0_E230 + 0x858, "minimap")]
 }
+
+inproc::fastcall_hook! {
+    /// jgl.dll `JGL_Image::shade_rect(this, RECT *r, color, percent)`
+    /// (vtable slot +0x48): mixes `color` into the rectangle (NULL: the whole
+    /// image), keeping `percent` of what is there — the translucent city
+    /// label plates (docs §16.6). `color`: bit 31 set: a direct 16-bit
+    /// colour, else a palette index.
+    pub mod jgl_shade(image, edx; rect, color, percent) -> i32;
+}
+
+/// The `JGL_Image` vtable slot of `shade_rect` in jgl.dll loaded at `base`,
+/// and the function expected there (jgl.dll of 2004-03-17: vtable at RVA
+/// 0x68238, the function at RVA 0x2320).
+pub fn jgl_shade_slot(base: u32) -> (Ptr32<u32>, u32) {
+    (Ptr32::new(base + 0x6_8238 + 0x48), base + 0x2320)
+}
+
+/// The `PCX_Image` owning a `JGL_Image` (its +0x80 back pointer).
+pub fn jgl_owner(jgl_image: u32) -> Option<u32> {
+    Ptr32::<u32>::new(jgl_image.wrapping_add(0x80)).read().ok().filter(|&p| p != 0)
+}
+
+/// The canvas the game draws unit decorations on (team discs, movement
+/// LEDs, health bars, stack lines; a keyed overlay over the map, measured
+/// at 0x9FD80C = main screen form + 0x514C on the PCGames build).
+pub fn unit_overlay_canvas(build: Build) -> Option<u32> {
+    match build {
+        Build::PcGames => Some(0x9F_D80C),
+        Build::Gog | Build::Steam => None,
+    }
+}
