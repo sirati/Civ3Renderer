@@ -40,6 +40,29 @@ pub struct CityInfo {
     pub size: i32,
     /// Bit i: has improvement i (the first 256).
     pub improvements: [u8; 32],
+    /// What the city is building: `Order_Type` (`COT_IMPROVEMENT`: 1) and
+    /// `Order_ID`.
+    pub order: (i32, i32),
+}
+
+impl CityInfo {
+    /// The improvement the city is building, if it is building one.
+    pub fn improvement_in_production(&self) -> Option<i32> {
+        (i64::from(self.order.0) == L::COT_IMPROVEMENT).then_some(self.order.1)
+    }
+}
+
+/// What an improvement's rules say about whether a city counts as having
+/// it (C3X's `has_active_building`, docs §18).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImprovementInfo {
+    pub name: String,
+    /// The government it needs (-1: any).
+    pub government: i32,
+    /// Bit per player that knows the tech obsoleting it.
+    pub obsolete_for: u32,
+    /// A wonder or a small wonder.
+    pub wonder: bool,
 }
 
 /// A unit as the animator draws it (docs §10).
@@ -196,6 +219,14 @@ impl TileRecord {
     pub fn city_id(&self) -> i16 {
         self.i16(L::TILE_CITYID)
     }
+    /// The city whose area the tile belongs to (-1: none; C3X's tile
+    /// improvements count only that city's buildings).
+    pub fn city_area(&self) -> i16 {
+        self.i16(L::TILE_BODY + L::TILE_BODY_CITYAREAID)
+    }
+    pub fn continent(&self) -> i16 {
+        self.i16(L::TILE_CONTINENTID)
+    }
     /// -1, or the tile building (colony, airfield, radar tower, outpost)
     /// on this tile.
     pub fn building_id(&self) -> i16 {
@@ -335,18 +366,23 @@ impl Civ3 {
             .collect()
     }
 
-    /// Whether `civ` knows `tech` (`Leader_has_tech`); `None` if the tech
-    /// table of this build is not known.
-    pub fn has_tech(&self, civ: i32, tech: i32) -> Option<bool> {
+    /// The players that know `tech`, a bit each (`Leader_has_tech` reads
+    /// one of these); `None` if the tech table of this build is not known.
+    pub fn tech_known_by(&self, tech: i32) -> Option<u32> {
         if tech < 0 {
-            return Some(true);
+            return Some(u32::MAX);
         }
         let (table, never) = crate::hooks::tech_table(self.build)?;
         if never.read().ok()? == tech {
-            return Some(false);
+            return Some(0);
         }
-        let bits = table.read().ok()?.index(tech as u32).ok()?.read().ok()?;
-        Some(bits & (1u32 << (civ & 31)) != 0)
+        table.read().ok()?.index(tech as u32).ok()?.read().ok()
+    }
+
+    /// Whether `civ` knows `tech` (`Leader_has_tech`); `None` if the tech
+    /// table of this build is not known.
+    pub fn has_tech(&self, civ: i32, tech: i32) -> Option<bool> {
+        Some(self.tech_known_by(tech)? & (1u32 << (civ & 31)) != 0)
     }
 
     /// Per resource type: is its icon shown to `civ` (the prerequisite tech
@@ -436,6 +472,45 @@ impl Civ3 {
             }
         }
         Ok((walls, icons))
+    }
+
+    /// The keys of the free buildings wonders give `civ`
+    /// (`Leader.Auto_Improvements`): an improvement id for a building in all
+    /// its cities, `(continent + 1) · ImprovementsCount + id` for one in its
+    /// cities on that continent (docs §8, §18). The table is open addressed
+    /// items of (key, value); an unused one has the key -1.
+    pub fn free_improvements(&self, civ: i32) -> Result<Vec<i32>, Civ3Error> {
+        let table = Ptr32::<u8>::new(self.addrs.leaders + civ.clamp(0, 31) as u32 * L::LEADER_SIZE + L::LEADER_AUTO_IMPROVEMENTS);
+        let items: Ptr32<[i32; 2]> = table.offset::<Ptr32<[i32; 2]>>(L::HASH_TABLE_ITEMS)?.read()?;
+        let capacity: i32 = table.offset::<i32>(L::HASH_TABLE_CAPACITY)?.read()?;
+        if items.is_null() || capacity <= 0 {
+            return Ok(Vec::new());
+        }
+        let items = items.read_array(capacity.min(1 << 16) as usize)?;
+        Ok(items.into_iter().map(|[key, _]| key).filter(|&key| key >= 0).collect())
+    }
+
+    /// Every improvement's rules for being counted as present (see
+    /// [`ImprovementInfo`]), by improvement id. One read for all of them.
+    pub fn improvements(&self) -> Result<Vec<ImprovementInfo>, Civ3Error> {
+        let base: Ptr32<u8> = self.bic(L::BIC_IMPROVEMENTS)?;
+        let count = self.bic::<i32>(L::BIC_IMPROVEMENTSCOUNT)?.clamp(0, 1024) as usize;
+        let size = L::IMPROVEMENT_SIZE as usize;
+        let bytes = base.read_array(count * size)?;
+        Ok(bytes
+            .chunks_exact(size)
+            .map(|record| {
+                let field = |offset: u32| i32::from_le_bytes(record[offset as usize..offset as usize + 4].try_into().unwrap());
+                let name = &record[L::IMPROVEMENT_NAME as usize..][..32];
+                let obsolete = field(L::IMPROVEMENT_OBSOLETEID);
+                ImprovementInfo {
+                    name: String::from_utf8_lossy(&name[..name.iter().position(|&b| b == 0).unwrap_or(32)]).into_owned(),
+                    government: field(L::IMPROVEMENT_GOVERNMENTID),
+                    obsolete_for: if obsolete >= 0 { self.tech_known_by(obsolete).unwrap_or(0) } else { 0 },
+                    wonder: i64::from(field(L::IMPROVEMENT_CHARACTERISTICS)) & (L::ITC_WONDER | L::ITC_SMALL_WONDER) != 0,
+                }
+            })
+            .collect())
     }
 
     /// The units the animator draws this frame, in drawing order.
@@ -626,6 +701,7 @@ impl Civ3 {
                 civ: body.offset::<i8>(L::CITY_BODY_CIVID)?.read()?.into(),
                 size: body.offset::<i32>(L::CITY_BODY_POPULATION + L::POPULATION_SIZE)?.read()?,
                 improvements: body.offset::<[u8; 32]>(L::CITY_BODY_IMPROVEMENTS_1 + L::CITY_IMPROVEMENTS_IMPROVEMENTS)?.read()?,
+                order: (body.offset::<i32>(L::CITY_BODY_ORDER_TYPE)?.read()?, body.offset::<i32>(L::CITY_BODY_ORDER_ID)?.read()?),
             });
         }
         Ok(out)

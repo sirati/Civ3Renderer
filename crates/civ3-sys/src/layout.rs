@@ -356,6 +356,20 @@ pub const TILE_BUILDING_BODY_OWNERID: u32 = 16;
 pub const MAIN_SCREEN_FORM_FIELD_4E80: u32 = 20096;
 pub const BASE_FORM_DATA_CANVAS: u32 = 624;
 pub const CITY_BODY: u32 = 28;
+pub const TILE_BODY_CITYAREAID: u32 = 48;
+pub const CITY_BODY_ORDER_ID: u32 = 48;
+pub const CITY_BODY_ORDER_TYPE: u32 = 52;
+pub const IMPROVEMENT_NAME: u32 = 68;
+pub const IMPROVEMENT_CHARACTERISTICS: u32 = 240;
+pub const COT_IMPROVEMENT: i64 = 1;
+pub const ITC_WONDER: i64 = 4;
+pub const ITC_SMALL_WONDER: i64 = 8;
+pub const LEADER_AUTO_IMPROVEMENTS: u32 = 8400;
+pub const HASH_TABLE_SIZE: u32 = 20;
+pub const HASH_TABLE_ITEMS: u32 = 4;
+pub const HASH_TABLE_CAPACITY: u32 = 12;
+pub const HASH_TABLE_ITEM_SIZE: u32 = 8;
+pub const TILE_CONTINENTID: u32 = 30;
 
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),
