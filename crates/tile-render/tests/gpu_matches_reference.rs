@@ -346,13 +346,14 @@ fn zoomed_views_scale_by_nearest_texel() {
         world.color = color;
         if let Some(screen_sprite) = world.free.iter().find(|s| s.screen).cloned() {
             world.free.push(PlacedSprite { view: Some(1), x: 10, y: 12, ..screen_sprite.clone() });
-            world.free.push(PlacedSprite { view: Some(3), x: 300, y: 20, ..screen_sprite });
+            world.free.push(PlacedSprite { view: Some(3), x: 300, y: 20, ..screen_sprite.clone() });
+            world.free.push(PlacedSprite { view: Some(0), x: 90, y: 60, clip: Some([95, 50, 140, 90]), ..screen_sprite });
         }
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         let overhang = (0, 40, 0, 0);
-        let main = Camera { x: 50, y: 7, zoom: (3, 2), overhang, ..Camera::new((400, 240)) };
+        let main = Camera { x: 50, y: 7, zoom: (3, 2), overhang, screen_shift: (12, -7), ..Camera::new((400, 240)) };
         let magnifier = Camera { x: 140, y: 90, zoom: (3, 1), origin: (250, 10), overhang, ..Camera::new((121, 80)) };
         let inset = Camera { x: 20, y: 30, zoom: (1, 2), origin: (-30, 150), overhang, ..Camera::new((160, 100)) };
         let interface = Camera { cells: false, ..Camera::new((400, 240)) };

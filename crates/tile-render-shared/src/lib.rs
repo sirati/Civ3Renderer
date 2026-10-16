@@ -107,8 +107,9 @@ pub struct FrameParams {
     pub cull_x1: i32,
     pub cull_y1: i32,
 
-    /// Where the view sits in the render target: screen-space free sprites
-    /// are given in target pixels.
+    /// Where screen-space coordinates start in the view: screen-space free
+    /// sprites and clip rectangles are given in target pixels, relative to
+    /// the view's origin less its screen shift.
     pub origin_x: i32,
     pub origin_y: i32,
     /// 0: the view shows no world (cells, world-space sprites), only its own

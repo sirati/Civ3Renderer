@@ -197,15 +197,16 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
             let f = (frame / s.ticks_per_frame.max(1) + s.phase) % frames;
             let sprite_id = packed.sets[set + 1 + f as usize];
             let sprite = atlas.sprites[sprite_id as usize];
-            // Screen sprites are given in target pixels.
-            let (cx, cy) = if s.screen { (0, 0) } else { (camera.x - vx, camera.y - vy) };
+            // Screen sprites are given in target pixels (moved by the shift).
+            let (sx, sy) = camera.screen_shift;
+            let (cx, cy) = if s.screen { (-sx, -sy) } else { (camera.x - vx, camera.y - vy) };
             draw(Draw {
                 sprite: crate::SpriteId(sprite_id),
                 x: s.x + sprite.anchor_x - cx,
                 y: s.y + sprite.anchor_y - cy,
                 pass: p,
                 blend: s.blend,
-                clip: within(s.clip),
+                clip: within(s.clip.map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
             });
         }
     };

@@ -32,11 +32,15 @@ pub struct Camera {
     /// Whether the view shows the world (its cells and world-space sprites;
     /// false: only the view's own sprites, e.g. an interface on top).
     pub cells: bool,
+    /// How far the view's screen-space sprites and all clip rectangles
+    /// (given in target pixels) are moved (e.g. a driver's labels following
+    /// the world when the viewer moves the camera).
+    pub screen_shift: (i32, i32),
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true }
+        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0) }
     }
 
     /// Whether the view is scaled (zoom other than 1).
@@ -110,8 +114,8 @@ impl Camera {
             cols: (last_col - first_col + 1) as u32,
             rows: (last_row - first_row + 1) as u32,
             grid: grid.params(),
-            origin_x: self.origin.0,
-            origin_y: self.origin.1,
+            origin_x: self.origin.0 - self.screen_shift.0,
+            origin_y: self.origin.1 - self.screen_shift.1,
             world: self.cells as u32,
             _pad3: 0,
         }
