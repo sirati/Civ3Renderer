@@ -36,12 +36,9 @@ pub fn charset() -> impl Iterator<Item = char> {
     (32u32..=126).chain(160..=255).filter_map(char::from_u32)
 }
 
-fn paint(ink: &[u8], w: u32, h: u32, color: [u8; 3]) -> RgbaImage {
-    let [r, g, b] = color;
-    RgbaImage::from_fn(w.max(1), h.max(1), |x, y| {
-        let a = if x < w { ink[(y * w + x) as usize] } else { 0 };
-        if a != 0 { [r, g, b, a] } else { [0, 0, 0, 0] }
-    })
+/// A `w × h` glyph from its pixels (row-major RGBA).
+fn image(pixels: Vec<[u8; 4]>, w: u32, h: u32) -> RgbaImage {
+    RgbaImage::from_fn(w.max(1), h.max(1), |x, y| if x < w { pixels[(y * w + x) as usize] } else { [0; 4] })
 }
 
 /// A font as the game selects it: face, height in pixels (GDI's negative
@@ -69,7 +66,7 @@ pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<Glyph
         let glyphs = font
             .glyphs
             .into_iter()
-            .map(|g| (g.ch, Glyph { left: g.left, advance: g.advance, image: paint(&g.ink, g.width, g.height, color) }))
+            .map(|g| (g.ch, Glyph { left: g.left, advance: g.advance, image: image(g.paint(color), g.width, g.height) }))
             .collect();
         Ok(GlyphFont { ascent: font.ascent, underline: font.underline, glyphs })
     }
@@ -110,6 +107,9 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     let cell = meta.get("cell").and_then(|c| c.as_array()).ok_or_else(|| missing(&"no cell"))?;
     let (cw, ch) = (int(cell.first()) as u32, int(cell.get(1)) as u32);
     let first = int(meta.get("first")) as u32;
+    if meta.get("coverage").and_then(|c| c.as_str()) != Some("dark-light") {
+        return Err(missing(&"old sheet format"));
+    }
     let ascent = int(meta.get("ascent")) as i32;
     let underline = match meta.get("underline").and_then(|u| u.as_array()) {
         Some(u) => (int(u.first()) as i32, int(u.get(1)) as i32),
@@ -123,8 +123,12 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         let i = code - first;
         let (ox, oy) = ((i % 16) * cw, (i / 16) * ch);
         let w = int(m.get("width")) as u32;
-        let ink: Vec<u8> = (0..ch).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| sheet.get_pixel(ox + x, oy + y)[3]).collect();
-        glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image: paint(&ink, w, ch, color) });
+        let at = |(x, y): (u32, u32)| sheet.get_pixel(ox + x, oy + y);
+        let cells: Vec<(u32, u32)> = (0..ch).flat_map(|y| (0..w).map(move |x| (x, y))).collect();
+        let dark: Vec<u8> = cells.iter().map(|&p| at(p)[0]).collect();
+        let light: Vec<u8> = cells.iter().map(|&p| at(p)[1]).collect();
+        let image = image(gdi_text::paint(&dark, &light, color), w, ch);
+        glyphs.insert(c, Glyph { left: int(m.get("left")) as i32, advance: int(m.get("advance")) as i32, image });
     }
     Ok(GlyphFont { ascent, underline, glyphs })
 }

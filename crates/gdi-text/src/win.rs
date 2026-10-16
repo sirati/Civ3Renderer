@@ -12,7 +12,7 @@ pub fn add_font_file(path: &std::path::Path) -> Result<(), GdiError> {
     if n == 0 { Err(GdiError::AddFont(path.display().to_string())) } else { Ok(()) }
 }
 
-/// A memory DC with a selected font and a white-on-black 1-bit-ish DIB.
+/// A memory DC with a selected font and a 32-bit DIB to draw text on.
 struct Canvas {
     dc: HDC,
     font: HFONT,
@@ -32,12 +32,6 @@ impl Drop for Canvas {
     }
 }
 
-/// Default quality on a 32-bit DIB may pick ClearType (colour fringes); the
-/// games draw on 16-bit surfaces, where GDI smooths in grey only.
-fn quality(q: u8) -> u32 {
-    if q == DEFAULT_QUALITY as u8 { ANTIALIASED_QUALITY as u32 } else { q as u32 }
-}
-
 impl Canvas {
     fn new(font: &FontSpec, size: (i32, i32)) -> Result<Canvas, GdiError> {
         let face: Vec<u16> = font.face.encode_utf16().chain([0]).collect();
@@ -51,7 +45,7 @@ impl Canvas {
             let hfont = CreateFontW(
                 -font.height, 0, 0, 0, font.weight, font.italic as u32, 0, 0,
                 DEFAULT_CHARSET as u32, OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32,
-                quality(font.quality), DEFAULT_PITCH as u32, face.as_ptr(),
+                font.quality as u32, DEFAULT_PITCH as u32, face.as_ptr(),
             );
             let mut info: BITMAPINFO = std::mem::zeroed();
             info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
@@ -68,23 +62,30 @@ impl Canvas {
             SelectObject(dc, bitmap);
             SelectObject(dc, hfont);
             SetBkMode(dc, TRANSPARENT as i32);
-            SetTextColor(dc, 0x00FF_FFFF);
             Ok(canvas)
         }
     }
 
-    fn pixels(&self) -> &[u32] {
-        // SAFETY: the DIB section holds size.0 × size.1 pixels and lives as
-        // long as `self`; GDI has finished drawing (GdiFlush below).
+    /// `text` drawn with its pen at (x, 0) in `color` over `background`
+    /// (0xRRGGBB); the pixels' grey levels (mean of the channels).
+    fn draw(&mut self, text: &[u16], x: i32, color: u32, background: u32) -> Vec<u8> {
+        let n = (self.size.0 * self.size.1) as usize;
+        // SAFETY: the DIB section holds n pixels and lives as long as `self`,
+        // exclusive through &mut self; GDI is flushed before it is read.
         unsafe {
+            std::slice::from_raw_parts_mut(self.bits, n).fill(background);
+            SetTextColor(self.dc, (color & 0xFF) << 16 | (color & 0xFF00) | (color >> 16 & 0xFF));
+            TextOutW(self.dc, x, 0, text.as_ptr(), text.len() as i32);
             GdiFlush();
-            std::slice::from_raw_parts(self.bits, (self.size.0 * self.size.1) as usize)
+            std::slice::from_raw_parts(self.bits, n).iter().map(|&p| (((p >> 16 & 0xFF) + (p >> 8 & 0xFF) + (p & 0xFF)) / 3) as u8).collect()
         }
     }
 
-    fn clear(&mut self) {
-        // SAFETY: as in `pixels`, exclusive through &mut self.
-        unsafe { std::ptr::write_bytes(self.bits, 0, (self.size.0 * self.size.1) as usize) };
+    fn extent(&self, text: &[u16]) -> i32 {
+        let mut size = SIZE { cx: 0, cy: 0 };
+        // SAFETY: `text` outlives the call; writes only `size`.
+        unsafe { GetTextExtentPoint32W(self.dc, text.as_ptr(), text.len() as i32, &mut size) };
+        size.cx
     }
 }
 
@@ -101,27 +102,31 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
     let mut out = Vec::new();
     for ch in chars {
         let mut units = [0u16; 2];
-        let units = ch.encode_utf16(&mut units);
-        let mut size = SIZE { cx: 0, cy: 0 };
-        canvas.clear();
-        // SAFETY: `units` outlives the calls; output structs are local.
-        unsafe {
-            GetTextExtentPoint32W(canvas.dc, units.as_ptr(), units.len() as i32, &mut size);
-            TextOutW(canvas.dc, origin, 0, units.as_ptr(), units.len() as i32);
-        }
-        let px = canvas.pixels();
+        let units: &[u16] = ch.encode_utf16(&mut units);
+        // The pen advance as text runs see it: one character's extent
+        // includes the overhang of synthesised bold and italic once more.
+        let twice: Vec<u16> = units.iter().chain(units).copied().collect();
+        let advance = canvas.extent(&twice) - canvas.extent(units);
+        let light = canvas.draw(units, origin, 0xFF_FFFF, 0);
+        let dark: Vec<u8> = canvas.draw(units, origin, 0, 0xFF_FFFF).into_iter().map(|g| 255 - g).collect();
         let (w, h) = canvas.size;
-        // White text on black: any channel is the coverage (grey where GDI
-        // smooths the edges).
-        let ink_at = |x: i32, y: i32| (px[(y * w + x) as usize] >> 8) as u8;
-        let cols: Vec<i32> = (0..w).filter(|&x| (0..line.min(h)).any(|y| ink_at(x, y) != 0)).collect();
+        let height = line.min(h);
+        let at = |x: i32, y: i32| (y * w + x) as usize;
+        let cols: Vec<i32> = (0..w).filter(|&x| (0..height).any(|y| dark[at(x, y)] != 0 || light[at(x, y)] != 0)).collect();
         let (x0, x1) = match (cols.first(), cols.last()) {
             (Some(&a), Some(&b)) => (a, b + 1),
             _ => (origin, origin),
         };
-        let height = line.min(h) as u32;
-        let ink = (0..height as i32).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| ink_at(x, y)).collect();
-        out.push(Glyph { ch, left: x0 - origin, advance: size.cx, width: (x1 - x0) as u32, height, ink });
+        let crop = |m: &[u8]| (0..height).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| m[at(x, y)]).collect();
+        out.push(Glyph {
+            ch,
+            left: x0 - origin,
+            advance,
+            width: (x1 - x0) as u32,
+            height: height as u32,
+            dark: crop(&dark),
+            light: crop(&light),
+        });
     }
     Ok(crate::Font { ascent: metrics.tmAscent, underline: underline(&canvas, &metrics), glyphs: out })
 }
