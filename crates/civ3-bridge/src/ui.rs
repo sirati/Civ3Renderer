@@ -1456,6 +1456,41 @@ mod tests {
     }
 
     #[test]
+    fn a_form_composed_only_outside_a_paint_shows_once_composed_as_one() {
+        // The end of game's victory screen runs a loop of its own: it
+        // composes every form and presents, never painting. Composed alone,
+        // a form the last paint did not have stays out of the screen; the
+        // bridge reports that whole composition as a paint, and it shows.
+        let mut m = advisor();
+        m.apply(Event::Fill { canvas: 600, rect: [0, 0, 1000, 800], rgb: [7, 7, 7], alpha: 255, clip: None });
+        let victory = ScreenDraw::Fill { rect: [0, 0, 1000, 800], rgb: [7, 7, 7], alpha: 255, clip: ALL };
+        let frame = |m: &UiModel| {
+            let mut f = m.shown_frame();
+            for d in &mut f.draws {
+                if let ScreenDraw::Fill { clip, .. } = d {
+                    *clip = ALL;
+                }
+            }
+            f
+        };
+        for _ in 0..2 {
+            m.apply(composite(400, (0, 0), (1000, 800)));
+            m.apply(composite(300, (100, 100), (200, 100)));
+            m.apply(composite(600, (0, 0), (1000, 800)));
+            m.apply(Event::Present { rect: None });
+        }
+        assert!(!frame(&m).draws.contains(&victory));
+        m.apply(Event::PaintBegin);
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(composite(300, (100, 100), (200, 100)));
+        m.apply(composite(600, (0, 0), (1000, 800)));
+        m.apply(Event::PaintEnd);
+        m.apply(Event::Present { rect: None });
+        assert_eq!(m.shown_frame().forms.len(), 3);
+        assert!(frame(&m).draws.contains(&victory));
+    }
+
+    #[test]
     fn a_form_drawn_again_over_itself_does_not_grow() {
         // The advisors' common background (measured: F5): every few seconds
         // its art, head and tabs are drawn again without the canvas being
