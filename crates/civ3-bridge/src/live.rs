@@ -1298,8 +1298,13 @@ fn publish(
             texts.iter().cloned().map(|run| ui_screen::Item::Text(run, [i32::MIN, i32::MIN, i32::MAX, i32::MAX], false)).collect()
         } else { Vec::new() };
         let mandatory = ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&plain_text);
-        match ui_screen::readiness(mandatory, &fonts, &compiled, schedule.screen_pending()) {
-            ui_screen::Readiness::Pending => {
+        let size = input.game_window().and_then(|w| w.client_size()).unwrap_or(input.viewport);
+        match ui_screen::publication(mandatory, &fonts, &compiled, schedule.screen_pending(), size) {
+            ui_screen::Publication::Retain { unavailable } => {
+                if unavailable && !unavailable_screen {
+                    log::error!("scene: mandatory and diagnostic art unavailable; retaining the complete screen");
+                }
+                unavailable_screen = unavailable;
                 if held_since.is_none() {
                     held_since = Some(std::time::Instant::now());
                     log::debug!("scene: retaining the complete screen while mandatory art is built");
@@ -1307,13 +1312,26 @@ fn publish(
                 last = None;
                 continue;
             }
-            ui_screen::Readiness::Unavailable => {
+            ui_screen::Publication::Diagnostic(mut scene) => {
                 if !unavailable_screen {
-                    log::warn!("scene: mandatory art request completed without all visible art; using the available screen fallback");
+                    log::error!("scene: mandatory art request completed without visible art; showing the generated missing-art screen");
                 }
                 unavailable_screen = true;
+                held_since = None;
+                new_art = false;
+                seq += 1;
+                scene.seq = seq;
+                scene.cursor = *cursor;
+                scene.settings = Some(prefs.settings().clone());
+                let published = presenter.publish(scene);
+                if published {
+                    published_prefs = (prefs_draws, Some(prefs.settings().clone()));
+                    last_replay_revision = replay_revision;
+                }
+                last = published.then_some(state);
+                continue;
             }
-            ui_screen::Readiness::Ready => unavailable_screen = false,
+            ui_screen::Publication::Complete => unavailable_screen = false,
         }
         if let Some(since) = held_since.take() {
             log::info!("scene: mandatory screen art settled after {} ms", since.elapsed().as_millis());
