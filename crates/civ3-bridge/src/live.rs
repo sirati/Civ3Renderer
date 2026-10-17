@@ -343,7 +343,9 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         };
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
     };
+    log::info!("renderer {}", presenter.describe());
     presenter.set_assets(&compiled, &wire);
+    presenter.forward_log();
     let compiled = Arc::new(compiled.without_pixels());
     std::thread::Builder::new()
         .name("civ3r-publish".into())
@@ -415,6 +417,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             recompile = true;
         }
         let inputs = presenter.take_input();
+        presenter.forward_log();
         let shown = match snapshot(&game) {
             Ok((world, view)) => Shown::Map(world, view),
             // Between games: the title menu, which follows the pointer.

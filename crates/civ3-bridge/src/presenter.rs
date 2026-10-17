@@ -89,6 +89,24 @@ impl Presenter {
             Sink::Native(n) => n.take_input(),
         }
     }
+
+    /// Writes what the renderer logged into this log (the native viewer's
+    /// lines from `info` up; an in-process viewer logs here itself).
+    pub fn forward_log(&mut self) {
+        if let Sink::Native(n) = &mut self.sink {
+            for line in n.take_log() {
+                log::log!(target: "civ3r_native", line.level, "{}: {}", line.target, line.message);
+            }
+        }
+    }
+
+    /// Which renderer this is, for the log.
+    pub fn describe(&self) -> &'static str {
+        match self.sink {
+            Sink::InProcess { .. } => "in-process: the viewer is a window of the game's own (32-bit Windows) process",
+            Sink::Native(_) => "native: the viewer is native Linux code in the game's process (civ3r_native.dll's unixlib, Wine's new WoW64)",
+        }
+    }
 }
 
 /// The native viewer (only in a Wine process with `civ3r_native.dll`).
@@ -97,13 +115,14 @@ pub struct Native {
     lib: wine_unixlib::pe::UnixLib,
     fullscreen: bool,
     input: Vec<u8>,
+    log: Vec<u8>,
 }
 
 impl Native {
     #[cfg(all(windows, target_arch = "x86"))]
     pub fn load(fullscreen: bool) -> Result<Native, String> {
         let lib = wine_unixlib::pe::UnixLib::load("civ3r_native.dll").map_err(|s| format!("civ3r_native.dll: status {s:#x}"))?;
-        Ok(Native { lib, fullscreen, input: vec![0; 64 * 1024] })
+        Ok(Native { lib, fullscreen, input: vec![0; 64 * 1024], log: vec![0; 16 * 1024] })
     }
 
     #[cfg(not(all(windows, target_arch = "x86")))]
@@ -141,6 +160,25 @@ impl Native {
         {
             let _ = updates;
             false
+        }
+    }
+
+    fn take_log(&mut self) -> Vec<civ3r_native::log_lines::LogLine> {
+        #[cfg(all(windows, target_arch = "x86"))]
+        {
+            loop {
+                let mut args = civ3r_native::TakeLog { out: wine_unixlib::pe::buffer_mut(&mut self.log), len: 0, _pad: 0 };
+                match self.lib.call(civ3r_native::CALL_LOG, &mut args) {
+                    0 => return civ3r_native::log_lines::decode(&self.log[..args.len as usize]).unwrap_or_default(),
+                    wine_unixlib::STATUS_BUFFER_TOO_SMALL => self.log.resize(args.len as usize, 0),
+                    _ => return Vec::new(),
+                }
+            }
+        }
+        #[cfg(not(all(windows, target_arch = "x86")))]
+        {
+            let _ = &self.log;
+            Vec::new()
         }
     }
 
