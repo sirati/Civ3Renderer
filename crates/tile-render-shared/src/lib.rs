@@ -395,7 +395,41 @@ pub struct SpriteDesc {
     /// picks (a nation's colours, say), where it picks one: so one copy of
     /// the art serves every colouring (see [`indexed_color`]).
     pub remap: u32,
-    pub _pad2: u32,
+    /// How many columns at its left, rows at its top, columns at its right
+    /// and rows at its bottom draw nothing (texels of alpha 0), at most 255
+    /// each, a byte each from the low one ([`blank_margins`]): drawn
+    /// rectangles leave them out ([`drawn_part`]), so that no fragment is
+    /// shaded only to be discarded. 0: none known.
+    pub blank: u32,
+}
+
+/// [`SpriteDesc::blank`] of blank margins (left, top, right, bottom),
+/// each cut to 255.
+pub fn blank_margins(left: u32, top: u32, right: u32, bottom: u32) -> u32 {
+    left.min(255) | top.min(255) << 8 | right.min(255) << 16 | bottom.min(255) << 24
+}
+
+/// The part of the rectangle `p` draws `sprite` in (pixels `0..p.width` ×
+/// `0..p.height` from its corner) that shows texels of the sprite outside
+/// its blank margins ([`SpriteDesc::blank`]): left, top, right, bottom,
+/// relative to the rectangle (empty if right ≤ left or bottom ≤ top).
+/// Pixel `i` of the rectangle shows texel `p.texel + p.step·i`.
+pub fn drawn_part(sprite: &SpriteDesc, p: &Placed) -> (u32, u32, u32, u32) {
+    let m = sprite.blank;
+    let (x0, x1) = drawn_span(m & 0xFF, (m >> 16) & 0xFF, sprite.width, p.texel_x, p.step, p.width);
+    let (y0, y1) = drawn_span((m >> 8) & 0xFF, m >> 24, sprite.height, p.texel_y, p.step, p.height);
+    (x0, y0, x1, y1)
+}
+
+/// Of `count` pixels showing texels `texel + step·i` of a row (column) of
+/// `size` texels with `lo` and `hi` blank at its ends, the first and past
+/// the last that show one that is not.
+fn drawn_span(lo: u32, hi: u32, size: u32, texel: u32, step: u32, count: u32) -> (u32, u32) {
+    let step = if step == 0 { 1 } else { step };
+    let end = if size > hi { size - hi } else { 0 };
+    let first = if lo > texel { (lo - texel + step - 1) / step } else { 0 };
+    let past = if end > texel { (end - texel + step - 1) / step } else { 0 };
+    (if first < count { first } else { count }, if past < count { past } else { count })
 }
 
 /// Entries per palette row. Palette rows are `PALETTE_SIZE` RGBA8 colours

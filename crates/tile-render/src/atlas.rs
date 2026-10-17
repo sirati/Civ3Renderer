@@ -393,7 +393,61 @@ impl Atlas {
             return false;
         }
         page.blit(image, 0, 0, image.width, image.height, s.atlas_x, s.atlas_y);
+        // (Its blank margins are not known any more.)
+        self.sprites[sprite.0 as usize].blank = 0;
         true
+    }
+
+    /// Finds every sprite's blank margins (`SpriteDesc::blank`) from its
+    /// pixels (none without them), once the palettes are set: texels of
+    /// alpha 0, of an indexed sprite those whose entry of its own row has
+    /// alpha 0 (not those of the range a draw may remap).
+    pub fn trim_blank(&mut self) {
+        let mut found: std::collections::HashMap<[u32; 7], u32> = std::collections::HashMap::new();
+        for i in 0..self.sprites.len() {
+            let s = self.sprites[i];
+            let key = [s.page, s.atlas_x, s.atlas_y, s.width, s.height, s.palette, s.remap];
+            let blank = match found.get(&key) {
+                Some(&b) => b,
+                None => {
+                    let b = self.margins(&s);
+                    found.insert(key, b);
+                    b
+                }
+            };
+            self.sprites[i].blank = blank;
+        }
+    }
+
+    /// The blank margins of `s` (0 where its pixels are not here).
+    fn margins(&self, s: &SpriteDesc) -> u32 {
+        let (w, h) = (s.width, s.height);
+        if w == 0 || h == 0 {
+            return 0;
+        }
+        let blank: Box<dyn Fn(u32, u32) -> bool + '_> = if s.palette == 0 {
+            let Some(page) = self.pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return 0 };
+            Box::new(move |x, y| page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize][3] == 0)
+        } else {
+            let Some(page) = self.index_pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return 0 };
+            let row = s.palette as usize * tile_render_shared::PALETTE_SIZE as usize;
+            let Some(entries) = self.palettes.get(row..row + tile_render_shared::PALETTE_SIZE as usize) else { return 0 };
+            let (lo, hi) = (s.remap & 0xFFFF, s.remap >> 16);
+            Box::new(move |x, y| {
+                let i = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize] as u32;
+                !(lo..hi).contains(&i) && entries[i as usize] >> 24 == 0
+            })
+        };
+        let row_blank = |y: u32| (0..w).all(|x| blank(x, y));
+        let top = (0..h).take_while(|&y| row_blank(y)).count() as u32;
+        if top == h {
+            return tile_render_shared::blank_margins(w, h, w, h);
+        }
+        let bottom = (top..h).rev().take_while(|&y| row_blank(y)).count() as u32;
+        let column_blank = |x: u32| (top..h - bottom).all(|y| blank(x, y));
+        let left = (0..w).take_while(|&x| column_blank(x)).count() as u32;
+        let right = (left..w).rev().take_while(|&x| column_blank(x)).count() as u32;
+        tile_render_shared::blank_margins(left, top, right, bottom)
     }
 
     /// Bytes its pages take: colour pages, index pages.
@@ -421,5 +475,36 @@ mod tests {
             assert_eq!(page.get(s.atlas_x, s.atlas_y)[0], i as u8);
             assert_eq!(page.get(s.atlas_x + 29, s.atlas_y + 19)[0], i as u8);
         }
+    }
+
+    #[test]
+    fn blank_margins_are_the_alpha_0_edges_and_go_with_new_pixels() {
+        let mut b = AtlasBuilder::new(64);
+        // Opaque in x 3..7, y 2..9 of 12 × 10 (one translucent texel counts).
+        let img = RgbaImage::from_fn(12, 10, |x, y| if (3..7).contains(&x) && (2..9).contains(&y) { [9, 9, 9, if x == 3 { 1 } else { 255 }] } else { [7, 7, 7, 0] });
+        let a = b.add(&img, (0, 0)).unwrap();
+        let empty = b.add(&RgbaImage::new(4, 3), (0, 0)).unwrap();
+        // Indexed: index 0 clear in its own row, 5 opaque, 200 remapped.
+        let idx = IndexImage::from_fn(8, 4, |x, _| match x {
+            1 => 5,
+            6 => 200,
+            _ => 0,
+        });
+        let i = b.add_indexed(&idx, (0, 0), 1, tile_render_shared::remap_range(100, 255)).unwrap();
+        let mut atlas = b.finish();
+        let mut palettes = no_palettes();
+        palettes.extend((0..256u32).map(|k| if k == 0 || k >= 100 { 0 } else { 0xFF00_0000 }));
+        atlas.palettes = palettes;
+        atlas.trim_blank();
+        assert_eq!(atlas.sprites[a.0 as usize].blank, tile_render_shared::blank_margins(3, 2, 5, 1));
+        assert_eq!(atlas.sprites[empty.0 as usize].blank, tile_render_shared::blank_margins(4, 3, 4, 3));
+        assert_eq!(atlas.sprites[i.0 as usize].blank, tile_render_shared::blank_margins(1, 0, 1, 0));
+        let s = atlas.sprites[a.0 as usize];
+        assert_eq!(tile_render_shared::drawn_part(&s, &tile_render_shared::placed(&s, 1)), (3, 2, 7, 9));
+        // Every other texel from texel 1 on: pixels 1..3 show texels 3, 5.
+        let half = tile_render_shared::Placed { texel_x: 1, texel_y: 0, step: 2, width: 5, height: 5, ..Default::default() };
+        assert_eq!(tile_render_shared::drawn_part(&s, &half), (1, 1, 3, 5));
+        assert!(atlas.patch(a, &RgbaImage::new(12, 10)));
+        assert_eq!(atlas.sprites[a.0 as usize].blank, 0);
     }
 }

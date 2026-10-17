@@ -376,13 +376,20 @@ impl TileRenderer {
     /// Replaces the pixels of atlas sprite `sprite` (sprites whose content
     /// changes at run time, e.g. a minimap). `image` must have the sprite's
     /// size; returns whether it was written.
-    pub fn patch_sprite(&self, queue: &wgpu::Queue, sprite: crate::SpriteId, image: &crate::RgbaImage) -> bool {
-        let Some(a) = &self.atlas else { return false };
-        let Some(s) = a.sprites.get(sprite.0 as usize) else { return false };
+    pub fn patch_sprite(&mut self, queue: &wgpu::Queue, sprite: crate::SpriteId, image: &crate::RgbaImage) -> bool {
+        let Some(a) = &mut self.atlas else { return false };
+        let Some(s) = a.sprites.get_mut(sprite.0 as usize) else { return false };
         if (s.width, s.height) != (image.width, image.height) || s.width == 0 || s.height == 0 || s.palette != 0 {
             return false;
         }
         a.rgba.write(queue, s.page, s.atlas_x, s.atlas_y, (image.width, image.height), image.as_bytes());
+        // Its blank margins were those of the pixels before: drawn whole.
+        if s.blank != 0 {
+            s.blank = 0;
+            if let Some(buffer) = &self.sprites {
+                queue.write_buffer(buffer, sprite.0 as u64 * size_of::<SpriteDesc>() as u64, bytemuck::bytes_of(&*s));
+            }
+        }
         true
     }
 

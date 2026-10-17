@@ -25,7 +25,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, cell_offset, frame_of, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, drawn_sprite, expand, indexed_color, layer_value, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, SCALE_SUBPIXEL, alpha_steps, drawn_part, drawn_sprite, expand, indexed_color, layer_value, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -143,7 +143,9 @@ pub fn tile_vs(
     // view's scale: the part of its box it covers).
     let x0 = x + p.corner_x + p.inset_x as i32 - params.camera_x;
     let y0 = y + p.corner_y + p.inset_y as i32 - params.camera_y;
-    let rect = (x0, y0, x0 + p.width as i32, y0 + p.height as i32);
+    // Without the sprite's blank margins (see `trimmed`).
+    let (dx0, dy0, dx1, dy1) = trimmed(sprite, &p, params);
+    let rect = (x0 + dx0 as i32, y0 + dy0 as i32, x0 + dx1 as i32, y0 + dy1 as i32);
     let Some((l, t, r, b)) = on_target(params, rect) else {
         *out_pos = CULLED;
         return;
@@ -161,6 +163,14 @@ pub fn tile_vs(
     *out_scaled = params.scaled;
     *out_step = p.step;
     *out_palette = UVec3::new(sprite.palette, sprite.remap, palette);
+}
+
+/// The part of the rectangle `p` places `sprite` in that is drawn: all of
+/// it but the sprite's blank margins (`tile_render_shared::drawn_part`),
+/// whose fragments would all be discarded. Not in a hairline view, whose
+/// sprites keep a pixel of their rectangle however small it is shown.
+fn trimmed(sprite: &SpriteDesc, p: &tile_render_shared::Placed, params: &FrameParams) -> (u32, u32, u32, u32) {
+    if params.hairline != 0 { (0, 0, p.width, p.height) } else { drawn_part(sprite, p) }
 }
 
 /// Where a sprite whose (clipped) rectangle at zoom 1 is (left, top, right,
@@ -285,8 +295,11 @@ pub fn free_vs(
     };
     let x0 = scaled(fx, zn, zd) + dx + p.corner_x + p.inset_x as i32;
     let y0 = scaled(fy, zn, zd) + dy + p.corner_y + p.inset_y as i32;
-    let (mut l, mut t) = (x0, y0);
-    let (mut r, mut b) = (x0 + p.width as i32, y0 + p.height as i32);
+    // Without the sprite's blank margins (ClearType-like sprites draw
+    // where their coverage is, whatever their alpha: all of them).
+    let (dx0, dy0, dx1, dy1) = if f.scale_den == SCALE_SUBPIXEL { (0, 0, p.width, p.height) } else { trimmed(sprite, &p, params) };
+    let (mut l, mut t) = (x0 + dx0 as i32, y0 + dy0 as i32);
+    let (mut r, mut b) = (x0 + dx1 as i32, y0 + dy1 as i32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
     if f.flags & FREE_CLIP != 0 {
         // (Target pixels from the screen origin, like screen sprites; for
