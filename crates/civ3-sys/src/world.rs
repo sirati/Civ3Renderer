@@ -115,6 +115,40 @@ pub struct DrawnUnit {
     pub moving: bool,
 }
 
+/// Where an animation the animator draws besides units comes from (docs
+/// §10.14).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EffectSource {
+    /// A city's own (disorder, celebration): its `AnimatedEffect`.
+    City { effect: i32 },
+    /// The game's list of tile effects (hits and misses of bombardment and
+    /// combat, smoke over a volcano, ...): its `AnimatedEffect`.
+    Tile { effect: i32 },
+    /// The animator's extra animations (a bomber's bombs, SAM and SDI shots).
+    Extra,
+}
+
+/// An animation the animator draws besides units (docs §10.14): an
+/// `FLC_Animation` of the art `ini` names, as it stands now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DrawnEffect {
+    pub source: EffectSource,
+    /// The tile it belongs to.
+    pub tile: (i32, i32),
+    /// World pixel of its anchor (full size).
+    pub pixel: (i32, i32),
+    /// Displayed facing, `AnimationType` and frame within the block, as a
+    /// unit's (docs §10.4).
+    pub direction: i32,
+    pub animation: i32,
+    pub frame: i32,
+    /// Its art is loaded and it is not hidden (`field_111`, `Last`).
+    pub shown: bool,
+    /// The art's INI file (`Animation_Info.Data`), as the game resolved it
+    /// (an absolute path); empty without art.
+    pub ini: String,
+}
+
 /// An improvement that makes a town look walled (`Combat_Bombard > 0`,
 /// docs §8): its id, the government it needs (-1: any), and which players
 /// know the tech that obsoletes it (bit per player).
@@ -705,6 +739,72 @@ impl Civ3 {
         let id: i32 = current.offset::<i32>(L::UNIT_BODY + L::UNIT_BODY_ID)?.read()?;
         let frame: i32 = animator.offset::<i32>(L::ANIMATOR_UNIT_CURSOR_ANIMATION + L::FLC_ANIMATION_FIELD_FC)?.read()?;
         Ok(Some((id, frame)))
+    }
+
+    /// The animations the animator draws besides units (docs §10.14), in
+    /// the order its frame collects them (`0x4EFC30`): the cities' own, the
+    /// tile effects in list order, the extra animations. Which of them the
+    /// game shows (where the player sees their tile, not while the
+    /// animation is DEFAULT) is for the caller to decide.
+    pub fn effects(&self) -> Result<Vec<DrawnEffect>, Civ3Error> {
+        let mut out = Vec::new();
+        // The cities' own.
+        let list = Ptr32::<u8>::new(self.addrs.cities);
+        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        if !items.is_null() {
+            for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
+                let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
+                if body.is_null() {
+                    continue;
+                }
+                let effect: i32 = body.offset::<i32>(L::CITY_BODY_FIELD_A4)?.read()?;
+                if effect > 0 {
+                    out.push(Self::read_effect(body.offset::<u8>(L::CITY_BODY_STRUCT_198)?, EffectSource::City { effect })?);
+                }
+            }
+        }
+        // The tile effects: a linked list (`next` is `field_194[1]`).
+        let mut fx: Ptr32<u8> = Ptr32::<Ptr32<u8>>::new(self.addrs.tile_effects).read()?;
+        for _ in 0..4096 {
+            if fx.is_null() {
+                break;
+            }
+            let effect: i32 = fx.offset::<i32>(L::TILE_ANIMATED_EFFECT_V + 8)?.read()?;
+            out.push(Self::read_effect(fx.offset::<u8>(L::TILE_ANIMATED_EFFECT_FLC_ANIMATION)?, EffectSource::Tile { effect })?);
+            fx = fx.offset::<Ptr32<u8>>(L::TILE_ANIMATED_EFFECT_FIELD_194 + 4)?.read()?;
+        }
+        // The extra animations: a vector of `FLC_Animation *` (begin, end).
+        let animator = Ptr32::<u8>::new(self.addrs.main_screen_form + L::MAIN_SCREEN_FORM_ANIMATOR);
+        let begin: u32 = animator.offset::<u32>(L::ANIMATOR_FIELD_18E4_3)?.read()?;
+        let end: u32 = animator.offset::<u32>(L::ANIMATOR_FIELD_18E4_4)?.read()?;
+        if begin != 0 && end > begin {
+            for i in 0..((end - begin) / 4).min(256) {
+                let anim: Ptr32<u8> = Ptr32::<Ptr32<u8>>::new(begin + 4 * i).read()?;
+                if !anim.is_null() {
+                    out.push(Self::read_effect(anim, EffectSource::Extra)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn read_effect(anim: Ptr32<u8>, source: EffectSource) -> Result<DrawnEffect, Civ3Error> {
+        let i32_at = |at: u32| -> Result<i32, Civ3Error> { Ok(anim.offset::<i32>(at)?.read()?) };
+        let info: u32 = anim.offset::<u32>(L::FLC_ANIMATION_ANIMATION_INFO)?.read()?;
+        let ini = if info == 0 { String::new() } else { crate::c3x::c_string(Ptr32::<u32>::new(info + L::ANIMATION_INFO_DATA).read()?) };
+        let loaded = anim.offset::<u8>(L::FLC_ANIMATION_FIELD_111)?.read()? != 0;
+        Ok(DrawnEffect {
+            source,
+            tile: (i32_at(L::FLC_ANIMATION_SUMMARY_TILE_X)?, i32_at(L::FLC_ANIMATION_SUMMARY_TILE_Y)?),
+            pixel: (i32_at(L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X)?, i32_at(L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y)?),
+            direction: i32_at(L::FLC_ANIMATION_SUMMARY_DIRECTION_2)?,
+            animation: i32_at(L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE)?,
+            frame: i32_at(L::FLC_ANIMATION_FIELD_FC)?,
+            // The header's `Last` member of `FLC_Animation` (as a unit's).
+            shown: loaded && i32_at(L::FLC_ANIMATION_LAST)? & 0xFF != 0,
+            ini,
+        })
     }
 
     /// The `P_*` preference flags.

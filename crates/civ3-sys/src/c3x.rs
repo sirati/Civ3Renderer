@@ -200,7 +200,7 @@ pub fn section(base: u32, name: &[u8; 8]) -> Result<Option<(u32, u32)>, Civ3Erro
 }
 
 /// A NUL-terminated string at `p` (at most 260 bytes), lossy.
-fn c_string(p: u32) -> String {
+pub(crate) fn c_string(p: u32) -> String {
     if p == 0 {
         return String::new();
     }
