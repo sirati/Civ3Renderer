@@ -167,11 +167,17 @@ art of a built-in list (`assets/civ3/preload-art.txt`, written by the
 bridge with `CIV3R_ART_LIST=<file>`), then every animation of every unit
 type in every era, in additions small enough that art the screen needs
 now waits for one at most, up to a budget of atlas memory
-(`CIV3R_PRELOAD_MIB`; `CIV3R_PRELOAD=off`). A unit whose new animation has
-no art yet goes on showing its last frame; nothing waits for art (no
-scene is held back, fonts are loaded in the background, text whose glyphs
-are not in the art yet is drawn from its face's outlines meanwhile). When a scenario brings its own
-art, a whole description is compiled again against its folders.
+(`CIV3R_PRELOAD_MIB`; `CIV3R_PRELOAD=off`). Another preload chunk starts
+only after the preceding art reaches the drawable GPU atlas. A unit whose
+new animation has no art yet keeps its last frame. Fonts load in the
+background, with outline text where a complete fallback is available.
+A screen with unresolved mandatory images or text keeps the last complete
+screen visible while input, cursor feedback and layout updates continue.
+Terminal art failures show a separate generated "missing art" screen,
+without depending on game fonts or publishing a partially drawn interface.
+The viewer retains one future scene while newer updates coalesce, so
+optional growth cannot keep moving its adoption target. When a scenario
+brings its own art, a whole description is compiled against its folders.
 
 The game's interface is mirrored (`CIV3R_UI=off` turns it off): hooks on
 its UI drawing (image loads, sprite slices, blits, copies, fills, lines,
