@@ -252,19 +252,12 @@ mod unix_side {
                 let a = NEXT.pop();
                 let stop = || NEXT.superseded(a.generation);
                 let viewer = || VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|v| v.assets.clone());
-                if a.reserve > 0 {
-                    NEXT.with_current(a.generation, || {
-                        if let Some(assets) = viewer() {
-                            assets.reserve(0, a.reserve);
-                        }
-                    });
-                }
                 let started = std::time::Instant::now();
                 let result = if a.append {
                     grow(&a, &stop).map(|g| {
                         NEXT.with_current(a.generation, || {
                             if let Some(assets) = viewer() {
-                                assets.grow(Arc::new(g), a.generation);
+                                assets.grow_with_reserve(Arc::new(g), a.generation, 0, a.reserve);
                             }
                         })
                     })
@@ -275,7 +268,7 @@ mod unix_side {
                         let accepted = NEXT.with_current(a.generation, || {
                             retired = ART.lock().unwrap_or_else(|e| e.into_inner()).replace((tables, growing));
                             if let Some(assets) = viewer() {
-                                assets.set(Arc::new(c), a.generation);
+                                assets.set_with_reserve(Arc::new(c), a.generation, 0, a.reserve);
                             }
                         });
                         // Dropping the previous compile's shelves and shared

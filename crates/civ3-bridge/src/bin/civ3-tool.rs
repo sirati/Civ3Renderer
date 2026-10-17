@@ -4,8 +4,8 @@
 //!       compares the sprites we draw with the ones the game drew (same
 //!       names, positions and order), for the sprite arrays our render
 //!       description covers
-//!   civ3-tool render TRACE OUT.png [--viewport WxH]
-//!       renders the trace's world on the GPU
+//!   civ3-tool render TRACE OUT.png [--viewport WxH] [--reference]
+//!       renders the trace's world on the GPU, or with the CPU reference
 //!   civ3-tool stats TRACE
 //!       how big the atlas compiled for the trace is
 //!   civ3-tool preview SCENARIO.biq OUT.png [--viewport WxH]
@@ -202,12 +202,27 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         Some("render") => {
             let trace = load_trace(args.get(1).ok_or("render TRACE OUT.png")?)?;
             let out = args.get(2).ok_or("render TRACE OUT.png")?;
-            let (compiled, mut art) = compile(Some(&trace))?;
+            let (mut compiled, mut art) = compile(Some(&trace))?;
             let size = viewport(args)?;
             let scene = trace_scene(&trace, &compiled, art.as_mut(), size);
-            let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
             let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
-            let img = tile_viewer::render_offscreen(&gpu, &compiled, &scene, size, &config);
+            let img = if args.iter().any(|arg| arg == "--reference") {
+                for patch in &scene.patches {
+                    let Some(id) = compiled.sprite(&patch.sprite) else { continue };
+                    if patch.rgba.len() != (patch.width * patch.height * 4) as usize { continue; }
+                    let image = tile_render::RgbaImage::from_fn(patch.width, patch.height, |x, y| {
+                        let i = ((y * patch.width + x) * 4) as usize;
+                        [patch.rgba[i], patch.rgba[i + 1], patch.rgba[i + 2], patch.rgba[i + 3]]
+                    });
+                    compiled.atlas.patch(id, &image);
+                }
+                let world = tile_viewer::scene_world(&compiled, &scene);
+                let cameras = tile_viewer::scene_cameras(&scene, size, config.overhang);
+                reference::render_views(&world, &compiled.atlas, &cameras, size, scene.tick, config.clear)
+            } else {
+                let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
+                tile_viewer::render_offscreen(&gpu, &compiled, &scene, size, &config)
+            };
             image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8)
                 .map_err(|e| e.to_string())?;
             println!("{out}");
