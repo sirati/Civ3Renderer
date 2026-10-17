@@ -130,6 +130,18 @@ impl Fonts {
         new
     }
 
+    /// The fonts the art has, as lines of an art list
+    /// (`crate::preload::font_line`).
+    pub fn lines(&self) -> String {
+        self.described.iter().map(|(style, color, backdrop)| crate::preload::font_line(style, *color, *backdrop) + "\n").collect()
+    }
+
+    /// Whether the font of `style` in `color` (on `backdrop`) is loaded.
+    pub fn has_style(&self, style: &FontStyle, color: [u8; 3], backdrop: Option<[u8; 3]>) -> bool {
+        let style = FontStyle { height: civ3_assets::fonts::available_height(style), ..style.clone() };
+        self.fonts.get(&(style.clone(), color, backdrop)).is_some_and(Option::is_some) || self.described.iter().any(|(s, c, b)| *s == style && *c == color && *b == backdrop)
+    }
+
     /// Whether a font is loaded that the art does not have yet.
     pub fn has_new(&self) -> bool {
         self.fonts.iter().any(|(k, f)| f.is_some() && !self.described.contains(k))

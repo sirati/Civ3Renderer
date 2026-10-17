@@ -236,6 +236,29 @@ fn army_recolor(world: &Civ3World, u: &Civ3Unit) -> Recolor {
     Recolor { table: colors(world, color_civ(world, u)), army: Some((colors(world, 0), u.army_size.clamp(0, 4) as u8)) }
 }
 
+/// The era key of civ `civ`'s era (`ERAS_...`).
+pub fn era_of(world: &Civ3World, civ: i32) -> &str {
+    era_key(world, civ)
+}
+
+/// Civ `civ`'s colour table.
+pub fn colors_of(world: &Civ3World, civ: i32) -> i32 {
+    colors(world, civ)
+}
+
+/// The colours unit `u`'s own art is drawn in (an army's, §10.11).
+pub fn recolor_of(world: &Civ3World, u: &Civ3Unit) -> Recolor {
+    match army_member(world, u) {
+        Some(_) => army_recolor(world, u),
+        None => Recolor::civ(colors(world, u.civ)),
+    }
+}
+
+/// The member an army shows, if `u` is an army with members.
+pub fn member_of<'w>(world: &'w Civ3World, u: &Civ3Unit) -> Option<&'w Civ3Unit> {
+    army_member(world, u)
+}
+
 impl Needed {
     /// The animations the world's units show now, plus each type's DEFAULT
     /// (what idle units return to), in the colours of the civs showing

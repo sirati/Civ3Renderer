@@ -23,6 +23,14 @@ const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
 const POLL: Duration = Duration::from_millis(33);
 /// How long a font no text has asked for stays in the art (see `text::Fonts::prune`).
 const FONT_KEPT: Duration = Duration::from_secs(60);
+/// About how many bytes of pixels an addition of art made ahead has
+/// (`crate::preload`): art the screen needs waits at most for one.
+const PRELOAD_CHUNK: u64 = 3 << 20;
+/// Atlas memory art made ahead may fill, by default: in the game's 32-bit
+/// process, where software renderers keep the atlas in the process too,
+/// and in a native renderer (an integrated GPU's memory is the system's).
+const PRELOAD_MIB_IN_PROCESS: u64 = 640;
+const PRELOAD_MIB_NATIVE: u64 = 1536;
 
 fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
     Civ3Unit {
@@ -438,6 +446,21 @@ fn publish(
     let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>)> = Default::default();
     // What units drew last (shown while their new animation's art is built).
     let mut unit_memory = units::UnitMemory::default();
+    // Art made ahead (`crate::preload`): the plan for the game shown (and
+    // which game that is), the interface art to make, the budget, the
+    // atlas memory the art takes (the art thread says, with the pixels;
+    // else estimated from what was sent).
+    let art_list = crate::preload::ArtList::parse(crate::preload::BUILTIN_LIST);
+    let mut preload = crate::preload::Preload::none();
+    let mut preload_for = None;
+    let budget = crate::preload::budget(if pixels { PRELOAD_MIB_IN_PROCESS } else { PRELOAD_MIB_NATIVE });
+    let mut atlas_used: u64 = 0;
+    let mut sent_bytes: u64 = 0;
+    // `CIV3R_ART_LIST`: where to write the art the game showed (for the
+    // built-in list of `crate::preload`).
+    let art_list_out = std::env::var_os("CIV3R_ART_LIST").map(PathBuf::from);
+    // Why art is wanted, since the last addition started (for the log).
+    let mut reasons: std::collections::BTreeSet<&'static str> = Default::default();
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
     // The renderer's own settings, and our tabs over the game's Preferences
@@ -458,12 +481,14 @@ fn publish(
             let mem = inproc::process::memory().unwrap_or_default();
             let (canvases, ops, presented) = crate::ui_trace::stats().unwrap_or_default();
             log::info!(
-                "memory: working set {} MiB (peak {}), commit {} MiB (peak {}); sprites {}, fonts {}, screen art {}+{}+{}, districts {}; ui canvases {canvases}, ops {ops}, presented {presented}; scene cells {} KiB, sprites {}+{}",
+                "memory: working set {} MiB (peak {}), commit {} MiB (peak {}); sprites {}, atlas {} MiB{}, fonts {}, screen art {}+{}+{}, districts {}; ui canvases {canvases}, ops {ops}, presented {presented}; scene cells {} KiB, sprites {}+{}",
                 mem.working_set >> 20,
                 mem.peak_working_set >> 20,
                 mem.commit >> 20,
                 mem.peak_commit >> 20,
                 compiled.atlas.sprites.len(),
+                atlas_used.max(sent_bytes) >> 20,
+                if pixels { "" } else { " (estimated)" },
                 fonts.len(),
                 screen_art.regions.len(),
                 screen_art.fills.len(),
@@ -473,6 +498,12 @@ fn publish(
                 scene_size.1,
                 scene_size.2,
             );
+            if let Some(path) = &art_list_out {
+                let lines = format!("{}{}{}", art_list_header(), screen_art.to_lines(), fonts.lines());
+                if let Err(e) = std::fs::write(path, lines) {
+                    log::warn!("art list {}: {e}", path.display());
+                }
+            }
         }
         // Art built: from now on the scenes use it.
         while let Some(done) = art_thread.try_done() {
@@ -511,6 +542,10 @@ fn publish(
                     }
                 }
                 Err(e) => log::error!("art for {}: {e}", done.reason),
+            }
+            if pixels {
+                let page = 2048u64 * 2048;
+                atlas_used = done.pages.0 as u64 * 4 * page + done.pages.1 as u64 * page;
             }
             if let Some(token) = done.token {
                 schedule.done(now, token);
@@ -848,6 +883,15 @@ fn publish(
             log::debug!("art: wanted for {}", wanted_for.join(", "));
             schedule.want(now, screen_recompile);
             art_wanted.get_or_insert(now);
+            reasons.extend(wanted_for.iter().copied());
+        }
+        // A new game: plan the art to make ahead for it.
+        if let Shown::Map(world, view) = shown {
+            let key = Some((folders.clone(), crate::preload::game_key(world)));
+            if preload_for != key {
+                preload = crate::preload::Preload::plan(world, view, &mut art, &art_list, budget);
+                preload_for = key;
+            }
         }
         if let Some(token) = schedule.start(now) {
             // Fonts no screen or zoom has asked for in a while are let go
@@ -857,30 +901,14 @@ fn publish(
                 log::debug!("art: {dropped} fonts not used for {FONT_KEPT:?} let go of");
             }
             let wanted = art_wanted.unwrap_or(now);
+            let reason = std::mem::take(&mut reasons).into_iter().collect::<Vec<_>>().join(", ");
             let work = if std::mem::take(&mut whole_wanted) {
                 described_units = have.clone();
                 described_screen = screen_art.clone();
                 described_districts = district_art.clone();
                 Some(Work::Whole(compiler.whole_text(&have, &mut fonts, &screen_art, &district_art)))
             } else {
-                let units = have.minus(&described_units);
-                described_units.merge(&units);
-                let screen = screen_art.minus(&described_screen);
-                described_screen = screen_art.clone();
-                let districts = district_art.minus(&described_districts);
-                described_districts = district_art.clone();
-                let new_fonts = fonts.has_new();
-                let mut text = if new_fonts { fonts.addition() } else { String::new() };
-                if !units.is_empty() {
-                    text += &units.addition();
-                }
-                if !screen.is_empty() {
-                    text += &ui_screen::description(&screen);
-                }
-                if !districts.is_empty() {
-                    text += &districts.description();
-                }
-                (!units.is_empty() || !screen.is_empty() || !districts.is_empty() || new_fonts).then_some(Work::Addition(text))
+                addition(&have, &mut described_units, &screen_art, &mut described_screen, &district_art, &mut described_districts, &mut fonts).map(Work::Addition)
             };
             match work {
                 // Nothing new after all (e.g. a font that had been let go of).
@@ -892,9 +920,40 @@ fn publish(
                     };
                     // A renderer that compiles its own copy starts at once.
                     let generation = presenter.prepare_assets(&compiler.wire(&folders, text, append));
-                    if !art_thread.send(compiler.job(&folders, work, pixels, generation, Some(token), wanted_for.join(", "), wanted)) {
+                    if !art_thread.send(compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted)) {
                         log::error!("the art thread is gone");
                         schedule.done(now, token);
+                    }
+                }
+            }
+        }
+        // Art made ahead, while the art thread has nothing else to do (art
+        // wanted now goes first).
+        if art_thread.idle() && !schedule.pending() && !whole_wanted {
+            let have_ref = &have;
+            let wanted = |item: &crate::preload::Item| match item {
+                crate::preload::Item::Unit(f, colors) => have_ref.files.get(&f.path).is_some_and(|(_, c)| colors.is_subset(c)),
+                crate::preload::Item::Screen(art) => screen_art.covers(art),
+                crate::preload::Item::Font(style, color, backdrop) => fonts.has_style(style, *color, *backdrop),
+            };
+            if let Some((tier, items)) = preload.next(atlas_used.max(sent_bytes), PRELOAD_CHUNK, wanted) {
+                let files = compiler.files(&folders);
+                for item in items {
+                    sent_bytes += item.bytes();
+                    match item {
+                        crate::preload::Item::Unit(f, colors) => have.files.entry(f.path.clone()).or_insert_with(|| (f, Default::default())).1.extend(colors),
+                        crate::preload::Item::Screen(art) => {
+                            screen_art.regions.extend(art.regions);
+                            screen_art.fills.extend(art.fills);
+                            screen_art.dynamic.extend(art.dynamic);
+                        }
+                        crate::preload::Item::Font(style, color, backdrop) => drop(fonts.add_style(&files, style, color, backdrop)),
+                    }
+                }
+                if let Some(text) = addition(&have, &mut described_units, &screen_art, &mut described_screen, &district_art, &mut described_districts, &mut fonts) {
+                    let generation = presenter.prepare_assets(&compiler.wire(&folders, &text, true));
+                    if !art_thread.send(compiler.job(&folders, Work::Addition(text), pixels, generation, None, format!("preload ({tier})"), now)) {
+                        log::error!("the art thread is gone");
                     }
                 }
             }
@@ -1033,6 +1092,44 @@ fn publish(
         }
         last = published.then_some(state);
     }
+}
+
+/// The description entries of what is wanted (`have`, the screen art,
+/// the districts, the fonts loaded) that the art does not have yet (the
+/// `described_*`, the fonts' own), as an addition; from now on the art has
+/// them. `None`: nothing new.
+fn addition(
+    have: &units::Needed,
+    described_units: &mut units::Needed,
+    screen_art: &menu::screen::ScreenArt,
+    described_screen: &mut menu::screen::ScreenArt,
+    district_art: &crate::district_art::DistrictArt,
+    described_districts: &mut crate::district_art::DistrictArt,
+    fonts: &mut text::Fonts,
+) -> Option<String> {
+    let units = have.minus(described_units);
+    described_units.merge(&units);
+    let screen = screen_art.minus(described_screen);
+    *described_screen = screen_art.clone();
+    let districts = district_art.minus(described_districts);
+    *described_districts = district_art.clone();
+    let new_fonts = fonts.has_new();
+    let mut text = if new_fonts { fonts.addition() } else { String::new() };
+    if !units.is_empty() {
+        text += &units.addition();
+    }
+    if !screen.is_empty() {
+        text += &ui_screen::description(&screen);
+    }
+    if !districts.is_empty() {
+        text += &districts.description();
+    }
+    (!units.is_empty() || !screen.is_empty() || !districts.is_empty() || new_fonts).then_some(text)
+}
+
+/// The head of an art list (`CIV3R_ART_LIST`, `crate::preload::ArtList`).
+fn art_list_header() -> &'static str {
+    "# Art the game's interface showed (civ3-bridge, CIV3R_ART_LIST): screen regions, fills,\n# run-time pictures, fonts; tab-separated (menu::screen::ScreenArt::to_lines, preload::font_line).\n"
 }
 
 /// Whether city labels are made from the world (see `publish`), unless
