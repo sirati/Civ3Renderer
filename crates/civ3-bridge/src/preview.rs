@@ -452,6 +452,7 @@ static ASKER: Mutex<Option<(Arc<std::sync::atomic::AtomicU64>, std::sync::mpsc::
 
 /// Asks the preview thread for `job` at once (none running: the publisher
 /// asks when it sees the selection).
+#[cfg(windows)]
 fn ask_now(job: Job) {
     if let Some((latest, jobs)) = ASKER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         latest.store(job.number, std::sync::atomic::Ordering::Release);
@@ -775,6 +776,23 @@ mod tests {
         // The area: the tiles revealed (columns 4..139, rows 6..134) and a
         // tile around.
         assert_eq!(p.area, [64 * 4 - 64, 32 * 6 - 64, 64 * 134 + 128 + 128, 32 * 127 + 64 + 128]);
+    }
+
+    #[test]
+    fn a_scenario_without_known_starts_draws_black() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
+        let p = load(&install, "Conquests\\7 Sengoku - Sword of the Shogun.biq").unwrap();
+        assert!(p.world.tiles.iter().all(|t| t.explored == 0));
+        let files = || crate::assets::game_files(&install, p.scenario_folder.as_deref(), &p.search_folders);
+        let compiled = crate::assets::compile(crate::assets::BUILTIN_DESC, files()).unwrap();
+        let mut art = crate::units::UnitArt::new(files());
+        let scene = scene(&p.world, 8, &crate::scene_map::Mapper::new(&compiled), &mut art, &compiled, &Vec::new(), &Default::default());
+        let world = tile_viewer::scene_world(&compiled, &scene);
+        // Include the map's top and left edges. Unexplored tall terrain
+        // must not leak into the black outside the fog's own tile boxes.
+        let camera = tile_render::Camera { x: -32, y: -32, downscale: 8, overhang: crate::scene_map::OVERHANG, ..tile_render::Camera::new((256, 128)) };
+        let image = tile_render::reference::render(&world, &compiled.atlas, &camera, 0, [0, 0, 0, 255]);
+        assert!(image.as_bytes().chunks_exact(4).all(|p| p == [0, 0, 0, 255]));
     }
 
     #[test]
