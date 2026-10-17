@@ -3,6 +3,7 @@
 //! It is the oracle for the GPU path (tests compare both byte for byte) and
 //! a fallback for tools that have no GPU.
 
+use tile_render_shared::text;
 use tile_render_shared::{ByteReader, Placed, QUANTIZED_BIAS, alpha_steps, cell_origin, drawn_sprite, expand, mix_stored, placed, quantize, scale_stored, shrunk, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
@@ -29,6 +30,9 @@ pub struct Draw {
     /// aside): the whole sprite, or in a view showing the world smaller
     /// what `tile_render_shared::placed` says.
     pub placed: Placed,
+    /// Text drawn from outlines instead of the sprite: the glyph's pixels
+    /// from (`x`, `y`) on.
+    pub text: Option<TextPixels>,
 }
 
 impl Draw {
@@ -45,6 +49,42 @@ impl Draw {
     fn texel(&self, sprite: &tile_render_shared::SpriteDesc, i: u32, j: u32) -> (u32, u32) {
         let p = &self.placed;
         (sprite.atlas_x + p.texel_x + p.step * i, sprite.atlas_y + p.texel_y + p.step * j)
+    }
+}
+
+/// A glyph drawn from its outline (see `tile_render_shared::text`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct TextPixels {
+    pub place: tile_render_shared::text::GlyphPlace,
+    /// How many pixels it may cover from the draw's position.
+    pub size: (i32, i32),
+    /// The target pixel the place's coordinates start at.
+    pub origin: (i32, i32),
+    /// 0xRRGGBB; the colour key, if it is drawn onto one.
+    pub color: u32,
+    pub key: Option<u32>,
+}
+
+/// Calls `f` for every pixel of text draw `d` (`t`) inside the viewport and
+/// its clip with what it draws there: coverage per channel (alpha their
+/// maximum), or with a colour key the opaque colour.
+fn each_text_pixel(words: &[u32], d: &Draw, t: &TextPixels, (w, h): (u32, u32), mut f: impl FnMut(u32, u32, [u8; 4])) {
+    let clip = d.clip.unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+    let (x0, y0) = (d.x.max(clip[0]).max(0), d.y.max(clip[1]).max(0));
+    let (x1, y1) = ((d.x + t.size.0).min(clip[2]).min(w as i32), (d.y + t.size.1).min(clip[3]).min(h as i32));
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let c = tile_render_shared::text::coverage(words, &t.place, px - t.origin.0, py - t.origin.1, t.color);
+            let src = match t.key {
+                Some(key) => match tile_render_shared::text::keyed(c, t.color, key) {
+                    Some([r, g, b]) => [r as u8, g as u8, b as u8, 255],
+                    None => continue,
+                },
+                None if c == [0; 3] => continue,
+                None => [c[0] as u8, c[1] as u8, c[2] as u8, c[0].max(c[1]).max(c[2]) as u8],
+            };
+            f(px as u32, py as u32, src);
+        }
     }
 }
 
@@ -185,7 +225,8 @@ fn compose<P: Copy>(
     let mut out = vec![background; (w * h) as usize];
     let cameras = &cameras[..cameras.len().min(crate::renderer::MAX_VIEWS)];
     let first_zoomed = crate::world::first_zoomed(&world.free, world.passes().len().min(crate::renderer::MAX_PASSES));
-    let placements = crate::camera::placements(cameras, |z| first_zoomed.iter().find(|(q, _)| *q == z).map(|&(_, p)| p));
+    let placements = crate::camera::placements(cameras, |z| crate::world::zoomed_from(&first_zoomed, z));
+    let (words, _) = crate::world::outline_words(&world.fonts);
     // The source texture: every scaled group's picture, laid out the same.
     let (sw, sh) = placements.iter().filter_map(|p| p.source).fold((1, 1), |(sw, sh), r| (sw.max(r[0] + r[2]), sh.max(r[1] + r[3])));
     let mut source = vec![background; (sw * sh) as usize];
@@ -235,7 +276,10 @@ fn compose<P: Copy>(
                 if zoomed {
                     let clip = [clip[0].max(scissor[0]), clip[1].max(scissor[1]), clip[2].min(scissor[2]), clip[3].min(scissor[3])];
                     let d = Draw { clip: Some(clip), ..d };
-                    each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
+                    match &d.text {
+                        Some(t) => each_text_pixel(&words, &d, t, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
+                        None => each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
+                    }
                     return;
                 }
                 let sprite = atlas.sprites[d.sprite.0 as usize];
@@ -320,6 +364,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
         _ => None,
     };
     let art_fits = |s: &crate::PlacedSprite| match zoomed_for(s) {
+        _ if s.text.is_some() => art == 2,
         Some((z, _)) => art == 2 && z == zoom,
         None => !(art != 0 && s.zoom_art == crate::ZoomArt::Low),
     };
@@ -333,6 +378,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
         Some([c[0].max(rect[0]), c[1].max(rect[1]), c[2].min(rect[2]), c[3].min(rect[3])])
     };
     let packed = world.pack();
+    let (words, bases) = crate::world::outline_words(&world.fonts);
     let data = ByteReader::new(&packed.data);
     let passes = world.passes();
     // The world at the view's scale (see `Camera::downscale`).
@@ -344,6 +390,35 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
             return;
         }
         for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s)) {
+            if let Some(t) = s.text {
+                // Zoomed art for every zoom: at its 1:1 position (from the
+                // screen origin or the camera; a world glyph's at the view's
+                // scale, its copy near the camera) scaled, its clip
+                // likewise; at its own size.
+                let Some(g) = t.gpu(s, &world.fonts, &bases) else { continue };
+                let n = if s.screen { 1 } else { dn };
+                let (sx, sy) = camera.screen_shift;
+                let (bx, by) = if s.screen { (vx - sx, vy - sy) } else { (camera.x, camera.y) };
+                let (rx, ry) = if s.screen {
+                    (s.x - bx, s.y - by)
+                } else {
+                    (tile_render_shared::wrap_distance(shrunk(s.x, n) - bx, period.0), tile_render_shared::wrap_distance(shrunk(s.y, n) - by, period.1))
+                };
+                let Some(place) = text::place(&words, &g, rx, ry, zoom.0, zoom.1) else { continue };
+                let (l, t_, r, b) = text::bounds(&words, &place);
+                let clip = text::clip_at_zoom(&g, (bx, by), zoom.0, zoom.1, n).map(|[x0, y0, x1, y1]| [vx + x0, vy + y0, vx + x1, vy + y1]);
+                draw(Draw {
+                    sprite: crate::SpriteId(0),
+                    x: vx + l,
+                    y: vy + t_,
+                    pass: p,
+                    blend: if t.key.is_some() { crate::Blend::Alpha } else { crate::Blend::Subpixel { color: t.color } },
+                    clip: within(clip),
+                    placed: Placed::default(),
+                    text: Some(TextPixels { place, size: (r - l, b - t_), origin: (vx, vy), color: g.color, key: t.key.map(|_| g.key) }),
+                }, true);
+                continue;
+            }
             let set = s.set.0 as usize;
             let frames = packed.sets[set];
             if set == 0 || frames == 0 {
@@ -378,6 +453,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     blend: s.blend,
                     clip: within(s.clip.map(|[x0, y0, x1, y1]| [vx + cl(x0, bx), vy + cl(y0, by), vx + cl(x1, bx), vy + cl(y1, by)])),
                     placed,
+                    text: None,
                 }, true);
                 continue;
             }
@@ -389,6 +465,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 blend: s.blend,
                 clip: within(s.clip.map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
                 placed,
+                text: None,
             }, false);
         }
     };
@@ -433,6 +510,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
                     clip: within(None),
                     placed,
+                    text: None,
                 }, false);
             }
         }

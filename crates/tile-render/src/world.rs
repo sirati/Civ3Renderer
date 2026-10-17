@@ -228,11 +228,90 @@ pub struct PlacedSprite {
     pub except_view: bool,
     /// Art for a zoom (screen sprites of a view; see [`ZoomArt`]).
     pub zoom_art: ZoomArt,
+    /// A glyph drawn from its font's outline instead of the sprite (`set`,
+    /// `blend` and `zoom_art` do not matter then): zoomed art for every
+    /// zoom, drawn in views drawn at their zoom showing zoomed art, at its
+    /// 1:1 position scaled, at that zoom's resolution.
+    pub text: Option<OutlineGlyph>,
+}
+
+/// One glyph of text drawn from outlines (see `tile_render_shared::text`),
+/// its pen at the sprite's position (on the baseline).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct OutlineGlyph {
+    /// Index into [`TileWorld::fonts`].
+    pub font: u32,
+    pub shape: GlyphShape,
+    /// The em at 1:1, in 64ths of a pixel.
+    pub em64: u32,
+    /// The pen advance at 1:1 in pixels: the glyph is centred in it, scaled
+    /// (text keeps its 1:1 layout at every zoom); a bar's width.
+    pub advance: i32,
+    /// Emboldened by a pixel, slanted by a third (a regular face made bold
+    /// or italic, as Windows does).
+    pub bold: bool,
+    pub italic: bool,
+    /// Drawn ClearType-like: each colour channel with its own coverage.
+    pub color: [u8; 3],
+    /// Drawn onto this colour key instead, in 15 bits, opaque where that
+    /// differs from the key (see `tile_render_shared::text::TEXT_KEYED`).
+    pub key: Option<[u8; 3]>,
+}
+
+/// What an [`OutlineGlyph`] draws.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum GlyphShape {
+    /// The glyph of this index in its face.
+    Glyph(u32),
+    /// A bar (an underline) `top` pixels below the baseline, `height`
+    /// high, at 1:1.
+    Bar { top: i32, height: i32 },
+}
+
+impl OutlineGlyph {
+    /// The GPU instance of `sprite` drawing it; `bases`: where each font's
+    /// words start in the outline buffer.
+    pub(crate) fn gpu(&self, sprite: &PlacedSprite, fonts: &[std::sync::Arc<gpu_text::Face>], bases: &[u32]) -> Option<tile_render_shared::text::TextGlyph> {
+        use tile_render_shared::text::{TEXT_BAR, TEXT_BOLD, TEXT_ITALIC, TEXT_KEYED};
+        let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
+        let base = *bases.get(self.font as usize)?;
+        let (glyph, bar) = match self.shape {
+            GlyphShape::Glyph(g) => (base + fonts.get(self.font as usize)?.record(g), (0, 0)),
+            GlyphShape::Bar { top, height } => (base, (top, height)),
+        };
+        let free = sprite.flags();
+        Some(tile_render_shared::text::TextGlyph {
+            glyph,
+            face: base,
+            flags: free
+                | if self.bold { TEXT_BOLD } else { 0 }
+                | if self.italic { TEXT_ITALIC } else { 0 }
+                | if self.key.is_some() { TEXT_KEYED } else { 0 }
+                | if matches!(self.shape, GlyphShape::Bar { .. }) { TEXT_BAR } else { 0 },
+            view: sprite.view.unwrap_or(tile_render_shared::ALL_VIEWS),
+            x: sprite.x,
+            y: sprite.y,
+            em: self.em64,
+            advance: self.advance,
+            clip: sprite.clip.unwrap_or_default(),
+            color: rgb(self.color),
+            key: self.key.map_or(0, rgb),
+            bar_top: bar.0,
+            bar_height: bar.1,
+        })
+    }
 }
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None }
+    }
+
+    /// Its `FREE_SCREEN`, `FREE_CLIP` and `FREE_EXCEPT_VIEW` flags.
+    fn flags(&self) -> u32 {
+        (if self.screen { tile_render_shared::FREE_SCREEN } else { 0 })
+            | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 }
+            | if self.except_view && self.view.is_some() { tile_render_shared::FREE_EXCEPT_VIEW } else { 0 }
     }
 
     pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
@@ -240,9 +319,7 @@ impl PlacedSprite {
             set: self.set.0,
             phase: self.phase,
             ticks_per_frame: self.ticks_per_frame.max(1),
-            flags: if self.screen { tile_render_shared::FREE_SCREEN } else { 0 }
-                | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 }
-                | if self.except_view && self.view.is_some() { tile_render_shared::FREE_EXCEPT_VIEW } else { 0 }
+            flags: self.flags()
                 | match self.zoom_art {
                     ZoomArt::Any => 0,
                     ZoomArt::Low => tile_render_shared::FREE_LOW,
@@ -325,6 +402,8 @@ pub struct TileWorld {
     /// Sprites not on the grid, drawn in list order after the pass each
     /// names.
     pub free: Vec<PlacedSprite>,
+    /// The font faces of text drawn from outlines ([`OutlineGlyph::font`]).
+    pub fonts: Vec<std::sync::Arc<gpu_text::Face>>,
     layers: Vec<LayerSpec>,
     /// Each layer's records, packed, little endian.
     data: Vec<Vec<u8>>,
@@ -336,7 +415,7 @@ pub struct LayerId(pub usize);
 
 impl TileWorld {
     pub fn new(grid: Grid, sets: SpriteSets) -> Self {
-        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), layers: Vec::new(), data: Vec::new() }
+        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), fonts: Vec::new(), layers: Vec::new(), data: Vec::new() }
     }
 
     pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {
@@ -489,11 +568,16 @@ mod tests {
 }
 
 /// Per zoom that `free` has zoomed sprites for, the first pass they follow
-/// (of `passes`; `passes`: after all of them).
+/// (of `passes`; `passes`: after all of them); zoom (0, 0): text drawn from
+/// outlines, zoomed art for every zoom (see [`zoomed_from`]).
 pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<((u32, u32), usize)> {
     let mut out: Vec<((u32, u32), usize)> = Vec::new();
     for s in free {
-        let ZoomArt::Zoomed { zoom, .. } = s.zoom_art else { continue };
+        let zoom = match (s.text, s.zoom_art) {
+            (Some(_), _) => (0, 0),
+            (None, ZoomArt::Zoomed { zoom, .. }) => zoom,
+            _ => continue,
+        };
         let pass = s.after_pass.min(passes);
         match out.iter_mut().find(|(z, _)| *z == zoom) {
             Some((_, p)) => *p = (*p).min(pass),
@@ -501,4 +585,24 @@ pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<((u32, u
         }
     }
     out
+}
+
+/// Of [`first_zoomed`]'s list, the first pass zoomed art for `zoom` follows.
+pub(crate) fn zoomed_from(first: &[((u32, u32), usize)], zoom: (u32, u32)) -> Option<usize> {
+    first.iter().filter(|(z, _)| *z == zoom || *z == (0, 0)).map(|&(_, p)| p).min()
+}
+
+/// The words of `fonts` back to back (one outline buffer), and where each
+/// font's start.
+pub(crate) fn outline_words(fonts: &[std::sync::Arc<gpu_text::Face>]) -> (Vec<u32>, Vec<u32>) {
+    let mut words = Vec::new();
+    let mut bases = Vec::with_capacity(fonts.len());
+    for f in fonts {
+        bases.push(words.len() as u32);
+        words.extend_from_slice(&f.words);
+    }
+    if words.is_empty() {
+        words.push(0);
+    }
+    (words, bases)
 }

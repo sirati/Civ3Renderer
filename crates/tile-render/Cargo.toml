@@ -12,6 +12,7 @@ wgpu.workspace = true
 log.workspace = true
 thiserror.workspace = true
 pollster.workspace = true
+gpu-text.workspace = true
 
 [dev-dependencies]
 image.workspace = true

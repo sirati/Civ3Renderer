@@ -67,6 +67,12 @@ struct WorldBuffers {
     /// range of them to draw after it (the last entry: after all passes).
     free: wgpu::Buffer,
     free_after: Vec<FreeRuns>,
+    /// Text drawn from outlines (`tile_render_shared::text::TextGlyph`), in
+    /// drawing order (`free_after`'s text runs index it).
+    text: wgpu::Buffer,
+    /// The fonts' outlines, and which fonts they are (`Arc` pointers).
+    outlines: wgpu::Buffer,
+    fonts: Vec<usize>,
     /// Per zoom with zoomed sprites, the first pass they follow.
     first_zoomed: Vec<((u32, u32), usize)>,
     layers: wgpu::Buffer,
@@ -129,6 +135,8 @@ impl TileRenderer {
                 storage_entry(4),
                 storage_entry(5),
                 storage_entry(7),
+                storage_entry(8),
+                wgpu::BindGroupLayoutEntry { visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ..storage_entry(9) },
                 wgpu::BindGroupLayoutEntry {
                     binding: 6,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -214,6 +222,15 @@ impl TileRenderer {
                     let (fs, mask) = [("subpixel_r_fs", wgpu::ColorWrites::RED), ("subpixel_g_fs", wgpu::ColorWrites::GREEN), ("subpixel_b_fs", wgpu::ColorWrites::BLUE)][channel as usize];
                     let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
                     (("free_vs", fs), &self.layout, format, blend, mask)
+                }
+                P::Text(into, channel) => {
+                    let (fs, mask) = [("text_r_fs", wgpu::ColorWrites::RED), ("text_g_fs", wgpu::ColorWrites::GREEN), ("text_b_fs", wgpu::ColorWrites::BLUE)][channel as usize];
+                    let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
+                    (("text_vs", fs), &self.layout, format, blend, mask)
+                }
+                P::TextKeyed(into) => {
+                    let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
+                    (("text_vs", "text_keyed_fs"), &self.layout, format, blend, all)
                 }
                 P::Output => (copy, &self.output_layout, target, None, all),
                 P::Blit => (copy, &self.output_layout, internal, None, all),
@@ -330,13 +347,17 @@ impl TileRenderer {
         let packed = world.pack();
         let empty = [LayerDesc::default()];
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
-        let (free, free_after) = free_sprites(world);
+        let (outlines, bases) = crate::world::outline_words(&world.fonts);
+        let (free, text, free_after) = free_sprites(world, &bases);
         self.world = Some(WorldBuffers {
             grid: world.grid,
             color: world.color,
             passes: world.passes(),
             free: storage(device, "tile-render free sprites", bytemuck::cast_slice(&free)),
             free_after,
+            text: storage(device, "tile-render text", bytemuck::cast_slice(&text)),
+            outlines: storage(device, "tile-render outlines", bytemuck::cast_slice(&outlines)),
+            fonts: font_ids(world),
             first_zoomed: crate::world::first_zoomed(&world.free, world.passes().len().min(MAX_PASSES)),
             layers: storage(device, "tile-render layers", bytemuck::cast_slice(layers)),
             tile_data: storage(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
@@ -351,37 +372,43 @@ impl TileRenderer {
     pub fn update_world(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
         let packed = world.pack();
         match &self.world {
-            Some(w) if w.grid == world.grid
-                && w.color == world.color
-                && w.tile_data.size() == (packed.data.len() * 4) as u64
-                && w.free.size() >= (world.free.len().max(1) * size_of::<FreeSprite>()) as u64 =>
-            {
+            Some(w) if w.grid == world.grid && w.color == world.color && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
                 queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
-                let (free, free_after) = free_sprites(world);
-                queue.write_buffer(&w.free, 0, bytemuck::cast_slice(&free));
-                let w = self.world.as_mut().unwrap();
-                w.free_after = free_after;
-                w.first_zoomed = crate::world::first_zoomed(&world.free, w.passes.len().min(MAX_PASSES));
+                self.update_free(device, queue, world);
             }
             _ => self.set_world(device, world),
         }
     }
 
-    /// Re-uploads only the free sprites of an already uploaded world whose
-    /// cells did not change (e.g. markers moving every frame).
+    /// Re-uploads only the free sprites (and text) of an already uploaded
+    /// world whose cells did not change (e.g. markers moving every frame).
     pub fn update_free(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
-        let (free, free_after) = free_sprites(world);
-        let bytes: &[u8] = bytemuck::cast_slice(&free);
         let Some(w) = &mut self.world else { return self.set_world(device, world) };
+        let fonts = font_ids(world);
+        let (outlines, bases) = crate::world::outline_words(&world.fonts);
+        let (free, text, free_after) = free_sprites(world, &bases);
         w.first_zoomed = crate::world::first_zoomed(&world.free, w.passes.len().min(MAX_PASSES));
-        if w.free.size() >= bytes.len() as u64 {
-            queue.write_buffer(&w.free, 0, bytes);
-            w.free_after = free_after;
-            return;
-        }
-        w.free = storage(device, "tile-render free sprites", bytes);
         w.free_after = free_after;
-        self.rebuild_bind_group(device);
+        let mut rebind = false;
+        // Into the buffer if it fits, else a new one.
+        let mut write = |buffer: &mut wgpu::Buffer, label: &str, bytes: &[u8]| {
+            if buffer.size() >= bytes.len() as u64 {
+                queue.write_buffer(buffer, 0, bytes);
+            } else {
+                *buffer = storage(device, label, bytes);
+                rebind = true;
+            }
+        };
+        write(&mut w.free, "tile-render free sprites", bytemuck::cast_slice(&free));
+        write(&mut w.text, "tile-render text", bytemuck::cast_slice(&text));
+        if w.fonts != fonts {
+            w.outlines = storage(device, "tile-render outlines", bytemuck::cast_slice(&outlines));
+            w.fonts = fonts;
+            rebind = true;
+        }
+        if rebind {
+            self.rebuild_bind_group(device);
+        }
     }
 
     fn rebuild_bind_group(&mut self, device: &wgpu::Device) {
@@ -406,6 +433,8 @@ impl TileRenderer {
                 wgpu::BindGroupEntry { binding: 5, resource: sprites.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(atlas) },
                 wgpu::BindGroupEntry { binding: 7, resource: world.free.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 8, resource: world.text.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 9, resource: world.outlines.as_entire_binding() },
             ],
         }));
     }
@@ -491,7 +520,7 @@ impl TileRenderer {
             offset as u32
         };
         // Scaled groups' pictures, side by side in rows.
-        let placements = crate::camera::placements(cameras, |z| world.first_zoomed.iter().find(|(q, _)| *q == z).map(|&(_, p)| p));
+        let placements = crate::camera::placements(cameras, |z| crate::world::zoomed_from(&world.first_zoomed, z));
         let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
         if placements.iter().any(|p| p.source.is_some()) {
             let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
@@ -662,6 +691,8 @@ impl FreePipelines<'_> {
             (FreeKind::Invert, 0) => vec![get(P::FreeInvert)],
             (FreeKind::Invert, _) => vec![get(P::FreeInvertInternal)],
             (FreeKind::Subpixel, into) => (0..3).map(|c| get(P::Subpixel(into, c))).collect(),
+            (FreeKind::Text, into) => (0..3).map(|c| get(P::Text(into, c))).collect(),
+            (FreeKind::TextKeyed, into) => vec![get(P::TextKeyed(into))],
         }
     }
 }
@@ -736,6 +767,11 @@ enum FreeKind {
     Normal,
     Invert,
     Subpixel,
+    /// Text drawn from outlines, ClearType-like (its range indexes the text
+    /// buffer).
+    Text,
+    /// Text drawn from outlines onto a colour key (likewise).
+    TextKeyed,
 }
 
 /// Runs of free sprites in drawing order: which instances, and how they
@@ -743,32 +779,52 @@ enum FreeKind {
 type FreeRuns = Vec<(std::ops::Range<u32>, FreeKind)>;
 
 /// The world's free sprites in drawing order (by the pass they follow,
-/// then list order) and per pass the runs of them that follow it; the last
-/// entry follows all passes.
-fn free_sprites(world: &TileWorld) -> (Vec<FreeSprite>, Vec<FreeRuns>) {
+/// then list order), its text drawn from outlines likewise (`bases`: where
+/// each font starts in the outline buffer), and per pass the runs of them
+/// that follow it; the last entry follows all passes.
+fn free_sprites(world: &TileWorld, bases: &[u32]) -> (Vec<FreeSprite>, Vec<tile_render_shared::text::TextGlyph>, Vec<FreeRuns>) {
     let passes = world.passes().len().min(MAX_PASSES);
     let mut order: Vec<&crate::PlacedSprite> = world.free.iter().collect();
     order.sort_by_key(|s| s.after_pass.min(passes));
     let mut runs: Vec<FreeRuns> = vec![Vec::new(); passes + 1];
-    for (i, s) in order.iter().enumerate() {
-        let kind = match s.blend {
-            crate::Blend::Invert => FreeKind::Invert,
-            crate::Blend::Subpixel { .. } => FreeKind::Subpixel,
-            _ => FreeKind::Normal,
+    let mut gpu: Vec<FreeSprite> = Vec::with_capacity(order.len());
+    let mut text = Vec::new();
+    for s in order {
+        let (kind, i) = match s.text {
+            Some(t) => {
+                let Some(g) = t.gpu(s, &world.fonts, bases) else { continue };
+                text.push(g);
+                (if t.key.is_some() { FreeKind::TextKeyed } else { FreeKind::Text }, text.len() as u32 - 1)
+            }
+            None => {
+                gpu.push(s.gpu());
+                let kind = match s.blend {
+                    crate::Blend::Invert => FreeKind::Invert,
+                    crate::Blend::Subpixel { .. } => FreeKind::Subpixel,
+                    _ => FreeKind::Normal,
+                };
+                (kind, gpu.len() as u32 - 1)
+            }
         };
-        let (p, i) = (s.after_pass.min(passes), i as u32);
+        let p = s.after_pass.min(passes);
         match runs[p].last_mut() {
             Some((range, k)) if *k == kind && range.end == i => range.end = i + 1,
             _ => runs[p].push((i..i + 1, kind)),
         }
     }
-    let mut gpu: Vec<FreeSprite> = order.iter().map(|s| s.gpu()).collect();
     if gpu.is_empty() {
         gpu.push(FreeSprite::default());
     }
-    (gpu, runs)
+    if text.is_empty() {
+        text.push(Default::default());
+    }
+    (gpu, text, runs)
 }
 
+/// Which fonts `world` has (to tell when its outlines change).
+fn font_ids(world: &TileWorld) -> Vec<usize> {
+    world.fonts.iter().map(|f| std::sync::Arc::as_ptr(f) as usize).collect()
+}
 
 /// A pass drawing into a rectangle of `canvas`: viewport (x, y, w, h) and
 /// the part of it to touch (scissor).
@@ -880,6 +936,9 @@ enum P {
     FreeInvertInternal,
     /// ClearType-like free sprites: into (as `free_pipelines`), channel.
     Subpixel(u8, u8),
+    /// Text drawn from outlines: into, channel; onto a colour key: into.
+    Text(u8, u8),
+    TextKeyed(u8),
     /// Copies (scaled) into the caller's target, expanding quantized values.
     Output,
     /// Copies (scaled) into the internal target.
@@ -887,7 +946,7 @@ enum P {
 }
 
 impl P {
-    const COUNT: usize = 19;
+    const COUNT: usize = 31;
 
     fn index(self) -> usize {
         match self {
@@ -902,6 +961,8 @@ impl P {
             P::Output => 8,
             P::Blit => 9,
             P::Subpixel(into, channel) => 10 + 3 * into.min(2) as usize + channel.min(2) as usize,
+            P::Text(into, channel) => 19 + 3 * into.min(2) as usize + channel.min(2) as usize,
+            P::TextKeyed(into) => 28 + into.min(2) as usize,
         }
     }
 }

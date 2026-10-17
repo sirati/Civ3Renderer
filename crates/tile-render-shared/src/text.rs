@@ -431,14 +431,16 @@ pub fn keyed(coverage: [u32; 3], color: u32, key: u32) -> Option<[u32; 3]> {
 }
 
 /// How far a glyph instance's clip rectangle reaches at zoom `n/d`, in
-/// viewport pixels from where its coordinates start (`base`: that start
-/// in its 1:1 coordinates), if it has one.
-pub fn clip_at_zoom(g: &TextGlyph, base: (i32, i32), n: u32, d: u32) -> Option<[i32; 4]> {
+/// viewport pixels from where its coordinates start (`base`: that start in
+/// its 1:1 coordinates at the view's scale), if it has one; `downscale`:
+/// a world glyph's in a view showing the world that many times smaller
+/// (its clip shrunk with it, `crate::shrunk`).
+pub fn clip_at_zoom(g: &TextGlyph, base: (i32, i32), n: u32, d: u32, downscale: u32) -> Option<[i32; 4]> {
     if g.flags & FREE_CLIP == 0 {
         return None;
     }
-    let s = |v: i32| floor_div(v * n as i32, d as i32);
-    Some([s(g.clip[0] - base.0), s(g.clip[1] - base.1), s(g.clip[2] - base.0), s(g.clip[3] - base.1)])
+    let s = |v: i32, b: i32| floor_div((crate::shrunk(v, downscale) - b) * n as i32, d as i32);
+    Some([s(g.clip[0], base.0), s(g.clip[1], base.1), s(g.clip[2], base.0), s(g.clip[3], base.1)])
 }
 
 /// Whether the glyph's position is in viewport pixels.

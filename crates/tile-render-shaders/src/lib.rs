@@ -16,6 +16,8 @@
 //! atlas (`tile_render_shared::placed`): the art is held once, at full size.
 #![cfg_attr(target_arch = "spirv", no_std)]
 
+pub mod text;
+
 use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
