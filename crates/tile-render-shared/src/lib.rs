@@ -702,6 +702,28 @@ pub fn mix_offset() -> f32 {
     -0.5 + 0.5 / ALPHA_STEPS as f32
 }
 
+/// The premultiplied source of a quantized alpha blend (`k` in
+/// `1..=ALPHA_STEPS`); an opaque draw emits `stored / 255` directly.
+/// Translucent RGB444 and RGB555 sources use a binary fraction that
+/// survives packed FP16 fragment exports exactly. Its value is strictly
+/// between `(stored*k/32 - 1/2)/255` and that plus `1/(32*255)`, so rounding
+/// the resulting blend still gives [`mix_stored`] for every destination.
+/// Larger colour spaces retain the floating-point source calculation.
+pub fn mixed_source(stored: u32, k: u32, bits: u32) -> f32 {
+    if k >= ALPHA_STEPS {
+        return stored as f32 / 255.0;
+    }
+    let source = stored as f32 / 255.0 * (k as f32 / ALPHA_STEPS as f32) + mix_offset() / 255.0;
+    if bits <= 5 {
+        // Select the nearest representable FP16 before a driver's packed
+        // export can truncate it. These positive values are all normal
+        // FP16 numbers, so rounding the mantissa is sufficient.
+        let word = source.to_bits();
+        return f32::from_bits((word + 0xFFF + ((word >> 13) & 1)) & !0x1FFF);
+    }
+    source
+}
+
 /// The exact result of drawing stored value `src` with `k` alpha steps
 /// over stored value `dst`.
 pub fn mix_stored(src: u32, dst: u32, k: u32) -> u32 {
@@ -843,6 +865,24 @@ mod tests {
         // 50 %: the average, rounded down.
         assert_eq!(mix_stored(28 + QUANTIZED_BIAS, 16 + QUANTIZED_BIAS, 16), 22 + QUANTIZED_BIAS);
         assert_eq!(mix_stored(1 + QUANTIZED_BIAS, 6 + QUANTIZED_BIAS, 16), 3 + QUANTIZED_BIAS);
+    }
+
+    #[test]
+    fn packed_sources_preserve_every_rgb444_and_rgb555_blend() {
+        for bits in [4, 5] {
+            for k in 1..ALPHA_STEPS {
+                let a = k as f32 / ALPHA_STEPS as f32;
+                for qs in 0..1 << bits {
+                    let src = mixed_source(qs + QUANTIZED_BIAS, k, bits);
+                    assert_eq!(src.to_bits() & 0x1FFF, 0, "the source must survive an FP16 export exactly");
+                    for qd in 0..1 << bits {
+                        let dst = (qd + QUANTIZED_BIAS) as f32 / 255.0;
+                        let got = ((src + dst * (1.0 - a)) * 255.0).round() as u32;
+                        assert_eq!(got, mix_stored(qs + QUANTIZED_BIAS, qd + QUANTIZED_BIAS, k), "bits {bits}, src {qs}, dst {qd}, k {k}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

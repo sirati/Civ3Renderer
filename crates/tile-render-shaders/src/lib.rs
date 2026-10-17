@@ -25,7 +25,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, cell_offset, frame_of, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, SCALE_SUBPIXEL, alpha_steps, drawn_part, drawn_sprite, expand, indexed_color, layer_value, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, SCALE_SUBPIXEL, alpha_steps, drawn_part, drawn_sprite, expand, indexed_color, layer_value, mixed_source, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -445,8 +445,8 @@ pub fn tile_fs(
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
-        *output = Vec4::new(stored(color.x, bits) * a + o, stored(color.y, bits) * a + o, stored(color.z, bits) * a + o, a);
+        let channel = |c| mixed_source(quantize(to_u8(c), bits) + QUANTIZED_BIAS, k, bits);
+        *output = Vec4::new(channel(color.x), channel(color.y), channel(color.z), a);
     } else {
         *output = color;
     }
@@ -501,8 +501,7 @@ fn subpixel(
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
-        let v = (quantize(c8, bits) + QUANTIZED_BIAS) as f32 / 255.0 * a + o;
+        let v = mixed_source(quantize(c8, bits) + QUANTIZED_BIAS, k, bits);
         Vec4::new(v, v, v, a)
     } else {
         if coverage == 0.0 {
@@ -617,11 +616,6 @@ fn scaled(v: i32, num: u32, den: u32) -> i32 {
 fn offset(p: f32, o: i32) -> u32 {
     let r = pixel(p) as i32 - o;
     if r < 0 { 0 } else { r as u32 }
-}
-
-/// An atlas channel as the stored quantized value (normalized).
-fn stored(c: f32, bits: u32) -> f32 {
-    (quantize(to_u8(c), bits) + QUANTIZED_BIAS) as f32 / 255.0
 }
 
 fn to_unorm(stored: f32, bits: u32) -> f32 {
