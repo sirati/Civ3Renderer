@@ -378,15 +378,34 @@ pub fn in_city_radius(dx: i32, dy: i32) -> bool {
     (dx + dy) % 2 == 0 && u.abs() <= 2 && v.abs() <= 2 && !(u.abs() == 2 && v.abs() == 2)
 }
 
+/// `City_tile_in_view` (§16.8): a tile of the city's radius in its civ's
+/// territory (the city tile always).
+fn in_city_view(world: &Civ3World, city: &crate::world::Civ3City, x: i32, y: i32, tile: &crate::world::Civ3Tile) -> bool {
+    let mut dx = x - city.x;
+    if world.wrap_x {
+        dx = (dx + world.width / 2).rem_euclid(world.width) - world.width / 2;
+    }
+    let dy = y - city.y;
+    (dx == 0 && dy == 0) || (in_city_radius(dx, dy) && i32::from(tile.owner) == city.civ)
+}
+
 /// §6.8: the fog-of-war sprite at vertex (vx, vy): per surrounding tile
 /// N, W, E, S a digit 2 (visible to the player), 1 (explored) or 0
 /// (unexplored, also off the map), weighted 1, 3, 9, 27. All visible (80)
 /// draws nothing.
+///
+/// While the city screen is open the game's map is in "focus city" mode: only
+/// the city's own tiles (in its radius and its civ's territory, the city tile
+/// always) count as visible, and as explored; every other tile at most as
+/// explored (§16.8). The city screen shows the map so, dimmed around the
+/// city's tiles.
 pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
     let bit = 1u32 << (world.player & 31);
-    let digit = |x: i32, y: i32| match world.tile(x, y) {
-        Some(t) if world.visible_now(t) => 2,
-        Some(t) if t.explored & bit != 0 => 1,
+    let focus = world.focus_city.and_then(|id| world.city(id));
+    let digit = |x: i32, y: i32| match (world.tile(x, y), focus) {
+        (Some(t), Some(c)) if in_city_view(world, c, x, y, t) => 2,
+        (Some(t), None) if world.visible_now(t) => 2,
+        (Some(t), _) if t.explored & bit != 0 => 1,
         _ => 0,
     };
     let corners = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)];
@@ -615,6 +634,26 @@ pub fn polar_cap(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_city_screen_lights_only_the_citys_own_tiles() {
+        use crate::world::{Civ3City, Civ3Tile};
+        // Everything explored and seen by player 1; the city at (10, 10) owns
+        // the tiles west of x = 10.
+        let mut world = Civ3World { player: 1, width: 40, height: 40, ..Default::default() };
+        world.tiles = (0..20 * 40).map(|i| Civ3Tile { explored: 2, visibility: 2, owner: if (i % 20) * 2 < 10 { 1 } else { 0 }, ..Default::default() }).collect();
+        world.cities.push(Civ3City { id: 0, x: 10, y: 10, civ: 1, ..Default::default() });
+        // Normally all visible: no fog.
+        assert_eq!(fog(&world, 10, 9), None);
+        assert_eq!(fog(&world, 20, 21), None);
+        world.focus_city = Some(0);
+        // Above the city: west (9, 9) and the city tile lit, north (10, 8)
+        // and east (11, 9) in the radius but not the city's (N + 3 W + 9 E +
+        // 27 S).
+        assert_eq!(fog(&world, 10, 9), Some(format!("Fog_Of_War_Images/{}", 1 + 3 * 2 + 9 + 27 * 2)));
+        // Far away: everything only explored (index 40, all four digits 1).
+        assert_eq!(fog(&world, 20, 21), Some("Fog_Of_War_Images/40".into()));
+    }
 
     #[test]
     fn rng_is_ansi_c_rand() {
