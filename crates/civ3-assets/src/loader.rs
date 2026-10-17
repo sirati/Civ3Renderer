@@ -23,6 +23,9 @@
 //!
 //! PCX sources yield one image, FLC sources one image per frame.
 //!
+//! Font files (`render_desc::Description::fonts`, e.g. `LSANS.TTF`) are found in the game's
+//! folders or the folder above them.
+//!
 //! `font:<face>/<height>/<r>,<g>,<b>[/<weight>/<italic>]` sources are the game's text glyphs
 //! (see `fonts`), one image per character of `fonts::charset()`, in order.
 
@@ -219,6 +222,14 @@ impl ImageLoader for Civ3Loader {
         } else {
             Err(format!("{source}: unknown image format"))
         }
+    }
+
+    /// A font file of the game's folders, or of the folder above them (the
+    /// game installs its LSANS.TTF from its own folder, next to the
+    /// expansions').
+    fn font(&self, source: &str) -> Result<Vec<u8>, String> {
+        let path = self.files.resolve(source).or_else(|_| self.files.resolve(&format!("../{source}"))).map_err(|e| e.to_string())?;
+        std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
 
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
