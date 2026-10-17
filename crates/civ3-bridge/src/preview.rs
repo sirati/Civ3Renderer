@@ -292,13 +292,22 @@ pub fn world(map: &Map, players: &[Player], rules: &Rules) -> Civ3World {
     }
 }
 
-/// The scenario the Load Scenario screen last loaded for its preview, and
-/// how many it has loaded (`selected`).
-static SELECTED: Mutex<(u64, Option<String>)> = Mutex::new((0, None));
+/// A scenario the Load Scenario screen loaded for its preview.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Selected {
+    /// How many it has loaded (a new number whenever it loads one, also the
+    /// same again).
+    pub number: u64,
+    pub file: Option<String>,
+    /// When the game was done loading it (what the times in the log count
+    /// from).
+    pub at: Option<std::time::Instant>,
+}
 
-/// The file the Load Scenario screen last highlighted, numbered (a new
-/// number whenever it loads one, also the same again).
-pub fn selected() -> (u64, Option<String>) {
+static SELECTED: Mutex<Selected> = Mutex::new(Selected { number: 0, file: None, at: None });
+
+/// The file the Load Scenario screen last highlighted.
+pub fn selected() -> Selected {
     SELECTED.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
@@ -312,11 +321,12 @@ pub fn install(game: &civ3_sys::Civ3) {
         return log::info!("scenario preview: not known for this build");
     };
     let hook = menus::scenario_preview::install_call_site(site, &bytes, |call| {
+        let started = std::time::Instant::now();
         let result = call.original();
         let name = inproc::Ptr32::<u8>::new(call.path).read_array(260).ok().map(|b| b.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>());
-        log::debug!("scenario preview: the game loaded {name:?} ({result})");
+        log::info!("scenario preview: the game loaded {name:?} in {} ms ({result})", started.elapsed().as_millis());
         let mut s = SELECTED.lock().unwrap_or_else(|e| e.into_inner());
-        *s = (s.0 + 1, name.filter(|n| !n.is_empty()));
+        *s = Selected { number: s.number + 1, file: name.filter(|n| !n.is_empty()), at: Some(std::time::Instant::now()) };
         result
     });
     match hook {
@@ -331,15 +341,22 @@ pub fn install(game: &civ3_sys::Civ3) {
 pub struct Previews {
     seen: u64,
     current: Option<Preview>,
+    /// For the log: when the game loaded the scenario shown, whether its
+    /// world was published yet, and the art request (`ArtSchedule::asked`)
+    /// whose build brings its own art.
+    loaded_at: Option<std::time::Instant>,
+    published: bool,
+    art_from: Option<u64>,
 }
 
 impl Previews {
     /// The world of the scenario the screen shows now (`None`: none, or one
     /// without a map of its own).
     pub fn update(&mut self, install: &Path) -> Option<&Preview> {
-        let (n, file) = selected();
+        let Selected { number: n, file, at } = selected();
         if n != self.seen {
             self.seen = n;
+            (self.loaded_at, self.published, self.art_from) = (at, false, None);
             let started = std::time::Instant::now();
             self.current = file.and_then(|f| {
                 load(install, &f)
@@ -361,6 +378,37 @@ impl Previews {
             });
         }
         self.current.as_ref()
+    }
+
+    /// How long since the game loaded the scenario shown, in milliseconds.
+    fn since_loaded(&self) -> u128 {
+        self.loaded_at.map_or(0, |t| t.elapsed().as_millis())
+    }
+
+    /// A scene with the scenario's world went out (scene `seq`).
+    pub fn published(&mut self, seq: u64) {
+        if let (Some(p), false) = (&self.current, self.published) {
+            self.published = true;
+            log::info!("scenario preview: {} first published {} ms after the game loaded it (scene {seq})", p.file, self.since_loaded());
+        }
+    }
+
+    /// Art was asked for the scenario shown: request `asked` and later
+    /// bring it.
+    pub fn art_wanted(&mut self, asked: u64) {
+        if self.current.is_some() {
+            self.art_from.get_or_insert(asked);
+        }
+    }
+
+    /// Art covering request `token` is used now.
+    pub fn art_done(&mut self, token: u64) {
+        if let (Some(p), Some(from)) = (&self.current, self.art_from) {
+            if token >= from {
+                self.art_from = None;
+                log::info!("scenario preview: {}'s own art used {} ms after the game loaded it", p.file, self.since_loaded());
+            }
+        }
     }
 }
 

@@ -568,10 +568,12 @@ fn publish(
                     for (_, _, token) in pending_growths.drain(..) {
                         if let Some(token) = token {
                             schedule.done(now, token);
+                            previews.art_done(token);
                         }
                     }
                     if let Some(token) = done.token {
                         schedule.done(now, token);
+                        previews.art_done(token);
                     }
                 }
                 Ok(Built::Growth(g)) => {
@@ -619,6 +621,7 @@ fn publish(
                 // (Art the screen waited for is there now.)
                 if let Some(token) = token {
                     schedule.done(now, token);
+                    previews.art_done(token);
                 }
             }
             mapper = Mapper::new(&compiled);
@@ -960,6 +963,9 @@ fn publish(
         if recompile || screen_recompile {
             log::debug!("art: wanted for {}", wanted_for.join(", "));
             schedule.want(now, screen_recompile);
+            if wanted_for.contains(&"art folders") {
+                previews.art_wanted(schedule.asked());
+            }
             art_wanted.get_or_insert(now);
             reasons.extend(wanted_for.iter().copied());
         }
@@ -1202,6 +1208,9 @@ fn publish(
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
         if published {
+            if matches!(shown, Shown::Preview(_, Some(_))) {
+                previews.published(seq);
+            }
             published_prefs = (prefs_draws, Some(prefs.settings().clone()));
         }
         last = published.then_some(state);
