@@ -24,11 +24,12 @@ pub mod layout;
 pub mod menus;
 pub mod modal;
 pub mod sprites;
+pub mod targeting;
 pub mod ui_hooks;
 pub mod world;
 
 pub use build::{Addresses, Build};
-pub use world::{Civ3, CityInfo, DrawnUnit, IconBuilding, ImprovementInfo, MapInfo, Players, TileRecord, ViewState, WallBuilding};
+pub use world::{Civ3, CityInfo, DrawnEffect, DrawnUnit, EffectSource, IconBuilding, ImprovementInfo, MapInfo, Players, TileRecord, ViewState, WallBuilding};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Civ3Error {

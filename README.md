@@ -172,6 +172,12 @@ without the map itself (ours): the city labels on it go under our fog of
 war; the unit overlay is left out (we draw units, on layers of their tiles: docs §10.13). Pictures the game makes
 pixel by pixel (the minimap) are generated from the world state and sent
 as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
+While a unit command waits for its tile (bombard, the air missions, go-to)
+the bridge draws what the game shows from the game's state
+(`civ3_bridge::targeting`, docs §10.14): the outline of the tiles in range,
+the frame on a tile the command takes, and the go-to path (the game's own
+path finder, run on the game's thread) with its marker and turn count; the
+command's pointer is the game's cursor.
 
 The viewer arranges the world beyond the views the driver asks for
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled), as
@@ -211,6 +217,21 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
 - **Smooth world movement**: a view following the game's view or the focus
   glides there by pixels (a critically damped spring that keeps its
   velocity when the target moves) instead of jumping a tile at a time.
+- **Map movement** (`input.map_movement`): `EdgeScroll` (the default):
+  with the mouse free, the pointer at a window edge or corner scrolls the
+  view it is in wherever that view reaches the edge, diagonally in a
+  corner, faster nearer the edge: the game's view (A following it, at any
+  zoom) by the game itself (`scene::Input::Edge`), the viewer's views (B,
+  A following anything else, insets) by the viewer, up to 600 pixels a
+  second. `Drag` (Civilization IV style): the left button held on the map
+  and moved more than 4 pixels grabs it, the map follows the pointer 1:1
+  and slides on when let go (with the pointer's velocity, slowing by
+  friction as Apple's scroll views do); a shorter press is a click, sent
+  on when the button comes up. No edge scrolling then. The middle button
+  drags in either mode. Dragging the game's view, A is moved by the viewer
+  meanwhile and the game is asked to look where it comes to rest (the
+  bridge clicks the minimap; the game centres on a tile), then A follows
+  the game's view again. While the mouse is captured neither applies.
 
 While the mouse is free the divider between A and B is a wall except in
 its middle third (drawn without the line) and where the unit's order
@@ -247,7 +268,8 @@ screen, the world only), F cycles what the view under the pointer follows
 go of the mouse (and takes it over a view following the world cursor;
 each change is logged), A toggles a blinking arrow over the active unit,
 +/−/0 and arrows zoom and pan the view under the pointer; a middle-button
-drag pans a view, a left drag on the divider's open middle moves it. A free
+drag pans a view (and a left one, with map movement `Drag`), a left drag on
+the divider's open middle moves it. A free
 view set up before the game shows a map is placed at the middle of its view
 once it does. Clicks are routed to the game where its view shows the same
 world pixel; elsewhere the game is asked to look there (the bridge clicks
@@ -255,9 +277,10 @@ its minimap). The main pane following the game's view shows its middle in
 the pane's middle (a split or a zoom strip crops it round its middle), so
 what the game centres on (the active unit, a popup's subject, a place
 looked at) is in the middle of A, and the minimap marks what A shows.
-Where the main pane follows the game's view at zoom 1, the pointer resting
-at the window's edge scrolls the game's map as at the game's own screen
-edge. `TILE_VIEWER_LAYOUT`
+Where the main pane follows the game's view (at any zoom), the pointer
+resting at the window's edge scrolls the game's map as at the game's own
+screen edge; the viewer's own views scroll at the edges they reach as
+well. `TILE_VIEWER_LAYOUT`
 overrides the settings at start, for testing, e.g.
 `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled):
@@ -293,8 +316,8 @@ A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
 arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
-(the bridge clicks its minimap). Where the main pane shows the game's view
-unmoved (zoom 1), the pointer resting at the window's edge scrolls the
+(the bridge clicks its minimap). Where the main pane follows the game's
+view, the pointer resting at the window's edge scrolls the
 game's map as at the game's own screen edge (`scene::Input::Edge`; the
 game polls the pointer, `inproc::pointer`). `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
@@ -314,8 +337,14 @@ until the view can centre it again. The cursor shows once per place at
 any moment (`tile_viewer::cursor::Machine`); no world cursor is drawn
 once the mouse is free. Each pointer event redraws at once
 (`TILE_VIEWER_LATENCY=1` logs the latency from motion to the drawn
-cursor). `vendor/winit` carries a fix for custom cursors on a 16-bit
+cursor; `TILE_VIEWER_FRAME_TIMES=1` how far apart frames are, every 2 s).
+`vendor/winit` carries a fix for custom cursors on a 16-bit
 Windows desktop (the game's mode).
+On the Load Scenario screen the highlighted scenario's world shows beside
+the dialog as its players start with it (what they have explored, the
+rest black), fitted to what is revealed (docs §19); a double-click on it
+explores it twice as big with the mouse captured (Ctrl lets it go, Esc
+or a double-click goes back).
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
 scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`

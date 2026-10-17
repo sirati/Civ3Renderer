@@ -93,7 +93,12 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
             ui_screen::add_art(&ui_screen::items(frame, &[], GENERATED, unit_colors), &mut screen, &mut fonts, &files());
             text.push_str(&ui_screen::description(&screen));
         }
+        // The go-to path's turn count (§10.14).
+        let target_items = ifc23::targeting::label_items(&t.world, t.view.zoomed_out, &mut ifc23::city_labels::FileEnv::new(Box::new(files())));
+        let runs: Vec<text::TextRun> = target_items.iter().filter_map(|i| if let ui_screen::Item::Text(r, _, _) = i { Some(r.clone()) } else { None }).collect();
+        fonts.add(&files(), &runs);
         text.push_str(&fonts.description());
+        text.push_str(&ifc23::targeting::description());
         // C3X's districts on the map (as live describes them).
         let mut districts = ifc23::district_art::DistrictArt::default();
         districts.add(&ifc23::district_art::slices(&t.world));
@@ -130,6 +135,22 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         } else {
             units::place(&trace.world, &trace.view, art, compiled, None, &mut units::UnitMemory::default(), &mut scene);
         }
+        ifc23::effects::place(&trace.world, &trace.view, art, compiled, &mut scene);
+
+        // Choosing a target (§10.15), as live draws it.
+        scene.sprites.extend(ifc23::targeting::range_sprites(&trace.world, compiled, trace.view.zoomed_out));
+        scene.sprites.extend(ifc23::targeting::sprites(&trace.world, trace.view.zoomed_out, art, compiled));
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        let files = assets::game_files(install.as_ref(), trace.scenario_folder.as_deref(), &trace.search_roots);
+        let target_items = ifc23::targeting::label_items(&trace.world, trace.view.zoomed_out, &mut ifc23::city_labels::FileEnv::new(Box::new(files)));
+        let mut turns: Vec<scene::FreeSprite> = ui_screen::sprites(&target_items, fonts, compiled, units::unit_passes(compiled).1, false)
+            .into_iter()
+            .map(|s| scene::FreeSprite { screen: false, clip: None, ..s })
+            .collect();
+        if trace.view.zoomed_out {
+            ifc23::scene_map::from_zoomed_out(&mut turns);
+        }
+        scene.sprites.extend(turns);
         match &ui {
             // The mirrored interface has the city icons and all text.
             Some(frame) => {
@@ -473,9 +494,9 @@ fn preview(file: &str, out: &str, size: (u32, u32)) -> Result<ExitCode, String> 
     text.push_str(&ui_screen::description(&screen));
     let compiled = assets::compile(&text, files()).map_err(|e| e.to_string())?;
     let dialog = [(size.0 as i32 - 1024) / 2, (size.1 as i32 - 768) / 2, 1024, 768];
-    let n = ifc23::preview::downscale(&p.world, (size.0 as i32 - dialog[2], size.1 as i32));
+    let n = ifc23::preview::downscale(p.area, (size.0 as i32 - dialog[2], size.1 as i32));
     let mut scene = ifc23::preview::scene(&p.world, n, &Mapper::new(&compiled), &mut art, &compiled, &labels, &fonts);
-    scene.interface.beside = Some(scene::Beside { screen: dialog, edge: scene::Edge::Left });
+    scene.interface.beside = Some(scene::Beside { screen: dialog, edge: scene::Edge::Left, world: Some(p.area) });
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };

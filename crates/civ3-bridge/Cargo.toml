@@ -28,6 +28,5 @@ thiserror.workspace = true
 image.workspace = true
 env_logger.workspace = true
 viewer-settings = { path = "../viewer-settings" }
-
-[dev-dependencies]
+# (The options a render description gives its loaders.)
 toml = "0.9"

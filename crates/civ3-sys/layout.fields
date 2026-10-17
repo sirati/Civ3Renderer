@@ -358,3 +358,38 @@ BIC DifficultyLevelCount
 BIC CitizenTypeCount
 BIC transition_government
 value TR_ACCELERATED_PRODUCTION TR_ACCELERATED_PRODUCTION
+
+# Effects (docs §10.14): the animations the animator draws besides units.
+# A city's own (disorder, celebration: `field_A4` is its AnimatedEffect,
+# its FLC_Animation starts at `struct_198`), the game's list of tile effects
+# (Tile_Animated_Effect: V = tile x, y, effect; field_194 = expiry, next,
+# previous), and the animator's vector of extra animations (a bomber's
+# bombs, SAM and SDI shots: begin and end pointers at field_18E4[3], [4]).
+City_Body field_A4
+City_Body struct_198
+Tile_Animated_Effect
+Tile_Animated_Effect V
+Tile_Animated_Effect flc_animation
+Tile_Animated_Effect field_194
+FLC_Animation summary.tile_x
+FLC_Animation summary.tile_y
+FLC_Animation Animation_Info
+FLC_Animation field_111
+Animation_Info Data
+Animator field_18E4[3]
+Animator field_18E4[4]
+
+# Targeting modes (docs §10.15): the unit command waiting for a target
+# tile, its range, and what the game decided about the tile under the mouse.
+Main_Screen_Form Mode_Action
+Main_Screen_Form field_4ED0
+Main_Screen_Form Mode_Action_Range
+Main_Screen_Form field_2E1AC
+
+# The range a targeting command reaches, outlined tile by tile in the map's
+# grid pass (0x4C57C0, docs §10.15).
+Map Renderer
+Map_Renderer b_Action_Mode
+Map_Renderer Action_Mode_Range
+Map_Renderer Action_Mode_CenterX
+Map_Renderer Action_Mode_CenterY
