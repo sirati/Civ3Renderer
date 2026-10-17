@@ -144,6 +144,25 @@ pub struct Civ3Unit {
     pub moving: bool,
 }
 
+/// An animation the animator draws besides units (docs §10.14): an
+/// explosion, smoke, a bomber's bombs, a city's disorder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Civ3Effect {
+    pub source: civ3_sys::EffectSource,
+    /// Its tile, and the world pixel of its anchor (full size).
+    pub tile: (i32, i32),
+    pub pixel: (i32, i32),
+    /// Facing (`enum direction`), `AnimationType`, frame in the block.
+    pub direction: i32,
+    pub animation: i32,
+    pub frame: i32,
+    /// Loaded and not hidden.
+    pub shown: bool,
+    /// Its art's INI file, game-relative (`Art/Animations/...`), as the
+    /// game's search folders find it; empty if not known.
+    pub ini: String,
+}
+
 /// The map: shape plus every tile.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Civ3World {
@@ -192,6 +211,8 @@ pub struct Civ3World {
     pub experience_hit_points: Vec<i32>,
     /// Every unit's tile and container (-1: not loaded).
     pub unit_tiles: Vec<(i32, i32, i32)>,
+    /// The animations drawn besides units, in the animator's order (§10.14).
+    pub effects: Vec<Civ3Effect>,
     /// The game's `P_*` preference flags.
     pub preferences: u32,
     /// `p_debug_mode_bits`: bit 3 shows every city's full label (docs §10.8).
@@ -201,6 +222,12 @@ pub struct Civ3World {
     pub civ_adjectives: Vec<String>,
     /// The selected unit (id) and the selection cursor's frame, while shown.
     pub selection: Option<(i32, i32)>,
+    /// The command waiting for a target tile, and what the game made of the
+    /// tile under the mouse (docs §10.15).
+    pub targeting: civ3_sys::world::Targeting,
+    /// The go-to path to the tile under the mouse, as the game's path
+    /// finder found it (docs §10.15).
+    pub goto: Option<crate::targeting::GotoPath>,
     /// How `player` stands with each civ (by civ; empty if unknown).
     pub relations: Vec<civ3_sys::world::Relation>,
     /// C3X's districts (docs §18): empty without C3X districts or while
@@ -763,12 +790,48 @@ impl Trace {
                     t.world.experience_hit_points = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;
                 }
                 Some("unit_tile") => t.world.unit_tiles.push((n(1)? as i32, n(2)? as i32, n(3)? as i32)),
+                // `effect city|tile|extra id x y px py direction animation frame shown<TAB>ini`
+                Some("effect") if f.len() >= 11 => {
+                    let id = n(2)? as i32;
+                    let source = match f[1] {
+                        "city" => civ3_sys::EffectSource::City { effect: id },
+                        "tile" => civ3_sys::EffectSource::Tile { effect: id },
+                        _ => civ3_sys::EffectSource::Extra,
+                    };
+                    let v = (3..11).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
+                    t.world.effects.push(Civ3Effect {
+                        source,
+                        tile: (v[0], v[1]),
+                        pixel: (v[2], v[3]),
+                        direction: v[4],
+                        animation: v[5],
+                        frame: v[6],
+                        shown: v[7] != 0,
+                        ini: line.split_once('\t').map(|(_, p)| p.to_owned()).unwrap_or_default(),
+                    });
+                }
                 Some("outpost") => t.world.outposts.push((n(1)? as i32, n(2)? as i32)),
                 Some("mouse_tile") => t.world.mouse_tile = Some((n(1)? as i32, n(2)? as i32)),
                 Some("focus_city") => t.world.focus_city = Some(n(1)? as i32),
                 Some("current_unit") => t.world.current_unit = Some(n(1)? as i32),
                 Some("preferences") => t.world.preferences = n(1)? as u32,
                 Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),
+                Some("targeting") => {
+                    t.world.targeting = civ3_sys::world::Targeting {
+                        mode: n(1)? as i32,
+                        refused: n(2)? != 0,
+                        range: n(3)? as i32,
+                        target_ok: n(4)? != 0,
+                        armed: n(5)? != 0,
+                        start: (n(6)? as i32, n(7)? as i32),
+                        pointer_tile: Some((n(8)? as i32, n(9)? as i32)).filter(|&(x, y)| x >= 0 && y >= 0),
+                        range_grid: Some(civ3_sys::world::RangeGrid { centre: (n(10)? as i32, n(11)? as i32), range: n(12)? as i32 }).filter(|g| g.range >= 0),
+                    }
+                }
+                Some("goto_path") => {
+                    let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
+                    t.world.goto = crate::targeting::GotoPath::parse(&v);
+                }
                 Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("era_key") => t.world.era_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("governments") => t.world.governments = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,

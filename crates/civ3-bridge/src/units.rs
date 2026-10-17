@@ -32,8 +32,17 @@ const ANIMATION_NAMES: [&str; 19] = [
 /// in a file are SW, S, SE, E, NE, N, NW, W.
 const DIRECTION_BLOCK: [u32; 9] = [0, 4, 3, 2, 1, 0, 7, 6, 5];
 
-/// Shadow palette indices and their darkening (`c·(i − 239)/16`).
-const SHADOWS: std::ops::RangeInclusive<u32> = 248..=254;
+/// The blit's shade levels 0..14 (jgl.dll, docs §10.5, §10.14): indices
+/// 240..254 darken to `c·(i − 239)/16`, in unit and effect art alike.
+const SHADES: std::ops::RangeInclusive<u32> = 240..=254;
+
+/// Palette indices the blit draws as translucent smoke (docs §10.14): index
+/// `224 + j` mixes entry `j` of `Art/ExplosionPalette.pcx` over what is
+/// there.
+pub const SMOKE: std::ops::Range<u32> = 224..240;
+
+/// The art file whose palette says how the smoke indices are drawn.
+const EXPLOSION_PALETTE: &str = "Art/ExplosionPalette.pcx";
 
 /// The layout of one animation file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,8 +58,9 @@ pub struct AnimFile {
 }
 
 impl AnimFile {
+    /// From the file's headers alone (its frames are not decoded: the art
+    /// thread does that when it builds the art).
     fn read(files: &GameFiles, path: &str) -> Option<AnimFile> {
-        // (The layout only: frames are decoded when the art is built.)
         let anim = flc::layout(&files.read(path).ok()?).ok()?;
         let h = &anim.header;
         let u16_at = |o: usize| u16::from_le_bytes([h[o], h[o + 1]]) as i32;
@@ -85,6 +95,12 @@ pub struct UnitArt {
     by_path: HashMap<String, Option<AnimFile>>,
     /// Units' INI files, cached.
     inis: HashMap<String, Option<Ini>>,
+    /// (INI file, animation) → file, cached (effects, §10.14).
+    by_ini: HashMap<(String, i32), Option<AnimFile>>,
+    smoke: Option<Vec<[u8; 4]>>,
+    /// Whether it reads what it has not resolved yet (else: as if it were
+    /// not there, for now; see [`UnitArt::set_reading`]).
+    reading: bool,
 }
 
 impl UnitArt {
@@ -99,7 +115,64 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new() }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new(), by_ini: HashMap::new(), smoke: None, reading: true }
+    }
+
+    /// How the blit draws the smoke indices ([`SMOKE`], docs §10.14), as
+    /// RGBA: the up to 16 entries of `Art/ExplosionPalette.pcx` that are not
+    /// its blue filler (0, 0, 255), in palette order, each a grey `v` mixed
+    /// over the background with alpha = its own index / 256 (jgl.dll builds
+    /// a blend table per entry: `c' = (v·a + c·(256 − a)) / 256`). Empty
+    /// without the file.
+    pub fn smoke(&mut self) -> &[[u8; 4]] {
+        if self.smoke.is_none() && self.reading {
+            let entries = self
+                .files
+                .read(EXPLOSION_PALETTE)
+                .ok()
+                .and_then(|b| civ3_assets::pcx::decode(&b).ok())
+                .map(|p| smoke_entries(&p.palette))
+                .unwrap_or_default();
+            self.smoke = Some(entries);
+        }
+        self.smoke.as_deref().unwrap_or_default()
+    }
+
+    /// The animation file the FLC animation of art `ini` (a game-relative
+    /// INI file, e.g. `Art/Animations/Trajectory/Hit.ini` or a unit's)
+    /// shows for `animation`, falling back to DEFAULT as the game does
+    /// (docs §10.4, §10.14). The file names in the INI are relative to its
+    /// folder.
+    pub fn effect_file(&mut self, ini: &str, animation: i32) -> Option<&AnimFile> {
+        let key = (ini.to_owned(), animation);
+        if !self.by_ini.contains_key(&key) {
+            if !self.reading {
+                return None;
+            }
+            let found = self.ini_lookup(ini, animation).or_else(|| self.ini_lookup(ini, 1));
+            self.by_ini.insert(key.clone(), found);
+        }
+        self.by_ini[&key].as_ref()
+    }
+
+    fn ini_lookup(&self, ini: &str, animation: i32) -> Option<AnimFile> {
+        let text = Ini::parse_bytes(&self.files.read(ini).ok()?);
+        let name = text.get("Animations", ANIMATION_NAMES.get(animation as usize)?)?.trim().replace('\\', "/");
+        if name.is_empty() {
+            return None;
+        }
+        let dir = ini.rfind('/').map_or("", |i| &ini[..=i]);
+        // (Some name a file relative to the game's folders: `.\Art\...`.)
+        let bare = name.trim_start_matches("./");
+        AnimFile::read(&self.files, &format!("{dir}{name}")).or_else(|| AnimFile::read(&self.files, bare))
+    }
+
+    /// Whether it may read files: off, it answers from what it has
+    /// resolved only (what it has not is missing for now, not for good):
+    /// the publisher's thread reads no art while another thread resolves
+    /// the art a new world needs (`crate::preview::Previews`).
+    pub fn set_reading(&mut self, on: bool) {
+        self.reading = on;
     }
 
     /// Entry `index` of colour table `table` (`ntpNN.pcx`).
@@ -111,7 +184,7 @@ impl UnitArt {
 
     /// The selection cursor's animation file.
     pub fn cursor(&mut self) -> Option<&AnimFile> {
-        if self.cursor.is_none() {
+        if self.cursor.is_none() && self.reading {
             self.cursor = Some(AnimFile::read(&self.files, CURSOR_FLC));
         }
         self.cursor.as_ref().and_then(Option::as_ref)
@@ -121,12 +194,18 @@ impl UnitArt {
     /// `animation` in `era_key`, falling back to DEFAULT.
     /// The animation file at `path` (e.g. one the game draws in a panel).
     pub fn file_at(&mut self, path: &str) -> Option<&AnimFile> {
+        if !self.reading && !self.by_path.contains_key(path) {
+            return None;
+        }
         let files = &self.files;
         self.by_path.entry(path.to_owned()).or_insert_with(|| AnimFile::read(files, path)).as_ref()
     }
 
     pub fn file(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<&AnimFile> {
         let key = (type_key.to_owned(), era_key.to_owned(), animation);
+        if !self.reading && !self.resolved.contains_key(&key) {
+            return None;
+        }
         if !self.resolved.contains_key(&key) {
             let found = self.lookup(type_key, era_key, animation).or_else(|| self.lookup(type_key, era_key, 1));
             self.resolved.insert(key.clone(), found);
@@ -134,12 +213,15 @@ impl UnitArt {
         self.resolved[&key].as_ref()
     }
 
+    /// The INI file of unit type `type_key`'s art in `era_key` (§10.4).
+    pub fn unit_ini(&self, type_key: &str, era_key: &str) -> Option<String> {
+        let name = self.anim_names.get(&format!("{type_key}_{era_key}")).or_else(|| self.anim_names.get(type_key))?;
+        Some(format!("Art/Units/{name}/{name}.INI"))
+    }
+
     fn lookup(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<AnimFile> {
-        let name = self
-            .anim_names
-            .get(&format!("{type_key}_{era_key}"))
-            .or_else(|| self.anim_names.get(type_key))?;
-        let ini_path = format!("Art/Units/{name}/{name}.INI");
+        let ini_path = self.unit_ini(type_key, era_key)?;
+        let name = ini_path.split('/').nth(2)?.to_owned();
         let files = &self.files;
         let ini = self.inis.entry(ini_path).or_insert_with_key(|p| files.read(p).ok().map(|b| Ini::parse_bytes(&b))).as_ref()?;
         let file = ini.get("Animations", ANIMATION_NAMES.get(animation as usize)?)?.trim();
@@ -150,6 +232,22 @@ impl UnitArt {
         let files = &self.files;
         self.by_path.entry(path).or_insert_with_key(|p| AnimFile::read(files, p)).clone()
     }
+}
+
+/// The smoke colours (see [`UnitArt::smoke`]) of an explosion palette.
+pub fn smoke_entries(palette: &civ3_assets::Palette) -> Vec<[u8; 4]> {
+    (0..256u32)
+        .filter_map(|i| {
+            let c = palette.0[i as usize];
+            ((c.0, c.1, c.2) != (0, 0, 255)).then_some([c.0, c.1, c.2, i as u8])
+        })
+        .take(SMOKE.len())
+        .collect()
+}
+
+/// `rgba = { ... }` entries drawing the smoke indices as `smoke` says.
+fn smoke_rgba(smoke: &[[u8; 4]]) -> String {
+    smoke.iter().zip(SMOKE).map(|([r, g, b, a], i)| format!("{i} = [{r}, {g}, {b}, {a}]")).collect::<Vec<_>>().join(", ")
 }
 
 /// The colours unit art is drawn in: a colour table (`ntpNN.pcx`, palette
@@ -204,6 +302,13 @@ pub struct Needed {
     /// [`Needed::still`]): those chunks, the only ones made. A file not
     /// listed is made whole.
     pub stills: BTreeMap<String, BTreeSet<u32>>,
+    /// Animations drawn besides units (explosions, smoke, bombs: §10.14),
+    /// in their own colours: sprites `EffectArt@<file>/<chunk>` and their
+    /// shadows `EffectShadow@<file>/<chunk>`.
+    pub effects: BTreeMap<String, AnimFile>,
+    /// How the smoke indices are drawn ([`UnitArt::smoke`]; empty: as their
+    /// palette colours).
+    pub smoke: Vec<[u8; 4]>,
 }
 
 fn era_key(world: &Civ3World, civ: i32) -> &str {
@@ -265,7 +370,7 @@ impl Needed {
     /// them. Other animations are made ahead (`crate::preload`), or added
     /// when a unit starts them.
     pub fn of(world: &Civ3World, art: &mut UnitArt) -> Needed {
-        let mut out = Needed::default();
+        let mut out = Needed { smoke: art.smoke().to_vec(), ..Needed::default() };
         if let Some(cursor) = art.cursor() {
             out.files.insert(cursor.path.clone(), (cursor.clone(), [Recolor::civ(colors(world, world.player))].into()));
         }
@@ -285,6 +390,9 @@ impl Needed {
                 }
                 None => add(u, u.civ, Recolor::civ(colors(world, color_civ(world, u))), art),
             }
+        }
+        for e in crate::effects::drawn(world) {
+            out.add_effect(art, &e.ini, e.animation);
         }
         for table in crate::city_site::needed(world) {
             if let Some(rgb) = art.table_color(table, 66) {
@@ -322,6 +430,16 @@ impl Needed {
         other.files.iter().all(|(p, (_, c))| self.files.get(p).is_some_and(|(_, mine)| c.is_subset(mine)) && frames(p))
             && other.site_colors.keys().all(|c| self.site_colors.contains_key(c))
             && other.plain.keys().all(|p| self.plain.contains_key(p))
+            && other.effects.keys().all(|p| self.effects.contains_key(p))
+            && (other.smoke.is_empty() || other.smoke == self.smoke)
+    }
+
+    /// Adds the file the animation of art `ini` shows for `animation`, as
+    /// effect art (§10.14).
+    pub fn add_effect(&mut self, art: &mut UnitArt, ini: &str, animation: i32) {
+        if let Some(file) = art.effect_file(ini, animation) {
+            self.effects.entry(file.path.clone()).or_insert_with(|| file.clone());
+        }
     }
 
     /// Animation file `path` in its own colours (replacing those before:
@@ -351,11 +469,15 @@ impl Needed {
         }
         self.site_colors.extend(other.site_colors.iter().map(|(k, v)| (*k, *v)));
         self.plain.extend(other.plain.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.effects.extend(other.effects.iter().map(|(k, v)| (k.clone(), v.clone())));
+        if !other.smoke.is_empty() {
+            self.smoke.clone_from(&other.smoke);
+        }
     }
 
     /// What this needs that `other` does not have.
     pub fn minus(&self, other: &Needed) -> Needed {
-        let mut out = Needed::default();
+        let mut out = Needed { smoke: self.smoke.clone(), ..Needed::default() };
         for (p, (f, c)) in &self.files {
             // (Frames `other` lacks: a file it has in part, wanted whole or
             // with other frames, goes again, in all its colours.)
@@ -379,18 +501,19 @@ impl Needed {
         }
         out.site_colors = self.site_colors.iter().filter(|(k, _)| !other.site_colors.contains_key(k)).map(|(k, v)| (*k, *v)).collect();
         out.plain = self.plain.iter().filter(|(k, _)| !other.plain.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+        out.effects = self.effects.iter().filter(|(k, _)| !other.effects.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
         out
     }
 
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.site_colors.is_empty() && self.plain.is_empty()
+        self.files.is_empty() && self.site_colors.is_empty() && self.plain.is_empty() && self.effects.is_empty()
     }
 
     /// Pixels of art this describes (RGBA bytes: every frame of every file
     /// in every colouring and its shadow), for budgeting.
     pub fn bytes(&self) -> u64 {
         let frames = |f: &AnimFile| f.chunks as u64 * f.size.0 as u64 * f.size.1 as u64 * 4;
-        self.files.values().map(|(f, c)| frames(f) * (c.len() as u64 + 1)).sum::<u64>() + self.plain.values().map(frames).sum::<u64>()
+        self.files.values().map(|(f, c)| frames(f) * (c.len() as u64 + 1)).sum::<u64>() + self.plain.values().map(frames).sum::<u64>() + 2 * self.effects.values().map(frames).sum::<u64>()
     }
 
     /// The description entries of this art as an addition to art that
@@ -416,11 +539,16 @@ impl Needed {
         let mut out = String::from("\n# Unit art (generated, docs §10).\n");
         let all: Vec<String> = (0..256).map(|i| i.to_string()).collect();
         let body_transparent = format!("[{}, 255]", (240..=254).map(|i: u32| i.to_string()).collect::<Vec<_>>().join(", "));
-        let shadow_transparent = format!(
-            "[{}]",
-            all.iter().enumerate().filter(|(i, _)| !SHADOWS.contains(&(*i as u32))).map(|(_, s)| s.as_str()).collect::<Vec<_>>().join(", ")
-        );
-        let shadow_rgba: Vec<String> = SHADOWS.map(|i| format!("{i} = [{}, 0, 0, 255]", i - 239)).collect();
+        // A shadow image: the indices in `shades` darkening by `i − 239`
+        // sixteenths, everything else transparent.
+        let shadow_options = |shades: std::ops::RangeInclusive<u32>| {
+            let transparent: Vec<&str> = all.iter().enumerate().filter(|(i, _)| !shades.contains(&(*i as u32))).map(|(_, s)| s.as_str()).collect();
+            let rgba: Vec<String> = shades.map(|i| format!("{i} = [{}, 0, 0, 255]", i - 239)).collect();
+            format!("transparent = [{}]\nrgba = {{ {} }}", transparent.join(", "), rgba.join(", "))
+        };
+        let shade_options = shadow_options(SHADES);
+        // The smoke indices: translucent (§10.14).
+        let smoke = if self.smoke.is_empty() { String::new() } else { format!("rgba = {{ {} }}\n", smoke_rgba(&self.smoke)) };
         // Armies' own art (§10.11): entries 64..127 repeat the first 16
         // colours of the table, the first `members`·16 of them from another
         // table (the game reads civ 0's).
@@ -478,14 +606,14 @@ impl Needed {
             let shadow = format!("unitshadow{n}");
             // (Of a file drawn still, only its frames shown are made.)
             let only = self.stills.get(path).map_or(String::new(), |s| format!("frames = [{}]\n", s.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")));
-            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{only}transparent = {shadow_transparent}\nrgba = {{ {} }}\n", shadow_rgba.join(", "));
+            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{only}{shade_options}\n");
             sheets(&mut out, &shadow, &format!("UnitShadow@{path}"));
             blocks(&mut out, &format!("UnitShadowAnim@{path}"), &format!("UnitShadow@{path}"));
             let kinds: BTreeSet<bool> = colors.iter().map(Recolor::army_art).collect();
             for army in kinds {
                 let image = format!("unit{n}{}", if army { "a" } else { "" });
                 let remap = if army { 128 } else { 64 };
-                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{only}remap = [0, {remap}]\ntransparent = {body_transparent}\n");
+                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{only}remap = [0, {remap}]\ntransparent = {body_transparent}\n{smoke}");
                 let kind = art_kind(army);
                 sheets(&mut out, &image, &format!("UnitArt@{path}{kind}"));
                 blocks(&mut out, &format!("UnitAnim@{path}{kind}"), &format!("UnitArt@{path}{kind}"));
@@ -504,6 +632,28 @@ impl Needed {
                     toml_str(&format!("Flc@{path}"))
                 );
             }
+        }
+        // Effects (§10.14): in the file's own colours, smoke translucent,
+        // their shadows apart (as a unit's); the frame's sprite is drawn.
+        for (n, (path, file)) in self.effects.iter().enumerate() {
+            let source = toml_str(path);
+            let sheet = |out: &mut String, image: &str, group: &str| {
+                let _ = writeln!(
+                    out,
+                    "[sheets.\"{image}\"]\nimage = \"{image}\"\nall_frames = true\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = {}\n",
+                    file.size.0,
+                    file.size.1,
+                    file.anchor.0,
+                    file.anchor.1,
+                    toml_str(group)
+                );
+            };
+            let image = format!("effect{n}");
+            let _ = writeln!(out, "[images.{image}]\nsource = {source}\ntransparent = {body_transparent}\n{smoke}");
+            sheet(&mut out, &image, &format!("EffectArt@{path}"));
+            let shadow = format!("effectshadow{n}");
+            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{shade_options}\n");
+            sheet(&mut out, &shadow, &format!("EffectShadow@{path}"));
         }
         let sites: Vec<(i32, [u8; 3])> = self.site_colors.iter().map(|(k, v)| (*k, *v)).collect();
         if with_hud || !sites.is_empty() {
@@ -663,6 +813,19 @@ pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<
     out
 }
 
+/// Frame `frame` of the selection cursor's animation (its block of
+/// direction 5, in the viewing player's colours) as a single sprite drawn
+/// centred on its anchor, as `Animator::draw_cursor` does and the go-to
+/// marker (docs §10.15): the sprite's name and the palette row it is drawn
+/// with (0: none).
+pub fn cursor_sprite(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, frame: i32) -> Option<(String, u32)> {
+    let cursor = art.cursor()?;
+    let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
+    let p = animation(Part::Cursor, cursor, Some(Recolor::civ(colors(world, world.player))), block, frame, (0, 0));
+    let palette = piece_palette(compiled, &p);
+    Some((p.sprite?, palette))
+}
+
 /// Frame `frame` of `file`'s block `block` (in `colors`; `None`: its
 /// shadow) at `at`: the set of the block's frames (its last one the ring
 /// frame, §10.4) and the single frame's sprite.
@@ -678,6 +841,13 @@ fn animation(part: Part, file: &AnimFile, colors: Option<Recolor>, block: u32, f
         }
     };
     Piece { phase: chunk.saturating_sub(block * (n + 1)).min(n).min(255) as u8, sprite: Some(sprite), palette, ..Piece::new(part, set, at) }
+}
+
+/// The chunk of `file` the game shows for facing `direction` (`enum
+/// direction`) and `frame` within the block (§10.4), clamped to the file.
+pub fn frame_chunk(file: &AnimFile, direction: i32, frame: i32) -> u32 {
+    let block = DIRECTION_BLOCK.get(direction.max(0) as usize).copied().unwrap_or(2);
+    (block * (file.frames_per_direction + 1) + frame.max(0) as u32).min(file.chunks.saturating_sub(1))
 }
 
 /// The palette row `p` is drawn with (0: none, or not in the description).

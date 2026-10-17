@@ -374,6 +374,14 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     if let Ok(Some((x, y))) = game.mouse_tile() {
         let _ = writeln!(out, "mouse_tile {x} {y}");
     }
+    if let Ok(t) = game.targeting() {
+        let (px, py) = t.pointer_tile.unwrap_or((-1, -1));
+        let (cx, cy, r) = t.range_grid.map_or((-1, -1, -1), |g| (g.centre.0, g.centre.1, g.range));
+        let _ = writeln!(out, "targeting {} {} {} {} {} {} {} {px} {py} {cx} {cy} {r}", t.mode, t.refused as u8, t.range, t.target_ok as u8, t.armed as u8, t.start.0, t.start.1);
+    }
+    if let Some(p) = crate::targeting::latest_path() {
+        let _ = writeln!(out, "{}", p.trace_line());
+    }
     if let Ok(p) = game.preferences() {
         let _ = writeln!(out, "preferences {p:#x}");
     }
@@ -407,6 +415,15 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             }
         }
         Err(e) => log::warn!("reading units: {e}"),
+    }
+    // The animations drawn besides units (docs §10.14).
+    match game.effects() {
+        Ok(effects) => {
+            for e in &effects {
+                let _ = writeln!(out, "{}", crate::effects::trace_line(&crate::live::effect(e)));
+            }
+        }
+        Err(e) => log::warn!("reading effects: {e}"),
     }
     match game.cities() {
         Ok(cities) => {

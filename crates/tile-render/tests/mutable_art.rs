@@ -355,3 +355,94 @@ fn changed_font_faces_rebuild_even_without_dirty_cells() {
     renderer.update_cells(&gpu.device, &gpu.queue, &world, &Dirty::None);
     check(&gpu, &mut renderer, &atlas, &world, &camera);
 }
+
+#[test]
+fn staged_upload_keeps_the_cached_picture_until_adoption() {
+    let gpu = Headless::new().expect("AMD GPU");
+    let make = |color| {
+        let mut b = AtlasBuilder::new(8);
+        let id = b
+            .add(&RgbaImage::from_fn(8, 8, |_, _| color), (0, 0))
+            .unwrap();
+        // Two pages let a one-byte budget upload only part of the atlas.
+        b.add(&RgbaImage::from_fn(8, 8, |_, _| [40, 200, 80, 255]), (0, 0))
+            .unwrap();
+        let mut atlas = b.finish();
+        atlas.trim_blank();
+        (atlas, id)
+    };
+    let (before, id) = make([240, 40, 8, 255]);
+    let (after, next_id) = make([8, 40, 240, 255]);
+    assert_eq!(id, next_id);
+    let world = world(&[id]);
+    let mut renderer = renderer(&gpu, &before, &world);
+    let camera = Camera::new((32, 32));
+    check(&gpu, &mut renderer, &before, &world, &camera);
+    assert!(!renderer.reused());
+    check(&gpu, &mut renderer, &before, &world, &camera);
+    assert!(renderer.reused());
+
+    let mut staged = renderer.stage_atlas(&gpu.device, &after);
+    check(&gpu, &mut renderer, &before, &world, &camera);
+    assert!(
+        renderer.reused(),
+        "staging keeps the current atlas and cached picture"
+    );
+    assert!(!renderer.upload_staged(&gpu.queue, &mut staged, &after, 1));
+    check(&gpu, &mut renderer, &before, &world, &camera);
+    assert!(
+        renderer.reused(),
+        "partial uploads keep the current picture"
+    );
+    assert!(renderer.upload_staged(&gpu.queue, &mut staged, &after, 1));
+    check(&gpu, &mut renderer, &before, &world, &camera);
+    assert!(renderer.reused(), "completed uploads wait for adoption");
+
+    renderer.adopt_atlas(&gpu.device, staged, &after);
+    check(&gpu, &mut renderer, &after, &world, &camera);
+    assert!(
+        !renderer.reused(),
+        "adoption invalidates the old cached picture"
+    );
+    check(&gpu, &mut renderer, &after, &world, &camera);
+    assert!(renderer.reused());
+}
+
+#[test]
+fn staged_adoption_restores_translucent_draws_and_changed_bounds() {
+    let gpu = Headless::new().expect("AMD GPU");
+    let make = |filled: bool| {
+        let mut b = AtlasBuilder::new(16);
+        let id = b
+            .add(
+                &RgbaImage::from_fn(8, 8, |x, y| {
+                    if filled {
+                        [8, 40, 240, 128]
+                    } else if (2..6).contains(&x) && (2..6).contains(&y) {
+                        [240, 40, 8, 255]
+                    } else {
+                        [0; 4]
+                    }
+                }),
+                (0, 0),
+            )
+            .unwrap();
+        let mut atlas = b.finish();
+        atlas.trim_blank();
+        (atlas, id)
+    };
+    let (before, id) = make(false);
+    let (after, next_id) = make(true);
+    assert_eq!(id, next_id);
+    let world = world(&[id]);
+    let mut renderer = renderer(&gpu, &before, &world);
+    let camera = Camera::new((32, 32));
+    check(&gpu, &mut renderer, &before, &world, &camera);
+    let mut staged = renderer.stage_atlas(&gpu.device, &after);
+    assert!(renderer.upload_staged(&gpu.queue, &mut staged, &after, u64::MAX));
+    renderer.adopt_atlas(&gpu.device, staged, &after);
+    // Moving the camera forces drawing independently of cache invalidation,
+    // so stale duplicate masks cannot be hidden by a stale cached picture.
+    let moved = Camera { x: 1, ..camera };
+    check(&gpu, &mut renderer, &after, &world, &moved);
+}
