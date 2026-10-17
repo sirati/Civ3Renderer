@@ -56,6 +56,20 @@ fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
     }
 }
 
+/// An effect as the world holds it (its art's path game-relative).
+pub(crate) fn effect(e: &civ3_sys::DrawnEffect) -> crate::world::Civ3Effect {
+    crate::world::Civ3Effect {
+        source: e.source,
+        tile: e.tile,
+        pixel: e.pixel,
+        direction: e.direction,
+        animation: e.animation,
+        frame: e.frame,
+        shown: e.shown,
+        ini: if e.ini.is_empty() { String::new() } else { crate::effects::art_path(&e.ini) },
+    }
+}
+
 /// A copy of the parts of the game state the map is drawn from.
 /// How `player` stands with every civ (the barbarians, civ 0, are always
 /// at war). The raw fields are logged when they change: not all treaty
@@ -156,6 +170,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         unit_type_stats: optional("unit_type_stats", game.unit_type_stats()),
         experience_hit_points: optional("experience_hit_points", game.experience_hit_points()),
         unit_tiles: optional("unit_tiles", game.unit_tiles()),
+        effects: optional("effects", game.effects()).into_iter().map(|e| effect(&e)).collect(),
         preferences: optional("preferences", game.preferences()),
         debug_mode_bits: optional("debug_mode_bits", game.debug_mode_bits()),
         civ_adjectives: players.adjectives,
@@ -932,7 +947,10 @@ fn publish(
         };
         if let Some(world) = units_world {
             // (A preview's units stand still: only the frames they show.)
-            let needed = if matches!(shown, Shown::Preview(..)) { units::Needed::still(world, &mut art) } else { units::Needed::of(world, &mut art) };
+            let mut needed = if matches!(shown, Shown::Preview(..)) { units::Needed::still(world, &mut art) } else { units::Needed::of(world, &mut art) };
+            if matches!(shown, Shown::Map(..)) {
+                crate::effects::preload(&mut needed, &mut art, world);
+            }
             if !have.covers(&needed) {
                 have.merge(&needed);
                 recompile = true;
@@ -1088,6 +1106,7 @@ fn publish(
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
                 units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut unit_memory, &mut scene);
+                crate::effects::place(world, view, &mut art, &compiled, &mut scene);
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));
