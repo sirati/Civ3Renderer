@@ -151,6 +151,10 @@ pub enum Refused {
     OffMap,
     #[error("the unit cannot {0:?} now")]
     CannotDo(Command),
+    /// The game was asked to select a unit and did not (e.g. one without
+    /// moves left); `selected` is the unit still selected.
+    #[error("the game refused to select unit {unit} at {tile:?} (no moves left?); selected: {selected:?}")]
+    NotSelected { unit: i32, tile: (i32, i32), selected: Option<i32> },
     #[error("expired")]
     Expired,
     #[error("reading the game: {0}")]
@@ -263,7 +267,7 @@ mod live {
     use civ3_sys::Civ3;
     use civ3_sys::modal::{self as m, animation_pump_a, animation_pump_b, human_pump_goto, human_pump_idle, modal_pump};
 
-    use super::{Action, GateState, Pending, Refused, gate, may_enter, step};
+    use super::{Action, GateState, Pending, Refused, gate, may_enter, selection_outcome, step};
 
     static QUEUE: Mutex<VecDeque<Pending>> = Mutex::new(VecDeque::new());
     static RUNNING: AtomicBool = AtomicBool::new(false);
@@ -427,6 +431,8 @@ mod live {
         let _running = Running;
         match act(live, pending.action) {
             Ok(done) => log::info!("modal input: {done}"),
+            // What the player asked for and the game said no to.
+            Err(r @ Refused::NotSelected { .. }) => log::info!("modal input: {r}"),
             Err(r) => log::debug!("modal input: not doing {:?}: {r}", pending.action),
         }
     }
@@ -483,7 +489,8 @@ mod live {
                     return Ok(format!("unit {} at {tile:?} is selected already", place.id));
                 }
                 live.unit_select.call(unit);
-                Ok(format!("selected unit {} at {tile:?} (selected now: {:?})", place.id, game.current_unit()?))
+                let now = game.current_unit_ptr()?;
+                selection_outcome(place.id, tile, now == unit, game.current_unit()?)
             }
             Action::GoTo(tile) => {
                 let (_, from) = selected(live, player)?;
@@ -505,6 +512,16 @@ mod live {
                 Ok(format!("{command:?} for unit {} at {:?}: {done}, state {:?} -> {state:?}", place.id, (place.x, place.y), place.state))
             }
         }
+    }
+}
+
+/// What became of asking the game to select `unit` on `tile`: whether it
+/// is the selected unit now (`taken`), and which unit is (`selected`).
+pub fn selection_outcome(unit: i32, tile: (i32, i32), taken: bool, selected: Option<i32>) -> Result<String, Refused> {
+    if taken {
+        Ok(format!("selected unit {unit} at {tile:?}"))
+    } else {
+        Err(Refused::NotSelected { unit, tile, selected })
     }
 }
 
@@ -564,6 +581,15 @@ mod tests {
         for vk in [0x0D, 0x1B, 0x70, 0x71, 0x7B, 0x42, 0x65, 0x0C, 0x41, 0x44, 0x10, 0x11] {
             assert_eq!(key_action(vk), None, "{vk:#x}");
         }
+    }
+
+    #[test]
+    fn a_refused_selection_says_so() {
+        assert_eq!(selection_outcome(77, (17, 39), true, Some(77)), Ok("selected unit 77 at (17, 39)".into()));
+        let refused = selection_outcome(357, (18, 34), false, Some(175));
+        assert_eq!(refused, Err(Refused::NotSelected { unit: 357, tile: (18, 34), selected: Some(175) }));
+        let message = refused.unwrap_err().to_string();
+        assert!(message.contains("refused to select unit 357") && message.contains("Some(175)"), "{message}");
     }
 
     #[test]
