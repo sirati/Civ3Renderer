@@ -705,7 +705,7 @@ impl TileRenderer {
         self.markers.clear();
         for m in markers.iter().filter(|m| m.text.is_none()) {
             self.markers.push(m.gpu());
-            push_run(&mut runs, self.markers.len() as u32 - 1, free_kind(m));
+            push_run(&mut runs, self.markers.len() as u32 - 1, free_kind(m), view_class(m));
         }
         self.marker_runs = runs;
         let Some(w) = &mut self.world else { return };
@@ -1260,7 +1260,8 @@ impl Steps<'_> {
         let mut render: Option<wgpu::RenderPass<'static>> = None;
         for i in 0..=passes {
             let cells = i < passes && camera.cells && steps.contains(&(2 * i));
-            let sprites = steps.contains(&(2 * i + 1)) && world.free_after.get(i).is_some_and(|r| !r.is_empty());
+            let drawable = |(_, _, c): &(std::ops::Range<u32>, FreeKind, u32)| *c == v as u32 || (*c == tile_render_shared::ALL_VIEWS && camera.cells);
+            let sprites = steps.contains(&(2 * i + 1)) && world.free_after.get(i).is_some_and(|r| r.iter().any(drawable));
             if !cells && !sprites {
                 continue;
             }
@@ -1298,7 +1299,7 @@ impl Steps<'_> {
                 render.draw_indexed(indices, 0, 0..params.cols * params.rows * pass.count);
             }
             if sprites {
-                draw_free(render, world, i, free);
+                draw_free(render, world, i, free, (v as u32, camera.cells));
             }
         }
     }
@@ -1306,8 +1307,12 @@ impl Steps<'_> {
 
 /// Free sprites that follow pass `i`, into `pass` (whose bind group is
 /// already set), each run with its pipelines.
-fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: FreePipelines<'_>) {
-    for (range, kind) in world.free_after.get(i).into_iter().flatten() {
+fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: FreePipelines<'_>, (view, cells): (u32, bool)) {
+    for (range, kind, class) in world.free_after.get(i).into_iter().flatten() {
+        // (A run for other views draws nothing here: not drawn at all.)
+        if !(*class == view || (*class == tile_render_shared::ALL_VIEWS && cells)) {
+            continue;
+        }
         for p in pipelines.of(*kind) {
             pass.set_pipeline(p);
             pass.draw(0..QUAD_VERTICES, range.clone());
@@ -1330,7 +1335,17 @@ enum FreeKind {
 
 /// Runs of free sprites in drawing order: which instances, and how they
 /// are drawn.
-type FreeRuns = Vec<(std::ops::Range<u32>, FreeKind)>;
+/// (A run's view class, `view_class`.)
+type FreeRuns = Vec<(std::ops::Range<u32>, FreeKind, u32)>;
+
+/// Which views free sprite `s` may be drawn in: its own one only (its
+/// index), or (`ALL_VIEWS`) those showing the world, maybe but one.
+fn view_class(s: &crate::PlacedSprite) -> u32 {
+    match s.view {
+        Some(v) if !s.except_view => v,
+        _ => tile_render_shared::ALL_VIEWS,
+    }
+}
 
 /// The world's free sprites in drawing order (by the pass they follow,
 /// then list order), its text drawn from outlines likewise (`bases`: where
@@ -1356,7 +1371,7 @@ fn free_sprites(world: &TileWorld, bases: &[u32], sprites: &[SpriteDesc]) -> (Ve
                 (free_kind(s), gpu.len() as u32 - 1)
             }
         };
-        push_run(&mut runs[s.after_pass.min(passes)], i, kind);
+        push_run(&mut runs[s.after_pass.min(passes)], i, kind, view_class(s));
     }
     if gpu.is_empty() {
         gpu.push(FreeSprite::default());
@@ -1423,17 +1438,17 @@ fn free_kind(s: &crate::PlacedSprite) -> FreeKind {
     }
 }
 
-/// Adds instance `i`, drawn as `kind`, to `runs`.
-fn push_run(runs: &mut FreeRuns, i: u32, kind: FreeKind) {
+/// Adds instance `i`, drawn as `kind` in views of `class`, to `runs`.
+fn push_run(runs: &mut FreeRuns, i: u32, kind: FreeKind, class: u32) {
     match runs.last_mut() {
-        Some((range, k)) if *k == kind && range.end == i => range.end = i + 1,
-        _ => runs.push((i..i + 1, kind)),
+        Some((range, k, c)) if *k == kind && *c == class && range.end == i => range.end = i + 1,
+        _ => runs.push((i..i + 1, kind, class)),
     }
 }
 
 /// `runs` of instances `by` further on.
-fn shifted(runs: &FreeRuns, by: u32) -> impl Iterator<Item = (std::ops::Range<u32>, FreeKind)> + '_ {
-    runs.iter().map(move |(r, k)| (r.start + by..r.end + by, *k))
+fn shifted(runs: &FreeRuns, by: u32) -> impl Iterator<Item = (std::ops::Range<u32>, FreeKind, u32)> + '_ {
+    runs.iter().map(move |(r, k, c)| (r.start + by..r.end + by, *k, *c))
 }
 
 /// Where each font's words start in the outline buffer (see
