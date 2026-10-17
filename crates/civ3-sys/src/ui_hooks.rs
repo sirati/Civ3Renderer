@@ -105,6 +105,15 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// `int PCX_Image::get_pixel(this, x, y)` (0x600220): the pixel's value
+    /// (palette index or 16-bit colour). How the game tests what is under
+    /// the mouse: index images of regions (the value is the region, 0xFF
+    /// none) and the canvases of colour-keyed forms (the key lets a click
+    /// through, 0x608C70).
+    pub mod pcx_get_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// `int PCX_Image::fill(this, color)`: the whole image.
     pub mod pcx_fill(image, edx; color) -> i32;
 }
@@ -193,6 +202,7 @@ pub struct UiSites {
     pub pcx_copy_same: Site,
     pub pcx_copy_rect: Site,
     pub pcx_copy_rects: Site,
+    pub pcx_get_pixel: Site,
     pub pcx_fill: Site,
     pub pcx_fill_area: Site,
     pub pcx_line: Site,
@@ -242,6 +252,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             // mov eax,[esp+4] / test eax,eax
             pcx_copy_rect: (0x5F_CBD0, &[0x8B, 0x44, 0x24, 0x04, 0x85, 0xC0]),
             pcx_copy_rects: (0x5F_CCB0, &[0x8B, 0x44, 0x24, 0x04, 0x85, 0xC0]),
+            // push ebx / push esi / mov esi,ecx / push edi
+            pcx_get_pixel: (0x60_0220, &[0x53, 0x56, 0x8B, 0xF1, 0x57]),
             // mov ecx,[ecx+4] / test ecx,ecx
             pcx_fill: (0x5F_FF30, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
             pcx_fill_area: (0x5F_FF50, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
@@ -349,6 +361,25 @@ pub mod obj {
     /// `+0x10/+0x14`).
     pub fn sprite_crop(sprite: u32) -> Option<(i32, i32, i32, i32)> {
         Some((i32_at(sprite, 0x20)?, i32_at(sprite, 0x24)?, i32_at(sprite, 0x10)?, i32_at(sprite, 0x14)?))
+    }
+
+    /// An image's bits per pixel (its `JGL_Image`'s +0x24): 8 for images
+    /// of palette indices, 16 for canvases.
+    pub fn image_bits(image: u32) -> Option<u32> {
+        let jgl = Ptr32::<u32>::new(image.wrapping_add(4)).read().ok().filter(|&p| p != 0)?;
+        Ptr32::<u32>::new(jgl + 0x24).read().ok()
+    }
+
+    /// Whether `canvas` is the canvas of a form composited colour-keyed
+    /// (`Status1` 0x1000000): the game reads such a canvas back to tell
+    /// whether a click lands on the form or goes through it (0x608C70). A
+    /// form is recognised by its vtable (in the exe's `.rdata`) whose
+    /// composite (`m79`, +0x13C) is `Base_Form`'s (0x602710). PCGames build.
+    pub fn keyed_form_canvas(canvas: u32) -> bool {
+        let form = canvas.wrapping_sub(CANVAS);
+        let u32_at = |a: u32| Ptr32::<u32>::new(a).read().ok();
+        let Some(vtable) = u32_at(form).filter(|v| (0x66_5000..0x68_0000).contains(v)) else { return false };
+        u32_at(vtable + 0x13C) == Some(0x60_2710) && u32_at(form + STATUS1).is_some_and(|s| s & 0x100_0000 != 0)
     }
 
     /// Whether the sprite has pixels.

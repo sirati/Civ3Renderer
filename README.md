@@ -401,9 +401,12 @@ the mirror shows as animation frames, and `present`'s `BitBlt` to the
 window; the map's blits go as with `CIV3R_GAME_MAP=off`. What decides what
 is drawn runs as before: forms redraw, compose and present, text is measured
 (`GetTextExtentPoint32`), animations and the map pass pick their frames and
-sprites, and the mirror follows all of it. Drawing goes on onto the
-minimap's images (the game builds them from each other pixel by pixel) and
-onto any image the game drew itself and cuts a sprite from. Not skipped:
+sprites, and the mirror follows all of it. Drawing goes on where the game
+reads its pixels back: images of palette indices (its maps of the regions
+under the mouse), the canvases of colour-keyed forms (a click on a
+transparent pixel of the HUD goes to the map), the minimap's images (built
+from each other pixel by pixel), and any other image the game drew itself
+once it reads a pixel of it or cuts a sprite from it. Not skipped:
 blits the mirror does not hook (the scaled wrappers), FLC frame decoding,
 the minimap's per-pixel builders. `CIV3R_TRACE_PIXELS=1` logs any code
 taking the pixels of an image a skipped drawing went onto.
