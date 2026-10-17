@@ -549,6 +549,11 @@ fn publish(
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
     // The last scene's size: bytes of cells, world sprites, overlay sprites.
     let mut scene_size = (0, 0, 0);
+    // The replay picture belongs to the renderer. The game supplies semantic
+    // navigator operations; revisions avoid rebuilding unchanged pixels.
+    let mut replay_surface: Vec<(&str, (u32, u32), Vec<u8>)> = Vec::new();
+    let mut replay_revision = 0;
+    let mut last_replay_revision = 0;
     // The scenario the Load Scenario screen previews.
     let mut previews = crate::preview::Previews::default();
     // How often the art folders changed (whole descriptions for folders
@@ -844,10 +849,17 @@ fn publish(
             log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
         }
         mark(&mut profile, "controls+prefs", &mut t);
+        let revision = crate::ui_trace::replay_revision();
+        if revision != replay_revision {
+            replay_surface = crate::ui_trace::replay_picture()
+                .map(|(_, size, pixels)| vec![("replay-map", size, pixels)])
+                .unwrap_or_default();
+            replay_revision = revision;
+        }
         let state = (shown, texts, ui, interactables, cursor);
         let unchanged = last.as_ref() == Some(&state);
         mark(&mut profile, "compare", &mut t);
-        if unchanged && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+        if unchanged && replay_revision == last_replay_revision && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             if let Some(p) = &mut profile {
                 p.event("unchanged", 1);
             }
@@ -860,7 +872,7 @@ fn publish(
             _ => Arc::default(),
         };
         let files = compiler.files(&folders);
-        let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
+        let generated = &crate::ui_trace::generated_surfaces(game.build);
         // The parts of the interface the viewer arranges (docs §16.11): the
         // screen open, the popup over it (split off: the viewer may draw it
         // elsewhere).
@@ -1353,6 +1365,9 @@ fn publish(
             });
         }
         mark(&mut profile, "minimap", &mut t);
+        // Replay pixels made by our renderer from terrain and history changes.
+        let all: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).chain(&popup_items).cloned().collect();
+        scene.patches.extend(ui_screen::surface_patches(&all, &replay_surface, &compiled));
         crate::scene_map::overlay_screen_sprites(&mut scene);
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
@@ -1485,6 +1500,7 @@ fn publish(
                 previews.published(seq);
             }
             published_prefs = (prefs_draws, Some(prefs.settings().clone()));
+            last_replay_revision = replay_revision;
         }
         last = published.then_some(state);
     }

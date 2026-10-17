@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 
-use civ3_sys::Civ3;
+use civ3_sys::{Civ3, layout as L};
 use civ3_sys::ui_hooks::{self as h, obj};
 use inproc::hook::HookError;
 
@@ -248,10 +248,97 @@ fn own_civ_colors(sprite: u32) -> Option<u32> {
     h::sprite_own_colors(sprite).and_then(civ).or_else(|| h::sprite_cut_colors(sprite).and_then(civ))
 }
 
+/// Our replay picture, changed by the game's semantic navigator operations.
+struct Replay {
+    navigator: u32,
+    image: crate::replay::ReplayMap,
+}
+
+static REPLAY: Mutex<Option<Replay>> = Mutex::new(None);
+static REPLAY_NAVIGATOR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static REPLAY_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A revision of the renderer's replay map, without copying its pixels.
+pub fn replay_revision() -> u64 {
+    REPLAY_REVISION.load(Relaxed)
+}
+
+/// The renderer's replay picture. All pixels come from terrain and the
+/// recorded navigator operations; none are read from the game's images.
+pub fn replay_picture() -> Option<(u64, (u32, u32), Vec<u8>)> {
+    let replay = REPLAY.lock().ok()?;
+    let replay = replay.as_ref()?;
+    Some((replay_revision(), replay.image.size(), replay.image.rgba()))
+}
+
+fn replay_operation(navigator: u32, operation: crate::replay::Operation) -> bool {
+    if navigator != REPLAY_NAVIGATOR.load(Relaxed) { return false; }
+    let Ok(mut replay) = REPLAY.lock() else { return false };
+    let Some(replay) = replay.as_mut().filter(|r| r.navigator == navigator) else { return false };
+    replay.image.apply(&operation);
+    REPLAY_REVISION.fetch_add(1, Relaxed);
+    true
+}
+
+/// The forms' own surfaces seen so far (`h::form_surface`): image and name.
+static FORM_SURFACES: Mutex<Vec<(u32, &'static str)>> = Mutex::new(Vec::new());
+
+/// The surfaces the game fills itself: the fixed ones and the forms' own
+/// seen so far (see `ui_screen::items`).
+pub fn generated_surfaces(build: civ3_sys::Build) -> Vec<(u32, &'static str)> {
+    let mut out = h::generated_surfaces(build).to_vec();
+    out.extend(form_surfaces());
+    out
+}
+
+/// The forms' own surfaces seen so far: image and name.
+pub fn form_surfaces() -> Vec<(u32, &'static str)> {
+    FORM_SURFACES.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+/// A copy of `from` onto `canvas`: if `from` is a surface of the form
+/// whose canvas it is, the model passes it on as it is from now on.
+fn note_form_surface(from: u32, canvas: u32) {
+    let Some(&build) = BUILD.get() else { return };
+    if BACK_BUFFER.get() == Some(&canvas) {
+        return;
+    }
+    let Some(s) = h::form_surface(build, from, canvas) else { return };
+    {
+        let Ok(mut seen) = FORM_SURFACES.lock() else { return };
+        if seen.iter().any(|&(image, _)| image == from) {
+            return;
+        }
+        seen.push((from, s.name));
+    }
+    log::debug!("UI mirror: {} at {from:#x}", s.name);
+    if let Ok(mut m) = MODEL.lock() {
+        if let Some(m) = m.as_mut() {
+            m.add_generated(from);
+        }
+    }
+}
+
+/// `image` lost its pixels: if it was a form's surface, it is an image like
+/// any other again (its memory may be another's next).
+fn forget_form_surface(image: u32) {
+    {
+        let Ok(mut seen) = FORM_SURFACES.lock() else { return };
+        let Some(i) = seen.iter().position(|&(i, _)| i == image) else { return };
+        seen.remove(i);
+    }
+    if let Ok(mut m) = MODEL.lock() {
+        if let Some(m) = m.as_mut() {
+            m.remove_generated(image);
+        }
+    }
+}
+
 /// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`, within
 /// the canvas's clip rectangle (the game's copies keep to it: e.g. a list
 /// box redrawing one row through tiles of its background).
 fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
+    note_form_surface(from, canvas);
     let (mut src, mut x, mut y) = (src, x, y);
     if let Some([l, t, r, b]) = clip_of(canvas) {
         let (dl, dt) = ((l - x).max(0), (t - y).max(0));
@@ -309,6 +396,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         r
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
+        forget_form_surface(c.image);
         emit(Event::Cleared { image: c.image });
         with_skipper(|s| s.cleared(c.image));
         c.original()
@@ -495,6 +583,57 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
                 emit(Event::FlcLoaded { flic: c.flic, path });
             }
             r
+        });
+    }
+    if let Some(sites) = h::replay_sites(game.build) {
+        let game = *game;
+        hook!(navigator_init, sites.init, move |c| {
+            let replay = h::replay_navigator(game.build, c.navigator);
+            if replay {
+                REPLAY_NAVIGATOR.store(c.navigator, Relaxed);
+                *REPLAY.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            } else if REPLAY_NAVIGATOR.load(Relaxed) == c.navigator {
+                // A freed replay form's memory can become another navigator.
+                REPLAY_NAVIGATOR.store(0, Relaxed);
+                *REPLAY.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                REPLAY_REVISION.fetch_add(1, Relaxed);
+            }
+            // Geometry, hit testing and replay state still initialize.
+            // Only the terrain rasterizer below is skipped in render-off mode.
+            c.original();
+            if replay {
+                match h::navigator_size(c.navigator).zip(crate::live::snapshot(&game).ok()) {
+                    Some((size, (world, _))) => {
+                        let image = crate::replay::ReplayMap::new(&world, size);
+                        *REPLAY.lock().unwrap_or_else(|e| e.into_inner()) = Some(Replay { navigator: c.navigator, image });
+                        REPLAY_REVISION.fetch_add(1, Relaxed);
+                        log::debug!("UI mirror: replay map from world state, {}x{}", size.0, size.1);
+                    }
+                    None => log::warn!("UI mirror: replay terrain state is unavailable"),
+                }
+            }
+        });
+        hook!(navigator_terrain, sites.terrain, |c| {
+            let nav = REPLAY_NAVIGATOR.load(Relaxed);
+            let replay_terrain = nav != 0 && c.image == nav.wrapping_add(L::NAVIGATOR_DATA_PCX_1)
+                && BUILD.get().is_some_and(|&build| h::replay_navigator(build, nav));
+            if !(skipping() && replay_terrain) { c.original(); }
+        });
+        hook!(navigator_tint, sites.tint, |c| {
+            let tracked = replay_operation(c.navigator, crate::replay::Operation::Tint { x: c.x as i32, y: c.y as i32, color: c.color as u16 });
+            if !(tracked && skipping()) { c.original(); }
+        });
+        hook!(navigator_restore, sites.restore, |c| {
+            let tracked = replay_operation(c.navigator, crate::replay::Operation::Restore { x: c.x as i32, y: c.y as i32 });
+            if !(tracked && skipping()) { c.original(); }
+        });
+        hook!(navigator_add_city, sites.add_city, |c| {
+            let tracked = replay_operation(c.navigator, crate::replay::Operation::AddCity { x: c.x as i32, y: c.y as i32 });
+            if !(tracked && skipping()) { c.original(); }
+        });
+        hook!(navigator_erase_city, sites.erase_city, |c| {
+            let tracked = replay_operation(c.navigator, crate::replay::Operation::EraseCity { x: c.x as i32, y: c.y as i32 });
+            if !(tracked && skipping()) { c.original(); }
         });
     }
     hook_lines(game, &mut hooks);
@@ -741,6 +880,14 @@ pub fn map_redraw(map_renderer: u32) {
             m.reset(map_renderer);
         }
     }
+}
+
+/// An unscaled map-sprite blit onto an interface canvas (Top 5 Cities).
+/// The tracer excludes the main map pass, which the renderer draws itself.
+/// Returns whether the game's own drawing of this recorded blit is skipped.
+pub fn on_map_sprite(sprite: u32, canvas: u32, x: u32, y: u32, ct: u32) -> bool {
+    blit(sprite, canvas, x, y, true, ct);
+    skips(canvas, sprite)
 }
 
 /// A colour-table blit (the tracer's hook): unit animation frames drawn on

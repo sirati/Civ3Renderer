@@ -291,6 +291,19 @@ impl UiModel {
         self
     }
 
+    /// `image` is a surface passed on as it is from now on (one found
+    /// while the game runs: a form's own, made with the form).
+    pub fn add_generated(&mut self, image: u32) {
+        if !self.generated.contains(&image) {
+            self.generated.push(image);
+        }
+    }
+
+    /// `image` is no surface passed on as it is any more.
+    pub fn remove_generated(&mut self, image: u32) {
+        self.generated.retain(|&g| g != image);
+    }
+
     /// Whether text drawn on a canvas cleared to the colour key has the key
     /// as its backdrop (see `keyed_clear`).
     pub fn with_text_backdrops(mut self, on: bool) -> Self {
