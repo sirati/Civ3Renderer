@@ -374,6 +374,29 @@ text = "{value}×"
 style = "label"
 show_if = "tab=resolution"
 
+[[panels.preferences.items]]
+image = "section"
+at = [70, 445]
+size = [882, 80]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Display"
+style = "heading"
+at = [90, 455]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+checkbox = "display.show_fps"
+at = [90, 488]
+size = [440, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Show FPS"
+style = "label"
+show_if = "tab=resolution"
+
 # ------------------------------------------------ Layout, left column
 
 [[panels.preferences.items]]
