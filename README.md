@@ -127,7 +127,17 @@ driver's point of interest (the active unit), the world cursor, or nothing
 (Ctrl+Shift+F); a view following the world cursor keeps it in its middle
 and captures the mouse when clicked into (Ctrl+Shift+Space lets go, and
 takes it over such a view; each change is logged), the cursor drawn in
-every view that shows it. A free view set up before the game shows a map
+every view that shows it. While the mouse is captured, holding Alt snaps
+the pointer to what the interface can be clicked on (`tile_viewer::snap`;
+the driver lists buttons, list entries and lists, `scene::Interactable`):
+a hidden pointer moved by the mouse glides on with friction, a few times a
+second the element nearest to where it would come to rest becomes the
+target, and the visible pointer flies there on a spring, a translucent
+ghost showing the next target meanwhile; the game gets the pointer once it
+rests. In a list, moving on scrolls the list under the pointer. A click
+clicks the element; releasing Alt leaves the pointer there.
+(`snap_updates_per_second`, `snap_ghost_fps` in the viewer's settings.)
+A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
 arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
