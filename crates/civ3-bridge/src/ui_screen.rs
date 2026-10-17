@@ -121,14 +121,10 @@ pub fn from_draw(frame: &Frame, first: usize) -> Frame {
     Frame { draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws }
 }
 
-/// The art and fonts `items` need (labels also at `zooms`, see
-/// [`sprites`]); whether anything was new.
-pub fn add_art(items: &[Item], art: &mut ScreenArt, fonts: &mut Fonts, files: &civ3_assets::GameFiles, zooms: &[(u32, u32)]) -> bool {
+/// The art and fonts `items` need; whether anything was new.
+pub fn add_art(items: &[Item], art: &mut ScreenArt, fonts: &mut Fonts, files: &civ3_assets::GameFiles) -> bool {
     let elements: Vec<Element> = items.iter().filter_map(|i| if let Item::Element(e, _) = i { Some(e.clone()) } else { None }).collect();
-    let mut runs: Vec<TextRun> = items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(r.clone()) } else { None }).collect();
-    for &zoom in zooms {
-        runs.extend(items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(crate::text::zoomed(r, zoom)) } else { None }));
-    }
+    let runs: Vec<TextRun> = items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(r.clone()) } else { None }).collect();
     let new_art = art.add(&elements);
     let new_fonts = fonts.add(files, &runs);
     new_art || new_fonts
@@ -141,36 +137,36 @@ pub fn description(art: &ScreenArt) -> String {
     })
 }
 
-/// Of `zooms`, those the labels among `items` can be drawn at (their fonts
-/// at that size are in the art): what the scene has zoomed art for.
-pub fn label_zooms(items: &[Item], fonts: &Fonts, compiled: &Compiled, zooms: &[(u32, u32)]) -> Vec<(u32, u32)> {
-    let labels: Vec<&TextRun> = items.iter().filter_map(|i| if let Item::Text(r, _, _) = i { Some(r) } else { None }).collect();
-    zooms.iter().copied().filter(|&z| labels.iter().all(|r| fonts.compiled(&crate::text::zoomed(r, z), compiled))).collect()
+/// The zooms the scene has zoomed art for (`scene::Scene::zooms`): every
+/// zoom, (0, 0), where text can be drawn from outlines (the art has the
+/// game's face), else none.
+pub fn outline_zooms(compiled: &Compiled) -> Vec<(u32, u32)> {
+    if compiled.fonts.is_empty() { Vec::new() } else { vec![(0, 0)] }
 }
 
 /// The free sprites of `items`, in order: underlay items after render pass
 /// `under_pass` (the one before the fog of war, which the game draws over
-/// them), the rest on top. With `zooms` (from [`label_zooms`]), text comes
-/// 1:1 (`zoom_art` 1) and rasterised at each zoom (`zoom_art` 2), for views
-/// at those zooms (the map's labels in zoomed views, the whole interface
-/// in a scaled screen).
-pub fn sprites(items: &[Item], fonts: &Fonts, compiled: &Compiled, under_pass: u32, zooms: &[(u32, u32)]) -> Vec<scene::FreeSprite> {
+/// them), the rest on top. With `outlines`, text comes 1:1 (`zoom_art` 1)
+/// and drawn from its face's outlines (zoomed art for every zoom), for
+/// views drawn at their zoom (the map's labels in zoomed views, the whole
+/// interface in a scaled screen); text whose face has no outlines stays
+/// 1:1 everywhere.
+pub fn sprites(items: &[Item], fonts: &Fonts, compiled: &Compiled, under_pass: u32, outlines: bool) -> Vec<scene::FreeSprite> {
     let mut out = Vec::new();
     for i in items {
         let pass = |under: bool| if under { under_pass } else { u32::MAX };
         match i {
             Item::Element(e, under) => out.extend(menu::screen::sprites(std::slice::from_ref(e), compiled, pass(*under))),
-            Item::Text(run, clip, under) if !zooms.is_empty() => {
+            Item::Text(run, clip, under) => {
                 let start = out.len();
                 fonts.run_sprites(run, Some(*clip), compiled, pass(*under), &mut out);
-                for s in &mut out[start..] {
-                    s.zoom_art = 1;
-                }
-                for &zoom in zooms {
-                    fonts.run_sprites_at(run, Some(*clip), compiled, pass(*under), Some(zoom), &mut out);
+                let low = out.len();
+                if outlines && fonts.run_glyphs(run, Some(*clip), compiled, pass(*under), &mut out) {
+                    for s in &mut out[start..low] {
+                        s.zoom_art = 1;
+                    }
                 }
             }
-            Item::Text(run, clip, under) => fonts.run_sprites(run, Some(*clip), compiled, pass(*under), &mut out),
         }
     }
     out

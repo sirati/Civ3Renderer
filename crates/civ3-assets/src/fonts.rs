@@ -67,12 +67,6 @@ pub fn measure(font: &FontStyle, text: &str) -> Option<i32> {
     gdi_text::text_extent(&spec, &bytes).ok()
 }
 
-/// The smallest and the largest text height glyphs are made for: sheets
-/// exist for these and the sizes between (`tools/gen-civ3-fonts`), larger
-/// requests (text zoomed far in) take the largest.
-pub const MIN_HEIGHT: i32 = 5;
-pub const MAX_HEIGHT: i32 = 96;
-
 /// Of `available` heights, the one nearest `height` (of two as near, the
 /// larger); `None` if there is none.
 pub fn nearest_height(available: &[i32], height: i32) -> Option<i32> {
@@ -108,12 +102,12 @@ fn sheet_heights(dir: Option<std::path::PathBuf>, font: &FontStyle) -> Vec<i32> 
 
 /// The height `font` is made at when asked for `font.height`: with
 /// sheets, the nearest height there is a sheet for (each size the cache
-/// lacks noted once), with GDI any height up to [`MAX_HEIGHT`], at least
-/// [`MIN_HEIGHT`].
+/// lacks noted once), with GDI the height asked for. Text at other zooms is
+/// drawn from the face's outlines, so only the game's own sizes are needed.
 pub fn available_height(font: &FontStyle) -> i32 {
     use std::collections::HashMap;
     use std::sync::Mutex;
-    let wanted = font.height.abs().clamp(MIN_HEIGHT, MAX_HEIGHT);
+    let wanted = font.height.abs().max(1);
     if !from_sheets() {
         return wanted;
     }

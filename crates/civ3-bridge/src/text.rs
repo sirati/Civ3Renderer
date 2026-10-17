@@ -62,9 +62,8 @@ impl TextRun {
 
 type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 
-/// The font `r` is drawn with: its style at the nearest size there are
-/// glyphs for (zoomed text asks for sizes the game never uses, see
-/// [`zoomed`] and `civ3_assets::fonts::available_height`).
+/// The font `r` is drawn with at 1:1: its style at the nearest size there
+/// are glyphs for (see `civ3_assets::fonts::available_height`).
 fn key(r: &TextRun) -> FontKey {
     let style = FontStyle { face: r.face.clone(), height: r.height.abs(), weight: r.weight, italic: r.italic };
     (FontStyle { height: civ3_assets::fonts::available_height(&style), ..style }, r.color, r.backdrop)
@@ -103,8 +102,8 @@ impl Fonts {
         added
     }
 
-    /// Drops the fonts not asked for in the last `age` (zooms and screens
-    /// come and go; every font is a sheet of glyphs in the art); how many.
+    /// Drops the fonts not asked for in the last `age` (screens come and
+    /// go; every font is a sheet of glyphs in the art); how many.
     pub fn prune(&mut self, age: std::time::Duration) -> usize {
         let now = std::time::Instant::now();
         let before = self.fonts.len();
@@ -113,13 +112,6 @@ impl Fonts {
         let fonts = &self.fonts;
         self.used.retain(|k, _| fonts.contains_key(k));
         before - self.fonts.len()
-    }
-
-    /// Whether `compiled` has the glyphs of `run` (its art is built).
-    pub fn compiled(&self, run: &TextRun, compiled: &Compiled) -> bool {
-        let key = key(run);
-        let first = run.text.chars().next().map_or(32, |c| c as u32);
-        self.has(run) && compiled.set(&format!("Text@{}/{first}", Self::tag(&key))).is_some()
     }
 
     /// How many fonts (style and colour) are loaded.
@@ -147,6 +139,10 @@ impl Fonts {
     /// anchored at the pen on the baseline.
     pub fn description(&self) -> String {
         let mut out = String::from("\n# Text glyphs (generated).\n");
+        // The faces text is drawn with from outlines at other zooms.
+        for (face, file) in OUTLINE_FACES {
+            let _ = writeln!(out, "[fonts.\"{face}\"]\nsource = \"{file}\"\n");
+        }
         for (n, ((style, [r, g, b], backdrop), font)) in self.fonts.iter().enumerate() {
             let Some(font) = font else { continue };
             let tag = Self::tag(&(style.clone(), [*r, *g, *b], *backdrop));
@@ -191,8 +187,8 @@ impl Fonts {
         out
     }
 
-    /// Glyph sprites of one run, clipped to `clip` (screen rectangle), drawn
-    /// after render pass `after_pass`.
+    /// Glyph sprites of one run (1:1, from the glyph sheets), clipped to
+    /// `clip` (screen rectangle), drawn after render pass `after_pass`.
     pub fn run_sprites(
         &self,
         r: &TextRun,
@@ -201,27 +197,10 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) {
-        self.run_sprites_at(r, clip, compiled, after_pass, None, out);
-    }
-
-    /// Like [`Fonts::run_sprites`]; with a `zoom`, the run rasterised at that
-    /// zoom (its font [`zoomed`] that many times the size) as zoomed art: at
-    /// the run's position, each glyph offset by its pen at that zoom (see
-    /// `scene::FreeSprite::zoom_art`).
-    pub fn run_sprites_at(
-        &self,
-        r: &TextRun,
-        clip: Option<[i32; 4]>,
-        compiled: &Compiled,
-        after_pass: u32,
-        zoom: Option<(u32, u32)>,
-        out: &mut Vec<scene::FreeSprite>,
-    ) {
-        let key = key(&zoom.map_or_else(|| r.clone(), |z| zoomed(r, z)));
+        let key = key(r);
         let Some(Some(font)) = self.fonts.get(&key) else { return };
         let tag = Self::tag(&key);
-        // 1:1: the pen from the run's x; zoomed: the offset from it.
-        let mut pen = if zoom.is_some() { 0 } else { r.x };
+        let mut pen = r.x;
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
             // Glyphs hold coverage per colour channel (ClearType); the
@@ -231,32 +210,79 @@ impl Fonts {
             let line = r.underline.then(|| (format!("TextLine@{tag}/{}", glyph.advance), tile_render::Blend::Alpha));
             for (name, blend) in [Some((format!("Text@{tag}/{}", c as u32), glyph_blend)), line].into_iter().flatten() {
                 let Some((set, _)) = compiled.set(&name) else { continue };
-                let (x, zoom_art, z, zoom_offset) = match zoom {
-                    None => (pen, 0, (0, 0), (0, 0)),
-                    Some((zn, zd)) => (r.x, 2, (zn as u16, zd as u16), (pen, 0)),
-                };
                 out.push(scene::FreeSprite {
                     set: set.raw(),
-                    x,
+                    x: pen,
                     y: r.y,
                     screen: true,
                     after_pass,
-                    phase: 0,
                     ticks_per_frame: 1,
                     scale_den: blend.scale_den(),
                     tint: blend.tint(),
-                    zoom_art,
-                    zoom: z,
-                    zoom_offset,
                     clip,
-                    not_in_view: None,
-                    glyph: None,
+                    ..Default::default()
                 });
             }
             pen += glyph.advance;
         }
     }
+
+    /// The glyphs of one run drawn from its face's outlines at every zoom
+    /// (zoomed art, `scene::FreeSprite::glyph`), each where its 1:1 glyph
+    /// is and centred in its 1:1 advance, so the run keeps its 1:1 layout;
+    /// clipped and drawn after a pass as [`Fonts::run_sprites`]. False (and
+    /// nothing) if `compiled` has no outlines of the run's face or the run's
+    /// 1:1 font is not loaded.
+    pub fn run_glyphs(
+        &self,
+        r: &TextRun,
+        clip: Option<[i32; 4]>,
+        compiled: &Compiled,
+        after_pass: u32,
+        out: &mut Vec<scene::FreeSprite>,
+    ) -> bool {
+        let (Some(Some(font)), Some((face, _))) = (self.fonts.get(&key(r)), compiled.font(&r.face)) else { return false };
+        let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
+        // Windows makes bold of a regular face from weight 600 on.
+        let style = scene::Glyph {
+            font: face,
+            ch: ' ',
+            em64: r.height.unsigned_abs() * 64,
+            advance: 0,
+            bold: r.weight >= 600,
+            italic: r.italic,
+            key: r.backdrop,
+            bar: None,
+        };
+        let mut pen = r.x;
+        for c in r.text.chars() {
+            let Some(glyph) = font.glyphs.get(&c) else { continue };
+            let g = scene::Glyph { ch: c, advance: glyph.advance, ..style };
+            let bar = r.underline.then_some(scene::Glyph { bar: Some(font.underline), key: None, ..g });
+            for (g, color) in [Some((g, r.color)), bar.map(|b| (b, r.color))].into_iter().flatten() {
+                out.push(scene::FreeSprite {
+                    x: pen,
+                    y: r.y,
+                    screen: true,
+                    after_pass,
+                    ticks_per_frame: 1,
+                    tint: rgb(color),
+                    zoom_art: 2,
+                    clip,
+                    glyph: Some(g),
+                    ..Default::default()
+                });
+            }
+            pen += glyph.advance;
+        }
+        true
+    }
 }
+
+/// The font files the game's faces are drawn with from outlines (the
+/// game installs Lucida Sans from its folder; bold and italic it gets from
+/// Windows, made of the regular face).
+pub const OUTLINE_FACES: [(&str, &str); 1] = [("Lucida Sans", "LSANS.TTF")];
 
 #[cfg(test)]
 mod tests {
@@ -270,39 +296,6 @@ mod tests {
         assert_eq!((old.color, old.weight, old.italic, old.underline, old.text.as_str()), ([3, 4, 5], 0, false, false, "a b"));
     }
 
-    /// The heights `tools/gen-civ3-fonts` makes by default.
-    fn generated_heights() -> Vec<i32> {
-        let script = include_str!("../../../tools/gen-civ3-fonts");
-        let line = script.lines().find_map(|l| l.strip_prefix("default_sizes=\"")).expect("default_sizes line");
-        let (seq, rest) = line.strip_prefix("$(seq -s ' ' ").and_then(|l| l.split_once(')')).expect("$(seq ...) first");
-        let (from, to) = seq.split_once(' ').expect("seq FROM TO");
-        let mut out: Vec<i32> = (from.parse().unwrap()..=to.parse().unwrap()).collect();
-        out.extend(rest.trim_end_matches('"').split_whitespace().map(|v| v.parse::<i32>().unwrap()));
-        out
-    }
-
-    /// Every size the viewer's zooms make of the game's text sizes has its
-    /// glyph sheet (up to the largest made, which larger ones are capped to).
-    #[test]
-    fn the_generated_sheets_cover_every_zoomed_size() {
-        use civ3_assets::fonts::{MAX_HEIGHT, MIN_HEIGHT};
-        let have = generated_heights();
-        assert_eq!((have.iter().min(), have.iter().max()), (Some(&MIN_HEIGHT), Some(&MAX_HEIGHT)));
-        let run = |height| TextRun { x: 0, y: 0, color: [0; 3], face: "Lucida Sans".into(), height, weight: 0, italic: false, underline: false, text: String::new(), backdrop: None };
-        for base in [8, 10, 12, 14, 16, 18, 24] {
-            for &zoom in &tile_viewer::layout::ZOOMS {
-                let h = zoomed(&run(-base), zoom).height.abs().clamp(MIN_HEIGHT, MAX_HEIGHT);
-                assert!(have.contains(&h), "{base} px at {zoom:?}: {h} px has no sheet");
-            }
-        }
-    }
-}
-
-/// Run `r` as the game would draw it at `zoom` (`(num, den)`): its font
-/// that many times the size (rounded), the rest as it is.
-pub fn zoomed(r: &TextRun, (n, d): (u32, u32)) -> TextRun {
-    let height = ((r.height.abs() as i64 * n as i64 + d as i64 / 2) / d.max(1) as i64) as i32;
-    TextRun { height: height * r.height.signum(), ..r.clone() }
 }
 
 #[cfg(test)]
@@ -320,5 +313,31 @@ mod prune_tests {
         fonts.used.insert(new.clone(), std::time::Instant::now());
         assert_eq!(fonts.prune(std::time::Duration::from_secs(60)), 1);
         assert!(fonts.fonts.contains_key(&new) && !fonts.fonts.contains_key(&old));
+    }
+
+    /// Outline glyphs go where the 1:1 glyphs go, with their advances; the
+    /// underline as bars; nothing without the face's outlines.
+    #[test]
+    fn outline_glyphs_follow_the_one_to_one_pens() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).join("LSANS.TTF").is_file() {
+            return eprintln!("no Civ III installation, skipped");
+        }
+        let mut fonts = Fonts::default();
+        let run = TextRun { x: 10, y: 40, color: [1, 2, 3], face: "Lucida Sans".into(), height: -12, weight: 700, italic: false, underline: true, text: "Ab".into(), backdrop: None };
+        let glyph = |advance| civ3_assets::fonts::Glyph { left: 0, advance, extent: advance, image: tile_render::RgbaImage::new(1, 1) };
+        let font = GlyphFont { ascent: 12, underline: (1, 1), glyphs: [('A', glyph(8)), ('b', glyph(7))].into_iter().collect() };
+        fonts.fonts.insert(key(&run), Some(font));
+        let loader = civ3_assets::loader::Civ3Loader::new(civ3_assets::GameFiles::complete(&install));
+        let desc = |fonts: &str| render_desc::Description::parse(&format!("[grid]\nlayout = \"staggered\"\nstep = [64, 32]\n{fonts}")).unwrap().compile_layout(&loader, 256).unwrap();
+        assert!(fonts.description().contains("[fonts.\"Lucida Sans\"]\nsource = \"LSANS.TTF\""));
+        let compiled = desc("[fonts.\"Lucida Sans\"]\nsource = \"LSANS.TTF\"\n");
+        let mut out = Vec::new();
+        assert!(fonts.run_glyphs(&run, Some([0, 0, 100, 100]), &compiled, 3, &mut out));
+        let at: Vec<(i32, Option<char>, Option<(i32, i32)>)> = out.iter().map(|s| (s.x, s.glyph.map(|g| g.ch), s.glyph.and_then(|g| g.bar))).collect();
+        assert_eq!(at, [(10, Some('A'), None), (10, Some('A'), Some((1, 1))), (18, Some('b'), None), (18, Some('b'), Some((1, 1)))]);
+        let g = out[2].glyph.unwrap();
+        assert_eq!((g.em64, g.advance, g.bold, out[2].tint, out[2].zoom_art, out[2].after_pass), (12 * 64, 7, true, 0x010203, 2, 3));
+        assert!(!fonts.run_glyphs(&run, None, &desc(""), 3, &mut out));
     }
 }

@@ -645,11 +645,11 @@ fn publish(
                 wanted_for.push("unit pictures");
             }
         }
-        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms) {
+        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files) {
             screen_recompile = true;
             wanted_for.push("interface");
         }
-        if ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms) {
+        if ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files) {
             recompile = true;
             wanted_for.push("city labels");
         }
@@ -738,13 +738,14 @@ fn publish(
             }
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
-        // Labels also rasterised at the zooms the viewer shows (as far as
-        // their fonts are there).
-        scene.zooms = ui_screen::label_zooms(&[ui_items.as_slice(), &label_items].concat(), &fonts, &compiled, &input.zooms);
-        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms));
+        // Labels and the interface's text also drawn from outlines at
+        // every zoom (where the art has the face).
+        scene.zooms = ui_screen::outline_zooms(&compiled);
+        let outlines = !scene.zooms.is_empty();
+        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
         // The city labels go with the world (laid out in the game view's
         // pixels: zoomed out at full size, which the renderer halves).
-        let mut labels: Vec<_> = ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms)
+        let mut labels: Vec<_> = ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)
             .into_iter()
             .map(|s| {
                 let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
@@ -803,9 +804,6 @@ struct InputForwarder {
     look: Option<(i32, i32)>,
     /// World rectangles of the viewer's own views (`Input::Views`).
     views: Vec<(i32, i32, i32, i32)>,
-    /// The magnifying zooms the viewer shows the world at (`Input::Zooms`):
-    /// text is made for them too.
-    zooms: Vec<(u32, u32)>,
     /// The viewer's size, as it last reported.
     viewport: (u32, u32),
     /// Presses on world pixels of the viewer's own views
@@ -922,9 +920,8 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::Edge { x, y } => forwarder.edge = (x, y),
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
-            Input::Zooms(zooms) => {
-                forwarder.zooms = zooms.iter().filter(|z| z.0 != z.1 && z.0 > 0 && z.1 > 0).map(|&(n, d)| (u32::from(n), u32::from(d))).collect();
-            }
+            // (Text is drawn from outlines at every zoom: no art per zoom.)
+            Input::Zooms(_) => {}
         }
     }
     // The viewer's pointer at its edge: the game's at its own, to scroll.
