@@ -11,6 +11,8 @@
 //! 2. input: take the viewer's queued input (`scene::wire`)
 //! 3. log: take this side's log lines (`log_lines`), for the driver's log
 //! 4. status: the latest art generation the viewer has been given
+//! 5. limits: the renderer's limits ([`Limits`]), e.g. for the driver's
+//!    compile of the same description
 
 use wine_unixlib::Buffer32;
 
@@ -56,12 +58,23 @@ pub struct ArtStatus {
     pub generation_hi: u32,
 }
 
+/// Call 5. Fills in the limits of the GPU the viewer draws with.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Limits {
+    /// The largest texture side: the atlas pages' limit
+    /// (`render_desc::page_size`).
+    pub max_texture: u32,
+    pub _pad: u32,
+}
+
 /// Call numbers.
 pub const CALL_ASSETS: u32 = 0;
 pub const CALL_PUBLISH: u32 = 1;
 pub const CALL_INPUT: u32 = 2;
 pub const CALL_LOG: u32 = 3;
 pub const CALL_STATUS: u32 = 4;
+pub const CALL_LIMITS: u32 = 5;
 
 #[cfg(target_os = "linux")]
 mod unix_side {
@@ -148,10 +161,16 @@ mod unix_side {
     fn compile(a: &scene::wire::Assets) -> Result<render_desc::Compiled, String> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
         let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
-        // Same page size as the driver, so both sides agree on nothing but
-        // names and values (the atlas itself never crosses).
+        // Pages for this GPU, the same the driver's compile of the tables
+        // checks against (`CALL_LIMITS`), as large as the description's
+        // largest sprite (or what it may grow by) needs: both sides agree on
+        // nothing but names and values (the atlas itself never crosses).
+        let max_page = max_page();
         let started = std::time::Instant::now();
-        let (compiled, growing) = desc.compile_growing(&Civ3Loader::new(files), 2048, true).map_err(|e| e.to_string())?;
+        let (compiled, growing) = desc.compile_growing(&Civ3Loader::new(files), max_page, true).map_err(|e| e.to_string())?;
+        if compiled.atlas.page_size > render_desc::DEFAULT_PAGE {
+            log::info!("civ3r-native: art {}: atlas pages of {1}×{1} for a sprite of {2}", a.generation, compiled.atlas.page_size, desc.largest_sprite());
+        }
         let (rgba, index) = compiled.atlas.page_bytes();
         log::info!(
             "civ3r-native: art {}: {} sprites compiled in {} ms; atlas {} colour pages ({} MiB), {} index pages ({} MiB)",
@@ -185,6 +204,30 @@ mod unix_side {
             started.elapsed().as_millis(),
         );
         Ok(growth)
+    }
+
+    /// The largest atlas page the viewer's GPU takes (probed once, on a
+    /// native thread: GPU drivers start threads of their own, which must not
+    /// inherit a Wine thread's signal handling).
+    fn max_page() -> u32 {
+        static MAX: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        *MAX.get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let probed = wine_unixlib::unix::spawn_native("civ3r-native-limits", move || {
+                let _ = tx.send(tile_render::gpu::max_texture_dimension());
+            });
+            let max = probed.ok().and_then(|_| rx.recv().ok()).flatten();
+            max.unwrap_or_else(|| {
+                log::warn!("civ3r-native: the GPU's texture limit is unknown, atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE);
+                render_desc::ANY_DEVICE_PAGE
+            })
+        })
+    }
+
+    pub fn limits(args: &mut Limits) -> Status {
+        log_init();
+        *args = Limits { max_texture: max_page(), _pad: 0 };
+        STATUS_SUCCESS
     }
 
     /// Art waiting for the art thread, in order (a whole description makes
@@ -384,7 +427,7 @@ mod unix_side {
 }
 
 #[cfg(target_os = "linux")]
-use unix_side::{assets, input, publish, status, take_log};
+use unix_side::{assets, input, limits, publish, status, take_log};
 
 #[cfg(target_os = "linux")]
-wine_unixlib::unix_call_table![assets, publish, input, take_log, status];
+wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits];

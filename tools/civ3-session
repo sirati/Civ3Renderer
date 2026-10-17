@@ -13,11 +13,23 @@
 #   tools/civ3-session stop             end the game
 #
 # The menu coordinates below are for the game at 1920x1080 (KeepRes=1).
+# CIV3_SESSION_SCALE=S: the game is shown S times larger (a 1920x1080 game
+# on a 3840x2160 output, tools/civ3-play --scale 2; 1.5 too): input and
+# screenshot probes are scaled to match.
+#
+# The game's own window stays shown next to the viewer here
+# (CIV3R_GAME_WINDOW=show, unless set otherwise): tests look at both.
 set -euo pipefail
 WLH=${WLH:-$HOME/winvm/bin/wlh}
 CIV3_WINE=${CIV3_WINE:-$HOME/winvm/civ3/civ3-wine}
 GAME=${CIV3_GAME:-"/mnt/datasets/winvm/wine-civ3/drive_c/Games/Civilization III Complete/Conquests"}
 eval "$("$WLH" env)"
+export CIV3R_GAME_WINDOW=${CIV3R_GAME_WINDOW:-show}
+S=${CIV3_SESSION_SCALE:-1}
+# Pointer moves and clicks at game pixels (scaled to the output's).
+at() { awk -v v="$1" -v s="$S" 'BEGIN { printf "%d", (v + 0.5) * s }'; }
+move() { "$WLH" move "$(at "$1")" "$(at "$2")"; }
+click() { "$WLH" click "$(at "$1")" "$(at "$2")" "${@:3}"; }
 
 wait_for_log() { # pattern timeout
   local t=0
@@ -40,7 +52,7 @@ start)
 newgame)
   # Every button needs a hover first: the first click after the pointer jumps
   # somewhere may only hover, so move there, wait, then click.
-  hclick() { "$WLH" move "$1" "$2"; sleep 1; "$WLH" click "$1" "$2"; }
+  hclick() { move "$1" "$2"; sleep 1; click "$1" "$2"; }
   # Main menu: New Game is at y=498 with or without the "Play Last World" entry
   # (that one sits above it, at y=460, and only exists in some prefixes). The
   # first click on the menu often only hovers, so repeat until the screen has
@@ -52,8 +64,9 @@ newgame)
 import sys
 from PIL import Image
 import numpy as np
-a = np.asarray(Image.open(sys.argv[1]).convert("RGB"))[860:900, 480:600]
-sys.exit(0 if a.mean() < 90 else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png"
+s = float(sys.argv[2])
+a = np.asarray(Image.open(sys.argv[1]).convert("RGB"))[int(860*s):int(900*s), int(480*s):int(600*s)]
+sys.exit(0 if a.mean() < 90 else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png" "$S"
   }
   for _ in 1 2 3 4; do
     hclick 708 498; sleep 3   # main menu: New Game
@@ -68,13 +81,13 @@ sys.exit(0 if a.mean() < 90 else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png"
   echo "turn 1"
   ;;
 scenario)
-  "$WLH" move 710 612; sleep 1
-  "$WLH" click 710 612; sleep 5     # Conquests! (the first click may only hover)
-  "$WLH" click 710 612; sleep 4     # (if the list is already up this selects a harmless row)
-  "$WLH" click 680 553; sleep 2     # select "9 WWII in the Pacific.biq"
-  "$WLH" click 1421 901; sleep 6    # scenario list: OK
-  "$WLH" click 1416 895; sleep 25   # player setup (China): OK, scenario loads
-  "$WLH" click 1861 1035; sleep 4   # dismiss the scenario intro text
+  move 710 612; sleep 1
+  click 710 612; sleep 5     # Conquests! (the first click may only hover)
+  click 710 612; sleep 4     # (if the list is already up this selects a harmless row)
+  click 680 553; sleep 2     # select "9 WWII in the Pacific.biq"
+  click 1421 901; sleep 6    # scenario list: OK
+  click 1416 895; sleep 25   # player setup (China): OK, scenario loads
+  click 1861 1035; sleep 4   # dismiss the scenario intro text
   echo "turn 1"
   ;;
 load)
@@ -93,12 +106,13 @@ import sys
 from PIL import Image
 import numpy as np
 x, y, m = map(int, sys.argv[2:5])
-a = np.asarray(Image.open(sys.argv[1]).convert("RGB"))[y:y+20, x:x+20]
-sys.exit(0 if a.mean() >= m else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png" "$1" "$2" "$3"
+s = float(sys.argv[5])
+a = np.asarray(Image.open(sys.argv[1]).convert("RGB"))[int(y*s):int((y+20)*s), int(x*s):int((x+20)*s)]
+sys.exit(0 if a.mean() >= m else 1)' "${TMPDIR:-/tmp}/civ3-session-probe.png" "$1" "$2" "$3" "$S"
   }
-  "$WLH" move 710 574; sleep 1
+  move 710 574; sleep 1
   for _ in 1 2 3 4; do
-    "$WLH" click 710 574; sleep 3
+    click 710 574; sleep 3
     probe 900 716 180 && break   # parchment of the Load Game box
   done
   probe 900 716 180 || { echo "Load Game dialog did not open (not at the main menu?)" >&2; exit 1; }
@@ -136,7 +150,7 @@ goto)
     read -r mx my < <(awk -v wx=$wx -v wy=$wy -v tw=$tw -v th=$th 'BEGIN{
       x=int(29.5+((wx%tw+tw)%tw)/tw*230+0.5); y=int(959.5+((wy%th+th)%th)/th*107+0.5);
       if(x<31)x=31; if(x>259)x=259; if(y<960)y=960; if(y>1065)y=1065; print x, y}')
-    "$WLH" move $mx $my; sleep 0.5; "$WLH" click $mx $my; sleep 2; "$WLH" move 960 200; sleep 1
+    move $mx $my; sleep 0.5; click $mx $my; sleep 2; move 960 200; sleep 1
     "$0" trace "$g" >/dev/null
     read -r cx cy < <(grep '^view camera' "$g" | awk '{print $3, $4}')
     dx=$((wx - cx)); dy=$((wy - cy))

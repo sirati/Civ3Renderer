@@ -25,8 +25,12 @@ pub const OVERHANG: (u32, u32, u32, u32) = (128, 128, 128, 128);
 pub const GAME_VIEW: u32 = 0;
 /// The city screen's view of the city's surroundings (while it is open).
 pub const CITY_VIEW: u32 = 1;
-/// The interface, over every view (no world of its own).
-pub const INTERFACE_VIEW: u32 = 255;
+/// The game's frame (its main screen's panels and buttons), over every
+/// view (no world of its own).
+pub const INTERFACE_VIEW: u32 = 254;
+/// The menus over the frame: the game's other screens (the popup has a
+/// view of its own, `interface_parts::POPUP_VIEW`, over this one).
+pub const MENU_VIEW: u32 = 255;
 
 /// Moves the screen-space sprites among the scene's sprites into overlays:
 /// those drawn between render passes (map labels, under the fog of war)
@@ -39,6 +43,21 @@ pub fn overlay_screen_sprites(scene: &mut Scene) {
     let interface = scene.view_mut(INTERFACE_VIEW);
     interface.view.interface_only = true;
     interface.overlay.extend(top);
+}
+
+/// Puts the menus' screen sprites into the menu view (over the frame;
+/// those drawn under the fog of war, if any, into the game view's overlay);
+/// no menu view without menus.
+pub fn overlay_menus(scene: &mut Scene, sprites: Vec<scene::FreeSprite>) {
+    let (top, under): (Vec<_>, Vec<_>) = sprites.into_iter().partition(|s| s.after_pass == u32::MAX);
+    scene.view_mut(GAME_VIEW).overlay.extend(under);
+    if top.is_empty() {
+        return;
+    }
+    let menus = scene.view_mut(MENU_VIEW);
+    menus.view.interface_only = true;
+    menus.view.menu = true;
+    menus.overlay.extend(top);
 }
 
 /// Resolves (layer, sprite) names to cell values, caching the lookups.
