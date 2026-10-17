@@ -578,7 +578,7 @@ mod tests {
         assert_eq!((count("B"), count("Mouse")), (4, 1));
         let f1 = p.settings().layout.screens["F1"];
         assert_eq!((f1.horizontal, f1.vertical), (Place::RightOrTop, Place::Floating));
-        // The strip's slider shows with the strip only.
+        // The height slider shows only with the strip or a box at the mouse.
         assert!(!texts.iter().any(|t| t.ends_with('%')));
         assert!(click(&mut p, 430, 330).is_empty());
         assert_eq!(p.settings().layout.zoom, Zoom::TopStrip);
@@ -590,6 +590,21 @@ mod tests {
         assert!(p.route(vec![b(true, 300), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.settings().layout.zoom_strip, 0.5);
         assert_eq!(Settings::load(&path).unwrap().layout.zoom_strip, 0.5);
+        let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
+        assert!(texts(&p).contains(&"Strip height".to_string()));
+        // A box at the mouse is sized by it too: the slider shows, as the
+        // box's height; to its left end: 5%.
+        assert!(click(&mut p, 140, 330).is_empty());
+        assert_eq!(p.settings().layout.zoom, Zoom::Mouse111);
+        let shown = texts(&p);
+        assert!(shown.contains(&"Box height".to_string()) && !shown.contains(&"Strip height".to_string()) && shown.contains(&"50%".to_string()), "{shown:?}");
+        assert!(p.route(vec![b(true, 300), drag(0), b(false, 0)], (1024, 768)).is_empty());
+        assert_eq!(p.settings().layout.zoom_strip, 0.05);
+        assert!(texts(&p).contains(&"5%".to_string()));
+        // Not for a floating box.
+        assert!(click(&mut p, 290, 300).is_empty());
+        assert_eq!(p.settings().layout.zoom, Zoom::Floating131);
+        assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height")));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
