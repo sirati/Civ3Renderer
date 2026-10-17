@@ -326,9 +326,32 @@ render description) and the game's font. Pointer input the panel takes
 never reaches the game; the game's OK button stays usable. A change is
 saved at once (`Settings::default_path()`: `$CIV3R_SETTINGS`, else
 `civ3r/settings.toml` under `$XDG_CONFIG_HOME`, `%APPDATA%` or
-`~/.config`) and sent to the viewer (`scene::Update::Settings`, the wire
-carries them as TOML); the bridge sends its settings with the first scene,
-so the viewer follows the bridge's file even where it would find another.
+`~/.config`; under Wine the bridge takes the Linux user's path, through
+the prefix's `Z:` drive, so that it and a native viewer share one file)
+and sent to the viewer (`scene::Update::Settings`, the wire carries them
+as TOML); the bridge sends its settings with the first scene, so the
+viewer follows the bridge's file even where it would find another.
+
+Resolution (`tile_viewer::scaling`, `civ3_bridge::game_size`): our
+rendering resolution is apart from the game's screen. The game's screen
+is fixed when it starts, at the desktop's logical size (3840x2160 at
+200 %: 1920x1080; at least 1024x768): it is only where the game's
+interface is and where its input goes. The viewer draws the world itself
+at the window's size divided by the pixel scale n, a whole number, each
+rendered pixel an exact n×n box (nearest pixel, never fractional; what is
+left of the window, under n pixels, is a border). Auto, the default, is
+the desktop's scale rounded down (2 at 200 %, 1 at 150 %). A larger
+rendering resolution shows more of the world about the same middle, not
+the same world larger. The game's interface is drawn at its own pixels
+times the frame scale (the frame's panels, each kept at its side or
+corner: bottom-left, bottom-right, top-left) or the menu scale (menus,
+screens and popups, about the middle; none larger than the picture), and
+pointer input is mapped back through the same pieces; the world scale
+scales the world about the middle of the game's view. All of these change
+live; the Resolution tab shows the resolution rendered at. The system
+pointer is the game's cursor art at the pixel scale (each of its pixels
+n×n, also over menus at a menu scale of their own), as are the cursors
+and markers the viewer draws.
 
 The `menu` crate's panels (`menu::panel`) are game agnostic: TOML styles
 (face, size, colours), art (regions of image files cut or repeated to
@@ -423,8 +446,22 @@ the runtime libraries (vulkan-loader, wayland, libxkbcommon, libglvnd) from
 Wine's closure, keeps them as GC roots and adds a `.desktop` entry. Wine,
 the prefix and the native dir go under `~/.local/share/civ3r` (`wine-wow64`,
 `wine-civ3-wow64`, `native`). The game's map is off unless `--map`, the
-renderer uses the Intel iGPU unless `--nvidia`, and `--window` shows the
-viewer in a window.
+renderer uses the Intel iGPU unless `--nvidia` (if that GPU cannot show
+the viewer's window, the renderer falls back to the default one and the
+launcher says so), and `--window` shows the viewer in a window.
+
+The viewer is the only window: the game's own is a real window (input is
+posted to it; it asks for the focus and the pointer, which the bridge
+answers) but kept hidden from its start (`civ3_bridge::game_window`),
+so it is on no screen, task bar or switcher. `--show-game-window`
+(`CIV3R_GAME_WINDOW=show`) keeps it shown, for testing; the test tooling
+(`tools/civ3-session`, `tools/civ3-native`) shows it by default.
+
+On a scaled desktop the game runs at its logical size: `civ3-play` reads
+the desktop's scale (2 at 200 %, 1.5 at 150 %; `--scale S` overrides it)
+and passes it on (`CIV3R_SCALE`): the bridge reports the display that
+many times smaller to the game (the nearest of its display modes of that
+shape), and the viewer's pixel scale Auto is it rounded down.
 
 On Windows (and in the Windows VM, DX12 WARP) the bridge runs the viewer as
 a window of the game's own 32-bit process instead; `vendor/wgpu-hal` carries
