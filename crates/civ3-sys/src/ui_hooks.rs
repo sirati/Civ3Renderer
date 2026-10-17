@@ -455,6 +455,28 @@ pub fn jgl_owner(jgl_image: u32) -> Option<u32> {
     Ptr32::<u32>::new(jgl_image.wrapping_add(0x80)).read().ok().filter(|&p| p != 0)
 }
 
+/// The game's Preferences screen (docs §16.11): a form of its own class, of
+/// which there is one instance, a static object.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PreferencesForm {
+    /// Its vtable (`Base_Form` derived: m22 0x587B50 draws it).
+    pub vtable: u32,
+    /// The instance (`this` of its constructor 0x5877C0 and of 0x588370,
+    /// which opens it from the title menu and the game's menu).
+    pub form: u32,
+    /// Its background, drawn centred on its screen-sized canvas (the path
+    /// it asks `BIC_get_asset_path` for).
+    pub background: &'static str,
+}
+
+/// The Preferences screen's form (PCGames build).
+pub fn preferences_form(build: Build) -> Option<PreferencesForm> {
+    match build {
+        Build::PcGames => Some(PreferencesForm { vtable: 0x66_E628, form: 0xC7_2888, background: "art\\interface\\x_pref background.pcx" }),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
 /// The canvas the game draws unit decorations on (team discs, movement
 /// LEDs, health bars, stack lines; a keyed overlay over the map, measured
 /// at 0x9FD80C = main screen form + 0x514C on the PCGames build).
