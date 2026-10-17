@@ -264,6 +264,21 @@ impl ImageLoader for Civ3Loader {
         std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    /// The files `source` and the files its options name (palettes, masks)
+    /// resolve to among the game's folders now (a scenario's own art
+    /// instead of the game's).
+    fn identity(&self, source: &str, options: &toml::Table) -> String {
+        let resolved = |rel: &str| self.files.resolve(rel).map_or_else(|_| rel.to_owned(), |p| p.to_string_lossy().into_owned());
+        let mut out = if source.starts_with("font:") { source.to_owned() } else { resolved(source) };
+        for key in ["palette", "palette2", "alpha_image"] {
+            if let Some(path) = options.get(key).and_then(|v| v.as_str()) {
+                out.push('|');
+                out.push_str(&resolved(path));
+            }
+        }
+        out
+    }
+
     fn indexed(&self, source: &str, options: &toml::Table) -> Result<Option<Vec<render_desc::IndexedFrame>>, String> {
         let lower = source.to_lowercase();
         let flc = lower.ends_with(".flc") || lower.ends_with(".fli");
