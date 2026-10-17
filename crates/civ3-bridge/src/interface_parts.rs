@@ -11,6 +11,7 @@ use crate::ui::{Frame, ScreenDraw};
 /// it: higher ids are on top).
 pub const CORNER_VIEW: u32 = 256;
 pub const POPUP_VIEW: u32 = 257;
+pub const SCREEN_VIEW: u32 = 258;
 
 /// The screen `frame` shows that the viewer may place: the topmost form of
 /// a class in `screens` (vtable, name); with its index in `frame.forms`.
@@ -93,7 +94,28 @@ pub fn popup(frame: &Frame, canvas: u32, screen: Option<usize>, size: (i32, i32)
     if screen.is_some_and(|s| index <= s) {
         return None;
     }
-    let (_, _, (x, y), (w, h)) = frame.forms[index];
+    part_from(frame, index, size)
+}
+
+/// The named screen (form `index` of `frame.forms`) as a part of its own,
+/// where it is smaller than the screen of `size`: its first draw (it and
+/// what is drawn over it) and its rectangle (x, y, w, h), its frame
+/// included (as [`popup`]). The forms just below it of the same rectangle
+/// are its background (the advisors' common one): they go with it.
+pub fn screen_part(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
+    let place = |f: &(u32, u32, (i32, i32), (i32, i32))| (f.2, f.3);
+    let mut bottom = index;
+    while bottom > 0 && place(&frame.forms[bottom - 1]) == place(&frame.forms[index]) {
+        bottom -= 1;
+    }
+    let (first, rect) = (bottom..=index).find_map(|i| part_from(frame, i, size))?;
+    (rect[2] < size.0 || rect[3] < size.1).then_some((first, rect))
+}
+
+/// Form `index` of `frame.forms` from its first draw on, with the frame the
+/// game draws round it straight onto the screen just before it.
+fn part_from(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
+    let (_, canvas, (x, y), (w, h)) = frame.forms[index];
     let mut first = frame.form_draws.iter().find(|(c, _)| *c == canvas).map(|(_, r)| r.start)?;
     let mut bounds = [x, y, x + w, y + h];
     let near = [x - POPUP_FRAME, y - POPUP_FRAME, x + w + POPUP_FRAME, y + h + POPUP_FRAME];
@@ -222,6 +244,26 @@ mod tests {
         // Under a screen composited above it: not a popup of its own.
         assert_eq!(popup(&f, 0x50_0000, Some(7), (1920, 1080)), None);
         assert_eq!(popup(&f, 0x12_3456, None, (1920, 1080)), None);
+    }
+
+    #[test]
+    fn a_named_screen_smaller_than_the_window_is_a_part_of_its_own() {
+        let mut f = frame();
+        // An advisor (1024x768 in the middle) over the map screen.
+        f.forms.push((0x66_C270, 0x77_0000, (448, 156), (1024, 768)));
+        f.draws.push(fill(448, 156, 1024, 768));
+        f.form_draws.push((0x77_0000, 6..7));
+        assert_eq!(screen_part(&f, f.forms.len() - 1, (1920, 1080)), Some((6, [448, 156, 1024, 768])));
+        // Over the advisors' common background (the same rectangle): from it on.
+        f.forms.insert(f.forms.len() - 1, (0x66_88B8, 0x76_0000, (448, 156), (1024, 768)));
+        f.draws.insert(6, fill(448, 156, 1024, 768));
+        f.form_draws = vec![(0x9F_8934, 0..2), (0xA0_68B4, 2..3), (0xA1_4A68, 3..4), (0x50_0000, 4..5), (0x50_1000, 5..6), (0x76_0000, 6..7), (0x77_0000, 7..8)];
+        assert_eq!(screen_part(&f, f.forms.len() - 1, (1920, 1080)), Some((6, [448, 156, 1024, 768])));
+        // Covering the whole window: not.
+        f.forms.push((0x66_58B0, 0x78_0000, (0, 0), (1920, 1080)));
+        f.draws.push(fill(0, 0, 1920, 1080));
+        f.form_draws.push((0x78_0000, 7..8));
+        assert_eq!(screen_part(&f, f.forms.len() - 1, (1920, 1080)), None);
     }
 
     #[test]
