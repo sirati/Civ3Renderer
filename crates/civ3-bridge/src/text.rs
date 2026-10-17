@@ -277,7 +277,7 @@ impl Fonts {
         let tag = Self::tag(&want);
         let first = exact.and_then(|font| run.text.chars().find(|c| font.glyphs.contains_key(c)));
         let atlas = exact.is_some() && first.is_none_or(|c| compiled.set(&format!("Text@{tag}/{}", c as u32)).is_some());
-        let present = |name: &str| compiled.set(name).and_then(|(set, _)| compiled.sets.frame(set, 0)).and_then(|id| compiled.atlas.sprites.get(id.0 as usize)).is_some();
+        let present = |name: &str| compiled.set_available(name);
         if atlas {
             let font = exact.unwrap();
             let face = compiled.font(&run.face).map(|(_, face)| face);
@@ -661,6 +661,22 @@ mod readiness_tests {
         assert!(fonts.run_ready(&run, &complete.without_pixels()));
         assert!(!fonts.run_ready(&run, &fixture_art(&names, "A")), "scaled text must have every visible outline glyph");
         assert!(!fonts.run_ready(&text_run("AC"), &complete), "unsupported characters must not make a run appear complete");
+    }
+
+    #[test]
+    fn unavailable_glyph_placeholders_do_not_make_text_ready() {
+        let run = text_run("A");
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(font("A")));
+        let name = &glyph_names(&run)[0];
+        let description = format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n[images.glyph]\nsource = \"solid:255,255,255,255:8x2\"\n[sheets.glyph]\nimage = \"glyph\"\ncell = [8, 2]\ngrid = [1, 1]\n[sets.\"{name}\"]\nframes = [\"glyph/0\"]\n");
+        let description = render_desc::Description::parse(&description).unwrap();
+        let small = description.compile(&Plain, 4).unwrap();
+        assert!(small.set(name).is_some(), "run_sprites selects the atlas path when a named placeholder exists");
+        assert!(!fonts.run_ready(&run, &small));
+        assert!(!fonts.run_ready(&run, &small.without_pixels()));
+        let complete = description.compile(&Plain, 16).unwrap();
+        assert!(fonts.run_ready(&run, &complete));
     }
 
     #[test]
