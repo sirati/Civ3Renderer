@@ -1380,6 +1380,21 @@ Some script/dialog forms (0x611F7E, 0x612334, 0x612793) call 0x60B0E0 with a byt
 2. No shadow or effect handling is needed beyond what is traced. A shadow is a separate, earlier `TextOutA` at `(x+dx, y+dy)` with its own colour, so the hook already records it. Buttons have none.
 3. Semantic alternative, if the colour is wanted before `TextOutA`: at 0x5FD980 entry (ECX = `PCX_Image*`), read `s` (0, or `+0x30` with the -1 fallback), `+0x6C[s]`, `+0x7C[s]`, `+0x8C[s]`, `+0x9C[s]` and the canvas depth, then apply the decoding in step 4 above. On a 16-bit canvas, `c >= 0` means black, and `c < 0` means RGB555/565.
 
+### 16.11 Preferences screen
+
+The Preferences screen is a form class of its own with a single, static instance; the title menu and the game's menu open the same object [X, static disassembly only]:
+
+| What | PCG | Notes |
+|---|---|---|
+| vtable | **0x66E628** | `Base_Form` derived: +0x0C 0x602340 (create canvas), **+0x58 m22 = 0x587B50** (draws it), +0x13C m79 0x602710, +0x140 m80 0x608390 (the shared ones). The embedded canvas at +0x274 gets vtable 0x66E614 |
+| instance | **0xC72888** | constructed by 0x5877C0 (its only caller 0x587795 is a static initialiser: `mov ecx, 0xC72888`) |
+| open | 0x588370 `(this)` | callers 0x4E05E8 and 0x4E1908 (`mov ecx, 0xC72888`). Creates a canvas of the screen's size (`0x9C72F8` x `0x9C72FC`), loads `art\interface\x_pref background.pcx` (string at 0x72D400, through `BIC_get_asset_path` 0x5982A0; found in `civ3PTW/Art/interface`, 1024x768) into a sprite at `this+0x574` (0x5F7FB0) |
+| draw | m22 0x587B50 | `Sprite_draw(this+0x574, canvas, (screen_w - bg_w) / 2, (screen_h - bg_h) / 2)`: the background **centred** on the screen-sized canvas. Then the title (font size 0x18) centred at background x+512, y+30 (0x5FF1E0), section headings (size 0x14) at x+100, y+115 and y+317 (0x5FEE50) |
+
+The background (1024x768) has three dark panels with the checkboxes baked in (left column at x 110, then 405 and 665; rows 22 pixels apart from y 148), a combo field at (720, 225)-(870, 247), three slider bars at (259, 551), (259, 582), (259, 613), each 408x23 (a dark one-pixel border, inside (78, 78, 62)) (the slider pieces in `SCROLL.PCX` are listed there as "PREFERENCE SCREEN: 269, 552 / 583 / 614"), and the OK button in the bottom-right corner (about 953..1015 x 713..755). The light inner frame spans about (49, 79)-(973, 690); the band above it (y 0..77) holds only the title.
+
+Which screen is open: a composed form with vtable 0x66E628 (`ui::Frame::forms`), and where: the draw of `x_pref background.pcx` among its draws (its screen position minus its source offset is the background's top-left), else the form's canvas centred. The bridge draws its own tabs ("Resolution", "Layout") over this screen (`civ3_bridge::prefs`).
+
 ---
 
 ## 17. Minimap
