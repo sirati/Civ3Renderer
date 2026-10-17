@@ -4,11 +4,14 @@
 
 use std::cell::Cell;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
 
 use civ3_sys::Civ3;
 use civ3_sys::ui_hooks::{self as h, obj};
 use inproc::hook::HookError;
 
+use crate::game_render::Skipper;
 use crate::text::TextRun;
 use crate::ui::{Event, Frame, UiModel, rgb555};
 
@@ -18,6 +21,69 @@ static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
 /// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
 static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+/// Whether the game is to skip its own drawing (`crate::game_render`); set
+/// before [`install`].
+static GAME_DRAWS: AtomicBool = AtomicBool::new(true);
+/// What is skipped, once the hooks are installed with the game not drawing
+/// (none: everything is drawn).
+static SKIPPER: Mutex<Option<Skipper>> = Mutex::new(None);
+/// Whether [`SKIPPER`] is set (read without its lock).
+static SKIPPING: AtomicBool = AtomicBool::new(false);
+
+/// Whether the game draws itself (`CIV3R_GAME_RENDER`): if not, the hooks
+/// installed afterwards skip the drawing they record.
+pub fn set_game_draws(on: bool) {
+    GAME_DRAWS.store(on, Relaxed);
+}
+
+/// Whether drawing is being skipped.
+pub fn skipping() -> bool {
+    SKIPPING.load(Relaxed)
+}
+
+/// Whether an image or sprite has pixels (its `JGL_Image*` / `JGLSprite*`
+/// at +4): drawings without them do nothing (and return an error code).
+fn has_pixels(object: u32) -> bool {
+    inproc::Ptr32::<u32>::new(object.wrapping_add(4)).read().is_ok_and(|p| p != 0)
+}
+
+/// Whether the game's drawing onto `canvas` from `source` (0: none), just
+/// recorded, is skipped: always run when one of them has no pixels (the
+/// game's own early return, its result) or the canvas is kept.
+fn skips(canvas: u32, source: u32) -> bool {
+    if !skipping() || !has_pixels(canvas) || (source != 0 && !has_pixels(source)) {
+        return false;
+    }
+    SKIPPER.lock().ok().is_some_and(|mut s| s.as_mut().is_some_and(|s| s.skip(canvas)))
+}
+
+/// Runs the game's drawing `original` onto `canvas` from `source` unless
+/// it is skipped (then: 0, the game's success).
+fn draw(canvas: u32, source: u32, original: impl FnOnce() -> i32) -> i32 {
+    if skips(canvas, source) { 0 } else { original() }
+}
+
+fn with_skipper<R>(f: impl FnOnce(&mut Skipper) -> R) -> Option<R> {
+    if !skipping() {
+        return None;
+    }
+    SKIPPER.lock().ok()?.as_mut().map(f)
+}
+
+/// Whether the text the game's text functions are writing now (`TextOutA`,
+/// just recorded) is skipped: only text drawn through them (recorded with
+/// its canvas) is.
+pub fn skips_text() -> bool {
+    let canvas = TEXT_CANVAS.with(Cell::get);
+    canvas != 0 && skips(canvas, 0)
+}
+
+/// Whether a colour-table blit of `sprite` onto `canvas` (recorded as a
+/// unit picture by [`on_colored`]) is skipped.
+pub fn skips_colored(sprite: u32, canvas: u32) -> bool {
+    h::flc_frame(sprite).is_some() && skips(canvas, sprite)
+}
 
 thread_local! {
     /// The canvas the game's text functions are drawing on (their `this`),
@@ -193,6 +259,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         let path = read_c_string(c.path);
         let r = c.original();
         if r == 0 {
+            with_skipper(|s| s.loaded(c.image));
             if let (Some(path), Some(size)) = (path, obj::image_size(c.image)) {
                 emit(Event::Loaded { image: c.image, path, size });
             }
@@ -201,9 +268,15 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
         emit(Event::Cleared { image: c.image });
+        with_skipper(|s| s.cleared(c.image));
         c.original()
     });
     hook!(sprite_slice, sites.sprite_slice, |c| {
+        // The game takes these pixels: drawing onto an image it made
+        // itself goes on from now on.
+        if with_skipper(|s| s.cut_from(c.image)) == Some(true) {
+            log::warn!("game rendering: a sprite cut from image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
+        }
         let r = c.original();
         if obj::sprite_has_pixels(c.sprite) {
             if let Some((cx, cy, w, hh)) = obj::sprite_crop(c.sprite) {
@@ -230,48 +303,50 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     let is_cursor = move |sprite: u32, canvas: u32| {
         canvas == screen && sprite != 0 && cursor_sprite.is_some_and(|at| inproc::Ptr32::<u32>::new(at).read().ok() == Some(sprite))
     };
+    // A sprite read from a file at every draw (its pixels are 0 then)
+    // draws through `read_file` and `draw_onto`, both hooked: it runs.
     hook!(sprite_draw, sites.sprite_draw, move |c| {
         if !is_cursor(c.sprite, c.canvas) {
             blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         }
-        c.original()
+        draw(c.canvas, c.sprite, || c.original())
     });
     hook!(sprite_draw_variant, sites.sprite_draw_variant, |c| {
         blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        c.original()
+        draw(c.canvas, c.sprite, || c.original())
     });
     hook!(sprite_draw_a4, sites.sprite_draw_a4, |c| {
         blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        c.original()
+        draw(c.canvas, c.sprite, || c.original())
     });
     hook!(sprite_draw_a4b, sites.sprite_draw_a4b, |c| {
         blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        c.original()
+        draw(c.canvas, c.sprite, || c.original())
     });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
         // No crop offset: the stored pixels go to (x, y).
         emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
-        c.original()
+        draw(c.dest, c.sprite, || c.original())
     });
     hook!(pcx_draw_onto, sites.pcx_draw_onto, |c| {
         if let Some((w, hh)) = obj::image_size(c.image) {
             copy(c.image, [0, 0, w, hh], c.dst, c.x as i32, c.y as i32, true);
         }
-        c.original()
+        draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy, sites.pcx_copy, |c| {
         size_of(c.dst);
         size_of(c.image);
         let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
         copy(c.image, src, c.dst, c.dx as i32, c.dy as i32, false);
-        c.original()
+        draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy_same, sites.pcx_copy_same, |c| {
         size_of(c.dst);
         size_of(c.image);
         let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
         copy(c.image, src, c.dst, src[0], src[1], false);
-        c.original()
+        draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy_rect, sites.pcx_copy_rect, |c| {
         size_of(c.dst);
@@ -279,7 +354,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         if let Some(src) = rect_xywh(c.rect) {
             copy(c.image, src, c.dst, src[0], src[1], false);
         }
-        c.original()
+        draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy_rects, sites.pcx_copy_rects, |c| {
         size_of(c.dst);
@@ -287,35 +362,35 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
             copy(c.image, src, c.dst, dst[0], dst[1], false);
         }
-        c.original()
+        draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_fill, sites.pcx_fill, |c| {
         if let Some((w, hh)) = obj::image_size(c.image) {
             fill(c.image, [0, 0, w, hh], c.color);
         }
-        c.original()
+        draw(c.image, 0, || c.original())
     });
     hook!(pcx_fill_area, sites.pcx_fill_area, |c| {
         if let Some(rect) = rect_xywh(c.rect) {
             fill(c.image, rect, c.color);
         }
-        c.original()
+        draw(c.image, 0, || c.original())
     });
     hook!(pcx_hline, sites.pcx_hline, |c| {
         let (x1, x2) = (c.x1 as i32, c.x2 as i32);
         fill(c.image, [x1.min(x2), c.y as i32, (x2 - x1).abs() + 1, 1], c.color);
-        c.original()
+        draw(c.image, 0, || c.original())
     });
     hook!(pcx_vline, sites.pcx_vline, |c| {
         let (y1, y2) = (c.y1 as i32, c.y2 as i32);
         fill(c.image, [c.x as i32, y1.min(y2), 1, (y2 - y1).abs() + 1], c.color);
-        c.original()
+        draw(c.image, 0, || c.original())
     });
     hook!(pcx_line, sites.pcx_line, |c| {
         for (x, y) in line_points((c.x1 as i32, c.y1 as i32), (c.x2 as i32, c.y2 as i32)) {
             fill(c.image, [x, y, 1, 1], c.color);
         }
-        c.original()
+        draw(c.image, 0, || c.original())
     });
     hook!(form_composite, sites.form_composite, |c| {
         if let Some(p) = obj::placement(c.form) {
@@ -343,7 +418,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
     hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
         emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
-        c.original()
+        draw(c.dest, c.sprite, || c.original())
     });
     if let Some(site) = h::flc_load_site(game.build) {
         hook!(flc_load, site, |c| {
@@ -355,17 +430,24 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
             r
         });
     }
-    hook_shade_later();
     hook_lines(game, &mut hooks);
+    if !GAME_DRAWS.load(Relaxed) {
+        *SKIPPER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Skipper::new(h::read_back_images(game.build)));
+        SKIPPING.store(true, Relaxed);
+        log::info!("game rendering off: the game's drawing is recorded, not done");
+    }
+    hook_jgl_later(std::env::var("CIV3R_TRACE_PIXELS").is_ok_and(|v| v == "1"));
     log::info!("UI mirror: {} hooks", hooks.len());
     Ok(UiTracer { _hooks: hooks })
 }
 
 
-/// Hooks jgl.dll's translucent rectangle fill once the game has loaded
-/// it (the hook stays for the life of the process).
-fn hook_shade_later() {
-    std::thread::spawn(|| {
+/// Hooks jgl.dll once the game has loaded it (the hooks stay for the life
+/// of the process): its translucent rectangle fill, its window update (to
+/// skip it while the game does not draw) and, with `trace_pixels`, the
+/// handing out of image pixels (see [`trace_pixel_access`]).
+fn hook_jgl_later(trace_pixels: bool) {
+    std::thread::spawn(move || {
         for _ in 0..600 {
             if let Some(base) = inproc::pe::module_base("jgl.dll") {
                 let (slot, expected) = h::jgl_shade_slot(base);
@@ -373,11 +455,28 @@ fn hook_shade_later() {
                     return log::warn!("UI mirror: unknown jgl.dll, translucent fills not mirrored");
                 }
                 match h::jgl_shade::install_slot(slot, |c| {
-                    shade(c);
-                    c.original()
+                    let recorded = shade(c);
+                    match recorded {
+                        Some(canvas) if skips(canvas, 0) => 0,
+                        _ => c.original(),
+                    }
                 }) {
                     Ok(installed) => std::mem::forget(installed),
                     Err(e) => log::warn!("UI mirror: hooking translucent fills: {e}"),
+                }
+                if skipping() {
+                    let (slot, expected) = h::jgl_present_slot(base);
+                    if slot.read().ok() != Some(expected) {
+                        log::warn!("game rendering: unknown jgl.dll, the window is still updated");
+                    } else {
+                        match h::jgl_present::install_slot(slot, |c| if skipping() { 0 } else { c.original() }) {
+                            Ok(installed) => std::mem::forget(installed),
+                            Err(e) => log::warn!("game rendering: hooking the window update: {e}"),
+                        }
+                    }
+                }
+                if trace_pixels {
+                    trace_pixel_access(base);
                 }
                 return;
             }
@@ -386,20 +485,80 @@ fn hook_shade_later() {
     });
 }
 
-/// `shade_rect` (see [`crate::ui::shade_alpha`]).
-fn shade(c: &h::jgl_shade::Call) {
-    let Some(canvas) = h::jgl_owner(c.image) else { return };
+/// Logs (once per image) who takes the pixels of an image that a skipped
+/// drawing went onto: the game reading back what it did not draw, or
+/// drawing over it with a drawing not mirrored (`CIV3R_TRACE_PIXELS=1`,
+/// for finding such readers; see `skips` for the ones kept drawing). The
+/// caller is the first return address into the game's code on the stack
+/// (possibly a stale one).
+fn trace_pixel_access(base: u32) {
+    static SEEN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    fn note(image: u32) {
+        let Some(owner) = h::jgl_owner(image) else { return };
+        if with_skipper(|s| s.was_skipped(owner) && !s.keeps(owner)) != Some(true) {
+            return;
+        }
+        // Only the first time (the stack walk is slow).
+        match SEEN.lock() {
+            Ok(mut seen) if seen.len() < 256 && !seen.contains(&owner) => seen.push(owner),
+            _ => return,
+        }
+        let caller = game_caller();
+        log::warn!("game rendering: pixels of image {owner:#x} (drawn onto with drawing skipped) taken from {caller:#x}");
+    }
+    let [(pixel_at, at_fn), (lock, lock_fn)] = h::jgl_pixel_slots(base);
+    if pixel_at.read().ok() != Some(at_fn) || lock.read().ok() != Some(lock_fn) {
+        return log::warn!("pixel trace: unknown jgl.dll");
+    }
+    let r1 = h::jgl_pixel_at::install_slot(pixel_at, |c| {
+        note(c.image);
+        c.original()
+    });
+    let r2 = h::jgl_lock::install_slot(lock, |c| {
+        note(c.image);
+        c.original()
+    });
+    match (r1, r2) {
+        (Ok(a), Ok(b)) => {
+            std::mem::forget((a, b));
+            log::info!("pixel trace: on");
+        }
+        (Err(e), _) | (_, Err(e)) => log::warn!("pixel trace: {e}"),
+    }
+}
+
+/// The first return address into the game's exe found on this thread's
+/// stack (scanning up from here), or 0.
+fn game_caller() -> u32 {
+    let here = 0u32;
+    let sp = &here as *const u32 as usize as u32;
+    // As far as the stack goes (its top may be nearer than the most asked for).
+    let Some(words) = [1024, 256, 64].into_iter().find_map(|n| inproc::Ptr32::<u32>::new(sp).read_array(n).ok()) else { return 0 };
+    let code = |a: u32, n: usize| inproc::Ptr32::<u8>::new(a).read_array(n).ok();
+    words
+        .into_iter()
+        .find(|&ra| {
+            (0x40_1000..0x66_5000).contains(&ra)
+                && code(ra.wrapping_sub(6), 6).is_some_and(|b| b[1] == 0xE8 || b[0] == 0xFF || b[3] == 0xFF || b[4] == 0xFF)
+        })
+        .unwrap_or(0)
+}
+
+/// `shade_rect` (see [`crate::ui::shade_alpha`]); the canvas, if recorded
+/// (or nothing to draw).
+fn shade(c: &h::jgl_shade::Call) -> Option<u32> {
+    let canvas = h::jgl_owner(c.image)?;
     // Palette colours are not used by the interface code we know of.
     if c.color & 0x8000_0000 == 0 {
-        return;
+        return None;
     }
     let rect = if c.rect == 0 { obj::image_size(canvas).map(|(w, hh)| [0, 0, w, hh]) } else { rect_xywh(c.rect) };
-    let Some(rect) = rect else { return };
+    let rect = rect?;
     let alpha = crate::ui::shade_alpha((c.percent as i32).clamp(0, 100) as u32);
-    if alpha == 0 {
-        return;
+    if alpha != 0 {
+        emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: clip_of(canvas) });
     }
-    emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: clip_of(canvas) });
+    Some(canvas)
 }
 
 /// What a line drawer is set to: canvas, colour, opacity, width.
@@ -452,14 +611,17 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
     install(h::line_draw::install_over_jmp(draw, |c| {
         let mut pen = None;
         with_pen(c.renderer, |p| pen = Some(*p));
-        if let Some(p) = pen.filter(|p| p.canvas != 0 && p.alpha > 0) {
+        let Some(p) = pen.filter(|p| p.canvas != 0) else { return c.original() };
+        if p.alpha > 0 {
             let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
             for (rect, coverage) in crate::ui::line_fills((x1, y1), (x2, y2), p.width, crate::ui::smooth_lines()) {
                 let alpha = crate::ui::covered_alpha(p.alpha, coverage);
                 emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha, clip: clip_of(p.canvas) });
             }
         }
-        c.original()
+        if !skips(p.canvas, 0) {
+            c.original()
+        }
     }).map(|i| Box::new(i) as _));
 }
 fn with_text_canvas<R>(canvas: u32, f: impl FnOnce() -> R) -> R {

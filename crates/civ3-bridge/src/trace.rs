@@ -166,7 +166,13 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
             let mr = STATE.lock().ok().and_then(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
             record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
             crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y);
-            call.original()
+            // Inside a map redraw like the map's other blits; elsewhere a
+            // unit picture the mirror recorded.
+            if map_blits_off() && crate::ui_trace::skipping() || crate::ui_trace::skips_colored(call.sprite, call.canvas2) {
+                0
+            } else {
+                call.original()
+            }
         })?),
         None => None,
     };
@@ -178,7 +184,10 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
                 match inproc::pe::import_slot(module, "GDI32.dll", "TextOutA") {
                     Ok(Some(slot)) => match hooks::text_out::install_slot(slot, |call| {
                         record_text(call);
-                        call.original()
+                        // Recorded for the mirror: not drawn while the game
+                        // does not draw (measuring text still works: that
+                        // is GetTextExtentPoint32).
+                        if crate::ui_trace::skips_text() { 1 } else { call.original() }
                     }) {
                         Ok(installed) => {
                             log::info!("tracing text (jgl.dll TextOutA)");
