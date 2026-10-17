@@ -24,6 +24,10 @@ pub struct Timing {
 }
 
 impl Timing {
+    /// Art that grows (`crate::art`): an addition costs only its own art,
+    /// so it starts once the requests of a frame or two are in.
+    pub const GROWING: Timing =
+        Timing { gap: Duration::ZERO, quiet: Duration::from_millis(35), wait_max: Duration::from_millis(150), hold_max: Duration::from_secs(4) };
     /// A renderer that builds its own atlas (the native viewer): the
     /// driver's tables are cheap, rebuild as soon as requests settle.
     pub const OWN_ATLAS: Timing =

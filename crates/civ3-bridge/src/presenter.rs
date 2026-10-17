@@ -75,6 +75,26 @@ impl Presenter {
         }
     }
 
+    /// Scenes from now on refer to growth `generation` (prepared) of the
+    /// assets; an in-process renderer gets `growth` (its pixels) now, a
+    /// native one compiled it itself (see [`Presenter::art_status`]).
+    pub fn adopt_growth(&mut self, growth: &Arc<render_desc::Growth>, generation: u64) {
+        self.generation = generation;
+        if let Sink::InProcess { assets, .. } = &mut self.sink {
+            assets.grow(growth.clone(), generation);
+        }
+    }
+
+    /// The latest art generation a renderer that compiles its own art has
+    /// (scenes referring to it are drawn at once); `None` for one given
+    /// the art.
+    pub fn art_status(&mut self) -> Option<u64> {
+        match &mut self.sink {
+            Sink::InProcess { .. } => None,
+            Sink::Native(n) => Some(n.status()),
+        }
+    }
+
     /// Makes the renderer's scene `scene`, sending only what changed.
     /// While the renderer has not taken the last batch, nothing is sent: what
     /// changed goes with a later one (a slow renderer does not queue up
@@ -161,6 +181,20 @@ impl Native {
         }
         #[cfg(not(all(windows, target_arch = "x86")))]
         let _ = (wire, self.fullscreen);
+    }
+
+    /// The latest art generation it has compiled (see `civ3r_native::ArtStatus`).
+    fn status(&mut self) -> u64 {
+        #[cfg(all(windows, target_arch = "x86"))]
+        {
+            let mut args = civ3r_native::ArtStatus::default();
+            if self.lib.call(civ3r_native::CALL_STATUS, &mut args) != 0 {
+                return 0;
+            }
+            args.generation_lo as u64 | (args.generation_hi as u64) << 32
+        }
+        #[cfg(not(all(windows, target_arch = "x86")))]
+        0
     }
 
     /// Whether the native viewer took `updates` (not when busy).

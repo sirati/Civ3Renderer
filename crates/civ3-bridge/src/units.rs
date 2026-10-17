@@ -324,6 +324,40 @@ impl Needed {
         self.plain.extend(other.plain.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
 
+    /// What this needs that `other` does not have.
+    pub fn minus(&self, other: &Needed) -> Needed {
+        let mut out = Needed::default();
+        for (p, (f, c)) in &self.files {
+            let new: BTreeSet<Recolor> = match other.files.get(p) {
+                Some((_, theirs)) => c.difference(theirs).copied().collect(),
+                None => c.clone(),
+            };
+            if !new.is_empty() {
+                out.files.insert(p.clone(), (f.clone(), new));
+            }
+        }
+        out.site_colors = self.site_colors.iter().filter(|(k, _)| !other.site_colors.contains_key(k)).map(|(k, v)| (*k, *v)).collect();
+        out.plain = self.plain.iter().filter(|(k, _)| !other.plain.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+        out
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.site_colors.is_empty() && self.plain.is_empty()
+    }
+
+    /// Pixels of art this describes (RGBA bytes: every frame of every file
+    /// in every colouring and its shadow), for budgeting.
+    pub fn bytes(&self) -> u64 {
+        let frames = |f: &AnimFile| f.chunks as u64 * f.size.0 as u64 * f.size.1 as u64 * 4;
+        self.files.values().map(|(f, c)| frames(f) * (c.len() as u64 + 1)).sum::<u64>() + self.plain.values().map(frames).sum::<u64>()
+    }
+
+    /// The description entries of this art as an addition to art that
+    /// has the unit HUD's already (see [`Needed::description`]).
+    pub fn addition(&self) -> String {
+        self.entries(false)
+    }
+
     /// Render description entries for this art: sprites
     /// `UnitArt@<file>/<chunk>` (indexed, its indices 0..63 remapped: drawn
     /// in the colours a draw picks, [`Recolor::palette`]; an army's own art
@@ -333,6 +367,11 @@ impl Needed {
     /// the armies' palette rows, and the HUD's art ([`hud`]). One copy of
     /// each file's art serves every nation.
     pub fn description(&self) -> String {
+        self.entries(true)
+    }
+
+    /// [`Needed::description`], with the HUD's art or without.
+    fn entries(&self, with_hud: bool) -> String {
         let mut out = String::from("\n# Unit art (generated, docs §10).\n");
         let all: Vec<String> = (0..256).map(|i| i.to_string()).collect();
         let body_transparent = format!("[{}, 255]", (240..=254).map(|i: u32| i.to_string()).collect::<Vec<_>>().join(", "));
@@ -426,8 +465,12 @@ impl Needed {
             }
         }
         let sites: Vec<(i32, [u8; 3])> = self.site_colors.iter().map(|(k, v)| (*k, *v)).collect();
-        out.push_str(&crate::city_site::description(&sites));
-        out.push_str(&hud::description());
+        if with_hud || !sites.is_empty() {
+            out.push_str(&crate::city_site::description(&sites));
+        }
+        if with_hud {
+            out.push_str(&hud::description());
+        }
         out
     }
 }

@@ -84,6 +84,11 @@ impl DistrictArt {
         new
     }
 
+    /// The slices this has that `other` does not.
+    pub fn minus(&self, other: &DistrictArt) -> DistrictArt {
+        DistrictArt { slices: self.slices.difference(&other.slices).cloned().collect() }
+    }
+
     /// Render description entries: an image per file, a sheet per slice.
     pub fn description(&self) -> String {
         let mut out = String::from("\n# District art (generated).\n");

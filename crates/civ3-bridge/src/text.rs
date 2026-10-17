@@ -79,6 +79,9 @@ pub struct Fonts {
     failed: BTreeSet<FontStyle>,
     /// When each font was last asked for (see [`Fonts::prune`]).
     used: BTreeMap<FontKey, std::time::Instant>,
+    /// The fonts the art has (see [`Fonts::addition`]); pruning does not
+    /// take them out of it.
+    described: BTreeSet<FontKey>,
 }
 
 impl Fonts {
@@ -101,6 +104,55 @@ impl Fonts {
             }
         }
         added
+    }
+
+    /// Loads the font of `style` in `color` (on `backdrop`) if it is not
+    /// loaded yet, as text drawn with it would (art made ahead); true if it
+    /// was new.
+    pub fn add_style(&mut self, files: &GameFiles, style: FontStyle, color: [u8; 3], backdrop: Option<[u8; 3]>) -> bool {
+        let run = TextRun {
+            x: 0,
+            y: 0,
+            color,
+            face: style.face.clone(),
+            height: -style.height,
+            weight: style.weight,
+            italic: style.italic,
+            underline: false,
+            text: String::new(),
+            backdrop,
+        };
+        let new = self.add(files, std::slice::from_ref(&run));
+        // (Not used yet: as old as can be, for pruning.)
+        if let Some(t) = self.used.get_mut(&key(&run)) {
+            *t = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(3600)).unwrap_or(*t);
+        }
+        new
+    }
+
+    /// Whether a font is loaded that the art does not have yet.
+    pub fn has_new(&self) -> bool {
+        self.fonts.iter().any(|(k, f)| f.is_some() && !self.described.contains(k))
+    }
+
+    /// The description entries of the fonts loaded that the art does not
+    /// have yet, as an addition to it (see [`Fonts::description`]); from now
+    /// on the art has them.
+    pub fn addition(&mut self) -> String {
+        let new: BTreeMap<FontKey, Option<GlyphFont>> =
+            self.fonts.iter().filter(|(k, f)| f.is_some() && !self.described.contains(*k)).map(|(k, f)| (k.clone(), f.clone())).collect();
+        self.described.extend(new.keys().cloned());
+        Self::entries(&new, false)
+    }
+
+    /// Glyph pixels (RGBA bytes) of the fonts the art does not have yet.
+    pub fn new_bytes(&self) -> u64 {
+        self.fonts
+            .iter()
+            .filter(|(k, _)| !self.described.contains(*k))
+            .filter_map(|(_, f)| f.as_ref())
+            .map(|f| f.glyphs.values().map(|g| g.image.width as u64 * g.image.height as u64 * 4).sum::<u64>())
+            .sum()
     }
 
     /// Drops the fonts not asked for in the last `age` (screens come and
@@ -147,13 +199,20 @@ impl Fonts {
 
     /// Render description entries: glyph sprites `Text@<font>/<code>`
     /// anchored at the pen on the baseline.
-    pub fn description(&self) -> String {
+    pub fn description(&mut self) -> String {
+        self.described.extend(self.fonts.iter().filter(|(_, f)| f.is_some()).map(|(k, _)| k.clone()));
+        Self::entries(&self.fonts, true)
+    }
+
+    /// The entries of `fonts`, with the faces drawn from outlines
+    /// (`outlines`) or without.
+    fn entries(fonts: &BTreeMap<FontKey, Option<GlyphFont>>, outlines: bool) -> String {
         let mut out = String::from("\n# Text glyphs (generated).\n");
         // The faces text is drawn with from outlines at other zooms.
-        for (face, file) in OUTLINE_FACES {
+        for (face, file) in OUTLINE_FACES.iter().filter(|_| outlines) {
             let _ = writeln!(out, "[fonts.\"{face}\"]\nsource = \"{file}\"\n");
         }
-        for (n, ((style, [r, g, b], backdrop), font)) in self.fonts.iter().enumerate() {
+        for (n, ((style, [r, g, b], backdrop), font)) in fonts.iter().enumerate() {
             let Some(font) = font else { continue };
             let tag = Self::tag(&(style.clone(), [*r, *g, *b], *backdrop));
             let FontStyle { face, height, weight, italic } = style;

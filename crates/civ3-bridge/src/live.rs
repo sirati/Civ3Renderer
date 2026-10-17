@@ -8,6 +8,8 @@ use std::time::Duration;
 use civ3_sys::{Civ3, Civ3Error};
 use render_desc::Compiled;
 
+use crate::art::{ArtJob, ArtThread, Built, Work};
+
 use crate::presenter::{self, Presenter};
 use crate::{assets, city_hud, city_site, districts, text, trace, ui_screen, ui_trace, units};
 use crate::scene_map::Mapper;
@@ -252,116 +254,50 @@ impl Compiler {
         assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search)
     }
 
-    /// A rebuild of the art: the description with everything the game
-    /// showed so far, and what a renderer compiling its own copy needs (the
-    /// full text, the art roots). `pixels`: the atlas too (for a renderer
-    /// given it), else only the tables.
-    #[allow(clippy::too_many_arguments)]
-    fn job(
-        &self,
-        folders: &ArtFolders,
-        units: &units::Needed,
-        fonts: &text::Fonts,
-        screen: &menu::screen::ScreenArt,
-        districts: &crate::district_art::DistrictArt,
-        pixels: bool,
-    ) -> ArtJob {
-        let text = format!(
-            "{}{}{}{}{}",
-            self.text,
-            units.description(),
-            fonts.description(),
-            ui_screen::description(screen),
-            districts.description()
-        );
+    /// The whole description: everything the game showed so far (also
+    /// what a renderer compiling its own copy needs: the art roots).
+    fn whole_text(&self, units: &units::Needed, fonts: &mut text::Fonts, screen: &menu::screen::ScreenArt, districts: &crate::district_art::DistrictArt) -> String {
+        format!("{}{}{}{}{}", self.text, units.description(), fonts.description(), ui_screen::description(screen), districts.description())
+    }
+
+    /// What a renderer compiling its own copy of the art needs: `text` (a
+    /// whole description, or an addition: `append`) and the art roots.
+    fn wire(&self, folders: &ArtFolders, text: &str, append: bool) -> scene::wire::Assets {
         let files = self.files(folders);
-        let wire = scene::wire::Assets {
-            description: text,
+        scene::wire::Assets {
+            description: text.to_owned(),
             roots: files.roots().iter().map(|r| r.to_string_lossy().into_owned()).collect(),
             // (The presenter numbers them.)
             generation: 0,
-        };
-        ArtJob { name: self.name.clone(), files, wire, pixels, folders: folders.clone(), token: 0, generation: 0 }
-    }
-}
-
-/// A rebuild of the art (see [`Compiler::job`]), for the art thread.
-struct ArtJob {
-    /// The description's name, for messages.
-    name: String,
-    files: civ3_assets::GameFiles,
-    wire: scene::wire::Assets,
-    pixels: bool,
-    folders: ArtFolders,
-    /// See `ArtSchedule::start`.
-    token: u64,
-    /// The presenter's (`Presenter::prepare_assets`).
-    generation: u64,
-}
-
-/// A rebuild done.
-struct ArtDone {
-    token: u64,
-    generation: u64,
-    compiled: Result<Compiled, LiveError>,
-    took: Duration,
-}
-
-impl ArtJob {
-    /// Compiles; with the pixels, reusing the sheets in `cache` (the art
-    /// grows a little at a time) and keeping this compile's there.
-    fn run(self, cache: &mut render_desc::SheetCache) -> ArtDone {
-        let started = std::time::Instant::now();
-        let pixels = if self.pixels { assets::Pixels::Made(Some(cache)) } else { assets::Pixels::TablesOnly };
-        let compiled = assets::compile_as(&self.wire.description, self.files, pixels)
-            .map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()));
-        if let Ok(c) = &compiled {
-            let (rgba, index) = c.atlas.page_bytes();
-            let indexed = c.atlas.sprites.iter().filter(|s| s.palette != 0).count();
-            log::info!(
-                "live renderer: {} layers, {} sprites ({indexed} indexed), {} ({:?})",
-                c.layers.len(),
-                c.sprite_names.len(),
-                if self.pixels {
-                    format!(
-                        "atlas {} colour pages ({} MiB), {} index pages ({} MiB), {} palette rows",
-                        c.atlas.pages.len(),
-                        rgba >> 20,
-                        c.atlas.index_pages.len(),
-                        index >> 20,
-                        c.atlas.palettes.len() / tile_render::PALETTE_SIZE as usize
-                    )
-                } else {
-                    "the tables only (the renderer makes the atlas)".into()
-                },
-                self.folders
-            );
+            append,
         }
-        ArtDone { token: self.token, generation: self.generation, compiled, took: started.elapsed() }
+    }
+
+    /// A job for the art thread (`generation`: `Presenter::prepare_assets`).
+    #[allow(clippy::too_many_arguments)]
+    fn job(&self, folders: &ArtFolders, work: Work, pixels: bool, generation: u64, token: Option<u64>, reason: String, wanted: std::time::Instant) -> ArtJob {
+        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, generation, token, reason, wanted }
     }
 }
 
-/// Runs art rebuilds on a thread of their own, so that the publisher goes
-/// on publishing with the art it has meanwhile.
-struct ArtThread {
-    jobs: std::sync::mpsc::Sender<ArtJob>,
-    done: std::sync::mpsc::Receiver<ArtDone>,
-}
-
-impl ArtThread {
-    /// `cache`: the sheets of the compiles so far.
-    fn start(mut cache: render_desc::SheetCache) -> std::io::Result<ArtThread> {
-        let (jobs, job_rx) = std::sync::mpsc::channel::<ArtJob>();
-        let (done_tx, done) = std::sync::mpsc::channel();
-        std::thread::Builder::new().name("civ3r-art".into()).spawn(move || {
-            for job in job_rx {
-                if done_tx.send(job.run(&mut cache)).is_err() {
-                    break;
-                }
-            }
-        })?;
-        Ok(ArtThread { jobs, done })
-    }
+/// What compiled art has, for the log: layers, sprites, the atlas (with
+/// the pixels).
+fn art_summary(c: &Compiled, pixels: bool) -> String {
+    let indexed = c.atlas.sprites.iter().filter(|s| s.palette != 0).count();
+    let atlas = if pixels {
+        let (rgba, index) = c.atlas.page_bytes();
+        format!(
+            "atlas {} colour pages ({} MiB), {} index pages ({} MiB), {} palette rows",
+            c.atlas.pages.len(),
+            rgba >> 20,
+            c.atlas.index_pages.len(),
+            index >> 20,
+            c.atlas.palettes.len() / tile_render::PALETTE_SIZE as usize
+        )
+    } else {
+        "the tables only (the renderer makes the atlas)".into()
+    };
+    format!("{} layers, {} sprites ({indexed} indexed), {atlas}", c.layers.len(), c.sprite_names.len())
 }
 
 /// Starts the publisher and the viewer; returns at once. `CIV3R_VIEWER`:
@@ -413,10 +349,13 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     // The native viewer makes its own atlas: this side needs the tables only.
     let pixels = !mode.starts_with("native");
-    let first = compiler.job(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), pixels);
-    let wire = first.wire.clone();
-    let mut cache = render_desc::SheetCache::new();
-    let compiled = Arc::new(first.run(&mut cache).compiled?);
+    let first = compiler.whole_text(&units::Needed::default(), &mut text::Fonts::default(), &Default::default(), &Default::default());
+    let wire = compiler.wire(&folders, &first, false);
+    let started = std::time::Instant::now();
+    let (compiled, growing) =
+        assets::compile_growing(&first, compiler.files(&folders), pixels).map_err(|e| LiveError::Desc(compiler.name.clone(), e.to_string()))?;
+    log::info!("live renderer: {} in {} ms ({folders:?})", art_summary(&compiled, pixels), started.elapsed().as_millis());
+    let compiled = Arc::new(compiled);
     let mut presenter = if mode.starts_with("native") {
         let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
         Presenter::native(native)
@@ -433,9 +372,9 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     log::info!("renderer {}", presenter.describe());
     presenter.set_assets(&compiled, &wire);
     presenter.forward_log();
-    let compiled = if pixels { Arc::new(compiled.without_pixels()) } else { compiled };
-    let art_thread = ArtThread::start(cache).map_err(LiveError::Install)?;
-    let timing = if pixels { crate::art_schedule::Timing::SHARED_ATLAS } else { crate::art_schedule::Timing::OWN_ATLAS };
+    let compiled = compiled.without_pixels();
+    let art_thread = ArtThread::start(Some((compiled.without_pixels(), growing))).map_err(LiveError::Install)?;
+    let timing = crate::art_schedule::Timing::GROWING;
     std::thread::Builder::new()
         .name("civ3r-publish".into())
         .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels))
@@ -462,9 +401,9 @@ fn publish(
     game: Civ3,
     compiler: &Compiler,
     mut folders: ArtFolders,
-    mut compiled: Arc<Compiled>,
+    mut compiled: Compiled,
     mut presenter: Presenter,
-    art_thread: ArtThread,
+    mut art_thread: ArtThread,
     timing: crate::art_schedule::Timing,
     pixels: bool,
 ) {
@@ -483,10 +422,20 @@ fn publish(
     let mut label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
     let mut table_colors = std::collections::HashMap::new();
     let mut schedule = crate::art_schedule::ArtSchedule::new(timing);
-    // When the art being built was first wanted, and whether new art came
+    // When the art asked for was first wanted, and whether new art came
     // (the scene goes out again, with it).
     let mut art_wanted: Option<std::time::Instant> = None;
     let mut new_art = false;
+    // What the art has (or is being built with): the rest of what is
+    // wanted goes into the next addition.
+    let mut described_units = units::Needed::default();
+    let mut described_screen = menu::screen::ScreenArt::default();
+    let mut described_districts = crate::district_art::DistrictArt::default();
+    // A whole description is wanted (the art folders changed).
+    let mut whole_wanted = false;
+    // Growths a renderer compiling its own art may not have yet (scenes
+    // use them once it has).
+    let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>)> = Default::default();
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
     // The renderer's own settings, and our tabs over the game's Preferences
@@ -523,30 +472,63 @@ fn publish(
                 scene_size.2,
             );
         }
-        // A rebuild of the art done: from now on the scenes use it.
-        if let Ok(done) = art_thread.done.try_recv() {
-            match done.compiled {
-                Ok(c) => {
+        // Art built: from now on the scenes use it.
+        while let Some(done) = art_thread.try_done() {
+            let now = std::time::Instant::now();
+            match done.built {
+                Ok(Built::Whole(c)) => {
+                    log::info!(
+                        "art: whole description built in {} ms for {}: {}; {} ms after it was first wanted",
+                        done.took.as_millis(),
+                        done.reason,
+                        art_summary(&c, pixels),
+                        now.duration_since(done.wanted).as_millis()
+                    );
                     let c = Arc::new(c);
-                    let started = std::time::Instant::now();
                     presenter.adopt_assets(&c, done.generation);
                     // The viewer has the pixels; this side needs the rest only.
-                    compiled = if pixels { Arc::new(c.without_pixels()) } else { c };
+                    compiled = c.without_pixels();
                     mapper = Mapper::new(&compiled);
                     menus = menus_of(&compiled);
-                    log::info!(
-                        "art: built in {} ms, handed over in {} ms; {} ms after it was first wanted",
-                        done.took.as_millis(),
-                        started.elapsed().as_millis(),
-                        art_wanted.map_or(0, |t| t.elapsed().as_millis())
-                    );
+                    pending_growths.clear();
                 }
-                Err(e) => log::error!("recompiling for {folders:?}: {e}"),
+                Ok(Built::Growth(g)) => {
+                    log::info!(
+                        "art: grown by {} sprites ({} KiB of pixels) in {} ms for {}; {} sprites, atlas {} colour and {} index pages; {} ms after it was first wanted",
+                        g.atlas.sprites.len(),
+                        g.atlas.bytes() >> 10,
+                        done.took.as_millis(),
+                        done.reason,
+                        done.sprites,
+                        done.pages.0,
+                        done.pages.1,
+                        now.duration_since(done.wanted).as_millis()
+                    );
+                    if !g.is_empty() {
+                        pending_growths.push_back((done.generation, g));
+                    }
+                }
+                Err(e) => log::error!("art for {}: {e}", done.reason),
             }
-            schedule.done(std::time::Instant::now(), done.token);
+            if let Some(token) = done.token {
+                schedule.done(now, token);
+            }
             if !schedule.pending() {
                 art_wanted = None;
             }
+            new_art = true;
+        }
+        // Growths the renderer has: a renderer given the art gets them now,
+        // one compiling its own has compiled them (`Presenter::art_status`).
+        let ready = presenter.art_status().unwrap_or(u64::MAX);
+        if pending_growths.front().is_some_and(|(generation, _)| *generation <= ready) {
+            while pending_growths.front().is_some_and(|(generation, _)| *generation <= ready) {
+                let Some((generation, g)) = pending_growths.pop_front() else { break };
+                presenter.adopt_growth(&g, generation);
+                compiled.apply(&g);
+            }
+            mapper = Mapper::new(&compiled);
+            menus = menus_of(&compiled);
             new_art = true;
         }
         // The game's interface, mirrored (else its text only).
@@ -574,6 +556,7 @@ fn publish(
             art = units::UnitArt::new(compiler.files(&folders));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
             have = units::Needed::default();
+            whole_wanted = true;
             recompile = true;
             wanted_for.push("art folders");
         }
@@ -854,9 +837,10 @@ fn publish(
                 wanted_for.push("districts");
             }
         }
-        // Rebuild the art once the requests settle (a new screen asks for
-        // new art several times in a row), one rebuild at a time, on the art
-        // thread (`crate::art_schedule`).
+        // Build the art wanted once the requests settle (a new screen asks
+        // for new art several times in a row), on the art thread
+        // (`crate::art_schedule`): an addition of only what the art does
+        // not have yet, or a whole description when the art folders changed.
         let now = std::time::Instant::now();
         if recompile || screen_recompile {
             log::debug!("art: wanted for {}", wanted_for.join(", "));
@@ -864,19 +848,53 @@ fn publish(
             art_wanted.get_or_insert(now);
         }
         if let Some(token) = schedule.start(now) {
-            // Fonts no screen or zoom has asked for in a while go with this
-            // rebuild (each is a sheet of glyphs; zooming through sizes
-            // would add up).
+            // Fonts no screen or zoom has asked for in a while are let go
+            // of (their glyphs; the art keeps them).
             let dropped = fonts.prune(FONT_KEPT);
             if dropped > 0 {
-                log::debug!("art: {dropped} fonts not used for {FONT_KEPT:?} left out");
+                log::debug!("art: {dropped} fonts not used for {FONT_KEPT:?} let go of");
             }
-            let job = compiler.job(&folders, &have, &fonts, &screen_art, &district_art, pixels);
-            // A renderer that compiles its own copy starts at once.
-            let generation = presenter.prepare_assets(&job.wire);
-            if art_thread.jobs.send(ArtJob { token, generation, ..job }).is_err() {
-                log::error!("the art thread is gone");
-                schedule.done(now, token);
+            let wanted = art_wanted.unwrap_or(now);
+            let work = if std::mem::take(&mut whole_wanted) {
+                described_units = have.clone();
+                described_screen = screen_art.clone();
+                described_districts = district_art.clone();
+                Some(Work::Whole(compiler.whole_text(&have, &mut fonts, &screen_art, &district_art)))
+            } else {
+                let units = have.minus(&described_units);
+                described_units.merge(&units);
+                let screen = screen_art.minus(&described_screen);
+                described_screen = screen_art.clone();
+                let districts = district_art.minus(&described_districts);
+                described_districts = district_art.clone();
+                let new_fonts = fonts.has_new();
+                let mut text = if new_fonts { fonts.addition() } else { String::new() };
+                if !units.is_empty() {
+                    text += &units.addition();
+                }
+                if !screen.is_empty() {
+                    text += &ui_screen::description(&screen);
+                }
+                if !districts.is_empty() {
+                    text += &districts.description();
+                }
+                (!units.is_empty() || !screen.is_empty() || !districts.is_empty() || new_fonts).then_some(Work::Addition(text))
+            };
+            match work {
+                // Nothing new after all (e.g. a font that had been let go of).
+                None => schedule.done(now, token),
+                Some(work) => {
+                    let (text, append) = match &work {
+                        Work::Whole(t) => (t, false),
+                        Work::Addition(t) => (t, true),
+                    };
+                    // A renderer that compiles its own copy starts at once.
+                    let generation = presenter.prepare_assets(&compiler.wire(&folders, text, append));
+                    if !art_thread.send(compiler.job(&folders, work, pixels, generation, Some(token), wanted_for.join(", "), wanted)) {
+                        log::error!("the art thread is gone");
+                        schedule.done(now, token);
+                    }
+                }
             }
         }
         // The screen's art is not built yet: the viewer keeps the last
