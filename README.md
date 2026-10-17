@@ -251,6 +251,9 @@ ghost shows the next target meanwhile. While it is on, its pointer is the
 only cursor. In a list, moving up or down scrolls the list under the
 pointer. A click clicks the element, never the map; the view following the
 world cursor is a target too, and a click on it captures the mouse again.
+Turned off, the pointer stays where it ended: on the interface the system
+pointer shows there (a captured mouse is let go), on the capture view the
+world cursor goes on.
 (`snap_updates_per_second`, `snap_ghost_fps` in the viewer's settings.)
 A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
