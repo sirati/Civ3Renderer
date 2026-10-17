@@ -70,50 +70,11 @@ pub fn compile_as(text: &str, files: GameFiles, pixels: Pixels, max_page: u32) -
 /// (`pixels`), else the tables only; given up (an error, [`STOPPED`]) as
 /// soon as `stop` says so (e.g. the art of a scenario no longer shown).
 pub fn compile_growing(text: &str, files: GameFiles, pixels: bool, max_page: u32, stop: &dyn Fn() -> bool) -> Result<(Compiled, render_desc::Growing), DescError> {
-    Description::parse(text)?.compile_growing(&Stoppable { inner: Civ3Loader::new(files), stop }, max_page, pixels)
+    Description::parse(text)?.compile_growing(&render_desc::StopWhen::new(Civ3Loader::new(files), stop), max_page, pixels)
 }
 
 /// What a compile given up says (see [`compile_growing`]).
-pub const STOPPED: &str = "no longer wanted";
-
-/// A loader whose every file fails once `stop` says so: a compile then
-/// ends at the next sheet it loads.
-struct Stoppable<'a> {
-    inner: Civ3Loader,
-    stop: &'a dyn Fn() -> bool,
-}
-
-impl Stoppable<'_> {
-    fn go_on(&self) -> Result<(), String> {
-        if (self.stop)() { Err(STOPPED.to_owned()) } else { Ok(()) }
-    }
-}
-
-impl render_desc::ImageLoader for Stoppable<'_> {
-    fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
-        self.go_on()?;
-        self.inner.load(source, options)
-    }
-    fn sizes(&self, source: &str, options: &toml::Table) -> Result<Vec<(u32, u32)>, String> {
-        self.go_on()?;
-        self.inner.sizes(source, options)
-    }
-    fn font(&self, source: &str) -> Result<Vec<u8>, String> {
-        self.go_on()?;
-        self.inner.font(source)
-    }
-    fn identity(&self, source: &str, options: &toml::Table) -> String {
-        self.inner.identity(source, options)
-    }
-    fn indexed(&self, source: &str, options: &toml::Table) -> Result<Option<Vec<render_desc::IndexedFrame>>, String> {
-        self.go_on()?;
-        self.inner.indexed(source, options)
-    }
-    fn palette(&self, source: &str, options: &toml::Table) -> Result<Vec<[u8; 4]>, String> {
-        self.go_on()?;
-        self.inner.palette(source, options)
-    }
-}
+pub const STOPPED: &str = render_desc::CANCELLED;
 
 /// The growth of `compiled` (grown by `growing`) by `addition`.
 pub fn grow(growing: &mut render_desc::Growing, compiled: &Compiled, addition: &str, files: GameFiles) -> Result<render_desc::Growth, DescError> {
