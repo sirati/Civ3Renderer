@@ -403,6 +403,12 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         }
     }
     hook_edge_scroll();
+    // Which system pointer the game sets (busy, resizing).
+    match inproc::pointer::hook_set_cursor(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => log::warn!("cursor: the game does not import SetCursor"),
+        Err(e) => log::warn!("cursor: hooking SetCursor: {e}"),
+    }
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     // The native viewer makes its own atlas: this side needs the tables only.
     let pixels = !mode.starts_with("native");
@@ -461,7 +467,7 @@ fn publish(
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
-    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>)> = None;
+    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor)> = None;
     let mut seq = 0;
     let mut input = InputForwarder::default();
     let mut title = menu::MenuState::default();
@@ -592,11 +598,18 @@ fn publish(
                 .map(|s| ui_screen::interactables(&civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)))
                 .unwrap_or_default(),
         };
-        let state = (shown, texts, ui, interactables);
+        // The pointer the game shows (docs §16.11).
+        let game_cursor = civ3_sys::cursor::sites(game.build).and_then(|s| civ3_sys::cursor::read(&civ3_sys::controls::Live, &s));
+        let standard = inproc::pointer::last_set_cursor().and_then(inproc::pointer::standard_cursor);
+        let cursor = crate::cursor::scene_cursor(game_cursor, standard, |n| compiled.set(n).map(|(s, _)| s.raw()), crate::cursor::system_arrow());
+        if last.as_ref().is_none_or(|l| l.4 != cursor) {
+            log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
+        }
+        let state = (shown, texts, ui, interactables, cursor);
         if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             continue;
         }
-        let (shown, texts, ui, interactables) = &state;
+        let (shown, texts, ui, interactables, cursor) = &state;
         let files = compiler.files(&folders);
         let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
         // The parts of the interface the viewer arranges (docs §16.11): the
@@ -861,6 +874,7 @@ fn publish(
         // The renderer's settings go with every scene (sent when they change).
         scene.settings = Some(prefs.settings().clone());
         scene.interactables = interactables.clone();
+        scene.cursor = *cursor;
         scene.seq = seq;
         scene_size = (scene.cell_bytes(), scene.sprites.len(), scene.views.iter().map(|v| v.overlay.len()).sum::<usize>());
         // Held back while the renderer is busy: publish again next time.
