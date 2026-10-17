@@ -995,7 +995,7 @@ fn publish(
         if art_thread.idle() && pending_growths.is_empty() && !schedule.pending() && !whole_wanted {
             let have_ref = &have;
             let wanted = |item: &crate::preload::Item| match item {
-                crate::preload::Item::Unit(f, colors) => have_ref.files.get(&f.path).is_some_and(|(_, c)| colors.is_subset(c)),
+                crate::preload::Item::Unit(f, colors) => have_ref.files.get(&f.path).is_some_and(|(_, c)| colors.is_subset(c)) && !have_ref.stills.contains_key(&f.path),
                 crate::preload::Item::Screen(art) => screen_art.covers(art),
                 crate::preload::Item::Font(style, color, backdrop) => fonts.has_style(style, *color, *backdrop),
             };
@@ -1004,7 +1004,11 @@ fn publish(
                 for item in items {
                     sent_bytes += item.bytes();
                     match item {
-                        crate::preload::Item::Unit(f, colors) => have.files.entry(f.path.clone()).or_insert_with(|| (f, Default::default())).1.extend(colors),
+                        crate::preload::Item::Unit(f, colors) => {
+                            // (Made whole, every frame.)
+                            have.stills.remove(&f.path);
+                            have.files.entry(f.path.clone()).or_insert_with(|| (f, Default::default())).1.extend(colors);
+                        }
                         crate::preload::Item::Screen(art) => {
                             screen_art.regions.extend(art.regions);
                             screen_art.fills.extend(art.fills);
