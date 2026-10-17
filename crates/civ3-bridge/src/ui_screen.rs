@@ -237,6 +237,50 @@ pub fn readiness<'a>(items: impl Iterator<Item = &'a Item>, fonts: &Fonts, compi
     if !missing { Readiness::Ready } else if building || loading { Readiness::Pending } else { Readiness::Unavailable }
 }
 
+/// The publication decision includes the complete terminal diagnostic,
+/// so callers cannot mistake missing mandatory art for an ordinary scene.
+pub enum Publication {
+    Complete,
+    Retain { unavailable: bool },
+    Diagnostic(scene::Scene),
+}
+
+pub fn publication<'a>(items: impl Iterator<Item = &'a Item>, fonts: &Fonts, compiled: &Compiled, building: bool, size: (u32, u32)) -> Publication {
+    match readiness(items, fonts, compiled, building) {
+        Readiness::Ready => Publication::Complete,
+        Readiness::Pending => Publication::Retain { unavailable: false },
+        Readiness::Unavailable => diagnostic_scene(compiled, size).map(Publication::Diagnostic).unwrap_or(Publication::Retain { unavailable: true }),
+    }
+}
+
+/// A complete, separate failure screen, using generated viewer glyphs only.
+/// It contains no stale world, original controls, or partly resolved UI.
+/// If even these built-in glyphs are unavailable, retain the complete scene.
+fn diagnostic_scene(compiled: &Compiled, size: (u32, u32)) -> Option<scene::Scene> {
+    const MESSAGE: &str = "missing art";
+    let size = (size.0.max(1), size.1.max(1));
+    let largest = (size.1 / 270).clamp(1, 4);
+    let n = (1..=largest).rev().find(|n| MESSAGE.chars().all(|ch| {
+        render_desc::GLYPHS.chars().position(|c| c == ch)
+            .is_some_and(|index| compiled.set_available(&format!("Viewer@glyphs{n}/{index}")))
+    }))?;
+    let (cw, ch) = render_desc::glyph_cell(n);
+    let left = (size.0 as i32 - (MESSAGE.len() as u32 * cw) as i32).max(0) / 2;
+    let top = (size.1 as i32 - ch as i32).max(0) / 2;
+    let mut scene = scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len());
+    scene.screen_size = size;
+    scene.interface.screen = Some("Missing art".into());
+    let view = scene.view_mut(crate::scene_map::MENU_VIEW);
+    view.view.interface_only = true;
+    view.view.menu = true;
+    for (i, glyph) in MESSAGE.chars().enumerate() {
+        let index = render_desc::GLYPHS.chars().position(|c| c == glyph)?;
+        let (set, _) = compiled.set(&format!("Viewer@glyphs{n}/{index}"))?;
+        view.overlay.push(scene::FreeSprite { set: set.raw(), x: left + i as i32 * cw as i32, y: top, screen: true, after_pass: u32::MAX, ticks_per_frame: 1, ..Default::default() });
+    }
+    Some(scene)
+}
+
 /// The free sprites of `items`, in order: underlay items after render pass
 /// `under_pass` (the one before the fog of war, which the game draws over
 /// them), the rest on top. With `outlines`, text comes 1:1 (`zoom_art` 1)
@@ -641,7 +685,7 @@ mod readiness_tests {
     impl render_desc::ImageLoader for Images {
         fn load(&self, name: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
             if name == "missing.pcx" { return Err("source does not exist".into()) }
-            Ok(vec![tile_render::RgbaImage::new(128, 128)])
+            Ok(vec![tile_render::RgbaImage::from_fn(128, 128, |_, _| [255, 0, 0, 255])])
         }
     }
 
@@ -679,14 +723,37 @@ mod readiness_tests {
             let items = [image(source, size)];
             assert_eq!(readiness(items.iter(), &fonts, &compiled, true), Readiness::Pending);
             if let Ok(growth) = growing.grow(&compiled, &art(&items), &Images) { compiled.apply(&growth); }
-            if source == "missing.pcx" {
-                assert_eq!(readiness(items.iter(), &fonts, &compiled, false), Readiness::Unavailable);
-            } else {
-                // The compiler preserves oversized sprite IDs as its
-                // logged transparent 1x1 terminal fallback.
-                assert_eq!(readiness(items.iter(), &fonts, &compiled, false), Readiness::Ready);
-                assert_eq!((compiled.atlas.sprites[0].width, compiled.atlas.sprites[0].height), (1, 1));
-            }
+            assert_eq!(readiness(items.iter(), &fonts, &compiled, false), Readiness::Unavailable, "{source}");
         }
     }
+
+    #[test]
+    fn terminal_missing_art_selects_a_complete_generated_diagnostic() {
+        let source = format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n[images.viewer]\nsource = \"glyphs:255,255,255,255:0,0,0,255:1\"\n[sheets.viewer]\nimage = \"viewer\"\ncell = [6, 9]\ngrid = [{}, 1]\ngroup = \"Viewer@glyphs1\"\n", render_desc::GLYPHS.len());
+        let (mut compiled, mut growing) = render_desc::Description::parse(&source).unwrap().compile_growing(&Images, 64, true).unwrap();
+        let fonts = Fonts::default();
+        let items = [image("oversized.pcx", 128)];
+        assert!(matches!(publication(items.iter(), &fonts, &compiled, true, (320, 200)), Publication::Retain { unavailable: false }));
+        let growth = growing.grow(&compiled, &art(&items), &Images).unwrap();
+        compiled.apply(&growth);
+        let Publication::Diagnostic(scene) = publication(items.iter(), &fonts, &compiled, false, (320, 200)) else { panic!("unavailable mandatory art must not enter ordinary scene construction") };
+        assert_eq!(scene.interface.screen.as_deref(), Some("Missing art"));
+        assert!(scene.interactables.is_empty() && scene.looks.is_empty() && scene.sprites.is_empty() && scene.patches.is_empty());
+        assert_eq!(scene.views.len(), 1);
+        assert_eq!(scene.views[0].overlay.len(), "missing art".len());
+        assert!(scene.layers.iter().all(|layer| layer.values.is_empty()));
+        let world = tile_viewer::scene_world(&compiled, &scene);
+        let cameras = tile_viewer::scene_cameras(&scene, (320, 200), (0, 0, 0, 0));
+        let pixels = tile_render::reference::render_views(&world, &compiled.atlas, &cameras, (320, 200), 0, [0, 0, 0, 255]);
+        assert!(pixels.pixels.iter().any(|pixel| pixel[..3] == [255, 255, 255]), "the diagnostic must visibly render without game art or fonts");
+        assert_eq!(pixels.get(0, 0), [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn absent_diagnostic_art_never_releases_an_incomplete_screen() {
+        let compiled = render_desc::Description::parse("grid = { layout = \"orthogonal\", step = [1, 1] }").unwrap().compile_layout(&Images, 64).unwrap();
+        let items = [image("missing.pcx", 32)];
+        assert!(matches!(publication(items.iter(), &Fonts::default(), &compiled, false, (320, 200)), Publication::Retain { unavailable: true }));
+    }
+
 }
