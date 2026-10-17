@@ -624,7 +624,7 @@ fn publish(
         // What the open city screen tests in its code (citizens, units).
         if let (Shown::Map(world, _), Some(f)) = (&shown, ui.as_ref()) {
             if world.focus_city.is_some() {
-                interactables.extend(ui_screen::city_drawn_targets(f));
+                interactables.extend(ui_screen::city_drawn_targets(f, modal.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)));
             }
         }
         // The pointer the game shows (docs §16.11).
