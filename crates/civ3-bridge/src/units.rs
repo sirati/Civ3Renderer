@@ -58,6 +58,8 @@ pub struct AnimFile {
 }
 
 impl AnimFile {
+    /// From the file's headers alone (its frames are not decoded: the art
+    /// thread does that when it builds the art).
     fn read(files: &GameFiles, path: &str) -> Option<AnimFile> {
         // (The layout only: frames are decoded when the art is built.)
         let anim = flc::layout(&files.read(path).ok()?).ok()?;
