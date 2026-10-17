@@ -417,6 +417,15 @@ tools/civ3-native start --map-off    # inside nix develop; then civ3-session new
 tools/civ3-native start --game-render   # the game drawing its own window as well
 ```
 
+To play on your own Wayland desktop, `tools/civ3-play` starts the game the
+same way without `nix develop`. Run `tools/civ3-play setup` once: it takes
+the runtime libraries (vulkan-loader, wayland, libxkbcommon, libglvnd) from
+Wine's closure, keeps them as GC roots and adds a `.desktop` entry. Wine,
+the prefix and the native dir go under `~/.local/share/civ3r` (`wine-wow64`,
+`wine-civ3-wow64`, `native`). The game's map is off unless `--map`, the
+renderer uses the Intel iGPU unless `--nvidia`, and `--window` shows the
+viewer in a window.
+
 On Windows (and in the Windows VM, DX12 WARP) the bridge runs the viewer as
 a window of the game's own 32-bit process instead; `vendor/wgpu-hal` carries
 a fix that DX12 needs in 32-bit processes.

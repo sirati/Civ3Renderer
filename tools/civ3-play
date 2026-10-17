@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Plays Civ III Conquests on your own Wayland desktop with the renderer as
+# native Linux code in the game's process (Wine's new WoW64, "dual stack";
+# see the README). Unlike tools/civ3-native (a private headless session for
+# tests), this needs no `nix develop`: the runtime libraries the unixlib
+# loads are nix store paths found once by `setup`.
+#
+#   tools/civ3-play [--map] [--window] [--nvidia]   start the game
+#   tools/civ3-play setup                           find the runtime libraries, add the .desktop entry
+#   tools/civ3-play stop                            end the game (wineserver -k of the prefix)
+#
+#   --map      keep the game's own map rendering on (default: CIV3R_GAME_MAP=off)
+#   --window   the viewer in a window instead of fullscreen
+#   --nvidia   the renderer on the NVIDIA GPU instead of the Intel iGPU
+#
+# Layout (CIV3R_HOME, default ~/.local/share/civ3r):
+#   wine-wow64        Wine (new WoW64) store path, a GC root   (or $WINE)
+#   wine-civ3-wow64   the prefix; game in drive_c/Games/Civilization III Complete (or $WINEPREFIX)
+#   native            WINEDLLPATH: i386-windows/civ3r_native.dll, x86_64-unix/civ3r_native.so
+#                     (tools/install-native with CIV3R_NATIVE_DIR, or copied there)
+#   runtime-libs      LD_LIBRARY_PATH of vulkan-loader, wayland, libxkbcommon, libglvnd (setup)
+#   gcroots/          GC roots of those
+#   logs/             Wine's output, one file per start (the bridge logs to civ3-bridge.log in the game folder)
+set -euo pipefail
+repo=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+home=${CIV3R_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/civ3r}
+WINE=${WINE:-$home/wine-wow64}
+export WINEPREFIX=${WINEPREFIX:-$home/wine-civ3-wow64}
+native=${CIV3R_NATIVE_DIR:-$home/native}
+game="$WINEPREFIX/drive_c/Games/Civilization III Complete/Conquests"
+libs_file=$home/runtime-libs
+icd=/run/opengl-driver/share/vulkan/icd.d
+
+die() { echo "civ3-play: $*" >&2; exit 1; }
+
+# The libraries come from Wine's own closure when it has them (the same
+# builds Wine links, so one copy of each in the process), else from the
+# flake's nixpkgs.
+setup() {
+  [ -x "$WINE/bin/wine" ] || die "no Wine at $WINE (nix-store -r <wine-wow64 path> --add-root $home/wine-wow64)"
+  local wine closure pkg path dirs=()
+  wine=$(readlink -f "$WINE")
+  closure=$(nix-store -qR "$wine")
+  mkdir -p "$home/gcroots"
+  for pkg in vulkan-loader wayland libxkbcommon libglvnd; do
+    path=$(grep -E "^/nix/store/[a-z0-9]{32}-$pkg-[0-9][^-]*$" <<<"$closure" | head -1 || true)
+    [ -n "$path" ] || path=$(nix build --no-link --print-out-paths --inputs-from "$repo" "nixpkgs#$pkg" | head -1)
+    [ -d "$path/lib" ] || die "$pkg: no lib in $path"
+    nix-store --add-root "$home/gcroots/$pkg" --indirect -r "$path" >/dev/null
+    dirs+=("$path/lib")
+  done
+  (IFS=:; echo "${dirs[*]}") > "$libs_file"
+  echo "runtime libraries: $(cat "$libs_file")"
+  local apps=${XDG_DATA_HOME:-$HOME/.local/share}/applications me
+  me=$(readlink -f "$0")
+  mkdir -p "$apps"
+  cat > "$apps/civ3-renderer.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Civilization III (native renderer)
+Comment=Civ III Conquests under Wine with the renderer as native Linux code
+Exec=$me
+Icon=applications-games
+Categories=Game;StrategyGame;
+Terminal=false
+Actions=nvidia;map;
+
+[Desktop Action nvidia]
+Name=Renderer on the NVIDIA GPU
+Exec=$me --nvidia
+
+[Desktop Action map]
+Name=Keep the game's own map
+Exec=$me --map
+EOF
+  echo "desktop entry: $apps/civ3-renderer.desktop"
+}
+
+case ${1:-} in
+setup) setup; exit 0 ;;
+stop) "$WINE/bin/wineserver" -k 2>/dev/null || true; echo "stopped"; exit 0 ;;
+-h|--help|help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+esac
+
+map=off viewer=native-fullscreen gpu=intel
+for a in "$@"; do case $a in
+  --map) map=on ;;
+  --window) viewer=native ;;
+  --nvidia) gpu=nvidia ;;
+  --intel) gpu=intel ;;
+  *) die "unknown option $a (see --help)" ;;
+esac; done
+
+[ -x "$WINE/bin/wine" ] || die "no Wine at $WINE"
+[ -f "$game/Civ3Conquests.exe" ] || die "no game in $game"
+[ -f "$native/x86_64-unix/civ3r_native.so" ] || die "no native renderer in $native (tools/install-native)"
+[ -n "${WAYLAND_DISPLAY:-}" ] || die "WAYLAND_DISPLAY is not set (needs a Wayland session)"
+[ -s "$libs_file" ] || setup >/dev/null
+
+export WINEDLLPATH=$native
+export WINEDLLOVERRIDES="civ3r_native=b;mscoree,mshtml=;${WINEDLLOVERRIDES:-}"
+export WINEDEBUG=${WINEDEBUG:--all}
+export CIV3R_VIEWER=$viewer
+if [ $map = off ]; then export CIV3R_GAME_MAP=off; else unset CIV3R_GAME_MAP; fi
+export LD_LIBRARY_PATH="$(cat "$libs_file")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+unset DISPLAY   # the prefix uses winewayland; nothing falls back to XWayland
+# The game's own GL stays on Mesa (Intel); only the renderer's Vulkan moves.
+export __GLX_VENDOR_LIBRARY_NAME=mesa
+[ -f /run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json ] &&
+  export __EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json
+unset VK_ICD_FILENAMES
+case $gpu in
+  intel) f=$icd/intel_icd.x86_64.json; export TILE_RENDER_ADAPTER=${TILE_RENDER_ADAPTER:-intel} ;;
+  nvidia) f=$icd/nvidia_icd.json; export TILE_RENDER_ADAPTER=${TILE_RENDER_ADAPTER:-nvidia} ;;
+esac
+# Only that GPU's Vulkan driver, so nothing wakes the other one.
+if [ -f "$f" ]; then export VK_DRIVER_FILES=$f; else unset VK_DRIVER_FILES; fi
+
+mkdir -p "$home/logs"
+ls -1t "$home/logs"/civ3-play-*.log 2>/dev/null | tail -n +20 | xargs -r rm -f
+log=$home/logs/civ3-play-$(date +%Y%m%d-%H%M%S).log
+echo "civ3-play: renderer on $gpu ($TILE_RENDER_ADAPTER), viewer $viewer, game map $map"
+echo "civ3-play: Wine's output in $log"
+echo "civ3-play: the bridge's log in $game/civ3-bridge.log"
+cd "$game"
+exec "$WINE/bin/wine" 'C:\Games\Civilization III Complete\Conquests\Civ3Conquests.exe' > "$log" 2>&1
