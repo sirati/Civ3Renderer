@@ -880,6 +880,7 @@ fn publish(
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
             popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
             reachable,
+            beside: None,
         };
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
             crate::scene_map::city_view(&mut scene, (view.camera_x, view.camera_y), [x, y, w, h]);
