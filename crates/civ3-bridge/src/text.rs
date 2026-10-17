@@ -74,6 +74,9 @@ fn key(r: &TextRun) -> FontKey {
 #[derive(Default)]
 pub struct Fonts {
     fonts: BTreeMap<FontKey, Option<GlyphFont>>,
+    /// Changes whenever loaded font metrics change, including a reload
+    /// whose glyphs are already in the atlas.
+    revision: u64,
     /// Fonts (face, size, style) that failed to load: reported once, not per
     /// colour.
     failed: BTreeSet<FontStyle>,
@@ -161,6 +164,7 @@ impl Fonts {
             })
             .ok();
         self.fonts.insert(key, font);
+        self.revision += 1;
     }
 
     /// Loads the font of `style` in `color` (on `backdrop`) if it is not
@@ -233,8 +237,13 @@ impl Fonts {
         self.fonts.retain(|k, _| used.get(k).is_some_and(|t| now.duration_since(*t) < age));
         let fonts = &self.fonts;
         self.used.retain(|k, _| fonts.contains_key(k));
-        before - self.fonts.len()
+        let dropped = before - self.fonts.len();
+        if dropped > 0 { self.revision += 1; }
+        dropped
     }
+
+    /// Revision of the loaded font metrics, for cached text sprites.
+    pub fn revision(&self) -> u64 { self.revision }
 
     /// How many fonts (style and colour) are loaded.
     pub fn len(&self) -> usize {
@@ -496,6 +505,30 @@ mod prune_tests {
         fonts.used.insert(new.clone(), std::time::Instant::now());
         assert_eq!(fonts.prune(std::time::Duration::from_secs(60)), 1);
         assert!(fonts.fonts.contains_key(&new) && !fonts.fonts.contains_key(&old));
+    }
+
+    #[test]
+    fn reloading_and_pruning_change_the_revision_even_when_font_count_and_atlas_do_not() {
+        let style = FontStyle { face: "Lucida Sans".into(), height: 12, weight: 400, italic: false };
+        let old = (style.clone(), [1, 2, 3], None);
+        let reloaded = (style.clone(), [4, 5, 6], None);
+        let font = || GlyphFont { ascent: 12, underline: (1, 1), glyphs: Default::default() };
+        let mut fonts = Fonts::default();
+        fonts.insert(old.clone(), Ok(font()));
+        fonts.described.extend([old.clone(), reloaded.clone()]);
+        fonts.used.insert(old, std::time::Instant::now() - std::time::Duration::from_secs(120));
+        fonts.used.insert(reloaded.clone(), std::time::Instant::now());
+        let (requests, _requests_rx) = std::sync::mpsc::channel();
+        let (completed, loaded) = std::sync::mpsc::channel();
+        fonts.loader = Some(Loader { requests, loaded, pending: [reloaded.clone()].into_iter().collect() });
+        let (count, revision) = (fonts.len(), fonts.revision());
+        completed.send((reloaded.clone(), Ok(font()))).unwrap();
+        assert!(fonts.take_loaded());
+        assert_eq!(fonts.prune(std::time::Duration::from_secs(60)), 1);
+        assert_eq!(fonts.len(), count);
+        assert!(!fonts.has_new(), "the atlas already contains the reloaded font");
+        assert!(fonts.fonts.get(&reloaded).is_some_and(Option::is_some));
+        assert!(fonts.revision() > revision, "cached text must be rebuilt despite the unchanged count and atlas");
     }
 
     /// Outline glyphs go where the 1:1 glyphs go, with their advances; the

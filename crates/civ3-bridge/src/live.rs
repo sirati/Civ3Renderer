@@ -1336,7 +1336,7 @@ fn publish(
         scene.zooms = ui_screen::outline_zooms(&compiled);
         let outlines = !scene.zooms.is_empty();
         // (The art, its fonts and the items give the sprites.)
-        let art_key = (art_generation, fonts.len(), outlines);
+        let art_key = (art_generation, fonts.revision(), outlines);
         scene.sprites.extend(ui_sprites_memo.get((ui_items.clone(), art_key), || ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
         let mut menu_sprites = title_menu;
         menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
