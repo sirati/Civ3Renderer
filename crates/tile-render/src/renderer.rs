@@ -884,6 +884,126 @@ impl TileRenderer {
         self.atlas.as_ref().map_or((0, 0), |a| (a.rgba.capacity, a.index.capacity))
     }
 
+    /// An atlas-only preparer sharing immutable programs and draw uniforms.
+    /// Use its transfer API, then `adopt_prepared_atlas`; do not give it a
+    /// world or render with it. No shader compilation or GPU allocation is
+    /// needed to construct it. Its budget must exclude other live atlases.
+    pub fn atlas_preparer(&self) -> Self {
+        Self {
+            pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            shader: self.shader.clone(),
+            target_format: self.target_format,
+            layout: self.layout.clone(),
+            output_layout: self.output_layout.clone(),
+            params: self.params.clone(),
+            output_params: self.output_params.clone(),
+            scratch: None,
+            picture_bits: 0,
+            sources: None,
+            atlas: None,
+            atlas_transfer: None,
+            atlas_retired: None,
+            atlas_transfer_limit: self.atlas_transfer_limit,
+            named_palettes: 1,
+            sprites: None,
+            palettes: None,
+            world: None,
+            bind_group: None,
+            too_many_views: false,
+            cell_indices: self.cell_indices.clone(),
+            timer: None,
+            markers: Vec::new(),
+            marker_runs: Vec::new(),
+            generation: 0,
+            drawn: None,
+            overlaid: false,
+            base: None,
+            reused: false,
+        }
+    }
+
+    /// The configured combined allocation ceiling. A preparer receives the
+    /// remainder after subtracting the renderer that is still being drawn.
+    pub fn atlas_transfer_limit(&self) -> NonZeroU64 {
+        self.atlas_transfer_limit
+    }
+
+    /// Atlas allocations still owned here, including candidate/retirement
+    /// resources and reserved upload workspaces. Shared arrays and buffers
+    /// are counted once. Driver metadata and live patch uploads are separate.
+    pub fn atlas_resident_bytes(&self) -> u64 {
+        let mut arrays: Vec<&PageArray> = Vec::with_capacity(6);
+        let mut buffers: Vec<&wgpu::Buffer> = Vec::with_capacity(9);
+        if let Some(a) = &self.atlas { arrays.extend([&a.rgba, &a.index]); }
+        buffers.extend(self.sprites.iter());
+        buffers.extend(self.palettes.iter());
+        let mut workspaces = 0;
+        if let Some(job) = &self.atlas_transfer {
+            arrays.extend([&job.textures.rgba, &job.textures.index]);
+            buffers.extend(job.sprite_buffer.iter());
+            buffers.extend(job.palette_buffer.iter());
+            buffers.extend(job.upload_buffer.iter());
+            if job.upload_buffer.is_some() { workspaces += 2 * ATLAS_TRANSFER_MAX_BATCH_BYTES; }
+        }
+        if let Some(old) = &self.atlas_retired {
+            if let Some(a) = &old._textures { arrays.extend([&a.rgba, &a.index]); }
+            buffers.extend(old._sprites.iter());
+            buffers.extend(old._palettes.iter());
+            buffers.extend(old._upload.iter());
+            if old._upload.is_some() { workspaces += 2 * ATLAS_TRANSFER_MAX_BATCH_BYTES; }
+        }
+        let mut bytes = workspaces;
+        for (i, a) in arrays.iter().enumerate() {
+            if !arrays[..i].iter().any(|b| a.texture == b.texture) {
+                bytes += array_bytes(a.size, a.capacity, a.texel_bytes());
+            }
+        }
+        for (i, b) in buffers.iter().enumerate() {
+            if !buffers[..i].contains(b) { bytes += b.size(); }
+        }
+        bytes
+    }
+
+    /// Installs prepared art only after its uploads and retirements are
+    /// complete. Programs, worlds and caches stay with the drawing renderer.
+    /// The caller must install a scene compatible with this art before its
+    /// next draw. Until then, the donor never replaces the drawable atlas.
+    pub fn adopt_prepared_atlas(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        prepared: &mut Self,
+    ) -> Result<(), AtlasTransferError> {
+        self.poll_atlas_transfers(device);
+        prepared.poll_atlas_transfers(device);
+        if !self.atlas_transfer_idle() || !prepared.atlas_transfer_idle() {
+            return Err(AtlasTransferError::Busy);
+        }
+        if prepared.world.is_some() { return Err(AtlasTransferError::SourceMismatch) }
+        if prepared.atlas.is_none() { return Err(AtlasTransferError::NoAtlas) }
+        let old_resident = self.atlas_resident_bytes();
+        let required = old_resident.saturating_add(prepared.atlas_resident_bytes());
+        if required > self.atlas_transfer_limit.get() {
+            return Err(AtlasTransferError::BudgetExceeded { required, limit: self.atlas_transfer_limit.get() });
+        }
+        let old = self.atlas.replace(prepared.atlas.take().unwrap());
+        let old_sprites = std::mem::replace(&mut self.sprites, prepared.sprites.take());
+        let old_palettes = std::mem::replace(&mut self.palettes, prepared.palettes.take());
+        let old_bind_group = self.bind_group.take();
+        self.named_palettes = prepared.named_palettes;
+        self.generation += 1;
+        if old.is_some() || old_sprites.is_some() || old_palettes.is_some() || old_bind_group.is_some() {
+            queue.submit([]);
+            self.atlas_retired = Some(RetiredAtlas {
+                _textures: old, _sprites: old_sprites, _palettes: old_palettes,
+                _bind_group: old_bind_group, _upload: None, done: atlas_fence(queue),
+            });
+        }
+        self.refresh_free_runs();
+        self.rebuild_bind_group(device);
+        Ok(())
+    }
+
     /// Sets the finite peak allocation limit for runtime atlas transfers.
     /// Existing allocations remain valid; the limit applies to new ones.
     pub fn set_atlas_transfer_limit(&mut self, bytes: NonZeroU64) {
@@ -915,6 +1035,20 @@ impl TileRenderer {
         &mut self,
         device: &wgpu::Device,
         source: AtlasTransferSource<'_>,
+        reserve: (u32, u32),
+    ) -> Result<(), AtlasTransferError> {
+        self.begin_atlas_transfer_with_capacity(device, source, (0, 0), reserve)
+    }
+
+    /// Like `begin_atlas_transfer`, with mandatory capacity for known art
+    /// that will follow this source. Optional spare room may be reduced;
+    /// `minimum_room` never is. This lets a replacement and its required
+    /// growths share one allocation while the previous atlas remains live.
+    pub fn begin_atlas_transfer_with_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        source: AtlasTransferSource<'_>,
+        minimum_room: (u32, u32),
         reserve: (u32, u32),
     ) -> Result<(), AtlasTransferError> {
         self.poll_atlas_transfers(device);
@@ -984,6 +1118,9 @@ impl TileRenderer {
         }
         let whole = kind == TransferKind::Whole;
         let required = if whole { used } else { (active_room.0.max(used.0), active_room.1.max(used.1)) };
+        let required = (required.0.max(minimum_room.0), required.1.max(minimum_room.1));
+        check("required colour pages", u64::from(required.0), u64::from(limits.max_texture_array_layers))?;
+        check("required index pages", u64::from(required.1), u64::from(limits.max_texture_array_layers))?;
         let extra = |used: u32, current: u32| {
             if kind == TransferKind::Growth && used > current { used.saturating_add((used / 2).max(4)) } else { used }
         };

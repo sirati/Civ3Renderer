@@ -333,3 +333,162 @@ fn first_runtime_atlas_retains_its_upload_workspace_until_retirement() {
     renderer.poll_atlas_transfers(&gpu.device);
     assert!(renderer.atlas_transfer_idle());
 }
+
+fn draw_live_old(gpu: &Headless, renderer: &mut TileRenderer, atlas: &mut Atlas, world: &TileWorld, frame: u32) {
+    let image = RgbaImage::from_fn(8, 8, |_, _| [(frame as u8).wrapping_mul(3), 40, 240, 128]);
+    assert!(renderer.patch_sprite(&gpu.queue, SpriteId(0), &image));
+    assert!(atlas.patch(SpriteId(0), &image));
+    let marker = PlacedSprite::new(world.free[0].set, frame as i32 % 24, 10);
+    renderer.set_markers(&gpu.device, &gpu.queue, &[marker]);
+    let mut marked = world.clone();
+    marked.free.push(marker);
+    check(gpu, renderer, atlas, &marked);
+}
+
+#[test]
+fn replacement_and_required_growth_keep_the_drawable_atlas_until_adoption() {
+    let gpu = Headless::new().expect("GPU");
+    let (mut old, id) = base();
+    let old_world = world(&[id]);
+    let mut renderer = renderer(&gpu, &old, &old_world);
+    let mut replacement = old.clone();
+    replacement.patch(id, &RgbaImage::from_fn(8, 8, |_, _| [8, 40, 240, 255]));
+    let growth = AtlasGrowth {
+        first: 1, pages: 2, index_pages: 0,
+        sprites: vec![sprite_at((1, 0, 0), (8, 8), (0, 0))],
+        blits: vec![Blit { page: 1, x: 0, y: 0, pixels: BlitPixels::Rgba(RgbaImage::from_fn(8, 8, |_, _| [40, 240, 8, 255])) }],
+        ..Default::default()
+    };
+    let mut prepared = renderer.atlas_preparer();
+    let remaining = renderer.atlas_transfer_limit().get() - renderer.atlas_resident_bytes();
+    prepared.set_atlas_transfer_limit(NonZeroU64::new(remaining).unwrap());
+    let whole = AtlasTransferSource::Whole(&replacement);
+    prepared.begin_atlas_transfer_with_capacity(&gpu.device, whole, (2, 0), (0, 0)).unwrap();
+    let mut frame = 0;
+    while !step(&gpu, &mut prepared, whole, 269) {
+        draw_live_old(&gpu, &mut renderer, &mut old, &old_world, frame);
+        frame += 1;
+    }
+    assert!(prepared.commit_atlas_transfer(&gpu.device, &gpu.queue));
+    assert_eq!(prepared.atlas_room(), (2, 0));
+    draw_live_old(&gpu, &mut renderer, &mut old, &old_world, frame);
+    let source = AtlasTransferSource::Growth(&growth);
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    prepared.poll_atlas_transfers(&gpu.device);
+    prepared.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
+    assert_eq!(renderer.adopt_prepared_atlas(&gpu.device, &gpu.queue, &mut prepared), Err(AtlasTransferError::Busy));
+    while !step(&gpu, &mut prepared, source, 269) {
+        // The old atlas remains usable for a real draw on every transfer
+        // iteration, rather than only a snapshot of its last composition.
+        frame += 1;
+        draw_live_old(&gpu, &mut renderer, &mut old, &old_world, frame);
+    }
+    assert!(prepared.commit_atlas_transfer(&gpu.device, &gpu.queue));
+    assert!(!prepared.atlas_transfer_idle());
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    prepared.poll_atlas_transfers(&gpu.device);
+    renderer.set_markers(&gpu.device, &gpu.queue, &[]);
+    renderer.adopt_prepared_atlas(&gpu.device, &gpu.queue, &mut prepared).unwrap();
+    replacement.grow(&growth);
+    let new_world = world(&[id, SpriteId(1)]);
+    renderer.set_world(&gpu.device, &new_world);
+    check(&gpu, &mut renderer, &replacement, &new_world);
+    assert!(!renderer.atlas_transfer_idle());
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    renderer.poll_atlas_transfers(&gpu.device);
+    assert!(renderer.atlas_transfer_idle());
+    assert_eq!(prepared.atlas_resident_bytes(), 0);
+}
+
+#[test]
+fn mandatory_final_capacity_avoids_three_atlas_peak_without_exceeding_the_cap() {
+    let gpu = Headless::new().expect("GPU");
+    let (old, id) = base();
+    let old_world = world(&[id]);
+    let mut renderer = renderer(&gpu, &old, &old_world);
+    let growth = AtlasGrowth {
+        first: 1, pages: 2, index_pages: 0,
+        sprites: vec![sprite_at((1, 0, 0), (8, 8), (0, 0))],
+        blits: vec![Blit { page: 1, x: 0, y: 0, pixels: BlitPixels::Rgba(RgbaImage::from_fn(8, 8, |_, _| [40, 240, 8, 255])) }],
+        ..Default::default()
+    };
+    let desc = size_of::<tile_render_shared::SpriteDesc>() as u64;
+    let base_tables = desc + 256 * 4;
+    let final_tables = 2 * desc + 256 * 4;
+    let final_arrays = 16 * 16 * 2 * 4 + 1;
+    let remainder = final_arrays + base_tables + final_tables + ATLAS_TRANSFER_STAGING_RESERVE_BYTES;
+    let old_resident = renderer.atlas_resident_bytes();
+    renderer.set_atlas_transfer_limit(NonZeroU64::new(old_resident + remainder).unwrap());
+    let whole = AtlasTransferSource::Whole(&old);
+    let source = AtlasTransferSource::Growth(&growth);
+    let mut prepared = renderer.atlas_preparer();
+    prepared.set_atlas_transfer_limit(NonZeroU64::new(remainder).unwrap());
+    prepared.begin_atlas_transfer(&gpu.device, whole, (0, 0)).unwrap();
+    finish(&gpu, &mut prepared, whole, 269);
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    prepared.poll_atlas_transfers(&gpu.device);
+    assert!(matches!(prepared.begin_atlas_transfer(&gpu.device, source, (0, 0)), Err(AtlasTransferError::BudgetExceeded { .. })));
+    assert!(prepared.atlas_transfer_idle());
+    // No GPU draw has ever referenced this preparer. Idle means its
+    // intermediate allocations can now be dropped before restarting.
+    drop(prepared);
+    let mut prepared = renderer.atlas_preparer();
+    prepared.set_atlas_transfer_limit(NonZeroU64::new(remainder).unwrap());
+    prepared.begin_atlas_transfer_with_capacity(&gpu.device, whole, (2, 0), (0, 0)).unwrap();
+    assert!(old_resident + prepared.atlas_resident_bytes() <= renderer.atlas_transfer_limit().get());
+    finish(&gpu, &mut prepared, whole, 269);
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    prepared.poll_atlas_transfers(&gpu.device);
+    prepared.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
+    assert!(old_resident + prepared.atlas_resident_bytes() <= renderer.atlas_transfer_limit().get());
+    finish(&gpu, &mut prepared, source, 269);
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    prepared.poll_atlas_transfers(&gpu.device);
+    renderer.adopt_prepared_atlas(&gpu.device, &gpu.queue, &mut prepared).unwrap();
+    assert!(renderer.atlas_resident_bytes() <= renderer.atlas_transfer_limit().get());
+    let mut final_atlas = old;
+    final_atlas.grow(&growth);
+    let world = world(&[id, SpriteId(1)]);
+    renderer.set_world(&gpu.device, &world);
+    check(&gpu, &mut renderer, &final_atlas, &world);
+}
+
+#[test]
+fn superseded_preparation_releases_its_candidate_before_replacement_allocation() {
+    let gpu = Headless::new().expect("GPU");
+    let (mut old, id) = base();
+    let old_world = world(&[id]);
+    let mut renderer = renderer(&gpu, &old, &old_world);
+    let mut replacement = old.clone();
+    replacement.patch(id, &RgbaImage::from_fn(8, 8, |_, _| [40, 240, 8, 255]));
+    let source = AtlasTransferSource::Whole(&replacement);
+    let limit = renderer.atlas_transfer_limit().get();
+    let remaining = limit - renderer.atlas_resident_bytes();
+    let mut prepared = renderer.atlas_preparer();
+    prepared.set_atlas_transfer_limit(NonZeroU64::new(remaining).unwrap());
+    prepared.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
+    prepared.advance_atlas_transfer(&gpu.device, &gpu.queue, source, 269).unwrap();
+    prepared.cancel_atlas_transfer(&gpu.queue);
+    assert!(!prepared.atlas_transfer_idle());
+    assert!(prepared.atlas_resident_bytes() > 0);
+    assert!(renderer.atlas_resident_bytes() + prepared.atlas_resident_bytes() <= limit);
+    draw_live_old(&gpu, &mut renderer, &mut old, &old_world, 1);
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    prepared.poll_atlas_transfers(&gpu.device);
+    assert!(prepared.atlas_transfer_idle());
+    assert_eq!(prepared.atlas_resident_bytes(), 0);
+    drop(prepared);
+    // Allocate the successor only after the first candidate's fence has
+    // released its atlas, tables, and upload workspace.
+    let mut successor = renderer.atlas_preparer();
+    successor.set_atlas_transfer_limit(NonZeroU64::new(remaining).unwrap());
+    successor.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
+    assert!(renderer.atlas_resident_bytes() + successor.atlas_resident_bytes() <= limit);
+    finish(&gpu, &mut successor, source, 269);
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    successor.poll_atlas_transfers(&gpu.device);
+    renderer.set_markers(&gpu.device, &gpu.queue, &[]);
+    renderer.adopt_prepared_atlas(&gpu.device, &gpu.queue, &mut successor).unwrap();
+    renderer.set_world(&gpu.device, &old_world);
+    check(&gpu, &mut renderer, &replacement, &old_world);
+}
