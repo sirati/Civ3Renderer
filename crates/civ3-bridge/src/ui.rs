@@ -935,6 +935,16 @@ fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDra
     }
 }
 
+/// A canvas's clip rectangle `clip` for what is drawn onto it, unless it is
+/// just `dirty`, the rectangle of the back buffer a paint or present is
+/// updating: no clip then (see `ui_trace`). A framed form inside another
+/// (e.g. a list box's scroll bar in a popup) is clipped to its parent's
+/// rectangle within that one: kept so, in a partial paint a little too
+/// much.
+pub fn content_clip(clip: Option<[i32; 4]>, dirty: Option<[i32; 4]>) -> Option<[i32; 4]> {
+    if clip.is_some() && clip == dirty { None } else { clip }
+}
+
 /// A 16-bit colour of the game's canvases (RGB555; bit 31 is a flag) as
 /// 8-bit RGB.
 pub fn rgb555(c: u32) -> [u8; 3] {
@@ -1212,6 +1222,15 @@ mod tests {
         m.apply(Event::PaintEnd);
         assert_eq!(m.shown_frame(), complete);
         assert_eq!(m.shown_frame(), m.frame());
+    }
+
+    #[test]
+    fn the_rectangle_being_updated_is_no_clip() {
+        let (r, parent) = ([100, 520, 132, 552], [90, 500, 140, 540]);
+        assert_eq!(content_clip(Some(r), Some(r)), None);
+        assert_eq!(content_clip(Some(parent), Some(r)), Some(parent));
+        assert_eq!(content_clip(Some(r), None), Some(r));
+        assert_eq!(content_clip(None, Some(r)), None);
     }
 
     #[test]
