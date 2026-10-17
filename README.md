@@ -123,8 +123,27 @@ with its own camera and screen-space overlay: the game's view (its
 camera), the city screen's view of the city's surroundings while it is
 open, and the mirrored interface on top. Mouse and keyboard input in the
 window is forwarded to the game's window; `CIV3R_GAME_MAP=off` stops the
-game drawing its own map. When a scenario brings its own art, the
-description is recompiled against the scenario's folders.
+game drawing its own map.
+
+The art grows as the game shows more (`render_desc::Growing`): the first
+art is a whole description compiled to be appended to; what the game
+shows later (unit animations, regions of interface screens, fonts,
+districts) goes into additions of only the new art, compiled on an art
+thread of the bridge (and by the native viewer itself, in the order sent).
+A growth keeps every sprite id, set id, palette row and layer value there
+and puts its sprites where the atlas is free: the viewer writes only the
+new pixels into its texture arrays (`TileRenderer::grow_atlas`; a full
+array is replaced by a bigger one, copied on the GPU), and draws scenes
+of an earlier growth with a later one without waiting. At the start of a
+game the bridge makes art ahead (`civ3_bridge::preload`): every animation
+of the units on screen, then of the other units present, the interface's
+art of a built-in list (`assets/civ3/preload-art.txt`, written by the
+bridge with `CIV3R_ART_LIST=<file>`), then every animation of every unit
+type in every era, in additions small enough that art the screen needs
+now waits for one at most, up to a budget of atlas memory
+(`CIV3R_PRELOAD_MIB`; `CIV3R_PRELOAD=off`). A unit whose new animation has
+no art yet goes on showing its last frame. When a scenario brings its own
+art, a whole description is compiled again against its folders.
 
 The game's interface is mirrored (`CIV3R_UI=off` turns it off): hooks on
 its UI drawing (image loads, sprite slices, blits, copies, fills, lines,

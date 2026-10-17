@@ -1,10 +1,12 @@
-//! When to rebuild the render art, and when to hold a scene back meanwhile.
+//! When to build the render art wanted, and when to hold a scene back
+//! meanwhile.
 //!
-//! New art is wanted whenever the game shows something the description
-//! does not have yet (a unit, a font, a region of a screen's art). A new
-//! screen asks for it over several frames, so a rebuild waits until the
-//! requests settle (or have waited long enough), runs one at a time (off the
-//! publishing thread), and covers every request made before it started.
+//! New art is wanted whenever the game shows something the art does not
+//! have yet (a unit, a font, a region of a screen's art). A new screen asks
+//! for it over several frames, so a build (an addition, `crate::art`) waits
+//! until the requests settle (or have waited long enough), runs one at a
+//! time (off the publishing thread), and covers every request made before
+//! it started.
 //! While art the game's *screen* needs is missing, the scene is held back:
 //! the viewer keeps showing the last complete one rather than a screen with
 //! empty panels, for at most [`Timing::hold_max`].
@@ -28,15 +30,6 @@ impl Timing {
     /// so it starts once the requests of a frame or two are in.
     pub const GROWING: Timing =
         Timing { gap: Duration::ZERO, quiet: Duration::from_millis(35), wait_max: Duration::from_millis(150), hold_max: Duration::from_secs(4) };
-    /// A renderer that builds its own atlas (the native viewer): the
-    /// driver's tables are cheap, rebuild as soon as requests settle.
-    pub const OWN_ATLAS: Timing =
-        Timing { gap: Duration::ZERO, quiet: Duration::from_millis(70), wait_max: Duration::from_millis(300), hold_max: Duration::from_secs(4) };
-    /// A renderer given the driver's atlas (in-process): each rebuild makes
-    /// a new atlas in a 32-bit process (from the sheets of the last, the new
-    /// ones loaded), at most two a second.
-    pub const SHARED_ATLAS: Timing =
-        Timing { gap: Duration::from_millis(500), quiet: Duration::from_millis(70), wait_max: Duration::from_millis(300), hold_max: Duration::from_secs(4) };
 }
 
 #[derive(Debug)]
