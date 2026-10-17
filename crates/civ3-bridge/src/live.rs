@@ -767,7 +767,7 @@ fn publish(
                 if ui.is_none() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
-                scene.sprites.extend(units::sprites(world, &mut art, &compiled, compiler.rings.as_ref(), view.zoomed_out));
+                units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut scene);
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));

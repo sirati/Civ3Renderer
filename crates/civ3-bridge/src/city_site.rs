@@ -126,8 +126,10 @@ fn lines(world: &Civ3World) -> Vec<(String, (i32, i32))> {
     out
 }
 
-/// The free sprites of the preview; they go before the units'.
+/// The free sprites of the preview: over the fog of war, under the units
+/// (after the pass before theirs).
 pub fn sprites(world: &Civ3World, compiled: &Compiled) -> Vec<scene::FreeSprite> {
+    let after_pass = crate::units::unit_passes(compiled).1;
     lines(world)
         .into_iter()
         .filter_map(|(name, (x, y))| {
@@ -137,7 +139,7 @@ pub fn sprites(world: &Civ3World, compiled: &Compiled) -> Vec<scene::FreeSprite>
                 x,
                 y,
                 screen: false,
-                after_pass: u32::MAX,
+                after_pass,
                 phase: 0,
                 ticks_per_frame: 1,
                 scale_den: 0,

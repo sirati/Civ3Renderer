@@ -72,7 +72,7 @@ impl<'a> Mapper<'a> {
             wrap_x: world.wrap_x,
             wrap_y: world.wrap_y,
         };
-        let mut scene = Scene::empty(shape, self.compiled.layers.len());
+        let mut scene = Scene::empty_with(shape, self.compiled.layers.iter().map(|l| (l.per_cell_phase, l.per_cell_offset)));
         scene.tick = tick;
         // The game draws lattice cells TileX_Min..=TileX_Max ×
         // TileY_Min..=TileY_Max only (§3), even where a tall sprite from
