@@ -15,7 +15,7 @@ use wayland_protocols::wp::pointer_constraints::zv1::client::zwp_pointer_constra
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use winit::window::Window;
 
-use crate::{Rect, Unavailable};
+use crate::{MoveResult, Rect, Unavailable};
 
 /// How long a move waits for the compositor to lock the pointer (it does
 /// not while the pointer is outside the window, or the window not focused).
@@ -29,7 +29,7 @@ struct Region {
     holes: Vec<Rect>,
 }
 
-/// A move under way: the pointer locked (asked to be), the hint set.
+/// A move under way: the lock requested and the latest target remembered.
 struct Moving {
     lock: ZwpLockedPointerV1,
     id: u64,
@@ -116,6 +116,7 @@ pub struct Constraints {
     confined: Option<(ZwpConfinedPointerV1, u64)>,
     wanted: Option<Region>,
     moving: Option<Moving>,
+    move_result: Option<MoveResult>,
     next_id: u64,
     /// Keeps winit's connection and surface alive (dropped last).
     _window: Arc<Window>,
@@ -177,6 +178,7 @@ impl Constraints {
             confined: None,
             wanted: None,
             moving: None,
+            move_result: None,
             next_id: 0,
             _window: window,
         };
@@ -233,6 +235,7 @@ impl Constraints {
         self.drop_confinement();
         if let Some(m) = self.moving.take() {
             m.lock.destroy();
+            self.move_result = Some(MoveResult::Cancelled);
         }
         self.flush();
     }
@@ -247,26 +250,34 @@ impl Constraints {
         self.moving.is_some()
     }
 
-    /// Moves the pointer to `to` (surface coordinates): it is locked, the
-    /// hint set, and once it is locked let go (in `dispatch`), the
-    /// compositor moving it there. A confinement is dropped meanwhile.
+    /// Takes the most recent completed request's result, once. Starting or
+    /// updating a move clears any unread result. [`MoveResult::Hinted`]
+    /// means the hint was committed, not that the compositor honored it.
+    pub fn take_move_result(&mut self) -> Option<MoveResult> {
+        self.move_result.take()
+    }
+
+    /// Requests a move to `to` (surface coordinates): request a lock, then
+    /// commit its hint and release the lock in `dispatch` once it activates.
+    /// The compositor may move it to the hint. A confinement is dropped
+    /// meanwhile. The outcome is available through [`Self::take_move_result`].
     pub fn move_pointer(&mut self, to: (f64, f64)) {
+        self.move_result = None;
         if self.pointer.is_none() {
+            self.move_result = Some(MoveResult::Cancelled);
             return;
         }
         if let Some(m) = &mut self.moving {
             m.to = to;
-            m.lock.set_cursor_position_hint(to.0, to.1);
-            self.surface.commit();
-            self.flush();
             return;
         }
         self.drop_confinement();
         let id = self.next_id();
         let pointer = &self.pointer.as_ref().expect("a pointer is available").0;
         let lock = self.constraints.lock_pointer(&self.surface, pointer, None, Lifetime::Oneshot, &self.queue.handle(), id);
-        lock.set_cursor_position_hint(to.0, to.1);
-        self.surface.commit();
+        // Do not send a hint until dispatch observes activation. Otherwise
+        // cancellation could destroy an active lock and apply its target
+        // before we have reported that the hint was committed.
         self.moving = Some(Moving { lock, id, to, since: Instant::now() });
         self.flush();
     }
@@ -286,14 +297,15 @@ impl Constraints {
         }
         let Some(m) = self.moving.take() else { return };
         if locked {
-            // (Again, now that it holds: the hint is taken on unlocking.)
+            // The hint takes effect on unlock only after this commit.
             m.lock.set_cursor_position_hint(m.to.0, m.to.1);
             self.surface.commit();
-            log::debug!("wl-pointer: pointer moved to {:?}", m.to);
+            log::debug!("wl-pointer: pointer position hinted at {:?}", m.to);
         } else {
             log::debug!("wl-pointer: the compositor did not lock the pointer to move it to {:?} (not over the window?)", m.to);
         }
         m.lock.destroy();
+        self.move_result = Some(if locked { MoveResult::Hinted(m.to) } else { MoveResult::Cancelled });
         if self.wanted.is_some() {
             self.make_confinement();
         }
@@ -309,6 +321,7 @@ impl Constraints {
         self.drop_confinement();
         if let Some(m) = self.moving.take() {
             m.lock.destroy();
+            self.move_result = Some(MoveResult::Cancelled);
         }
         self.state.locked = None;
         self.drop_pointer();
