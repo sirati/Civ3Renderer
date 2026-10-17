@@ -831,6 +831,8 @@ So the outline follows the tile-diamond edges, exactly one tile beyond the settl
 
 **Rasterisation** [D, measured; exact GL rule I]: a width-2 line of slope 1/2 covers 4 consecutive pixels per row (2 pixels per column). On the NW edge `x_ideal = 960 - 2*(y - 444)` the pixels are `x_ideal-2 .. x_ideal+1` (e.g. y = 446: x = 954..957). The ends at the left/right vertices thin out (rows 538..542 near x = 768..773). Each pixel is `(c + bg)/2` per channel, as RGB555.
 
+**Smooth lines** [X 0x627710; D Windows VM]: `OpenGLRenderer_initialize` turns on `GL_LINE_SMOOTH` (hint `GL_NICEST`) and blending (`SRC_ALPHA, ONE_MINUS_SRC_ALPHA`). A line along a row or column at integer coordinates lies on a pixel edge: a 1-pixel line at y halves rows y - 1 and y (x from the start to, not including, the end), a 1-pixel line at x columns x - 1 and x. The city labels' black frame (opacity 0xFF) therefore halves two rows or columns per edge, where overlapping edges darken twice. Under Wine C3X draws lines with GDI+ instead (`draw_lines_using_gdi_plus = wine`), which gives one opaque row at y (measured). `civ3_bridge::ui::line_fills` gives both.
+
 C3X note: with `draw_lines_using_gdi_plus = wine` (installed default) and the game running under Wine, `patch_OpenGLRenderer_draw_line` (injected_code.c) draws the same line with GDI+ (`GdipDrawLineI`, antialiased, pen width 2, colour = rgb555 expanded, alpha 0x80) instead of OpenGL. The screenshots here come from the Windows VM, so OpenGL is used and the pixels above apply.
 
 ### 10.10 Fortified frame around the health bar (exact) [X]
@@ -1160,6 +1162,10 @@ So **a draw at (x, y) on canvas C (form F) lands at screen `(x + ox, y + oy)`**,
 
 **Partial presents** [X, measured in Wine]: `present` is also called outside a paint, after a compose of only a rectangle (0x602430 -> 0x609350 -> `present(r)`, and 0x609A5D, 0x606A3B, ...). The cultural advisor (F5, vtable 0x66BBC0) does this while it redraws: every few seconds, for about 0.4 s, it clears its canvas, draws its background and graph, composes the whole screen onto the back buffer and presents only the graph's rectangle (screen 528,246-828,391 at 1920x1080), then draws its text and a paint presents all of it. The back buffer then briefly holds the advisor without its text, but the window only ever gets the graph's rectangle of it. A mirror has to show what was presented where it was presented, not the back buffer.
 
+**Forms drawn over themselves** [D, Wine and the Windows VM]: the advisors' common background form (canvas 0x9AFFCC, vtable 0x6688B8) draws its art (e.g. `culture.pcx` 1024x768 at (0, 0)), the small head and the six tabs again every few seconds, with keyed blits and without clearing its canvas first; the advisor copies that canvas into its own. A retained display list that only drops what an opaque operation covers keeps every copy (about a dozen draws, one of them full-screen, per 5.4 s on F5). Drawing the same picture or opaque fill again at the same place shows nothing the earlier one did not, so the mirror drops the earlier one (translucent fills, masked pictures and text add up as in the game). The F5 "head bursts" are the speech bubble: its text fades out in five redraws 70-90 ms apart (colours 48, 96, 152, 200, then 0 for the next advice), each a graph present and a paint.
+
+**Text on the colour key** [D, Windows VM]: the domestic advisor (F1) clears its canvas to the key (0x7C1F) and draws its text on it, its panels lying on the form below. Windows blends the text's ClearType edges with the key (magenta), and the keyed composite shows every edge pixel that is not exactly the key in 15 bits: magenta and violet fringes that make the text look bold. Under Wine the game's text is unsmoothed, so there are none.
+
 Forms redraw into their canvas only when invalidated (m73 -> m22), not every frame. **Canvases are retained surfaces**: the tracer must keep a per-canvas display list, reset it when the canvas is re-created (0x5FC5F0 / 0x5FC690 / read_file into it) or fully covered (fill of the whole canvas, opaque copy of the full rect, background sprite at (0,0) of canvas size). "Erase background" (0x602120): if Status1 & 0x80000, `parent_canvas.copy_rect(own_canvas, Left+cx, Top+cy, 0, 0, W, H)`; otherwise `fill(color)` (0x5FFF30). Translucent and transparent controls are built from this copy of the parent's pixels.
 
 ### 16.6 Other UI drawing
@@ -1269,9 +1275,13 @@ These are ordinary UI blits. The mirror already has them. **What the mirror lack
 
 Detect the mode with `byte [0x74238D]` (City_Form+0x19CD) or `[0x9CB3F4] != 0`.
 
+The bridge applies the focus-city rule to the fog layer while the city screen is open (`rules::fog`): the city screen's view then shows the land around the city dimmed as the game does (the Windows VM check had 74 % of the city view identical without it). The other views show the map as the game's own renderer has it then.
+
 ### 16.9 Unit pictures in panels
 
 **Unit info box (HUD, bottom right)** [X]: `Main_GUI` method **0x554230 `(Main_GUI* this = 0x9FDB10, Unit* u)`**, `ret 4`. It is called from the box painter at 0x5549D0 with the current unit (`MSF.Current_Unit`, 0x9FD434).
+
+**Sprites cut with a civ's colours** [D]: the citizens' heads (`Art/SmallHeads/popHeads.pcx`, F1's city list, the city screen) and the units' icons (`Art/Units/units_32.pcx`, F3) are drawn with `Sprite_draw` without a colour table and have no colour table of their own (Sprite+0x0C), yet show in the player's colours: the palette they were cut with, the `JGLSprite`'s (+0x10, a `JGL_Color_Table*`), has the civ's colours in its first 64 entries (Rome's `ntp01`, measured). The mirror gives them that civ's palette.
 - **Picture rect** (Main_GUI-canvas coordinates): with `RECT box = Main_GUI+0x13FE8` (L, T, R, B):
   ```
   left = L;  top = T + (B - T)/2 + 11;  right = R - 27;  bottom = B - 2*K - 27,   K = *(int*)([Main_GUI+0x10618] + 0x10)  [I: a font/line height]
