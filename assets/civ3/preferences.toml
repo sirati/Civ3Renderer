@@ -610,20 +610,26 @@ at = [72, 357]
 show_if = "tab=layout & layout.zoom=TopStrip"
 
 [[panels.preferences.items]]
+text = "Box height"
+style = "label"
+at = [72, 357]
+show_if = "tab=layout & layout.zoom=Mouse111|Mouse131"
+
+[[panels.preferences.items]]
 slider = "layout.zoom_strip"
 at = [180, 352]
 size = [240, 23]
 normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
-min = 0.1
+min = 0.05
 max = 0.5
 step = 0.05
 decimals = 0
 percent = true
 text = "{value}%"
 style = "label"
-show_if = "tab=layout & layout.zoom=TopStrip"
+show_if = "tab=layout & layout.zoom=TopStrip|Mouse111|Mouse131"
 
 [[panels.preferences.items]]
 text = "Roles"

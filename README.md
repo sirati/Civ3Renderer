@@ -146,11 +146,15 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
 
 - **Split**: one view, views A and B side by side (1:1, or A twice as
   wide), or A above B.
-- **Zoom box**: off; a world magnifier in a box over the window sized
-  1:3:1 or 1:7:1 (margin : box : margin), or about the pointer (1:1:1,
-  1:3:1); or a strip across the top, `zoom_strip` (10-50 %) of the height,
-  that the views give room to. In a side-by-side split `zoom_place` puts
-  it over both views, A or B. Ctrl+wheel over it zooms it.
+- **Zoom box**: off; a world magnifier in a box in the middle of the
+  window sized 1:3:1 or 1:7:1 across the width (margin : box : margin;
+  the height follows at the window's aspect ratio); a box at the pointer,
+  1:1:1 or 1:3:1 across and `zoom_strip` of the height, above the pointer
+  (below it where there is no room); or a strip across the top,
+  `zoom_strip` of the height, that the views give room to. `zoom_strip`
+  is 5-50 %. In a side-by-side split `zoom_place` puts it over both
+  views, A or B, and keeps it inside that view. Ctrl+wheel over it zooms
+  it.
 - **Screens**: the advisors F1-F8, the city screen, the palace, espionage,
   the game menu and the Civilopedia (the bridge names the open one,
   `scene::Interface`, docs §16.11) go over the window, or the game's whole
