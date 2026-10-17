@@ -1,0 +1,519 @@
+//! The game's controls on screen that take the mouse: buttons, list
+//! entries, lists, check boxes, context menu entries, the advisors' tabs,
+//! text links (docs §16.11). Found the way the mouse hit test (0x609030)
+//! finds them: the form tree from the roots (only the modal form's tree and
+//! its companion while a modal form is open), forms hidden along their
+//! parent chain left out.
+//!
+//! Reads go through [`Mem`] so the walk can be tested without the game.
+//! Only the PCGames build is decoded.
+
+use inproc::Ptr32;
+
+use crate::Build;
+
+/// Reads the game's memory (`None` where it cannot be read).
+pub trait Mem {
+    fn u32(&self, addr: u32) -> Option<u32>;
+    fn u8(&self, addr: u32) -> Option<u8>;
+    fn i32(&self, addr: u32) -> Option<i32> {
+        self.u32(addr).map(|v| v as i32)
+    }
+}
+
+/// This process's memory, read guarded.
+pub struct Live;
+
+impl Mem for Live {
+    fn u32(&self, addr: u32) -> Option<u32> {
+        Ptr32::<u32>::new(addr).read().ok()
+    }
+    fn u8(&self, addr: u32) -> Option<u8> {
+        Ptr32::<u8>::new(addr).read().ok()
+    }
+}
+
+/// What a control is.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ControlKind {
+    /// Clicked: buttons, check box items, context menu entries, tabs, links.
+    Button,
+    /// An entry of a list box.
+    ListItem,
+    /// A list box whose entries scroll with the wheel: they scroll in
+    /// `scroll` (screen x, y, w, h), `step` pixels a wheel message.
+    List { scroll: [i32; 4], step: i32 },
+}
+
+/// A control in screen (game client) pixels: x, y, w, h.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Control {
+    pub rect: [i32; 4],
+    pub kind: ControlKind,
+    /// The same while the control is there: its object's address, with the
+    /// entry's index above it for parts of one.
+    pub id: u64,
+}
+
+/// Where the game keeps its forms, and the classes it clicks (PCGames).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Sites {
+    /// `Base_Form*` roots (index 0 topmost) and their count.
+    pub roots: u32,
+    pub root_count: u32,
+    /// The modal form and its companion (both 0 when none).
+    pub modal: u32,
+    pub companion: u32,
+    /// The interface panel (`Main_GUI`, Main_Screen_Form+0x5450): its
+    /// buttons are known by their places in it.
+    pub main_gui: u32,
+    /// The advisors' form (its six tabs are tested in its code, 0x49D6D0).
+    pub advisor: u32,
+}
+
+pub fn sites(build: Build) -> Option<Sites> {
+    match build {
+        Build::PcGames => Some(Sites {
+            roots: 0xCA_CB10,
+            root_count: 0xCA_D3C4,
+            modal: 0xCA_D384,
+            companion: 0xCA_D380,
+            main_gui: 0x9F_DB10,
+            advisor: 0x9A_FD58,
+        }),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+// `Base_Form` (docs §16.5; offsets from the object's start).
+const STATUS1: u32 = 0x9C;
+const STATUS2: u32 = 0xA0;
+const PARENT: u32 = 0x130;
+const LEFT: u32 = 0x1AC;
+const CLIENT: u32 = 0x1BC;
+const CLIP: u32 = 0x1DC;
+const CHILDREN: u32 = 0x224;
+const CHILD_COUNT: u32 = 0x22C;
+/// Text links (e.g. the Civilopedia's): 32-byte entries, a RECT at +4, in
+/// the form's own pixels; their count.
+const LINKS: u32 = 0x378;
+const LINK_COUNT: u32 = 0x380;
+
+/// Status1: coordinates relative to the parent; relative to the parent's
+/// frame; the form itself never takes the mouse; the wheel scrolls it (a
+/// list); composited colour-keyed.
+const RELATIVE: u32 = 0x20;
+const FRAME_RELATIVE: u32 = 0x8000;
+const NO_MOUSE: u32 = 0x2;
+const WHEEL: u32 = 0x8;
+const KEYED: u32 = 0x100_0000;
+
+/// Buttons (`Button`, its city screen subclass, their base).
+const BUTTON_VTABLES: [u32; 3] = [0x66_56C0, 0x66_5F20, 0x67_1550];
+/// `Context_Menu` and its subclass.
+const CONTEXT_MENU_VTABLES: [u32; 2] = [0x67_1AC0, 0x66_B240];
+/// A check box group's form part (`CheckBox` + 0x20).
+const CHECKBOX_VTABLE: u32 = 0x67_1C70;
+/// Where every list box's draw thunk (vtable +0x58) ends.
+const LIST_DRAW: u32 = 0x61_81E0;
+
+/// Deepest form tree walked, most children of a form, entries of a list.
+const MAX_DEPTH: u32 = 16;
+const MAX_CHILDREN: u32 = 256;
+const MAX_ITEMS: u32 = 512;
+
+/// Ids of parts of a control: the control's address above, the part
+/// below, tagged by kind.
+fn part_id(object: u32, tag: u32, index: u32) -> u64 {
+    (object as u64) << 32 | (tag | index) as u64
+}
+const TAG_ITEM: u32 = 0;
+const TAG_LINK: u32 = 0x1000_0000;
+const TAG_MENU: u32 = 0x2000_0000;
+const TAG_CHECK: u32 = 0x4000_0000;
+const TAG_TAB: u32 = 0x8000_0000;
+
+fn rect_at(mem: &dyn Mem, at: u32) -> Option<[i32; 4]> {
+    Some([mem.i32(at)?, mem.i32(at + 4)?, mem.i32(at + 8)?, mem.i32(at + 12)?])
+}
+
+/// x, y, w, h of the intersection (empty: w or h 0).
+fn intersect([ax, ay, aw, ah]: [i32; 4], [bx, by, bw, bh]: [i32; 4]) -> [i32; 4] {
+    let (x0, y0) = (ax.max(bx), ay.max(by));
+    let (x1, y1) = ((ax + aw).min(bx + bw), (ay + ah).min(by + bh));
+    [x0, y0, (x1 - x0).max(0), (y1 - y0).max(0)]
+}
+
+fn empty(r: [i32; 4]) -> bool {
+    r[2] <= 0 || r[3] <= 0
+}
+
+fn contains([x, y, w, h]: [i32; 4], (px, py): (i32, i32)) -> bool {
+    px >= x && py >= y && px < x + w && py < y + h
+}
+
+/// `Base_Form::local_to_screen(0, 0)` (0x604A00).
+fn origin(mem: &dyn Mem, form: u32, depth: u32) -> Option<(i32, i32)> {
+    let mut x = mem.i32(form + LEFT)? + mem.i32(form + CLIENT)?;
+    let mut y = mem.i32(form + LEFT + 4)? + mem.i32(form + CLIENT + 4)?;
+    let status = mem.u32(form + STATUS1)?;
+    let parent = mem.u32(form + PARENT)?;
+    if status & RELATIVE != 0 && parent != 0 && depth < MAX_DEPTH {
+        let (px, py) = origin(mem, parent, depth + 1)?;
+        x += px;
+        y += py;
+        if status & FRAME_RELATIVE != 0 {
+            x -= mem.i32(parent + LEFT)?;
+            y -= mem.i32(parent + LEFT + 4)?;
+        }
+    }
+    Some((x, y))
+}
+
+/// A form as the mouse sees it.
+#[derive(Copy, Clone, Debug)]
+struct Form {
+    addr: u32,
+    vtable: u32,
+    status1: u32,
+    /// Screen position of its pixel (0, 0), its size.
+    origin: (i32, i32),
+    size: (i32, i32),
+    /// Where it shows on the screen (its rectangle within its clip).
+    shown: [i32; 4],
+}
+
+impl Form {
+    fn read(mem: &dyn Mem, addr: u32) -> Option<Form> {
+        let [l, t, r, b] = rect_at(mem, addr + LEFT)?;
+        let origin = origin(mem, addr, 0)?;
+        let size = (r - l, b - t);
+        let [cl, ct, cr, cb] = rect_at(mem, addr + CLIP)?;
+        let shown = intersect([origin.0, origin.1, size.0, size.1], [cl, ct, cr - cl, cb - ct]);
+        Some(Form { addr, vtable: mem.u32(addr)?, status1: mem.u32(addr + STATUS1)?, origin, size, shown })
+    }
+
+    /// A rectangle in its own pixels on the screen, cut to where it shows.
+    fn on_screen(&self, [x, y, w, h]: [i32; 4]) -> [i32; 4] {
+        intersect([self.origin.0 + x, self.origin.1 + y, w, h], self.shown)
+    }
+}
+
+fn visible(mem: &dyn Mem, form: u32) -> bool {
+    mem.u32(form + STATUS2).is_some_and(|s| s & 1 != 0)
+}
+
+/// The game's clickable controls now, topmost first. Controls covered by
+/// an opaque form above them (another root) are left out.
+pub fn controls(mem: &dyn Mem, sites: &Sites) -> Vec<Control> {
+    let modal = mem.u32(sites.modal).unwrap_or(0);
+    let roots: Vec<u32> = if modal != 0 {
+        // Only the modal form's tree and its companion take the mouse.
+        [modal, mem.u32(sites.companion).unwrap_or(0)].into_iter().filter(|&f| f != 0).collect()
+    } else {
+        let n = mem.u32(sites.root_count).unwrap_or(0).min(MAX_CHILDREN);
+        (0..n).filter_map(|i| mem.u32(sites.roots + 4 * i)).filter(|&f| f != 0).collect()
+    };
+    let known = known_buttons(sites);
+    let mut out = Vec::new();
+    // Opaque roots above: what they cover does not take the mouse.
+    let mut covers: Vec<[i32; 4]> = Vec::new();
+    for root in roots {
+        let mut found = Vec::new();
+        walk(mem, sites, &known, root, 0, &mut found);
+        out.extend(found.into_iter().filter(|c: &Control| {
+            let [x, y, w, h] = c.rect;
+            !covers.iter().any(|&r| contains(r, (x + w / 2, y + h / 2)))
+        }));
+        if let Some(f) = Form::read(mem, root).filter(|f| visible(mem, root) && f.status1 & KEYED == 0) {
+            covers.push(f.shown);
+        }
+    }
+    out
+}
+
+/// The interface panel's buttons by place: Advisors, Menu, Geography,
+/// Civilopedia, the 8 map navigator buttons, the 7 right panel buttons, the
+/// 42 unit command buttons (`Button` 0x6D4 bytes, `Command_Button` 0x6DC).
+fn known_buttons(sites: &Sites) -> Vec<u32> {
+    let g = sites.main_gui;
+    let mut out = vec![g + 0x845C, g + 0x8B30, g + 0x9204, g + 0x98D8];
+    out.extend((0..8).map(|i| g + 0x9FAC + i * 0x6D4));
+    out.extend((0..7).map(|i| g + 0xD64C + i * 0x6D4));
+    out.extend((0..42).map(|i| g + 0x1_6CE4 + i * 0x6DC));
+    out
+}
+
+fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out: &mut Vec<Control>) {
+    if depth > MAX_DEPTH || !visible(mem, addr) {
+        return;
+    }
+    let Some(form) = Form::read(mem, addr) else { return };
+    // Children first: the hit test tries them before their parent.
+    let n = mem.u32(addr + CHILD_COUNT).unwrap_or(0).min(MAX_CHILDREN);
+    let children = mem.u32(addr + CHILDREN).unwrap_or(0);
+    if children != 0 {
+        for i in 0..n {
+            if let Some(c) = mem.u32(children + 4 * i).filter(|&c| c != 0 && c != addr) {
+                walk(mem, sites, known, c, depth + 1, out);
+            }
+        }
+    }
+    if empty(form.shown) {
+        return;
+    }
+    links(mem, &form, out);
+    if addr == sites.advisor {
+        tabs(&form, out);
+    }
+    if form.status1 & NO_MOUSE != 0 {
+        return;
+    }
+    if BUTTON_VTABLES.contains(&form.vtable) || known.contains(&addr) {
+        out.push(Control { rect: form.shown, kind: ControlKind::Button, id: addr as u64 });
+    } else if CONTEXT_MENU_VTABLES.contains(&form.vtable) {
+        context_menu(mem, &form, out);
+    } else if form.vtable == CHECKBOX_VTABLE {
+        check_boxes(mem, &form, out);
+    } else if let Some(list) = list_parts(mem, &form) {
+        list_box(mem, &form, list, out);
+    }
+}
+
+/// The text links of a form (32-byte entries, a RECT at +4).
+fn links(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
+    let n = mem.u32(form.addr + LINK_COUNT).unwrap_or(0);
+    let Some(base) = mem.u32(form.addr + LINKS).filter(|&b| b != 0 && n > 0 && n <= MAX_ITEMS) else { return };
+    for i in 0..n {
+        let Some([l, t, r, b]) = rect_at(mem, base + 32 * i + 4) else { continue };
+        let rect = form.on_screen([l, t, r - l, b - t]);
+        if !empty(rect) && r - l <= form.size.0 && b - t <= form.size.1 {
+            out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_LINK, i) });
+        }
+    }
+}
+
+/// The advisors' six tabs down their left edge (x 4..=0x44, y 242 + 62k
+/// ..= 304 + 62k in the form's pixels, 0x49D6D0).
+pub fn tab_rects() -> [[i32; 4]; 6] {
+    std::array::from_fn(|k| [4, 242 + 62 * k as i32, 0x44 - 4 + 1, 62])
+}
+
+fn tabs(form: &Form, out: &mut Vec<Control>) {
+    for (k, r) in tab_rects().into_iter().enumerate() {
+        let rect = form.on_screen(r);
+        if !empty(rect) {
+            out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_TAB, k as u32) });
+        }
+    }
+}
+
+// `Context_Menu` (docs §16.11): items, their count and height.
+const MENU_ITEMS: u32 = 0x578;
+const MENU_ITEM_BYTES: u32 = 28;
+const MENU_ITEM_STATUS: u32 = 0xC;
+const MENU_COUNT: u32 = 0x2184;
+const MENU_ITEM_HEIGHT: u32 = 0x218C;
+/// The first row's top (`[0x730318]`).
+const MENU_TOP: i32 = 2;
+
+/// A context menu's rows: per shown item (status bit 0), its row
+/// rectangle in the menu's pixels, unless disabled (bit 2). The row height
+/// is the menu's, else the menu's height shared among its rows.
+pub fn menu_rows(statuses: &[u32], item_height: i32, size: (i32, i32)) -> Vec<(usize, [i32; 4])> {
+    let shown: Vec<usize> = statuses.iter().enumerate().filter(|(_, s)| *s & 1 != 0).map(|(i, _)| i).collect();
+    if shown.is_empty() {
+        return vec![];
+    }
+    let h = if item_height > 0 { item_height } else { (size.1 - 2 * MENU_TOP) / shown.len() as i32 };
+    if h <= 0 {
+        return vec![];
+    }
+    shown
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| statuses[**i] & 4 == 0)
+        .map(|(row, &i)| (i, [0, MENU_TOP + row as i32 * h, size.0, h]))
+        .collect()
+}
+
+fn context_menu(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
+    let n = mem.u32(form.addr + MENU_COUNT).unwrap_or(0).min(MAX_ITEMS);
+    let statuses: Vec<u32> = (0..n).map(|i| mem.u32(form.addr + MENU_ITEMS + i * MENU_ITEM_BYTES + MENU_ITEM_STATUS).unwrap_or(0)).collect();
+    let height = mem.i32(form.addr + MENU_ITEM_HEIGHT).unwrap_or(0);
+    for (i, r) in menu_rows(&statuses, height, form.size) {
+        let rect = form.on_screen(r);
+        if !empty(rect) {
+            out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_MENU, i as u32) });
+        }
+    }
+}
+
+/// How a list (or check box group) lays its items out (its item-list
+/// part, docs §16.11).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ItemLayout {
+    pub x0: i32,
+    pub y0: i32,
+    pub gap: i32,
+    /// 1: one column of items of different heights (lines).
+    pub variable: bool,
+    pub rows: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+// The item-list part's fields.
+const L_Y0: u32 = 0x3C;
+const L_X0: u32 = 0x44;
+const L_GAP: u32 = 0x48;
+const L_LAYOUT: u32 = 0x50;
+const L_ROWS: u32 = 0x5C;
+const L_WIDTH: u32 = 0x68;
+const L_HEIGHT: u32 = 0x6C;
+const L_FIRST_NODE: u32 = 0xC8;
+const L_COUNT: u32 = 0xD0;
+// The list object's: the first item shown, how many are shown.
+const G_FIRST: u32 = 0x2C;
+const G_SHOWN: u32 = 0x30;
+
+impl ItemLayout {
+    fn read(mem: &dyn Mem, l: u32) -> Option<ItemLayout> {
+        Some(ItemLayout {
+            x0: mem.i32(l + L_X0)?,
+            y0: mem.i32(l + L_Y0)?,
+            gap: mem.i32(l + L_GAP)?,
+            variable: mem.i32(l + L_LAYOUT)? == 1,
+            rows: mem.i32(l + L_ROWS)?,
+            width: mem.i32(l + L_WIDTH)?,
+            height: mem.i32(l + L_HEIGHT)?,
+        })
+    }
+
+    fn sane(&self) -> bool {
+        (1..=4096).contains(&self.width) && (1..=1024).contains(&self.height) && (0..=256).contains(&self.gap)
+    }
+
+    /// The rectangle of the `k`-th item shown (0x617470), in the list's
+    /// pixels; `lines_before` / `lines`: lines of the items shown before it
+    /// and its own (variable layout only).
+    pub fn item(&self, k: i32, lines_before: i32, lines: i32) -> [i32; 4] {
+        let step = self.height + self.gap;
+        if self.variable {
+            let top = self.y0 + step * lines_before;
+            return [self.x0, top, self.width - 2 * self.x0, step * lines.max(1) - self.gap];
+        }
+        let rows = self.rows.max(1);
+        let (col, row) = (k / rows, k % rows);
+        [self.x0 + col * (self.width + self.gap), self.y0 + row * step, self.width - 2 * self.x0, self.height]
+    }
+}
+
+/// A list box's parts: the list object G and its item-list part L (MSVC
+/// virtual bases), when `form` is a list box's form part.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ListParts {
+    pub list: u32,
+    pub items: u32,
+}
+
+/// Recognised by its draw thunk (vtable +0x58): `sub ecx,[ecx-4]`,
+/// maybe `sub ecx,k`, `jmp 0x6181E0`; then G = F − [F−4] − k − 0x64,
+/// checked against G's virtual base table (F = G + 4 + vb[1]).
+fn list_parts(mem: &dyn Mem, form: &Form) -> Option<ListParts> {
+    let thunk = mem.u32(form.vtable + 0x58)?;
+    let code: Vec<u8> = (0..11).map(|i| mem.u8(thunk + i)).collect::<Option<_>>()?;
+    if code[..3] != [0x2B, 0x49, 0xFC] {
+        return None;
+    }
+    let (k, jmp) = if code[3..5] == [0x83, 0xE9] { (code[5] as u32, 6) } else { (0, 3) };
+    if code[jmp] != 0xE9 {
+        return None;
+    }
+    let rel = u32::from_le_bytes(code[jmp + 1..jmp + 5].try_into().ok()?);
+    if thunk.wrapping_add(jmp as u32 + 5).wrapping_add(rel) != LIST_DRAW {
+        return None;
+    }
+    let f = form.addr;
+    let g = f.wrapping_sub(mem.u32(f.wrapping_sub(4))?).wrapping_sub(k).wrapping_sub(0x64);
+    let vb = mem.u32(g + 4)?;
+    let (to_form, to_items) = (mem.u32(vb + 4)?, mem.u32(vb + 8)?);
+    (g.wrapping_add(4).wrapping_add(to_form) == f).then(|| ListParts { list: g, items: g.wrapping_add(4).wrapping_add(to_items) })
+}
+
+fn list_box(mem: &dyn Mem, form: &Form, parts: ListParts, out: &mut Vec<Control>) {
+    let Some(layout) = ItemLayout::read(mem, parts.items).filter(ItemLayout::sane) else { return };
+    let count = mem.i32(parts.items + L_COUNT).unwrap_or(0).clamp(0, MAX_ITEMS as i32);
+    let first = mem.i32(parts.list + G_FIRST).unwrap_or(0).clamp(0, count);
+    let shown = mem.i32(parts.list + G_SHOWN).unwrap_or(0).clamp(0, count - first);
+    // Lines per item shown (variable layout): from the item nodes.
+    let lines: Vec<i32> = if layout.variable { item_lines(mem, parts.items, first, shown) } else { vec![1; shown as usize] };
+    let mut before = 0;
+    for k in 0..shown {
+        let own = lines.get(k as usize).copied().unwrap_or(1);
+        let r = layout.item(k, before, own);
+        before += own;
+        let rect = form.on_screen(r);
+        if !empty(rect) {
+            out.push(Control { rect, kind: ControlKind::ListItem, id: part_id(form.addr, TAG_ITEM, (first + k) as u32) });
+        }
+    }
+    // Scrolled with the wheel (one item a message), if it has more items
+    // than it shows.
+    if form.status1 & WHEEL != 0 && count > shown {
+        let step = layout.height + layout.gap;
+        out.push(Control { rect: form.shown, kind: ControlKind::List { scroll: form.shown, step }, id: form.addr as u64 });
+    }
+}
+
+/// Lines of the items `first..first + shown` (item nodes: +8 data, whose
+/// +0xC is its line count; +0xC the next node).
+fn item_lines(mem: &dyn Mem, items: u32, first: i32, shown: i32) -> Vec<i32> {
+    let mut node = mem.u32(items + L_FIRST_NODE).unwrap_or(0);
+    for _ in 0..first {
+        if node == 0 {
+            break;
+        }
+        node = mem.u32(node + 0xC).unwrap_or(0);
+    }
+    let mut out = Vec::new();
+    for _ in 0..shown {
+        if node == 0 {
+            break;
+        }
+        let lines = mem.u32(node + 8).and_then(|d| mem.i32(d + 0xC)).unwrap_or(1);
+        out.push(lines.clamp(1, 64));
+        node = mem.u32(node + 0xC).unwrap_or(0);
+    }
+    out
+}
+
+/// A check box group (the form part of a `CheckBox`, its item list 0x578
+/// further on): an item per box, laid out in columns of `rows`; the whole
+/// group if its layout does not read sanely.
+fn check_boxes(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
+    let items = form.addr + 0x578;
+    let layout = ItemLayout::read(mem, items).filter(ItemLayout::sane);
+    let count = mem.i32(items + L_COUNT).unwrap_or(0);
+    let boxes: Vec<[i32; 4]> = match layout {
+        Some(l) if (1..=64).contains(&count) => {
+            let rows = l.rows.max(1);
+            (0..count).map(|i| [(i / rows) * (l.width + l.gap), (i % rows) * (l.height + l.gap), l.width, l.height]).collect()
+        }
+        _ => vec![],
+    };
+    let fits = !boxes.is_empty() && boxes.iter().all(|r| r[0] + r[2] <= form.size.0 + 1 && r[1] + r[3] <= form.size.1 + 1);
+    if !fits {
+        out.push(Control { rect: form.shown, kind: ControlKind::Button, id: form.addr as u64 });
+        return;
+    }
+    for (i, r) in boxes.into_iter().enumerate() {
+        let rect = form.on_screen(r);
+        if !empty(rect) {
+            out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_CHECK, i as u32) });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

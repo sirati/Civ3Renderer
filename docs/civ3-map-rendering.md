@@ -1439,6 +1439,39 @@ The game menu is what the HUD's menu button opens: `Main_GUI_handle_button_press
 The top-left corner's three buttons are menu, Civilopedia and advisors. The unit's orders are `Command_Button`s (0x6DC bytes: a `Button` and its command); the constructor builds the array at 0x558AA9 (`push 0x2A; push 0x6DC; lea ecx,[esi+0x16CE4]`, element ctor 0x558BC0, which only calls the `Button` ctor 0x609E70: no vtable of their own). Only the orders the unit has are composited (10 in the traces, x 836-1092, y 966-1062 at 1920×1080).
 
 **Popups.** An open popup is the modal form (0xCAD384, `civ3_sys::modal`) when it is none of the screens above; its draws are those composited from it on (its children and what the game draws over it afterwards, e.g. the cursor).
+### 16.11 Controls that take the mouse
+
+What a pointer aid (the viewer's button snapping) needs: the screen rectangles of everything the mouse acts on. All [X] from `Civ3Conquests-Unmodded.exe` unless tagged; read by `civ3_sys::controls`.
+
+**Hit test `0x609030`** `Base_Form* cdecl (int* x, int* y)`, screen coordinates in, the hit form's own coordinates out; `[0xCAD348]` = 1 when the point is on the form's frame. A mouse capture (`[0xCAD370]`, `[0xCAD374]`, `[0xCAD360]`, `[0xCAD364]`, set by a press) takes everything while it lasts. Otherwise, with a modal form `[0xCAD384]` only its tree, then the companion `[0xCAD380]`, are tested (a miss still goes to the modal form); without one, the roots `0xCACB10[count 0xCAD3C4]` from index 0 (topmost), first hit wins. The recursive test `0x608C70`:
+- the form and every parent visible (Status2 bit 0, `0x609AC0`), else nothing;
+- children first (the child array, from index 0); absolute children (Status1 without 0x20) are not clipped by the parent;
+- framed forms (Status2 & 2): the outer rectangle `+0x1BC..+0x1C8` in parent coordinates, the frame pieces tested by pixel;
+- the form's rectangle `+0x1AC..+0x1B8` (half-open, `0x60ECE0`);
+- Status1 & 2: the form itself never takes the mouse (its children do);
+- keyed forms (Status1 & 0x1000000, not & 0x100): a colour-key pixel of the canvas lets the click through.
+
+No enabled flag is read on the mouse path: a disabled control is hidden, or its owner ignores the event [?]. Wheel `0x62C6D0` goes to the hit form's `vt+0x64(delta, x, y)`.
+
+**Classes** (no RTTI; names from the C3X header [H] or matched by structure):
+
+| Class | Vtable | What is clicked |
+|---|---|---|
+| `Button` [H] | 0x6656C0; city screen 0x665F20; base 0x671550 | the whole control. Pressed +0x614, hovered +0x5E4, forced state +0x634, id +0x5E8 |
+| `Main_GUI` buttons [H] | Main_GUI 0x9FDB10 (vt 0x66B570): Advisors +0x845C, Menu +0x8B30, Geography +0x9204, Civilopedia +0x98D8, navigator [8] +0x9FAC, right panel [7] +0xD64C (stride 0x6D4), unit commands [42] +0x16CE4 (`Command_Button`, stride 0x6DC) | the buttons; the minimap (+0x13FF8) and unit box (+0x13FE8) are tested in code, inclusive RECTs |
+| `Scroll_Bar` [H] | 0x6660A8 | its arrow `Button`s (+0x610, +0xCE4); pos +0x58C, min/max +0x580/+0x584 |
+| list boxes | generic 0x6718E8; city 0x665D88, 0x665BF0, 0x665A40, 0x6665D8; combo dropdown 0x671FC8 | entries (below) |
+| `CheckBox` [H] | form part (CheckBox+0x20) 0x671C70 | boxes: `idx = (x/(W+gap))·rows + y/(H+gap)`; item list at CheckBox+0x598 |
+| `Context_Menu` [H] | 0x671AC0, 0x66B240 | rows: items +0x578 (28 bytes, +0xC bit 0 shown, bit 2 disabled), count +0x2184, height +0x218C; row = `(y − 2) / max(height, font line)` over shown items |
+| popups [H] | 0x666240 family | OK +0x5DC, Cancel +0xCB0 (`Button`s); a choice list at +0x1468 |
+| Advisor_GUI | 0x9AFD58 | six tabs tested in code (0x49D6D0): x 4..=0x44, y 242+62k..=304+62k |
+| any form | — | text links (Civilopedia): 32-byte entries at +0x378, a RECT at +4, count +0x380 |
+
+Not found: a text edit control (nothing handles WM_CHAR but cheat codes and scroll keys). Unnamed classes with an item list (0x666778, 0x666908, 0x671730, 0x671E10) are probably radio or tab groups [?].
+
+**List boxes** use virtual inheritance: the form part F (in the form tree), the list object G, the item list L. A list's draw slot `F.vt[+0x58]` is a thunk `sub ecx,[ecx-4]` (`2B 49 FC`), maybe `sub ecx,k` (`83 E9 k`), `jmp 0x6181E0`; `G = F − [F−4] − k − 0x64`, `vb = [G+4]`, `F = G + 4 + vb[1]`, `L = G + 4 + vb[2]` (generic `0x60, 0x5D8`; combo `0x64, 0x5DC`; city `0x70, 0x5E8`). G: +0x2C first entry shown, +0x30 entries shown. L: +0x3C y0, +0x44 x0, +0x48 gap, +0x50 layout (1: one column of entries of several lines), +0x58 columns, +0x5C rows, +0x68 W, +0x6C row height H, +0xC8 first node (+8 data whose +0xC is its lines, +0xC next), +0xD0 count, +0xF0 selected, +0xF4 hovered. Entry `k` shown (0x617470, F's pixels): grid `col = k / rows`, `row = k % rows`, `x = x0 + col·(W+gap)`, width `W − 2·x0`, `y = y0 + row·(H+gap)`, height H; layout 1 stacks `(H+gap)·lines − gap` high. The wheel (0x618E40, only with F.Status1 & 8) moves the first entry by one per message, up for a positive delta, down while it is below `count − 1` (not stopped at the last page).
+
+**Mouse cursor**: `Art\CURSOR.PCX` (scenario first), 23 cells of 32×32 at `(1 + 33k, 1)` into `Sprite[k]` at 0xA52200 + 0x2C·k; hotspot from the 0xFB pixels in the row above and the column left of each cell (arrow cells (1, 1)). The map's plain arrow is the system cursor.
 
 ---
 

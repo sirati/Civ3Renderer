@@ -450,7 +450,7 @@ fn publish(
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
-    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>)> = None;
+    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>)> = None;
     let mut seq = 0;
     let mut input = InputForwarder::default();
     let mut title = menu::MenuState::default();
@@ -567,11 +567,20 @@ fn publish(
         let prefs_draws = prefs.draws(&fonts);
         let prefs_changed = published_prefs.0 != prefs_draws || published_prefs.1.as_ref() != Some(prefs.settings());
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
-        let state = (shown, texts, ui);
+        // What can be clicked (for the viewer's button snapping): our own
+        // title menu's buttons, else the game's controls.
+        let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
+        let interactables = match own_title {
+            Some((ms, m)) => ms.interactables(m, input.viewport),
+            None => civ3_sys::controls::sites(game.build)
+                .map(|s| ui_screen::interactables(&civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)))
+                .unwrap_or_default(),
+        };
+        let state = (shown, texts, ui, interactables);
         if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             continue;
         }
-        let (shown, texts, ui) = &state;
+        let (shown, texts, ui, interactables) = &state;
         let files = compiler.files(&folders);
         let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
         // The parts of the interface the viewer arranges (docs §16.11): the
@@ -835,6 +844,7 @@ fn publish(
         }
         // The renderer's settings go with every scene (sent when they change).
         scene.settings = Some(prefs.settings().clone());
+        scene.interactables = interactables.clone();
         scene.seq = seq;
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
