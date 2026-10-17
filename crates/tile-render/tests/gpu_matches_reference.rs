@@ -563,3 +563,210 @@ fn stacked_views_scale_with_their_group() {
         assert_same(&got, &want, &format!("stacked views, zoom {:?}", cameras[0].zoom));
     }
 }
+
+#[test]
+fn drawing_at_the_zoom_shows_what_the_scaled_picture_does() {
+    // From a zoomed sprite on (here one for a view not drawn, after the
+    // first pass) views showing zoomed art are drawn at their zoom straight
+    // into the target: pixel for pixel what their picture drawn at zoom 1
+    // and scaled shows. A game's screen fitted into a pane (its interface
+    // stacked on its map) and an inset, zoomed in and out, both colour
+    // models (the direct one against the GPU's own scaled picture only: its
+    // 8-bit blending rounds its own way).
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let zooms = [(3, 2), (1, 2), (2, 3), (3, 1), (1, 3)];
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = scene_with(grid, true);
+        world.color = color;
+        let s = world.free.iter().find(|s| s.screen).cloned().unwrap();
+        world.free.push(PlacedSprite { view: Some(1), x: 150, y: 90, clip: Some([140, 80, 200, 120]), ..s });
+        world.free.push(PlacedSprite { view: Some(2), x: 10, y: 15, ..s });
+        for zoom in zooms {
+            world.free.push(PlacedSprite { view: Some(9), after_pass: 0, zoom_art: ZoomArt::Zoomed { zoom, offset: (0, 0) }, ..s });
+        }
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let overhang = (0, 40, 0, 0);
+        for zoom in zooms {
+            let game = Camera { x: 40, y: 20, zoom, origin: (10, 5), screen_shift: (3, -2), overhang, zoomed_art: true, ..Camera::new((240, 150)) };
+            let interface = Camera { cells: false, stacked: true, zoomed_art: true, ..Camera::new((320, 200)) };
+            let inset = Camera { x: 300, y: 200, zoom, origin: (262, 31), overhang, zoomed_art: true, ..Camera::new((131, 170)) };
+            let at_zoom = [game, interface, inset];
+            let pictures = at_zoom.map(|c| Camera { zoomed_art: false, ..c });
+            let got = gpu.render_views(&mut renderer, &at_zoom, (400, 240), 2, CLEAR);
+            if color != ColorModel::Direct {
+                let want = reference::render_views(&world, &atlas, &at_zoom, (400, 240), 2, CLEAR);
+                assert_same(&got, &want, &format!("drawn at zoom {zoom:?}"));
+                let want = reference::render_views(&world, &atlas, &pictures, (400, 240), 2, CLEAR);
+                assert_same(&got, &want, &format!("drawn at zoom {zoom:?}, against the reference's scaled picture"));
+            }
+            let scaled = gpu.render_views(&mut renderer, &pictures, (400, 240), 2, CLEAR);
+            assert_same(&got, &scaled, &format!("drawn at zoom {zoom:?} against the scaled picture, {color:?}"));
+        }
+    }
+}
+
+#[test]
+fn zoomed_art_is_drawn_in_its_pass() {
+    // A label under a darkening pass (as the map's labels are under the fog
+    // of war), as a 1:1 sprite and one made for the view's zoom: the
+    // darkening goes over the zoomed one too, in a view and in a stacked
+    // one; on top of it, it is not darkened.
+    let gpu = Headless::new().expect("GPU");
+    let mut atlas = AtlasBuilder::new(512);
+    let mut sets = SpriteSets::default();
+    let ground = sets.single(atlas.add(&diamond(3), (0, 0)).unwrap());
+    let fog = sets.single(atlas.add(&shade(), (0, 0)).unwrap());
+    let low = sets.single(atlas.add(&tall(40), (0, 0)).unwrap());
+    let zoomed = sets.single(atlas.add(&RgbaImage::from_fn(120, 176, |x, y| [250, 200 + (x % 50) as u8, (y % 200) as u8, 255]), (0, 0)).unwrap());
+    let grid = Grid { cols: 8, rows: 12, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let label = |after_pass: usize| {
+        let mut world = TileWorld::new(grid, sets.clone());
+        let terrain = world.add_layer(LayerSpec::new("terrain", vec![ground]));
+        let shading = world.add_layer(LayerSpec { pass: 1, blend: Blend::Scale { denominator: 16 }, ..LayerSpec::new("fog", vec![tile_render::SpriteSetId::EMPTY, fog]) });
+        for r in 0..grid.rows {
+            for c in 0..grid.cols {
+                world.set(terrain, c, r, 0);
+                world.set(shading, c, r, 1);
+            }
+        }
+        world.color = ColorModel::Quantized { bits: 5 };
+        for view in [0, 1] {
+            let (x, y) = (60 + 90 * view as i32, 50);
+            let s = PlacedSprite { screen: true, view: Some(view), ..PlacedSprite::new(low, x, y) };
+            world.free.push(PlacedSprite { after_pass: 0, zoom_art: ZoomArt::Low, ..s });
+            world.free.push(PlacedSprite { set: zoomed, after_pass, zoom_art: ZoomArt::Zoomed { zoom: (2, 1), offset: (1, -1) }, ..s });
+        }
+        world
+    };
+    let atlas = atlas.finish();
+    let main = Camera { x: 30, y: 10, zoom: (2, 1), zoomed_art: true, ..Camera::new((400, 240)) };
+    let interface = Camera { cells: false, stacked: true, zoomed_art: true, ..Camera::new((200, 120)) };
+    let cameras = [main, interface];
+    let mut pictures = Vec::new();
+    for after_pass in [0, usize::MAX] {
+        let world = label(after_pass);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 1, CLEAR);
+        let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 1, CLEAR);
+        assert_same(&got, &want, &format!("zoomed label after pass {after_pass}"));
+        pictures.push(got);
+    }
+    // Under the darkening pass it is darker than on top of it, nothing else
+    // changes.
+    let luma = |p: &[u8; 4]| p[0] as u32 * 3 + p[1] as u32 * 6 + p[2] as u32;
+    let (mut darker, mut other) = (0, 0);
+    for (under, over) in pictures[0].pixels.iter().zip(&pictures[1].pixels) {
+        match luma(under).cmp(&luma(over)) {
+            std::cmp::Ordering::Less => darker += 1,
+            std::cmp::Ordering::Greater => other += 1,
+            _ => {}
+        }
+    }
+    assert!(darker > 10_000 && other == 0, "{darker} pixels darker, {other} lighter");
+}
+
+#[test]
+fn hairlines_stay_when_an_interface_is_scaled_down() {
+    // One-pixel lines of an interface stacked on a game view shown at 1/2
+    // and 1/3 keep one screen pixel (at odd and even positions); without
+    // `hairline` some vanish. Nothing else changes.
+    let gpu = Headless::new().expect("GPU");
+    let mut atlas = AtlasBuilder::new(256);
+    let mut sets = SpriteSets::default();
+    let ground = sets.single(atlas.add(&diamond(3), (0, 0)).unwrap());
+    let yellow = [255, 255, 0, 255];
+    let across = sets.single(atlas.add(&RgbaImage::from_fn(16, 1, |_, _| yellow), (0, 0)).unwrap());
+    let down = sets.single(atlas.add(&RgbaImage::from_fn(1, 16, |_, _| yellow), (0, 0)).unwrap());
+    let box_ = sets.single(atlas.add(&diamond(7), (0, 0)).unwrap());
+    let grid = Grid { cols: 8, rows: 12, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let mut world = TileWorld::new(grid, sets);
+    let terrain = world.add_layer(LayerSpec::new("terrain", vec![ground]));
+    for r in 0..grid.rows {
+        for c in 0..grid.cols {
+            world.set(terrain, c, r, 0);
+        }
+    }
+    world.color = ColorModel::Quantized { bits: 5 };
+    let mut lines = Vec::new();
+    for i in 0..6 {
+        let at = (40 + 7 * i, 30 + 5 * i);
+        world.free.push(PlacedSprite { screen: true, view: Some(1), ..PlacedSprite::new(across, at.0, at.1) });
+        world.free.push(PlacedSprite { screen: true, view: Some(1), ..PlacedSprite::new(down, 200 + at.1, at.0) });
+        lines.push(at);
+    }
+    // A clipped one, and ordinary sprites.
+    world.free.push(PlacedSprite { screen: true, view: Some(1), clip: Some([0, 0, 300, 101]), ..PlacedSprite::new(across, 60, 100) });
+    world.free.push(PlacedSprite { screen: true, view: Some(1), ..PlacedSprite::new(box_, 90, 120) });
+    let atlas = atlas.finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for zoom in [(1, 2), (1, 3)] {
+        let (w, h) = (300 * zoom.0 / zoom.1, 200 * zoom.0 / zoom.1);
+        let game = Camera { x: 20, y: 10, zoom, origin: (5, 3), ..Camera::new((w, h)) };
+        let interface = Camera { cells: false, stacked: true, hairline: true, ..Camera::new((300, 200)) };
+        let cameras = [game, interface];
+        let got = gpu.render_views(&mut renderer, &cameras, (160, 120), 0, CLEAR);
+        let want = reference::render_views(&world, &atlas, &cameras, (160, 120), 0, CLEAR);
+        assert_same(&got, &want, &format!("hairlines at {zoom:?}"));
+        let yellow_at = |img: &RgbaImage, (x0, y0, x1, y1): (u32, u32, u32, u32)| (y0..y1).any(|y| (x0..x1).any(|x| img.get(x, y) == yellow));
+        let near = |v: i32, o: i32| ((v as u32 * zoom.0) / zoom.1 + o as u32).saturating_sub(1);
+        for &(x, y) in &lines {
+            let (px, py) = (near(x, 5), near(y, 3));
+            assert!(yellow_at(&got, (px, py, px + 8, py + 3)), "line across at ({x}, {y}), {zoom:?}");
+            let (px, py) = (near(200 + y, 5), near(x, 3));
+            assert!(yellow_at(&got, (px, py, px + 3, py + 8)), "line down at ({}, {x}), {zoom:?}", 200 + y);
+        }
+        let thin = [game, Camera { hairline: false, ..interface }];
+        let plain = gpu.render_views(&mut renderer, &thin, (160, 120), 0, CLEAR);
+        let lost = lines.iter().filter(|&&(x, y)| {
+            let (px, py) = (near(x, 5), near(y, 3));
+            !yellow_at(&plain, (px, py, px + 8, py + 3))
+        });
+        assert!(lost.count() > 0, "without hairline some lines vanish at {zoom:?}");
+        let changed = got.pixels.iter().zip(&plain.pixels).filter(|(a, b)| a != b).count();
+        assert!(changed > 0 && changed < 120, "{changed} pixels changed at {zoom:?}");
+    }
+}
+
+#[test]
+fn a_viewers_most_views_are_all_drawn() {
+    // The game's map and city views, a second pane, three insets with their
+    // frames, a magnifier with its frame and the interface on top: 12 views,
+    // all drawn (the interface's sprite, last, too).
+    assert!(tile_render::MAX_VIEWS >= 12);
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let s = world.free.iter().find(|s| s.screen).cloned().unwrap();
+    world.free.push(PlacedSprite { view: Some(11), x: 300, y: 180, ..s });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let overhang = (0, 40, 0, 0);
+    let frame = |x: i32, y: i32| Camera { zoom: (2, 1), origin: (x - 2, y - 2), cells: false, ..Camera::new((64, 44)) };
+    let mut cameras = vec![
+        Camera { x: 10, y: 20, overhang, ..Camera::new((200, 240)) },
+        Camera { x: 400, y: 30, origin: (120, 160), overhang, ..Camera::new((70, 60)) },
+        Camera { x: 200, y: 100, zoom: (2, 1), origin: (204, 0), overhang, ..Camera::new((196, 240)) },
+    ];
+    for (i, (x, y)) in [(20, 20), (90, 40), (260, 120)].into_iter().enumerate() {
+        cameras.push(frame(x, y));
+        cameras.push(Camera { x: 100 * i as i32, y: 50, zoom: (1, 2), origin: (x, y), overhang, ..Camera::new((60, 40)) });
+    }
+    cameras.push(frame(150, 170));
+    cameras.push(Camera { x: 333, y: 77, zoom: (3, 1), origin: (150, 170), overhang, ..Camera::new((60, 40)) });
+    cameras.push(Camera { cells: false, ..Camera::new((400, 240)) });
+    assert_eq!(cameras.len(), 12);
+    let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 1, CLEAR);
+    let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 1, CLEAR);
+    assert_same(&got, &want, "12 views");
+    let without = gpu.render_views(&mut renderer, &cameras[..11], (400, 240), 1, CLEAR);
+    assert_ne!(got.pixels, without.pixels, "the last view is drawn");
+}

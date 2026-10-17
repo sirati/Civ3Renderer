@@ -69,8 +69,9 @@ pub struct FrameParams {
     /// World pixel shown at the viewport's top-left corner, before zoom.
     pub camera_x: i32,
     pub camera_y: i32,
-    /// The view's zoom (`FREE_ZOOMED` sprites made for it are drawn in the
-    /// pass after scaling); it also keeps `grid` 16-byte aligned.
+    /// The view's zoom (`FREE_ZOOMED` sprites made for it are drawn where it
+    /// is drawn at that zoom, see `scaled`); it also keeps `grid` 16-byte
+    /// aligned.
     pub zoom_num: u32,
     pub zoom_den: u32,
 
@@ -118,8 +119,22 @@ pub struct FrameParams {
     pub world: u32,
     /// Which free sprites by their zoom art (`FREE_LOW`, `FREE_ZOOMED`):
     /// 0 all but zoomed ones; 1 all but zoomed and low ones (a view showing
-    /// the zoomed ones); 2 only zoomed ones (drawn after the view is scaled).
+    /// the zoomed ones, drawn at zoom 1); 2 all but low ones (a view showing
+    /// the zoomed ones, drawn at its zoom: those at full resolution).
     pub zoom_art: u32,
+
+    /// 1: the view is drawn at its zoom straight into the target
+    /// (`viewport_*` in target pixels): every sprite scaled by nearest texel
+    /// exactly as the view's picture drawn at zoom 1 and then scaled would
+    /// show it, zoomed art at full resolution in its place in the order.
+    pub scaled: u32,
+    /// With `scaled`: 1 keeps sprites the scaling would shrink to nothing
+    /// one target pixel wide (or high), e.g. the one-pixel lines of an
+    /// interface shown smaller.
+    pub hairline: u32,
+    /// With `scaled`: the target pixel where the view's viewport starts.
+    pub target_x: i32,
+    pub target_y: i32,
 }
 
 /// Shape of the world's cell grid.
@@ -227,8 +242,9 @@ pub const FREE_CLIP: u32 = 1 << 1;
 /// The 1:1 twin of a `FREE_ZOOMED` sprite: left out where the view shows those.
 pub const FREE_LOW: u32 = 1 << 2;
 /// A sprite made for a zoom (e.g. text rasterised at that size,
-/// `FreeSprite::zoom`): drawn only in the pass after a view at that zoom is
-/// scaled, at its 1:1 position scaled plus `zoom_dx, zoom_dy`.
+/// `FreeSprite::zoom`): drawn only where a view at that zoom is drawn at its
+/// zoom (`FrameParams::zoom_art` 2), unscaled, at its 1:1 position scaled
+/// plus `zoom_dx, zoom_dy`.
 pub const FREE_ZOOMED: u32 = 1 << 3;
 /// Drawn in every view but `FreeSprite::view` (instead of only in it).
 pub const FREE_EXCEPT_VIEW: u32 = 1 << 4;

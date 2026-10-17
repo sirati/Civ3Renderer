@@ -43,11 +43,17 @@ pub struct Camera {
     /// part of it: its `origin` is then relative to that view's, its zoom
     /// that view's (e.g. a game's interface over its map, scaled together).
     pub stacked: bool,
+    /// When scaled down: sprites the scaling would shrink to nothing keep one
+    /// screen pixel (e.g. the one-pixel lines of an interface shown
+    /// smaller). The view is then drawn at its zoom straight into the
+    /// target (as views showing zoomed art are from their first zoomed
+    /// sprite on), which shows the same but for those.
+    pub hairline: bool,
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0), zoomed_art: false, stacked: false }
+        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0), zoomed_art: false, stacked: false, hairline: false }
     }
 
     /// Whether the view is scaled (zoom other than 1).
@@ -80,8 +86,11 @@ impl Camera {
         ((rel(px, self.origin.0) * d / n).min(sw - 1), (rel(py, self.origin.1) * d / n).min(sh - 1))
     }
 
-    /// `zoom_art`: see `FrameParams::zoom_art`.
-    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32) -> FrameParams {
+    /// `zoom_art`: see `FrameParams::zoom_art`; `scaled_at`: drawn at its zoom
+    /// straight into the target, its viewport starting at that target pixel
+    /// (`FrameParams::scaled`).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32, scaled_at: Option<(i32, i32)>) -> FrameParams {
         let (ew, eh) = self.source_size();
         let (ol, ot, or, ob) = self.overhang;
         let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
@@ -126,6 +135,10 @@ impl Camera {
             origin_y: self.origin.1 - self.screen_shift.1,
             world: self.cells as u32,
             zoom_art,
+            scaled: scaled_at.is_some() as u32,
+            hairline: (scaled_at.is_some() && self.hairline) as u32,
+            target_x: scaled_at.map_or(0, |t| t.0),
+            target_y: scaled_at.map_or(0, |t| t.1),
         }
     }
 }
@@ -142,7 +155,7 @@ mod tests {
         cam.x = 300;
         cam.y = 200;
         cam.overhang = (0, 24, 0, 0);
-        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 }, 0, 0);
+        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 }, 0, 0, None);
         // Every cell whose 128×64 footprint (+24 px upwards) touches the
         // viewport must be inside the window.
         for row in -10..120 {
@@ -160,7 +173,16 @@ mod tests {
 
 /// How a view is drawn (see `TileRenderer::render_views`): views are drawn
 /// at zoom 1, those of a scaled group (a scaled view and the views stacked
-/// on it) into a picture of their own that is then copied scaled.
+/// on it) into a picture of their own that is then copied scaled. From the
+/// first zoomed sprite of a group's view showing zoomed art (or a hairline
+/// view) on, the rest of the group is drawn at its zoom straight into the
+/// target instead, which shows the same, zoomed art (text at the zoom's
+/// resolution) included in its place in the drawing order (under the fog
+/// of war, say).
+///
+/// A view's drawing is a sequence of steps: step `2·i` the cells of pass
+/// `i`, step `2·i + 1` the free sprites after it (`i` up to the number of
+/// passes: those after all of them).
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Placement {
     /// The camera it is drawn with, at zoom 1.
@@ -170,19 +192,49 @@ pub(crate) struct Placement {
     pub rect: [i32; 4],
     /// The group's picture in the source texture, if the group is scaled.
     pub source: Option<[u32; 4]>,
-    /// The group's camera and picture, when this is the group's last view:
-    /// the picture is copied scaled after it.
+    /// The group's camera and picture, when the group's picture is done
+    /// after this view's steps at zoom 1: the picture is copied scaled then.
     pub blit: Option<(Camera, [u32; 4])>,
-    /// The camera its zoomed art is drawn with after scaling, if it shows any.
-    pub post: Option<Camera>,
+    /// Whether it shows zoomed art (rather than their 1:1 twins).
+    pub art: bool,
+    /// The first step drawn at its zoom straight into the target, if any.
+    pub scaled_from: Option<usize>,
+    /// The camera it is drawn with then (at its group's zoom, in its
+    /// group's rectangle of the target), and the target pixels it may
+    /// touch (x0, y0, x1, y1; exclusive, maybe empty).
+    pub scaled: Camera,
+    pub scaled_scissor: [i32; 4],
+}
+
+impl Placement {
+    /// Its steps drawn at zoom 1 (into its group's picture or the target).
+    pub fn steps_at_one(&self) -> std::ops::Range<usize> {
+        0..self.scaled_from.unwrap_or(usize::MAX)
+    }
+
+    /// Its steps drawn at its zoom.
+    pub fn steps_scaled(&self) -> std::ops::Range<usize> {
+        self.scaled_from.map_or(0..0, |s| s..usize::MAX)
+    }
+}
+
+/// `v·n/d` rounded down, and up.
+fn floor_mul(v: i32, n: u32, d: u32) -> i32 {
+    (v as i64 * n as i64).div_euclid(d as i64) as i32
+}
+fn ceil_mul(v: i32, n: u32, d: u32) -> i32 {
+    -floor_mul(-v, n, d)
 }
 
 /// Where in the source texture each scaled group's picture goes (rows at
-/// most `MAX_SOURCE` wide), and how each view is drawn.
-pub(crate) fn placements(cameras: &[Camera]) -> Vec<Placement> {
+/// most `MAX_SOURCE` wide), and how each view is drawn. `first_zoomed`: the
+/// first pass that zoomed sprites made for a zoom follow, if there are any.
+pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -> Option<usize>) -> Vec<Placement> {
     let (mut x, mut y, mut row) = (0, 0, 0);
     let mut out: Vec<Placement> = Vec::with_capacity(cameras.len());
     let mut head: Option<(Camera, Option<[u32; 4]>)> = None;
+    // Of the current scaled group: whether it is drawn at its zoom yet.
+    let mut scaling = false;
     for (i, c) in cameras.iter().enumerate() {
         let last = !cameras.get(i + 1).is_some_and(|n| n.stacked);
         let (drawn, rect, source, group) = match head {
@@ -208,6 +260,7 @@ pub(crate) fn placements(cameras: &[Camera]) -> Vec<Placement> {
                 x += w;
                 row = row.max(h);
                 head = Some((*c, Some(r)));
+                scaling = false;
                 let drawn = Camera { zoom: (1, 1), viewport: (w, h), ..*c };
                 (drawn, [r[0] as i32, r[1] as i32, w as i32, h as i32], Some(r), *c)
             }
@@ -216,15 +269,12 @@ pub(crate) fn placements(cameras: &[Camera]) -> Vec<Placement> {
                 (*c, [c.origin.0, c.origin.1, c.viewport.0 as i32, c.viewport.1 as i32], None, *c)
             }
         };
-        let blit = source.filter(|_| last).map(|r| (group, r));
-        // Zoomed art goes over the scaled picture: a stacked view's in its
-        // group's frame (its screen sprites from its origin there, its world
-        // ones from its camera there).
-        let post = (source.is_some() && c.zoomed_art).then(|| {
-            if !c.stacked {
-                return *c;
-            }
-            Camera {
+        let art = source.is_some() && c.zoomed_art;
+        // At its group's zoom, in the group's frame: a stacked view's screen
+        // sprites from its origin there, its world ones from its camera
+        // there, and only over its rectangle there.
+        let (scaled, local) = if c.stacked {
+            let camera = Camera {
                 x: c.x - c.origin.0,
                 y: c.y - c.origin.1,
                 zoom: group.zoom,
@@ -232,9 +282,38 @@ pub(crate) fn placements(cameras: &[Camera]) -> Vec<Placement> {
                 viewport: group.viewport,
                 screen_shift: (group.origin.0 + c.screen_shift.0, group.origin.1 + c.screen_shift.1),
                 ..*c
+            };
+            (camera, [c.origin.0, c.origin.1, c.origin.0 + c.viewport.0 as i32, c.origin.1 + c.viewport.1 as i32])
+        } else {
+            (*c, [0, 0, i32::MAX, i32::MAX])
+        };
+        // (The group's picture's zoom-1 pixels, mapped to the target.)
+        let (n, d) = (group.zoom.0.max(1), group.zoom.1.max(1));
+        let (sw, sh) = group.source_size();
+        let local = [local[0].max(0), local[1].max(0), local[2].min(sw as i32), local[3].min(sh as i32)];
+        let (ox, oy) = group.origin;
+        let scaled_scissor = [
+            ox + ceil_mul(local[0], n, d).max(0),
+            oy + ceil_mul(local[1], n, d).max(0),
+            ox + ceil_mul(local[2], n, d).min(group.viewport.0 as i32),
+            oy + ceil_mul(local[3], n, d).min(group.viewport.1 as i32),
+        ];
+        // Drawn at the zoom from the first zoomed sprite of a view showing
+        // them, or from the start of a hairline view, on.
+        let scaled_from = match source {
+            None => None,
+            Some(_) if scaling => Some(0),
+            Some(_) => {
+                let zoomed = first_zoomed((n, d)).filter(|_| art).map(|p| 2 * p + 1);
+                let from = if c.hairline { Some(0) } else { zoomed };
+                scaling = from.is_some();
+                from
             }
-        });
-        out.push(Placement { drawn, rect, source, blit, post });
+        };
+        // The picture is copied once its last zoom-1 step is drawn.
+        let starts_scaling = scaled_from.is_some() && !out.last().is_some_and(|p: &Placement| p.source == source && p.scaled_from.is_some());
+        let blit = source.filter(|_| starts_scaling || (last && scaled_from.is_none())).map(|r| (group, r));
+        out.push(Placement { drawn, rect, source, blit, art, scaled_from, scaled, scaled_scissor });
     }
     out
 }

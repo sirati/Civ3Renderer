@@ -487,3 +487,18 @@ mod tests {
         }
     }
 }
+
+/// Per zoom that `free` has zoomed sprites for, the first pass they follow
+/// (of `passes`; `passes`: after all of them).
+pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<((u32, u32), usize)> {
+    let mut out: Vec<((u32, u32), usize)> = Vec::new();
+    for s in free {
+        let ZoomArt::Zoomed { zoom, .. } = s.zoom_art else { continue };
+        let pass = s.after_pass.min(passes);
+        match out.iter_mut().find(|(z, _)| *z == zoom) {
+            Some((_, p)) => *p = (*p).min(pass),
+            None => out.push((zoom, pass)),
+        }
+    }
+    out
+}

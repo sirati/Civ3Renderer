@@ -14,10 +14,15 @@ const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
 /// Per-pass `FrameParams` live in one buffer at this stride (the minimum
 /// uniform offset alignment wgpu guarantees).
 const PARAMS_STRIDE: u64 = 256;
-/// Views [`TileRenderer::render_views`] draws at most.
-pub const MAX_VIEWS: usize = 8;
+/// Views [`TileRenderer::render_views`] draws at most (a viewer's most: a
+/// game's few views, a second pane, insets with their frames, a magnifier
+/// with its frame).
+pub const MAX_VIEWS: usize = 16;
 /// Most passes a world may have.
 pub const MAX_PASSES: usize = 16;
+/// `FrameParams` slots per view: one per pass and one for after all, drawn
+/// at zoom 1 and again at the view's zoom.
+const VIEW_SLOTS: usize = 2 * (MAX_PASSES + 1);
 
 /// Format of the internal target of quantized colour models: holds
 /// `q + QUANTIZED_BIAS` per channel (see `tile_render_shared::scale_offset`).
@@ -44,6 +49,8 @@ pub struct TileRenderer {
     sprites: Option<wgpu::Buffer>,
     world: Option<WorldBuffers>,
     bind_group: Option<wgpu::BindGroup>,
+    /// Whether more views than drawn were asked for (warned once).
+    too_many_views: bool,
 }
 
 /// An internal texture and the bind group reading it in the output pass.
@@ -60,6 +67,8 @@ struct WorldBuffers {
     /// range of them to draw after it (the last entry: after all passes).
     free: wgpu::Buffer,
     free_after: Vec<FreeRuns>,
+    /// Per zoom with zoomed sprites, the first pass they follow.
+    first_zoomed: Vec<((u32, u32), usize)>,
     layers: wgpu::Buffer,
     tile_data: wgpu::Buffer,
     lut: wgpu::Buffer,
@@ -156,7 +165,7 @@ impl TileRenderer {
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render params"),
-            size: PARAMS_STRIDE * ((MAX_PASSES + 2) * MAX_VIEWS) as u64,
+            size: PARAMS_STRIDE * (VIEW_SLOTS * MAX_VIEWS) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -175,6 +184,7 @@ impl TileRenderer {
             sprites: None,
             world: None,
             bind_group: None,
+            too_many_views: false,
         }
     }
 
@@ -327,6 +337,7 @@ impl TileRenderer {
             passes: world.passes(),
             free: storage(device, "tile-render free sprites", bytemuck::cast_slice(&free)),
             free_after,
+            first_zoomed: crate::world::first_zoomed(&world.free, world.passes().len().min(MAX_PASSES)),
             layers: storage(device, "tile-render layers", bytemuck::cast_slice(layers)),
             tile_data: storage(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
             lut: storage(device, "tile-render lut", bytemuck::cast_slice(&packed.lut)),
@@ -348,7 +359,9 @@ impl TileRenderer {
                 queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
                 let (free, free_after) = free_sprites(world);
                 queue.write_buffer(&w.free, 0, bytemuck::cast_slice(&free));
-                self.world.as_mut().unwrap().free_after = free_after;
+                let w = self.world.as_mut().unwrap();
+                w.free_after = free_after;
+                w.first_zoomed = crate::world::first_zoomed(&world.free, w.passes.len().min(MAX_PASSES));
             }
             _ => self.set_world(device, world),
         }
@@ -360,6 +373,7 @@ impl TileRenderer {
         let (free, free_after) = free_sprites(world);
         let bytes: &[u8] = bytemuck::cast_slice(&free);
         let Some(w) = &mut self.world else { return self.set_world(device, world) };
+        w.first_zoomed = crate::world::first_zoomed(&world.free, w.passes.len().min(MAX_PASSES));
         if w.free.size() >= bytes.len() as u64 {
             queue.write_buffer(&w.free, 0, bytes);
             w.free_after = free_after;
@@ -419,8 +433,11 @@ impl TileRenderer {
     /// viewport size (later views over earlier ones). Free sprites of view
     /// `i` (`PlacedSprite::view`) are drawn in it only; the others in every
     /// view. A zoomed view is drawn at zoom 1 into a texture of its own and
-    /// copied into its rectangle by nearest texel. At most [`MAX_VIEWS`]
-    /// views.
+    /// copied into its rectangle by nearest texel; from its first zoomed
+    /// sprite on (`Camera::zoomed_art`; `Camera::hairline`: from the start)
+    /// it is drawn at its zoom straight into the target instead, which shows
+    /// the same pixels, but zoomed art at full resolution in its place (under
+    /// later passes). At most [`MAX_VIEWS`] views.
     #[allow(clippy::too_many_arguments)]
     pub fn render_views(
         &mut self,
@@ -454,9 +471,10 @@ impl TileRenderer {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
             return;
         };
-        if cameras.len() > MAX_VIEWS {
-            log::warn!("{} views, only the first {MAX_VIEWS} are drawn", cameras.len());
+        if cameras.len() > MAX_VIEWS && !self.too_many_views {
+            log::warn!("{} views, only the first {MAX_VIEWS} are drawn (not repeated)", cameras.len());
         }
+        self.too_many_views |= cameras.len() > MAX_VIEWS;
         let cameras = &cameras[..cameras.len().min(MAX_VIEWS)];
         let bits = world.color.bits();
         let size = target.size();
@@ -473,7 +491,7 @@ impl TileRenderer {
             offset as u32
         };
         // Scaled groups' pictures, side by side in rows.
-        let placements = crate::camera::placements(cameras);
+        let placements = crate::camera::placements(cameras, |z| world.first_zoomed.iter().find(|(q, _)| *q == z).map(|&(_, p)| p));
         let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
         if placements.iter().any(|p| p.source.is_some()) {
             let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
@@ -492,7 +510,6 @@ impl TileRenderer {
             main
         };
         let source_view = self.sources.as_ref().map(|s| s.main.create_view(&Default::default()));
-        let passes = world.passes.len().min(MAX_PASSES);
         // The part of rectangle (x, y, w, h) inside `bounds` (x, y, w, h).
         let clipped = |[x, y, w, h]: [i32; 4], [bx, by, bw, bh]: [i32; 4]| {
             let (x0, y0) = (x.max(bx).max(0), y.max(by).max(0));
@@ -500,94 +517,65 @@ impl TileRenderer {
             (x1 > x0 && y1 > y0).then_some([x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32])
         };
         let target_rect = [0, 0, size.width as i32, size.height as i32];
-        // Zoomed art of the group being drawn, for after its scaling.
-        let mut posts: Vec<(usize, Camera)> = Vec::new();
+        // Pipelines into the canvas, and into the source texture.
+        let (canvas_tiles, canvas_free) = match () {
+            _ if direct => (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0)),
+            _ if bits == 0 => (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2)),
+            _ => (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1)),
+        };
+        let source_pipelines = if bits == 0 {
+            (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
+        } else {
+            (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
+        };
+        let steps = Steps { queue, params: &self.params, world, bind_group, frame };
         for (v, place) in placements.iter().enumerate() {
+            // Its steps at zoom 1.
             let rect = place.rect;
             let scissor = match place.source {
                 Some(r) => clipped(rect, [r[0] as i32, r[1] as i32, r[2] as i32, r[3] as i32]),
                 None => clipped(rect, target_rect),
             };
-            let (into, (tiles, free)) = match place.source {
-                None if direct => (&canvas, (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0))),
-                None => (&canvas, if bits == 0 {
-                    (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
-                } else {
-                    (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
-                }),
-                Some(_) => (source_view.as_ref().expect("created above"), if bits == 0 {
-                    (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
-                } else {
-                    (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
-                }),
+            let (into, pipelines) = match place.source {
+                None => (&canvas, (canvas_tiles, canvas_free)),
+                Some(_) => (source_view.as_ref().expect("created above"), source_pipelines),
             };
-            // Which zoom art the view's passes draw (see `FrameParams::zoom_art`).
-            let art = u32::from(place.post.is_some());
-            // Each (view, pass) has its own parameter slot: buffer writes all
-            // land before the commands run.
-            let write_params = |slot: usize, params: FrameParams| {
-                let offset = (v * (MAX_PASSES + 2) + slot) as u64 * PARAMS_STRIDE;
-                queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
-                offset as u32
-            };
+            // Which zoom art the view draws (see `FrameParams::zoom_art`).
+            let art = u32::from(place.art);
             if let Some(scissor) = scissor {
-                let drawn = place.drawn;
                 let viewport = [rect[0] as f32, rect[1] as f32, rect[2] as f32, rect[3] as f32];
-                for (i, p) in world.passes.iter().enumerate().take(MAX_PASSES) {
-                    let params = drawn.frame_params(&world.grid, world.color, frame, p, v as u32, art);
-                    let offset = write_params(i, params);
-                    let mut pass = begin_view(encoder, into, (viewport, scissor), bind_group, offset);
-                    if drawn.cells {
-                        pass.set_pipeline(tiles);
-                        pass.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * p.count);
-                    }
-                    draw_free(&mut pass, world, i, free);
-                }
-                if world.free_after.get(passes).is_some_and(|r| !r.is_empty()) {
-                    let params = drawn.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, v as u32, art);
-                    let offset = write_params(MAX_PASSES, params);
-                    let mut pass = begin_view(encoder, into, (viewport, scissor), bind_group, offset);
-                    draw_free(&mut pass, world, passes, free);
+                steps.draw(encoder, into, (viewport, scissor), &place.drawn, v, (art, None), place.steps_at_one(), 0, pipelines);
+            }
+            // The group's picture, scaled into its rectangle.
+            if let Some((group, r)) = place.blit {
+                let group_rect = [group.origin.0, group.origin.1, group.viewport.0 as i32, group.viewport.1 as i32];
+                if let Some(on_target) = clipped(group_rect, target_rect) {
+                    let params = OutputParams {
+                        src_x: r[0] as i32,
+                        src_y: r[1] as i32,
+                        dst_x: group.origin.0,
+                        dst_y: group.origin.1,
+                        zoom_num: group.zoom.0.max(1),
+                        zoom_den: group.zoom.1.max(1),
+                        bits: 0,
+                        _pad: 0,
+                    };
+                    let offset = write_output(v, params);
+                    let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
+                    pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
+                    pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
+                    pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
+                    pass.draw(0..3, 0..1);
                 }
             }
-            if let Some(post) = place.post {
-                posts.push((v, post));
-            }
-            // The group's picture, scaled into its rectangle; then the zoomed
-            // art of its views, at full resolution over it.
-            let Some((group, r)) = place.blit else { continue };
-            let group_rect = [group.origin.0, group.origin.1, group.viewport.0 as i32, group.viewport.1 as i32];
-            let Some(on_target) = clipped(group_rect, target_rect) else {
-                posts.clear();
-                continue;
-            };
-            let params = OutputParams {
-                src_x: r[0] as i32,
-                src_y: r[1] as i32,
-                dst_x: group.origin.0,
-                dst_y: group.origin.1,
-                zoom_num: group.zoom.0.max(1),
-                zoom_den: group.zoom.1.max(1),
-                bits: 0,
-                _pad: 0,
-            };
-            let offset = write_output(v, params);
-            let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
-            pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
-            pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
-            pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
-            pass.draw(0..3, 0..1);
-            drop(pass);
-            for (pv, post) in posts.drain(..) {
-                let params = post.frame_params(&world.grid, world.color, frame, &Pass { first: 0, count: 0 }, pv as u32, 2);
-                let offset = (pv * (MAX_PASSES + 2) + MAX_PASSES + 1) as u64 * PARAMS_STRIDE;
-                queue.write_buffer(&self.params, offset, bytemuck::bytes_of(&params));
-                let viewport = [post.origin.0 as f32, post.origin.1 as f32, post.viewport.0 as f32, post.viewport.1 as f32];
-                let mut pass = begin_view(encoder, &canvas, (viewport, on_target), bind_group, offset as u32);
-                let free = if direct { self.free_pipelines(device, 0) } else if bits == 0 { self.free_pipelines(device, 2) } else { self.free_pipelines(device, 1) };
-                for i in 0..=passes {
-                    draw_free(&mut pass, world, i, free);
-                }
+            // Its steps at its zoom, straight into the canvas (zoomed art at
+            // full resolution).
+            let s = place.scaled_scissor;
+            if let (true, Some(scissor)) = (place.scaled_from.is_some(), clipped([s[0], s[1], s[2] - s[0], s[3] - s[1]], target_rect)) {
+                let c = &place.scaled;
+                let viewport = [c.origin.0 as f32, c.origin.1 as f32, c.viewport.0 as f32, c.viewport.1 as f32];
+                let art = if place.art { 2 } else { 0 };
+                steps.draw(encoder, &canvas, (viewport, scissor), c, v, (art, Some(c.origin)), place.steps_scaled(), MAX_PASSES + 1, (canvas_tiles, canvas_free));
             }
         }
         if direct {
@@ -674,6 +662,59 @@ impl FreePipelines<'_> {
             (FreeKind::Invert, 0) => vec![get(P::FreeInvert)],
             (FreeKind::Invert, _) => vec![get(P::FreeInvertInternal)],
             (FreeKind::Subpixel, into) => (0..3).map(|c| get(P::Subpixel(into, c))).collect(),
+        }
+    }
+}
+
+/// What drawing a view's steps (see `camera::Placement`) needs.
+struct Steps<'a> {
+    queue: &'a wgpu::Queue,
+    params: &'a wgpu::Buffer,
+    world: &'a WorldBuffers,
+    bind_group: &'a wgpu::BindGroup,
+    frame: u32,
+}
+
+impl Steps<'_> {
+    /// Draws the `steps` of view `v` seen by `camera` into `into` (its
+    /// viewport and the part to touch), with `art` (`FrameParams::zoom_art`)
+    /// and `scaled_at` (`Camera::frame_params`), its parameters in the view's
+    /// slots from `slot`.
+    #[allow(clippy::too_many_arguments)]
+    fn draw(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        into: &wgpu::TextureView,
+        bounds: ([f32; 4], [u32; 4]),
+        camera: &Camera,
+        v: usize,
+        (art, scaled_at): (u32, Option<(i32, i32)>),
+        steps: std::ops::Range<usize>,
+        slot: usize,
+        (tiles, free): (&wgpu::RenderPipeline, FreePipelines<'_>),
+    ) {
+        let world = self.world;
+        let passes = world.passes.len().min(MAX_PASSES);
+        for i in 0..=passes {
+            let cells = i < passes && camera.cells && steps.contains(&(2 * i));
+            let sprites = steps.contains(&(2 * i + 1)) && world.free_after.get(i).is_some_and(|r| !r.is_empty());
+            if !cells && !sprites {
+                continue;
+            }
+            let pass = world.passes.get(i).copied().filter(|_| i < passes).unwrap_or(Pass { first: 0, count: 0 });
+            let params = camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at);
+            // Each (view, step) has its own parameter slot: buffer writes all
+            // land before the commands run.
+            let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;
+            self.queue.write_buffer(self.params, offset, bytemuck::bytes_of(&params));
+            let mut render = begin_view(encoder, into, bounds, self.bind_group, offset as u32);
+            if cells {
+                render.set_pipeline(tiles);
+                render.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * pass.count);
+            }
+            if sprites {
+                draw_free(&mut render, world, i, free);
+            }
         }
     }
 }

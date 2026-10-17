@@ -28,7 +28,7 @@ pub struct Draw {
 /// clipping to the viewport).
 pub fn draw_list(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32) -> Vec<Draw> {
     let mut out = Vec::new();
-    visit(world, atlas, camera, 0, frame, 0, &mut |d| out.push(d));
+    visit(world, atlas, camera, 0, frame, 0, 0..usize::MAX, false, &mut |d, _| out.push(d));
     out
 }
 
@@ -145,6 +145,10 @@ fn apply_copies<P: Copy>(out: &mut [P], (w, h): (u32, u32), copies: &[ScreenCopy
 /// `background`, `put` blending one texel. A zoomed view is drawn at zoom 1
 /// on its own `background`, then magnified (or shrunk) into its rectangle
 /// by nearest texel, replacing what is there; later views draw over it.
+/// From the first zoomed sprite of a view showing them on (see
+/// `camera::Placement`), its group is drawn at its zoom straight into the
+/// canvas: every target pixel blended with the texels its zoom-1 pixel
+/// gets, zoomed art at full resolution.
 fn compose<P: Copy>(
     world: &TileWorld,
     atlas: &Atlas,
@@ -156,11 +160,11 @@ fn compose<P: Copy>(
 ) -> Vec<P> {
     let mut out = vec![background; (w * h) as usize];
     let cameras = &cameras[..cameras.len().min(crate::renderer::MAX_VIEWS)];
-    let placements = crate::camera::placements(cameras);
+    let first_zoomed = crate::world::first_zoomed(&world.free, world.passes().len().min(crate::renderer::MAX_PASSES));
+    let placements = crate::camera::placements(cameras, |z| first_zoomed.iter().find(|(q, _)| *q == z).map(|&(_, p)| p));
     // The source texture: every scaled group's picture, laid out the same.
     let (sw, sh) = placements.iter().filter_map(|p| p.source).fold((1, 1), |(sw, sh), r| (sw.max(r[0] + r[2]), sh.max(r[1] + r[3])));
     let mut source = vec![background; (sw * sh) as usize];
-    let mut posts: Vec<(usize, Camera)> = Vec::new();
     for (v, place) in placements.iter().enumerate() {
         // Draws come in target pixels from the drawn camera's origin; they
         // land in the view's rectangle, clipped to it (and to its group's
@@ -173,35 +177,85 @@ fn compose<P: Copy>(
             None => [0, 0, w as i32, h as i32],
         };
         let rect = [rx.max(bounds[0]), ry.max(bounds[1]), (rx + rw).min(bounds[2]), (ry + rh).min(bounds[3])];
-        let art = u32::from(place.post.is_some());
+        let art = u32::from(place.art);
         let (buffer, bw, size) = match place.source {
             Some(_) => (&mut source, sw, (sw, sh)),
             None => (&mut out, w, (w, h)),
         };
-        visit(world, atlas, &drawn, v as u32, frame, art, &mut |d| {
+        visit(world, atlas, &drawn, v as u32, frame, art, place.steps_at_one(), false, &mut |d, _| {
             let clip = d.clip.unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
             let clip = [clip[0].saturating_add(dx), clip[1].saturating_add(dy), clip[2].saturating_add(dx), clip[3].saturating_add(dy)];
             let clip = [clip[0].max(rect[0]), clip[1].max(rect[1]), clip[2].min(rect[2]), clip[3].min(rect[3])];
             let d = Draw { x: d.x + dx, y: d.y + dy, clip: Some(clip), ..d };
             each_texel(atlas, &d, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src));
         });
-        if let Some(post) = place.post {
-            posts.push((v, post));
+        // The group's picture scaled into its rectangle.
+        if let Some((group, r)) = place.blit {
+            for (px, py) in group.target_rect((w, h)) {
+                let (sx, sy) = group.source_texel((px, py));
+                out[(py * w + px) as usize] = source[((r[1] + sy) * sw + r[0] + sx) as usize];
+            }
         }
-        // The group's picture scaled into its rectangle, then its views'
-        // zoomed art at full resolution.
-        let Some((group, r)) = place.blit else { continue };
-        for (px, py) in group.target_rect((w, h)) {
-            let (sx, sy) = group.source_texel((px, py));
-            out[(py * w + px) as usize] = source[((r[1] + sy) * sw + r[0] + sx) as usize];
-        }
-        for (pv, post) in posts.drain(..) {
-            visit(world, atlas, &post, pv as u32, frame, 2, &mut |d| {
-                each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
+        // The rest at its zoom: draws in the camera's zoom-1 pixels from its
+        // origin (zoomed art in target pixels), each target pixel in the
+        // scissor showing its zoom-1 pixel.
+        if place.scaled_from.is_some() {
+            let c = place.scaled;
+            let s = place.scaled_scissor;
+            let scissor = [s[0].max(0), s[1].max(0), s[2].min(w as i32), s[3].min(h as i32)];
+            let (n, dd) = (c.zoom.0.max(1), c.zoom.1.max(1));
+            let (ox, oy) = c.origin;
+            let art = if place.art { 2 } else { 0 };
+            visit(world, atlas, &c, v as u32, frame, art, place.steps_scaled(), true, &mut |d, zoomed| {
+                let clip = d.clip.unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+                if zoomed {
+                    let clip = [clip[0].max(scissor[0]), clip[1].max(scissor[1]), clip[2].min(scissor[2]), clip[3].min(scissor[3])];
+                    let d = Draw { clip: Some(clip), ..d };
+                    each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src));
+                    return;
+                }
+                let sprite = atlas.sprites[d.sprite.0 as usize];
+                // The sprite's zoom-1 rectangle from the origin, clipped.
+                let (x0, y0) = (d.x - ox, d.y - oy);
+                let l = x0.max(clip[0].saturating_sub(ox));
+                let t = y0.max(clip[1].saturating_sub(oy));
+                let r = (x0 + sprite.width as i32).min(clip[2].saturating_sub(ox));
+                let b = (y0 + sprite.height as i32).min(clip[3].saturating_sub(oy));
+                if r <= l || b <= t {
+                    return;
+                }
+                let (Some((tl, tr)), Some((tt, tb))) = (scaled_span(l, r, n, dd, c.hairline), scaled_span(t, b, n, dd, c.hairline)) else { return };
+                let page = &atlas.pages[sprite.page as usize];
+                for py in (oy + tt).max(scissor[1])..(oy + tb).min(scissor[3]) {
+                    for px in (ox + tl).max(scissor[0])..(ox + tr).min(scissor[2]) {
+                        let sx = ((px - ox) as i64 * dd as i64).div_euclid(n as i64) as i32;
+                        let sy = ((py - oy) as i64 * dd as i64).div_euclid(n as i64) as i32;
+                        let (tx, ty) = (sx.max(l) - x0, sy.max(t) - y0);
+                        let src = page.get(sprite.atlas_x + tx as u32, sprite.atlas_y + ty as u32);
+                        if src[3] != 0 {
+                            put(&mut out[(py as u32 * w + px as u32) as usize], &d, src);
+                        }
+                    }
+                }
             });
         }
     }
     out
+}
+
+/// The pixels `p` whose zoom-1 pixel `floor(p·d/n)` is in `[lo, hi)`, as in
+/// the shaders: from `ceil(lo·n/d)` to `ceil(hi·n/d)`; with `hair`, at least
+/// the pixel holding `lo·n/d`.
+fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32)> {
+    let floor = |v: i32| (v as i64 * n as i64).div_euclid(d as i64) as i32;
+    let (a, b) = (-floor(-lo), -floor(-hi));
+    if b > a {
+        Some((a, b))
+    } else if hair {
+        Some((floor(lo), floor(lo) + 1))
+    } else {
+        None
+    }
 }
 
 /// Calls `f` for every opaque texel of `d` inside the viewport.
@@ -225,11 +279,16 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
     }
 }
 
-/// Calls `draw` for every sprite view `view` (seen by `camera`) shows, in
-/// order, in target pixels, clipped to the view.
+/// Calls `draw` for every sprite view `view` (seen by `camera`) shows in
+/// `steps` (see `camera::Placement`), in order, in target pixels, clipped to
+/// the view; and whether it is zoomed art.
 /// `art`: which free sprites by their zoom art (`FrameParams::zoom_art`).
-fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u32, art: u32, draw: &mut dyn FnMut(Draw)) {
-    // Zoomed art only for a view at its zoom, in the pass after scaling.
+/// `scaled`: the view is drawn at its zoom, its draws come in its zoom-1
+/// pixels from its origin (zoomed art in target pixels), clipped only to
+/// their own clip rectangles.
+#[allow(clippy::too_many_arguments)]
+fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u32, art: u32, steps: std::ops::Range<usize>, scaled: bool, draw: &mut dyn FnMut(Draw, bool)) {
+    // Zoomed art only for a view at its zoom, drawn at it.
     let zoom = (camera.zoom.0.max(1), camera.zoom.1.max(1));
     let zoomed_for = |s: &crate::PlacedSprite| match s.zoom_art {
         crate::ZoomArt::Zoomed { zoom: z, offset } => Some((z, offset)),
@@ -237,11 +296,14 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     };
     let art_fits = |s: &crate::PlacedSprite| match zoomed_for(s) {
         Some((z, _)) => art == 2 && z == zoom,
-        None => art != 2 && !(art == 1 && s.zoom_art == crate::ZoomArt::Low),
+        None => !(art != 0 && s.zoom_art == crate::ZoomArt::Low),
     };
     let (vx, vy) = camera.origin;
     let rect = [vx, vy, vx + camera.viewport.0 as i32, vy + camera.viewport.1 as i32];
     let within = |clip: Option<[i32; 4]>| {
+        if scaled {
+            return clip;
+        }
         let c = clip.unwrap_or(rect);
         Some([c[0].max(rect[0]), c[1].max(rect[1]), c[2].min(rect[2]), c[3].min(rect[3])])
     };
@@ -250,7 +312,10 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     let passes = world.passes();
     let period = tile_render_shared::world_period(&world.grid.params());
     // Free sprites following pass `p`, in list order.
-    let free_after = |p: usize, draw: &mut dyn FnMut(Draw)| {
+    let free_after = |p: usize, draw: &mut dyn FnMut(Draw, bool)| {
+        if !steps.contains(&(2 * p + 1)) {
+            return;
+        }
         for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s)) {
             let set = s.set.0 as usize;
             let frames = packed.sets[set];
@@ -281,7 +346,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     pass: p,
                     blend: s.blend,
                     clip: within(s.clip.map(|[x0, y0, x1, y1]| [vx + sc(x0, bx), vy + sc(y0, by), vx + sc(x1, bx), vy + sc(y1, by)])),
-                });
+                }, true);
                 continue;
             }
             draw(Draw {
@@ -291,13 +356,13 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 pass: p,
                 blend: s.blend,
                 clip: within(s.clip.map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
-            });
+            }, false);
         }
     };
     for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
-        let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0);
-        for local in 0..if camera.cells && art != 2 { params.cols * params.rows } else { 0 } {
+        let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0, None);
+        for local in 0..if camera.cells && steps.contains(&(2 * pass_index)) { params.cols * params.rows } else { 0 } {
             let col = params.first_col + (local % params.cols) as i32;
             let row = params.first_row + (local / params.cols) as i32;
             let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };
@@ -333,7 +398,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     pass: pass_index,
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
                     clip: within(None),
-                });
+                }, false);
             }
         }
         free_after(pass_index, draw);
