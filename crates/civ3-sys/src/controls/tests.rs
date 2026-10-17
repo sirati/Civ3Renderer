@@ -287,3 +287,18 @@ fn context_menus_check_boxes_tabs_and_links() {
     let c = controls(&m, &sites());
     assert!(c.iter().any(|c| c.id == check as u64 && c.rect == [0, 400, 300, 50]));
 }
+
+#[test]
+fn the_form_tree_lists_every_form_visited() {
+    let mut m = Fake::default();
+    m.form(0x10_0000, PANEL, KEYED, true, [100, 50, 400, 250], 0, &[0x20_0000, 0x40_0000]);
+    m.form(0x20_0000, BUTTON, 0, true, [10, 20, 70, 44], 0x10_0000, &[]);
+    // Hidden: listed, its children not.
+    m.form(0x40_0000, PANEL, 0, false, [0, 100, 200, 200], 0x10_0000, &[0x50_0000]);
+    m.form(0x50_0000, BUTTON, 0, true, [0, 0, 60, 24], 0x40_0000, &[]);
+    with_roots(&mut m, &[0x10_0000]);
+    let tree = form_tree(&m, &sites());
+    let got: Vec<(u32, u32, bool, [i32; 4], u32)> = tree.iter().map(|f| (f.depth, f.addr, f.visible, f.shown, f.children)).collect();
+    assert_eq!(got, [(0, 0x10_0000, true, [100, 50, 300, 200], 2), (1, 0x20_0000, true, [110, 70, 60, 24], 0), (1, 0x40_0000, false, [100, 150, 200, 100], 1)]);
+    assert!(tree.iter().all(|f| f.list.is_none()));
+}
