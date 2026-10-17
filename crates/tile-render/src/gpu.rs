@@ -178,6 +178,23 @@ impl Headless {
         frame: u32,
         clear: [u8; 4],
     ) -> RgbaImage {
+        self.render_layered(renderer, cameras, cameras.len(), copies, present, frame, clear)
+    }
+
+    /// Renders views, the last from `overlay_from` on overlays, into a
+    /// picture shown on an offscreen image of `present.target` (see
+    /// `TileRenderer::render_layered`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_layered(
+        &self,
+        renderer: &mut TileRenderer,
+        cameras: &[Camera],
+        overlay_from: usize,
+        copies: &[crate::ScreenCopy],
+        present: crate::Present,
+        frame: u32,
+        clear: [u8; 4],
+    ) -> RgbaImage {
         let (w, h) = present.target;
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
@@ -190,7 +207,7 @@ impl Headless {
             view_formats: &[],
         });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        renderer.render_presented(&self.device, &self.queue, &mut encoder, &target, cameras, copies, frame, clear, present);
+        renderer.render_layered(&self.device, &self.queue, &mut encoder, &target, cameras, overlay_from, copies, frame, clear, present);
         read_texture(&self.device, &self.queue, encoder, &target)
     }
 }

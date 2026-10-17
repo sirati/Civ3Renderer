@@ -60,6 +60,35 @@ pub struct TileRenderer {
     /// drawn (runs from 0).
     markers: Vec<FreeSprite>,
     marker_runs: FreeRuns,
+    /// Bumped whenever what the views draw changes (anything uploaded but
+    /// markers): a frame of the same views, markers and tick is the same.
+    generation: u64,
+    /// What the internal canvas shows (see `render_layered`), whether its
+    /// overlay views are drawn on it, and a copy of it without them.
+    drawn: Option<FrameKey>,
+    overlaid: bool,
+    base: Option<wgpu::Texture>,
+    /// Whether the last frame showed the picture drawn before.
+    reused: bool,
+}
+
+/// What a frame's views (but the overlay ones) were drawn from.
+#[derive(Clone, Debug, PartialEq)]
+struct FrameKey {
+    generation: u64,
+    /// The markers drawn in them.
+    markers: Vec<FreeSprite>,
+    cameras: Vec<Camera>,
+    frame: u32,
+    clear: [u8; 4],
+    size: (u32, u32),
+}
+
+/// Whether a frame may show the picture drawn before where nothing it
+/// shows changed (`TILE_RENDER_REUSE=0`: every frame is drawn whole).
+fn reuse_frames() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("TILE_RENDER_REUSE").map_or(true, |v| v != "0"))
 }
 
 /// The atlas on the GPU: its colour and index pages, its sprites and
@@ -292,6 +321,11 @@ impl TileRenderer {
             timer: None,
             markers: Vec::new(),
             marker_runs: Vec::new(),
+            generation: 0,
+            drawn: None,
+            overlaid: false,
+            base: None,
+            reused: false,
         }
     }
 
@@ -301,6 +335,12 @@ impl TileRenderer {
     pub fn enable_timing(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         self.timer = crate::timing::GpuTimer::new(device, queue);
         self.timer.is_some()
+    }
+
+    /// Whether the last frame showed the picture drawn before (only its
+    /// overlays drawn anew, see [`TileRenderer::render_layered`]).
+    pub fn reused(&self) -> bool {
+        self.reused
     }
 
     /// The GPU timer, if timing is on.
@@ -388,6 +428,7 @@ impl TileRenderer {
     /// changes at run time, e.g. a minimap). `image` must have the sprite's
     /// size; returns whether it was written.
     pub fn patch_sprite(&mut self, queue: &wgpu::Queue, sprite: crate::SpriteId, image: &crate::RgbaImage) -> bool {
+        self.generation += 1;
         let Some(a) = &mut self.atlas else { return false };
         let Some(s) = a.sprites.get_mut(sprite.0 as usize) else { return false };
         if (s.width, s.height) != (image.width, image.height) || s.width == 0 || s.height == 0 || s.palette != 0 {
@@ -406,6 +447,7 @@ impl TileRenderer {
 
     /// Uploads the atlas pages (colour and index), sprite and palette tables.
     pub fn set_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, atlas: &Atlas) {
+        self.generation += 1;
         // Release the old atlas first: two at once may not fit (32-bit
         // processes, software renderers).
         self.bind_group = None;
@@ -530,6 +572,7 @@ impl TileRenderer {
     /// Replaces the palette rows (see `Atlas::palettes`), e.g. a driver's
     /// colours changing at run time: no atlas is uploaded again.
     pub fn set_palettes(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, palettes: &[u32]) {
+        self.generation += 1;
         let words = palette_words(palettes);
         match &self.palettes {
             Some(b) if b.size() >= (words.len() * 4) as u64 => queue.write_buffer(b, 0, bytemuck::cast_slice(&words)),
@@ -542,6 +585,7 @@ impl TileRenderer {
 
     /// Uploads a whole world. Call again (or `update_world`) when it changes.
     pub fn set_world(&mut self, device: &wgpu::Device, world: &TileWorld) {
+        self.generation += 1;
         let packed = world.pack();
         let empty = [LayerDesc::default()];
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
@@ -594,6 +638,7 @@ impl TileRenderer {
     /// Re-uploads only the free sprites (and text) of an already uploaded
     /// world whose cells did not change (e.g. markers moving every frame).
     pub fn update_free(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
+        self.generation += 1;
         let Some(w) = &mut self.world else { return self.set_world(device, world) };
         let fonts = font_ids(world);
         // (The fonts' outlines are put together only when they change.)
@@ -674,6 +719,7 @@ impl TileRenderer {
     /// uploaded before; all of them (or a new world) otherwise. Its free
     /// sprites are not uploaded (see [`TileRenderer::update_free`]).
     pub fn update_cells(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld, dirty: &crate::world::Dirty) {
+        self.generation += 1;
         let records = match dirty {
             crate::world::Dirty::None => return,
             crate::world::Dirty::Records(r) => r,
@@ -825,6 +871,31 @@ impl TileRenderer {
         clear: [u8; 4],
         present: Present,
     ) {
+        self.render_layered(device, queue, encoder, target, cameras, cameras.len(), copies, frame, clear, present);
+    }
+
+    /// [`TileRenderer::render_presented`], where the views from
+    /// `cameras[overlay_from]` on are *overlays* that draw only markers
+    /// over everything (a cursor, a frame counter): a frame whose other
+    /// views, the markers in them, the world and the tick are those of the
+    /// last frame shows the picture drawn then (of a world composed
+    /// internally: a quantized one, one with copies, or one shown scaled),
+    /// with the overlays drawn anew over it. (`TILE_RENDER_REUSE=0`: every
+    /// frame drawn whole.)
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_layered(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        cameras: &[Camera],
+        overlay_from: usize,
+        copies: &[ScreenCopy],
+        frame: u32,
+        clear: [u8; 4],
+        present: Present,
+    ) {
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear)), None));
@@ -855,26 +926,63 @@ impl TileRenderer {
         };
         // Scaled groups' pictures, side by side in rows.
         let placements = crate::camera::placements(cameras, |z| crate::world::zoomed_from(&world.first_zoomed, z));
-        let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
-        if placements.iter().any(|p| p.source.is_some()) {
-            let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
-            let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear sources".into()));
-            drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background), timed));
-        }
         let copies = &copies[..copies.len().min(MAX_COPIES)];
         // Copies read the finished picture, and a scaled one is shown from
         // it: then it is composed internally.
         let direct = bits == 0 && copies.is_empty() && unscaled;
+        // The picture of the views but the overlays drawn last, if this
+        // frame's are the same (then only the overlays are drawn, over a
+        // copy of it without the last frame's).
+        let overlay_from = overlay_from.min(cameras.len());
+        let overlays = overlay_from < cameras.len();
+        let markers = self.markers.iter().filter(|m| m.view == tile_render_shared::ALL_VIEWS || (m.view as usize) < overlay_from || m.flags & tile_render_shared::FREE_EXCEPT_VIEW != 0);
+        let key = FrameKey { generation: self.generation, markers: markers.copied().collect(), cameras: cameras[..overlay_from].to_vec(), frame, clear, size: (size.width, size.height) };
+        let same = !direct && reuse_frames() && self.drawn.as_ref() == Some(&key) && self.scratch.is_some();
+        let reuse = same && (!self.overlaid || self.base.is_some());
+        self.reused = reuse;
+        if !direct && overlays && !reuse {
+            let fits = self.base.as_ref().is_some_and(|b| (b.width(), b.height()) == (size.width, size.height));
+            if !fits {
+                self.base = Some(device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("tile-render canvas without overlays"),
+                    size: wgpu::Extent3d { width: size.width, height: size.height, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: QUANTIZED_FORMAT,
+                    usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                }));
+            }
+        }
+        if !reuse {
+            let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
+            if placements.iter().any(|p| p.source.is_some()) {
+                let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
+                let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear sources".into()));
+                drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background), timed));
+            }
+        }
         let canvas = if direct {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background), self.timed(|| "clear".into())));
             view.clone()
         } else {
             let s = scratch_for(&mut self.scratch, device, &self.output_layout, &self.output_params, (size.width, size.height), false);
             let main = s.main.create_view(&Default::default());
-            let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear".into()));
-            drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background), timed));
+            if !reuse {
+                let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear".into()));
+                drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background), timed));
+            } else if self.overlaid {
+                // (The last frame's overlays off.)
+                let (base, canvas) = (self.base.as_ref().expect("checked above"), &s.main);
+                encoder.copy_texture_to_texture(base.as_image_copy(), canvas.as_image_copy(), canvas.size());
+            }
             main
         };
+        if !direct {
+            self.drawn = Some(key);
+            self.overlaid = overlays;
+        }
         let source_view = self.sources.as_ref().map(|s| s.main.create_view(&Default::default()));
         // The part of rectangle (x, y, w, h) inside `bounds` (x, y, w, h).
         let clipped = |[x, y, w, h]: [i32; 4], [bx, by, bw, bh]: [i32; 4]| {
@@ -896,6 +1004,14 @@ impl TileRenderer {
         };
         let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref() };
         for (v, place) in placements.iter().enumerate() {
+            if reuse && v < overlay_from {
+                continue;
+            }
+            // The picture without the overlays, kept.
+            if !direct && !reuse && v == overlay_from {
+                let (base, canvas) = (self.base.as_ref().expect("made above"), &self.scratch.as_ref().expect("made above").main);
+                encoder.copy_texture_to_texture(canvas.as_image_copy(), base.as_image_copy(), canvas.size());
+            }
             // Its steps at zoom 1.
             let rect = place.rect;
             let scissor = match place.source {
@@ -1361,7 +1477,7 @@ fn scratch_for<'a>(
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: QUANTIZED_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         let output = device.create_bind_group(&wgpu::BindGroupDescriptor {

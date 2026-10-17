@@ -1240,3 +1240,46 @@ fn changed_cells_markers_and_sprites_drawn_again_show_what_a_new_world_does() {
     renderer.set_markers(&gpu.device, &gpu.queue, &[]);
     assert_same(&gpu.render(&mut renderer, &camera, 0, CLEAR), &reference::render(&world, &atlas, &camera, 0, CLEAR), "no markers");
 }
+
+#[test]
+fn a_frame_like_the_last_shows_the_same_with_its_overlays_drawn_anew() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let anim = world.free[0].set;
+    let terrain = world.layers()[0].lut.clone();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
+    renderer.set_world(&gpu.device, &world);
+    let size = (640, 360);
+    let main = Camera { x: 100, y: 50, ..Camera::new(size) };
+    let overlay = Camera { cells: false, ..Camera::new(size) };
+    // A marker in the main view and one in the overlay.
+    let in_main = PlacedSprite::new(anim, 300, 200);
+    let cursor = |x| PlacedSprite { screen: true, view: Some(1), ..PlacedSprite::new(terrain[3], x, 40) };
+    let check = |renderer: &mut TileRenderer, world: &TileWorld, cameras: &[Camera], markers: &[PlacedSprite], frame: u32, what: &str| {
+        renderer.set_markers(&gpu.device, &gpu.queue, markers);
+        let got = gpu.render_layered(renderer, cameras, 1, &[], tile_render::Present::unscaled(size), frame, CLEAR);
+        let mut w = world.clone();
+        w.free.extend_from_slice(markers);
+        assert_same(&got, &reference::render_views(&w, &atlas, cameras, size, frame, CLEAR), what);
+    };
+    let both = [main, overlay];
+    check(&mut renderer, &world, &both, &[in_main, cursor(20)], 2, "first");
+    assert!(!renderer.reused());
+    check(&mut renderer, &world, &both, &[in_main, cursor(90)], 2, "the overlay's marker moved");
+    assert!(renderer.reused());
+    check(&mut renderer, &world, &both, &[in_main, cursor(90)], 2, "nothing changed");
+    assert!(renderer.reused());
+    check(&mut renderer, &world, &both[..1], &[in_main], 2, "no overlay");
+    assert!(renderer.reused());
+    check(&mut renderer, &world, &both, &[PlacedSprite::new(anim, 310, 200), cursor(90)], 2, "the main view's marker moved");
+    assert!(!renderer.reused());
+    check(&mut renderer, &world, &both, &[PlacedSprite::new(anim, 310, 200), cursor(90)], 3, "another tick");
+    let _ = world.take_dirty();
+    world.set(tile_render::LayerId(0), 3, 3, 4);
+    let dirty = world.take_dirty();
+    renderer.update_cells(&gpu.device, &gpu.queue, &world, &dirty);
+    check(&mut renderer, &world, &both, &[PlacedSprite::new(anim, 310, 200), cursor(30)], 3, "a cell changed");
+}
