@@ -43,9 +43,20 @@ pub const LAYOUT_STAGGERED: u32 = 1;
 
 /// The layer is not drawn.
 pub const LAYER_HIDDEN: u32 = 1 << 0;
+/// `LayerDesc::flags`: value 0 draws nothing (its table's entry 0 is the
+/// empty set), known without reading the table.
+pub const LAYER_ZERO_EMPTY: u32 = 1 << 1;
 
 /// Vertices per sprite quad (two triangles, no index buffer).
 pub const QUAD_VERTICES: u32 = 6;
+/// Vertices per cell of a pass drawn as octagons
+/// ([`FrameParams::corner_cuts`]): six triangles fanned from one corner.
+pub const OCTAGON_VERTICES: u32 = 18;
+
+/// The index buffer cells are drawn with: a quad's two triangles over its
+/// four corners (indices `0..6`), then an octagon's six over its eight
+/// (`6..24`), so that the vertex shader runs once per corner.
+pub const CELL_INDICES: [u16; 24] = [0, 1, 2, 2, 1, 3, 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 7];
 
 /// One copy of the output pass: the rectangle of the source texture at
 /// (src_x, src_y) into the target at (dst_x, dst_y) (the pass's scissor
@@ -156,7 +167,10 @@ pub struct FrameParams {
     pub descending: u32,
     /// The row of named palette 1 (see [`PALETTE_SIZE`]).
     pub named_palettes: u32,
-    pub _pad2: u32,
+    /// 1: cells are drawn as octagons, their rectangles less the corners
+    /// their sprites leave blank ([`SpriteDesc::cuts`]), with
+    /// [`OCTAGON_VERTICES`] vertices each (where pixels map 1:1 to texels).
+    pub corner_cuts: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -395,7 +409,68 @@ pub struct SpriteDesc {
     /// picks (a nation's colours, say), where it picks one: so one copy of
     /// the art serves every colouring (see [`indexed_color`]).
     pub remap: u32,
+    /// How many columns at its left, rows at its top, columns at its right
+    /// and rows at its bottom draw nothing (texels of alpha 0), at most 127
+    /// each, in the low 7 bits of a byte each from the low one
+    /// ([`blank_margins`]): drawn rectangles leave them out
+    /// ([`drawn_part`]), so that no fragment is shaded only to be
+    /// discarded. 0: none known. The top bits of the low bytes say more of
+    /// its texels: [`BLANK_BINARY`], [`BLANK_OPAQUE`].
+    pub blank: u32,
+    /// The corners it leaves blank, as cuts along isometric diagonals (a
+    /// pixel down for two across), a byte each from the low one: top left
+    /// `c0` (texel centres with `u + 2v < c0` are blank), top right `c1`
+    /// (`(w − u) + 2v`), bottom right `c2` (`(w − u) + 2(h − v)`), bottom
+    /// left `c3` (`u + 2(h − v)`), each at most `min(w / 2, h)` so that
+    /// they do not cross ([`corner_cuts`]). A diamond on a 2:1 grid leaves
+    /// half its rectangle out. 0: none.
+    pub cuts: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
     pub _pad2: u32,
+}
+
+/// [`SpriteDesc::cuts`] of the four corner cuts (top left, top right,
+/// bottom right, bottom left) of a `w × h` sprite: each kept to
+/// `min(w / 2, h, 255)`.
+pub fn corner_cuts(c: [u32; 4], w: u32, h: u32) -> u32 {
+    let most = (w / 2).min(h).min(255);
+    c[0].min(most) | c[1].min(most) << 8 | c[2].min(most) << 16 | c[3].min(most) << 24
+}
+
+/// [`SpriteDesc::blank`]: every texel has alpha 0 or 255 (drawn over
+/// itself, the sprite shows what it showed once).
+pub const BLANK_BINARY: u32 = 1 << 7;
+/// [`SpriteDesc::blank`]: every texel has alpha 255.
+pub const BLANK_OPAQUE: u32 = 1 << 15;
+
+/// [`SpriteDesc::blank`] of blank margins (left, top, right, bottom),
+/// each cut to 127.
+pub fn blank_margins(left: u32, top: u32, right: u32, bottom: u32) -> u32 {
+    left.min(127) | top.min(127) << 8 | right.min(127) << 16 | bottom.min(127) << 24
+}
+
+/// The part of the rectangle `p` draws `sprite` in (pixels `0..p.width` ×
+/// `0..p.height` from its corner) that shows texels of the sprite outside
+/// its blank margins ([`SpriteDesc::blank`]): left, top, right, bottom,
+/// relative to the rectangle (empty if right ≤ left or bottom ≤ top).
+/// Pixel `i` of the rectangle shows texel `p.texel + p.step·i`.
+pub fn drawn_part(sprite: &SpriteDesc, p: &Placed) -> (u32, u32, u32, u32) {
+    let m = sprite.blank;
+    let (x0, x1) = drawn_span(m & 0x7F, (m >> 16) & 0x7F, sprite.width, p.texel_x, p.step, p.width);
+    let (y0, y1) = drawn_span((m >> 8) & 0x7F, (m >> 24) & 0x7F, sprite.height, p.texel_y, p.step, p.height);
+    (x0, y0, x1, y1)
+}
+
+/// Of `count` pixels showing texels `texel + step·i` of a row (column) of
+/// `size` texels with `lo` and `hi` blank at its ends, the first and past
+/// the last that show one that is not.
+fn drawn_span(lo: u32, hi: u32, size: u32, texel: u32, step: u32, count: u32) -> (u32, u32) {
+    let step = if step == 0 { 1 } else { step };
+    let end = if size > hi { size - hi } else { 0 };
+    let first = if lo > texel { (lo - texel + step - 1) / step } else { 0 };
+    let past = if end > texel { (end - texel + step - 1) / step } else { 0 };
+    (if first < count { first } else { count }, if past < count { past } else { count })
 }
 
 /// Entries per palette row. Palette rows are `PALETTE_SIZE` RGBA8 colours
@@ -610,7 +685,13 @@ pub const ALPHA_STEPS: u32 = 32;
 
 /// A texel's 8-bit alpha as a number of [`ALPHA_STEPS`].
 pub fn alpha_steps(a8: u32) -> u32 {
-    (a8 * ALPHA_STEPS + 127) / 255
+    div255(a8 * ALPHA_STEPS + 127)
+}
+
+/// `x / 255` for `x` below 65535, without a division (GPUs have none for
+/// integers; it is a long sequence of instructions).
+pub fn div255(x: u32) -> u32 {
+    (x + 1 + (x >> 8)) >> 8
 }
 
 /// What a translucent texel with `k` alpha steps adds to its premultiplied
@@ -619,6 +700,28 @@ pub fn alpha_steps(a8: u32) -> u32 {
 /// nearest integer give the floor (see [`mix_stored`]).
 pub fn mix_offset() -> f32 {
     -0.5 + 0.5 / ALPHA_STEPS as f32
+}
+
+/// The premultiplied source of a quantized alpha blend (`k` in
+/// `1..=ALPHA_STEPS`); an opaque draw emits `stored / 255` directly.
+/// Translucent RGB444 and RGB555 sources use a binary fraction that
+/// survives packed FP16 fragment exports exactly. Its value is strictly
+/// between `(stored*k/32 - 1/2)/255` and that plus `1/(32*255)`, so rounding
+/// the resulting blend still gives [`mix_stored`] for every destination.
+/// Larger colour spaces retain the floating-point source calculation.
+pub fn mixed_source(stored: u32, k: u32, bits: u32) -> f32 {
+    if k >= ALPHA_STEPS {
+        return stored as f32 / 255.0;
+    }
+    let source = stored as f32 / 255.0 * (k as f32 / ALPHA_STEPS as f32) + mix_offset() / 255.0;
+    if bits <= 5 {
+        // Select the nearest representable FP16 before a driver's packed
+        // export can truncate it. These positive values are all normal
+        // FP16 numbers, so rounding the mantissa is sufficient.
+        let word = source.to_bits();
+        return f32::from_bits((word + 0xFFF + ((word >> 13) & 1)) & !0x1FFF);
+    }
+    source
 }
 
 /// The exact result of drawing stored value `src` with `k` alpha steps
@@ -702,6 +805,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn div255_divides() {
+        for x in 0..65535 {
+            assert_eq!(div255(x), x / 255, "{x}");
+        }
+    }
+
+    #[test]
     fn layouts_are_16_byte_multiples() {
         assert_eq!(size_of::<FreeSprite>() % 16, 0);
         assert_eq!(size_of::<FrameParams>() % 16, 0);
@@ -755,6 +865,24 @@ mod tests {
         // 50 %: the average, rounded down.
         assert_eq!(mix_stored(28 + QUANTIZED_BIAS, 16 + QUANTIZED_BIAS, 16), 22 + QUANTIZED_BIAS);
         assert_eq!(mix_stored(1 + QUANTIZED_BIAS, 6 + QUANTIZED_BIAS, 16), 3 + QUANTIZED_BIAS);
+    }
+
+    #[test]
+    fn packed_sources_preserve_every_rgb444_and_rgb555_blend() {
+        for bits in [4, 5] {
+            for k in 1..ALPHA_STEPS {
+                let a = k as f32 / ALPHA_STEPS as f32;
+                for qs in 0..1 << bits {
+                    let src = mixed_source(qs + QUANTIZED_BIAS, k, bits);
+                    assert_eq!(src.to_bits() & 0x1FFF, 0, "the source must survive an FP16 export exactly");
+                    for qd in 0..1 << bits {
+                        let dst = (qd + QUANTIZED_BIAS) as f32 / 255.0;
+                        let got = ((src + dst * (1.0 - a)) * 255.0).round() as u32;
+                        assert_eq!(got, mix_stored(qs + QUANTIZED_BIAS, qd + QUANTIZED_BIAS, k), "bits {bits}, src {qs}, dst {qd}, k {k}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

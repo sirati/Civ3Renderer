@@ -12,13 +12,14 @@ pub mod camera;
 pub mod gpu;
 pub mod reference;
 pub mod renderer;
+pub mod timing;
 pub mod world;
 
 pub use atlas::{Atlas, AtlasBuilder, AtlasGrowth, Blit, BlitPixels, IndexImage, RgbaImage, Shelves, SpriteId};
 pub use camera::Camera;
 pub use gpu::Headless;
-pub use renderer::{MAX_VIEWS, Present, ScreenCopy, StagedAtlas, TileRenderer};
-pub use world::{Blend, ColorModel, GlyphShape, Grid, LayerId, LayerSpec, Layout, OutlineGlyph, Pass, PlacedSprite, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
+pub use renderer::{AtlasTransferError, AtlasTransferProgress, AtlasTransferSource, MAX_VIEWS, Present, ScreenCopy, StagedAtlas, TileRenderer};
+pub use world::{Blend, ColorModel, Dirty, GlyphShape, Grid, LayerId, LayerSpec, Layout, OutlineGlyph, Pass, PlacedSprite, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
 /// How sprites are drawn in views showing the world smaller
 /// (`Camera::downscale`).
 pub use tile_render_shared::{KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, placed};

@@ -193,7 +193,7 @@ fn indexed_and_colour_sprites_are_pixel_exact_together() {
             direct_only(&mut world, &mut atlas);
         }
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         let mut drawn = 0;
         for (x, y) in [(0, 0), (333, 101), (-517, 40), (77, 400)] {
@@ -270,7 +270,7 @@ fn indexed_sprites_shrink_and_zoom_like_colour_ones() {
             (s.box_x, s.box_w) = (1, 126);
         }
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         for (x, y) in [(0, 0), (167, 51), (-259, 20)] {
             let camera = Camera { x, y, downscale: 2, overhang: (0, 64, 0, 0), ..Camera::new((400, 240)) };
@@ -307,7 +307,7 @@ fn indexed_sprites_blend_as_their_colour_twins() {
             w.free.push(PlacedSprite { screen: true, palette, blend, ..PlacedSprite::new(set, 60 + 31 * i as i32, 40 + 17 * i as i32) });
         }
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &w);
         let camera = Camera { overhang: (0, 64, 0, 0), ..Camera::new((400, 240)) };
         (gpu.render(&mut renderer, &camera, 2, CLEAR), reference::render(&w, &atlas, &camera, 2, CLEAR))
@@ -324,9 +324,18 @@ fn indexed_sprites_blend_as_their_colour_twins() {
     }
     world.free.push(PlacedSprite { screen: true, palette: 2, blend: Blend::Subpixel { color: [250, 30, 90] }, ..PlacedSprite::new(sets.single, 50, 60) });
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
     renderer.set_world(&gpu.device, &world);
     let camera = Camera::new((200, 160));
     assert_same(&gpu.render(&mut renderer, &camera, 0, CLEAR), &reference::render(&world, &atlas, &camera, 0, CLEAR), "subpixel indexed sprite");
 }
 
+
+/// `atlas` with its sprites' blank margins found, as compiled descriptions
+/// have them: the GPU leaves them out of the rectangles it draws, which
+/// must not change a pixel.
+fn trimmed(atlas: &tile_render::Atlas) -> tile_render::Atlas {
+    let mut a = atlas.clone();
+    a.trim_blank();
+    a
+}

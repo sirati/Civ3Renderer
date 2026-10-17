@@ -7,7 +7,7 @@
 use spirv_std::glam::{IVec4, UVec4, Vec4};
 use spirv_std::spirv;
 use tile_render_shared::text::{GlyphPlace, TextGlyph, bounds, clip_at_zoom, coverage, keyed, on_screen, place};
-use tile_render_shared::{ALL_VIEWS, ALPHA_STEPS, FREE_EXCEPT_VIEW, FrameParams, QUANTIZED_BIAS, alpha_steps, mix_offset, quantize, shrunk, world_period, wrap_distance};
+use tile_render_shared::{ALL_VIEWS, ALPHA_STEPS, FREE_EXCEPT_VIEW, FrameParams, QUANTIZED_BIAS, alpha_steps, mixed_source, quantize, shrunk, world_period, wrap_distance};
 
 use crate::{CULLED, max, min, quad_corner};
 
@@ -86,8 +86,7 @@ fn channel_out(c: u32, color: u32, channel: u32, params: &FrameParams) -> Vec4 {
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
-        let v = (quantize(c8, bits) + QUANTIZED_BIAS) as f32 / 255.0 * a + o;
+        let v = mixed_source(quantize(c8, bits) + QUANTIZED_BIAS, k, bits);
         Vec4::new(v, v, v, a)
     } else {
         if c == 0 {

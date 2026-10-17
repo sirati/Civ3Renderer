@@ -25,7 +25,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, cell_offset, frame_of, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, drawn_sprite, expand, indexed_color, layer_value, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, SCALE_SUBPIXEL, alpha_steps, drawn_part, drawn_sprite, expand, indexed_color, layer_value, mixed_source, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -40,6 +40,12 @@ fn quad_corner(vertex: u32) -> (f32, f32) {
         2 | 3 => (0.0, 1.0),
         _ => (1.0, 1.0),
     }
+}
+
+/// Corner `vertex` (0..4: left top, right top, left bottom, right bottom)
+/// of a cell's quad (see `tile_render_shared::CELL_INDICES`).
+fn cell_corner(vertex: u32) -> (f32, f32) {
+    ((vertex & 1) as f32, ((vertex >> 1) & 1) as f32)
 }
 
 /// Resolves the sprite drawn by `layer` in the cell at the given visible
@@ -75,7 +81,8 @@ fn resolve_sprite(
     let byte = record_at(layer, params.grid.cols, c, r);
     let data = ByteReader::new(tile_data);
     let (value, palette) = layer_value(layer, data.uint(byte, layer.value_bytes));
-    if value >= layer.lut_len {
+    // (Most cells of most layers: nothing, without reading the tables.)
+    if value >= layer.lut_len || (value == 0 && layer.flags & tile_render_shared::LAYER_ZERO_EMPTY != 0) {
         return None;
     }
     let phase = if layer.phase_bytes != 0 { data.u8(byte + layer.value_bytes) } else { 0 };
@@ -138,17 +145,26 @@ pub fn tile_vs(
     let sprite = &sprites[drawn_sprite(sprites, sprite_index, n) as usize];
     let p = placed(sprite, n);
 
-    let (u, v) = quad_corner(vertex);
+    // (Cells are drawn indexed, `CELL_INDICES`: `vertex` is a corner.)
+    let (u, v) = cell_corner(vertex);
     // The sprite's rectangle at zoom 1, from the viewport's corner (at the
     // view's scale: the part of its box it covers).
     let x0 = x + p.corner_x + p.inset_x as i32 - params.camera_x;
     let y0 = y + p.corner_y + p.inset_y as i32 - params.camera_y;
-    let rect = (x0, y0, x0 + p.width as i32, y0 + p.height as i32);
+    // Without the sprite's blank margins (see `trimmed`).
+    let (dx0, dy0, dx1, dy1) = trimmed(sprite, &p, params);
+    let rect = (x0 + dx0 as i32, y0 + dy0 as i32, x0 + dx1 as i32, y0 + dy1 as i32);
     let Some((l, t, r, b)) = on_target(params, rect) else {
         *out_pos = CULLED;
         return;
     };
-    let (sx, sy) = (l as f32 + u * (r - l) as f32, t as f32 + v * (b - t) as f32);
+    let (sx, sy) = if params.corner_cuts != 0 {
+        // (The cuts are in texels: where pixels are texels, 1:1.)
+        let cuts = if params.scaled == 0 && p.step == 1 { sprite.cuts } else { 0 };
+        octagon_corner(vertex, (l, t, r, b), (x0, y0), (sprite.width, sprite.height), cuts)
+    } else {
+        (l as f32 + u * (r - l) as f32, t as f32 + v * (b - t) as f32)
+    };
     *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
     // Texel = flat atlas origin + interpolated offset inside the sprite. Small
     // interpolated values keep float precision exact for big atlases, and the
@@ -161,6 +177,50 @@ pub fn tile_vs(
     *out_scaled = params.scaled;
     *out_step = p.step;
     *out_palette = UVec3::new(sprite.palette, sprite.remap, palette);
+}
+
+/// The part of the rectangle `p` places `sprite` in that is drawn: all of
+/// it but the sprite's blank margins (`tile_render_shared::drawn_part`),
+/// whose fragments would all be discarded. Not in a hairline view, whose
+/// sprites keep a pixel of their rectangle however small it is shown.
+fn trimmed(sprite: &SpriteDesc, p: &tile_render_shared::Placed, params: &FrameParams) -> (u32, u32, u32, u32) {
+    if params.hairline != 0 { (0, 0, p.width, p.height) } else { drawn_part(sprite, p) }
+}
+
+/// Corner `corner` (0..8, clockwise from the top edge's left end; see
+/// `tile_render_shared::CELL_INDICES`) of the octagon a sprite of `size`
+/// texels whose texel (0, 0) is at pixel `origin` covers in rectangle (l,
+/// t, r, b): the rectangle less its corners `cuts` leaves blank
+/// (`SpriteDesc::cuts`, which keeps every texel centre that is not blank
+/// strictly inside; `cuts` 0: the rectangle).
+fn octagon_corner(corner: u32, (l, t, r, b): (i32, i32, i32, i32), (x0, y0): (i32, i32), (w, h): (u32, u32), cuts: u32) -> (f32, f32) {
+    let c = |k: u32| ((cuts >> (8 * k)) & 0xFF) as f32;
+    let (w, h) = (w as f32, h as f32);
+    // The rectangle in the sprite's texels.
+    let (ul, ur, vt, vb) = ((l - x0) as f32, (r - x0) as f32, (t - y0) as f32, (b - y0) as f32);
+    let cu = |u: f32| if u < ul { ul } else if u > ur { ur } else { u };
+    let cv = |v: f32| if v < vt { vt } else if v > vb { vb } else { v };
+    if cuts == 0 {
+        // (The rectangle, as it is: also where it is not in texels.)
+        let (x, y) = match corner {
+            0 | 7 => (l, t),
+            1 | 2 => (r, t),
+            3 | 4 => (r, b),
+            _ => (l, b),
+        };
+        return (x as f32, y as f32);
+    }
+    let (u, v) = match corner {
+        0 => (cu(c(0) - 2.0 * vt), vt),
+        1 => (cu(w - c(1) + 2.0 * vt), vt),
+        2 => (ur, cv((c(1) - (w - ur)) * 0.5)),
+        3 => (ur, cv(h - (c(2) - (w - ur)) * 0.5)),
+        4 => (cu(w - c(2) + 2.0 * (h - vb)), vb),
+        5 => (cu(c(3) - 2.0 * (h - vb)), vb),
+        6 => (ul, cv(h - (c(3) - ul) * 0.5)),
+        _ => (ul, cv((c(0) - ul) * 0.5)),
+    };
+    (x0 as f32 + u, y0 as f32 + v)
 }
 
 /// Where a sprite whose (clipped) rectangle at zoom 1 is (left, top, right,
@@ -202,11 +262,12 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
 fn texel_offset(local: Vec2, base: IVec2, lo: IVec2, scaled_view: u32, step: u32, frag: Vec4, params: &FrameParams) -> IVec2 {
     let s = step as i32;
     if scaled_view == 0 {
-        return IVec2::new(local.x.floor() as i32 * s, local.y.floor() as i32 * s);
+        // (Pixel centres: `local` is a whole number and a half.)
+        return IVec2::new(pixel(local.x) as i32 * s, pixel(local.y) as i32 * s);
     }
     let (n, d) = (params.zoom_num, params.zoom_den);
-    let sx = scaled(frag.x as i32 - params.target_x, d, n) - base.x;
-    let sy = scaled(frag.y as i32 - params.target_y, d, n) - base.y;
+    let sx = scaled(pixel(frag.x) as i32 - params.target_x, d, n) - base.x;
+    let sy = scaled(pixel(frag.y) as i32 - params.target_y, d, n) - base.y;
     IVec2::new(if sx < lo.x { lo.x } else { sx } * s, if sy < lo.y { lo.y } else { sy } * s)
 }
 
@@ -285,8 +346,11 @@ pub fn free_vs(
     };
     let x0 = scaled(fx, zn, zd) + dx + p.corner_x + p.inset_x as i32;
     let y0 = scaled(fy, zn, zd) + dy + p.corner_y + p.inset_y as i32;
-    let (mut l, mut t) = (x0, y0);
-    let (mut r, mut b) = (x0 + p.width as i32, y0 + p.height as i32);
+    // Without the sprite's blank margins (ClearType-like sprites draw
+    // where their coverage is, whatever their alpha: all of them).
+    let (dx0, dy0, dx1, dy1) = if f.scale_den == SCALE_SUBPIXEL { (0, 0, p.width, p.height) } else { trimmed(sprite, &p, params) };
+    let (mut l, mut t) = (x0 + dx0 as i32, y0 + dy0 as i32);
+    let (mut r, mut b) = (x0 + dx1 as i32, y0 + dy1 as i32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
     if f.flags & FREE_CLIP != 0 {
         // (Target pixels from the screen origin, like screen sprites; for
@@ -381,8 +445,8 @@ pub fn tile_fs(
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
-        *output = Vec4::new(stored(color.x, bits) * a + o, stored(color.y, bits) * a + o, stored(color.z, bits) * a + o, a);
+        let channel = |c| mixed_source(quantize(to_u8(c), bits) + QUANTIZED_BIAS, k, bits);
+        *output = Vec4::new(channel(color.x), channel(color.y), channel(color.z), a);
     } else {
         *output = color;
     }
@@ -437,8 +501,7 @@ fn subpixel(
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let o = if k < ALPHA_STEPS { mix_offset() / 255.0 } else { 0.0 };
-        let v = (quantize(c8, bits) + QUANTIZED_BIAS) as f32 / 255.0 * a + o;
+        let v = mixed_source(quantize(c8, bits) + QUANTIZED_BIAS, k, bits);
         Vec4::new(v, v, v, a)
     } else {
         if coverage == 0.0 {
@@ -533,8 +596,10 @@ pub fn output_fs(
     #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
     output: &mut Vec4,
 ) {
-    let sx = params.src_x + (offset(frag.x, params.dst_x) * params.zoom_den / params.zoom_num) as i32;
-    let sy = params.src_y + (offset(frag.y, params.dst_y) * params.zoom_den / params.zoom_num) as i32;
+    let (ox, oy) = (offset(frag.x, params.dst_x), offset(frag.y, params.dst_y));
+    // (A copy 1:1 divides nothing.)
+    let (ox, oy) = if params.zoom_den == params.zoom_num { (ox, oy) } else { (ox * params.zoom_den / params.zoom_num, oy * params.zoom_den / params.zoom_num) };
+    let (sx, sy) = (params.src_x + ox as i32, params.src_y + oy as i32);
     let v: Vec4 = source.fetch(IVec2::new(sx, sy));
     let bits = params.bits;
     *output = if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits), to_unorm(v.y, bits), to_unorm(v.z, bits), v.w) };
@@ -549,13 +614,8 @@ fn scaled(v: i32, num: u32, den: u32) -> i32 {
 
 /// How far pixel coordinate `p` lies past `o` (0 before it).
 fn offset(p: f32, o: i32) -> u32 {
-    let r = p as i32 - o;
+    let r = pixel(p) as i32 - o;
     if r < 0 { 0 } else { r as u32 }
-}
-
-/// An atlas channel as the stored quantized value (normalized).
-fn stored(c: f32, bits: u32) -> f32 {
-    (quantize(to_u8(c), bits) + QUANTIZED_BIAS) as f32 / 255.0
 }
 
 fn to_unorm(stored: f32, bits: u32) -> f32 {
@@ -565,5 +625,17 @@ fn to_unorm(stored: f32, bits: u32) -> f32 {
 }
 
 fn to_u8(v: f32) -> u32 {
-    (v * 255.0 + 0.5) as u32
+    round(v * 255.0)
+}
+
+/// `v` (in `[0, 2^23)`) rounded to the nearest whole number (half to even),
+/// from the bits of `v + 2^23`: no saturating conversion (each `as u32` of
+/// a float is several instructions, and a fragment makes a dozen).
+fn round(v: f32) -> u32 {
+    (v + 8_388_608.0).to_bits() - 0x4B00_0000
+}
+
+/// The pixel `c` (at least 0) lies in: `c` rounded down.
+fn pixel(c: f32) -> u32 {
+    round(c.floor())
 }

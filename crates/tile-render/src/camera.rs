@@ -175,7 +175,7 @@ impl Camera {
             downscale: n,
             descending: pass.descending as u32,
             named_palettes: 0,
-            _pad2: 0,
+            corner_cuts: 0,
         }
     }
 }

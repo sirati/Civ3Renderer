@@ -182,7 +182,7 @@ fn outline_coverage_is_bit_exact() {
             world.fonts = faces.clone();
             let atlas = AtlasBuilder::new(64).finish();
             let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-            renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+            renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
             renderer.set_world(&gpu.device, &world);
             for zoom in [(2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] {
                 let camera = Camera { zoom, downscale, zoomed_art: true, ..Camera::new((640, 600)) };
@@ -214,7 +214,7 @@ fn outline_text_matches_the_reference() {
     for (color, downscale) in [(ColorModel::Quantized { bits: 5 }, 1), (ColorModel::Direct, 1), (ColorModel::Quantized { bits: 5 }, 2), (ColorModel::Direct, 2)] {
         let (world, atlas) = world(color, faces.clone(), downscale as i32);
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         let zooms: &[(u32, u32)] = if downscale == 1 { &[(2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] } else { &[(2, 1), (3, 2), (3, 1)] };
         for &zoom in zooms {
@@ -243,7 +243,7 @@ fn text_is_left_out_where_zoomed_art_is_not_shown() {
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = world(ColorModel::Quantized { bits: 5 }, vec![Arc::new(shapes())], 1);
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
     renderer.set_world(&gpu.device, &world);
     let mut bare = world.clone();
     bare.free.retain(|s| s.text.is_none());
@@ -270,7 +270,7 @@ fn screen_text_in_a_fitted_screen_shows_off_the_corner_too() {
         s.view = Some(1);
     }
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
-    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
     renderer.set_world(&gpu.device, &world);
     let mut picture = |origin: (i32, i32), zoomed_art: bool| {
         let head = Camera { x: 0, y: 0, zoom: (1, 2), origin, viewport: (640, 400), zoomed_art, ..Camera::new((640, 400)) };
@@ -287,4 +287,13 @@ fn screen_text_in_a_fitted_screen_shows_off_the_corner_too() {
         assert_eq!(in_b, in_a, "zoomed_art {zoomed_art}: the same text in the pane off the corner");
         assert_eq!((at(&a_ref, 0), at(&b_ref, 640)), (in_a, in_a), "zoomed_art {zoomed_art}: the reference");
     }
+}
+
+/// `atlas` with its sprites' blank margins found, as compiled descriptions
+/// have them: the GPU leaves them out of the rectangles it draws, which
+/// must not change a pixel.
+fn trimmed(atlas: &tile_render::Atlas) -> tile_render::Atlas {
+    let mut a = atlas.clone();
+    a.trim_blank();
+    a
 }
