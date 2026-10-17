@@ -184,10 +184,13 @@ itself. Through the gaps it passes freely. The game's top-left menu,
 Civilopedia and advisor buttons are drawn in the view the pointer is in.
 While the mouse is captured the world cursor sits in the middle of B (off
 the middle only at the edge of a map that does not wrap), is drawn in every
-view that shows its pixel, and the whole divider is a wall. Ctrl pressed and
-released on its own lets the mouse go (Alt stays the button snapping's);
-over B the pointer is then a crosshair, and a click there captures it
-again.
+view that shows its pixel, and the whole divider is a wall. Ctrl tapped on
+its own (no other key, button, wheel or mouse motion while it is down) lets
+the mouse go (Alt stays the button snapping's); the divider opens only
+then. Over B the pointer is then a crosshair, and a click there captures it
+again: only that (nothing goes to the game), the world cursor in B's middle
+where it was, B staying put. While the mouse is free B keeps looking where
+it was let go.
 
 Ctrl+Shift+Backspace, anywhere in the game, puts the layout and the
 resolution settings back to their defaults (one view, no zoom box, pixel
