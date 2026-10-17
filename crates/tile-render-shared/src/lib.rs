@@ -26,6 +26,8 @@
 //! nothing.
 #![cfg_attr(target_arch = "spirv", no_std)]
 
+pub mod text;
+
 #[cfg(not(target_arch = "spirv"))]
 use bytemuck::{Pod, Zeroable};
 
@@ -557,6 +559,7 @@ mod tests {
         assert_eq!(size_of::<GridParams>() % 16, 0);
         assert_eq!(size_of::<LayerDesc>() % 16, 0);
         assert_eq!(size_of::<SpriteDesc>() % 16, 0);
+        assert_eq!(size_of::<text::TextGlyph>() % 16, 0);
     }
 
     #[test]

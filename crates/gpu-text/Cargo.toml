@@ -1,0 +1,11 @@
+[package]
+name = "gpu-text"
+description = "Font outlines (TrueType/OpenType) packed for drawing text on the GPU: quadratic curves with Slug-style bands"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+tile-render-shared.workspace = true
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
+thiserror.workspace = true
