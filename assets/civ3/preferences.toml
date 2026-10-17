@@ -746,6 +746,42 @@ style = "caption"
 at = [72, 600]
 show_if = "tab=layout"
 
+[[panels.preferences.items]]
+text = "Map movement"
+style = "label"
+at = [72, 627]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "input.map_movement"
+value = "EdgeScroll"
+at = [184, 622]
+size = [140, 26]
+text = "Edge scrolling"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "input.map_movement"
+value = "Drag"
+at = [332, 622]
+size = [140, 26]
+text = "Drag (Civ IV style)"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "(drag: hold the left button on the map and pull it; middle drag always)"
+style = "caption"
+at = [72, 654]
+show_if = "tab=layout"
+
 # ------------------------------------------------ Layout, screen locations
 
 [[panels.preferences.items]]
