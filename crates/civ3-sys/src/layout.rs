@@ -455,6 +455,15 @@ pub const MAP_RENDERER_ACTION_MODE_RANGE: u32 = 720;
 pub const MAP_RENDERER_ACTION_MODE_CENTERX: u32 = 724;
 pub const MAP_RENDERER_ACTION_MODE_CENTERY: u32 = 728;
 
+pub const BUTTON_SIZE: u32 = 1748;
+pub const BUTTON_IMAGES: u32 = 1620;
+pub const BUTTON_BORDER_IMAGES: u32 = 1608;
+pub const BUTTON_FIELD_668: u32 = 1640;
+pub const BUTTON_FIELD_574_1: u32 = 1400;
+pub const BUTTON_FIELD_574_28: u32 = 1508;
+pub const BUTTON_FIELD_5FC_6: u32 = 1556;
+pub const BUTTON_FIELD_630_1: u32 = 1588;
+
 pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("Resources", 16044, 4),
     ("ResourcesShadows", 16048, 4),

@@ -8,9 +8,11 @@
 //! - [`Constraints::confine`] keeps the pointer inside a region of the
 //!   window (the window less some holes), [`Constraints::unconfine`] lets it
 //!   go;
-//! - [`Constraints::move_pointer`] moves it: the pointer is locked, the
-//!   hint set, and the lock let go once the compositor says it holds (the
-//!   compositor then moves the pointer to the hint).
+//! - [`Constraints::move_pointer`] requests a move: the pointer is locked,
+//!   the hint set, and the lock let go once the compositor says it holds.
+//!   The compositor may move the pointer to the hint. Take the result with
+//!   [`Constraints::take_move_result`]; a committed hint does not guarantee
+//!   that the compositor honored it.
 //!
 //! It talks over winit's own connection (constraints must be made on the
 //! connection that owns the surface), on an event queue of its own, with a
@@ -35,6 +37,18 @@
 //! still needs compositor verification. In a window with client decorations,
 //! confinement to the content surface can prevent reaching its title bar
 //! until keyboard focus changes.
+
+/// The latest completed pointer move request.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum MoveResult {
+    /// The lock activated, this position hint was committed in surface
+    /// coordinates, and the lock was released. The compositor may ignore
+    /// the hint, so this does not confirm the pointer's physical position.
+    Hinted((f64, f64)),
+    /// The request was rejected, timed out, or was canceled before its
+    /// normal lock-and-hint completion.
+    Cancelled,
+}
 
 /// A rectangle in surface coordinates (logical pixels).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

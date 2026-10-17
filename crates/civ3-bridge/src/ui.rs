@@ -312,6 +312,11 @@ impl UiModel {
         (self.canvases.len(), ops, presented)
     }
 
+    /// Where the pixels of `sprite` (a game `Sprite*`) come from, if known.
+    pub fn sprite_source(&self, sprite: u32) -> Option<&Source> {
+        self.sprites.get(&sprite)
+    }
+
     /// The back buffer now: the forms of the last paint with what their
     /// canvases showed when last put on it (the game composes changed forms
     /// on their own, outside a full paint).
