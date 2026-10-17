@@ -713,7 +713,7 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
         clip: None,
         not_in_view: None,
         glyph: None,
-        palette: 0,
+        palette: piece_palette(compiled, p),
     })
 }
 
