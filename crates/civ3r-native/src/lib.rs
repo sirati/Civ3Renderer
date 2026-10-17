@@ -102,6 +102,9 @@ mod unix_side {
 
     static VIEWER: Mutex<Option<Viewer>> = Mutex::new(None);
 
+    /// The publish calls' profile, if kept (made at the first call).
+    static PROFILE: Mutex<Option<Option<tile_viewer::profile::Profile>>> = Mutex::new(None);
+
     /// Lines for the driver's log (`CALL_LOG`); at most this many wait.
     static FOR_DRIVER: Mutex<crate::log_lines::LogQueue> = Mutex::new(crate::log_lines::LogQueue::new(1000));
 
@@ -249,19 +252,12 @@ mod unix_side {
                 let a = NEXT.pop();
                 let stop = || NEXT.superseded(a.generation);
                 let viewer = || VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|v| v.assets.clone());
-                if a.reserve > 0 {
-                    NEXT.with_current(a.generation, || {
-                        if let Some(assets) = viewer() {
-                            assets.reserve(0, a.reserve);
-                        }
-                    });
-                }
                 let started = std::time::Instant::now();
                 let result = if a.append {
                     grow(&a, &stop).map(|g| {
                         NEXT.with_current(a.generation, || {
                             if let Some(assets) = viewer() {
-                                assets.grow(Arc::new(g), a.generation);
+                                assets.grow_with_reserve(Arc::new(g), a.generation, 0, a.reserve);
                             }
                         })
                     })
@@ -272,7 +268,7 @@ mod unix_side {
                         let accepted = NEXT.with_current(a.generation, || {
                             retired = ART.lock().unwrap_or_else(|e| e.into_inner()).replace((tables, growing));
                             if let Some(assets) = viewer() {
-                                assets.set(Arc::new(c), a.generation);
+                                assets.set_with_reserve(Arc::new(c), a.generation, 0, a.reserve);
                             }
                         });
                         // Dropping the previous compile's shelves and shared
@@ -379,8 +375,25 @@ mod unix_side {
         if VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|v| v.driver.busy()) {
             return STATUS_DEVICE_BUSY;
         }
+        let started = std::time::Instant::now();
         let Ok(bytes) = wine_unixlib::unix::read(args.scene) else { return STATUS_INVALID_PARAMETER };
-        let updates = match scene::wire::decode_updates(&bytes) {
+        let read = started.elapsed();
+        let decoding = std::time::Instant::now();
+        let decoded = scene::wire::decode_updates(&bytes);
+        // Where the time goes (`TILE_VIEWER_PROFILE=1`).
+        let mut profile = PROFILE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(p) = profile.get_or_insert_with(|| tile_viewer::profile::env_on("TILE_VIEWER_PROFILE").then(|| tile_viewer::profile::Profile::new("native publish", std::time::Duration::from_secs(5)))) {
+            p.round_start();
+            p.add("read", read);
+            p.add("decode", decoding.elapsed());
+            p.count("bytes", bytes.len());
+            p.round_end();
+            if let Some(report) = p.report() {
+                log::info!("{report}");
+            }
+        }
+        drop(profile);
+        let updates = match decoded {
             Ok(u) => u,
             Err(e) => {
                 log::warn!("civ3r-native: updates: {e}");

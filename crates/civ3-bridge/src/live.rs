@@ -560,6 +560,26 @@ fn publish(
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
     let mut held_since: Option<std::time::Instant> = None;
+    // What the last publish made of the parts of the world and of the
+    // interface that did not change since (`Memo`): the world's cells, the
+    // city labels, the interface's and the labels' sprites, the minimap.
+    let mut cells_memo = Memo::default();
+    let mut labels_memo = Memo::default();
+    let mut ui_sprites_memo = Memo::default();
+    let mut label_sprites_memo = Memo::default();
+    let mut minimap_memo = Memo::default();
+    // The interface's items (the parts of the screen's frame: the frame,
+    // the menu, the popup, the screen part) and the sprites of the parts drawn
+    // in views of their own (corner, hint, screen, popup).
+    let mut items_memos: [Memo<_, Vec<ui_screen::Item>>; 4] = Default::default();
+    let mut part_memos: [Memo<_, Vec<scene::FreeSprite>>; 4] = Default::default();
+    // Bumped whenever `compiled` changes (new art, a growth): the memos of
+    // what is made of the art key on it.
+    let mut art_generation = 0u64;
+    // Where the publisher's time goes (`CIV3R_PROFILE=1`, or the viewer's
+    // `TILE_VIEWER_PROFILE=1`), logged every 5 s.
+    let mut profile = (tile_viewer::profile::env_on("CIV3R_PROFILE") || tile_viewer::profile::env_on("TILE_VIEWER_PROFILE"))
+        .then(|| tile_viewer::profile::Profile::new("publisher", Duration::from_secs(5)));
     // How many controls had looks last (for the log).
     let mut last_looks = (0, 0, 0, 0);
     loop {
@@ -569,9 +589,19 @@ fn publish(
                 log::info!("publish: a round took {} ms", took.as_millis());
             }
         }
+        if let Some(p) = &mut profile {
+            p.round_end();
+            if let Some(report) = p.report() {
+                log::info!("{report}");
+            }
+        }
         // (Sooner when a stage of the previewed scenario is ready.)
         previews.wait(POLL);
         round_began = Some(std::time::Instant::now());
+        if let Some(p) = &mut profile {
+            p.round_start();
+        }
+        let mut t = std::time::Instant::now();
         // Now and then, how much everything holds (memory diagnostics).
         if last_stats.elapsed() >= Duration::from_secs(30) {
             last_stats = std::time::Instant::now();
@@ -618,6 +648,7 @@ fn publish(
                     presenter.adopt_assets(&c, done.generation);
                     // The viewer has the pixels; this side needs the rest only.
                     compiled = c.without_pixels();
+                    art_generation += 1;
                     mapper = Mapper::new(&compiled);
                     menus = menus_of(&compiled);
                     for (_, _, token) in pending_growths.drain(..) {
@@ -677,6 +708,7 @@ fn publish(
                 let Some((generation, g, token)) = pending_growths.pop_front() else { break };
                 presenter.adopt_growth(&g, generation);
                 compiled.apply(&g);
+                art_generation += 1;
                 // (Art the screen waited for is there now.)
                 if let Some(token) = token {
                     schedule.done(now, token);
@@ -690,8 +722,10 @@ fn publish(
         if !schedule.pending() && !schedule.running() {
             art_wanted = None;
         }
+        mark(&mut profile, "art handover", &mut t);
         // The game's interface, mirrored (else its text only).
         let ui = ui_trace::frame();
+        mark(&mut profile, "ui frame", &mut t);
         // The world shows while the map screen's interface is composed (under
         // whatever screens are open over it). Between games the game's tables
         // may still hold one (the last game's, or the scenario the Load
@@ -724,6 +758,8 @@ fn publish(
             folders_changed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             art = resolved_art.unwrap_or_else(|| units::UnitArt::new(compiler.files(&folders)));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
+            labels_memo = Memo::default();
+            items_memos = Default::default();
             have = units::Needed::default();
             whole_wanted = true;
             recompile = true;
@@ -742,7 +778,9 @@ fn publish(
         // What our preferences tabs take does not reach the game.
         let inputs = prefs.route(inputs, input.viewport);
         presenter.forward_log();
+        mark(&mut profile, "preview+input", &mut t);
         let snapshot = if in_game { snapshot(&game) } else { Err(Civ3Error::NoGame) };
+        mark(&mut profile, "snapshot", &mut t);
         let shown = match (snapshot, load_screen) {
             (_, Some(rect)) => Shown::Preview(rect, preview.as_ref().map(PreviewShown::of)),
             (Ok((world, view)), None) => Shown::Map(world, view),
@@ -801,11 +839,22 @@ fn publish(
         if last.as_ref().is_none_or(|l| l.4 != cursor) {
             log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
         }
+        mark(&mut profile, "controls+prefs", &mut t);
         let state = (shown, texts, ui, interactables, cursor);
-        if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+        let unchanged = last.as_ref() == Some(&state);
+        mark(&mut profile, "compare", &mut t);
+        if unchanged && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+            if let Some(p) = &mut profile {
+                p.event("unchanged", 1);
+            }
             continue;
         }
         let (shown, texts, ui, interactables, cursor) = &state;
+        // (Once per round: the memos below key on it.)
+        let still = match shown {
+            Shown::Map(world, _) => Arc::new(still_world(world)),
+            _ => Arc::default(),
+        };
         let files = compiler.files(&folders);
         let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
         // The parts of the interface the viewer arranges (docs §16.11): the
@@ -899,14 +948,18 @@ fn publish(
         // e.g. C3X's info box, and that popup's frame).
         let mut prefs_items = Some(crate::prefs::items(&prefs_draws)).filter(|i| !i.is_empty());
         let popup_canvas = modal.filter(|&m| prefs_form.is_none_or(|f| f.form != m)).map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4);
-        let mut with_tabs = |f: &crate::ui::Frame| {
+        // (Made again only when their frame, the tabs in it or the colours
+        // change: units animating change none of them.)
+        let [frame_memo, menu_memo, popup_memo, screen_memo] = &mut items_memos;
+        let mut with_tabs = |memo: &mut Memo<_, _>, f: &crate::ui::Frame| {
             let at = prefs_form.as_ref().and_then(|form| crate::prefs::tabs_slot(f, form, popup_canvas));
-            ui_screen::items_with(f, files.roots(), generated, unit_colors, at.and_then(|at| prefs_items.take().map(|items| (at, items))))
+            let extra = at.and_then(|at| prefs_items.take().map(|items| (at, items)));
+            memo.get((f.clone(), extra.clone(), unit_colors), || ui_screen::items_with(f, files.roots(), generated, unit_colors, extra))
         };
-        let mut ui_items = frame_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
-        let mut menu_items = menu_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let mut screen_items = ui_screen_part.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let mut ui_items = frame_ui.as_ref().map(|f| frame_memo.get((f.clone(), None, unit_colors), || ui_screen::items(f, files.roots(), generated, unit_colors))).unwrap_or_default();
+        let mut menu_items = menu_ui.as_ref().map(|f| with_tabs(menu_memo, f)).unwrap_or_default();
+        let mut popup_items = ui_popup.as_ref().map(|f| with_tabs(popup_memo, f)).unwrap_or_default();
+        let mut screen_items = ui_screen_part.as_ref().map(|f| with_tabs(screen_memo, f)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -924,7 +977,7 @@ fn publish(
                 // may have drawn none itself, e.g. with its map rendering off.)
                 labels_not_in_game_view = (screen_open.is_some() || modal.is_some()) && !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
-                let labels = crate::city_labels::labels(world, view.zoomed_out, &mut label_env);
+                let labels = labels_memo.get((still.clone(), view.zoomed_out), || crate::city_labels::labels(world, view.zoomed_out, &mut label_env));
                 let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
                 crate::city_labels::items(&labels, (0, 0), everywhere, true)
             }
@@ -1039,6 +1092,7 @@ fn publish(
             recompile = true;
             wanted_for.push("go-to turns");
         }
+        mark(&mut profile, "ui items+labels", &mut t);
         // Art the description does not have yet: units, text fonts.
         // (A preview's units stand still: only the frames they show, as the
         // preview's thread resolved them.)
@@ -1153,6 +1207,7 @@ fn publish(
                 }
             }
         }
+        mark(&mut profile, "art needs", &mut t);
         // Art made ahead, while the art thread has nothing else to do (art
         // wanted now goes first).
         // (A renderer compiling its own art has the last addition first:
@@ -1205,10 +1260,10 @@ fn publish(
         let mut title_menu = Vec::new();
         let mut scene = match shown {
             Shown::Map(world, view) => {
-                let mut scene = mapper.scene(world, view, (0, 0), 0);
-                // Replacing the map's underlays with world labels also
-                // removes its city-site lines. Draw those from the world
-                // unless the mirrored underlays are kept.
+                // (Only what units do changes most of the time.)
+                let mut scene = cells_memo.get((still.clone(), *view, art_generation), || mapper.scene(world, view, (0, 0), 0));
+                // World labels replace mirrored underlays, including city-site
+                // lines. Draw those from the current mouse/selection state.
                 if ui.is_none() || world_labels() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
@@ -1241,19 +1296,23 @@ fn publish(
                 scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len())
             }
         };
+        mark(&mut profile, "scene map+units", &mut t);
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         // Labels and the interface's text also drawn from outlines at
         // every zoom (where the art has the face).
         scene.zooms = ui_screen::outline_zooms(&compiled);
         let outlines = !scene.zooms.is_empty();
-        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
+        // (The art, its fonts and the items give the sprites.)
+        let art_key = (art_generation, fonts.len(), outlines);
+        scene.sprites.extend(ui_sprites_memo.get((ui_items.clone(), art_key), || ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
         let mut menu_sprites = title_menu;
         menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
         // The city labels go with the world (laid out in the game view's
         // pixels: zoomed out at full size, which the renderer halves).
         // (A preview's are in its scene already.)
         let label_items = if matches!(shown, Shown::Preview(..)) { Vec::new() } else { label_items };
-        let mut labels: Vec<_> = ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)
+        let mut labels: Vec<_> = label_sprites_memo
+            .get((label_items.clone(), art_key), || ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines))
             .into_iter()
             .map(|s| {
                 let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
@@ -1279,34 +1338,41 @@ fn publish(
             }
         }
         scene.sprites.extend(turns);
+        mark(&mut profile, "ui+label sprites", &mut t);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
-            scene.patches = ui_screen::minimap_patches(&both, world, &compiled, |table| {
-                *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
+            // (Made of the minimap items, the world without its units and the art.)
+            let minimaps: Vec<_> = both.iter().filter(|i| matches!(i, ui_screen::Item::Element(menu::screen::Element::Dynamic { name, .. }, _) if name.starts_with("minimap"))).cloned().collect();
+            scene.patches = minimap_memo.get((minimaps, still.clone(), art_generation), || {
+                ui_screen::minimap_patches(&both, world, &compiled, |table| *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default()))
             });
         }
+        mark(&mut profile, "minimap", &mut t);
         crate::scene_map::overlay_screen_sprites(&mut scene);
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
         // own (the corner's buttons a copy, the popup not in the interface).
-        let part_sprites = |items: &[ui_screen::Item]| ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
+        let [corner_memo, hint_memo, screen_part_memo, popup_part_memo] = &mut part_memos;
+        let part_sprites = |memo: &mut Memo<_, _>, items: &[ui_screen::Item]| {
+            memo.get((items.to_vec(), art_key), || ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines))
+        };
         if let Some(r) = corner {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(&corner_items));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(corner_memo, &corner_items));
             // (In its place while the mouse is captured.)
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(hint_memo, &hint.1));
         }
         // The hint for exploring a preview world with the mouse captured
         // (the viewer puts it at the world's corner).
         let preview_hint = matches!(shown, Shown::Preview(_, Some(_)));
         if preview_hint {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(hint_memo, &hint.1));
         }
         if let Some((_, r)) = screen_part {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(&screen_items));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(screen_part_memo, &screen_items));
         }
         if let Some((_, r)) = popup {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(&popup_items));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(popup_part_memo, &popup_items));
             // The popup's subject: the game brings it into view first (the
             // middle of the game's view stands for it).
             if let Some(v) = scene.view(crate::scene_map::GAME_VIEW).map(|v| v.view) {
@@ -1355,13 +1421,13 @@ fn publish(
             (crate::interface_parts::SCREEN_VIEW, None),
             (crate::interface_parts::POPUP_VIEW, None),
         ];
-        scene.looks = crate::looks::scene_looks(&scene, &control_looks, &looks_views, |d, part| Some(part_sprites(&looks_items(&crate::looks::in_part(d, part)))));
+        scene.looks = crate::looks::scene_looks(&scene, &control_looks, &looks_views, |d, part| Some(ui_screen::sprites(&looks_items(&crate::looks::in_part(d, part)), &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
         // Our preferences tabs' and title menu's controls.
         let prefs_looks: Vec<crate::looks::ControlLooks<Vec<menu::panel::Draw>>> = prefs_looks
             .into_iter()
             .map(|l| crate::looks::ControlLooks { id: l.id, select: l.select, shown: l.shown, draws: l.draws, states: l.states })
             .collect();
-        scene.looks.extend(crate::looks::scene_looks(&scene, &prefs_looks, &looks_views, |d, _| Some(part_sprites(&crate::prefs::items(d)))));
+        scene.looks.extend(crate::looks::scene_looks(&scene, &prefs_looks, &looks_views, |d, _| Some(ui_screen::sprites(&crate::prefs::items(d), &fonts, &compiled, ui_screen::under_pass(&compiled), outlines))));
         if let (Some((ms, m)), Shown::Title(state)) = (own_title, shown) {
             let title_looks: Vec<crate::looks::ControlLooks<Vec<scene::FreeSprite>>> = ms
                 .looks(m, state, input.viewport, u32::MAX)
@@ -1390,8 +1456,26 @@ fn publish(
         }
         scene.seq = seq;
         scene_size = (scene.cell_bytes(), scene.sprites.len(), scene.views.iter().map(|v| v.overlay.len()).sum::<usize>());
+        mark(&mut profile, "interface parts", &mut t);
+        if let Some(p) = &mut profile {
+            p.count("scene sprites", scene_size.1);
+            p.count("scene overlay sprites", scene_size.2);
+        }
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
+        if let Some(p) = &mut profile {
+            let s = presenter.stats;
+            p.add("publish: diff", s.diff);
+            p.add("publish: encode+send", s.send);
+            p.add("publish: keep sent", s.keep);
+            if s.updates > 0 {
+                p.count("published bytes", s.bytes);
+                p.count("published updates", s.updates);
+                p.count("published cell changes", s.cells);
+            }
+            p.event(if published { if s.updates > 0 { "published" } else { "nothing new" } } else { "renderer busy" }, 1);
+        }
+        mark(&mut profile, "publish (other)", &mut t);
         if published {
             if matches!(shown, Shown::Preview(_, Some(_))) {
                 previews.published(seq);
@@ -1489,6 +1573,48 @@ fn hold_pointer() -> bool {
 fn looks_log() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("CIV3R_LOOKS_LOG").as_deref() == Ok("1"))
+}
+
+/// The last result of a function of a key, kept while the key stays the
+/// same (made again otherwise).
+struct Memo<K, V> {
+    last: Option<(K, V)>,
+}
+
+impl<K, V> Default for Memo<K, V> {
+    fn default() -> Self {
+        Self { last: None }
+    }
+}
+
+impl<K: PartialEq, V: Clone> Memo<K, V> {
+    fn get(&mut self, key: K, make: impl FnOnce() -> V) -> V {
+        match &self.last {
+            Some((k, v)) if *k == key => v.clone(),
+            _ => {
+                let v = make();
+                self.last = Some((key, v.clone()));
+                v
+            }
+        }
+    }
+}
+
+/// `world` without what changes as units move and animate (where they
+/// are, what is selected, the pointer's tile), which the cells, the city
+/// labels and the minimap do not depend on: what their memos key on.
+fn still_world(world: &Civ3World) -> Civ3World {
+    Civ3World { units: Vec::new(), army_members: Vec::new(), mouse_tile: None, current_unit: None, selection: None, unit_tiles: Vec::new(), effects: Vec::new(), targeting: Default::default(), goto: None, ..world.clone() }
+}
+
+/// Adds the time since `t` to span `name` of the profile, if one is kept,
+/// and restarts `t`.
+fn mark(profile: &mut Option<tile_viewer::profile::Profile>, name: &str, t: &mut std::time::Instant) {
+    let now = std::time::Instant::now();
+    if let Some(p) = profile {
+        p.add(name, now - *t);
+    }
+    *t = now;
 }
 
 /// Whether city labels are made from the world (see `publish`), unless

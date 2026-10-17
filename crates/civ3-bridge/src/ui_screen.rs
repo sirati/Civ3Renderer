@@ -17,7 +17,7 @@ const OPAQUE: &str = "transparent = []";
 
 /// One thing to draw, in order; `true`: part of an underlay (drawn under
 /// the fog of war, see [`sprites`]).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Item {
     Element(Element, bool),
     Text(TextRun, [i32; 4], bool),
