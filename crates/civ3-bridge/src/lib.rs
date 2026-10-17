@@ -24,6 +24,7 @@ pub mod prefs;
 pub mod preview;
 pub mod rings;
 pub mod rules;
+pub mod targeting;
 pub mod scene_map;
 pub mod text;
 pub mod ui;

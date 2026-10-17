@@ -159,6 +159,12 @@ without the map itself (ours): the city labels on it go under our fog of
 war; the unit overlay is left out (we draw units, on layers of their tiles: docs §10.13). Pictures the game makes
 pixel by pixel (the minimap) are generated from the world state and sent
 as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
+While a unit command waits for its tile (bombard, the air missions, go-to)
+the bridge draws what the game shows from the game's state
+(`civ3_bridge::targeting`, docs §10.14): the outline of the tiles in range,
+the frame on a tile the command takes, and the go-to path (the game's own
+path finder, run on the game's thread) with its marker and turn count; the
+command's pointer is the game's cursor.
 
 The viewer arranges the world beyond the views the driver asks for
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled), as
