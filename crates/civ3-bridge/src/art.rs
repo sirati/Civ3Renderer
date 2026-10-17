@@ -38,6 +38,27 @@ pub struct ArtJob {
     pub reason: String,
     /// When what it builds was first wanted.
     pub wanted: Instant,
+    /// A whole description given up once this says so (art for folders no
+    /// longer shown, see [`ArtStop`]).
+    pub stop: Option<ArtStop>,
+}
+
+/// Which art folders a whole description is for: their change number when
+/// it was asked for, and the number now. One for art folders no longer
+/// shown (another scenario picked meanwhile) ends at the next sheet it
+/// loads; the next job is the whole description of the folders now. Until
+/// then additions add nothing (they were made for the description given
+/// up).
+#[derive(Clone, Debug)]
+pub struct ArtStop {
+    pub started: u64,
+    pub now: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl ArtStop {
+    pub fn superseded(&self) -> bool {
+        self.now.load(std::sync::atomic::Ordering::Acquire) != self.started
+    }
 }
 
 /// What a job built.
@@ -69,11 +90,33 @@ type State = Option<(Compiled, Growing)>;
 impl ArtJob {
     fn run(self, state: &mut State) -> ArtDone {
         let started = Instant::now();
+        // (A whole description no longer wanted before it starts: given up at
+        // once; what was there is not what additions are made for.)
+        if matches!(self.work, Work::Whole(_)) && self.stop.as_ref().is_some_and(ArtStop::superseded) {
+            *state = None;
+            let built = Err(format!("{}: {}", self.name, crate::assets::STOPPED));
+            return ArtDone { generation: self.generation, token: self.token, built, took: started.elapsed(), reason: self.reason, wanted: self.wanted, pages: (0, 0), sprites: 0 };
+        }
         let built = match &self.work {
-            Work::Whole(text) => crate::assets::compile_growing(text, self.files, self.pixels, self.max_page).map(|(c, growing)| {
-                *state = Some((c.without_pixels(), growing));
-                Built::Whole(c)
-            }),
+            Work::Whole(text) => {
+                let stop = self.stop.clone();
+                let built = crate::assets::compile_growing(text, self.files, self.pixels, self.max_page, &|| stop.as_ref().is_some_and(ArtStop::superseded));
+                // The last load or atlas packing may finish after the art
+                // folders changed, without another loader call to stop it.
+                let built = if self.stop.as_ref().is_some_and(ArtStop::superseded) {
+                    Err(render_desc::DescError::Image { name: self.name.clone(), message: crate::assets::STOPPED.to_owned() })
+                } else {
+                    built
+                };
+                // (Given up: what was there is not what additions are made for.)
+                if built.as_ref().is_err_and(|e| e.to_string().contains(crate::assets::STOPPED)) {
+                    *state = None;
+                }
+                built.map(|(c, growing)| {
+                    *state = Some((c.without_pixels(), growing));
+                    Built::Whole(c)
+                })
+            }
             Work::Addition(text) => match state.as_mut() {
                 Some((compiled, growing)) => crate::assets::grow(growing, compiled, text, self.files).map(|g| {
                     compiled.apply(&g);
@@ -150,7 +193,28 @@ mod tests {
             token: None,
             reason: "test".into(),
             wanted: Instant::now(),
+            stop: None,
         }
+    }
+
+    #[test]
+    fn a_whole_description_for_folders_no_longer_shown_stops_and_its_additions_add_nothing() {
+        let mut t = ArtThread::start(None).unwrap();
+        t.send(job(Work::Whole(BASE.into()), 1));
+        // The folders change (number 0 to 1) before the next whole one runs.
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(1));
+        t.send(ArtJob { stop: Some(ArtStop { started: 0, now: now.clone() }), ..job(Work::Whole(BASE.into()), 2) });
+        t.send(job(Work::Addition("[images.b]\nsource = \"solid:9,9,9,255:4x4\"\n[sheets.b]\nimage = \"b\"\ncell = [4, 4]\ngroup = \"B@x\"\n".into()), 3));
+        let mut got = Vec::new();
+        while got.len() < 3 {
+            if let Some(d) = t.try_done() {
+                got.push(d);
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(got[0].built, Ok(Built::Whole(_))));
+        assert!(matches!(&got[1].built, Err(e) if e.contains(crate::assets::STOPPED)), "the second stops");
+        assert!(matches!(&got[2].built, Ok(Built::Growth(g)) if g.is_empty()), "an addition to it adds nothing");
     }
 
     #[test]

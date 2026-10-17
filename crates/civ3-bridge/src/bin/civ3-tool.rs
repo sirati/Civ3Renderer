@@ -298,9 +298,9 @@ fn preview(file: &str, out: &str, size: (u32, u32)) -> Result<ExitCode, String> 
     text.push_str(&ui_screen::description(&screen));
     let compiled = assets::compile(&text, files()).map_err(|e| e.to_string())?;
     let dialog = [(size.0 as i32 - 1024) / 2, (size.1 as i32 - 768) / 2, 1024, 768];
-    let n = ifc23::preview::downscale(&p.world, (size.0 as i32 - dialog[2], size.1 as i32));
+    let n = ifc23::preview::downscale(p.area, (size.0 as i32 - dialog[2], size.1 as i32));
     let mut scene = ifc23::preview::scene(&p.world, n, &Mapper::new(&compiled), &mut art, &compiled, &labels, &fonts);
-    scene.interface.beside = Some(scene::Beside { screen: dialog, edge: scene::Edge::Left });
+    scene.interface.beside = Some(scene::Beside { screen: dialog, edge: scene::Edge::Left, world: Some(p.area) });
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };

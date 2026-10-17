@@ -67,10 +67,14 @@ pub fn compile_as(text: &str, files: GameFiles, pixels: Pixels, max_page: u32) -
 }
 
 /// [`compile_as`], to be grown (`render_desc::Growing`): with the pixels
-/// (`pixels`), else the tables only.
-pub fn compile_growing(text: &str, files: GameFiles, pixels: bool, max_page: u32) -> Result<(Compiled, render_desc::Growing), DescError> {
-    Description::parse(text)?.compile_growing(&Civ3Loader::new(files), max_page, pixels)
+/// (`pixels`), else the tables only; given up (an error, [`STOPPED`]) as
+/// soon as `stop` says so (e.g. the art of a scenario no longer shown).
+pub fn compile_growing(text: &str, files: GameFiles, pixels: bool, max_page: u32, stop: &dyn Fn() -> bool) -> Result<(Compiled, render_desc::Growing), DescError> {
+    Description::parse(text)?.compile_growing(&render_desc::StopWhen::new(Civ3Loader::new(files), stop), max_page, pixels)
 }
+
+/// What a compile given up says (see [`compile_growing`]).
+pub const STOPPED: &str = render_desc::CANCELLED;
 
 /// The growth of `compiled` (grown by `growing`) by `addition`.
 pub fn grow(growing: &mut render_desc::Growing, compiled: &Compiled, addition: &str, files: GameFiles) -> Result<render_desc::Growth, DescError> {
@@ -136,6 +140,26 @@ mod tests {
         assert_eq!(anchor("Viewer@cursors/9"), (32, 32, -16, -16));
         assert_eq!(anchor("Viewer@cursors/14"), (32, 32, -15, -16));
         assert_eq!(compiled.sets_with_prefix("Viewer@capture/").map(|(n, _)| n).collect::<Vec<_>>(), ["Viewer@capture/9"]);
+    }
+
+    /// A compile no longer wanted ends at the next sheet it loads.
+    #[test]
+    fn a_compile_no_longer_wanted_stops() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !Path::new(&install).is_dir() {
+            return eprintln!("no Civ III install, skipped");
+        }
+        let loads = std::cell::Cell::new(0);
+        let stop = || {
+            loads.set(loads.get() + 1);
+            loads.get() > 3
+        };
+        let started = std::time::Instant::now();
+        let Err(e) = compile_growing(BUILTIN_DESC, GameFiles::complete(&install), true, render_desc::ANY_DEVICE_PAGE, &stop) else { panic!("not stopped") };
+        assert!(e.to_string().contains(STOPPED), "{e}");
+        assert_eq!(loads.get(), 4);
+        // (A whole compile takes far longer.)
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     /// The colours a sprite of `c` is drawn in, texel by texel.

@@ -70,6 +70,12 @@ impl ArtSchedule {
         self.asked > self.running.unwrap_or(self.covered)
     }
 
+    /// How many requests there were so far (the last one's number, see
+    /// [`ArtSchedule::start`]).
+    pub fn asked(&self) -> u64 {
+        self.asked
+    }
+
     /// Whether a rebuild is running.
     pub fn running(&self) -> bool {
         self.running.is_some()

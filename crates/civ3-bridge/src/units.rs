@@ -98,6 +98,9 @@ pub struct UnitArt {
     /// (INI file, animation) → file, cached (effects, §10.14).
     by_ini: HashMap<(String, i32), Option<AnimFile>>,
     smoke: Option<Vec<[u8; 4]>>,
+    /// Whether it reads what it has not resolved yet (else: as if it were
+    /// not there, for now; see [`UnitArt::set_reading`]).
+    reading: bool,
 }
 
 impl UnitArt {
@@ -112,7 +115,7 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new(), by_ini: HashMap::new(), smoke: None }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new(), by_ini: HashMap::new(), smoke: None, reading: true }
     }
 
     /// How the blit draws the smoke indices ([`SMOKE`], docs §10.14), as
@@ -122,7 +125,7 @@ impl UnitArt {
     /// a blend table per entry: `c' = (v·a + c·(256 − a)) / 256`). Empty
     /// without the file.
     pub fn smoke(&mut self) -> &[[u8; 4]] {
-        if self.smoke.is_none() {
+        if self.smoke.is_none() && self.reading {
             let entries = self
                 .files
                 .read(EXPLOSION_PALETTE)
@@ -143,6 +146,9 @@ impl UnitArt {
     pub fn effect_file(&mut self, ini: &str, animation: i32) -> Option<&AnimFile> {
         let key = (ini.to_owned(), animation);
         if !self.by_ini.contains_key(&key) {
+            if !self.reading {
+                return None;
+            }
             let found = self.ini_lookup(ini, animation).or_else(|| self.ini_lookup(ini, 1));
             self.by_ini.insert(key.clone(), found);
         }
@@ -161,6 +167,14 @@ impl UnitArt {
         AnimFile::read(&self.files, &format!("{dir}{name}")).or_else(|| AnimFile::read(&self.files, bare))
     }
 
+    /// Whether it may read files: off, it answers from what it has
+    /// resolved only (what it has not is missing for now, not for good):
+    /// the publisher's thread reads no art while another thread resolves
+    /// the art a new world needs (`crate::preview::Previews`).
+    pub fn set_reading(&mut self, on: bool) {
+        self.reading = on;
+    }
+
     /// Entry `index` of colour table `table` (`ntpNN.pcx`).
     pub fn table_color(&self, table: i32, index: usize) -> Option<[u8; 3]> {
         let bytes = self.files.read(&format!("Art/Units/Palettes/ntp{table:02}.pcx")).ok()?;
@@ -170,7 +184,7 @@ impl UnitArt {
 
     /// The selection cursor's animation file.
     pub fn cursor(&mut self) -> Option<&AnimFile> {
-        if self.cursor.is_none() {
+        if self.cursor.is_none() && self.reading {
             self.cursor = Some(AnimFile::read(&self.files, CURSOR_FLC));
         }
         self.cursor.as_ref().and_then(Option::as_ref)
@@ -180,12 +194,18 @@ impl UnitArt {
     /// `animation` in `era_key`, falling back to DEFAULT.
     /// The animation file at `path` (e.g. one the game draws in a panel).
     pub fn file_at(&mut self, path: &str) -> Option<&AnimFile> {
+        if !self.reading && !self.by_path.contains_key(path) {
+            return None;
+        }
         let files = &self.files;
         self.by_path.entry(path.to_owned()).or_insert_with(|| AnimFile::read(files, path)).as_ref()
     }
 
     pub fn file(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<&AnimFile> {
         let key = (type_key.to_owned(), era_key.to_owned(), animation);
+        if !self.reading && !self.resolved.contains_key(&key) {
+            return None;
+        }
         if !self.resolved.contains_key(&key) {
             let found = self.lookup(type_key, era_key, animation).or_else(|| self.lookup(type_key, era_key, 1));
             self.resolved.insert(key.clone(), found);
