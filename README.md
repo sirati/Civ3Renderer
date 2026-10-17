@@ -209,9 +209,13 @@ drag pans a view, a left drag on the divider's open middle moves it. A free
 view set up before the game shows a map is placed at the middle of its view
 once it does. Clicks are routed to the game where its view shows the same
 world pixel; elsewhere the game is asked to look there (the bridge clicks
-its minimap). Where the main pane shows the game's view unmoved (zoom 1,
-perhaps cropped), the pointer resting at the window's edge scrolls the
-game's map as at the game's own screen edge. `TILE_VIEWER_LAYOUT`
+its minimap). The main pane following the game's view shows its middle in
+the pane's middle (a split or a zoom strip crops it round its middle), so
+what the game centres on (the active unit, a popup's subject, a place
+looked at) is in the middle of A, and the minimap marks what A shows.
+Where the main pane follows the game's view at zoom 1, the pointer resting
+at the window's edge scrolls the game's map as at the game's own screen
+edge. `TILE_VIEWER_LAYOUT`
 overrides the settings at start, for testing, e.g.
 `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled):
