@@ -414,6 +414,37 @@ fn zoomed_views_scale_by_nearest_texel() {
 }
 
 #[test]
+fn a_clip_meaning_everywhere_hides_nothing_in_a_view_off_the_corner() {
+    // A screen sprite clipped to "everywhere" (i32::MIN..i32::MAX, as a
+    // mirrored interface draws straight onto the screen) in a view whose
+    // origin is off the window's corner (a popup drawn as a view of its
+    // own, perhaps moved): moving the clip by the origin must not wrap.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let sprite = world.free.iter().find(|s| s.screen).cloned().expect("a screen sprite");
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    let main = Camera { x: 30, y: 10, ..Camera::new((320, 200)) };
+    let part = Camera { cells: false, origin: (60, 40), ..Camera::new((120, 90)) };
+    let moved = Camera { cells: false, origin: (160, 90), screen_shift: (100, 50), ..Camera::new((120, 90)) };
+    renderer.set_world(&gpu.device, &world);
+    let without = gpu.render_views(&mut renderer, &[main, part, moved], (320, 200), 1, CLEAR);
+    let everywhere = Some([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+    world.free.push(PlacedSprite { view: Some(1), x: 70, y: 50, clip: everywhere, ..sprite.clone() });
+    world.free.push(PlacedSprite { view: Some(2), x: 75, y: 45, clip: everywhere, ..sprite });
+    renderer.set_world(&gpu.device, &world);
+    let cameras = [main, part, moved];
+    let got = gpu.render_views(&mut renderer, &cameras, (320, 200), 1, CLEAR);
+    let want = reference::render_views(&world, &atlas, &cameras, (320, 200), 1, CLEAR);
+    assert_same(&got, &want, "unbounded clip in views off the corner");
+    let changed: Vec<(u32, u32)> = (0..200).flat_map(|y| (0..320).map(move |x| (x, y))).filter(|&(x, y)| got.get(x, y) != without.get(x, y)).collect();
+    assert!(changed.iter().any(|&(x, y)| x < 150 && y < 130), "the sprite in the view at (60, 40) is drawn");
+    assert!(changed.iter().any(|&(x, y)| x >= 160 && y >= 90), "the sprite in the moved view is drawn, moved");
+}
+
+#[test]
 fn zoom_repeats_texels() {
     // At 2/1 every texel of the zoom-1 picture becomes a 2×2 block.
     let gpu = Headless::new().expect("GPU");

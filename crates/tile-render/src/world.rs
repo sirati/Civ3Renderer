@@ -296,13 +296,24 @@ impl OutlineGlyph {
             y: sprite.y,
             em: self.em64,
             advance: self.advance,
-            clip: sprite.clip.unwrap_or_default(),
+            clip: sprite.clip.map_or([0; 4], bound_clip),
             color: rgb(self.color),
             key: self.key.map_or(0, rgb),
             bar_top: bar.0,
             bar_height: bar.1,
         })
     }
+}
+
+/// How far from the screen origin a clip rectangle's sides are kept: the
+/// shaders move them by a view's origin (and scale them), which must not
+/// overflow. A clip meaning "everywhere" (`i32::MIN`, `i32::MAX`) moved by
+/// a view off the window's corner wrapped round and hid the sprite.
+pub const CLIP_LIMIT: i32 = 1 << 24;
+
+/// A clip rectangle (x0, y0, x1, y1) with its sides within [`CLIP_LIMIT`].
+pub fn bound_clip(clip: [i32; 4]) -> [i32; 4] {
+    clip.map(|v| v.clamp(-CLIP_LIMIT, CLIP_LIMIT))
 }
 
 impl PlacedSprite {
@@ -332,7 +343,7 @@ impl PlacedSprite {
             y: self.y,
             scale_den: self.blend.scale_den(),
             view: self.view.unwrap_or(tile_render_shared::ALL_VIEWS),
-            clip: self.clip.unwrap_or_default(),
+            clip: self.clip.map_or([0; 4], bound_clip),
             tint: self.blend.tint(),
             zoom: match self.zoom_art {
                 ZoomArt::Zoomed { zoom: (n, d), .. } => n << 16 | d,
