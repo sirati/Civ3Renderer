@@ -438,6 +438,7 @@ mod tests {
         assert_eq!(v["layout.screens.Palace"], Value::Text("Floating".into()));
         assert_eq!(v["input.snap_updates_per_second"], Value::Number(3.0));
         assert_eq!(v["display.show_fps"], Value::On(false));
+        assert_eq!(v["input.map_movement"], Value::Text("EdgeScroll".into()));
     }
 
     #[test]
@@ -563,6 +564,11 @@ mod tests {
         assert_eq!(saved.layout.roles, Roles::UnitMouse);
         assert_eq!(saved.layout.screens["F2"].vertical, Place::RightOrTop);
         assert_eq!(saved.layout.zoom_place, Place::RightOrTop);
+        // Map movement: dragging, then edge scrolling again.
+        assert!(click(&mut p, 400, 635).is_empty());
+        assert_eq!(Settings::load(&path).unwrap().input.map_movement, viewer_settings::MapMovement::Drag);
+        assert!(click(&mut p, 250, 635).is_empty());
+        assert_eq!(Settings::load(&path).unwrap().input.map_movement, viewer_settings::MapMovement::EdgeScroll);
         // The game's OK button (bottom right) is not covered.
         assert_eq!(click(&mut p, 985, 735).len(), 3);
         // The pixel scale on the Resolution tab.
