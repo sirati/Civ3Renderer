@@ -8,7 +8,7 @@
 //! Reads go through [`Mem`] so they can be tested without the game. Only
 //! the PCGames build is decoded.
 
-use crate::controls::{Control, ControlKind, Mem, Sites, TAG_CHECK, TAG_TAB};
+use crate::controls::{Control, ControlKind, Mem, Sites, TAG_CHECK, TAG_CHOICE, TAG_TAB};
 use crate::layout;
 
 /// The draw (vtable +0x58) of every `Button` that picks its art by its
@@ -83,10 +83,8 @@ pub struct StateArt {
     /// The canvas the control is drawn on: its draws on the composed
     /// screen are the control's.
     pub canvas: u32,
-    /// Whether the control is a part of what the canvas shows (a tab, a
-    /// box): its draw is the last of its sprites within its rectangle;
-    /// else all of the canvas' draws are the control's.
-    pub part: bool,
+    /// Which of the canvas' draws are the control's.
+    pub part: Part,
     /// The state the game's fields say it is in.
     pub state: Look,
     /// Whether that state is the game's own choice rather than the
@@ -97,21 +95,38 @@ pub struct StateArt {
     pub pieces: Vec<Vec<(Look, u32)>>,
     /// How far its text moves in a state (x, y), where it does.
     pub text_offsets: Vec<(Look, (i32, i32))>,
+    /// The colour of its text in a state (the game's packed colour: bit 31
+    /// and RGB555, else a palette index, which is black on its canvases;
+    /// docs §16.10), where it changes.
+    pub text_colors: Vec<(Look, u32)>,
     pub select: Select,
+}
+
+/// Which of a canvas' draws are a control's.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// All of them (the canvas is the control's own).
+    Whole,
+    /// The last draw of its art within its rectangle (a tab, a box: drawn
+    /// over what was there).
+    LastArt,
+    /// All within its rectangle (a row, redrawn as a whole).
+    Within,
 }
 
 /// The state art of `control`, if the game draws it by its state from
 /// sprites: a `Button`, an advisors' tab, a check box.
 pub fn of(mem: &dyn Mem, sites: &Sites, control: &Control) -> Option<StateArt> {
+    let object = (control.id >> 32) as u32;
+    let part = control.id as u32;
     if control.kind != ControlKind::Button {
         return None;
     }
-    let object = (control.id >> 32) as u32;
-    let part = control.id as u32;
     match (object, part & 0xF000_0000) {
         (0, _) => button(mem, part),
         (o, TAG_TAB) if o == sites.advisor => advisor_tab(mem, o, part & 0x0FFF_FFFF),
         (o, TAG_CHECK) => check_box(mem, o, part & 0x0FFF_FFFF),
+        (o, 0) if part & TAG_CHOICE != 0 => bullet_row(mem, o, part & !TAG_CHOICE),
         _ => None,
     }
 }
@@ -153,11 +168,12 @@ pub fn button(mem: &dyn Mem, addr: u32) -> Option<StateArt> {
     let text = (mem.i32(addr + PRESSED_TEXT)?, mem.i32(addr + PRESSED_TEXT + 4)?);
     Some(StateArt {
         canvas: addr + layout::BASE_FORM_DATA_CANVAS + 4,
-        part: false,
+        part: Part::Whole,
         state: LOOKS[state],
         forced,
         pieces,
         text_offsets: vec![(LOOKS[2], text)],
+        text_colors: Vec::new(),
         select: Select::None,
     })
 }
@@ -180,11 +196,12 @@ pub fn advisor_tab(mem: &dyn Mem, advisor: u32, k: u32) -> Option<StateArt> {
     ]];
     Some(StateArt {
         canvas: advisor + layout::BASE_FORM_DATA_CANVAS + 4,
-        part: true,
+        part: Part::LastArt,
         state,
         forced: false,
         pieces,
         text_offsets: Vec::new(),
+        text_colors: Vec::new(),
         select: Select::Pick(advisor),
     })
 }
@@ -210,12 +227,67 @@ pub fn check_box(mem: &dyn Mem, form: u32, i: u32) -> Option<StateArt> {
     ]];
     Some(StateArt {
         canvas: form + layout::BASE_FORM_DATA_CANVAS + 4,
-        part: true,
+        part: Part::LastArt,
         state: look(if hover { Pointer::Hover } else { Pointer::Normal }, on),
         forced: false,
         pieces,
         text_offsets: Vec::new(),
+        text_colors: Vec::new(),
         select: Select::Toggle,
+    })
+}
+
+/// The bullet list's sprites (`Sprite*`: normal, selected, hover) and text
+/// colours (hover, selected) in its own part C (0x61CC20); its item list's
+/// normal colour, selected and hovered rows, and the outline drawn around a
+/// selected row's text (−1: none).
+const BULLETS: u32 = 4;
+const BULLET_HOVER_COLOR: u32 = 0x18;
+const BULLET_SELECTED_COLOR: u32 = 0x1C;
+const L_NORMAL_COLOR: u32 = 0x80;
+const L_SELECTED: u32 = 0xF0;
+const L_HOVERED: u32 = 0xF4;
+const L_OUTLINE: u32 = 0xBC;
+
+/// Row `r` of the bullet list whose form part is at `form` (a popup's
+/// choices): its bullet and text colour normal, hovered (the selected row
+/// never shows hover) and selected. A press selects (on the button going
+/// down), so pressed looks selected.
+pub fn bullet_row(mem: &dyn Mem, form: u32, r: u32) -> Option<StateArt> {
+    bullet_row_of(mem, crate::controls::bullet_list(mem, form)?, form, r)
+}
+
+/// [`bullet_row`] of the rows `list`.
+fn bullet_row_of(mem: &dyn Mem, list: crate::controls::BulletList, form: u32, r: u32) -> Option<StateArt> {
+    // (An outline around the selected row's text: not drawn here.)
+    if mem.i32(list.items + L_OUTLINE)? != -1 {
+        return None;
+    }
+    let [normal, selected, hover] = [0, 1, 2].map(|i| mem.u32(list.c + BULLETS + 4 * i).unwrap_or(0));
+    if normal == 0 || selected == 0 || hover == 0 {
+        return None;
+    }
+    let on = mem.i32(list.items + L_SELECTED)? == r as i32;
+    let over = mem.i32(list.items + L_HOVERED)? == r as i32;
+    let colors = [mem.u32(list.items + L_NORMAL_COLOR)?, mem.u32(list.c + BULLET_HOVER_COLOR)?, mem.u32(list.c + BULLET_SELECTED_COLOR)?];
+    let looks: Vec<(Look, u32, u32)> = [
+        (look(Pointer::Normal, false), normal, colors[0]),
+        (look(Pointer::Hover, false), hover, colors[1]),
+        (look(Pointer::Pressed, false), selected, colors[2]),
+        (look(Pointer::Normal, true), selected, colors[2]),
+        (look(Pointer::Hover, true), selected, colors[2]),
+        (look(Pointer::Pressed, true), selected, colors[2]),
+    ]
+    .into();
+    Some(StateArt {
+        canvas: form + layout::BASE_FORM_DATA_CANVAS + 4,
+        part: Part::Within,
+        state: look(if over && !on { Pointer::Hover } else { Pointer::Normal }, on),
+        forced: false,
+        pieces: vec![looks.iter().map(|&(l, s, _)| (l, s)).collect()],
+        text_offsets: Vec::new(),
+        text_colors: looks.iter().map(|&(l, _, c)| (l, c)).collect(),
+        select: Select::Pick(form),
     })
 }
 
@@ -261,11 +333,12 @@ mod tests {
             art,
             StateArt {
                 canvas: 0x1000 + 0x274,
-                part: false,
+                part: Part::Whole,
                 state: NORMAL,
                 forced: false,
                 pieces: vec![vec![(NORMAL, 0xA0), (HOVER, 0xA1), (PRESSED_LOOK, 0xA2)]],
                 text_offsets: vec![(PRESSED_LOOK, (2, 2))],
+                text_colors: vec![],
                 select: Select::None,
             }
         );
@@ -306,7 +379,7 @@ mod tests {
         m.0.insert(0x9A_FD58 + TAB_HOVERED, 3);
         let tab = |k: u64| Control { rect: [4, 0, 65, 62], kind: ControlKind::Button, id: 0x9A_FD58 << 32 | 0x8000_0000 | k };
         let art = of(&m, &sites, &tab(3)).unwrap();
-        assert_eq!((art.state, art.part, art.select), (HOVER, true, Select::Pick(0x9A_FD58)));
+        assert_eq!((art.state, art.part, art.select), (HOVER, Part::LastArt, Select::Pick(0x9A_FD58)));
         assert_eq!(art.pieces[0][1], (HOVER, 0x9A_FD58 + 0x26F0 + 3 * 0x84 + 0x2C));
         assert_eq!(of(&m, &sites, &tab(2)).unwrap().state, look(Pointer::Normal, true));
         let boxes = 0x5000u32;
@@ -321,5 +394,52 @@ mod tests {
         assert_eq!(of(&m, &sites, &check(2)).unwrap().state, look(Pointer::Normal, true));
         // A list entry: none.
         assert_eq!(of(&m, &sites, &Control { kind: ControlKind::ListItem, ..check(0) }), None);
+    }
+}
+
+#[cfg(test)]
+mod bullet_tests {
+    use super::*;
+    use crate::controls::BulletList;
+
+    #[derive(Default)]
+    struct Fake(std::collections::HashMap<u32, u32>);
+
+    impl Mem for Fake {
+        fn u32(&self, addr: u32) -> Option<u32> {
+            Some(self.0.get(&addr).copied().unwrap_or(0))
+        }
+        fn u8(&self, addr: u32) -> Option<u8> {
+            self.u32(addr & !3).map(|v| (v >> (8 * (addr & 3))) as u8)
+        }
+    }
+
+    #[test]
+    fn a_popups_choice_rows_by_state() {
+        let f = 0x10_0000;
+        let mut m = Fake::default();
+        let (c, l) = (f - 0x28, f + 0x578);
+        let list = BulletList { c, items: l };
+        for (i, s) in [0xB3_DD28, 0xB3_DD80, 0xB3_DD54].into_iter().enumerate() {
+            m.0.insert(c + 4 + 4 * i as u32, s);
+        }
+        m.0.insert(c + 0x18, 0x8000_5960);
+        m.0.insert(c + 0x1C, 0x8000_01D7);
+        m.0.insert(l + 0x80, 0);
+        m.0.insert(l + 0xBC, u32::MAX);
+        m.0.insert(l + 0xF0, 0);
+        m.0.insert(l + 0xF4, 2);
+        let row = |r| bullet_row_of(&m, list, f, r).unwrap();
+        let (sel, over, plain) = (row(0), row(2), row(1));
+        assert_eq!(sel.state, look(Pointer::Normal, true));
+        assert_eq!(over.state, look(Pointer::Hover, false));
+        assert_eq!((plain.state, plain.part, plain.select), (look(Pointer::Normal, false), Part::Within, Select::Pick(f)));
+        assert_eq!(plain.pieces[0][1], (look(Pointer::Hover, false), 0xB3_DD54));
+        assert_eq!(plain.text_colors[1], (look(Pointer::Hover, false), 0x8000_5960));
+        // Pressed: selected.
+        assert_eq!(plain.pieces[0][2], (look(Pointer::Pressed, false), 0xB3_DD80));
+        // An outline around the selected text: none.
+        m.0.insert(l + 0xBC, 5);
+        assert_eq!(bullet_row_of(&m, list, f, 1), None);
     }
 }
