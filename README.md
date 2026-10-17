@@ -225,6 +225,19 @@ unmoved (zoom 1), the pointer resting at the window's edge scrolls the
 game's map as at the game's own screen edge (`scene::Input::Edge`; the
 game polls the pointer, `inproc::pointer`). `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
+The mouse cursor is the game's (`Art/cursor.pcx`, `scene::Cursor`: the
+bridge reads which one the game shows, e.g. its targeting cursors, or the
+system's busy pointer): while the mouse is free the system draws it (a
+custom system cursor made from the art; the crosshair cell where a click
+captures the mouse), smoother than anything drawn in a frame; the viewer
+draws it itself, as sprites in a camera on top that change without the
+world being rebuilt, only where the system cannot: while the mouse is
+captured or snapping (the system pointer hidden, never seen jumping), and
+in the other views showing the world pixel under the pointer (the other
+pane, insets, a world zoom box). Each pointer event redraws at once
+(`TILE_VIEWER_LATENCY=1` logs the latency from motion to the drawn
+cursor). `vendor/winit` carries a fix for custom cursors on a 16-bit
+Windows desktop (the game's mode).
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
 scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`
