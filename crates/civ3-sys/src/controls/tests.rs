@@ -235,13 +235,40 @@ fn grid_items_go_down_then_across() {
 }
 
 #[test]
-fn context_menu_rows_skip_hidden_and_disabled_entries() {
-    // Shown, hidden, shown but disabled, shown.
-    let rows = menu_rows(&[1, 0, 1 | 4, 1], 18, (120, 60));
+fn context_menu_rows_skip_hidden_entries_and_separators() {
+    // Shown, hidden, shown separator, shown.
+    let rows = menu_rows(&[1, 0, 1 | 4, 1], 18, (120, 60), 2);
     assert_eq!(rows, [(0, [0, 2, 120, 18]), (3, [0, 38, 120, 18])]);
     // Without a height: the menu's shared among its rows.
-    assert_eq!(menu_rows(&[1, 1], 0, (100, 44)), [(0, [0, 2, 100, 20]), (1, [0, 22, 100, 20])]);
-    assert!(menu_rows(&[0, 0], 18, (100, 44)).is_empty());
+    assert_eq!(menu_rows(&[1, 1], 0, (100, 44), 2), [(0, [0, 2, 100, 20]), (1, [0, 22, 100, 20])]);
+    assert!(menu_rows(&[0, 0], 18, (100, 44), 2).is_empty());
+}
+
+#[test]
+fn context_menu_hit_rectangles_follow_the_font_and_current_border() {
+    let mut m = Fake::default();
+    let (form, font) = (0x20_0000, 0x30_0000);
+    m.form(form, CONTEXT_MENU_VTABLES[0], 0, true, [100, 200, 344, 287], 0, &[]);
+    with_roots(&mut m, &[form]);
+    m.put(form + MENU_COUNT, 5);
+    m.put(form + MENU_ITEM_HEIGHT, 15);
+    m.put(MENU_BORDER, 1);
+    m.put(form + crate::layout::BASE_FORM_DATA_CANVAS + 4 + 0x5C, font);
+    m.put(font + 8, 12);
+    m.put(font + 0x10, 5);
+    for (i, status) in [1, 3, 5, 1, 1].into_iter().enumerate() {
+        m.put(form + MENU_ITEMS + i as u32 * MENU_ITEM_BYTES + MENU_ITEM_STATUS, status);
+    }
+    let rects = || controls(&m, &sites()).iter().map(|c| c.rect).collect::<Vec<_>>();
+    // The original 15-pixel rows with a fixed two-pixel border missed the
+    // first row's fill and the bottom of later rows, so no hover appeared.
+    assert_eq!(rects(), [[100, 201, 244, 17], [100, 218, 244, 17], [100, 252, 244, 17], [100, 269, 244, 17]]);
+    // A default font and negative-height metrics take the other branch.
+    m.put(form + crate::layout::BASE_FORM_DATA_CANVAS + 4 + 0x5C, 0);
+    m.put(DEFAULT_FONT, font);
+    m.put(font + 8, (-12i32) as u32);
+    m.put(font + 0xC, 19);
+    assert_eq!(controls(&m, &sites())[0].rect, [100, 201, 244, 19]);
 }
 
 #[test]

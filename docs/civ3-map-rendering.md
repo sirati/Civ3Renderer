@@ -1527,7 +1527,7 @@ No enabled flag is read on the mouse path: a disabled control is hidden, or its 
 | `Scroll_Bar` [H] | 0x6660A8 | its arrow `Button`s (+0x610, +0xCE4); pos +0x58C, min/max +0x580/+0x584 |
 | list boxes | generic 0x6718E8; city 0x665D88, 0x665BF0, 0x665A40, 0x6665D8; combo dropdown 0x671FC8 | entries (below) |
 | `CheckBox` [H] | form part (CheckBox+0x20) 0x671C70 | boxes: `idx = (x/(W+gap))·rows + y/(H+gap)`; item list at CheckBox+0x598 |
-| `Context_Menu` [H] | 0x671AC0, 0x66B240 | rows: items +0x578 (28 bytes, +0xC bit 0 shown, bit 1 disabled (0x61A210), bit 2 a separator), count +0x2184, height +0x218C; row = `(y − 2) / max(height, font line)` over shown items |
+| `Context_Menu` [H] | 0x671AC0, 0x66B240 | rows: items +0x578 (28 bytes, +0xC bit 0 shown, bit 1 disabled (0x61A210), bit 2 a separator), count +0x2184, height +0x218C; row = `(y − [0x730318]) / max(height, font line)` over shown items, using the current canvas font (0x5FE780) |
 | popups [H] | 0x666240 family | OK +0x5DC, Cancel +0xCB0 (`Button`s); a choice list at +0x1468 |
 | Advisor_GUI | 0x9AFD58 | six tabs tested in code (0x49D6D0): x 4..=0x44, y 242+62k..=304+62k |
 | any form | — | text links (Civilopedia): 32-byte entries at +0x378, a RECT at +4, count +0x380 |

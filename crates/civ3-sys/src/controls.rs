@@ -380,18 +380,20 @@ const MENU_ITEM_BYTES: u32 = 28;
 const MENU_ITEM_STATUS: u32 = 0xC;
 const MENU_COUNT: u32 = 0x2184;
 const MENU_ITEM_HEIGHT: u32 = 0x218C;
-/// The first row's top (`[0x730318]`).
-const MENU_TOP: i32 = 2;
+/// The frame border width used by both drawing and mouse hit testing.
+const MENU_BORDER: u32 = 0x73_0318;
+const DEFAULT_FONT: u32 = 0xCC_38B8;
 
 /// A context menu's rows: per shown item (status bit 0), its row
-/// rectangle in the menu's pixels, unless disabled (bit 2). The row height
-/// is the menu's, else the menu's height shared among its rows.
-pub fn menu_rows(statuses: &[u32], item_height: i32, size: (i32, i32)) -> Vec<(usize, [i32; 4])> {
+/// rectangle in the menu's pixels, except separators (bit 2). Disabled
+/// items (bit 1) still take hover. `item_height` includes the font's line
+/// height, and `border` is the game's current frame width.
+pub fn menu_rows(statuses: &[u32], item_height: i32, size: (i32, i32), border: i32) -> Vec<(usize, [i32; 4])> {
     let shown: Vec<usize> = statuses.iter().enumerate().filter(|(_, s)| *s & 1 != 0).map(|(i, _)| i).collect();
     if shown.is_empty() {
         return vec![];
     }
-    let h = if item_height > 0 { item_height } else { (size.1 - 2 * MENU_TOP) / shown.len() as i32 };
+    let h = if item_height > 0 { item_height } else { (size.1 - 2 * border) / shown.len() as i32 };
     if h <= 0 {
         return vec![];
     }
@@ -399,15 +401,25 @@ pub fn menu_rows(statuses: &[u32], item_height: i32, size: (i32, i32)) -> Vec<(u
         .iter()
         .enumerate()
         .filter(|(_, i)| statuses[**i] & 4 == 0)
-        .map(|(row, &i)| (i, [0, MENU_TOP + row as i32 * h, size.0, h]))
+        .map(|(row, &i)| (i, [0, border + row as i32 * h, size.0, h]))
         .collect()
+}
+
+/// Canvas::line_height (0x5FE780), used by Context_Menu's drawing and
+/// hit testing (0x61B250, 0x61A9C0). A larger font expands every row.
+fn canvas_line_height(mem: &dyn Mem, canvas: u32) -> Option<i32> {
+    let font = mem.u32(canvas + 0x5C).filter(|&f| f != 0).or_else(|| mem.u32(DEFAULT_FONT).filter(|&f| f != 0))?;
+    let height = mem.i32(font + 8)?;
+    if height < 0 { mem.i32(font + 0xC) } else { height.checked_add(mem.i32(font + 0x10)?) }
 }
 
 fn context_menu(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
     let n = mem.u32(form.addr + MENU_COUNT).unwrap_or(0).min(MAX_ITEMS);
     let statuses: Vec<u32> = (0..n).map(|i| mem.u32(form.addr + MENU_ITEMS + i * MENU_ITEM_BYTES + MENU_ITEM_STATUS).unwrap_or(0)).collect();
-    let height = mem.i32(form.addr + MENU_ITEM_HEIGHT).unwrap_or(0);
-    for (i, r) in menu_rows(&statuses, height, form.size) {
+    let canvas = form.addr + crate::layout::BASE_FORM_DATA_CANVAS + 4;
+    let height = mem.i32(form.addr + MENU_ITEM_HEIGHT).unwrap_or(0).max(canvas_line_height(mem, canvas).unwrap_or(0));
+    let border = mem.i32(MENU_BORDER).filter(|b| (0..128).contains(b)).unwrap_or(2);
+    for (i, r) in menu_rows(&statuses, height, form.size, border) {
         let rect = form.on_screen(r);
         if !empty(rect) {
             out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_MENU, i as u32) });
