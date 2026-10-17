@@ -378,3 +378,18 @@ FLC_Animation field_111
 Animation_Info Data
 Animator field_18E4[3]
 Animator field_18E4[4]
+
+# Targeting modes (docs §10.15): the unit command waiting for a target
+# tile, its range, and what the game decided about the tile under the mouse.
+Main_Screen_Form Mode_Action
+Main_Screen_Form field_4ED0
+Main_Screen_Form Mode_Action_Range
+Main_Screen_Form field_2E1AC
+
+# The range a targeting command reaches, outlined tile by tile in the map's
+# grid pass (0x4C57C0, docs §10.15).
+Map Renderer
+Map_Renderer b_Action_Mode
+Map_Renderer Action_Mode_Range
+Map_Renderer Action_Mode_CenterX
+Map_Renderer Action_Mode_CenterY
