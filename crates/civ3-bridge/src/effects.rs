@@ -75,7 +75,11 @@ pub fn preload(needed: &mut Needed, art: &mut UnitArt, world: &Civ3World) {
         let air = world.unit_type_stats.get(t.max(0) as usize).is_some_and(|s| s[4] == 2);
         let Some(key) = world.unit_type_keys.get(t.max(0) as usize).filter(|_| air) else { continue };
         for era in &world.era_keys {
-            if let Some(ini) = art.unit_ini(key, era) {
+            // (Only those that have bombs: the others would show their
+            // DEFAULT, which units have already.)
+            let Some(ini) = art.unit_ini(key, era) else { continue };
+            let default = art.effect_file(&ini, DEFAULT).map(|f| f.path.clone());
+            if art.effect_file(&ini, VICTORY).is_some_and(|f| Some(&f.path) != default.as_ref()) {
                 needed.add_effect(art, &ini, VICTORY);
             }
         }
@@ -190,6 +194,47 @@ mod tests {
         let text = [&e, &extra, &city].iter().map(|e| trace_line(e)).collect::<Vec<_>>().join("\n");
         let t = Trace::parse(&text).unwrap();
         assert_eq!(t.world.effects, vec![e, extra, city]);
+    }
+
+    /// The preloaded effect art compiles, and an effect's frame is a sprite
+    /// of it, its smoke translucent (`CIV3_INSTALL`; skipped without an
+    /// installation).
+    #[test]
+    fn effect_art_compiles_and_places() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).is_dir() {
+            return eprintln!("no Civ III install, skipped");
+        }
+        let files = || civ3_assets::GameFiles::complete(&install);
+        let mut art = UnitArt::new(files());
+        let mut needed = Needed { smoke: art.smoke().to_vec(), ..Needed::default() };
+        preload(&mut needed, &mut art, &Civ3World::default());
+        assert!(needed.effects.contains_key("Art/Animations/Trajectory/miss.flc"), "{:?}", needed.effects.keys());
+        assert_eq!(needed.smoke.len(), 16);
+        let desc = format!(
+            "[grid]\nlayout = \"staggered\"\nstep = [64, 32]\ncolor_bits = 5\n[loader]\nquantize = \"rgb555\"\ntransparent = [254, 255]\n\
+             [[layers]]\nname = \"fog\"\npass = 5\nsets = []\n[[layers]]\nname = \"unit_body\"\npass = 6\nsets = []\n\
+             [images.movement_led]\nsource = \"rects:44x8;0,200,0,255:1,1,6,6\"\n{}",
+            needed.description()
+        );
+        let compiled = crate::assets::compile(&desc, files()).unwrap();
+        // A miss on tile (2, 2), frame 11 (smoke in it), over the units.
+        let mut world = Civ3World { player: 1, width: 6, height: 6, tiles: vec![Civ3Tile::default(); 18], ..Default::default() };
+        world.tiles[(2 * 6 + 2) / 2].visibility = 1 << 1;
+        world.effects = vec![Civ3Effect { frame: 11, ini: "Art/Animations/Trajectory/Miss.ini".into(), ..effect(civ3_sys::EffectSource::Tile { effect: 7 }, DEATH) }];
+        let mut scene = Scene::empty(scene::WorldShape::default(), compiled.layers.len());
+        place(&world, &Civ3View::default(), &mut art, &compiled, &mut scene);
+        let (units_pass, _) = units::unit_passes(&compiled);
+        assert_eq!(scene.sprites.len(), 2);
+        assert_eq!((scene.sprites[0].scale_den, scene.sprites[1].scale_den), (16, 0));
+        assert!(scene.sprites.iter().all(|s| s.after_pass == units_pass && (s.x, s.y) == (192, 96)));
+        // Its art: indexed in the file's palette, smoke translucent.
+        let (set, _) = compiled.set("EffectArt@Art/Animations/Trajectory/miss.flc/11").unwrap();
+        let sprite = compiled.atlas.sprites[compiled.sets.frame(set, 0).unwrap().0 as usize];
+        let row = &compiled.atlas.palettes[sprite.palette as usize * tile_render::PALETTE_SIZE as usize..][..256];
+        let alpha = |i: usize| (row[i] >> 24) as u8;
+        assert_eq!(alpha(224), needed.smoke[0][3]);
+        assert_eq!((alpha(200), alpha(255)), (255, 0));
     }
 
     #[test]
