@@ -7,9 +7,9 @@ use crate::world::Civ3World;
 /// Terrain colours in RGB555, by effective terrain id (§17.4).
 const TERRAIN: [u16; 14] =
     [0x7BD7, 0x6AAA, 0x4646, 0x6FBD, 0x30C2, 0x1986, 0x6739, 0x25E6, 0x0D60, 0x31EB, 0x3401, 0x1295, 0x0E11, 0x012B];
-const WHITE: u16 = 0x7FFF;
+pub(crate) const WHITE: u16 = 0x7FFF;
 /// Coast, sea, ocean.
-const WATER: std::ops::RangeInclusive<u32> = 11..=13;
+pub(crate) const WATER: std::ops::RangeInclusive<u32> = 11..=13;
 
 fn red(c: u16) -> u32 {
     (u32::from(c) >> 7) & 0xF8
@@ -35,13 +35,14 @@ fn expand(c: u16) -> [u8; 3] {
 }
 
 /// The game's mapping between minimap pixels and tiles (§17.3).
-struct Geometry {
-    w: i64,
-    h: i64,
-    width: i64,
-    height: i64,
-    wrap_x: bool,
-    wrap_y: bool,
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Geometry {
+    pub(crate) w: i64,
+    pub(crate) h: i64,
+    pub(crate) width: i64,
+    pub(crate) height: i64,
+    pub(crate) wrap_x: bool,
+    pub(crate) wrap_y: bool,
 }
 
 /// C integer division and remainder (truncating).
@@ -54,21 +55,21 @@ fn cmod(a: i64, b: i64) -> i64 {
 
 impl Geometry {
     /// `Map_wrap_horiz` / `Map_wrap_vert`: one step, if the map wraps.
-    fn wrap_x(&self, x: i64) -> i64 {
+    pub(crate) fn wrap_x(&self, x: i64) -> i64 {
         match self.wrap_x {
             true if x < 0 => x + self.width,
             true if x >= self.width => x - self.width,
             _ => x,
         }
     }
-    fn wrap_y(&self, y: i64) -> i64 {
+    pub(crate) fn wrap_y(&self, y: i64) -> i64 {
         match self.wrap_y {
             true if y < 0 => y + self.height,
             true if y >= self.height => y - self.height,
             _ => y,
         }
     }
-    fn valid(&self, x: i64, y: i64) -> bool {
+    pub(crate) fn valid(&self, x: i64, y: i64) -> bool {
         (0..self.width).contains(&x) && (0..self.height).contains(&y)
     }
 
@@ -104,9 +105,15 @@ impl Geometry {
     }
 }
 
-/// The minimap the viewing player sees, `size` pixels, as row-major RGBA.
-/// `owner_color`: a civ's colour (its colour table's entry 66) in RGB555.
-pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) -> u16) -> Vec<u8> {
+/// Terrain pixels and their nearest tiles, shared with the replay navigator.
+pub(crate) struct Terrain {
+    pub(crate) geometry: Geometry,
+    pub(crate) bright: Vec<u16>,
+    pub(crate) tiles: Vec<Option<(i64, i64)>>,
+}
+
+/// Builds the navigator's bright terrain image without ownership or visibility.
+pub(crate) fn terrain(world: &Civ3World, (w, h): (u32, u32)) -> Terrain {
     let g = Geometry {
         w: w as i64,
         h: h as i64,
@@ -115,9 +122,10 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
         wrap_x: world.flags & 1 != 0,
         wrap_y: world.flags & 2 != 0,
     };
-    let mut out = vec![0u8; (w * h * 4) as usize];
+    let mut bright = vec![0u16; w as usize * h as usize];
+    let mut tiles = vec![None; bright.len()];
     if w == 0 || h == 0 || g.width <= 0 || g.height <= 1 {
-        return out;
+        return Terrain { geometry: g, bright, tiles };
     }
     let (w, h) = (w as i64, h as i64);
     let d = 2 * w * h;
@@ -128,9 +136,7 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
     // The bright (terrain) image: the four surrounding tiles' colours,
     // blended bilinearly; its pixels are written in order, skipping pixels
     // off the map (the game's output pointer only moves on valid pixels).
-    let mut bright = vec![0u16; (w * h) as usize];
     let mut at = 0usize;
-    let mut tiles = vec![None; (w * h) as usize];
     for py in 0..h {
         for px in 0..w {
             let Some((x0, y0, fx0, fy0)) = g.tile_of(px, py) else { continue };
@@ -170,17 +176,45 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
             at += 1;
         }
     }
+    Terrain { geometry: g, bright, tiles }
+}
+
+/// The navigator's grey background, before territory or city marks.
+pub(crate) fn darken(c: u16) -> u16 {
+    rgb((red(c) + 56) >> 1, (green(c) + 56) >> 1, (blue(c) + 56) >> 1)
+}
+
+/// A political pixel uses three parts owner colour to one part bright terrain.
+pub(crate) fn tint(c: u16, color: u16) -> u16 {
+    rgb((3 * red(color) + red(c)) >> 2, (3 * green(color) + green(c)) >> 2, (3 * blue(color) + blue(c)) >> 2)
+}
+
+pub(crate) fn rgba(pixels: &[u16]) -> Vec<u8> {
+    pixels.iter().flat_map(|&c| {
+        let [r, g, b] = expand(c);
+        [r, g, b, 255]
+    }).collect()
+}
+
+/// The minimap the viewing player sees, `size` pixels, as row-major RGBA.
+/// `owner_color`: a civ's colour (its colour table's entry 66) in RGB555.
+pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) -> u16) -> Vec<u8> {
+    let Terrain { geometry: g, bright, tiles } = terrain(world, (w, h));
+    if w == 0 || h == 0 || g.width <= 0 || g.height <= 1 {
+        return vec![0; w as usize * h as usize * 4];
+    }
+    let (w, h) = (w as i64, h as i64);
     // Darkened: averaged with grey (56, 56, 56); owned land tinted 3/4 with
     // the owner's colour over the bright pixel.
     let mut political: Vec<u16> =
-        bright.iter().map(|&c| rgb((red(c) + 56) >> 1, (green(c) + 56) >> 1, (blue(c) + 56) >> 1)).collect();
+        bright.iter().copied().map(darken).collect();
     for (i, tile) in tiles.iter().enumerate() {
         let Some((x, y)) = *tile else { continue };
         let Some(t) = world.tile(x as i32, y as i32) else { continue };
         let owner = i32::from(t.owner);
         if owner > 0 && owner < 32 && !WATER.contains(&t.terrain()) {
             let (k, p) = (owner_color(owner), bright[i]);
-            political[i] = rgb((3 * red(k) + red(p)) >> 2, (3 * green(k) + green(p)) >> 2, (3 * blue(k) + blue(p)) >> 2);
+            political[i] = tint(p, k);
         }
     }
     // Shown: explored tiles' pixels; cities as white squares.
@@ -214,11 +248,7 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
             }
         }
     }
-    for (i, &c) in shown.iter().enumerate() {
-        let [r, gr, b] = expand(c);
-        out[4 * i..4 * i + 4].copy_from_slice(&[r, gr, b, 255]);
-    }
-    out
+    rgba(&shown)
 }
 
 /// The pixel of a `size` minimap nearest the middle of tile `(x, y)`'s

@@ -270,6 +270,16 @@ pub fn minimap_patches(
     out
 }
 
+/// Patches for generated surfaces shown by `items`. The renderer supplies
+/// RGBA pixels made from game state, including the replay map.
+pub fn surface_patches(items: &[Item], surfaces: &[(&str, (u32, u32), Vec<u8>)], compiled: &Compiled) -> Vec<scene::Patch> {
+    surfaces
+        .iter()
+        .filter(|(name, size, _)| items.iter().any(|i| matches!(i, Item::Element(Element::Dynamic { name: n, size: s, .. }, _) if n == name && s == size)))
+        .filter_map(|(name, size, pixels)| menu::screen::patch(compiled, name, *size, pixels.clone()))
+        .collect()
+}
+
 /// The open city screen (§16.8): where it shows the map — the transparent
 /// band (palette index 255) of its background art, as the mirrored
 /// interface places it — and the index of its first draw in `frame` (what

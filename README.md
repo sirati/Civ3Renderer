@@ -537,7 +537,10 @@ transparent pixel of the HUD goes to the map), the minimap's images (built
 from each other pixel by pixel), and any other image the game drew itself
 once it reads a pixel of it or cuts a sprite from it. Not skipped:
 blits the mirror does not hook (the scaled wrappers), FLC frame decoding,
-the minimap's per-pixel builders. `CIV3R_TRACE_PIXELS=1` logs any code
+the minimap's per-pixel builders. The summary replay uses our terrain sampler
+and follows the game's tile tint, restore and city-marker operations. Its
+terrain rasterizer and pixel writers are skipped with game rendering off;
+its geometry and playback logic still run. `CIV3R_TRACE_PIXELS=1` logs any code
 taking the pixels of an image a skipped drawing went onto.
 
 ```

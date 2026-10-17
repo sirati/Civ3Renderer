@@ -5,7 +5,7 @@
 
 use inproc::Ptr32;
 
-use crate::Build;
+use crate::{Build, layout as L};
 
 inproc::fastcall_hook! {
     /// `int PCX_Image::read_file(this, char *path, PCX_Color_Table *ct,
@@ -188,6 +188,28 @@ inproc::fastcall_hook! {
 inproc::fastcall_hook! {
     /// `PCX_Image::draw_text_in_rect(this, char *s, RECT *r, len)`.
     pub mod text_draw_rect(image, edx; text, rect, len) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// Creates navigator geometry and images, then optionally tints and reveals them.
+    pub mod navigator_init(navigator, edx; width, height, tint) -> ();
+}
+inproc::fastcall_hook! {
+    /// Tints one tile's navigator pixels with an RGB555 colour.
+    pub mod navigator_tint(navigator, edx; x, y, color) -> ();
+}
+inproc::fastcall_hook! {
+    pub mod navigator_restore(navigator, edx; x, y) -> ();
+}
+inproc::fastcall_hook! {
+    pub mod navigator_add_city(navigator, edx; x, y) -> ();
+}
+inproc::fastcall_hook! {
+    pub mod navigator_erase_city(navigator, edx; x, y, color) -> ();
+}
+inproc::cdecl_hook! {
+    /// Writes the navigator's terrain pixels, without changing game state.
+    pub mod navigator_terrain(image, width, height) -> ();
 }
 
 /// A function to hook: its address and its first instructions (checked
@@ -487,6 +509,73 @@ pub const fn generated_surfaces_pcg() -> &'static [(u32, &'static str)] {
     // The navigators' images (`Navigator_Data` + 0x858): the interface's
     // minimap, and the one of the military and cultural advisors (300×145).
     &[(0xA0_E230 + 0x858, "minimap"), (0x9B_3F38 + 0x858, "minimap-advisor")]
+}
+
+/// The navigator operations used by the summary replay. These express
+/// terrain and history changes, independently of the game's image pixels.
+pub struct ReplaySites {
+    pub init: Site,
+    pub tint: Site,
+    pub restore: Site,
+    pub add_city: Site,
+    pub erase_city: Site,
+    pub terrain: Site,
+}
+
+pub fn replay_sites(build: Build) -> Option<ReplaySites> {
+    match build {
+        Build::PcGames => Some(ReplaySites {
+            init: (0x57_8050, &[0x64, 0xA1, 0, 0, 0, 0]),
+            tint: (0x57_9290, &[0x83, 0xEC, 0x1C, 0x8B, 0x15, 0x94, 0x74, 0x9C, 0]),
+            restore: (0x57_9510, &[0x83, 0xEC, 0x24, 0xA1, 0x94, 0x74, 0x9C, 0]),
+            add_city: (0x57_97B0, &[0x51, 0x55, 0x56, 0x57, 0x8B, 0xF9]),
+            erase_city: (0x57_99B0, &[0x83, 0xEC, 0x38, 0x53, 0x55]),
+            terrain: (0x57_A760, &[0x83, 0xEC, 0x34, 0x53, 0x55]),
+        }),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// Whether this navigator belongs to a summary replay form. The form's
+/// layout is checked by the executable's callers, rather than pixel data.
+pub fn replay_navigator(build: Build, navigator: u32) -> bool {
+    build == Build::PcGames && Ptr32::<u32>::new(navigator.wrapping_sub(L::GAME_RESULTS_FORM_NAVIGATOR_DATA)).read().ok() == Some(0x66_E838)
+}
+
+pub fn navigator_size(navigator: u32) -> Option<(u32, u32)> {
+    let w = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_WIDTH2)).read().ok()?;
+    let h = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_HEIGHT2)).read().ok()?;
+    (w > 0 && h > 0 && w <= 4096 && h <= 4096).then_some((w, h))
+}
+
+/// An image the game fills pixel by pixel that belongs to a form: it is at
+/// `offset` from every form of class `vtable`. The renderer makes its
+/// picture from world and replay state.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FormSurface {
+    pub vtable: u32,
+    pub offset: u32,
+    pub name: &'static str,
+}
+
+/// The [`FormSurface`]s of `build`: the summary replay's map (its
+/// navigator's political image, 426×202 in the games measured, copied onto
+/// the replay's canvas. The navigator is at form +0x51E4 and the source image
+/// at navigator +0x2D0, rather than its explored-only image at +0x858).
+pub fn form_surfaces(build: Build) -> &'static [FormSurface] {
+    match build {
+        Build::PcGames => &[FormSurface { vtable: 0x66_E838, offset: L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2, name: "replay-map" }],
+        Build::Gog | Build::Steam => &[],
+    }
+}
+
+/// The [`FormSurface`] that `image`, copied onto `canvas` (a form's
+/// canvas), is: one of the form's own.
+pub fn form_surface(build: Build, image: u32, canvas: u32) -> Option<FormSurface> {
+    let form = canvas.wrapping_sub(4 + crate::layout::BASE_FORM_DATA_CANVAS);
+    let surfaces = form_surfaces(build);
+    let s = surfaces.iter().find(|s| form.wrapping_add(s.offset) == image)?;
+    (Ptr32::<u32>::new(form).read().ok() == Some(s.vtable)).then_some(*s)
 }
 
 inproc::fastcall_hook! {
