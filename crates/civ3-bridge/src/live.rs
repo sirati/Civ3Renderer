@@ -1348,6 +1348,7 @@ fn publish(
         // in their other states there (the corner's copy clipped to it).
         let looks_views = [
             (crate::scene_map::INTERFACE_VIEW, None),
+            (crate::scene_map::MENU_VIEW, None),
             (crate::interface_parts::CORNER_VIEW, corner),
             (crate::interface_parts::SCREEN_VIEW, None),
             (crate::interface_parts::POPUP_VIEW, None),
