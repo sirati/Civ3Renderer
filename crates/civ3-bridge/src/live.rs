@@ -640,8 +640,14 @@ fn publish(
         // elsewhere).
         let screen_open = ui.as_ref().and_then(|f| crate::interface_parts::screen(f, civ3_sys::ui_hooks::screen_forms(game.build)));
         let screen_size = (input.viewport.0 as i32, input.viewport.1 as i32);
+        // (A context menu over the map is one too, modal or not: the topmost
+        // form there.)
+        let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
         let popup = match (ui, modal, shown) {
-            (Some(f), Some(m), Shown::Map(..)) => crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size),
+            (Some(f), m, Shown::Map(..)) => {
+                let modal_popup = m.and_then(|m| crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size));
+                modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size)))
+            }
             _ => None,
         };
         let (ui_below, ui_popup) = match (ui, popup) {
@@ -668,6 +674,40 @@ fn publish(
             Some((_, first)) => ui_below.as_ref().map(|f| ui_screen::from_draw(f, first)),
             None => ui_below.clone(),
         };
+        // A named screen smaller than the window (an advisor; not the city
+        // screen, whose map is a view of its own), and what is over it: a
+        // part of its own, which the viewer may move (out from under its
+        // zoom strip).
+        let screen_part = match (&visible_ui, screen_open, shown) {
+            (Some(f), Some((index, name)), Shown::Map(..)) if name != "City" && city.is_none() => crate::interface_parts::screen_part(f, index, screen_size),
+            _ => None,
+        };
+        let (visible_ui, ui_screen_part) = match (visible_ui, screen_part) {
+            (Some(f), Some((first, _))) => {
+                let (below, above) = crate::interface_parts::split_at(&f, first);
+                (Some(below), Some(above))
+            }
+            (v, _) => (v, None),
+        };
+        // On the map's own screen: the corner's buttons and their tooltip
+        // (drawn in the view the pointer is in only: the rest of the
+        // interface leaves them out) and the unit's orders (reachable from
+        // every view).
+        let hud = civ3_sys::ui_hooks::hud_buttons(game.build);
+        let on_map = matches!(shown, Shown::Map(..)) && screen_open.is_none();
+        let hud_ui = visible_ui.as_ref().filter(|_| on_map);
+        let corner_part = hud_ui.and_then(|f| crate::interface_parts::corner_part(f, &hud.corner));
+        let corner = corner_part.as_ref().map(|(r, _)| *r);
+        let reachable = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
+        let hint = crate::interface_parts::capture_hint(corner.unwrap_or([0, 0, 149, 54]));
+        let corner_items = match (corner, hud_ui) {
+            (Some(r), Some(f)) => ui_screen::items(&crate::interface_parts::region(f, r), files.roots(), generated, unit_colors),
+            _ => Vec::new(),
+        };
+        let visible_ui = match (visible_ui, &corner_part) {
+            (Some(f), Some((_, draws))) => Some(crate::interface_parts::without(&f, draws)),
+            (v, _) => v,
+        };
         // Our tabs on top of the game's Preferences screen, in the part of
         // the interface that draws it (the screen may be the popup split
         // off), under what the game draws over it (a popup over it, e.g.
@@ -679,19 +719,8 @@ fn publish(
             ui_screen::items_with(f, files.roots(), generated, unit_colors, at.and_then(|at| prefs_items.take().map(|items| (at, items))))
         };
         let mut ui_items = visible_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
-        // On the map's own screen: the corner's buttons (drawn in the view
-        // the pointer is in) and the unit's orders (reachable from every
-        // view).
-        let hud = civ3_sys::ui_hooks::hud_buttons(game.build);
-        let on_map = matches!(shown, Shown::Map(..)) && screen_open.is_none();
-        let hud_ui = visible_ui.as_ref().filter(|_| on_map);
-        let corner = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.corner.contains(&c))).map(crate::interface_parts::corner_region);
-        let reachable = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
-        let corner_items = match (corner, hud_ui) {
-            (Some(r), Some(f)) => ui_screen::items(&crate::interface_parts::region(f, r), files.roots(), generated, unit_colors),
-            _ => Vec::new(),
-        };
+        let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let mut screen_items = ui_screen_part.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -722,10 +751,21 @@ fn publish(
         };
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
+            // (The game's own view as the viewer shows it.)
+            if let Some(main) = input.main_view {
+                ui_screen::replace_game_view_mark(&mut ui_items, world, (view.tile_x.0, view.tile_y.0, view.tile_x.1, view.tile_y.1), main, view.zoomed_out);
+            }
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
         }
         // (Our tabs where no part draws the screen: on top.)
         ui_items.extend(prefs_items.take().unwrap_or_default());
+        // Only a popup over the map's own screen is the viewer's to place;
+        // one over another screen (the Preferences screen, an advisor) stays
+        // with it, in the interface.
+        let popup = popup.filter(|_| on_map && !prefs.is_open());
+        if popup.is_none() {
+            if screen_part.is_some() { &mut screen_items } else { &mut ui_items }.append(&mut popup_items);
+        }
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         // Not while a menu is open: the click would go to the menu.
@@ -767,7 +807,12 @@ fn publish(
                 wanted_for.push("unit pictures");
             }
         }
-        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files) | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files) {
+        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&screen_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&corner_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&hint.1, &mut screen_art, &mut fonts, &files)
+        {
             screen_recompile = true;
             wanted_for.push("interface");
         }
@@ -898,7 +943,8 @@ fn publish(
         scene.sprites.extend(labels);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
-            scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {
+            let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
+            scene.patches = ui_screen::minimap_patches(&both, world, &compiled, |table| {
                 *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
             });
         }
@@ -908,6 +954,11 @@ fn publish(
         let part_sprites = |items: &[ui_screen::Item]| ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
         if let Some(r) = corner {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(&corner_items));
+            // (In its place while the mouse is captured.)
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
+        }
+        if let Some((_, r)) = screen_part {
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(&screen_items));
         }
         if let Some((_, r)) = popup {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(&popup_items));
@@ -921,7 +972,17 @@ fn publish(
         scene.interface = scene::Interface {
             screen: screen_open.map(|s| s.1.to_owned()),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
+            capture_hint: corner.map(|_| crate::interface_parts::HINT_VIEW),
             popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
+            screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
+            // Where the pointer goes when the screen opens: the city
+            // screen's production box (its largest own button).
+            focus_control: match (screen_open, ui, civ3_sys::ui_hooks::city_screen_button_vtable(game.build)) {
+                (Some((_, "City")), Some(f), Some(vt)) => {
+                    f.forms.iter().filter(|form| form.0 == vt && form.3.0 > 0 && form.3.1 > 0).max_by_key(|form| form.3.0 * form.3.1).map(|form| [form.2.0, form.2.1, form.3.0, form.3.1])
+                }
+                _ => None,
+            },
             reachable,
             // The Load Scenario screen at the window's left, its scenario's
             // world beside it.
@@ -976,6 +1037,9 @@ struct InputForwarder {
     clicks: inproc::window::DoubleClicks,
     /// A world pixel the viewer asked to see (`Input::Look`), not yet acted on.
     look: Option<(i32, i32)>,
+    /// What the viewer shows of the game's view where that is not all of
+    /// it (`Input::MainView`).
+    main_view: Option<(i32, i32, i32, i32)>,
     /// World rectangles of the viewer's own views (`Input::Views`).
     views: Vec<(i32, i32, i32, i32)>,
     /// The viewer's size, as it last reported.
@@ -1064,7 +1128,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                 window.mouse_button(button, down, double, x, y, forwarder.held);
             }
             Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
-            Input::Key { vk, down, text } => key(window, vk, down, text),
+            Input::Key { vk, down, text } => {
+                log::debug!("input: key {vk:#x} {}", if down { "down" } else { "up" });
+                key(window, vk, down, text)
+            }
             // A key over a view of the viewer's own: acted on (a few of
             // them) while a menu is open that allows it, else the key it is.
             // A release goes where its press went.
@@ -1094,6 +1161,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::Edge { x, y } => forwarder.edge = (x, y),
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
+            Input::MainView { x, y, w, h } => forwarder.main_view = (w > 0 && h > 0).then_some((x, y, w, h)),
             // (Text is drawn from outlines at every zoom: no art per zoom.)
             Input::Zooms(_) => {}
         }

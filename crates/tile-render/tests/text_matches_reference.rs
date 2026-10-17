@@ -255,3 +255,36 @@ fn text_is_left_out_where_zoomed_art_is_not_shown() {
 }
 
 
+
+/// Screen text in a stacked view of a scaled group (the driver's whole
+/// screen fitted into a pane) shows wherever the group is: in a pane at the
+/// window's corner and in one off it.
+#[test]
+fn screen_text_in_a_fitted_screen_shows_off_the_corner_too() {
+    let gpu = Headless::new().expect("GPU");
+    let faces = vec![Arc::new(shapes())];
+    let (mut world, atlas) = world(ColorModel::Direct, faces, 1);
+    // Only the screen text (view 1: the stacked interface view).
+    world.free.retain(|s| s.screen);
+    for s in &mut world.free {
+        s.view = Some(1);
+    }
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let mut picture = |origin: (i32, i32), zoomed_art: bool| {
+        let head = Camera { x: 0, y: 0, zoom: (1, 2), origin, viewport: (640, 400), zoomed_art, ..Camera::new((640, 400)) };
+        let ui = Camera { cells: false, stacked: true, hairline: true, zoomed_art, ..Camera::new((640, 400)) };
+        let cameras = [head, ui];
+        (gpu.render_views(&mut renderer, &cameras, (1280, 400), 1, CLEAR), reference::render_views(&world, &atlas, &cameras, (1280, 400), 1, CLEAR))
+    };
+    for zoomed_art in [false, true] {
+        let (a, a_ref) = picture((0, 0), zoomed_art);
+        let (b, b_ref) = picture((640, 0), zoomed_art);
+        let at = |img: &RgbaImage, x0: u32| (0..200).flat_map(|y| (0..320).map(move |x| (x, y))).filter(|&(x, y)| img.get(x0 + x, y) != CLEAR).count();
+        let (in_a, in_b) = (at(&a, 0), at(&b, 640));
+        assert!(in_a > 100, "zoomed_art {zoomed_art}: text in the pane at the corner: {in_a}");
+        assert_eq!(in_b, in_a, "zoomed_art {zoomed_art}: the same text in the pane off the corner");
+        assert_eq!((at(&a_ref, 0), at(&b_ref, 640)), (in_a, in_a), "zoomed_art {zoomed_art}: the reference");
+    }
+}

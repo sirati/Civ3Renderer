@@ -111,7 +111,7 @@ const KEYED: u32 = 0x100_0000;
 /// Buttons (`Button`, its city screen subclass, their base).
 const BUTTON_VTABLES: [u32; 3] = [0x66_56C0, 0x66_5F20, 0x67_1550];
 /// `Context_Menu` and its subclass.
-const CONTEXT_MENU_VTABLES: [u32; 2] = [0x67_1AC0, 0x66_B240];
+pub const CONTEXT_MENU_VTABLES: [u32; 2] = [0x67_1AC0, 0x66_B240];
 /// A check box group's form part (`CheckBox` + 0x20).
 const CHECKBOX_VTABLE: u32 = 0x67_1C70;
 /// Where every list box's draw thunk (vtable +0x58) ends.

@@ -160,7 +160,16 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   `UnitMouse`: A follows the focus of interest (the active unit; while a
   popup is open the middle of the game's view), B follows the world cursor
   and captures the mouse when clicked into, so the unit stays in sight in
-  the other view. An open popup moves fully into A where it fits.
+  the other view. An open popup moves fully into A where it fits; one
+  the game opens at a click (a context menu) opens where that click was
+  made, e.g. at the world cursor in B. While a popup is open the mouse is
+  let go, so the pointer can reach it; it is captured again when the
+  popup closes. A screen (an advisor, the city screen, the menu, the
+  Civilopedia) opening lets go of the mouse the same way, the pointer put
+  on its main control where the screen shows (the city screen's production
+  box; else the screen's middle; where the system pointer cannot be moved,
+  as on Wayland, it stays where it is), and the mouse is captured again,
+  the world cursor where it was, when the screen closes.
 - **Smooth world movement**: a view following the game's view or the focus
   glides there by pixels (a critically damped spring that keeps its
   velocity when the target moves) instead of jumping a tile at a time.
@@ -172,13 +181,25 @@ pointer is moved back where the platform allows) and scrolls that view
 instead: the game's own view as at its screen edge (`scene::Input::Edge`;
 the game polls the pointer, `inproc::pointer`), the viewer's views by
 itself. Through the gaps it passes freely. The game's top-left menu,
-Civilopedia and advisor buttons are drawn in the view the pointer is in.
+Civilopedia and advisor buttons (and their tooltips) are drawn in the view
+the pointer is in, only there. While the mouse is captured they cannot be
+used: in their place the view following the world cursor shows a small
+parchment box saying "Press CTRL"; while button snapping is on the buttons
+show instead, to be snapped to.
 While the mouse is captured the world cursor sits in the middle of B (off
 the middle only at the edge of a map that does not wrap), is drawn in every
-view that shows its pixel, and the whole divider is a wall. Ctrl pressed and
-released on its own lets the mouse go (Alt stays the button snapping's);
-over B the pointer is then a crosshair, and a click there captures it
-again.
+view that shows its pixel, and the whole divider is a wall. Ctrl tapped on
+its own (no other key, button, wheel or mouse motion while it is down) lets
+the mouse go (Alt stays the button snapping's); the divider opens only
+then. Over B the pointer is then a crosshair, and a click there captures it
+again: only that (nothing goes to the game), the world cursor in B's middle
+where it was, B staying put. While the mouse is free B keeps looking where
+it was let go.
+
+Ctrl+Shift+Backspace, anywhere in the game, puts the layout and the
+resolution settings back to their defaults (one view, no zoom box, pixel
+scale 1) and saves them: the way out of settings that make the game hard to
+use. The pointer settings stay. The keys do not reach the game.
 
 The Ctrl+Shift keys change the arrangement for the session on top of the
 settings: S cycles the split, I adds a floating inset at the pointer (X
@@ -192,9 +213,13 @@ drag pans a view, a left drag on the divider's open middle moves it. A free
 view set up before the game shows a map is placed at the middle of its view
 once it does. Clicks are routed to the game where its view shows the same
 world pixel; elsewhere the game is asked to look there (the bridge clicks
-its minimap). Where the main pane shows the game's view unmoved (zoom 1,
-perhaps cropped), the pointer resting at the window's edge scrolls the
-game's map as at the game's own screen edge. `TILE_VIEWER_LAYOUT`
+its minimap). The main pane following the game's view shows its middle in
+the pane's middle (a split or a zoom strip crops it round its middle), so
+what the game centres on (the active unit, a popup's subject, a place
+looked at) is in the middle of A, and the minimap marks what A shows.
+Where the main pane follows the game's view at zoom 1, the pointer resting
+at the window's edge scrolls the game's map as at the game's own screen
+edge. `TILE_VIEWER_LAYOUT`
 overrides the settings at start, for testing, e.g.
 `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled):
