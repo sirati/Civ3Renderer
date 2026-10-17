@@ -260,10 +260,13 @@ fn diagnostic_scene(compiled: &Compiled, size: (u32, u32)) -> Option<scene::Scen
     const MESSAGE: &str = "missing art";
     let size = (size.0.max(1), size.1.max(1));
     let largest = (size.1 / 270).clamp(1, 4);
-    let n = (1..=largest).rev().find(|n| MESSAGE.chars().all(|ch| {
-        render_desc::GLYPHS.chars().position(|c| c == ch)
-            .is_some_and(|index| compiled.set_available(&format!("Viewer@glyphs{n}/{index}")))
-    }))?;
+    let n = (1..=largest).rev().find(|n| {
+        let (cw, ch) = render_desc::glyph_cell(*n);
+        cw * MESSAGE.len() as u32 <= size.0 && ch <= size.1 && MESSAGE.chars().all(|ch| {
+            render_desc::GLYPHS.chars().position(|c| c == ch)
+                .is_some_and(|index| compiled.set_available(&format!("Viewer@glyphs{n}/{index}")))
+        })
+    })?;
     let (cw, ch) = render_desc::glyph_cell(n);
     let left = (size.0 as i32 - (MESSAGE.len() as u32 * cw) as i32).max(0) / 2;
     let top = (size.1 as i32 - ch as i32).max(0) / 2;
@@ -727,10 +730,18 @@ mod readiness_tests {
         }
     }
 
+    fn diagnostic_art() -> (Compiled, render_desc::Growing) {
+        let mut source = String::from("grid = { layout = \"orthogonal\", step = [1, 1] }\n");
+        for n in 1..=4 {
+            let (cw, ch) = render_desc::glyph_cell(n);
+            source += &format!("[images.viewer{n}]\nsource = \"glyphs:255,255,255,255:0,0,0,255:{n}\"\n[sheets.viewer{n}]\nimage = \"viewer{n}\"\ncell = [{cw}, {ch}]\ngrid = [{}, 1]\ngroup = \"Viewer@glyphs{n}\"\n", render_desc::GLYPHS.len());
+        }
+        render_desc::Description::parse(&source).unwrap().compile_growing(&Images, 64, true).unwrap()
+    }
+
     #[test]
     fn terminal_missing_art_selects_a_complete_generated_diagnostic() {
-        let source = format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n[images.viewer]\nsource = \"glyphs:255,255,255,255:0,0,0,255:1\"\n[sheets.viewer]\nimage = \"viewer\"\ncell = [6, 9]\ngrid = [{}, 1]\ngroup = \"Viewer@glyphs1\"\n", render_desc::GLYPHS.len());
-        let (mut compiled, mut growing) = render_desc::Description::parse(&source).unwrap().compile_growing(&Images, 64, true).unwrap();
+        let (mut compiled, mut growing) = diagnostic_art();
         let fonts = Fonts::default();
         let items = [image("oversized.pcx", 128)];
         assert!(matches!(publication(items.iter(), &fonts, &compiled, true, (320, 200)), Publication::Retain { unavailable: false }));
@@ -754,6 +765,22 @@ mod readiness_tests {
         let compiled = render_desc::Description::parse("grid = { layout = \"orthogonal\", step = [1, 1] }").unwrap().compile_layout(&Images, 64).unwrap();
         let items = [image("missing.pcx", 32)];
         assert!(matches!(publication(items.iter(), &Fonts::default(), &compiled, false, (320, 200)), Publication::Retain { unavailable: true }));
+    }
+
+    #[test]
+    fn diagnostic_scale_fits_narrow_tall_windows_and_retains_when_no_scale_fits() {
+        let (compiled, _) = diagnostic_art();
+        let items = [image("missing.pcx", 32)];
+        let fonts = Fonts::default();
+        let Publication::Diagnostic(scene) = publication(items.iter(), &fonts, &compiled, false, (160, 1080)) else { panic!("scale two fits the complete diagnostic") };
+        let glyphs = &scene.views[0].overlay;
+        let index = render_desc::GLYPHS.chars().position(|ch| ch == 'm').unwrap();
+        assert_eq!(glyphs[0].set, compiled.set(&format!("Viewer@glyphs2/{index}")).unwrap().0.raw());
+        let (cw, ch) = render_desc::glyph_cell(2);
+        assert!(glyphs.iter().all(|glyph| glyph.x >= 0 && glyph.x + cw as i32 <= 160 && glyph.y >= 0 && glyph.y + ch as i32 <= 1080));
+        for size in [(65, 1080), (160, 8)] {
+            assert!(matches!(publication(items.iter(), &fonts, &compiled, false, size), Publication::Retain { unavailable: true }), "no scale fits {size:?}");
+        }
     }
 
 }
