@@ -144,10 +144,20 @@ shows later (unit animations, regions of interface screens, fonts,
 districts) goes into additions of only the new art, compiled on an art
 thread of the bridge (and by the native viewer itself, in the order sent).
 A growth keeps every sprite id, set id, palette row and layer value there
-and puts its sprites where the atlas is free: the viewer writes only the
-new pixels into its texture arrays (`TileRenderer::grow_atlas`; a full
-array is replaced by a bigger one, copied on the GPU), and draws scenes
-of an earlier growth with a later one without waiting. At the start of a
+and puts its sprites where the atlas is free. The live viewer transfers
+whole replacements, additions and reservations with a 4 MiB explicit
+transfer allowance per frame, including GPU copy payloads and aligned CPU
+staging for uploads. Driver texture initialization is additional GPU work;
+renderable atlas textures let wgpu use attachment clears for it. It keeps drawing with
+the active art until the transfer finishes, then adopts its pixels, tables
+and scene generation together. One candidate allocation or retired atlas
+may exist alongside the active one. The combined atlas allocation limit is
+2 GiB in a 32-bit process and 4 GiB in a 64-bit process by default,
+configurable with `TILE_RENDER_ATLAS_PEAK_MIB`; optional reservations shrink
+before required art is refused. Live pixel and palette updates remain
+immediate, including copies into an uploading atlas, and are outside the
+background transfer allowance. Startup and offscreen callers can still
+use the synchronous `set_atlas`, `grow_atlas` and `reserve_atlas` methods. At the start of a
 game the bridge makes art ahead (`civ3_bridge::preload`): every animation
 of the units on screen, then of the other units present, the interface's
 art of a built-in list (`assets/civ3/preload-art.txt`, written by the
@@ -456,7 +466,13 @@ driver's scenes come, the native side's decoding and the publisher's
 rounds (`CIV3R_PROFILE=1`: the publisher alone). `civ3-tool bench TRACE
 [--frames N] [--rebuild]` draws a trace's scene offscreen the same way
 (with `TILE_RENDER_GPU_TIMING=1`, and `TILE_RENDER_REUSE=0` for whole
-frames).
+frames). `civ3-tool render TRACE OUT.png --reference` uses the CPU reference
+with the same current scene and runtime pixels, for exact comparisons
+against the optimized GPU output. The `atlas_transfer_profile` example
+brackets the first transfer with timestamp submissions, including driver
+initialization before the render passes; run it with
+`TILE_RENDER_GPU_TIMING=1 cargo run --release -p tile-render --example
+atlas_transfer_profile -- 2048 4096`.
 
 ## Civilization III facts
 
