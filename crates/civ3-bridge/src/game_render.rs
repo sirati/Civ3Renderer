@@ -9,10 +9,12 @@
 //! runs: forms redraw, compose and present as before, text is measured,
 //! animations pick their frames, the map pass visits its tiles.
 //!
-//! Drawing goes on where the game reads the result back: onto the images
-//! listed at the start (the minimap's, `ui_hooks::read_back_images`), and
-//! onto any image the game made itself and cuts a sprite from (found when
-//! it does; see [`Skipper::cut_from`]).
+//! Drawing goes on where the game reads the result back: onto images of
+//! palette indices (its maps of what is under the mouse), onto the canvases
+//! of colour-keyed forms (whose transparent pixels let clicks through),
+//! onto the minimap's images (`ui_hooks::read_back_images`), and onto any
+//! other image the game made itself once it cuts a sprite from it or reads
+//! a pixel of it (see [`Skipper::reads`]).
 
 use std::collections::HashSet;
 
@@ -68,11 +70,11 @@ impl Skipper {
         self.files.remove(&image);
     }
 
-    /// The game cuts a sprite out of `image`, so it uses those pixels: an
-    /// image the game drew itself (not a file as loaded) is drawn onto as
-    /// before from now on. Whether drawing onto it was skipped before (the
-    /// sprite then lacks that).
-    pub fn cut_from(&mut self, image: u32) -> bool {
+    /// The game uses the pixels of `image` (cuts a sprite out of it, reads a
+    /// pixel): an image the game drew itself (not a file as loaded) is drawn
+    /// onto as before from now on. Whether drawing onto it was skipped
+    /// before (what the game got then lacks that).
+    pub fn reads(&mut self, image: u32) -> bool {
         let skipped = self.skipped.remove(&image);
         if skipped || !self.files.contains(&image) {
             self.keep.insert(image);
@@ -125,14 +127,14 @@ mod tests {
     }
 
     #[test]
-    fn an_image_a_sprite_is_cut_from_is_drawn_onto_from_then_on() {
+    fn an_image_the_game_reads_is_drawn_onto_from_then_on() {
         let mut s = Skipper::new(Vec::new());
         assert!(s.skip(5));
-        assert!(s.cut_from(5), "the earlier skip is reported");
+        assert!(s.reads(5), "the earlier skip is reported");
         assert!(!s.skip(5));
-        assert!(!s.cut_from(5));
+        assert!(!s.reads(5));
         // One the game made itself, never drawn onto by a skipped drawing yet.
-        assert!(!s.cut_from(6) && s.keeps(6));
+        assert!(!s.reads(6) && s.keeps(6));
     }
 
     #[test]
@@ -141,11 +143,11 @@ mod tests {
         assert!(s.skip(9));
         s.loaded(9);
         assert!(!s.was_skipped(9));
-        assert!(!s.cut_from(9) && !s.keeps(9));
+        assert!(!s.reads(9) && !s.keeps(9));
         // Drawn onto after loading: what the sprite needs was skipped.
         assert!(s.skip(9));
-        assert!(s.cut_from(9) && s.keeps(9));
+        assert!(s.reads(9) && s.keeps(9));
         s.cleared(4);
-        assert!(!s.cut_from(4) && s.keeps(4));
+        assert!(!s.reads(4) && s.keeps(4));
     }
 }

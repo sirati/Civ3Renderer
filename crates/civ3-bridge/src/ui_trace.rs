@@ -51,8 +51,17 @@ fn has_pixels(object: u32) -> bool {
 /// Whether the game's drawing onto `canvas` from `source` (0: none), just
 /// recorded, is skipped: always run when one of them has no pixels (the
 /// game's own early return, its result) or the canvas is kept.
+///
+/// Drawing onto images of palette indices goes on too (only 16-bit
+/// canvases reach the screen; 8-bit images are what the game reads, e.g.
+/// its maps of the regions under the mouse), and onto the canvases of
+/// colour-keyed forms (the game reads them to tell whether a click lands
+/// on the form: the HUD over the map).
 fn skips(canvas: u32, source: u32) -> bool {
     if !skipping() || !has_pixels(canvas) || (source != 0 && !has_pixels(source)) {
+        return false;
+    }
+    if obj::image_bits(canvas).is_none_or(|b| b <= 8) || obj::keyed_form_canvas(canvas) {
         return false;
     }
     SKIPPER.lock().ok().is_some_and(|mut s| s.as_mut().is_some_and(|s| s.skip(canvas)))
@@ -274,7 +283,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     hook!(sprite_slice, sites.sprite_slice, |c| {
         // The game takes these pixels: drawing onto an image it made
         // itself goes on from now on.
-        if with_skipper(|s| s.cut_from(c.image)) == Some(true) {
+        if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: a sprite cut from image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
         let r = c.original();
@@ -363,6 +372,14 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
             copy(c.image, src, c.dst, dst[0], dst[1], false);
         }
         draw(c.dst, c.image, || c.original())
+    });
+    // The game reads a pixel (what is under the mouse): drawing onto that
+    // image goes on from now on (see `skips` for the ones known before).
+    hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
+        if with_skipper(|s| s.reads(c.image)) == Some(true) {
+            log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
+        }
+        c.original()
     });
     hook!(pcx_fill, sites.pcx_fill, |c| {
         if let Some((w, hh)) = obj::image_size(c.image) {
