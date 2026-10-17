@@ -4,9 +4,10 @@
 //! The screen loads the highlighted scenario into the game's tables to show
 //! its players, description and map size (`civ3_sys::menus`); a hook on
 //! that call tells us which file it is. We read the file ourselves
-//! (`civ3_assets::biq`) and make a world of it as a nation that does not
-//! exist would see it if it knew the whole map: every tile the scenario
-//! defines, no fog of war, no player's highlights, no active unit.
+//! (`civ3_assets::biq`, on a thread of our own: [`Previews`]) and make a
+//! world of it as a nation that does not exist would see it if it had every
+//! player's start (`crate::revealed`): what they have explored, what they
+//! see; no player's highlights, no active unit.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -25,6 +26,9 @@ pub struct Preview {
     /// (the file's path without the extension) and its search folders.
     pub scenario_folder: Option<String>,
     pub search_folders: Vec<String>,
+    /// The part of the world to show (x, y, w, h, world pixels at full
+    /// size): the tiles revealed (`crate::revealed::revealed_box`).
+    pub area: [i32; 4],
 }
 
 /// Why a scenario shows no world.
@@ -88,8 +92,23 @@ pub fn load(install: &Path, name: &str) -> Result<Preview, PreviewError> {
         Some(r) => Arc::new(r),
         None => default_rules(install)?,
     };
-    let world = world(&map, &biq.players(), &rules);
-    Ok(Preview { file: name.to_owned(), world: Arc::new(world), scenario_folder: scenario_folder(install, &path), search_folders: biq.search_folders() })
+    let players = biq.players();
+    let revealed = crate::revealed::revealed(&map, &players, biq.map_visible());
+    let world = world(&map, &players, &rules, &revealed);
+    let area = area(&map, &revealed);
+    Ok(Preview { file: name.to_owned(), world: Arc::new(world), scenario_folder: scenario_folder(install, &path), search_folders: biq.search_folders(), area })
+}
+
+/// Pixels around the tiles revealed that a preview shows too: what reaches
+/// above them (mountains, units) and below (city names).
+const AREA_MARGIN: (i32, i32) = (64, 64);
+
+/// The part of `map` a preview shows (see [`Preview::area`]): the tiles
+/// revealed (all of the map if none are).
+pub fn area(map: &Map, revealed: &crate::revealed::Revealed) -> [i32; 4] {
+    let all = crate::revealed::TileBox { x: 0, y: 0, w: map.width, h: map.height };
+    let b = crate::revealed::revealed_box(map, &revealed.explored).unwrap_or(all);
+    crate::revealed::box_pixels(b, AREA_MARGIN)
 }
 
 /// One of the world's civilizations, numbered as the world counts them.
@@ -149,9 +168,11 @@ impl Civs {
 const ROAD: u32 = 1;
 
 /// The world of a scenario's map as a nation that does not exist sees it:
-/// it has explored every tile and sees all of them now (no fog of war),
-/// owns nothing and has no unit; every resource shows.
-pub fn world(map: &Map, players: &[Player], rules: &Rules) -> Civ3World {
+/// it has explored the tiles `revealed` says and sees those it says it sees
+/// (the rest under the fog of war, the units there hidden), owns nothing
+/// and has no unit; every resource shows.
+pub fn world(map: &Map, players: &[Player], rules: &Rules, revealed: &crate::revealed::Revealed) -> Civ3World {
+    let seen = |x: i32, y: i32| map.tile(x, y).is_some() && revealed.in_sight.get(((y * map.width + x) / 2) as usize).copied().unwrap_or(false);
     let mut civs = Civs::new(players, rules);
     let cities: Vec<Civ3City> = map
         .cities
@@ -182,7 +203,7 @@ pub fn world(map: &Map, players: &[Player], rules: &Rules) -> Civ3World {
     // One unit shown per tile: the best defender, as the game shows a stack.
     let defence = |t: i32| usize::try_from(t).ok().and_then(|t| rules.unit_types.get(t)).map_or(0, |u| u.defence);
     let mut top: std::collections::BTreeMap<(i32, i32), usize> = std::collections::BTreeMap::new();
-    for (i, u) in map.units.iter().enumerate() {
+    for (i, u) in map.units.iter().enumerate().filter(|(_, u)| seen(u.x, u.y)) {
         let best = top.entry((u.y, u.x)).or_insert(i);
         if defence(u.unit_type) > defence(map.units[*best].unit_type) {
             *best = i;
@@ -228,9 +249,8 @@ pub fn world(map: &Map, players: &[Player], rules: &Rules) -> Civ3World {
             resource: t.resource,
             owner: t.border_race().map_or(0, |r| civs.of_race(r, rules)) as i8,
             city: t.city,
-            // Explored and in sight of everyone (no fog of war).
-            fow_status: u32::MAX,
-            explored: u32::MAX,
+            // (What the viewer has explored and sees: below, once it has its
+            // number.)
             victory_location: t.victory_location,
             building: Some(t.colony).filter(|&c| c >= 0),
             ruins: t.ruin,
@@ -238,9 +258,19 @@ pub fn world(map: &Map, players: &[Player], rules: &Rules) -> Civ3World {
             continent: t.continent,
             ..Default::default()
         })
-        .collect();
+        .collect::<Vec<Civ3Tile>>();
     // The viewer: a civ that does not exist (the first number no civ has).
     let player = if civs.list.len() < 32 { civs.list.len() as i32 } else { 0 };
+    // What it has explored, and sees now (the rest under the fog of war,
+    // where it knows the improvements it saw).
+    let bit = 1u32 << player;
+    let mut tiles = tiles;
+    for (i, t) in tiles.iter_mut().enumerate() {
+        let (explored, seen) = (revealed.explored.get(i).copied().unwrap_or(false), revealed.in_sight.get(i).copied().unwrap_or(false));
+        t.explored = if explored { bit } else { 0 };
+        t.fow_status = if explored && seen { bit } else { 0 };
+        t.visible_overlays[player as usize] = (t.overlays & 0xFF) as u8;
+    }
     let n = 32;
     let column = |f: fn(&Civ) -> i32, missing: i32| -> Vec<i32> { (0..n).map(|i| civs.list.get(i).map_or(missing, f)).collect() };
     let mut eras = column(|c| c.era, 0);
@@ -335,49 +365,223 @@ pub fn install(game: &civ3_sys::Civ3) {
     }
 }
 
-/// The scenario previewed: the one last loaded for the Load Scenario
-/// screen, read again whenever the screen loads one.
+/// A preview made ready on the preview thread ([`Previews`]): the world,
+/// its city labels and, once resolved in the scenario's own art folders,
+/// the unit art it needs.
+#[derive(Clone)]
+pub struct Current {
+    /// The selection it is for (`Selected::number`).
+    pub number: u64,
+    pub preview: Preview,
+    pub labels: Arc<LabelItems>,
+    /// The art its units need, in its art folders (none until the preview
+    /// thread has resolved it: meanwhile the world shows with the art there
+    /// is).
+    pub needed: Option<Arc<crate::units::Needed>>,
+}
+
+impl Current {
+    /// Its art folders.
+    pub fn folders(&self) -> (Option<String>, Vec<String>) {
+        (self.preview.scenario_folder.clone(), self.preview.search_folders.clone())
+    }
+}
+
+/// What the preview thread sends back.
+enum Made {
+    /// The world (first, to show at once).
+    World { number: u64, result: Result<Preview, String>, took: std::time::Duration },
+    /// Then its city labels (their text measured).
+    Labels { number: u64, labels: LabelItems, took: std::time::Duration },
+    /// Then the unit art it needs, resolved in its art folders.
+    Art { number: u64, art: Box<crate::units::UnitArt>, needed: crate::units::Needed, took: std::time::Duration },
+}
+
+/// A scenario to make ready.
+struct Job {
+    number: u64,
+    file: Option<String>,
+}
+
+/// Makes the preview of `job` (in `install`): the world first, then its
+/// art; stops as soon as `superseded` says a newer selection came (only the
+/// latest matters), sending nothing more. Each stage is sent as it is done.
+fn make(install: &Path, job: &Job, superseded: &dyn Fn() -> bool, send: &mut dyn FnMut(Made)) {
+    let started = std::time::Instant::now();
+    let number = job.number;
+    let Some(file) = &job.file else {
+        return send(Made::World { number, result: Err("no file".into()), took: started.elapsed() });
+    };
+    let preview = match load(install, file) {
+        Ok(p) => p,
+        Err(e) => return send(Made::World { number, result: Err(e.to_string()), took: started.elapsed() }),
+    };
+    if superseded() {
+        return;
+    }
+    let (folder, search) = (preview.scenario_folder.clone(), preview.search_folders.clone());
+    let files = || crate::assets::game_files(install, folder.as_deref(), &search);
+    let world = preview.world.clone();
+    send(Made::World { number, result: Ok(preview), took: started.elapsed() });
+    if superseded() {
+        return;
+    }
+    let mut env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(files())));
+    let labels = label_items(&world, &mut env);
+    send(Made::Labels { number, labels, took: started.elapsed() });
+    if superseded() {
+        return;
+    }
+    let mut art = crate::units::UnitArt::new(files());
+    let needed = crate::units::Needed::still(&world, &mut art);
+    if superseded() {
+        return;
+    }
+    send(Made::Art { number, art: Box::new(art), needed, took: started.elapsed() });
+}
+
+/// The thread making previews: the latest job only.
+struct Worker {
+    latest: Arc<std::sync::atomic::AtomicU64>,
+    jobs: std::sync::mpsc::Sender<Job>,
+    made: std::sync::mpsc::Receiver<Made>,
+}
+
+impl Worker {
+    fn start(install: PathBuf) -> std::io::Result<Worker> {
+        let latest = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (jobs, job_rx) = std::sync::mpsc::channel::<Job>();
+        let (made_tx, made) = std::sync::mpsc::channel();
+        let newest = latest.clone();
+        std::thread::Builder::new().name("civ3r-preview".into()).spawn(move || {
+            while let Ok(mut job) = job_rx.recv() {
+                // (Of those waiting, the latest.)
+                while let Ok(j) = job_rx.try_recv() {
+                    job = j;
+                }
+                let superseded = || newest.load(std::sync::atomic::Ordering::Acquire) != job.number;
+                if superseded() {
+                    continue;
+                }
+                let mut gone = false;
+                make(&install, &job, &superseded, &mut |m| gone |= made_tx.send(m).is_err());
+                if gone {
+                    break;
+                }
+            }
+        })?;
+        Ok(Worker { latest, jobs, made })
+    }
+
+    fn ask(&self, job: Job) {
+        self.latest.store(job.number, std::sync::atomic::Ordering::Release);
+        let _ = self.jobs.send(job);
+    }
+}
+
+/// The scenario previewed: the one the Load Scenario screen last loaded,
+/// made ready on a thread of its own (`civ3r-preview`): reading the file,
+/// making its world and labels, resolving its unit art. The publisher only
+/// asks and takes what is ready, never waits: the world shown meanwhile is
+/// the one before (none for a while after the screen opens); a newer
+/// selection supersedes what is being made (it stops between stages).
 #[derive(Default)]
 pub struct Previews {
-    seen: u64,
-    current: Option<Preview>,
-    /// For the log: when the game loaded the scenario shown, whether its
-    /// world was published yet, and the art request (`ArtSchedule::asked`)
-    /// whose build brings its own art.
+    worker: Option<Worker>,
+    /// The selection asked for, and the latest preview made for it (or
+    /// before it).
+    asked: u64,
+    current: Option<Current>,
+    /// Its unit art, to be taken (`take_art`).
+    art: Option<Box<crate::units::UnitArt>>,
+    /// For the log: when the game loaded the scenario asked for, whether
+    /// its world was published yet, and the art request
+    /// (`ArtSchedule::asked`) whose build brings its own art.
     loaded_at: Option<std::time::Instant>,
     published: bool,
     art_from: Option<u64>,
 }
 
 impl Previews {
-    /// The world of the scenario the screen shows now (`None`: none, or one
-    /// without a map of its own).
-    pub fn update(&mut self, install: &Path) -> Option<&Preview> {
-        let Selected { number: n, file, at } = selected();
-        if n != self.seen {
-            self.seen = n;
+    /// The world of the scenario the screen shows now, as far as it is
+    /// ready (`None`: none, or one without a map of its own).
+    pub fn update(&mut self, install: &Path) -> Option<&Current> {
+        let Selected { number, file, at } = selected();
+        if number != self.asked {
+            self.asked = number;
             (self.loaded_at, self.published, self.art_from) = (at, false, None);
-            let started = std::time::Instant::now();
-            self.current = file.and_then(|f| {
-                load(install, &f)
-                    .inspect(|p| {
-                        let w = &p.world;
+            if self.worker.is_none() {
+                match Worker::start(install.to_path_buf()) {
+                    Ok(w) => self.worker = Some(w),
+                    Err(e) => log::error!("scenario preview: no thread for it: {e}"),
+                }
+            }
+            if let Some(w) = &self.worker {
+                w.ask(Job { number, file });
+            }
+        }
+        while let Some(made) = self.worker.as_ref().and_then(|w| w.made.try_recv().ok()) {
+            self.take(made);
+        }
+        self.current.as_ref()
+    }
+
+    fn take(&mut self, made: Made) {
+        match made {
+            // (A preview for an older selection: gone by.)
+            Made::World { number, .. } | Made::Labels { number, .. } | Made::Art { number, .. } if number != self.asked => {}
+            Made::World { number, result, took } => {
+                self.art = None;
+                self.current = match result {
+                    Ok(preview) => {
+                        let w = &preview.world;
                         log::info!(
-                            "scenario preview: {f}: {}x{} map, {} cities, {} units shown, art {:?} {:?} ({} ms)",
+                            "scenario preview: {}: {}x{} map, {} cities, {} units shown, area {:?}, art {:?} {:?}; made in {} ms, {} ms after the game loaded it",
+                            preview.file,
                             w.width,
                             w.height,
                             w.cities.len(),
                             w.units.len(),
-                            p.scenario_folder,
-                            p.search_folders,
-                            started.elapsed().as_millis()
-                        )
-                    })
-                    .inspect_err(|e| log::info!("scenario preview: {e}"))
-                    .ok()
-            });
+                            preview.area,
+                            preview.scenario_folder,
+                            preview.search_folders,
+                            took.as_millis(),
+                            self.since_loaded()
+                        );
+                        Some(Current { number, preview, labels: Arc::default(), needed: None })
+                    }
+                    Err(e) => {
+                        log::info!("scenario preview: {e}");
+                        None
+                    }
+                };
+            }
+            Made::Labels { labels, took, .. } => {
+                if let Some(c) = &mut self.current {
+                    log::info!("scenario preview: {}: {} city labels in {} ms", c.preview.file, labels.len(), took.as_millis());
+                    c.labels = Arc::new(labels);
+                }
+            }
+            Made::Art { art, needed, took, .. } => {
+                if let Some(c) = &mut self.current {
+                    log::info!("scenario preview: {}: unit art resolved ({} files) in {} ms", c.preview.file, needed.files.len(), took.as_millis());
+                    c.needed = Some(Arc::new(needed));
+                    self.art = Some(art);
+                }
+            }
         }
-        self.current.as_ref()
+    }
+
+    /// The unit art the preview thread resolved for the preview shown, in
+    /// its art folders, once (the publisher's from then on).
+    pub fn take_art(&mut self) -> Option<crate::units::UnitArt> {
+        self.art.take().map(|a| *a)
+    }
+
+    /// Whether the preview shown is still waiting for its unit art (until
+    /// then the publisher reads none: the thread making it does).
+    pub fn art_pending(&self) -> bool {
+        self.current.as_ref().is_some_and(|c| c.needed.is_none())
     }
 
     /// How long since the game loaded the scenario shown, in milliseconds.
@@ -387,9 +591,11 @@ impl Previews {
 
     /// A scene with the scenario's world went out (scene `seq`).
     pub fn published(&mut self, seq: u64) {
-        if let (Some(p), false) = (&self.current, self.published) {
-            self.published = true;
-            log::info!("scenario preview: {} first published {} ms after the game loaded it (scene {seq})", p.file, self.since_loaded());
+        if let (Some(c), false) = (&self.current, self.published) {
+            if c.number == self.asked {
+                self.published = true;
+                log::info!("scenario preview: {} first published {} ms after the game loaded it (scene {seq})", c.preview.file, self.since_loaded());
+            }
         }
     }
 
@@ -403,10 +609,10 @@ impl Previews {
 
     /// Art covering request `token` is used now.
     pub fn art_done(&mut self, token: u64) {
-        if let (Some(p), Some(from)) = (&self.current, self.art_from) {
+        if let (Some(c), Some(from)) = (&self.current, self.art_from) {
             if token >= from {
                 self.art_from = None;
-                log::info!("scenario preview: {}'s own art used {} ms after the game loaded it", p.file, self.since_loaded());
+                log::info!("scenario preview: {}'s own art used {} ms after the game loaded it", c.preview.file, self.since_loaded());
             }
         }
     }
@@ -427,13 +633,13 @@ pub fn view(world: &Civ3World) -> crate::world::Civ3View {
 
 /// How many times smaller a preview world is shown (`View::downscale`) in
 /// `room` (pixels): a power of two (the map's 64×32 grid steps divide by it)
-/// at which the whole map is nearest to filling the room either way (the
-/// viewer zooms the rest, `scene::Beside`). The city labels are laid out
-/// for it ([`place_label`]).
-pub fn downscale(world: &Civ3World, room: (i32, i32)) -> u32 {
-    let (w, h) = ((64 * world.width.max(1) + 64) as f64, (32 * world.height.max(1) + 64) as f64);
+/// at which its `area` (x, y, w, h, world pixels; [`Preview::area`]) is
+/// nearest to filling the room either way (the viewer zooms the rest,
+/// `scene::Beside`). The city labels are laid out for it ([`place_label`]).
+pub fn downscale(area: [i32; 4], room: (i32, i32)) -> u32 {
+    let (w, h) = (area[2].max(1) as f64, area[3].max(1) as f64);
     let (rw, rh) = (room.0.max(1) as f64, room.1.max(1) as f64);
-    // The zoom that fits the map shown n times smaller, and how far from 1.
+    // The zoom that fits the area shown n times smaller, and how far from 1.
     let off = |n: u32| {
         let z = (rw / (w / n as f64)).min(rh / (h / n as f64));
         if z >= 1.0 { z } else { 1.0 / z }
@@ -468,17 +674,21 @@ mod tests {
         assert_eq!((s[0].x / 8, s[0].y / 8), (cx - 30, cy + 2));
     }
 
-    /// WWII in the Pacific as the screen previews it (with an installation at
-    /// `CIV3_INSTALL`).
-    #[test]
-    fn a_scenario_as_a_nation_that_knows_its_map_sees_it() {
+    fn install() -> Option<PathBuf> {
         let install = PathBuf::from(std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into()));
-        if !install.is_dir() {
-            return eprintln!("no Civ III install, skipped");
-        }
+        install.is_dir().then_some(install)
+    }
+
+    /// WWII in the Pacific as the screen previews it (with an installation at
+    /// `CIV3_INSTALL`): it reveals the entire map.
+    #[test]
+    fn a_scenario_that_reveals_its_map_shows_all_of_it() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
         let p = load(&install, "Conquests\\9 WWII in the Pacific.biq").unwrap();
         assert_eq!(p.scenario_folder.as_deref(), Some("Conquests\\9 WWII in the Pacific\\"));
         assert_eq!(p.search_folders, ["WWII in the Pacific"]);
+        // All of it (the map's pixels, and a tile round them).
+        assert_eq!(p.area, [-64, -64, 64 * 136 + 64 + 128, 32 * 120 + 32 + 128]);
         let w = &p.world;
         // Barbarians, five players, and the viewer: the first civ there is not.
         assert_eq!(w.player, 6);
@@ -500,14 +710,106 @@ mod tests {
         assert!(w.selection.is_none() && w.current_unit.is_none() && w.unit_type_stats.is_empty());
     }
 
+    /// Rise of Rome as the screen previews it: what its players have
+    /// explored at the start only, the rest black; the units and labels
+    /// there only; the area round what is revealed.
     #[test]
-    fn the_downscale_fits_the_map_into_the_room() {
-        let world = |w, h| Civ3World { width: w, height: h, ..Default::default() };
+    fn a_scenario_shows_what_its_players_start_with() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
+        let p = load(&install, "Conquests\\2 Rise of Rome.biq").unwrap();
+        let w = &p.world;
+        let bit = 1u32 << w.player;
+        let explored = w.tiles.iter().filter(|t| t.explored & bit != 0).count();
+        assert_eq!(explored, 3178);
+        assert!(w.tiles.iter().filter(|t| t.explored & bit != 0).all(|t| w.visible_now(t)));
+        assert!(w.tiles.iter().filter(|t| t.explored & bit == 0).all(|t| !w.visible_now(t)));
+        // Units on tiles seen only.
+        assert!(w.units.iter().all(|u| w.tile(u.x, u.y).is_some_and(|t| w.visible_now(t))));
+        let mut env = crate::city_labels::FileEnv::new(Box::new(crate::assets::game_files(&install, None, &[])));
+        // Every city a label (all of them are the players', and explored);
+        // one on a tile not explored none.
+        assert_eq!(labels(w, &mut env).len(), w.cities.len());
+        let mut hidden = (**w).clone();
+        let (x, y) = (hidden.cities[0].x, hidden.cities[0].y);
+        let i = hidden.index(x, y);
+        hidden.tiles[i].explored = 0;
+        assert_eq!(labels(&hidden, &mut env).len(), w.cities.len() - 1);
+        // The area: the tiles revealed (columns 4..139, rows 6..134) and a
+        // tile around.
+        assert_eq!(p.area, [64 * 4 - 64, 32 * 6 - 64, 64 * 134 + 128 + 128, 32 * 127 + 64 + 128]);
+    }
+
+    #[test]
+    fn the_downscale_fits_the_area_into_the_room() {
         // WWII in the Pacific beside the dialog at 1920×1080: 8 (16 would
         // show it half as big as the room).
-        assert_eq!(downscale(&world(136, 120), (892, 1080)), 8);
-        assert_eq!(downscale(&world(10, 10), (892, 1080)), 1);
-        assert_eq!(downscale(&world(362, 362), (300, 200)), 32);
+        assert_eq!(downscale([0, 0, 64 * 136 + 64, 32 * 120 + 32], (892, 1080)), 8);
+        assert_eq!(downscale([0, 0, 704, 352], (892, 1080)), 1);
+        assert_eq!(downscale([-100, -100, 64 * 362, 32 * 362], (300, 200)), 32);
+        // Part of a big map: as big as that part takes.
+        assert_eq!(downscale([6000, 3000, 1800, 2000], (892, 1080)), 2);
+    }
+
+    /// Previews made one after the other on their thread, each superseded
+    /// by the next while it is made: only the latest comes back, the others
+    /// stop where they are.
+    #[test]
+    fn a_newer_selection_supersedes_the_preview_being_made() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
+        let job = |number, file: &str| Job { number, file: Some(format!("Conquests\\{file}")) };
+        // Superseded at once: nothing.
+        let mut made = Vec::new();
+        make(&install, &job(1, "2 Rise of Rome.biq"), &|| true, &mut |m| made.push(m));
+        assert!(made.is_empty());
+        // Superseded after its world: the world only, no labels or art.
+        let checks = std::cell::Cell::new(0);
+        make(&install, &job(2, "2 Rise of Rome.biq"), &|| { checks.set(checks.get() + 1); checks.get() > 1 }, &mut |m| made.push(m));
+        assert!(matches!(made.as_slice(), [Made::World { number: 2, result: Ok(_), .. }]));
+        // Not superseded: both.
+        made.clear();
+        make(&install, &job(3, "9 WWII in the Pacific.biq"), &|| false, &mut |m| made.push(m));
+        assert!(matches!(made.as_slice(), [Made::World { number: 3, .. }, Made::Labels { number: 3, .. }, Made::Art { number: 3, .. }]));
+        // On the thread: many asked quickly, the latest is what is shown.
+        let worker = Worker::start(install.clone()).unwrap();
+        let names = ["1 Mesopotamia.biq", "2 Rise of Rome.biq", "3 Fall of Rome.biq", "4 Middle Ages.biq", "9 WWII European Front 6 .biq", "Intro3 New Alliances.biq"];
+        for (k, name) in names.iter().enumerate() {
+            worker.ask(job(10 + k as u64, name));
+        }
+        let mut seen = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            match worker.made.recv_timeout(std::time::Duration::from_secs(30)) {
+                Ok(Made::World { number, .. }) => seen.push(("world", number)),
+                Ok(Made::Labels { number, .. }) => seen.push(("labels", number)),
+                Ok(Made::Art { number, .. }) => {
+                    seen.push(("art", number));
+                    if number == 15 {
+                        break;
+                    }
+                }
+                Err(e) => panic!("{e}: {seen:?}"),
+            }
+            assert!(std::time::Instant::now() < deadline);
+        }
+        // What came back: the last asked last, with its art; anything older
+        // before it, and no art of an older one after the last's world.
+        assert_eq!(seen.last(), Some(&("art", 15)));
+        let last_world = seen.iter().position(|s| *s == ("world", 15)).unwrap();
+        assert!(seen[last_world..].iter().all(|s| s.1 == 15), "{seen:?}");
+        assert!(seen.len() < 3 * names.len(), "{seen:?}");
+        // And the publisher's side: the selection asked for is the one shown.
+        let mut p = Previews { worker: Some(worker), asked: 20, ..Default::default() };
+        p.worker.as_ref().unwrap().ask(job(19, "2 Rise of Rome.biq"));
+        p.worker.as_ref().unwrap().ask(job(20, "Intro3 New Alliances.biq"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while p.art_pending() || p.current.is_none() {
+            if let Ok(m) = p.worker.as_ref().unwrap().made.recv_timeout(std::time::Duration::from_secs(1)) {
+                p.take(m);
+            }
+            assert!(std::time::Instant::now() < deadline);
+        }
+        assert_eq!(p.current.as_ref().map(|c| (c.number, c.preview.file.as_str())), Some((20, "Conquests\\Intro3 New Alliances.biq")));
+        assert!(p.take_art().is_some() && p.take_art().is_none());
     }
 }
 
@@ -518,10 +820,12 @@ mod tests {
 pub fn labels(world: &Civ3World, env: &mut dyn crate::city_labels::Env) -> Vec<crate::city_labels::CityLabel> {
     use crate::city_labels::{CityLabel, FACE, LabelOp};
     let font = civ3_assets::fonts::FontStyle { face: FACE.to_owned(), height: 10, weight: 700, italic: false };
+    let bit = 1u32 << (world.player & 31);
     world
         .cities
         .iter()
-        .filter(|c| !c.name.is_empty())
+        // (Those on tiles explored.)
+        .filter(|c| !c.name.is_empty() && world.tile(c.x, c.y).is_some_and(|t| t.explored & bit != 0))
         .map(|c| {
             let width = env.text_width(&font, &c.name);
             let color = env.table_color(world.color_tables.get(c.civ.clamp(0, 31) as usize).copied().unwrap_or(0));
@@ -561,6 +865,32 @@ pub fn label_items(world: &Civ3World, env: &mut dyn crate::city_labels::Env) -> 
 /// all of it in the game's view (`scene_map::GAME_VIEW`, which the viewer
 /// fits beside the screen), its units, and its labels (`labels`, laid out to
 /// keep their size).
+/// Leaves out what the cells of vertices among unexplored tiles only would
+/// draw but the fog of war: the fog covers them, but not what reaches past
+/// the map's edges, where it is not drawn (tall terrain and the edge rows'
+/// and columns' halves showed there as stray bits around the black).
+fn unexplored_black(world: &Civ3World, compiled: &render_desc::Compiled, scene: &mut scene::Scene) {
+    let fog = compiled.layer_index("fog");
+    let bit = 1u32 << (world.player & 31);
+    let explored = |x: i32, y: i32| world.tile(x, y).is_some_and(|t| t.explored & bit != 0);
+    let (cols, rows) = (scene.shape.cols, scene.shape.rows);
+    for row in 0..rows {
+        for col in 0..cols {
+            // (The cell's vertex is the one above tile (x, y): between the
+            // tiles north, west, east of it and the tile itself.)
+            let (x, y) = (2 * col as i32 + (row as i32 & 1), row as i32);
+            if [(x, y - 2), (x - 1, y - 1), (x + 1, y - 1), (x, y)].into_iter().any(|(tx, ty)| explored(tx, ty)) {
+                continue;
+            }
+            for (_, layer) in scene.layers.iter_mut().enumerate().filter(|(k, _)| Some(*k) != fog) {
+                if let Some(v) = layer.values.get_mut((row * cols + col) as usize) {
+                    *v = 0;
+                }
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn scene(
     world: &Civ3World,
@@ -573,6 +903,7 @@ pub fn scene(
 ) -> scene::Scene {
     let view = view(world);
     let mut scene = mapper.scene(world, &view, (0, 0), 0);
+    unexplored_black(world, compiled, &mut scene);
     crate::units::place(world, &view, art, compiled, None, &mut crate::units::UnitMemory::default(), &mut scene);
     let game_view = &mut scene.view_mut(crate::scene_map::GAME_VIEW).view;
     (game_view.downscale, game_view.cull) = (n.max(1), None);

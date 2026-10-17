@@ -85,6 +85,9 @@ pub struct UnitArt {
     by_path: HashMap<String, Option<AnimFile>>,
     /// Units' INI files, cached.
     inis: HashMap<String, Option<Ini>>,
+    /// Whether it reads what it has not resolved yet (else: as if it were
+    /// not there, for now; see [`UnitArt::set_reading`]).
+    reading: bool,
 }
 
 impl UnitArt {
@@ -99,7 +102,15 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new() }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new(), reading: true }
+    }
+
+    /// Whether it may read files: off, it answers from what it has
+    /// resolved only (what it has not is missing for now, not for good):
+    /// the publisher's thread reads no art while another thread resolves
+    /// the art a new world needs (`crate::preview::Previews`).
+    pub fn set_reading(&mut self, on: bool) {
+        self.reading = on;
     }
 
     /// Entry `index` of colour table `table` (`ntpNN.pcx`).
@@ -111,7 +122,7 @@ impl UnitArt {
 
     /// The selection cursor's animation file.
     pub fn cursor(&mut self) -> Option<&AnimFile> {
-        if self.cursor.is_none() {
+        if self.cursor.is_none() && self.reading {
             self.cursor = Some(AnimFile::read(&self.files, CURSOR_FLC));
         }
         self.cursor.as_ref().and_then(Option::as_ref)
@@ -121,12 +132,18 @@ impl UnitArt {
     /// `animation` in `era_key`, falling back to DEFAULT.
     /// The animation file at `path` (e.g. one the game draws in a panel).
     pub fn file_at(&mut self, path: &str) -> Option<&AnimFile> {
+        if !self.reading && !self.by_path.contains_key(path) {
+            return None;
+        }
         let files = &self.files;
         self.by_path.entry(path.to_owned()).or_insert_with(|| AnimFile::read(files, path)).as_ref()
     }
 
     pub fn file(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<&AnimFile> {
         let key = (type_key.to_owned(), era_key.to_owned(), animation);
+        if !self.reading && !self.resolved.contains_key(&key) {
+            return None;
+        }
         if !self.resolved.contains_key(&key) {
             let found = self.lookup(type_key, era_key, animation).or_else(|| self.lookup(type_key, era_key, 1));
             self.resolved.insert(key.clone(), found);

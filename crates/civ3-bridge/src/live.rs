@@ -420,7 +420,32 @@ const MENUS: &str = include_str!("../../../assets/civ3/menus.toml");
 enum Shown {
     Map(Civ3World, Civ3View),
     Title(menu::MenuState),
-    Preview([i32; 4], Option<Arc<Civ3World>>),
+    Preview([i32; 4], Option<PreviewShown>),
+}
+
+/// A scenario's world as the Load Scenario screen previews it
+/// (`crate::preview::Current`): the world, the part of it to show, its
+/// labels, whether its unit art is resolved.
+#[derive(Clone)]
+struct PreviewShown {
+    number: u64,
+    world: Arc<Civ3World>,
+    area: [i32; 4],
+    labels: Arc<crate::preview::LabelItems>,
+    needed: Option<Arc<units::Needed>>,
+}
+
+impl PreviewShown {
+    fn of(c: &crate::preview::Current) -> Self {
+        Self { number: c.number, world: c.preview.world.clone(), area: c.preview.area, labels: c.labels.clone(), needed: c.needed.clone() }
+    }
+}
+
+/// (The same preview as made: the world is not compared tile by tile.)
+impl PartialEq for PreviewShown {
+    fn eq(&self, o: &Self) -> bool {
+        self.number == o.number && Arc::ptr_eq(&self.world, &o.world) && Arc::ptr_eq(&self.labels, &o.labels) && self.needed.is_some() == o.needed.is_some()
+    }
 }
 
 /// Publishes a new scene whenever what the game shows changes.
@@ -640,12 +665,21 @@ fn publish(
         let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui));
         // The Load Scenario screen, and the world of the scenario it shows.
         let load_screen = ui.as_ref().filter(|_| !in_game).and_then(|f| crate::preview::screen(f, game.build));
-        let preview = load_screen.and_then(|_| previews.update(&compiler.install));
-        // A scenario brings its own art (also the one previewed).
-        let now = match preview {
-            Some(p) => ArtFolders { scenario: p.scenario_folder.clone(), search: p.search_folders.clone() },
-            None => ArtFolders::of(&game),
+        // (Made ready on a thread of its own: as far as it is now.)
+        let preview = load_screen.and_then(|_| previews.update(&compiler.install)).cloned();
+        // A scenario brings its own art (also the one previewed, once the
+        // preview's thread has resolved its unit art there: until then the
+        // world shows with the art before; nor the game's folders then: it
+        // has loaded the scenario for the screen itself).
+        let now = match (&preview, load_screen) {
+            (Some(p), _) if p.needed.is_some() => {
+                let (scenario, search) = p.folders();
+                ArtFolders { scenario, search }
+            }
+            (_, Some(_)) => folders.clone(),
+            _ => ArtFolders::of(&game),
         };
+        let resolved_art = if preview.as_ref().is_some_and(|p| p.needed.is_some()) { previews.take_art() } else { None };
         let mut recompile = false;
         // Art for what the game's screen shows (held back without it).
         let mut screen_recompile = false;
@@ -653,24 +687,29 @@ fn publish(
         let mut wanted_for: Vec<&str> = Vec::new();
         if now != folders {
             folders = now;
-            art = units::UnitArt::new(compiler.files(&folders));
+            art = resolved_art.unwrap_or_else(|| units::UnitArt::new(compiler.files(&folders)));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
             have = units::Needed::default();
             whole_wanted = true;
             recompile = true;
             wanted_for.push("art folders");
+        } else if let Some(a) = resolved_art {
+            art = a;
         }
         // (Until the viewer is gone, see `forward_input`.)
         if hide_game_window && inproc::hidden::hiding() {
             hide_window(&mut input, &mut hiding);
         }
+        // (No unit art is read here while the preview's thread reads it for
+        // the preview shown.)
+        art.set_reading(!(preview.is_some() && previews.art_pending()));
         let inputs = presenter.take_input();
         // What our preferences tabs take does not reach the game.
         let inputs = prefs.route(inputs, input.viewport);
         presenter.forward_log();
         let snapshot = if in_game { snapshot(&game) } else { Err(Civ3Error::NoGame) };
         let shown = match (snapshot, load_screen) {
-            (_, Some(rect)) => Shown::Preview(rect, preview.map(|p| p.world.clone())),
+            (_, Some(rect)) => Shown::Preview(rect, preview.as_ref().map(PreviewShown::of)),
             (Ok((world, view)), None) => Shown::Map(world, view),
             // Between games: the title menu, which follows the pointer.
             (Err(Civ3Error::NoGame), None) => {
@@ -837,7 +876,7 @@ fn publish(
         // labels out: what is left of its map canvas shows none. Then the
         // game's view shows none either; the viewer's other views do.
         let mut labels_not_in_game_view = false;
-        let mut preview_labels = crate::preview::LabelItems::new();
+        let mut preview_labels: Arc<crate::preview::LabelItems> = Arc::default();
         let label_items = match shown {
             Shown::Map(world, view) if ui.is_some() && world_labels() => {
                 // (Only under a screen or modal form: on the plain map the game
@@ -849,8 +888,9 @@ fn publish(
                 crate::city_labels::items(&labels, (0, 0), everywhere, true)
             }
             // (Drawn with the preview's scene, `preview::scene`.)
-            Shown::Preview(_, Some(world)) if ui.is_some() => {
-                preview_labels = crate::preview::label_items(world, &mut label_env);
+            // (Made with it, on the preview's thread.)
+            Shown::Preview(_, Some(p)) if ui.is_some() => {
+                preview_labels = p.labels.clone();
                 preview_labels.iter().flat_map(|(_, items)| items.iter().cloned()).collect()
             }
             _ => Vec::new(),
@@ -928,14 +968,14 @@ fn publish(
             wanted_for.push("city labels");
         }
         // Art the description does not have yet: units, text fonts.
-        let units_world = match shown {
-            Shown::Map(world, _) => Some(world),
-            Shown::Preview(_, world) => world.as_deref(),
+        // (A preview's units stand still: only the frames they show, as the
+        // preview's thread resolved them.)
+        let needed = match shown {
+            Shown::Map(world, _) => Some(Arc::new(units::Needed::of(world, &mut art))),
+            Shown::Preview(_, p) => p.as_ref().and_then(|p| p.needed.clone()),
             Shown::Title(_) => None,
         };
-        if let Some(world) = units_world {
-            // (A preview's units stand still: only the frames they show.)
-            let needed = if matches!(shown, Shown::Preview(..)) { units::Needed::still(world, &mut art) } else { units::Needed::of(world, &mut art) };
+        if let Some(needed) = needed {
             if !have.covers(&needed) {
                 have.merge(&needed);
                 recompile = true;
@@ -1081,7 +1121,7 @@ fn publish(
         // How much smaller a previewed world is shown: about the size of the
         // window beside the screen.
         let preview_scale = match shown {
-            Shown::Preview(rect, Some(world)) => crate::preview::downscale(world, (input.viewport.0 as i32 - rect[2], input.viewport.1 as i32)),
+            Shown::Preview(rect, Some(p)) => crate::preview::downscale(p.area, (input.viewport.0 as i32 - rect[2], input.viewport.1 as i32)),
             _ => 1,
         };
         // Our own title menu (when the game's is not mirrored).
@@ -1107,7 +1147,7 @@ fn publish(
                 }
                 scene
             }
-            Shown::Preview(_, Some(world)) => crate::preview::scene(world, preview_scale, &mapper, &mut art, &compiled, &preview_labels, &fonts),
+            Shown::Preview(_, Some(p)) => crate::preview::scene(&p.world, preview_scale, &mapper, &mut art, &compiled, &preview_labels, &fonts),
             Shown::Preview(_, None) => scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len()),
             Shown::Title(state) => {
                 // Our own title menu, unless the game's is mirrored.
@@ -1189,7 +1229,7 @@ fn publish(
             // The Load Scenario screen at the window's left, its scenario's
             // world beside it.
             beside: match shown {
-                Shown::Preview(rect, _) => Some(scene::Beside { screen: *rect, edge: scene::Edge::Left, world: None }),
+                Shown::Preview(rect, p) => Some(scene::Beside { screen: *rect, edge: scene::Edge::Left, world: p.as_ref().map(|p| p.area) }),
                 _ => None,
             },
         };
