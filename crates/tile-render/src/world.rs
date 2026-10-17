@@ -406,6 +406,9 @@ pub struct LayerSpec {
     /// palette of its indexed sprites (0: the layer picks none;
     /// see [`LayerSpec::value_in`]).
     pub palette_bits: u32,
+    /// Bits indexing `lut` in a value that picks a palette, at least (0:
+    /// as many as the table needs): a table that grows keeps its values.
+    pub index_bits: u32,
 }
 
 impl LayerSpec {
@@ -423,6 +426,7 @@ impl LayerSpec {
             cull_offset: (0, 0),
             blend: Blend::Alpha,
             palette_bits: 0,
+            index_bits: 0,
         }
     }
 
@@ -443,7 +447,7 @@ impl LayerSpec {
     /// Where the palette row starts in a value (the bits indexing `lut`;
     /// 0 without palettes).
     pub fn palette_shift(&self) -> u32 {
-        if self.palette_bits == 0 { 0 } else { (usize::BITS - self.lut.len().saturating_sub(1).leading_zeros()).max(1) }
+        if self.palette_bits == 0 { 0 } else { (usize::BITS - self.lut.len().saturating_sub(1).leading_zeros()).max(1).max(self.index_bits) }
     }
 
     /// The value drawing `lut` entry `index` with palette row `row` (rows

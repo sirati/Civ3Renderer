@@ -228,6 +228,13 @@ impl AtlasBuilder {
         id
     }
 
+    /// A sprite of pixels placed already (part of another sprite's, say):
+    /// `desc` says where.
+    pub fn add_desc(&mut self, desc: SpriteDesc) -> SpriteId {
+        self.sprites.push(desc);
+        SpriteId(self.sprites.len() as u32 - 1)
+    }
+
     /// Sprite `id`, to say how a view showing the world smaller draws it
     /// (its `scaling`, sample box and `downscaled` twin).
     pub fn sprite_mut(&mut self, id: SpriteId) -> &mut SpriteDesc {
@@ -251,6 +258,13 @@ impl AtlasBuilder {
         }
         Atlas { page_size: self.page_size, pages, index_pages: self.index_pages, sprites: self.sprites, palettes: no_palettes(), named_palettes: 1 }
     }
+}
+
+/// A sprite of `size` at `(page, x, y)`, drawn with its top-left at
+/// `anchor`, shrunk from the whole sprite by views showing the world
+/// smaller (see `SpriteDesc::box_x`).
+pub fn sprite_at((page, x, y): (u32, u32, u32), (w, h): (u32, u32), anchor: (i32, i32)) -> SpriteDesc {
+    SpriteDesc { atlas_x: x, atlas_y: y, width: w, height: h, anchor_x: anchor.0, anchor_y: anchor.1, page, box_w: w, box_h: h, ..Default::default() }
 }
 
 /// Pixels written into an atlas page: a new sprite's (see [`AtlasGrowth`]).
