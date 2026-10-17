@@ -1313,6 +1313,69 @@ mod tests {
         assert_eq!(boxes(&m.shown_frame()), 0);
     }
 
+    /// A present updating a rectangle smaller than the tooltip (the
+    /// pointer's, a button's) draws the whole tooltip onto the back buffer,
+    /// clipped by the game to that rectangle (which the tracer drops, see
+    /// [`content_clip`]): the box stays whole on the screen, every pixel of
+    /// it, not cut to the rectangle nor left to its text.
+    #[test]
+    fn a_tooltip_box_stays_whole_through_presents_smaller_than_it() {
+        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+        m.apply(Event::Size { image: 999, size: (1000, 800) });
+        m.apply(Event::Fill { canvas: 400, rect: [0, 0, 1000, 800], rgb: [2, 2, 2], alpha: 255, clip: None });
+        let tip = [100, 500, 150, 14];
+        let present = |m: &mut UiModel, rect: [i32; 4]| {
+            // The game clips the back buffer to the rectangle it updates.
+            let clip = content_clip(Some(rect), Some(rect));
+            m.apply(Event::PresentBegin);
+            m.apply(Event::Fill { canvas: 999, rect: [tip[0] - 1, tip[1] - 1, tip[2] + 2, tip[3] + 2], rgb: [0, 0, 0], alpha: 255, clip });
+            m.apply(Event::Fill { canvas: 999, rect: tip, rgb: [255, 255, 255], alpha: 255, clip });
+            m.apply(Event::Text { canvas: 999, run: text(tip[0] + 3, tip[1] + 11, "Fortify") });
+            m.apply(Event::Present { rect: Some(rect) });
+        };
+        // The pixels of the box the white fills of `f` reach, of all of it.
+        let box_shown = |f: &Frame| {
+            let white: Vec<[i32; 4]> = f
+                .draws
+                .iter()
+                .filter_map(|d| match d {
+                    ScreenDraw::Fill { rect: [x, y, w, h], rgb: [255, 255, 255], clip, .. } => Some(intersect([*x, *y, x + w, y + h], *clip)),
+                    _ => None,
+                })
+                .collect();
+            let [x, y, w, h] = tip;
+            let pixels = (y..y + h).flat_map(|py| (x..x + w).map(move |px| (px, py)));
+            let reached = pixels.filter(|&(px, py)| white.iter().any(|r| px >= r[0] && px < r[2] && py >= r[1] && py < r[3])).count();
+            (reached, (w * h) as usize)
+        };
+        let whole = (tip[2] * tip[3]) as usize;
+        m.apply(Event::PaintBegin);
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(Event::CompositeEnd);
+        m.apply(Event::Present { rect: None });
+        m.apply(Event::PaintEnd);
+        // It appears in a present of only the pointer's rectangle, inside it.
+        present(&mut m, [120, 502, 140, 512]);
+        assert_eq!(box_shown(&m.frame()), (whole, whole));
+        // Its own rectangle presented: whole on the screen.
+        present(&mut m, [tip[0] - 1, tip[1] - 1, tip[0] + tip[2] + 1, tip[1] + tip[3] + 1]);
+        assert_eq!(box_shown(&m.shown_frame()), (whole, whole));
+        // The pointer moves on the button: only its rectangle, across the
+        // box's edge, then inside it.
+        for r in [[200, 505, 232, 537], [130, 503, 146, 511]] {
+            present(&mut m, r);
+            assert_eq!(box_shown(&m.shown_frame()), (whole, whole), "after a present of {r:?}");
+        }
+        // The button under it painted (a rectangle smaller than the box).
+        m.apply(Event::PaintBegin);
+        m.apply(composite(400, (0, 0), (1000, 800)));
+        m.apply(Event::CompositeEnd);
+        present(&mut m, [140, 498, 172, 530]);
+        m.apply(Event::PaintEnd);
+        assert_eq!(box_shown(&m.shown_frame()), (whole, whole));
+        assert_eq!(box_shown(&m.frame()), (whole, whole));
+    }
+
     #[test]
     fn the_rectangle_being_updated_is_no_clip() {
         let (r, parent) = ([100, 520, 132, 552], [90, 500, 140, 540]);
