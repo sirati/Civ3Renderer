@@ -328,6 +328,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("no map input while menus are open: {e}"),
         }
     }
+    hook_edge_scroll();
     let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), false)?;
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     let mut presenter = if mode.starts_with("native") {
@@ -675,6 +676,11 @@ struct InputForwarder {
     /// World keys (`Input::WorldKey`) whose press went to the game's window
     /// as a plain key.
     plain_keys: Vec<u32>,
+    /// Where the viewer's pointer rests at its window's edge
+    /// (`Input::Edge`), and the game pointer that makes the game scroll
+    /// (`crate::edge`).
+    edge: (i32, i32),
+    edge_point: Option<(i32, i32)>,
 }
 
 impl InputForwarder {
@@ -774,7 +780,8 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::WorldButton { button, down: true, x, y } => forwarder.world_buttons.push((button, (x, y))),
             Input::WorldButton { .. } => {}
             Input::Resized { width, height } => forwarder.viewport = (width, height),
-            Input::Quit => {}
+            Input::Quit => forwarder.edge = (0, 0),
+            Input::Edge { x, y } => forwarder.edge = (x, y),
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
             Input::Zooms(zooms) => {
@@ -782,4 +789,42 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             }
         }
     }
+    // The viewer's pointer at its edge: the game's at its own, to scroll.
+    let point = window.client_size().and_then(|size| crate::edge::game_point(forwarder.edge, size));
+    if point != forwarder.edge_point {
+        match point {
+            Some((x, y)) => log::debug!("edge scroll: the viewer's pointer at {:?}, the game's at ({x}, {y})", forwarder.edge),
+            None => log::debug!("edge scroll: ends"),
+        }
+        forwarder.edge_point = point;
+        inproc::pointer::set(point.map(|(x, y)| inproc::pointer::Override { window, x, y }));
+    }
+}
+
+/// Lets the game scroll at the viewer's edge (`crate::edge`): its
+/// executable's `GetFocus` and `jgl.dll`'s `GetCursorPos` (loaded later)
+/// answer with `inproc::pointer`'s override while there is one. The hooks
+/// stay for the life of the process.
+fn hook_edge_scroll() {
+    match inproc::pointer::hook_focus(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => return log::warn!("edge scroll: the game does not import GetFocus"),
+        Err(e) => return log::warn!("edge scroll: hooking GetFocus: {e}"),
+    }
+    std::thread::spawn(|| {
+        for _ in 0..600 {
+            if let Some(module) = inproc::pe::module_base("jgl.dll") {
+                match inproc::pointer::hook_cursor_pos(module) {
+                    Ok(Some(hook)) => {
+                        log::info!("edge scroll: following the viewer's pointer at its edge");
+                        std::mem::forget(hook);
+                    }
+                    Ok(None) => log::warn!("edge scroll: jgl.dll does not import GetCursorPos"),
+                    Err(e) => log::warn!("edge scroll: hooking GetCursorPos: {e}"),
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    });
 }

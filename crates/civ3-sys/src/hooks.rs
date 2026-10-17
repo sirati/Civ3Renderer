@@ -81,3 +81,13 @@ pub fn draw_tiles_slot(build: Build) -> Ptr32<u32> {
         Build::Steam => 0x68_7730,
     })
 }
+
+/// How near its view's edge the game's pointer scrolls the map. The game
+/// scrolls on a 66 ms timer (`Main_Screen_Form` at 0x4DE4F0 in PcGames)
+/// while a window of its own has the keyboard focus (the executable's only
+/// `GetFocus` call) and its pointer — as `jgl.dll` gets it from
+/// `GetCursorPos` (that library's only call; its other users place tooltips
+/// and repeat held buttons), relative to the game's window — is within this
+/// many pixels of an edge of the view, faster nearer; it never looks at the
+/// mouse messages it is sent.
+pub const EDGE_SCROLL_ZONE: i32 = 16;
