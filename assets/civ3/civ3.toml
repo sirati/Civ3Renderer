@@ -1543,6 +1543,45 @@ grid = [1, 1]
 anchor = [-16, -112]
 group = "Viewer@arrow"
 
+# The viewer's frame counter (tile-viewer `fps`, `Viewer@glyphsN`): the
+# characters of `render_desc::GLYPHS` on a dark box, at 1..4 times their
+# 5x7 size (the viewer picks by the window's height); cells 6N x 9N.
+[images.viewer_glyphs1]
+source = "glyphs:255,255,255,255:0,0,0,176:1"
+
+[sheets.viewer_glyphs1]
+image = "viewer_glyphs1"
+cell = [6, 9]
+grid = [19, 1]
+group = "Viewer@glyphs1"
+
+[images.viewer_glyphs2]
+source = "glyphs:255,255,255,255:0,0,0,176:2"
+
+[sheets.viewer_glyphs2]
+image = "viewer_glyphs2"
+cell = [12, 18]
+grid = [19, 1]
+group = "Viewer@glyphs2"
+
+[images.viewer_glyphs3]
+source = "glyphs:255,255,255,255:0,0,0,176:3"
+
+[sheets.viewer_glyphs3]
+image = "viewer_glyphs3"
+cell = [18, 27]
+grid = [19, 1]
+group = "Viewer@glyphs3"
+
+[images.viewer_glyphs4]
+source = "glyphs:255,255,255,255:0,0,0,176:4"
+
+[sheets.viewer_glyphs4]
+image = "viewer_glyphs4"
+cell = [24, 36]
+grid = [19, 1]
+group = "Viewer@glyphs4"
+
 # §4: passes. 1: vertices (terrain, flood plains); 2: rivers touching
 # mountains/buildings; 3: tiles, all objects in this order; 4: other rivers;
 # 5: fog of war; 6: units (at the end).
