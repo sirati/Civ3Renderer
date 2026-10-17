@@ -51,8 +51,13 @@ down, like a game averaging two RGB555 values.
 
 Views can be zoomed by any ratio without blur: a zoomed view is drawn at
 zoom 1 into a texture of its own and copied into its rectangle by nearest
-pixel, at its place in the view order (later views blend over it). Screen
-copies magnify a rectangle of the finished picture the same way. Free
+pixel, at its place in the view order (later views blend over it). From the
+first sprite made for its zoom on (text rasterised at the zoom), it is drawn
+at its zoom straight into the target instead, every sprite scaled exactly
+as the copy would show it, so such text stays in its pass (under the fog of
+war); a *hairline* view (an interface shown smaller) keeps sprites the
+scaling would lose one screen pixel wide. Screen copies magnify a rectangle
+of the finished picture the same way. Free
 sprites may also invert what is under them (`Blend::Invert`).
 
 A description can be compiled `n` times smaller (`Description::scaled_down`):
@@ -114,16 +119,19 @@ the main view zoomed (Ctrl+wheel), a second pane beside or below it
 the world only (Ctrl+Shift+M). Each view follows the game's view, the
 driver's point of interest (the active unit), the world cursor, or nothing
 (Ctrl+Shift+F); a view following the world cursor keeps it in its middle
-and captures the mouse when clicked into (Ctrl+Shift+Space lets go), the
-cursor drawn in every view that shows it. Ctrl+Shift+A toggles a blinking
+and captures the mouse when clicked into (Ctrl+Shift+Space lets go, and
+takes it over such a view; each change is logged), the cursor drawn in
+every view that shows it. A free view set up before the game shows a map
+is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
 arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
 (the bridge clicks its minimap). `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
-scaled picture, `Camera::stacked`); `ui=window` keeps the menus 1:1 over
-the window and resizes only the world. The game's minimap also marks what the split pane and the insets show
+scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`
+keeps the menus (and a city screen's map) 1:1 over the window and resizes
+only the world. The game's minimap also marks what the split pane and the insets show
 (`CIV3R_VIEW_RECT_COLOR`, `R;G;B`, yellow by default). Zoomed views show
 text rasterised at their zoom (`text=sharp`, Ctrl+Shift+T; `pixel`: its
 pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
