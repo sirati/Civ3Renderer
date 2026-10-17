@@ -414,7 +414,10 @@ impl TileRenderer {
             log::error!("atlas growth for {} sprites, the atlas has {}", growth.first, a.sprites.len());
         }
         let max = device.limits().max_texture_array_layers;
-        let room = |pages: u32| (pages + (pages / 2).max(4)).min(max).max(pages);
+        if growth.pages.max(growth.index_pages) > max {
+            log::error!("atlas: {} colour and {} index pages, the device has room for {max} of each: sprites past them are not drawn", growth.pages, growth.index_pages);
+        }
+        let room = |pages: u32| (pages + (pages / 2).max(4)).min(max);
         let mut resized = false;
         if growth.pages > a.rgba.capacity {
             a.rgba = a.rgba.grown(device, queue, room(growth.pages));

@@ -51,7 +51,8 @@ pub async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wg
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("tile-render"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
+            // (As many atlas pages as the adapter allows: an atlas grows.)
+            required_limits: wgpu::Limits { max_texture_array_layers: adapter.limits().max_texture_array_layers, ..wgpu::Limits::default().using_resolution(adapter.limits()) },
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::Performance,
             trace: wgpu::Trace::Off,
