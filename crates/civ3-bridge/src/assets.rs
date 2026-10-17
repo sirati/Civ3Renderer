@@ -61,6 +61,17 @@ pub fn compile_as(text: &str, files: GameFiles, pixels: Pixels) -> Result<Compil
     }
 }
 
+/// [`compile_as`], to be grown (`render_desc::Growing`): with the pixels
+/// (`pixels`), else the tables only.
+pub fn compile_growing(text: &str, files: GameFiles, pixels: bool) -> Result<(Compiled, render_desc::Growing), DescError> {
+    Description::parse(text)?.compile_growing(&Civ3Loader::new(files), 2048, pixels)
+}
+
+/// The growth of `compiled` (grown by `growing`) by `addition`.
+pub fn grow(growing: &mut render_desc::Growing, compiled: &Compiled, addition: &str, files: GameFiles) -> Result<render_desc::Growth, DescError> {
+    growing.grow(compiled, addition, &Civ3Loader::new(files))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
