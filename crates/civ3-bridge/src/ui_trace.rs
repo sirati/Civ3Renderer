@@ -193,8 +193,18 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         emit(Event::Reset { sprite: c.sprite });
         c.original()
     });
-    hook!(sprite_draw, sites.sprite_draw, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
+    // The game's mouse cursor, which it draws onto the screen last (docs
+    // §16.5, §16.11), is not mirrored: the viewer shows the pointer itself,
+    // where the mouse is now (a mirrored one would lag behind it).
+    let cursor_sprite = civ3_sys::cursor::sites(game.build).map(|s| s.sprite);
+    let screen = h::back_buffer(game.build).unwrap_or(0);
+    let is_cursor = move |sprite: u32, canvas: u32| {
+        canvas == screen && sprite != 0 && cursor_sprite.is_some_and(|at| inproc::Ptr32::<u32>::new(at).read().ok() == Some(sprite))
+    };
+    hook!(sprite_draw, sites.sprite_draw, move |c| {
+        if !is_cursor(c.sprite, c.canvas) {
+            blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
+        }
         c.original()
     });
     hook!(sprite_draw_variant, sites.sprite_draw_variant, |c| {
