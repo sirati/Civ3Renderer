@@ -54,6 +54,8 @@ pub struct TileRenderer {
     bind_group: Option<wgpu::BindGroup>,
     /// Whether more views than drawn were asked for (warned once).
     too_many_views: bool,
+    /// GPU time per pass, when profiling (see [`TileRenderer::enable_timing`]).
+    timer: Option<crate::timing::GpuTimer>,
 }
 
 /// The atlas on the GPU: its colour and index pages, its sprites and
@@ -278,7 +280,26 @@ impl TileRenderer {
             world: None,
             bind_group: None,
             too_many_views: false,
+            timer: None,
         }
+    }
+
+    /// Times every render pass on the GPU from now on (where the device has
+    /// timestamp queries); whether it does. Each frame's encoder is then
+    /// ended with the timer's `finish` (see [`crate::timing::GpuTimer`]).
+    pub fn enable_timing(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+        self.timer = crate::timing::GpuTimer::new(device, queue);
+        self.timer.is_some()
+    }
+
+    /// The GPU timer, if timing is on.
+    pub fn timer(&mut self) -> Option<&mut crate::timing::GpuTimer> {
+        self.timer.as_mut()
+    }
+
+    /// The timestamp writes of a pass, when timing.
+    fn timed(&self, label: impl FnOnce() -> String) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        self.timer.as_ref().and_then(|t| t.pass(label))
     }
 
     /// Pipeline `p`, made the first time it is asked for.
@@ -682,7 +703,7 @@ impl TileRenderer {
     ) {
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
-            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
+            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear)), None));
             return;
         };
         if cameras.len() > MAX_VIEWS && !self.too_many_views {
@@ -713,19 +734,21 @@ impl TileRenderer {
         let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
         if placements.iter().any(|p| p.source.is_some()) {
             let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
-            drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background)));
+            let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear sources".into()));
+            drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background), timed));
         }
         let copies = &copies[..copies.len().min(MAX_COPIES)];
         // Copies read the finished picture, and a scaled one is shown from
         // it: then it is composed internally.
         let direct = bits == 0 && copies.is_empty() && unscaled;
         let canvas = if direct {
-            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background)));
+            drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background), self.timed(|| "clear".into())));
             view.clone()
         } else {
             let s = scratch_for(&mut self.scratch, device, &self.output_layout, &self.output_params, (size.width, size.height), false);
             let main = s.main.create_view(&Default::default());
-            drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background)));
+            let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear".into()));
+            drop(begin_pass(encoder, &main, wgpu::LoadOp::Clear(background), timed));
             main
         };
         let source_view = self.sources.as_ref().map(|s| s.main.create_view(&Default::default()));
@@ -747,7 +770,7 @@ impl TileRenderer {
         } else {
             (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
         };
-        let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes };
+        let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref() };
         for (v, place) in placements.iter().enumerate() {
             // Its steps at zoom 1.
             let rect = place.rect;
@@ -780,7 +803,7 @@ impl TileRenderer {
                         _pad: 0,
                     };
                     let offset = write_output(v, params);
-                    let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load);
+                    let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load, self.timed(|| format!("v{v} blit")));
                     pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
                     pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
                     pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
@@ -807,7 +830,7 @@ impl TileRenderer {
         let offset = write_output(MAX_VIEWS, params);
         // Around a scaled picture: clear.
         let load = if unscaled { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(crate::gpu::color(clear)) };
-        let mut pass = begin_pass(encoder, &view, load);
+        let mut pass = begin_pass(encoder, &view, load, self.timed(|| "output".into()));
         // Canvas pixels as target pixels: the first target pixel showing
         // canvas pixel `v` (target pixel p shows canvas pixel ⌊(p − at)·d/n⌋).
         let to_target = |v: u32| (v as u64 * n as u64).div_ceil(d as u64) as i32;
@@ -953,6 +976,7 @@ struct Steps<'a> {
     bind_group: &'a wgpu::BindGroup,
     frame: u32,
     named_palettes: u32,
+    timer: Option<&'a crate::timing::GpuTimer>,
 }
 
 impl Steps<'_> {
@@ -987,7 +1011,11 @@ impl Steps<'_> {
             // land before the commands run.
             let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;
             self.queue.write_buffer(self.params, offset, bytemuck::bytes_of(&params));
-            let mut render = begin_view(encoder, into, bounds, self.bind_group, offset as u32);
+            let timed = self.timer.and_then(|t| {
+                let what = if cells && sprites { "cells+free" } else if cells { "cells" } else { "free" };
+                t.pass(|| format!("v{v}{} pass {i} {what}", if slot == 0 { "" } else { " zoomed" }))
+            });
+            let mut render = begin_view(encoder, into, bounds, self.bind_group, offset as u32, timed);
             if cells {
                 render.set_pipeline(tiles);
                 render.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * pass.count);
@@ -1083,8 +1111,9 @@ fn begin_view<'e>(
     ([vx, vy, vw, vh], [x, y, w, h]): ([f32; 4], [u32; 4]),
     bind_group: &wgpu::BindGroup,
     params_offset: u32,
+    timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
 ) -> wgpu::RenderPass<'e> {
-    let mut pass = begin_pass(encoder, canvas, wgpu::LoadOp::Load);
+    let mut pass = begin_pass(encoder, canvas, wgpu::LoadOp::Load, timestamp_writes);
     pass.set_viewport(vx, vy, vw, vh, 0.0, 1.0);
     pass.set_scissor_rect(x, y, w, h);
     pass.set_bind_group(0, bind_group, &[params_offset]);
@@ -1094,6 +1123,7 @@ fn begin_pass<'e>(
     encoder: &'e mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     load: wgpu::LoadOp<wgpu::Color>,
+    timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
 ) -> wgpu::RenderPass<'e> {
     encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("tile-render"),
@@ -1104,7 +1134,7 @@ fn begin_pass<'e>(
             ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
         })],
         depth_stencil_attachment: None,
-        timestamp_writes: None,
+        timestamp_writes,
         occlusion_query_set: None,
         multiview_mask: None,
     })

@@ -98,11 +98,14 @@ pub fn max_texture_dimension() -> Option<u32> {
     })
 }
 
+/// A device on `adapter`; with timestamp queries where the adapter has them
+/// and GPU timing is asked for (`crate::timing::requested`).
 pub async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), GpuError> {
+    let timing = crate::timing::requested() && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
     Ok(adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("tile-render"),
-            required_features: wgpu::Features::empty(),
+            required_features: if timing { wgpu::Features::TIMESTAMP_QUERY } else { wgpu::Features::empty() },
             // (As many atlas pages as the adapter allows: an atlas grows.)
             required_limits: wgpu::Limits { max_texture_array_layers: adapter.limits().max_texture_array_layers, ..wgpu::Limits::default().using_resolution(adapter.limits()) },
             experimental_features: wgpu::ExperimentalFeatures::disabled(),

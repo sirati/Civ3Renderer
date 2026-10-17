@@ -20,6 +20,13 @@
 //!       line gives the share for the terrain alone: the pixels none of our
 //!       unit, label or interface sprites covers
 //!
+//!   civ3-tool bench TRACE [--frames N] [--rebuild] [--viewport WxH]
+//!       draws the trace's scene as the viewer arranges it, N times
+//!       (default 300) into an offscreen target, and prints where the time
+//!       goes: CPU per step and, with TILE_RENDER_GPU_TIMING=1 where the
+//!       adapter has timestamp queries, GPU per pass; --rebuild builds and
+//!       uploads the world anew every frame (as for every new scene)
+//!
 //! Environment: CIV3_INSTALL (game folder), CIV3_DESC (render description,
 //! default assets/civ3/civ3.toml).
 
@@ -185,6 +192,15 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             println!("{out}");
             Ok(ExitCode::SUCCESS)
         }
+        Some("bench") => {
+            let trace = load_trace(args.get(1).ok_or("bench TRACE [--frames N] [--rebuild]")?)?;
+            let frames = args.iter().position(|a| a == "--frames").and_then(|i| args.get(i + 1)).and_then(|n| n.parse().ok()).unwrap_or(300);
+            let rebuild = args.iter().any(|a| a == "--rebuild");
+            let (compiled, mut art) = compile(Some(&trace))?;
+            let size = viewport(args)?;
+            let scene = trace_scene(&trace, &compiled, art.as_mut(), (0, 0));
+            bench(&compiled, &scene, size, frames, rebuild)
+        }
         Some("stats") => {
             let trace = load_trace(args.get(1).ok_or("stats TRACE")?)?;
             let (compiled, _) = compile(Some(&trace))?;
@@ -255,6 +271,184 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
         }
         _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | preview SCENARIO.biq OUT.png | pixeldiff TRACE GAME.png [DIFF.png] | minimap TRACE GAME.png | labels TRACE... [-v]  [--viewport WxH]".into()),
     }
+}
+
+/// Per layer: the cells camera `camera` draws something of, the pixels
+/// their sprites' rectangles cover (fragments shaded) and of those the
+/// non-blank ones.
+fn layer_stats(compiled: &Compiled, world: &tile_render::TileWorld, camera: &tile_render::Camera) {
+    let a = &compiled.atlas;
+    let mut cache: std::collections::HashMap<u32, (u64, u64)> = Default::default();
+    let mut texels = |id: u32| -> (u64, u64) {
+        *cache.entry(id).or_insert_with(|| {
+            let Some(d) = a.sprites.get(id as usize) else { return (0, 0) };
+            let mut solid = 0u64;
+            for y in 0..d.height {
+                for x in 0..d.width {
+                    let (px, py) = (d.atlas_x + x, d.atlas_y + y);
+                    let alpha = if d.palette == 0 {
+                        a.pages.get(d.page as usize).map_or(255, |p| p.pixels[(py * p.width + px) as usize][3])
+                    } else {
+                        let idx = a.index_pages.get(d.page as usize).map_or(0, |p| p.pixels[(py * p.width + px) as usize]) as u32;
+                        (a.palettes.get((d.palette * 256 + idx) as usize).copied().unwrap_or(0) >> 24) as u8
+                    };
+                    solid += (alpha != 0) as u64;
+                }
+            }
+            ((d.width * d.height) as u64, solid)
+        })
+    };
+    let g = world.grid;
+    let (w, h) = (camera.viewport.0 as i32, camera.viewport.1 as i32);
+    let mut total = (0u64, 0u64);
+    for (li, spec) in world.layers().iter().enumerate() {
+        let (mut cells, mut area, mut solid) = (0u64, 0u64, 0u64);
+        for row in 0..g.rows {
+            for col in 0..g.cols {
+                let (ox, oy) = g.origin(col as i32, row as i32);
+                let (sx, sy) = (ox - camera.x, oy - camera.y);
+                if sx < -256 || sy < -256 || sx > w + 256 || sy > h + 256 {
+                    continue;
+                }
+                let v = world.get(tile_render::LayerId(li), col, row);
+                let v = v & ((1 << spec.palette_shift().max(if spec.palette_bits == 0 { 32 } else { 0 }).min(31)) - 1).max(if spec.palette_bits == 0 { u32::MAX } else { 0 });
+                let Some(&set) = spec.lut.get(v as usize) else { continue };
+                let Some(id) = world.sets.frame(set, 0) else { continue };
+                let Some(d) = a.sprites.get(id.0 as usize) else { continue };
+                // The part on the screen.
+                let (x0, y0) = (sx + spec.offset.0 + d.anchor_x, sy + spec.offset.1 + d.anchor_y);
+                let (x1, y1) = (x0 + d.width as i32, y0 + d.height as i32);
+                let on = ((x1.min(w) - x0.max(0)).max(0) as u64) * ((y1.min(h) - y0.max(0)).max(0) as u64);
+                if on == 0 {
+                    continue;
+                }
+                let (all, nonblank) = texels(id.0);
+                cells += 1;
+                area += on;
+                solid += if all > 0 { nonblank * on / all } else { 0 };
+            }
+        }
+        if cells > 0 {
+            println!("layer {li:>2} {:<28} pass {} cells {cells:>5} pixels {area:>9} ({:.2} screens) non-blank {:.0}%", spec.name, spec.pass, area as f64 / (w * h) as f64, 100.0 * solid as f64 / area.max(1) as f64);
+        }
+        total.0 += area;
+        total.1 += solid;
+    }
+    println!("all layers: {:.2} screens of fragments, {:.2} of them non-blank", total.0 as f64 / (w * h) as f64, total.1 as f64 / (w * h) as f64);
+}
+
+/// `SCALE_INVERT` as free sprites carry it.
+fn tile_render_shared_scale_invert() -> u32 {
+    tile_render::Blend::Invert.scale_den()
+}
+
+/// Draws `scene` `frames` times as the viewer arranges it and prints where
+/// the time goes (see the `bench` command).
+fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u32, rebuild: bool) -> Result<ExitCode, String> {
+    use std::time::Instant;
+    let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
+    println!("adapter: {:?}", gpu.adapter.get_info());
+    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+    let format = wgpu::TextureFormat::Bgra8Unorm;
+    let mut renderer = tile_render::TileRenderer::new(&gpu.device, format);
+    let timed = renderer.enable_timing(&gpu.device, &gpu.queue);
+    println!("GPU timing: {}", if timed { "on" } else { "off (TILE_RENDER_GPU_TIMING=1, timestamp queries)" });
+    renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
+    let frame = tile_viewer::arranged_frame(compiled, scene, size, &config);
+    let world = tile_viewer::scene_world_for(compiled, scene, &frame.view_cameras);
+    renderer.set_world(&gpu.device, &world);
+    println!(
+        "scene: {}x{} cells, {} layers, {} world sprites, overlays {:?}; {} cameras, {} free sprites",
+        scene.shape.cols,
+        scene.shape.rows,
+        scene.layers.len(),
+        scene.sprites.len(),
+        scene.views.iter().map(|v| v.overlay.len()).collect::<Vec<_>>(),
+        frame.cameras.len(),
+        world.free.len()
+    );
+    // What the free sprites are: per view, by kind, the pixels they cover
+    // (first frames, clipped), and the largest.
+    for (vi, v) in scene.views.iter().enumerate() {
+        let mut kinds: std::collections::BTreeMap<String, (usize, i64)> = Default::default();
+        let mut largest: Vec<(i64, String)> = Vec::new();
+        for s in &v.overlay {
+            let kind = match (s.glyph.is_some(), s.scale_den) {
+                (true, _) => "outline glyph".to_owned(),
+                (false, 0) => "alpha".to_owned(),
+                (false, d) if d == tile_render_shared_scale_invert() => "invert".to_owned(),
+                (false, d) => format!("scale/subpixel {d}"),
+            };
+            let sprite = compiled.sets.frame(tile_render::SpriteSetId::from_raw(s.set), 0).and_then(|id| compiled.atlas.sprites.get(id.0 as usize).map(|d| (id, *d)));
+            let area = sprite.map_or(0, |(_, d)| {
+                let (mut x0, mut y0) = (s.x + d.anchor_x, s.y + d.anchor_y);
+                let (mut x1, mut y1) = (x0 + d.width as i32, y0 + d.height as i32);
+                if let Some([cx0, cy0, cx1, cy1]) = s.clip {
+                    (x0, y0, x1, y1) = (x0.max(cx0), y0.max(cy0), x1.min(cx1), y1.min(cy1));
+                }
+                ((x1 - x0).max(0) as i64) * ((y1 - y0).max(0) as i64)
+            });
+            let e = kinds.entry(format!("{kind}{}", if sprite.is_some_and(|(_, d)| d.palette != 0) { " indexed" } else { "" })).or_default();
+            e.0 += 1;
+            e.1 += area;
+            if let Some((id, _)) = sprite {
+                largest.push((area, compiled.sprite_names.get(id.0 as usize).cloned().unwrap_or_default()));
+            }
+        }
+        largest.sort_by(|a, b| b.0.cmp(&a.0));
+        println!("view {vi} (id {}): {:?}", v.id, kinds);
+        println!("  largest: {:?}", &largest[..largest.len().min(12)]);
+    }
+    if std::env::var("BENCH_LAYERS").is_ok() {
+        layer_stats(compiled, &world, &frame.cameras[0]);
+    }
+    let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("bench target"),
+        size: wgpu::Extent3d { width: size.0, height: size.1, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let mut profile = tile_viewer::profile::Profile::new("bench", std::time::Duration::ZERO);
+    for i in 0..frames {
+        profile.round_start();
+        if rebuild {
+            let w = profile.time("world build", || tile_viewer::scene_world_for(compiled, scene, &frame.view_cameras));
+            profile.time("upload world", || renderer.update_world(&gpu.device, &gpu.queue, &w));
+        }
+        let t = Instant::now();
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        renderer.render_composed(&gpu.device, &gpu.queue, &mut encoder, &target, &frame.cameras, &frame.copies, scene.tick, config.clear);
+        if let Some(timer) = renderer.timer() {
+            timer.finish(&mut encoder);
+        }
+        profile.add("encode", t.elapsed());
+        let t = Instant::now();
+        gpu.queue.submit([encoder.finish()]);
+        profile.add("submit", t.elapsed());
+        let t = Instant::now();
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+        profile.add("wait for GPU", t.elapsed());
+        if let Some(timer) = renderer.timer() {
+            timer.submitted();
+            let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+            // (The first frames compile pipelines.)
+            for f in timer.collect(&gpu.device).into_iter().filter(|_| i >= 5) {
+                profile.add_ms("gpu frame span", f.span);
+                profile.add_ms("gpu passes sum", f.passes.iter().map(|(_, ms)| ms).sum());
+                profile.count("gpu passes", f.passes.len());
+                for (label, ms) in f.passes {
+                    profile.add_ms(&format!("gpu {label}"), ms);
+                }
+            }
+        }
+        profile.round_end();
+    }
+    println!("{}", profile.report().unwrap_or_default());
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Renders the world of scenario `file` as the Load Scenario screen previews

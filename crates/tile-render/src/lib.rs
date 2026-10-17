@@ -12,6 +12,7 @@ pub mod camera;
 pub mod gpu;
 pub mod reference;
 pub mod renderer;
+pub mod timing;
 pub mod world;
 
 pub use atlas::{Atlas, AtlasBuilder, AtlasGrowth, Blit, BlitPixels, IndexImage, RgbaImage, Shelves, SpriteId};
