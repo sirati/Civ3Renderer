@@ -644,7 +644,13 @@ pub const ALPHA_STEPS: u32 = 32;
 
 /// A texel's 8-bit alpha as a number of [`ALPHA_STEPS`].
 pub fn alpha_steps(a8: u32) -> u32 {
-    (a8 * ALPHA_STEPS + 127) / 255
+    div255(a8 * ALPHA_STEPS + 127)
+}
+
+/// `x / 255` for `x` below 65535, without a division (GPUs have none for
+/// integers; it is a long sequence of instructions).
+pub fn div255(x: u32) -> u32 {
+    (x + 1 + (x >> 8)) >> 8
 }
 
 /// What a translucent texel with `k` alpha steps adds to its premultiplied
@@ -734,6 +740,13 @@ pub fn wrap_cell(grid: &GridParams, col: i32, row: i32) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn div255_divides() {
+        for x in 0..65535 {
+            assert_eq!(div255(x), x / 255, "{x}");
+        }
+    }
 
     #[test]
     fn layouts_are_16_byte_multiples() {
