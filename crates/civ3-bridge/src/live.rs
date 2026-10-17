@@ -458,6 +458,7 @@ fn publish(
     let art_list = crate::preload::ArtList::parse(crate::preload::BUILTIN_LIST);
     let mut preload = crate::preload::Preload::none();
     let mut preload_for = None;
+    let mut planning: Option<std::sync::mpsc::Receiver<crate::preload::Preload>> = None;
     let budget = crate::preload::budget(if pixels { PRELOAD_MIB_IN_PROCESS } else { PRELOAD_MIB_NATIVE });
     let mut atlas_used: u64 = 0;
     let mut sent_bytes: u64 = 0;
@@ -918,20 +919,36 @@ fn publish(
         }
         // A new game: plan the art to make ahead for it (once its units are
         // there).
+        // (The plan reads the headers of every unit's art files: on a thread
+        // of its own, the game goes on.)
         if let Shown::Map(world, view) = shown {
             let key = Some((folders.clone(), crate::preload::game_key(world)));
             if preload_for != key && !world.units.is_empty() && !world.unit_type_keys.is_empty() {
-                preload = crate::preload::Preload::plan(world, view, &mut art, &art_list, budget);
                 preload_for = key;
-                // Room in the atlas for what will be made (as far as the
-                // budget goes), at once: not moved again and again.
-                let page = 2048 * 2048;
-                let used = atlas_used.max(sent_bytes);
-                let ahead = preload.left().min(budget.saturating_sub(used));
-                // (Mostly indexed art; the shelves leave some room unused.)
-                let index_pages = ((used + ahead * 5 / 4).min(budget.max(used)) / page) as u32 + 1;
-                presenter.reserve(0, index_pages);
+                preload = crate::preload::Preload::none();
+                let (tx, rx) = std::sync::mpsc::channel();
+                let (world, view, list, files) = (world.clone(), *view, art_list.clone(), compiler.files(&folders));
+                let spawned = std::thread::Builder::new().name("civ3r-preload-plan".into()).spawn(move || {
+                    let mut art = units::UnitArt::new(files);
+                    let _ = tx.send(crate::preload::Preload::plan(&world, &view, &mut art, &list, budget));
+                });
+                match spawned {
+                    Ok(_) => planning = Some(rx),
+                    Err(e) => log::error!("preload: planning: {e}"),
+                }
             }
+        }
+        if let Some(plan) = planning.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            planning = None;
+            preload = plan;
+            // Room in the atlas for what will be made (as far as the
+            // budget goes), at once: not moved again and again.
+            let page = 2048 * 2048;
+            let used = atlas_used.max(sent_bytes);
+            let ahead = preload.left().min(budget.saturating_sub(used));
+            // (Mostly indexed art; the shelves leave some room unused.)
+            let index_pages = ((used + ahead * 5 / 4).min(budget.max(used)) / page) as u32 + 1;
+            presenter.reserve(0, index_pages);
         }
         if let Some(token) = schedule.start(now) {
             // Fonts no screen or zoom has asked for in a while are let go
