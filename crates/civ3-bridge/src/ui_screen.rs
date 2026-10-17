@@ -337,6 +337,27 @@ pub fn mark_views(items: &mut Vec<Item>, world: &crate::world::Civ3World, views:
     items.splice(at + 1..at + 1, fills);
 }
 
+/// The game's own view marked on the minimap among `items` (white lines
+/// round tile range `game_tiles`, x0, y0, x1, y1) replaced by world
+/// rectangle `shown` (x, y, w, h): what the renderer shows of the game's
+/// view where that is not all of it (`scene::Input::MainView`).
+pub fn replace_game_view_mark(items: &mut Vec<Item>, world: &crate::world::Civ3World, game_tiles: (i32, i32, i32, i32), shown: (i32, i32, i32, i32), zoomed_out: bool) {
+    let Some(at) = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap")) else { return };
+    let Item::Element(Element::Dynamic { size, rect: [rx, ry, _, _], at: (x, y), .. }, _) = items[at].clone() else { return };
+    let lines: Vec<[i32; 4]> = crate::minimap::view_rect(world, size, game_tiles).into_iter().map(|[lx, ly, lw, lh]| [x + lx - rx, y + ly - ry, lw, lh]).collect();
+    let before = items.len();
+    items.retain(|i| !matches!(i, Item::Element(Element::Fill { rect, rgb: [255, 255, 255], alpha: 255, .. }, _) if lines.contains(rect)));
+    if items.len() == before {
+        // (Not drawn: nothing to replace.)
+        return;
+    }
+    let at = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap")).unwrap_or(0);
+    let mut marked = items[..=at].to_vec();
+    mark_views(&mut marked, world, &[shown], zoomed_out, [255, 255, 255]);
+    let added: Vec<Item> = marked.drain(at + 1..).collect();
+    items.splice(at + 1..at + 1, added);
+}
+
 /// `len` as consecutive power-of-two pieces: (offset, length).
 fn pieces(len: i32) -> Vec<(i32, i32)> {
     let mut out = Vec::new();
@@ -367,6 +388,38 @@ pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Int
             id: c.id,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod view_mark_tests {
+    use super::*;
+
+    #[test]
+    fn the_games_view_mark_is_replaced_by_what_the_viewer_shows() {
+        let world = crate::world::Civ3World { width: 40, height: 40, tiles: vec![Default::default(); 800], ..Default::default() };
+        let clip = [0, 0, 1920, 1080];
+        let minimap = Item::Element(Element::Dynamic { name: "minimap".into(), size: (200, 100), rect: [0, 0, 200, 100], at: (30, 960), clip }, false);
+        let fills = |items: &[Item]| -> Vec<[i32; 4]> { items.iter().filter_map(|i| if let Item::Element(Element::Fill { rect, .. }, _) = i { Some(*rect) } else { None }).collect() };
+        // The game's own mark: tiles 10..20 x 10..30.
+        let game_tiles = (10, 10, 20, 30);
+        let game_lines: Vec<[i32; 4]> = crate::minimap::view_rect(&world, (200, 100), game_tiles).into_iter().map(|[x, y, w, h]| [30 + x, 960 + y, w, h]).collect();
+        let fill = |rect| Item::Element(Element::Fill { rect, rgb: [255, 255, 255], alpha: 255, clip }, false);
+        let mut items = vec![minimap.clone()];
+        items.extend(game_lines.iter().copied().map(fill));
+        items.push(fill([5, 5, 3, 3]));
+        // The viewer shows tiles 10..15 x 10..20 of it (a split's left half).
+        replace_game_view_mark(&mut items, &world, game_tiles, (64 * 10, 32 * 10, 64 * 5, 32 * 10), false);
+        let got = fills(&items);
+        assert!(game_lines.iter().all(|l| !got.contains(l)), "{got:?}");
+        assert!(got.contains(&[5, 5, 3, 3]));
+        let mut want = vec![minimap];
+        mark_views(&mut want, &world, &[(640, 320, 320, 320)], false, [255, 255, 255]);
+        assert!(!fills(&want).is_empty() && fills(&want).iter().all(|w| got.contains(w)), "{got:?}");
+        // Without the game's mark drawn, nothing is added.
+        let mut bare = vec![items[0].clone()];
+        replace_game_view_mark(&mut bare, &world, game_tiles, (0, 0, 64, 32), false);
+        assert_eq!(bare.len(), 1);
+    }
 }
 
 #[cfg(test)]

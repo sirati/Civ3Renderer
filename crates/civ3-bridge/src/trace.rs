@@ -479,6 +479,18 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         let [r, g, b] = t.color;
         let _ = writeln!(out, "text dc 0 at {} {} color {r} {g} {b} font {:?}/{}/{}/{}/{} str {}", t.x, t.y, t.face, t.height, t.weight, t.italic as u8, t.underline as u8, t.text);
     }
+    // What takes the mouse (docs §16.11): kind, rectangle (x, y, w, h), id.
+    if let Some(sites) = civ3_sys::controls::sites(game.build) {
+        for c in civ3_sys::controls::controls(&civ3_sys::controls::Live, &sites) {
+            let [x, y, w, h] = c.rect;
+            let kind = match c.kind {
+                civ3_sys::controls::ControlKind::Button => "button".to_owned(),
+                civ3_sys::controls::ControlKind::ListItem => "list_item".to_owned(),
+                civ3_sys::controls::ControlKind::List { scroll: [sx, sy, sw, sh], step } => format!("list scroll {sx} {sy} {sw} {sh} step {step}"),
+            };
+            let _ = writeln!(out, "control {x} {y} {w} {h} id {:#x} {kind}", c.id);
+        }
+    }
     // The mirrored interface (docs §16).
     if let Some(frame) = crate::ui_trace::frame() {
         for &(vtable, canvas, (x, y), (w, h)) in &frame.forms {

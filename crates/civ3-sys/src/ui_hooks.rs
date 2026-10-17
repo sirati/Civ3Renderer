@@ -523,6 +523,16 @@ pub fn screen_forms(build: Build) -> &'static [(u32, &'static str)] {
     }
 }
 
+/// The class (vtable) of the city screen's own buttons (`Button`'s city
+/// screen subclass): its production box, the one big one at its lower right
+/// (docs §16.12).
+pub fn city_screen_button_vtable(build: Build) -> Option<u32> {
+    match build {
+        Build::PcGames | Build::Gog => Some(0x66_5F20),
+        Build::Steam => None,
+    }
+}
+
 /// Buttons of the game's main interface (`Main_GUI`, docs §16.12), by
 /// their canvases (each button is a form with a canvas of its own).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
