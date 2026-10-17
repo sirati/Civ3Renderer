@@ -543,12 +543,19 @@ fn publish(
     let mut reasons: std::collections::BTreeSet<&'static str> = Default::default();
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
+    // Opt-in text diagnostics, printed only when their contents change.
+    let mut text_trace = (std::env::var("CIV3R_TEXT_TRACE").as_deref() == Ok("1")).then(String::new);
     // The renderer's own settings, and our tabs over the game's Preferences
     // screen (`crate::prefs`); what they drew and the settings last published.
     let mut prefs = crate::prefs::Prefs::load(crate::prefs::settings_path());
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
     // The last scene's size: bytes of cells, world sprites, overlay sprites.
     let mut scene_size = (0, 0, 0);
+    // The replay picture belongs to the renderer. The game supplies semantic
+    // navigator operations; revisions avoid rebuilding unchanged pixels.
+    let mut replay_surface: Vec<(&str, (u32, u32), Vec<u8>)> = Vec::new();
+    let mut replay_revision = 0;
+    let mut last_replay_revision = 0;
     // The scenario the Load Scenario screen previews.
     let mut previews = crate::preview::Previews::default();
     // How often the art folders changed (whole descriptions for folders
@@ -556,6 +563,7 @@ fn publish(
     let folders_changed = Arc::new(std::sync::atomic::AtomicU64::new(0));
     // The map screen's interface: while it is composed, a game runs.
     let main_gui = civ3_sys::ui_hooks::main_gui_canvas(game.build);
+    let end_of_game = civ3_sys::ui_hooks::end_of_game_forms(game.build);
     // (Measuring: when this round of the publisher began, and since when a
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
@@ -730,7 +738,10 @@ fn publish(
         // whatever screens are open over it). Between games the game's tables
         // may still hold one (the last game's, or the scenario the Load
         // Scenario screen loaded to describe it), which is not one to show.
-        let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui));
+        // Neither once the game has ended: the screens after it (the
+        // victory screen, the replay, the top cities, the ranking, the hall of
+        // fame) show over Main_GUI, round a map the game leaves black.
+        let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui) && !f.forms.iter().any(|f| end_of_game.contains(&f.0)));
         // The Load Scenario screen, and the world of the scenario it shows.
         let load_screen = ui.as_ref().filter(|_| !in_game).and_then(|f| crate::preview::screen(f, game.build));
         // (Made ready on a thread of its own: as far as it is now.)
@@ -840,10 +851,22 @@ fn publish(
             log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
         }
         mark(&mut profile, "controls+prefs", &mut t);
+        if crate::ui_trace::replay_revision() != replay_revision {
+            let picture = crate::ui_trace::replay_picture();
+            replay_revision = picture.revision;
+            replay_surface = picture.pixels
+                .map(|(size, pixels)| vec![("replay-map", size, pixels.to_vec())])
+                .unwrap_or_default();
+        }
+        // A completed asynchronous font load changes a static screen too.
+        if fonts.take_loaded() {
+            recompile = true;
+            wanted_for.push("text");
+        }
         let state = (shown, texts, ui, interactables, cursor);
         let unchanged = last.as_ref() == Some(&state);
         mark(&mut profile, "compare", &mut t);
-        if unchanged && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+        if unchanged && replay_revision == last_replay_revision && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             if let Some(p) = &mut profile {
                 p.event("unchanged", 1);
             }
@@ -856,7 +879,7 @@ fn publish(
             _ => Arc::default(),
         };
         let files = compiler.files(&folders);
-        let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
+        let generated = &crate::ui_trace::generated_surfaces(game.build);
         // The parts of the interface the viewer arranges (docs §16.11): the
         // screen open, the popup over it (split off: the viewer may draw it
         // elsewhere).
@@ -1112,9 +1135,19 @@ fn publish(
                 wanted_for.push("units");
             }
         }
-        if fonts.take_loaded() | fonts.add(&compiler.files(&folders), texts) {
+        if fonts.add(&compiler.files(&folders), texts) {
             recompile = true;
             wanted_for.push("text");
+        }
+        if let Some(last) = &mut text_trace {
+            trace_text(
+                match shown { Shown::Map(..) => "map", Shown::Title(..) => "title", Shown::Preview(..) => "preview" },
+                ui.as_ref(),
+                ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&label_items).chain(&target_items),
+                &fonts,
+                &compiled,
+                last,
+            );
         }
         // The art of the districts on the map (C3X), for both zooms at once
         // (the zoomed-out view draws the same art at half size: zooming out
@@ -1303,7 +1336,7 @@ fn publish(
         scene.zooms = ui_screen::outline_zooms(&compiled);
         let outlines = !scene.zooms.is_empty();
         // (The art, its fonts and the items give the sprites.)
-        let art_key = (art_generation, fonts.len(), outlines);
+        let art_key = (art_generation, fonts.revision(), outlines);
         scene.sprites.extend(ui_sprites_memo.get((ui_items.clone(), art_key), || ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
         let mut menu_sprites = title_menu;
         menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
@@ -1349,6 +1382,9 @@ fn publish(
             });
         }
         mark(&mut profile, "minimap", &mut t);
+        // Replay pixels made by our renderer from terrain and history changes.
+        let all = ui_items.iter().chain(&menu_items).chain(&screen_items).chain(&popup_items);
+        scene.patches.extend(ui_screen::surface_patches(all, &replay_surface, &compiled));
         crate::scene_map::overlay_screen_sprites(&mut scene);
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
@@ -1481,6 +1517,7 @@ fn publish(
                 previews.published(seq);
             }
             published_prefs = (prefs_draws, Some(prefs.settings().clone()));
+            last_replay_revision = replay_revision;
         }
         last = published.then_some(state);
     }
@@ -1517,6 +1554,31 @@ fn addition(
         text += &districts.description();
     }
     (!units.is_empty() || !screen.is_empty() || !districts.is_empty() || new_fonts).then_some(text)
+}
+
+/// `CIV3R_TEXT_TRACE=1`: distinguish text missing from the mirror from
+/// text whose font or atlas art is missing. No pixels are read from the game.
+fn trace_text<'a>(screen: &str, frame: Option<&crate::ui::Frame>, items: impl Iterator<Item = &'a ui_screen::Item>, fonts: &text::Fonts, compiled: &Compiled, last: &mut String) {
+    use std::fmt::Write as _;
+    let runs: Vec<_> = items.filter_map(|i| if let ui_screen::Item::Text(run, clip, _) = i { Some((run, clip)) } else { None }).collect();
+    let raw = frame.map_or(0, |f| f.draws.iter().filter(|d| matches!(d, crate::ui::ScreenDraw::Text { .. })).count());
+    let forms: Vec<_> = frame.into_iter().flat_map(|f| f.forms.iter().map(|f| (f.0, f.1))).collect();
+    let mut message = format!("text trace: {screen}, forms {forms:x?}, mirrored runs {raw}, visible runs {}, loaded fonts {}, outline faces {}\n", runs.len(), fonts.len(), compiled.fonts.len());
+    // Keep the end too: title-menu labels follow the title's other text.
+    for (_, (run, clip)) in runs.iter().enumerate().filter(|(i, _)| *i < 64 || i.saturating_add(64) >= runs.len()) {
+        let mut sprites = Vec::new();
+        fonts.run_sprites(run, Some(**clip), compiled, u32::MAX, &mut sprites);
+        let raster = sprites.iter().filter(|s| s.glyph.is_none()).count();
+        let fallback = sprites.len() - raster;
+        sprites.clear();
+        fonts.run_glyphs(run, Some(**clip), compiled, u32::MAX, &mut sprites);
+        let sample: String = run.text.chars().take(80).collect();
+        let _ = writeln!(message, "  {:?}/{} weight {} italic {} color {:?} at ({},{}) clip {:?}: loaded {}, face {}, raster {raster}, fallback {fallback}, zoom glyphs {}, text {sample:?}", run.face, run.height, run.weight, run.italic, run.color, run.x, run.y, clip, fonts.has(run), compiled.font(&run.face).is_some(), sprites.len());
+    }
+    if *last != message {
+        log::debug!("{message}");
+        *last = message;
+    }
 }
 
 /// The head of an art list (`CIV3R_ART_LIST`, `crate::preload::ArtList`).

@@ -69,8 +69,11 @@ pub struct Tracer {
     _colored: Option<sprite_draw_with_color_table::Installed>,
 }
 
-fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) {
+/// Records a draw and reports whether it belongs to the main map pass.
+fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) -> bool {
+    let mut in_map = true;
     if let Ok(mut s) = STATE.lock() {
+        in_map = s.depth > 0;
         if let Some((_, frame, at)) = s.frame.as_mut() {
             // Only map sprites say the redraw is still going: other blits
             // (UI, unit flags) run continuously.
@@ -78,7 +81,7 @@ fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind
                 *at = std::time::Instant::now();
             }
             if frame.len() >= MAX_DRAWS {
-                return;
+                return in_map;
             }
             let resolved = if map_renderer != 0 { identify_canonical(map_renderer, sprite) } else { None }
                 .or_else(|| BUILD.get().and_then(|&b| civ3_sys::sprites::identify_global(b, sprite)));
@@ -86,6 +89,7 @@ fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind
             frame.push(Draw { sprite: resolved, sprite_addr: sprite, x: x as i32, y: y as i32, size, params, kind });
         }
     }
+    in_map
 }
 
 /// Text the game drew recently, newest last.
@@ -145,8 +149,13 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let sprite = match hooks::sprite_draw_on_map_site(game.build) {
         Some((addr, prologue)) => Some(sprite_draw_on_map::install_at_start(addr, prologue, |call| {
             SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
-            if map_blits_off() { 0 } else { call.original() }
+            let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
+            // Top 5 Cities also draws through this entry, onto its form's
+            // canvas at identity scale. JGL receives those blits directly,
+            // bypassing the ordinary Sprite::draw hooks.
+            let skip_ui = !in_map && call.p4 != 0 && call.p4 == call.p5 && call.p5 == call.p6
+                && crate::ui_trace::on_map_sprite(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, call.p7);
+            if map_blits_off() || skip_ui { 0 } else { call.original() }
         })?),
         None => {
             log::warn!("no Sprite_draw_on_map site for {:?}; tracing disabled", game.build);
@@ -537,8 +546,11 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
         for d in &frame.draws {
             let _ = match d {
-                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette } => {
+                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette, opacity } => {
                     let _ = writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8);
+                    if *opacity != 255 {
+                        let _ = writeln!(out, "ui_image_opacity {opacity}");
+                    }
                     if let Some(p) = palette {
                         let _ = writeln!(out, "ui_image_palette {} {} {}", p.first, p.count, p.image);
                     }

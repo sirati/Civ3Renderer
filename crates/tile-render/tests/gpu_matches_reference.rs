@@ -310,6 +310,32 @@ fn quantized_translucency_mixes_and_rounds_down() {
 }
 
 #[test]
+fn uniform_sprite_opacity_multiplies_texel_alpha_without_new_art() {
+    let gpu = Headless::new().expect("GPU");
+    let mut atlas = AtlasBuilder::new(512);
+    let mut sets = SpriteSets::default();
+    let set = sets.single(atlas.add(&RgbaImage::from_fn(1, 256, |_, y| [200, 96, 48, y as u8]), (0, 0)).unwrap());
+    let grid = Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (1, 1) };
+    let mut world = TileWorld::new(grid, sets);
+    world.color = ColorModel::Quantized { bits: 5 };
+    for opacity in 0..=255 {
+        world.free.push(PlacedSprite { screen: true, blend: Blend::AlphaOpacity { opacity }, ..PlacedSprite::new(set, opacity as i32, 0) });
+    }
+    let atlas = atlas.finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let camera = Camera::new((256, 256));
+    let got = gpu.render(&mut renderer, &camera, 0, CLEAR);
+    let want = reference::render(&world, &atlas, &camera, 0, CLEAR);
+    assert_same(&got, &want, "all uniform and texel alpha combinations");
+    let quantized_clear = [8, 16, 24, 255];
+    assert_eq!(got.get(0, 255), quantized_clear);
+    assert_eq!(got.get(255, 0), quantized_clear);
+    assert_ne!(got.get(255, 255), quantized_clear);
+}
+
+#[test]
 fn several_views_share_one_target() {
     // The whole window, and an inset view of another part of the world;
     // screen sprites belong to one view each, world sprites to both.

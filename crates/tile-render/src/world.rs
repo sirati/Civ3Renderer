@@ -119,6 +119,8 @@ pub enum Blend {
     /// Standard "over" alpha blending.
     #[default]
     Alpha,
+    /// Alpha blending with uniform sprite opacity; atlas pixels are shared.
+    AlphaOpacity { opacity: u8 },
     /// Darkens what is underneath to `k / denominator` (`k` = the sprite's
     /// red channel; `denominator` at most 32) — how games darken with blend
     /// tables (fog of war, shadows). Exact (rounded down per channel after
@@ -141,16 +143,17 @@ impl Blend {
     /// scale, [`tile_render_shared::SCALE_INVERT`].
     pub fn scale_den(self) -> u32 {
         match self {
-            Blend::Alpha => 0,
+            Blend::Alpha | Blend::AlphaOpacity { .. } => 0,
             Blend::Scale { denominator } => denominator.max(1),
             Blend::Invert => tile_render_shared::SCALE_INVERT,
             Blend::Subpixel { .. } => tile_render_shared::SCALE_SUBPIXEL,
         }
     }
 
-    /// The colour free sprites carry for it (0xRRGGBB, `FreeSprite::tint`).
+    /// Subpixel colour (low 24 bits), or inverse alpha opacity (high byte).
     pub fn tint(self) -> u32 {
         match self {
+            Blend::AlphaOpacity { opacity } => (255 - u32::from(opacity)) << 24,
             Blend::Subpixel { color: [r, g, b] } => (r as u32) << 16 | (g as u32) << 8 | b as u32,
             _ => 0,
         }
@@ -159,6 +162,7 @@ impl Blend {
     /// From [`Blend::scale_den`] and [`Blend::tint`].
     pub fn from_scale_den(d: u32, tint: u32) -> Blend {
         match d {
+            0 if tint >> 24 != 0 => Blend::AlphaOpacity { opacity: (255 - (tint >> 24)) as u8 },
             0 => Blend::Alpha,
             tile_render_shared::SCALE_INVERT => Blend::Invert,
             tile_render_shared::SCALE_SUBPIXEL => Blend::Subpixel { color: [(tint >> 16) as u8, (tint >> 8) as u8, tint as u8] },
@@ -736,6 +740,17 @@ pub(crate) struct PackedWorld {
 mod tests {
     use super::*;
     use tile_render_shared::ByteReader;
+
+    #[test]
+    fn uniform_alpha_survives_the_scene_and_gpu_sprite_encoding() {
+        for opacity in 0..255 {
+            let blend = Blend::AlphaOpacity { opacity };
+            let s = PlacedSprite { blend, ..PlacedSprite::new(SpriteSetId(1), 0, 0) };
+            let gpu = s.gpu();
+            assert_eq!(Blend::from_scale_den(gpu.scale_den, gpu.tint), blend);
+        }
+        assert_eq!(Blend::from_scale_den(0, 0), Blend::Alpha);
+    }
 
     #[test]
     fn packed_records_read_back_through_the_shader_reader() {
