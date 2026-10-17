@@ -1578,9 +1578,26 @@ grid = [1, 1]
 anchor = [0, 0]
 group = "Viewer@divider_h"
 
-# The button-snapping pointer (Alt while the mouse is captured) and its
-# half-transparent ghost at the next target (tile-viewer `snap`); tip at
-# the anchor.
+# The arrow (cell 0) at half opacity: the button-snapping pointer's ghost
+# at the element the next move would pick (tile-viewer `snap`; the
+# pointer itself is the arrow).
+[images.cursor_ghost]
+source = "Art/cursor.pcx"
+opacity = 128
+
+[sheets.cursor_ghost]
+image = "cursor_ghost"
+cell = [32, 32]
+grid = [23, 1]
+origin = [1, 1]
+spacing = [1, 0]
+only = [0]
+anchor_marks = [228, 152, 24]
+group = "Viewer@cursor_ghost"
+
+# The button-snapping pointer (the Alt mode) and its half-transparent
+# ghost at the next target (tile-viewer `snap`) where the game's arrow is
+# not at hand; tip at the anchor.
 [images.viewer_pointer]
 source = "pointer:255,255,255,255:14x22"
 
