@@ -716,7 +716,7 @@ fn overdraws_itself(op: &Op) -> bool {
 
 /// Whether `d` may draw inside its clip rectangle (text and animations by a
 /// generous guess of their size).
-fn reaches_clip(d: &ScreenDraw) -> bool {
+pub(crate) fn reaches_clip(d: &ScreenDraw) -> bool {
     let overlaps = |[l, t, r, b]: [i32; 4], c: &[i32; 4]| l < c[2] && t < c[3] && r > c[0] && b > c[1];
     match d {
         ScreenDraw::Image { rect, x, y, clip, .. } | ScreenDraw::Surface { rect, x, y, clip, .. } => overlaps([*x, *y, x + rect[2], y + rect[3]], clip),

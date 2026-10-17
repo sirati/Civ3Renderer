@@ -487,6 +487,74 @@ pub fn unit_overlay_canvas(build: Build) -> Option<u32> {
     }
 }
 
+/// The game's screens a renderer may place elsewhere, by the class
+/// (vtable) of the form showing them, and the name the viewer's settings
+/// give them (docs §16.12): the advisors F1-F8, the city screen, the palace
+/// (F9), the espionage screen, the game menu and the Civilopedia. GOG's
+/// vtables are PCGames'; Steam's only where C3X's tables give them.
+pub fn screen_forms(build: Build) -> &'static [(u32, &'static str)] {
+    match build {
+        Build::PcGames | Build::Gog => &[
+            (0x66_C270, "F1"),
+            (0x66_F750, "F2"),
+            (0x66_DF50, "F3"),
+            (0x66_C930, "F4"),
+            (0x66_BBC0, "F5"),
+            (0x66_F420, "F6"),
+            (0x66_FF98, "F7"),
+            (0x66_D380, "F8"),
+            (0x66_58B0, "City"),
+            (0x66_E0F8, "Palace"),
+            (0x66_C5E0, "Spy"),
+            (0x66_DD80, "Menu"),
+            (0x66_B0A8, "Help"),
+        ],
+        Build::Steam => &[
+            (0x68_935C, "F1"),
+            (0x68_C80C, "F2"),
+            (0x68_B03C, "F3"),
+            (0x68_9A20, "F4"),
+            (0x68_8CB8, "F5"),
+            (0x68_C4DC, "F6"),
+            (0x68_2914, "City"),
+            (0x68_96D0, "Spy"),
+            (0x68_81A8, "Help"),
+        ],
+    }
+}
+
+/// Buttons of the game's main interface (`Main_GUI`, docs §16.12), by
+/// their canvases (each button is a form with a canvas of its own).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct HudButtons {
+    /// The three buttons in the top-left corner: menu, Civilopedia,
+    /// advisors.
+    pub corner: [u32; 3],
+    /// The active unit's orders (`Unit_Command_Buttons[42]`): the first
+    /// one's canvas, the distance to the next, how many.
+    pub unit_orders: (u32, u32, u32),
+}
+
+impl HudButtons {
+    /// Whether `canvas` is one of the unit's order buttons.
+    pub fn is_unit_order(&self, canvas: u32) -> bool {
+        let (first, stride, count) = self.unit_orders;
+        canvas >= first && canvas < first + stride * count && (canvas - first) % stride == 0
+    }
+}
+
+pub fn hud_buttons(build: Build) -> HudButtons {
+    // `Main_GUI` (PCGames 0x9FDB10; GOG 0x40 and Steam 0x22840 further, as
+    // C3X's globals around it) + the field + 0x274 (the canvas).
+    let main_gui = match build {
+        Build::PcGames => 0x9F_DB10,
+        Build::Gog => 0x9F_DB50,
+        Build::Steam => 0xA2_0350,
+    };
+    let canvas = |field: u32| main_gui + field + 0x274;
+    HudButtons { corner: [canvas(0x8B30), canvas(0x98D8), canvas(0x845C)], unit_orders: (canvas(0x1_6CE4), 0x6DC, 42) }
+}
+
 // The game's line drawer (`OpenGLRenderer`, docs §10.9/§16.6): bound to a
 // canvas, then coloured lines. C3X redirects these (a `jmp` at each entry).
 
