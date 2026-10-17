@@ -180,6 +180,11 @@ released on its own lets the mouse go (Alt stays the button snapping's);
 over B the pointer is then a crosshair, and a click there captures it
 again.
 
+Ctrl+Shift+Backspace, anywhere in the game, puts the layout and the
+resolution settings back to their defaults (one view, no zoom box, pixel
+scale 1) and saves them: the way out of settings that make the game hard to
+use. The pointer settings stay. The keys do not reach the game.
+
 The Ctrl+Shift keys change the arrangement for the session on top of the
 settings: S cycles the split, I adds a floating inset at the pointer (X
 removes it), M cycles a magnifier beside the pointer (everything on

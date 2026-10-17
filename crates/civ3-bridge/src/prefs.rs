@@ -135,7 +135,17 @@ pub struct Prefs {
     /// the input is all the game's, the popup's buttons may lie over our
     /// tabs and panels.
     covered: bool,
+    /// Whether Ctrl and Shift are held (for the reset, [`RESET_KEY`]).
+    ctrl: bool,
+    shift: bool,
 }
+
+const VK_BACK: u32 = 0x08;
+const VK_SHIFT: u32 = 0x10;
+const VK_CONTROL: u32 = 0x11;
+/// The key that, with Ctrl and Shift, resets the layout and resolution
+/// settings (Backspace).
+pub const RESET_KEY: u32 = VK_BACK;
 
 impl Prefs {
     /// The settings saved at `path` (the defaults if there are none), and
@@ -147,7 +157,7 @@ impl Prefs {
         });
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), settings, path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false }
+        Prefs { panels, state: PanelState::default(), settings, path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, ctrl: false, shift: false }
     }
 
     /// The settings (sent to the viewer with every scene).
@@ -172,17 +182,38 @@ impl Prefs {
         if window != (0, 0) {
             self.window = window;
         }
-        let (Some(area), Some(panels)) = (self.open, self.panels.as_ref()) else { return inputs };
-        let Some(panel) = panels.panel(PANEL) else { return inputs };
-        if self.covered {
-            return inputs;
-        }
         let mut changed = false;
         let mut out = Vec::new();
         for input in inputs {
+            // The way out of settings that make the game unusable, wherever
+            // the user is: Ctrl+Shift+Backspace (neither press nor release
+            // reaches the game).
+            if let Input::Key { vk, down, .. } | Input::WorldKey { vk, down, .. } = input {
+                match vk {
+                    VK_CONTROL => self.ctrl = down,
+                    VK_SHIFT => self.shift = down,
+                    VK_BACK if self.ctrl && self.shift => {
+                        if down {
+                            changed |= self.reset();
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             if let Input::Resized { width, height } = input {
                 self.window = (width, height);
             }
+            // (While a popup of the game is over the screen, the input is
+            // all the game's.)
+            let (Some(area), Some(panels), false) = (self.open, self.panels.as_ref(), self.covered) else {
+                out.push(input);
+                continue;
+            };
+            let Some(panel) = panels.panel(PANEL) else {
+                out.push(input);
+                continue;
+            };
             self.state.values = values(&self.settings, &self.tab, self.window);
             let routed = panels.input(panel, &mut self.state, area, &input);
             for event in &routed.events {
@@ -205,6 +236,16 @@ impl Prefs {
             }
         }
         out
+    }
+
+    /// Puts the layout and the resolution back to their defaults (the
+    /// pointer settings stay); whether that changed them.
+    fn reset(&mut self) -> bool {
+        let before = self.settings.clone();
+        self.settings.layout = viewer_settings::Layout::default();
+        self.settings.resolution = viewer_settings::Resolution::default();
+        log::warn!("settings: the layout and the resolution reset to their defaults (Ctrl+Shift+Backspace)");
+        self.settings != before
     }
 
     /// Follows the game's screens: whether its Preferences screen is shown
@@ -592,6 +633,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Ctrl+Shift+Backspace puts the layout and resolution back, saved, with
+    /// the screen open or not; the keys do not reach the game.
+    #[test]
+    fn ctrl_shift_backspace_resets_the_layout() {
+        let path = std::env::temp_dir().join(format!("civ3r-prefs-test-{}-reset", std::process::id())).join("settings.toml");
+        let mut s = Settings::default();
+        s.layout.split = Split::Vertical1To1;
+        s.layout.zoom = Zoom::Floating131;
+        s.resolution.pixel_scale = 2;
+        s.input.snap_updates_per_second = 5.0;
+        s.save(&path).unwrap();
+        let mut p = Prefs::load(path.clone());
+        let key = |vk, down| Input::Key { vk, down, text: None };
+        // Backspace alone goes to the game.
+        assert_eq!(p.route(vec![key(VK_BACK, true), key(VK_BACK, false)], (1024, 768)).len(), 2);
+        let out = p.route(vec![key(VK_CONTROL, true), key(VK_SHIFT, true), key(VK_BACK, true), key(VK_BACK, false), key(VK_SHIFT, false), key(VK_CONTROL, false)], (1024, 768));
+        assert_eq!(out, [key(VK_CONTROL, true), key(VK_SHIFT, true), key(VK_SHIFT, false), key(VK_CONTROL, false)]);
+        let saved = Settings::load(&path).unwrap();
+        assert_eq!((&saved.layout, &saved.resolution), (&viewer_settings::Layout::default(), &viewer_settings::Resolution::default()));
+        assert_eq!(saved.input.snap_updates_per_second, 5.0);
+        assert_eq!(p.settings(), &saved);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     /// Every piece of art the panel cuts from the game's files is there
