@@ -1108,6 +1108,116 @@ mod tests {
         assert_eq!(slots(&world, &view, &refs, (10, 20)), vec![Some(0), Some(1), None, None]);
     }
 
+    /// Units moving, attacking, selected, always on top and third on a
+    /// tile, on the unit layers and as free sprites (both of `place`'s
+    /// ways, and `free_sprites`), zoomed in and out, against the game's art
+    /// (`CIV3_INSTALL`; skipped without it): every piece is drawn through
+    /// the palette row of its colours (the disc `disc@NN`, body and banner
+    /// the owner's `ntp@NN`, the cursor the viewer's), and the units look
+    /// the same whichever way they go.
+    #[test]
+    fn units_keep_their_colours_on_every_path() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).join("Art").is_dir() {
+            return eprintln!("no Civ III installation, skipped");
+        }
+        let (width, height) = (16, 16);
+        let mut world = Civ3World {
+            width,
+            height,
+            player: 1,
+            color_tables: vec![0, 3, 1, 12],
+            preferences: SHOW_TEAM_COLOR_DISC,
+            unit_type_keys: vec!["PRTO_Bomber".into()],
+            unit_type_stats: vec![[12, 1, 1, 0, 2, 0, 0]],
+            experience_hit_points: vec![3],
+            tiles: vec![crate::world::Civ3Tile { city: -1, ..Default::default() }; (width * height / 2) as usize],
+            ..Default::default()
+        };
+        let at = |id, x: i32, y: i32, civ| Civ3Unit { id, x, y, civ, pixel: (64 * x + 64, 32 * y + 32), animation: 1, direction: 3, visible: true, ..Default::default() };
+        world.units = vec![
+            // On its way (offset), running.
+            Civ3Unit { pixel: (64 * 8 + 64 + 21, 32 * 4 + 32 - 11), animation: 2, frame: 3, moving: true, ..at(1, 8, 4, 2) },
+            at(2, 4, 4, 3),
+            // Attacking (bombing).
+            Civ3Unit { animation: 3, frame: 5, ..at(3, 6, 6, 2) },
+            // Three on a tile: the third, and all after it, free.
+            at(4, 10, 10, 3),
+            Civ3Unit { pixel: (64 * 10 + 64 - 9, 32 * 10 + 32 + 5), moving: true, animation: 2, ..at(5, 10, 10, 2) },
+            at(6, 10, 10, 3),
+            // Always on top, flying over a tile earlier in the order.
+            Civ3Unit { pixel: (64 * 2 + 64 + 30, 32 * 2 + 32 - 17), always_on_top: true, moving: true, animation: 2, frame: 1, ..at(7, 2, 2, 2) },
+        ];
+        let mut art = UnitArt::new(civ3_assets::GameFiles::complete(&install));
+        let text = format!("{}{}", crate::assets::BUILTIN_DESC, Needed::of(&world, &mut art).description());
+        let compiled = crate::assets::compile(&text, civ3_assets::GameFiles::complete(&install)).unwrap();
+        let row = |name: String| {
+            let r = compiled.palette(&name).unwrap_or_else(|| panic!("no palette {name}"));
+            assert_ne!(r, 0);
+            r
+        };
+        // The row each piece must be drawn with (0: none).
+        let table = |civ: i32| world.color_tables[civ as usize];
+        let expected = |p: &Piece, u: &Civ3Unit| match p.part {
+            Part::Disc => row(format!("disc@{}", table(u.civ))),
+            Part::Cursor => row(format!("ntp@{}", table(world.player))),
+            Part::Body | Part::Banner => row(format!("ntp@{}", table(u.civ))),
+            _ => 0,
+        };
+        let units_pass = unit_passes(&compiled).0;
+        for selected in [None, Some(1), Some(3), Some(5), Some(7)] {
+            world.selection = selected.map(|id| (id, 2));
+            for zoomed_out in [false, true] {
+                let view = Civ3View { tile_x: (0, width - 1), tile_y: (0, height - 1), zoomed_out, ..Default::default() };
+                let viewport = (1100, 600);
+                let mapper = crate::scene_map::Mapper::new(&compiled);
+                let mut layered = mapper.scene(&world, &view, viewport, 0);
+                place(&world, &view, &mut art, &compiled, None, &mut layered);
+                let tiles = tile_viewer::scene_world(&compiled, &layered);
+                let refs: Vec<&Civ3Unit> = world.units.iter().collect();
+                let slots = slots(&world, &view, &refs, (layered.shape.cols, layered.shape.rows));
+                assert_eq!(slots.iter().filter(|s| s.is_some()).count(), 5, "five units on layers");
+                let mut free = layered.sprites.iter();
+                for (u, slot) in world.units.iter().zip(&slots) {
+                    for p in pieces(&world, &mut art, u, None) {
+                        let want = expected(&p, u);
+                        let got = match slot {
+                            Some(slot) => {
+                                let layer = compiled.layer_index(&format!("{}_{}", SLOTS[*slot], p.part.layer())).unwrap();
+                                let value = tiles.get(tile_render::LayerId(layer), (u.x >> 1) as u32, u.y as u32);
+                                let shift = tiles.layers()[layer].palette_shift();
+                                if shift == 0 { 0 } else { value >> shift }
+                            }
+                            None => {
+                                let s = free.next().unwrap_or_else(|| panic!("unit {} {:?}: no free sprite", u.id, p.part));
+                                assert_eq!(s.after_pass, units_pass);
+                                s.palette
+                            }
+                        };
+                        assert_eq!(got, want, "unit {}, {:?}, slot {slot:?}, selected {selected:?}, zoomed out {zoomed_out}", u.id, p.part);
+                    }
+                }
+                assert!(free.next().is_none());
+                // All as free sprites: the same picture, and the same rows.
+                let mut all_free = mapper.scene(&world, &view, viewport, 0);
+                all_free.sprites = free_sprites(&world, &mut art, &compiled, None);
+                let mut sprites = all_free.sprites.iter();
+                for u in &world.units {
+                    for p in pieces(&world, &mut art, u, None) {
+                        assert_eq!(sprites.next().unwrap().palette, expected(&p, u), "unit {}, {:?} (free_sprites)", u.id, p.part);
+                    }
+                }
+                let picture = |scene: &Scene| {
+                    let camera = tile_viewer::scene_cameras(scene, viewport, crate::scene_map::OVERHANG)[0];
+                    tile_render::reference::render(&tile_viewer::scene_world(&compiled, scene), &compiled.atlas, &camera, 0, [0; 4])
+                };
+                let drawn = picture(&layered);
+                assert!(drawn != picture(&mapper.scene(&world, &view, viewport, 0)), "the units are in the picture");
+                assert!(drawn == picture(&all_free), "selected {selected:?}, zoomed out {zoomed_out}: layers and free sprites differ");
+            }
+        }
+    }
+
     #[test]
     fn offsets_take_the_short_way_round_the_map() {
         assert_eq!(wrapped_offset(-40, true, 1280), -40);
