@@ -123,6 +123,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         } else {
             units::place(&trace.world, &trace.view, art, compiled, None, &mut units::UnitMemory::default(), &mut scene);
         }
+        ifc23::effects::place(&trace.world, &trace.view, art, compiled, &mut scene);
         match &ui {
             // The mirrored interface has the city icons and all text.
             Some(frame) => {
