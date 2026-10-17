@@ -1354,7 +1354,7 @@ mod tests {
                 let viewport = (1100, 600);
                 let mapper = crate::scene_map::Mapper::new(&compiled);
                 let mut layered = mapper.scene(&world, &view, viewport, 0);
-                place(&world, &view, &mut art, &compiled, None, &mut layered);
+                place(&world, &view, &mut art, &compiled, None, &mut UnitMemory::default(), &mut layered);
                 let tiles = tile_viewer::scene_world(&compiled, &layered);
                 let refs: Vec<&Civ3Unit> = world.units.iter().collect();
                 let slots = slots(&world, &view, &refs, (layered.shape.cols, layered.shape.rows));
