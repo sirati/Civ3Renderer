@@ -384,6 +384,13 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
     use std::time::Instant;
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     println!("adapter: {:?}", gpu.adapter.get_info());
+    let reuse_setting = std::env::var("TILE_RENDER_REUSE").ok();
+    let reuse_enabled = reuse_setting.as_deref() != Some("0");
+    println!(
+        "bench config: {}x{} pixels, {frames} frames, fixed scene tick {}, rebuild {rebuild}, TILE_RENDER_REUSE={} ({})",
+        size.0, size.1, scene.tick, reuse_setting.as_deref().unwrap_or("<unset>"),
+        if reuse_enabled { "reuse enabled" } else { "reuse disabled" },
+    );
     println!("atlas: {} sprites, {} + {} pages", compiled.atlas.sprites.len(), compiled.atlas.pages.len(), compiled.atlas.index_pages.len());
     let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
     let format = wgpu::TextureFormat::Bgra8Unorm;
@@ -451,6 +458,7 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
         view_formats: &[],
     });
     let mut profile = tile_viewer::profile::Profile::new("bench", std::time::Duration::ZERO);
+    let (mut whole_frames, mut reused_frames) = (0u32, 0u32);
     for i in 0..frames {
         profile.round_start();
         if rebuild {
@@ -460,6 +468,13 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
         let t = Instant::now();
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         renderer.render_composed(&gpu.device, &gpu.queue, &mut encoder, &target, &frame.cameras, &frame.copies, scene.tick, config.clear);
+        if renderer.reused() {
+            reused_frames += 1;
+            profile.event("frames drawn on the last picture", 1);
+        } else {
+            whole_frames += 1;
+            profile.event("frames drawn whole", 1);
+        }
         if let Some(timer) = renderer.timer() {
             timer.finish(&mut encoder);
         }
@@ -485,6 +500,7 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
         }
         profile.round_end();
     }
+    println!("bench frames: {whole_frames} whole redraws, {reused_frames} reused pictures");
     println!("{}", profile.report().unwrap_or_default());
     Ok(ExitCode::SUCCESS)
 }
