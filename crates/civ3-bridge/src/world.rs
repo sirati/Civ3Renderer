@@ -222,6 +222,12 @@ pub struct Civ3World {
     pub civ_adjectives: Vec<String>,
     /// The selected unit (id) and the selection cursor's frame, while shown.
     pub selection: Option<(i32, i32)>,
+    /// The command waiting for a target tile, and what the game made of the
+    /// tile under the mouse (docs §10.15).
+    pub targeting: civ3_sys::world::Targeting,
+    /// The go-to path to the tile under the mouse, as the game's path
+    /// finder found it (docs §10.15).
+    pub goto: Option<crate::targeting::GotoPath>,
     /// How `player` stands with each civ (by civ; empty if unknown).
     pub relations: Vec<civ3_sys::world::Relation>,
     /// C3X's districts (docs §18): empty without C3X districts or while
@@ -810,6 +816,22 @@ impl Trace {
                 Some("current_unit") => t.world.current_unit = Some(n(1)? as i32),
                 Some("preferences") => t.world.preferences = n(1)? as u32,
                 Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),
+                Some("targeting") => {
+                    t.world.targeting = civ3_sys::world::Targeting {
+                        mode: n(1)? as i32,
+                        refused: n(2)? != 0,
+                        range: n(3)? as i32,
+                        target_ok: n(4)? != 0,
+                        armed: n(5)? != 0,
+                        start: (n(6)? as i32, n(7)? as i32),
+                        pointer_tile: Some((n(8)? as i32, n(9)? as i32)).filter(|&(x, y)| x >= 0 && y >= 0),
+                        range_grid: Some(civ3_sys::world::RangeGrid { centre: (n(10)? as i32, n(11)? as i32), range: n(12)? as i32 }).filter(|g| g.range >= 0),
+                    }
+                }
+                Some("goto_path") => {
+                    let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
+                    t.world.goto = crate::targeting::GotoPath::parse(&v);
+                }
                 Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("era_key") => t.world.era_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("governments") => t.world.governments = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,

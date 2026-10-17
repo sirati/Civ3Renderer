@@ -24,6 +24,7 @@ pub mod layout;
 pub mod menus;
 pub mod modal;
 pub mod sprites;
+pub mod targeting;
 pub mod ui_hooks;
 pub mod world;
 

@@ -793,6 +793,19 @@ pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<
     out
 }
 
+/// Frame `frame` of the selection cursor's animation (its block of
+/// direction 5, in the viewing player's colours) as a single sprite drawn
+/// centred on its anchor, as `Animator::draw_cursor` does and the go-to
+/// marker (docs §10.15): the sprite's name and the palette row it is drawn
+/// with (0: none).
+pub fn cursor_sprite(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, frame: i32) -> Option<(String, u32)> {
+    let cursor = art.cursor()?;
+    let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
+    let p = animation(Part::Cursor, cursor, Some(Recolor::civ(colors(world, world.player))), block, frame, (0, 0));
+    let palette = piece_palette(compiled, &p);
+    Some((p.sprite?, palette))
+}
+
 /// Frame `frame` of `file`'s block `block` (in `colors`; `None`: its
 /// shadow) at `at`: the set of the block's frames (its last one the ring
 /// frame, §10.4) and the single frame's sprite.
