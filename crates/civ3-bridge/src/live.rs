@@ -1335,7 +1335,7 @@ fn publish(
         // (the viewer puts it at the world's corner).
         let preview_hint = matches!(shown, Shown::Preview(_, Some(_)));
         if preview_hint {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(hint_memo, &hint.1));
         }
         if let Some((_, r)) = screen_part {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(screen_part_memo, &screen_items));
