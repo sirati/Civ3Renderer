@@ -516,6 +516,11 @@ fn publish(
     let mut ui_sprites_memo = Memo::default();
     let mut label_sprites_memo = Memo::default();
     let mut minimap_memo = Memo::default();
+    // The interface's items (the parts of the screen's frame: the frame,
+    // the menu, the popup, the screen part) and the sprites of the parts drawn
+    // in views of their own (corner, hint, screen, popup).
+    let mut items_memos: [Memo<_, Vec<ui_screen::Item>>; 4] = Default::default();
+    let mut part_memos: [Memo<_, Vec<scene::FreeSprite>>; 4] = Default::default();
     // Bumped whenever `compiled` changes (new art, a growth): the memos of
     // what is made of the art key on it.
     let mut art_generation = 0u64;
@@ -682,6 +687,7 @@ fn publish(
             art = units::UnitArt::new(compiler.files(&folders));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
             labels_memo = Memo::default();
+            items_memos = Default::default();
             have = units::Needed::default();
             whole_wanted = true;
             recompile = true;
@@ -859,14 +865,18 @@ fn publish(
         // e.g. C3X's info box, and that popup's frame).
         let mut prefs_items = Some(crate::prefs::items(&prefs_draws)).filter(|i| !i.is_empty());
         let popup_canvas = modal.filter(|&m| prefs_form.is_none_or(|f| f.form != m)).map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4);
-        let mut with_tabs = |f: &crate::ui::Frame| {
+        // (Made again only when their frame, the tabs in it or the colours
+        // change: units animating change none of them.)
+        let [frame_memo, menu_memo, popup_memo, screen_memo] = &mut items_memos;
+        let mut with_tabs = |memo: &mut Memo<_, _>, f: &crate::ui::Frame| {
             let at = prefs_form.as_ref().and_then(|form| crate::prefs::tabs_slot(f, form, popup_canvas));
-            ui_screen::items_with(f, files.roots(), generated, unit_colors, at.and_then(|at| prefs_items.take().map(|items| (at, items))))
+            let extra = at.and_then(|at| prefs_items.take().map(|items| (at, items)));
+            memo.get((f.clone(), extra.clone(), unit_colors), || ui_screen::items_with(f, files.roots(), generated, unit_colors, extra))
         };
-        let mut ui_items = frame_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
-        let mut menu_items = menu_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let mut screen_items = ui_screen_part.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let mut ui_items = frame_ui.as_ref().map(|f| frame_memo.get((f.clone(), None, unit_colors), || ui_screen::items(f, files.roots(), generated, unit_colors))).unwrap_or_default();
+        let mut menu_items = menu_ui.as_ref().map(|f| with_tabs(menu_memo, f)).unwrap_or_default();
+        let mut popup_items = ui_popup.as_ref().map(|f| with_tabs(popup_memo, f)).unwrap_or_default();
+        let mut screen_items = ui_screen_part.as_ref().map(|f| with_tabs(screen_memo, f)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -1201,17 +1211,20 @@ fn publish(
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
         // own (the corner's buttons a copy, the popup not in the interface).
-        let part_sprites = |items: &[ui_screen::Item]| ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
+        let [corner_memo, hint_memo, screen_part_memo, popup_part_memo] = &mut part_memos;
+        let part_sprites = |memo: &mut Memo<_, _>, items: &[ui_screen::Item]| {
+            memo.get((items.to_vec(), art_key), || ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines))
+        };
         if let Some(r) = corner {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(&corner_items));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(corner_memo, &corner_items));
             // (In its place while the mouse is captured.)
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(hint_memo, &hint.1));
         }
         if let Some((_, r)) = screen_part {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(&screen_items));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(screen_part_memo, &screen_items));
         }
         if let Some((_, r)) = popup {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(&popup_items));
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(popup_part_memo, &popup_items));
             // The popup's subject: the game brings it into view first (the
             // middle of the game's view stands for it).
             if let Some(v) = scene.view(crate::scene_map::GAME_VIEW).map(|v| v.view) {
