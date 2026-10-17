@@ -232,6 +232,66 @@ pub fn controls(mem: &dyn Mem, sites: &Sites) -> Vec<Control> {
     out
 }
 
+/// One form of the tree the mouse sees, for tracing ([`form_tree`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormLine {
+    pub depth: u32,
+    pub addr: u32,
+    pub vtable: u32,
+    pub status1: u32,
+    pub visible: bool,
+    /// x, y, w, h on the screen (within its clip).
+    pub shown: [i32; 4],
+    pub children: u32,
+    /// As a list box: its parts, entry count, first shown, shown, and
+    /// whether its layout reads sanely.
+    pub list: Option<(ListParts, i32, i32, i32, bool)>,
+}
+
+/// Every form the walk of [`controls`] visits (hidden ones too, not their
+/// children), depth first: what a trace shows to find controls it misses.
+pub fn form_tree(mem: &dyn Mem, sites: &Sites) -> Vec<FormLine> {
+    let modal = mem.u32(sites.modal).unwrap_or(0);
+    let roots: Vec<u32> = if modal != 0 {
+        [modal, mem.u32(sites.companion).unwrap_or(0)].into_iter().filter(|&f| f != 0).collect()
+    } else {
+        let n = mem.u32(sites.root_count).unwrap_or(0).min(MAX_CHILDREN);
+        (0..n).filter_map(|i| mem.u32(sites.roots + 4 * i)).filter(|&f| f != 0).collect()
+    };
+    fn visit(mem: &dyn Mem, addr: u32, depth: u32, out: &mut Vec<FormLine>) {
+        if depth > MAX_DEPTH || out.len() > 4096 {
+            return;
+        }
+        let Some(form) = Form::read(mem, addr) else { return };
+        let visible = visible(mem, addr);
+        let n = mem.u32(addr + CHILD_COUNT).unwrap_or(0).min(MAX_CHILDREN);
+        let list = list_parts(mem, &form).map(|p| {
+            let count = mem.i32(p.items + L_COUNT).unwrap_or(-1);
+            let first = mem.i32(p.list + G_FIRST).unwrap_or(-1);
+            let shown = mem.i32(p.list + G_SHOWN).unwrap_or(-1);
+            let sane = ItemLayout::read(mem, p.items).is_some_and(|l| l.sane());
+            (p, count, first, shown, sane)
+        });
+        out.push(FormLine { depth, addr, vtable: form.vtable, status1: form.status1, visible, shown: form.shown, children: n, list });
+        if !visible {
+            return;
+        }
+        let children = mem.u32(addr + CHILDREN).unwrap_or(0);
+        if children != 0 {
+            for i in 0..n {
+                if let Some(c) = mem.u32(children + 4 * i).filter(|&c| c != 0 && c != addr) {
+                    visit(mem, c, depth + 1, out);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for root in roots {
+        visit(mem, root, 0, &mut out);
+    }
+    out
+}
+
 /// The interface panel's buttons by place: Advisors, Menu, Geography,
 /// Civilopedia, the 8 map navigator buttons, the 7 right panel buttons, the
 /// 42 unit command buttons (`Button` 0x6D4 bytes, `Command_Button` 0x6DC).
