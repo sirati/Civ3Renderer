@@ -1,9 +1,12 @@
-//! Rust-native readers for Civilization III's asset formats.
+//! Rust-native readers for Civilization III's asset formats and scenario
+//! files.
 //!
 //! Pure file formats and file lookup: no game memory, no rendering. A
 //! renderer turns what this crate decodes into textures; a render
 //! description (TOML) says which file holds what.
 
+pub mod biq;
+pub mod dcl;
 pub mod files;
 pub mod flc;
 pub mod ini;
