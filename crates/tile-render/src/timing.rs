@@ -22,6 +22,14 @@ pub fn requested() -> bool {
     on("TILE_RENDER_GPU_TIMING") || on("TILE_VIEWER_PROFILE")
 }
 
+/// Whether every step of a view (each render pass of the world, and the
+/// free sprites after it) is timed on its own, in a render pass of its
+/// own (`TILE_RENDER_GPU_TIMING=passes`); else a view's steps share one.
+pub fn per_pass() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("TILE_RENDER_GPU_TIMING").is_ok_and(|v| v == "passes"))
+}
+
 /// One timed frame: the GPU time of each of its passes (by label, in
 /// drawing order) and from the first pass's start to the last one's end,
 /// in milliseconds.

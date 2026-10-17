@@ -1239,6 +1239,11 @@ impl Steps<'_> {
     ) {
         let world = self.world;
         let passes = world.passes.len().min(MAX_PASSES);
+        // One render pass for all the steps (draws blend in order within
+        // it; a pass begun and ended per step costs the GPU), unless each
+        // step is timed on its own (`TILE_RENDER_GPU_TIMING=passes`).
+        let split = self.timer.is_some() && crate::timing::per_pass();
+        let mut render: Option<wgpu::RenderPass<'static>> = None;
         for i in 0..=passes {
             let cells = i < passes && camera.cells && steps.contains(&(2 * i));
             let sprites = steps.contains(&(2 * i + 1)) && world.free_after.get(i).is_some_and(|r| !r.is_empty());
@@ -1251,17 +1256,30 @@ impl Steps<'_> {
             // land before the commands run.
             let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;
             self.queue.write_buffer(self.params, offset, bytemuck::bytes_of(&params));
-            let timed = self.timer.and_then(|t| {
-                let what = if cells && sprites { "cells+free" } else if cells { "cells" } else { "free" };
-                t.pass(|| format!("v{v}{} pass {i} {what}", if slot == 0 { "" } else { " zoomed" }))
-            });
-            let mut render = begin_view(encoder, into, bounds, self.bind_group, offset as u32, timed);
+            if split {
+                drop(render.take());
+            }
+            let render = match &mut render {
+                Some(r) => {
+                    r.set_bind_group(0, self.bind_group, &[offset as u32]);
+                    r
+                }
+                None => {
+                    let timed = self.timer.and_then(|t| {
+                        let zoomed = if slot == 0 { "" } else { " zoomed" };
+                        let what = if cells && sprites { "cells+free" } else if cells { "cells" } else { "free" };
+                        t.pass(|| if split { format!("v{v}{zoomed} pass {i} {what}") } else { format!("v{v}{zoomed}") })
+                    });
+                    // (The encoder is locked while the pass lives, until it is dropped.)
+                    render.insert(begin_view(encoder, into, bounds, self.bind_group, offset as u32, timed).forget_lifetime())
+                }
+            };
             if cells {
                 render.set_pipeline(tiles);
                 render.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * pass.count);
             }
             if sprites {
-                draw_free(&mut render, world, i, free);
+                draw_free(render, world, i, free);
             }
         }
     }
