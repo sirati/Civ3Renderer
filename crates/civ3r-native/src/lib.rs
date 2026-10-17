@@ -135,13 +135,71 @@ mod unix_side {
         let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
         let desc = if a.scale_down > 1 { desc.scaled_down(a.scale_down) } else { desc };
         // Same page size as the driver, so both sides agree on nothing but
-        // names and values (the atlas itself never crosses).
-        desc.compile(&Civ3Loader::new(files), 2048).map(|c| (c, a.generation)).map_err(|e| e.to_string())
+        // names and values (the atlas itself never crosses). The sheets of
+        // the last compile are kept: art grows a little at a time, and only
+        // the new sheets are loaded.
+        let mut cache = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
+        let started = std::time::Instant::now();
+        let compiled = desc.compile_cached(&Civ3Loader::new(files), 2048, &mut cache).map_err(|e| e.to_string())?;
+        log::info!("civ3r-native: art {}: {} sprites compiled in {} ms", a.generation, compiled.sprite_names.len(), started.elapsed().as_millis());
+        Ok((compiled, a.generation))
+    }
+
+    /// The sheets of the last compile (see `render_desc::SheetCache`).
+    static SHEETS: Mutex<render_desc::SheetCache> = Mutex::new(render_desc::SheetCache::new());
+
+    /// Assets waiting for the art thread (only the latest counts), and
+    /// whether it runs.
+    static NEXT: (Mutex<Option<Vec<u8>>>, std::sync::Condvar) = (Mutex::new(None), std::sync::Condvar::new());
+
+    /// Compiles new assets off the caller's thread (the game's publisher
+    /// goes on meanwhile; the viewer draws the last scene of its old art
+    /// until the new art is there and a scene refers to it).
+    fn compile_later(bytes: Vec<u8>) -> Result<(), std::io::Error> {
+        static STARTED: std::sync::Once = std::sync::Once::new();
+        let mut result = Ok(());
+        STARTED.call_once(|| {
+            result = wine_unixlib::unix::spawn_native("civ3r-native-art", || loop {
+                let bytes = {
+                    let mut next = NEXT.0.lock().unwrap_or_else(|e| e.into_inner());
+                    loop {
+                        if let Some(b) = next.take() {
+                            break b;
+                        }
+                        next = NEXT.1.wait(next).unwrap_or_else(|e| e.into_inner());
+                    }
+                };
+                match compile(&bytes) {
+                    Ok((c, generation)) => {
+                        if let Some(v) = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                            v.assets.set(Arc::new(c), generation);
+                        }
+                    }
+                    Err(e) => log::error!("civ3r-native: assets: {e}"),
+                }
+            })
+            .map(drop);
+        });
+        result?;
+        *NEXT.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes);
+        NEXT.1.notify_one();
+        Ok(())
     }
 
     pub fn assets(args: &mut Assets) -> Status {
         log_init();
         let Ok(bytes) = wine_unixlib::unix::read(args.data) else { return STATUS_INVALID_PARAMETER };
+        // A running viewer gets new art when it is compiled.
+        if VIEWER.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+            return match compile_later(bytes) {
+                Ok(()) => STATUS_SUCCESS,
+                Err(e) => {
+                    log::error!("civ3r-native: starting the art thread: {e}");
+                    STATUS_UNSUCCESSFUL
+                }
+            };
+        }
+        // The first, before the viewer starts.
         let (compiled, generation) = match compile(&bytes) {
             Ok((c, g)) => (Arc::new(c), g),
             Err(e) => {
@@ -150,10 +208,6 @@ mod unix_side {
             }
         };
         let mut viewer = VIEWER.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(v) = viewer.as_ref() {
-            v.assets.set(compiled, generation);
-            return STATUS_SUCCESS;
-        }
         let (driver, display) = scene::connect();
         let quit = display.input_sender();
         let assets = tile_viewer::Assets::new(compiled.clone());
