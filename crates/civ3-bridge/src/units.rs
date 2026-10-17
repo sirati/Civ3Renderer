@@ -346,7 +346,7 @@ pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
 }
 
 /// `rings`: second rings around foreign units (`crate::rings`).
-/// `zoomed_out`: the positions are those `scene_map::zoom_out` halves; the
+/// `zoomed_out`: the positions are those the zoomed-out view halves; the
 /// HUD is not drawn smaller there, so its pieces keep their distances from
 /// its origin by being placed twice as far from it here.
 pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>, zoomed_out: bool) -> Vec<scene::FreeSprite> {

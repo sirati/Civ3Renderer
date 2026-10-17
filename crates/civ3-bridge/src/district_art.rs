@@ -15,15 +15,27 @@ pub struct Slice {
     pub origin: (u32, u32),
     pub size: (u32, u32),
     pub offset: (i32, i32),
-    /// For the zoomed-out view: the art is halved, the offset is not (C3X
-    /// does not scale what it adds to the drawing position).
-    pub zoomed_out: bool,
 }
 
 impl Slice {
-    pub fn of(d: &crate::districts::DistrictDraw, zoomed_out: bool) -> Slice {
-        Slice { image: d.image.clone(), origin: d.origin, size: d.size, offset: d.offset, zoomed_out }
+    pub fn of(d: &crate::districts::DistrictDraw) -> Slice {
+        Slice { image: d.image.clone(), origin: d.origin, size: d.size, offset: d.offset }
     }
+}
+
+/// The slices of every district on the map, as either zoom draws them: the
+/// zoomed-out view draws the same sprites at half size, from their offset
+/// as it is (C3X does not scale what it adds to the drawing position); only
+/// where it puts resources differs. So zooming out needs no new art.
+pub fn slices(world: &crate::world::Civ3World) -> Vec<Slice> {
+    let mut out = Vec::new();
+    for d in &world.districts {
+        for zoomed_out in [false, true] {
+            let stages = crate::districts::stages(world, d.x, d.y, zoomed_out);
+            out.extend(stages.buildings.iter().chain(&stages.resources).map(Slice::of));
+        }
+    }
+    out
 }
 
 /// Layers district slices go into, in drawing order (a tile shows at most
@@ -36,8 +48,7 @@ impl Slice {
     /// Its sprite set's name.
     pub fn sprite(&self) -> String {
         let ((x, y), (w, h), (dx, dy)) = (self.origin, self.size, self.offset);
-        let z = if self.zoomed_out { "z" } else { "" };
-        format!("District@{}#{x},{y},{w},{h}@{dx},{dy}{z}/0", self.image)
+        format!("District@{}#{x},{y},{w},{h}@{dx},{dy}/0", self.image)
     }
 }
 
@@ -85,13 +96,12 @@ impl DistrictArt {
             let ((x, y), (w, h), (dx, dy)) = (s.origin, s.size, s.offset);
             // (C3X cuts these with the game's own sprite slicing, so they are
             // stored cropped to their boxes like the game's own art, and a
-            // zoomed-out view samples them from there.)
+            // zoomed-out view samples them from there, keeping their offset.)
             let _ = writeln!(
                 out,
-                "[sheets.district_{n}]\nimage = \"district_image_{}\"\norigin = [{x}, {y}]\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{dx}, {dy}]\ngroup = {}\nsample_from = \"box\"\n{}",
+                "[sheets.district_{n}]\nimage = \"district_image_{}\"\norigin = [{x}, {y}]\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{dx}, {dy}]\ngroup = {}\nsample_from = \"box\"\nscaling = \"scale_keep_anchor\"\n",
                 index(&s.image),
                 toml_str(s.sprite().trim_end_matches("/0")),
-                if s.zoomed_out { "scaling = \"scale_keep_anchor\"\n" } else { "" }
             );
         }
         out
@@ -104,14 +114,15 @@ mod tests {
 
     #[test]
     fn slices_are_described_once() {
-        let s = Slice { image: "Art/Districts/Summer/1200/Bridge.PCX".into(), origin: (176, 112), size: (176, 112), offset: (-24, -48), zoomed_out: false };
+        let s = Slice { image: "Art/Districts/Summer/1200/Bridge.PCX".into(), origin: (176, 112), size: (176, 112), offset: (-24, -48) };
         let mut art = DistrictArt::default();
         assert!(art.add([&s]));
         assert!(!art.add([&s]));
         let d = art.description();
         assert!(d.contains("origin = [176, 112]\ncell = [176, 112]\ngrid = [1, 1]\nanchor = [-24, -48]"));
-        // Cut by the game's slicing: sampled from the box when zoomed out.
-        assert!(d.contains("sample_from = \"box\""));
+        // Cut by the game's slicing: sampled from the box when zoomed out,
+        // from its offset as it is.
+        assert!(d.contains("sample_from = \"box\"\nscaling = \"scale_keep_anchor\""));
         assert!(d.contains(&format!("group = \"{}\"", s.sprite().trim_end_matches("/0"))));
     }
 }

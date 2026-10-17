@@ -79,9 +79,11 @@ impl<'a> Mapper<'a> {
         // outside that range would reach into the screen.
         let (sx, sy) = if view.zoomed_out { (32, 16) } else { (64, 32) };
         let cull = (view.tile_x.0 * sx, view.tile_y.0 * sy, (view.tile_x.1 + 1) * sx, (view.tile_y.1 + 1) * sy);
-        // The game's view (id 0), at the window's top-left.
+        // The game's view (id 0), at the window's top-left; zoomed out the
+        // same art at half size (§3), drawn so by the renderer.
+        let downscale = if view.zoomed_out { 2 } else { 1 };
         scene.view_mut(GAME_VIEW).view =
-            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), ..Default::default() };
+            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), downscale, ..Default::default() };
 
         for row in 0..shape.rows {
             for col in 0..shape.cols {
@@ -110,7 +112,7 @@ impl<'a> Mapper<'a> {
                 // its resources' place), as slices of their art.
                 if !world.districts.is_empty() {
                     let stages = crate::districts::stages(world, x, y, view.zoomed_out);
-                    let slice = |d: Option<&crate::districts::DistrictDraw>| d.map(|d| crate::district_art::Slice::of(d, view.zoomed_out).sprite());
+                    let slice = |d: Option<&crate::districts::DistrictDraw>| d.map(|d| crate::district_art::Slice::of(d).sprite());
                     for (i, layer) in crate::district_art::LAYERS.iter().enumerate() {
                         self.put(&mut scene, layer, col, row, slice(stages.buildings.get(i)));
                     }
@@ -154,14 +156,14 @@ impl<'a> Mapper<'a> {
     }
 }
 
-/// World-space free sprites (units and their HUD) in the zoomed-out view:
-/// at half their positions, as the game draws them (§3; their art is
-/// halved by the description, except what stays full size: the HUD, which
-/// `units::sprites` spreads for it).
-pub fn zoom_out(sprites: &mut [scene::FreeSprite]) {
+/// World-space free sprites placed in the pixels of the zoomed-out view
+/// (the city labels, laid out there, §10.8) at full size: the renderer
+/// halves world positions again for the view showing the world at half
+/// size (`View::downscale`), as the game draws everything zoomed out (§3).
+pub fn from_zoomed_out(sprites: &mut [scene::FreeSprite]) {
     for s in sprites.iter_mut().filter(|s| !s.screen) {
-        s.x /= 2;
-        s.y /= 2;
+        s.x *= 2;
+        s.y *= 2;
     }
 }
 
@@ -172,6 +174,7 @@ pub fn city_view(scene: &mut Scene, camera: (i32, i32), [x, y, w, h]: [i32; 4]) 
     let game = scene.view_mut(GAME_VIEW);
     game.view.interface_only = true;
     let labels = std::mem::take(&mut game.overlay);
+    let downscale = game.view.downscale;
     let city = scene.view_mut(CITY_VIEW);
     city.view = View {
         camera_x: camera.0 + x,
@@ -179,6 +182,7 @@ pub fn city_view(scene: &mut Scene, camera: (i32, i32), [x, y, w, h]: [i32; 4]) 
         zoom: (1, 1),
         viewport: (w as u32, h as u32),
         origin: (x, y),
+        downscale,
         ..Default::default()
     };
     city.overlay = labels;

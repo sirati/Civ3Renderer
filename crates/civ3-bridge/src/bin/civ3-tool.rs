@@ -82,18 +82,15 @@ fn compile(trace: Option<&Trace>) -> Result<(Compiled, Option<(units::UnitArt, t
             text.push_str(&ui_screen::description(&screen));
         }
         text.push_str(&fonts.description());
-        // C3X's districts on the map.
+        // C3X's districts on the map (as live describes them).
         let mut districts = ifc23::district_art::DistrictArt::default();
-        for d in &t.world.districts {
-            let stages = ifc23::districts::stages(&t.world, d.x, d.y, t.view.zoomed_out);
-            let slices: Vec<_> = stages.buildings.iter().chain(&stages.resources).map(|s| ifc23::district_art::Slice::of(s, t.view.zoomed_out)).collect();
-            districts.add(&slices);
-        }
+        districts.add(&ifc23::district_art::slices(&t.world));
         text.push_str(&districts.description());
         art = Some((a, fonts));
     }
-    let scale_down = if trace.is_some_and(|t| t.view.zoomed_out) { 2 } else { 1 };
-    Ok((assets::compile_scaled(&text, files(), scale_down).map_err(|e| e.to_string())?, art))
+    // (One copy of the art for both zooms: a zoomed-out trace's view draws
+    // it at half size.)
+    Ok((assets::compile(&text, files()).map_err(|e| e.to_string())?, art))
 }
 
 /// The scene of a trace, units included.
@@ -131,9 +128,8 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
                 scene.sprites.extend(fonts.sprites(&trace.texts, compiled));
             }
         }
-        if trace.view.zoomed_out {
-            ifc23::scene_map::zoom_out(&mut scene.sprites);
-        }
+        // (Zoomed out the world sprites stay at full size: the game view
+        // shows them halved.)
     }
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
     if let Some((rect, _)) = city {
@@ -309,9 +305,11 @@ fn drawdiff(trace: &Trace, viewport: (u32, u32)) -> Result<ExitCode, String> {
     // Game names ("Territory_Images/2") to one of our sprites of that size.
     let index_of: std::collections::HashMap<String, usize> =
         index_of.into_iter().map(|(n, i)| (game_name(n), i)).collect();
+    // (At the view's scale: zoomed out, sprites cover half their cell.)
     let size_of = |name: &str| index_of.get(name).map(|&i| {
         let s = compiled.atlas.sprites[i];
-        (s.width as i32, s.height as i32)
+        let n = if s.scaling == tile_render::KEEP_SIZE { 1 } else { camera.downscale.max(1) };
+        ((s.width / n) as i32, (s.height / n) as i32)
     });
     let visible = |name: &str, x: i32, y: i32| {
         size_of(name).is_some_and(|(w, h)| x + w > 0 && y + h > 0 && x < viewport.0 as i32 && y < viewport.1 as i32)

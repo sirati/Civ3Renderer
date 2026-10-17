@@ -60,14 +60,19 @@ scaling would lose one screen pixel wide. Screen copies magnify a rectangle
 of the finished picture the same way. Free
 sprites may also invert what is under them (`Blend::Invert`).
 
-A description can be compiled `n` times smaller (`Description::scaled_down`):
-sprites keep every n-th pixel, anchors and steps are divided, per-sheet
-`scaling` keeps anchors or screen art as they are — a game's zoomed-out view.
-Where the samples start is per sheet (`sample_from`): the cell's corner, or —
-for games that keep sprites cropped to the box of their non-blank pixels and
-shrink them from there — the box's corner, which makes the sampling phase
-depend on the sprite (`blank_loader` and an image's `blank` say which pixels
-are blank). Civ III's map is drawn that way.
+A view can show the world `n` times smaller (`Camera::downscale`, a game's
+zoomed-out view) from the same atlas: the art is held once, at full size.
+The shaders place each sprite shrunk and fetch every n-th texel of every
+n-th row of its *sample box*; steps, offsets and world positions are
+divided, per-sheet `scaling` keeps anchors or screen art as they are.
+The sample box is per sprite, found when the description is compiled
+(`sample_from`): the whole cell, or — for games that keep sprites cropped
+to the box of their non-blank pixels and shrink them from there — that
+box, which makes the sampling phase depend on the sprite (`blank_loader`
+and an image's `blank` say which pixels are blank). Civ III's map is drawn
+that way. Art a game keeps in a second place for its zoomed-out view
+(`scaled_origin`) is a sprite's `downscaled` twin. The viewer's own zoom
+applies on top (a zoomed-out view shown at 2/1 in a pane).
 
 Colour: a world may compose in a *quantized colour model* (e.g. RGB555, as
 Civ III does). The target then stores `q + bias` per channel in 8 bits, and
