@@ -1206,8 +1206,10 @@ fn publish(
         let mut scene = match shown {
             Shown::Map(world, view) => {
                 let mut scene = mapper.scene(world, view, (0, 0), 0);
-                // The mirrored interface has the game's own city-site lines.
-                if ui.is_none() {
+                // Replacing the map's underlays with world labels also
+                // removes its city-site lines. Draw those from the world
+                // unless the mirrored underlays are kept.
+                if ui.is_none() || world_labels() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
                 units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut unit_memory, &mut scene);
