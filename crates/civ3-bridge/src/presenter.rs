@@ -12,8 +12,10 @@ pub struct Presenter {
     sink: Sink,
     /// The scene as the renderer has it (what was sent so far).
     sent: Scene,
-    /// The generation of the latest assets (`Scene::assets`).
+    /// The generation of the assets scenes refer to (`Scene::assets`), and
+    /// of the latest prepared (see [`Presenter::prepare_assets`]).
     generation: u64,
+    prepared: u64,
     /// The pixels last sent per run-time sprite (unchanged ones are not
     /// sent again: the renderer keeps them, also across new art).
     sent_patches: std::collections::HashMap<String, Vec<u8>>,
@@ -35,24 +37,41 @@ impl Presenter {
                 log::error!("viewer: {e}");
             }
         })?;
-        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, sent_patches: Default::default() })
+        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, prepared: 1, sent_patches: Default::default() })
     }
 
     /// The native Linux viewer (only in a Wine process with
     /// `civ3r_native.dll`).
     pub fn native(native: Native) -> Presenter {
-        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, sent_patches: Default::default() }
+        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, prepared: 0, sent_patches: Default::default() }
     }
 
     /// New render assets: `compiled` for this side, `wire` for a renderer
     /// that compiles its own copy.
     pub fn set_assets(&mut self, compiled: &Arc<Compiled>, wire: &scene::wire::Assets) {
-        // Scenes from now on refer to this generation; the renderer draws
-        // them with these assets only.
-        self.generation += 1;
-        match &mut self.sink {
-            Sink::InProcess { assets, .. } => assets.set(compiled.clone(), self.generation),
-            Sink::Native(n) => n.set_assets(&scene::wire::Assets { generation: self.generation, ..wire.clone() }),
+        let generation = self.prepare_assets(wire);
+        self.adopt_assets(compiled, generation);
+    }
+
+    /// Announces new render assets, before this side has compiled them: a
+    /// renderer compiling its own copy (the native viewer) starts now, so
+    /// that both compile at once. Scenes still refer to the assets before
+    /// until [`Presenter::adopt_assets`]. Returns their generation.
+    pub fn prepare_assets(&mut self, wire: &scene::wire::Assets) -> u64 {
+        self.prepared = self.prepared.max(self.generation) + 1;
+        if let Sink::Native(n) = &mut self.sink {
+            n.set_assets(&scene::wire::Assets { generation: self.prepared, ..wire.clone() });
+        }
+        self.prepared
+    }
+
+    /// Scenes from now on refer to the assets of `generation` (prepared,
+    /// `compiled` on this side); the renderer draws them with these assets
+    /// only. An in-process renderer gets them (pixels and all) now.
+    pub fn adopt_assets(&mut self, compiled: &Arc<Compiled>, generation: u64) {
+        self.generation = generation;
+        if let Sink::InProcess { assets, .. } = &mut self.sink {
+            assets.set(compiled.clone(), generation);
         }
     }
 

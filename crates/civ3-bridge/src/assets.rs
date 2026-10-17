@@ -42,9 +42,30 @@ pub fn compile(text: &str, files: GameFiles) -> Result<Compiled, DescError> {
 /// Like [`compile`], for the zoomed-out view when `scale_down` is 2: the
 /// art at half size (§3).
 pub fn compile_scaled(text: &str, files: GameFiles, scale_down: u32) -> Result<Compiled, DescError> {
+    compile_as(text, files, scale_down, Pixels::Made(None))
+}
+
+/// What a compile makes of the art (see [`compile_as`]).
+pub enum Pixels<'a> {
+    /// The atlas, reusing the sheets of the cache's last compile, if any
+    /// (`render_desc::SheetCache`).
+    Made(Option<&'a mut render_desc::SheetCache>),
+    /// Only the tables (sprite names, sizes, sets, layers:
+    /// `Compiled::without_pixels`), from the art files' headers: what a
+    /// driver needs whose renderer makes its own atlas.
+    TablesOnly,
+}
+
+/// [`compile_scaled`], with or without the pixels.
+pub fn compile_as(text: &str, files: GameFiles, scale_down: u32, pixels: Pixels) -> Result<Compiled, DescError> {
     let desc = Description::parse(text)?;
     let desc = if scale_down > 1 { desc.scaled_down(scale_down) } else { desc };
-    desc.compile(&Civ3Loader::new(files), 2048)
+    let loader = Civ3Loader::new(files);
+    match pixels {
+        Pixels::Made(Some(cache)) => desc.compile_cached(&loader, 2048, cache),
+        Pixels::Made(None) => desc.compile(&loader, 2048),
+        Pixels::TablesOnly => desc.compile_layout(&loader, 2048),
+    }
 }
 
 #[cfg(test)]
@@ -69,6 +90,11 @@ mod tests {
         };
         let s = sprite("Std_Terrain_Images/0");
         assert_eq!((s.width, s.height), (64, 32));
+        // The tables alone agree with the full compile.
+        let layout = compile_as(BUILTIN_DESC, GameFiles::complete(&install), 2, Pixels::TablesOnly).unwrap();
+        assert_eq!(layout.sprite_names, compiled.sprite_names);
+        let sizes = |c: &Compiled| c.atlas.sprites.iter().map(|s| (s.width, s.height, s.anchor_x, s.anchor_y)).collect::<Vec<_>>();
+        assert_eq!(sizes(&layout), sizes(&compiled));
         // Cell column 1 (the left tip of the diamond) is sample 0; the 126
         // columns of the box make 63 samples, so the last column stays clear
         // (taking every second pixel from the cell's corner it would not).
