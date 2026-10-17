@@ -44,8 +44,9 @@ pub struct ControlArt {
     pub pieces: Vec<Vec<(LookState, Source)>>,
     /// How far its text moves in a state (x, y), where it does.
     pub text_offsets: Vec<(LookState, (i32, i32))>,
-    /// The colour of its text in a state, where it changes.
-    pub text_colors: Vec<(LookState, [u8; 3])>,
+    /// The colours its text and fills have in a state, where they change: the
+    /// i-th colour of one state becomes the i-th of another.
+    pub colors: Vec<(LookState, Vec<[u8; 3]>)>,
     /// Whether its fields say whether it is selected (its draws need not:
     /// a check box just clicked shows its hover art).
     pub selected_by_fields: bool,
@@ -79,6 +80,15 @@ fn is_region(path: &str, rect: [i32; 4], s: &Source) -> bool {
     matches!(s, Source::File { path: p, rect: r, .. } if p == path && *r == rect)
 }
 
+/// The colour of a text or fill.
+fn draw_color(d: &ScreenDraw) -> Option<[u8; 3]> {
+    match d {
+        ScreenDraw::Text { run, .. } => Some(run.color),
+        ScreenDraw::Fill { rgb, .. } => Some(*rgb),
+        _ => None,
+    }
+}
+
 /// Whether `d` draws the image region `s`.
 fn draws_region(d: &ScreenDraw, s: &Source) -> bool {
     matches!(d, ScreenDraw::Image { path, rect, .. } if is_region(path, *rect, s))
@@ -88,7 +98,7 @@ impl ControlArt {
     /// The states it has art for, in order of first appearance.
     fn states(&self) -> Vec<LookState> {
         let mut out: Vec<LookState> = Vec::new();
-        for (s, _) in self.pieces.iter().flatten() {
+        for s in self.pieces.iter().flatten().map(|(s, _)| s).chain(self.colors.iter().map(|(s, _)| s)) {
             if !out.contains(s) {
                 out.push(*s);
             }
@@ -97,8 +107,12 @@ impl ControlArt {
     }
 
     /// Whether `draws` show it in `state`: each piece's region of that state
-    /// is drawn.
+    /// is drawn; without pieces, its first colour of that state is.
     fn shows(&self, draws: &[ScreenDraw], state: LookState) -> bool {
+        if self.pieces.is_empty() {
+            let Some(c) = self.colors.iter().find(|(s, _)| *s == state).and_then(|(_, c)| c.first()) else { return false };
+            return draws.iter().any(|d| draw_color(d) == Some(*c));
+        }
         self.pieces.iter().all(|p| p.iter().find(|(s, _)| *s == state).is_some_and(|(_, src)| draws.iter().any(|d| draws_region(d, src))))
     }
 
@@ -117,7 +131,20 @@ impl ControlArt {
             }
         }
         let offset = |s: LookState| self.text_offsets.iter().find(|(t, _)| *t == s).map_or((0, 0), |(_, o)| *o);
-        let color = |s: LookState| self.text_colors.iter().find(|(t, _)| *t == s).map(|(_, c)| *c);
+        let colors = |s: LookState| self.colors.iter().find(|(t, _)| *t == s).map(|(_, c)| c);
+        // Each colour of `from` to the one of `to` at its place (one each).
+        let recolor: Vec<([u8; 3], [u8; 3])> = match (colors(from), colors(to)) {
+            (Some(a), Some(b)) if a.len() == b.len() => {
+                let pairs: Vec<_> = a.iter().copied().zip(b.iter().copied()).collect();
+                if pairs.iter().any(|p| pairs.iter().any(|q| p.0 == q.0 && p.1 != q.1)) {
+                    return None;
+                }
+                pairs
+            }
+            (None, None) => Vec::new(),
+            _ => return None,
+        };
+        let recolored = |c: [u8; 3]| recolor.iter().find(|p| p.0 == c).map_or(c, |p| p.1);
         let ((fx, fy), (tx, ty)) = (offset(from), offset(to));
         let mut out = draws.to_vec();
         for d in &mut out {
@@ -133,12 +160,9 @@ impl ControlArt {
                 ScreenDraw::Text { run, .. } => {
                     run.x += tx - fx;
                     run.y += ty - fy;
-                    if let (Some(a), Some(b)) = (color(from), color(to)) {
-                        if run.color == a {
-                            run.color = b;
-                        }
-                    }
+                    run.color = recolored(run.color);
                 }
+                ScreenDraw::Fill { rgb, .. } => *rgb = recolored(*rgb),
                 _ => {}
             }
         }
@@ -163,7 +187,7 @@ impl ControlArt {
             Part::LastArt(r) => draws.iter().rev().find(|d| inside(d, r) && art(d)).map(|d| vec![d.clone()]),
             Part::Within(r) => {
                 let own: Vec<ScreenDraw> = draws.iter().filter(|d| inside(d, r)).cloned().collect();
-                own.iter().any(art).then_some(own)
+                (!own.is_empty() && (self.pieces.is_empty() || own.iter().any(art))).then_some(own)
             }
         }
     }
@@ -263,7 +287,7 @@ mod tests {
             select: Select::None,
             canvas: 0x500,
             part: Part::Whole,
-            text_colors: vec![],
+            colors: vec![],
             state: NORMAL,
             pieces: vec![vec![(NORMAL, region(0)), (HOVER, region(32)), (PRESSED, region(64))]],
             text_offsets: vec![],
@@ -337,6 +361,30 @@ mod tests {
     }
 
     #[test]
+    fn a_menu_rows_fill_text_and_shadow_change_with_its_state() {
+        let run = |x: i32, color: [u8; 3]| ScreenDraw::Text {
+            run: crate::text::TextRun { x, y: 20, color, face: "Arial".into(), height: -12, weight: 0, italic: false, underline: false, text: "Fortify".into(), backdrop: None },
+            clip: [0, 0, 1024, 768],
+        };
+        let fill = |y: i32, rgb: [u8; 3]| ScreenDraw::Fill { rect: [500, y, 120, 18], rgb, alpha: 255, clip: [0, 0, 1024, 768] };
+        let a = ControlArt {
+            part: Part::Within([500, 12, 120, 18]),
+            pieces: vec![],
+            colors: vec![(NORMAL, vec![[200, 200, 200], [0, 0, 0], [90, 90, 90]]), (HOVER, vec![[0, 0, 128], [255, 255, 255], [0, 0, 0]])],
+            ..art()
+        };
+        let f = Frame {
+            draws: vec![fill(12, [200, 200, 200]), run(511, [90, 90, 90]), run(510, [0, 0, 0]), fill(30, [200, 200, 200])],
+            forms: vec![],
+            form_draws: vec![(0x500, 0..4)],
+            underlay_draws: vec![],
+        };
+        let looks = control_looks(&f, &a).unwrap();
+        assert_eq!(looks.shown, NORMAL);
+        assert_eq!(looks.states, [(HOVER, vec![fill(12, [0, 0, 128]), run(511, [0, 0, 0]), run(510, [255, 255, 255])])]);
+    }
+
+    #[test]
     fn a_rows_bullet_and_text_colour_change_with_its_state() {
         let run = |x: i32, y: i32, color: [u8; 3]| ScreenDraw::Text {
             run: crate::text::TextRun { x, y, color, face: "Lucida Sans".into(), height: -16, weight: 0, italic: false, underline: false, text: "Map".into(), backdrop: None },
@@ -349,7 +397,7 @@ mod tests {
             part: Part::Within([803, 189, 314, 20]),
             state: NORMAL,
             pieces: vec![vec![(NORMAL, region(0)), (HOVER, region(32)), (sel, region(64))]],
-            text_colors: vec![(NORMAL, [0, 0, 0]), (HOVER, [176, 88, 0]), (sel, [0, 112, 184])],
+            colors: vec![(NORMAL, vec![[0, 0, 0]]), (HOVER, vec![[176, 88, 0]]), (sel, vec![[0, 112, 184]])],
             selected_by_fields: true,
             ..art()
         };
