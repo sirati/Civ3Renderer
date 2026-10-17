@@ -301,8 +301,14 @@ until the view can centre it again. The cursor shows once per place at
 any moment (`tile_viewer::cursor::Machine`); no world cursor is drawn
 once the mouse is free. Each pointer event redraws at once
 (`TILE_VIEWER_LATENCY=1` logs the latency from motion to the drawn
-cursor). `vendor/winit` carries a fix for custom cursors on a 16-bit
+cursor; `TILE_VIEWER_FRAME_TIMES=1` how far apart frames are, every 2 s).
+`vendor/winit` carries a fix for custom cursors on a 16-bit
 Windows desktop (the game's mode).
+On the Load Scenario screen the highlighted scenario's world shows beside
+the dialog as its players start with it (what they have explored, the
+rest black), fitted to what is revealed (docs §19); a double-click on it
+explores it twice as big with the mouse captured (Ctrl lets it go, Esc
+or a double-click goes back).
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
 scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`

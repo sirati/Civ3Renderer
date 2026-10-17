@@ -543,7 +543,8 @@ fn publish(
                 log::info!("publish: a round took {} ms", took.as_millis());
             }
         }
-        std::thread::sleep(POLL);
+        // (Sooner when a stage of the previewed scenario is ready.)
+        previews.wait(POLL);
         round_began = Some(std::time::Instant::now());
         // Now and then, how much everything holds (memory diagnostics).
         if last_stats.elapsed() >= Duration::from_secs(30) {
