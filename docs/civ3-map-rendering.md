@@ -968,6 +968,8 @@ These go onto the units' canvas before the units (0x4EF1B1 draws them after): ov
 
 Spies and diplomats have no targeting mode (they move into the city); workers' automation shows nothing on the map. The settler's city-site preview is §10.9.
 
+[D] Continuation on integrated revision `8b81c2c`, on the AMD iGPU: native mode with the game's map and pixel drawing off showed a cruiser's Hit3 explosion, a battleship's brown miss, and another cruiser miss at the game's half-size zoom. The battleship's miss appeared together in both split panes, an inset and a world magnifier. Its 33×45-pixel region was byte-identical between the two 1:1 panes in four captured frames. Infantry combat was also run in native mode and in-process with the game's map on: the viewer showed the gunfire, damage and death animations, and removed the defeated unit. Those fights generated no separate tile-effect entries. Paired captures show the same art and colours, with occasional different animation poses between the viewer and the game's output; they do not establish exact presentation latency. Civil disorder, eruption, SAM/SDI and nuclear strikes were not triggered in these live runs.
+
 ---
 
 ## 11. PCX / colour conventions [X][D]
