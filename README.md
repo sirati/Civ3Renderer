@@ -390,9 +390,28 @@ the bridge sends it the render description and scenes and takes input
 back through `__wine_unix_call` (`wine-unixlib`, `scene::wire`). With
 `CIV3R_GAME_MAP=off` the game no longer draws its map at all.
 
+In native mode the game also skips the rest of its pixel work
+(`CIV3R_GAME_RENDER=off`, the default with `CIV3R_VIEWER=native*` unless
+`CIV3R_GAME_WINDOW=show`; `=on` keeps it, and in-process it is on unless
+set). The interface mirror records each drawing it hooks and then skips the
+game's own: sprite blits, image copies (`draw_onto`, `copy_*`, GDI's
+`StretchBlt` behind them), fills, lines (the game's and C3X's line drawer),
+translucent shades, `TextOutA` of the game's text functions, unit pictures
+the mirror shows as animation frames, and `present`'s `BitBlt` to the
+window; the map's blits go as with `CIV3R_GAME_MAP=off`. What decides what
+is drawn runs as before: forms redraw, compose and present, text is measured
+(`GetTextExtentPoint32`), animations and the map pass pick their frames and
+sprites, and the mirror follows all of it. Drawing goes on onto the
+minimap's images (the game builds them from each other pixel by pixel) and
+onto any image the game drew itself and cuts a sprite from. Not skipped:
+blits the mirror does not hook (the scaled wrappers), FLC frame decoding,
+the minimap's per-pixel builders. `CIV3R_TRACE_PIXELS=1` logs any code
+taking the pixels of an image a skipped drawing went onto.
+
 ```
 tools/install-native                 # build + lay out for WINEDLLPATH
 tools/civ3-native start --map-off    # inside nix develop; then civ3-session newgame/trace/shot
+tools/civ3-native start --game-render   # the game drawing its own window as well
 ```
 
 On Windows (and in the Windows VM, DX12 WARP) the bridge runs the viewer as
