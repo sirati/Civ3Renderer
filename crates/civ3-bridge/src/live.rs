@@ -647,6 +647,21 @@ fn publish(
             Some((_, first)) => ui_below.as_ref().map(|f| ui_screen::from_draw(f, first)),
             None => ui_below.clone(),
         };
+        // A named screen smaller than the window (an advisor; not the city
+        // screen, whose map is a view of its own), and what is over it: a
+        // part of its own, which the viewer may move (out from under its
+        // zoom strip).
+        let screen_part = match (&visible_ui, screen_open, shown) {
+            (Some(f), Some((index, name)), Shown::Map(..)) if name != "City" && city.is_none() => crate::interface_parts::screen_part(f, index, screen_size),
+            _ => None,
+        };
+        let (visible_ui, ui_screen_part) = match (visible_ui, screen_part) {
+            (Some(f), Some((first, _))) => {
+                let (below, above) = crate::interface_parts::split_at(&f, first);
+                (Some(below), Some(above))
+            }
+            (v, _) => (v, None),
+        };
         // Our tabs on top of the game's Preferences screen, in the part of
         // the interface that draws it (the screen may be the popup split
         // off), under what the game draws over it (a popup over it, e.g.
@@ -659,6 +674,7 @@ fn publish(
         };
         let mut ui_items = visible_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
         let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let mut screen_items = ui_screen_part.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
         // On the map's own screen: the corner's buttons (drawn in the view
         // the pointer is in) and the unit's orders (reachable from every
         // view).
@@ -704,7 +720,7 @@ fn publish(
         // with it, in the interface.
         let popup = popup.filter(|_| on_map && !prefs.is_open());
         if popup.is_none() {
-            ui_items.append(&mut popup_items);
+            if screen_part.is_some() { &mut screen_items } else { &mut ui_items }.append(&mut popup_items);
         }
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
@@ -747,7 +763,10 @@ fn publish(
                 wanted_for.push("unit pictures");
             }
         }
-        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files) | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files) {
+        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&screen_items, &mut screen_art, &mut fonts, &files)
+        {
             screen_recompile = true;
             wanted_for.push("interface");
         }
@@ -862,7 +881,8 @@ fn publish(
         scene.sprites.extend(labels);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
-            scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {
+            let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
+            scene.patches = ui_screen::minimap_patches(&both, world, &compiled, |table| {
                 *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
             });
         }
@@ -872,6 +892,9 @@ fn publish(
         let part_sprites = |items: &[ui_screen::Item]| ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
         if let Some(r) = corner {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(&corner_items));
+        }
+        if let Some((_, r)) = screen_part {
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(&screen_items));
         }
         if let Some((_, r)) = popup {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(&popup_items));
@@ -886,6 +909,7 @@ fn publish(
             screen: screen_open.map(|s| s.1.to_owned()),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
             popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
+            screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
             reachable,
         };
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {

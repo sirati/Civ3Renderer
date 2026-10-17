@@ -1450,7 +1450,9 @@ The game menu is what the HUD's menu button opens: `Main_GUI_handle_button_press
 
 The top-left corner's three buttons are menu, Civilopedia and advisors. The unit's orders are `Command_Button`s (0x6DC bytes: a `Button` and its command); the constructor builds the array at 0x558AA9 (`push 0x2A; push 0x6DC; lea ecx,[esi+0x16CE4]`, element ctor 0x558BC0, which only calls the `Button` ctor 0x609E70: no vtable of their own). Only the orders the unit has are composited (10 in the traces, x 836-1092, y 966-1062 at 1920×1080).
 
-**Popups.** An open popup is the modal form (0xCAD384, `civ3_sys::modal`) when it is none of the screens above; its draws are those composited from it on (its children and what the game draws over it afterwards, e.g. the cursor).
+**Popups.** An open popup is the modal form (0xCAD384, `civ3_sys::modal`) when it is none of the screens above; its draws are those composited from it on (its children and what the game draws over it afterwards, e.g. the cursor), and, just before it, its frame: the border pieces and title band (`popupborders.pcx`, the caption text) its m80 draws straight onto the back buffer, on no canvas, unclipped (`ui_canvas_draws` gaps in a trace). The bridge hands a popup over the map's own screen to the viewer as a part of its own; one over another screen (an advisor, the Preferences screen with C3X's info box) stays with that screen.
+
+**A screen as a part.** A named screen smaller than the window (the advisors and the other 1024×768 screens at higher resolutions; not the city screen) is handed to the viewer the same way, with what is drawn over it (`scene::Interface::screen_view`), so the viewer can move it out from under its zoom strip or box where there is room below.
 ### 16.11 Controls that take the mouse
 
 What a pointer aid (the viewer's button snapping) needs: the screen rectangles of everything the mouse acts on. All [X] from `Civ3Conquests-Unmodded.exe` unless tagged; read by `civ3_sys::controls`.
