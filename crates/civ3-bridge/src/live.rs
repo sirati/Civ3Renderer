@@ -518,12 +518,15 @@ fn publish(
         let mut recompile = false;
         // Art for what the game's screen shows (held back without it).
         let mut screen_recompile = false;
+        // What the art is rebuilt for (for the log).
+        let mut wanted_for: Vec<&str> = Vec::new();
         if now != folders {
             folders = now;
             art = units::UnitArt::new(compiler.files(&folders));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
             have = units::Needed::default();
             recompile = true;
+            wanted_for.push("art folders");
         }
         let inputs = presenter.take_input();
         presenter.forward_log();
@@ -639,30 +642,45 @@ fn publish(
             if more != have {
                 have = more;
                 screen_recompile = true;
+                wanted_for.push("unit pictures");
             }
         }
-        screen_recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms);
-        recompile |= ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms);
+        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms) {
+            screen_recompile = true;
+            wanted_for.push("interface");
+        }
+        if ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms) {
+            recompile = true;
+            wanted_for.push("city labels");
+        }
         // Art the description does not have yet: units, text fonts.
         if let Shown::Map(world, _) = shown {
             let needed = units::Needed::of(world, &mut art);
             if !have.covers(&needed) {
                 have.merge(&needed);
                 recompile = true;
+                wanted_for.push("units");
             }
         }
-        recompile |= fonts.add(&compiler.files(&folders), texts);
+        if fonts.add(&compiler.files(&folders), texts) {
+            recompile = true;
+            wanted_for.push("text");
+        }
         // The art of the districts on the map (C3X), for both zooms at once
         // (the zoomed-out view draws the same art at half size: zooming out
         // needs no new art).
         if let Shown::Map(world, _) = shown {
-            recompile |= district_art.add(&crate::district_art::slices(world));
+            if district_art.add(&crate::district_art::slices(world)) {
+                recompile = true;
+                wanted_for.push("districts");
+            }
         }
         // Rebuild the art once the requests settle (a new screen asks for
         // new art several times in a row), one rebuild at a time, on the art
         // thread (`crate::art_schedule`).
         let now = std::time::Instant::now();
         if recompile || screen_recompile {
+            log::debug!("art: wanted for {}", wanted_for.join(", "));
             schedule.want(now, screen_recompile);
             art_wanted.get_or_insert(now);
         }
