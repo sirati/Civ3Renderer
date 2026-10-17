@@ -212,3 +212,31 @@ fn missing_and_direct_pictures_return_false_without_drawing() {
     );
     assert!(got.pixels.iter().all(|p| *p == SENTINEL));
 }
+
+#[test]
+fn uploaded_world_colour_changes_do_not_redecode_the_retained_canvas() {
+    let gpu = Headless::new().expect("AMD GPU");
+    let colors = [ColorModel::Quantized { bits: 5 }, ColorModel::Quantized { bits: 6 }, ColorModel::Direct];
+    let camera = Camera::new(SOURCE);
+    // A copy also forces direct colour through the retained canvas path.
+    let copies = [ScreenCopy { source: [1, 0, 7, 6], at: (8, 3), zoom: (1, 1) }];
+    for old in colors {
+        for new in colors {
+            let (atlas, mut world) = fixture(old);
+            let mut renderer = renderer(&gpu, &atlas, &world);
+            let old_picture = gpu.render_composed(&mut renderer, &[camera], &copies, SOURCE, 0, CLEAR);
+            // A compatible world can be uploaded before surface acquisition
+            // fails. No commands for its replacement picture were encoded.
+            world.color = new;
+            renderer.set_world(&gpu.device, &world);
+            let (shown, replay) = cached(&gpu, &renderer, SOURCE, &copies, Present::unscaled(SOURCE));
+            assert!(shown);
+            assert_same(&replay, &old_picture, &format!("uploaded {new:?}, retained {old:?}"));
+            // The next successful composition adopts its own decoding.
+            let new_picture = gpu.render_composed(&mut renderer, &[camera], &copies, SOURCE, 0, CLEAR);
+            let (shown, replay) = cached(&gpu, &renderer, SOURCE, &copies, Present::unscaled(SOURCE));
+            assert!(shown);
+            assert_same(&replay, &new_picture, &format!("drawn {new:?}"));
+        }
+    }
+}

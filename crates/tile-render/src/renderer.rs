@@ -42,6 +42,8 @@ pub struct TileRenderer {
     /// `OutputParams` of each copy (one slot per view, then the final one).
     output_params: wgpu::Buffer,
     scratch: Option<Scratch>,
+    /// Decoding of the retained canvas, independent of later world uploads.
+    picture_bits: u32,
     /// The pictures of zoomed views at zoom 1 (see `Camera::source_size`).
     sources: Option<Scratch>,
     /// The atlas on the GPU.
@@ -585,6 +587,7 @@ impl TileRenderer {
             params,
             output_params,
             scratch: None,
+            picture_bits: 0,
             sources: None,
             atlas: None,
             atlas_transfer: None,
@@ -1907,6 +1910,7 @@ impl TileRenderer {
             self.scratch = None;
             return;
         }
+        self.picture_bits = bits;
         let shown = self.output_picture(device, queue, encoder, target, copies, clear, present, self.timed(|| "output".into()));
         debug_assert!(shown, "a composed frame has an internal canvas");
     }
@@ -1919,8 +1923,8 @@ impl TileRenderer {
     /// The retained canvas supplies its own source size (`present.canvas`
     /// is ignored). `present.zoom`, `present.at`, copies and clear colour
     /// work as in [`TileRenderer::render_presented`], clipped to the actual
-    /// target size. Colour decoding uses the currently retained world;
-    /// keep that world until its replacement can be drawn.
+    /// target size. Colour decoding stays with the retained canvas even
+    /// when a replacement world has already been uploaded.
     ///
     /// Returns false, without recording commands, before a composed frame
     /// exists or after a frame drawn directly into the caller's target.
@@ -1952,8 +1956,8 @@ impl TileRenderer {
         present: Present,
         timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> bool {
-        let (Some(scratch), Some(world)) = (&self.scratch, &self.world) else { return false };
-        let bits = world.color.bits();
+        let Some(scratch) = &self.scratch else { return false };
+        let bits = self.picture_bits;
         let target_size = (target.width(), target.height());
         let (canvas_w, canvas_h) = (scratch.main.width(), scratch.main.height());
         // A window may resize while another art generation is prepared.
