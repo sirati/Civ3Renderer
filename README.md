@@ -408,7 +408,7 @@ per user). Set `TILE_RENDER_ADAPTER=radv` to pick the AMD iGPU.
 
 Frame rate: the viewer's `[display]` settings `present` (`Vsync`, the
 default: frames at the display's refresh rate; `Mailbox`, `Immediate`: as
-fast as they are drawn, two in flight) and `max_fps` (0: no cap), or
+fast as they are drawn, three in flight) and `max_fps` (0: no cap), or
 `TILE_VIEWER_PRESENT=vsync|mailbox|immediate`, `TILE_VIEWER_MAX_FPS=N`; the
 frame counter is `show_fps`. The viewer paces its own frames; the driver's
 scenes are taken as they come.
