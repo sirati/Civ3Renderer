@@ -1262,8 +1262,9 @@ fn publish(
             Shown::Map(world, view) => {
                 // (Only what units do changes most of the time.)
                 let mut scene = cells_memo.get((still.clone(), *view, art_generation), || mapper.scene(world, view, (0, 0), 0));
-                // The mirrored interface has the game's own city-site lines.
-                if ui.is_none() {
+                // World labels replace mirrored underlays, including city-site
+                // lines. Draw those from the current mouse/selection state.
+                if ui.is_none() || world_labels() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
                 units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut unit_memory, &mut scene);
