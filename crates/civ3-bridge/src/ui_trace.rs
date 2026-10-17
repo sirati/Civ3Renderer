@@ -413,8 +413,9 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
         with_pen(c.renderer, |p| pen = Some(*p));
         if let Some(p) = pen.filter(|p| p.canvas != 0 && p.alpha > 0) {
             let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
-            for rect in crate::ui::line_rects((x1, y1), (x2, y2), p.width) {
-                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha: p.alpha, clip: h::canvas_clip(p.canvas) });
+            for (rect, coverage) in crate::ui::line_fills((x1, y1), (x2, y2), p.width, crate::ui::smooth_lines()) {
+                let alpha = crate::ui::covered_alpha(p.alpha, coverage);
+                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha, clip: h::canvas_clip(p.canvas) });
             }
         }
         c.original()

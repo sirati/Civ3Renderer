@@ -19,7 +19,7 @@ use civ3_assets::fonts::{FontStyle, GlyphFont};
 use civ3_sys::city_label::NEVER;
 
 use crate::text::TextRun;
-use crate::ui::{Frame, ScreenDraw, line_rects, rgb555, shade_alpha};
+use crate::ui::{Frame, ScreenDraw, covered_alpha, line_fills, rgb555, shade_alpha, smooth_lines};
 use crate::ui_screen::{self, Item};
 use crate::world::{Civ3City, Civ3View, Civ3World};
 
@@ -88,13 +88,19 @@ pub enum LabelOp {
 impl LabelOp {
     /// The screen draws of the operation moved by `origin` (the world's offset
     /// on the screen: minus the camera), clipped to `clip` (left, top, right,
-    /// bottom). A line is the rectangles of the game's line rule.
+    /// bottom). A line is the rectangles of the game's line rule (smooth
+    /// on Windows, see [`crate::ui::line_fills`]).
     pub fn draws(&self, origin: (i32, i32), clip: [i32; 4]) -> Vec<ScreenDraw> {
+        self.draws_with(origin, clip, smooth_lines())
+    }
+
+    /// [`LabelOp::draws`], lines smooth or not.
+    pub fn draws_with(&self, origin: (i32, i32), clip: [i32; 4], smooth: bool) -> Vec<ScreenDraw> {
         let (ox, oy) = origin;
         match self {
-            LabelOp::Line { from, to, rgb, width } => line_rects((from.0 + ox, from.1 + oy), (to.0 + ox, to.1 + oy), *width)
+            LabelOp::Line { from, to, rgb, width } => line_fills((from.0 + ox, from.1 + oy), (to.0 + ox, to.1 + oy), *width, smooth)
                 .into_iter()
-                .map(|rect| ScreenDraw::Fill { rect, rgb: *rgb, alpha: 255, clip })
+                .map(|(rect, coverage)| ScreenDraw::Fill { rect, rgb: *rgb, alpha: covered_alpha(255, coverage), clip })
                 .collect(),
             LabelOp::Fill { rect: [x, y, w, h], rgb, alpha } => vec![ScreenDraw::Fill { rect: [x + ox, y + oy, *w, *h], rgb: *rgb, alpha: *alpha, clip }],
             LabelOp::Image { path, rect, at } => {
