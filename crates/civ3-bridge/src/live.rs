@@ -1299,10 +1299,11 @@ fn publish(
         } else { Vec::new() };
         let mandatory = ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&plain_text);
         let size = input.game_window().and_then(|w| w.client_size()).unwrap_or(input.viewport);
-        match ui_screen::publication(mandatory, &fonts, &compiled, schedule.screen_pending(), size) {
+        match ui_screen::publication(mandatory.clone(), &fonts, &compiled, schedule.screen_pending(), size) {
             ui_screen::Publication::Retain { unavailable } => {
                 if unavailable && !unavailable_screen {
                     log::error!("scene: mandatory and diagnostic art unavailable; retaining the complete screen");
+                    for missing in ui_screen::missing_art(mandatory, &fonts, &compiled) { log::error!("scene: missing {missing}"); }
                 }
                 unavailable_screen = unavailable;
                 if held_since.is_none() {
@@ -1315,6 +1316,7 @@ fn publish(
             ui_screen::Publication::Diagnostic(mut scene) => {
                 if !unavailable_screen {
                     log::error!("scene: mandatory art request completed without visible art; showing the generated missing-art screen");
+                    for missing in ui_screen::missing_art(mandatory, &fonts, &compiled) { log::error!("scene: missing {missing}"); }
                 }
                 unavailable_screen = true;
                 held_since = None;
