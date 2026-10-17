@@ -332,12 +332,25 @@ impl Prefs {
     pub fn draws(&self, fonts: &Fonts) -> Vec<Draw> {
         let (Some(area), Some(panels)) = (self.open, self.panels.as_ref()) else { return Vec::new() };
         let Some(panel) = panels.panel(PANEL) else { return Vec::new() };
-        let measure = |style: &TextStyle, text: &str| {
-            fonts
-                .metrics(&text_run(style, text, (0, 0)))
-                .map_or_else(|| menu::panel::estimate(style, text), |(width, ascent, descent)| TextMetrics { width, ascent, descent })
-        };
-        panels.draw(panel, &self.state, area, &measure)
+        panels.draw(panel, &self.state, area, &measurer(fonts))
+    }
+
+    /// The panel's controls (topmost first) with their draws now and in
+    /// their other states (`menu::panel::Panels::looks`): things to point
+    /// at that the viewer shows hovered or chosen at once.
+    pub fn looks(&self, fonts: &Fonts) -> Vec<menu::panel::ControlLooks> {
+        let (Some(area), Some(panels)) = (self.open, self.panels.as_ref()) else { return Vec::new() };
+        let Some(panel) = panels.panel(PANEL) else { return Vec::new() };
+        panels.looks(panel, &self.state, area, &measurer(fonts))
+    }
+}
+
+/// Measures text with `fonts` where they are loaded (else estimates).
+fn measurer(fonts: &Fonts) -> impl Fn(&TextStyle, &str) -> TextMetrics + '_ {
+    move |style: &TextStyle, text: &str| {
+        fonts
+            .metrics(&text_run(style, text, (0, 0)))
+            .map_or_else(|| menu::panel::estimate(style, text), |(width, ascent, descent)| TextMetrics { width, ascent, descent })
     }
 }
 
