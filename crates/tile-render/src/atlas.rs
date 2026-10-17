@@ -238,12 +238,72 @@ impl AtlasBuilder {
         &self.sprites[id.0 as usize]
     }
 
+    /// Where the next colour and indexed sprites would go: for growing the
+    /// finished atlas ([`AtlasGrowth`]).
+    pub fn shelves(&self) -> (&Shelves, &Shelves) {
+        (&self.rgba, &self.index)
+    }
+
     pub fn finish(self) -> Atlas {
         let mut pages = self.pages;
         if pages.is_empty() {
             pages.push(RgbaImage::new(1, 1));
         }
         Atlas { page_size: self.page_size, pages, index_pages: self.index_pages, sprites: self.sprites, palettes: no_palettes(), named_palettes: 1 }
+    }
+}
+
+/// Pixels written into an atlas page: a new sprite's (see [`AtlasGrowth`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Blit {
+    pub page: u32,
+    pub x: u32,
+    pub y: u32,
+    pub pixels: BlitPixels,
+}
+
+/// What a [`Blit`] writes: colours on a colour page, palette indices on an
+/// index page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BlitPixels {
+    Rgba(RgbaImage),
+    Index(IndexImage),
+}
+
+impl Blit {
+    /// Bytes it writes.
+    pub fn bytes(&self) -> u64 {
+        match &self.pixels {
+            BlitPixels::Rgba(i) => i.pixels.len() as u64 * 4,
+            BlitPixels::Index(i) => i.pixels.len() as u64,
+        }
+    }
+}
+
+/// Sprites appended to an atlas: the sprites before keep their ids and
+/// places, the new ones take the next ids and go where nothing was (on the
+/// pages after, or the free part of the last page, see [`Shelves`]). What
+/// changes on a GPU is only what is new ([`Atlas::grow`],
+/// `TileRenderer::grow_atlas`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AtlasGrowth {
+    /// How many sprites the atlas has before (the id of the first new one).
+    pub first: u32,
+    /// The colour and index pages it uses after.
+    pub pages: u32,
+    pub index_pages: u32,
+    pub sprites: Vec<SpriteDesc>,
+    /// The new sprites' pixels (several sprites may share pixels, or show a
+    /// part of an older sprite's: fewer blits than sprites).
+    pub blits: Vec<Blit>,
+    /// Palette rows appended to the table (whole rows).
+    pub palettes: Vec<u32>,
+}
+
+impl AtlasGrowth {
+    /// Bytes of pixels it writes.
+    pub fn bytes(&self) -> u64 {
+        self.blits.iter().map(Blit::bytes).sum()
     }
 }
 
@@ -275,6 +335,41 @@ pub fn palette_entry([r, g, b, a]: [u8; 4]) -> u32 {
 }
 
 impl Atlas {
+    /// Appends `growth` (made for this atlas: its `first` is how many sprites
+    /// this one has); with pixels (pages), its pixels too.
+    pub fn grow(&mut self, growth: &AtlasGrowth) {
+        debug_assert_eq!(growth.first as usize, self.sprites.len(), "a growth for another atlas");
+        self.sprites.extend_from_slice(&growth.sprites);
+        self.palettes.extend_from_slice(&growth.palettes);
+        if self.pages.is_empty() {
+            return;
+        }
+        // (A 1×1 page stands for none.)
+        if self.pages.len() == 1 && self.pages[0].width != self.page_size && growth.pages > 0 {
+            self.pages.clear();
+        }
+        while (self.pages.len() as u32) < growth.pages {
+            self.pages.push(RgbaImage::new(self.page_size, self.page_size));
+        }
+        while (self.index_pages.len() as u32) < growth.index_pages {
+            self.index_pages.push(IndexImage::new(self.page_size, self.page_size));
+        }
+        for b in &growth.blits {
+            match &b.pixels {
+                BlitPixels::Rgba(image) => {
+                    if let Some(page) = self.pages.get_mut(b.page as usize) {
+                        page.blit(image, 0, 0, image.width, image.height, b.x, b.y);
+                    }
+                }
+                BlitPixels::Index(image) => {
+                    if let Some(page) = self.index_pages.get_mut(b.page as usize) {
+                        page.blit(image, 0, 0, image.width, image.height, b.x, b.y);
+                    }
+                }
+            }
+        }
+    }
+
     /// Replaces the pixels of `sprite` (see `TileRenderer::patch_sprite`);
     /// `image` must have its size. Returns whether it was written.
     pub fn patch(&mut self, sprite: crate::SpriteId, image: &RgbaImage) -> bool {

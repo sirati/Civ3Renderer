@@ -56,11 +56,13 @@ pub struct TileRenderer {
     too_many_views: bool,
 }
 
-/// The atlas on the GPU: its colour and index pages and its sprites.
+/// The atlas on the GPU: its colour and index pages, its sprites and
+/// palette rows.
 struct AtlasTextures {
     rgba: PageArray,
     index: PageArray,
     sprites: Vec<SpriteDesc>,
+    palettes: Vec<u32>,
 }
 
 /// Atlas pages of one format: a texture array with room for `capacity`
@@ -83,11 +85,26 @@ impl PageArray {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            // (Copied from when the atlas grows into a bigger one.)
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         Self { texture, view, format, size, capacity }
+    }
+
+    /// The same pages in a new array with room for `capacity` (at least as
+    /// many as this one), copied on the GPU. The old array goes once the
+    /// copy is done.
+    fn grown(self, device: &wgpu::Device, queue: &wgpu::Queue, capacity: u32) -> Self {
+        let new = Self::new(device, self.format, self.size, capacity.max(self.capacity));
+        if self.capacity > 0 {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("tile-render atlas growth") });
+            let extent = wgpu::Extent3d { width: self.size, height: self.size, depth_or_array_layers: self.capacity };
+            encoder.copy_texture_to_texture(self.texture.as_image_copy(), new.texture.as_image_copy(), extent);
+            queue.submit([encoder.finish()]);
+        }
+        new
     }
 
     fn texel_bytes(&self) -> u32 {
@@ -368,6 +385,7 @@ impl TileRenderer {
             rgba: PageArray::new(device, wgpu::TextureFormat::Rgba8Unorm, atlas.page_size, rgba_pages),
             index: PageArray::new(device, wgpu::TextureFormat::R8Unorm, atlas.page_size, index_pages),
             sprites: atlas.sprites.clone(),
+            palettes: atlas.palettes.clone(),
         };
         for (i, page) in atlas.pages.iter().enumerate().filter(|(_, p)| p.width == atlas.page_size) {
             textures.rgba.write(queue, i as u32, 0, 0, (page.width, page.height), page.as_bytes());
@@ -382,6 +400,83 @@ impl TileRenderer {
         self.sprites = Some(storage(device, "tile-render sprites", bytemuck::cast_slice(sprites)));
         self.palettes = Some(storage(device, "tile-render palettes", bytemuck::cast_slice(&palette_words(&atlas.palettes))));
         self.rebuild_bind_group(device);
+    }
+
+    /// Appends sprites to the atlas (`growth`, made for the atlas as
+    /// uploaded so far): only the new pixels are written, and the new
+    /// palette rows. Pages without room in their texture array go into a
+    /// bigger one, the old pages copied on the GPU, with room for half as
+    /// many again (see [`TileRenderer::reserve_atlas`]). Without an atlas,
+    /// does nothing.
+    pub fn grow_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, growth: &crate::AtlasGrowth) {
+        let Some(mut a) = self.atlas.take() else { return };
+        if growth.first as usize != a.sprites.len() {
+            log::error!("atlas growth for {} sprites, the atlas has {}", growth.first, a.sprites.len());
+        }
+        let max = device.limits().max_texture_array_layers;
+        let room = |pages: u32| (pages + (pages / 2).max(4)).min(max).max(pages);
+        let mut resized = false;
+        if growth.pages > a.rgba.capacity {
+            a.rgba = a.rgba.grown(device, queue, room(growth.pages));
+            resized = true;
+        }
+        if growth.index_pages > a.index.capacity {
+            a.index = a.index.grown(device, queue, room(growth.index_pages));
+            resized = true;
+        }
+        if resized {
+            // (The old arrays are gone once the copies are done.)
+            self.bind_group = None;
+            if let Err(e) = device.poll(wgpu::PollType::wait_indefinitely()) {
+                log::warn!("waiting for the GPU after growing the atlas: {e}");
+            }
+            log::info!("atlas: room for {} colour and {} index pages", a.rgba.capacity, a.index.capacity);
+        }
+        for b in &growth.blits {
+            match &b.pixels {
+                crate::BlitPixels::Rgba(i) => a.rgba.write(queue, b.page, b.x, b.y, (i.width, i.height), i.as_bytes()),
+                crate::BlitPixels::Index(i) => a.index.write(queue, b.page, b.x, b.y, (i.width, i.height), &i.pixels),
+            }
+        }
+        a.sprites.extend_from_slice(&growth.sprites);
+        let empty = [SpriteDesc::default()];
+        let sprites: &[SpriteDesc] = if a.sprites.is_empty() { &empty } else { &a.sprites };
+        self.sprites = Some(storage(device, "tile-render sprites", bytemuck::cast_slice(sprites)));
+        if !growth.palettes.is_empty() {
+            a.palettes.extend_from_slice(&growth.palettes);
+            self.palettes = Some(storage(device, "tile-render palettes", bytemuck::cast_slice(&palette_words(&a.palettes))));
+        }
+        self.atlas = Some(a);
+        self.rebuild_bind_group(device);
+    }
+
+    /// Makes room in the atlas for `pages` colour and `index_pages` index
+    /// pages (e.g. as many as art expected soon will need), so that growing
+    /// it that far does not move it again.
+    pub fn reserve_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pages: u32, index_pages: u32) {
+        let max = device.limits().max_texture_array_layers;
+        let Some(a) = &mut self.atlas else { return };
+        if pages.min(max) <= a.rgba.capacity && index_pages.min(max) <= a.index.capacity {
+            return;
+        }
+        let Some(mut a) = self.atlas.take() else { return };
+        if pages.min(max) > a.rgba.capacity {
+            a.rgba = a.rgba.grown(device, queue, pages.min(max));
+        }
+        if index_pages.min(max) > a.index.capacity {
+            a.index = a.index.grown(device, queue, index_pages.min(max));
+        }
+        self.bind_group = None;
+        if let Err(e) = device.poll(wgpu::PollType::wait_indefinitely()) {
+            log::warn!("waiting for the GPU after making room in the atlas: {e}");
+        }
+        self.atlas = Some(a);
+        self.rebuild_bind_group(device);
+    }
+
+    /// Pages the atlas has room for: colour pages, index pages.
+    pub fn atlas_room(&self) -> (u32, u32) {
+        self.atlas.as_ref().map_or((0, 0), |a| (a.rgba.capacity, a.index.capacity))
     }
 
     /// Bytes the atlas takes on the GPU: colour pages, index pages (as

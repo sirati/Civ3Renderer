@@ -14,7 +14,7 @@ pub mod reference;
 pub mod renderer;
 pub mod world;
 
-pub use atlas::{Atlas, AtlasBuilder, IndexImage, RgbaImage, Shelves, SpriteId};
+pub use atlas::{Atlas, AtlasBuilder, AtlasGrowth, Blit, BlitPixels, IndexImage, RgbaImage, Shelves, SpriteId};
 pub use camera::Camera;
 pub use gpu::Headless;
 pub use renderer::{MAX_VIEWS, ScreenCopy, TileRenderer};

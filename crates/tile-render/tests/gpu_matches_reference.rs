@@ -1062,3 +1062,50 @@ fn per_cell_offsets_move_cells_in_their_order() {
     let at: Vec<_> = half.iter().map(|d| (d.x, d.y)).collect();
     assert_eq!(at, vec![(56 - 35, 0), (16 - 4, 4), (8 + 1, -3)]);
 }
+
+/// An atlas uploaded in parts (the first sprites, then the rest appended,
+/// over several texture replacements) draws what the whole atlas does.
+#[test]
+fn a_grown_atlas_draws_what_the_whole_one_does() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 10, rows: 14, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, whole) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    // The same sprites again on small pages: the first three in one atlas,
+    // the others appended one at a time.
+    let image = |s: &tile_render_shared::SpriteDesc| whole.pages[s.page as usize].crop(s.atlas_x, s.atlas_y, s.width, s.height);
+    let mut first = AtlasBuilder::new(160);
+    for s in &whole.sprites[..3] {
+        let id = first.add(&image(s), (s.anchor_x, s.anchor_y)).unwrap();
+        let d = first.sprite_mut(id);
+        (d.scaling, d.box_x, d.box_y, d.box_w, d.box_h, d.downscaled) = (s.scaling, s.box_x, s.box_y, s.box_w, s.box_h, s.downscaled);
+    }
+    let mut shelves = first.shelves().0.clone();
+    let mut atlas = first.finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    for (i, s) in whole.sprites.iter().enumerate().skip(3) {
+        let at = shelves.place(s.width, s.height).unwrap();
+        let sprite = tile_render_shared::SpriteDesc { page: at.0, atlas_x: at.1, atlas_y: at.2, ..*s };
+        let growth = tile_render::AtlasGrowth {
+            first: i as u32,
+            pages: shelves.pages,
+            index_pages: 0,
+            sprites: vec![sprite],
+            blits: vec![tile_render::Blit { page: at.0, x: at.1, y: at.2, pixels: tile_render::BlitPixels::Rgba(image(s)) }],
+            palettes: Vec::new(),
+        };
+        renderer.grow_atlas(&gpu.device, &gpu.queue, &growth);
+        atlas.grow(&growth);
+    }
+    assert!(atlas.pages.len() > 4, "the test should span several pages ({})", atlas.pages.len());
+    renderer.set_world(&gpu.device, &world);
+    let mut camera = Camera::new((480, 300));
+    camera.x = 100;
+    camera.y = 37;
+    for frame in [0, 5] {
+        let got = gpu.render(&mut renderer, &camera, frame, CLEAR);
+        assert_same(&got, &reference::render(&world, &whole, &camera, frame, CLEAR), &format!("frame {frame}, against the whole atlas"));
+        assert_same(&got, &reference::render(&world, &atlas, &camera, frame, CLEAR), &format!("frame {frame}, against the grown atlas"));
+    }
+}
