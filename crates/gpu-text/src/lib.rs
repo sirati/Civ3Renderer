@@ -334,9 +334,9 @@ mod tests {
         assert_eq!(coverage(&words, &place, 10, 21, 0), [0; 3]);
         // Just inside the left edge: the filter reaches out, red the furthest.
         let edge = coverage(&words, &place, 5, 15, 0);
-        assert!(edge[0] < edge[1] && edge[1] < edge[2], "{edge:?}");
+        assert!(edge[0] < edge[1] && edge[1] <= edge[2], "{edge:?}");
         let out = coverage(&words, &place, 4, 15, 0);
-        assert!(out[0] < out[1] && out[1] < out[2] && out[2] < 255, "{out:?}");
+        assert!(out[0] <= out[1] && out[1] < out[2] && out[2] < 255, "{out:?}");
     }
 
     #[test]

@@ -32,12 +32,14 @@
 //! A pixel is cut into three subpixels (red, green, blue, left to right) and
 //! [`TEXT_ROWS`] rows. Along each row the outline's crossings give the exact
 //! covered length of every subpixel (the winding number integrated over the
-//! subpixel's width); the rows are summed. Each channel then takes the five
-//! subpixels around its own through FreeType's colour-balanced LCD filter
-//! (`{a, b, c, b, a}` with `a + b = c`, `2a + 2b + c = 1`), and a contrast
-//! boost that depends on the colour (light text gets more, as Windows'
-//! ClearType draws it) turns that into the 8-bit coverage drawn per channel,
-//! like a measured glyph's.
+//! subpixel's width); the rows are summed, the middle ones weighted three
+//! times the outer ones (crisper horizontal strokes than a box). Each
+//! channel then takes the five subpixels around its own through a
+//! colour-balanced LCD filter (`{a, b, c, b, a}` with `a + b = c`,
+//! `2a + 2b + c = 1`; FreeType's "light" one, a = 0, the sharpest of them),
+//! and a contrast boost that depends on the colour (light text gets more,
+//! as Windows' ClearType draws it) turns that into the 8-bit coverage
+//! drawn per channel, like a measured glyph's.
 
 use crate::{FREE_CLIP, FREE_SCREEN};
 
@@ -80,11 +82,13 @@ pub const TEXT_BAR: u32 = 1 << 11;
 /// `c + c·(255 − c)·boost / (255·256)`. Measured against the glyph sheets
 /// Windows draws (Lucida Sans, letters and digits, `tools/gen-civ3-fonts`):
 /// the boosts at which the outlines put down as much ink per glyph as
-/// ClearType does, black text on white and white on black, at 24 pixels
-/// (16 and 120; at 10..16 pixels, where hinting thins stems, 0..56 and
-/// 8..160).
+/// ClearType does, black text on white and white on black, are 16 and 120
+/// at 24 pixels (at 10..16 pixels, where hinting thins stems, 0..56 and
+/// 8..160). White text gets less, 72: compared with the city labels Windows
+/// draws at each zoomed size (white names), the outlines with 120 came out
+/// 7 to 12 % heavier at 2x, with 72 within -6..+7 % at 1.5x, 2x and 3x.
 pub const BOOST_DARK: u32 = 16;
-pub const BOOST_LIGHT: u32 = 120;
+pub const BOOST_LIGHT: u32 = 72;
 
 /// One glyph of text drawn from its outline: zoomed art for every zoom,
 /// drawn only where a view is drawn at its zoom showing zoomed art
@@ -371,7 +375,7 @@ fn subpixels(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [i32; 7] {
         }
         let mut j = 0;
         while j < 7 {
-            total[j] += clamp(row_cov.c[j] + row_cov.full * SUB, 0, SUB);
+            total[j] += clamp(row_cov.c[j] + row_cov.full * SUB, 0, SUB) * row_weight(r);
             j += 1;
         }
         r += 1;
@@ -379,11 +383,21 @@ fn subpixels(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [i32; 7] {
     total
 }
 
+/// Row `r`'s weight in a pixel's vertical filter (of [`ROW_TOTAL`]).
+fn row_weight(r: i32) -> i32 {
+    if r == 0 || r == TEXT_ROWS - 1 { ROW_EDGE } else { ROW_MIDDLE }
+}
+
+/// (Weights of the outer rows and the middle ones.)
+const ROW_EDGE: i32 = 1;
+const ROW_MIDDLE: i32 = 3;
+const ROW_TOTAL: i32 = 2 * ROW_EDGE + (TEXT_ROWS - 2) * ROW_MIDDLE;
+
 /// The LCD filter's tap `k` (0..5), in 96ths.
 fn tap(k: usize) -> i32 {
     match k {
-        0 | 4 => 3,
-        1 | 3 => 29,
+        0 | 4 => 0,
+        1 | 3 => 32,
         _ => 32,
     }
 }
@@ -405,7 +419,7 @@ pub fn boost_of(c8: u32) -> u32 {
 pub fn linear_coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [u32; 3] {
     let s = subpixels(words, p, px, py);
     let mut out = [0u32; 3];
-    let full = 96 * TEXT_ROWS * SUB;
+    let full = 96 * ROW_TOTAL * SUB;
     let mut c = 0;
     while c < 3 {
         let mut v = 0;
