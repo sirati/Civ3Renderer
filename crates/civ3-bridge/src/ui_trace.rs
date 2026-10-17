@@ -115,6 +115,31 @@ fn clip_of(canvas: u32) -> Option<[i32; 4]> {
     crate::ui::content_clip(h::canvas_clip(canvas), dirty)
 }
 
+thread_local! {
+    /// How many paints (whole compositions of the screen) are running.
+    static PAINTS: Cell<u32> = const { Cell::new(0) };
+}
+
+/// A paint running while this lives.
+struct Painting;
+
+impl Painting {
+    fn enter() -> Painting {
+        PAINTS.with(|p| p.set(p.get() + 1));
+        Painting
+    }
+
+    fn inside() -> bool {
+        PAINTS.with(Cell::get) > 0
+    }
+}
+
+impl Drop for Painting {
+    fn drop(&mut self) {
+        PAINTS.with(|p| p.set(p.get().saturating_sub(1)));
+    }
+}
+
 /// Runs `f` with `rect` (a `RECT*`, 0 for all of it) as the rectangle being
 /// updated.
 fn updating<R>(rect: u32, f: impl FnOnce() -> R) -> R {
@@ -426,6 +451,23 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(paint, sites.paint, |c| {
         emit(Event::PaintBegin);
+        let _painting = Painting::enter();
+        updating(c.rect, || c.original());
+        emit(Event::PaintEnd);
+    });
+    // Every form composed outside a paint is a paint too: a screen with
+    // a loop of its own (the victory screen at the end of a game) composes
+    // and presents itself, and its form is on the screen only that way.
+    // (Asked for one form's part, it composes all of them unless the draw
+    // list starts at a modal form.)
+    let modal_root = h::modal_draw_root(game.build);
+    hook!(compose_all, sites.compose_all, move |c| {
+        let all = c.form == 0 || modal_root.is_some_and(|at| inproc::Ptr32::<u32>::new(at).read().ok() == Some(0));
+        if !all || Painting::inside() {
+            return c.original();
+        }
+        emit(Event::PaintBegin);
+        let _painting = Painting::enter();
         updating(c.rect, || c.original());
         emit(Event::PaintEnd);
     });

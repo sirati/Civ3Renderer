@@ -151,6 +151,17 @@ inproc::fastcall_hook! {
 }
 
 inproc::cdecl_hook! {
+    /// `void compose_all(RECT *r, Base_Form *form)` (cdecl): composes the
+    /// forms shown onto the back buffer, bottom to top: all of them, or,
+    /// with `form` while the draw list starts at a modal form
+    /// ([`modal_draw_root`] set), `form` and those above it.
+    /// `Controller::paint` is this and a present; screens running a loop of
+    /// their own (the victory screen at the end of a game) call it and
+    /// present themselves (docs §16.5).
+    pub mod compose_all(rect, form) -> ();
+}
+
+inproc::cdecl_hook! {
     /// `void present(RECT *r)` (cdecl): draws the tooltip and the mouse
     /// cursor onto the back buffer and copies its rectangle `r` (screen
     /// coordinates; all of it if null) to the window. The only way the
@@ -210,6 +221,7 @@ pub struct UiSites {
     pub pcx_vline: Site,
     pub form_composite: Site,
     pub paint: Site,
+    pub compose_all: Site,
     pub present: Site,
     pub text_draw: Site,
     pub text_worker: Site,
@@ -264,6 +276,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             form_composite: (0x60_2710, &[0x83, 0xEC, 0x18, 0x55, 0x56]),
             // push esi / mov esi,[esp+8]
             paint: (0x62_C3F0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
+            // mov eax,[0CAD3C0h] / sub esp,10h
+            compose_all: (0x60_9210, &[0xA1, 0xC0, 0xD3, 0xCA, 0x00, 0x83, 0xEC, 0x10]),
             // mov eax,[0CAD2ECh]
             present: (0x60_6680, &[0xA1, 0xEC, 0xD2, 0xCA, 0x00]),
             // sub esp,8 / mov eax,[esp+0Ch] / push ebp
@@ -283,6 +297,16 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
 pub fn back_buffer(build: Build) -> Option<u32> {
     match build {
         Build::PcGames => Some(0xCA_CFF0),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// The modal form the draw list starts at, if any (`Base_Form *`; docs
+/// §16.5): while it is null, `compose_all` composes every form whatever
+/// form it is given.
+pub fn modal_draw_root(build: Build) -> Option<u32> {
+    match build {
+        Build::PcGames => Some(0xCA_D310),
         Build::Gog | Build::Steam => None,
     }
 }
