@@ -35,7 +35,16 @@ impl Presenter {
         let assets = tile_viewer::Assets::new(compiled);
         let (driver, display) = scene::connect();
         let a = assets.clone();
+        // The game's own windows stay as DPI aware as the game is (made
+        // aware, a DPI-unaware window reports its client area in the
+        // screen's pixels, and the game scales its mouse by it): only the
+        // viewer's thread has the screen's pixels.
+        let config = tile_viewer::ViewerConfig { process_dpi_aware: false, ..config };
         std::thread::Builder::new().name("civ3r-viewer".into()).spawn(move || {
+            #[cfg(windows)]
+            if !inproc::dpi::thread_per_monitor_aware() {
+                log::warn!("viewer: its thread could not be made DPI aware (its window in logical pixels)");
+            }
             if let Err(e) = tile_viewer::run(config, a, display) {
                 log::error!("viewer: {e}");
             }
@@ -180,6 +189,24 @@ impl Native {
     #[cfg(not(all(windows, target_arch = "x86")))]
     pub fn load(_fullscreen: bool) -> Result<Native, String> {
         Err("the native viewer needs a 32-bit Wine process".into())
+    }
+
+    /// The largest texture side of the native viewer's GPU (`None` if it
+    /// cannot tell, e.g. an older `civ3r_native.so`).
+    pub fn max_texture(&self) -> Option<u32> {
+        #[cfg(all(windows, target_arch = "x86"))]
+        {
+            let mut args = civ3r_native::Limits::default();
+            match self.lib.call(civ3r_native::CALL_LIMITS, &mut args) {
+                0 if args.max_texture > 0 => Some(args.max_texture),
+                status => {
+                    log::warn!("native viewer: limits: status {status:#x}");
+                    None
+                }
+            }
+        }
+        #[cfg(not(all(windows, target_arch = "x86")))]
+        None
     }
 
     fn set_assets(&mut self, wire: &scene::wire::Assets) {
