@@ -18,6 +18,7 @@ pub mod game_render;
 pub mod game_size;
 pub mod interface_parts;
 pub mod label_check;
+pub mod looks;
 pub mod minimap;
 pub mod modal;
 pub mod preload;
