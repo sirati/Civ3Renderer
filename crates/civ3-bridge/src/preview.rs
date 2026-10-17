@@ -355,8 +355,13 @@ pub fn install(game: &civ3_sys::Civ3) {
         let result = call.original();
         let name = inproc::Ptr32::<u8>::new(call.path).read_array(260).ok().map(|b| b.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>());
         log::info!("scenario preview: the game loaded {name:?} in {} ms ({result})", started.elapsed().as_millis());
-        let mut s = SELECTED.lock().unwrap_or_else(|e| e.into_inner());
-        *s = Selected { number: s.number + 1, file: name.filter(|n| !n.is_empty()), at: Some(std::time::Instant::now()) };
+        let job = {
+            let mut s = SELECTED.lock().unwrap_or_else(|e| e.into_inner());
+            *s = Selected { number: s.number + 1, file: name.filter(|n| !n.is_empty()), at: Some(std::time::Instant::now()) };
+            Job { number: s.number, file: s.file.clone() }
+        };
+        // (The preview thread starts on it at once, if it runs.)
+        ask_now(job);
         result
     });
     match hook {
@@ -440,6 +445,20 @@ fn make(install: &Path, job: &Job, superseded: &dyn Fn() -> bool, send: &mut dyn
     send(Made::Art { number, art: Box::new(art), needed, took: started.elapsed() });
 }
 
+/// How the Load Scenario hook asks the preview thread for the scenario the
+/// game just loaded (once the thread runs): its latest job and its queue.
+#[allow(clippy::type_complexity)]
+static ASKER: Mutex<Option<(Arc<std::sync::atomic::AtomicU64>, std::sync::mpsc::Sender<Job>)>> = Mutex::new(None);
+
+/// Asks the preview thread for `job` at once (none running: the publisher
+/// asks when it sees the selection).
+fn ask_now(job: Job) {
+    if let Some((latest, jobs)) = ASKER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        latest.store(job.number, std::sync::atomic::Ordering::Release);
+        let _ = jobs.send(job);
+    }
+}
+
 /// The thread making previews: the latest job only.
 struct Worker {
     latest: Arc<std::sync::atomic::AtomicU64>,
@@ -470,6 +489,7 @@ impl Worker {
                 }
             }
         })?;
+        *ASKER.lock().unwrap_or_else(|e| e.into_inner()) = Some((latest.clone(), jobs.clone()));
         Ok(Worker { latest, jobs, made })
     }
 
@@ -494,6 +514,9 @@ pub struct Previews {
     current: Option<Current>,
     /// Its unit art, to be taken (`take_art`).
     art: Option<Box<crate::units::UnitArt>>,
+    /// What came while the publisher waited ([`Previews::wait`]), not taken
+    /// yet.
+    early: Vec<Made>,
     /// For the log: when the game loaded the scenario asked for, whether
     /// its world was published yet, and the art request
     /// (`ArtSchedule::asked`) whose build brings its own art.
@@ -516,9 +539,13 @@ impl Previews {
                     Err(e) => log::error!("scenario preview: no thread for it: {e}"),
                 }
             }
-            if let Some(w) = &self.worker {
+            // (Unless the hook asked for it already.)
+            if let Some(w) = self.worker.as_ref().filter(|w| w.latest.load(std::sync::atomic::Ordering::Acquire) != number) {
                 w.ask(Job { number, file });
             }
+        }
+        for made in std::mem::take(&mut self.early) {
+            self.take(made);
         }
         while let Some(made) = self.worker.as_ref().and_then(|w| w.made.try_recv().ok()) {
             self.take(made);
@@ -569,6 +596,17 @@ impl Previews {
                     self.art = Some(art);
                 }
             }
+        }
+    }
+
+    /// Waits at most `timeout` for the preview thread to send something (the
+    /// publisher's pause between its rounds: it goes on at once when a
+    /// preview stage is ready; without the thread, the whole pause).
+    pub fn wait(&mut self, timeout: std::time::Duration) {
+        match self.worker.as_ref().map(|w| w.made.recv_timeout(timeout)) {
+            Some(Ok(made)) => self.early.push(made),
+            Some(Err(std::sync::mpsc::RecvTimeoutError::Timeout)) => {}
+            _ => std::thread::sleep(timeout),
         }
     }
 
