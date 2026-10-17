@@ -101,6 +101,13 @@ impl ArtJob {
             Work::Whole(text) => {
                 let stop = self.stop.clone();
                 let built = crate::assets::compile_growing(text, self.files, self.pixels, self.max_page, &|| stop.as_ref().is_some_and(ArtStop::superseded));
+                // The last load or atlas packing may finish after the art
+                // folders changed, without another loader call to stop it.
+                let built = if self.stop.as_ref().is_some_and(ArtStop::superseded) {
+                    Err(render_desc::DescError::Image { name: self.name.clone(), message: crate::assets::STOPPED.to_owned() })
+                } else {
+                    built
+                };
                 // (Given up: what was there is not what additions are made for.)
                 if built.as_ref().is_err_and(|e| e.to_string().contains(crate::assets::STOPPED)) {
                     *state = None;

@@ -18,6 +18,9 @@ use wine_unixlib::Buffer32;
 
 pub mod log_lines;
 
+#[cfg(target_os = "linux")]
+mod art_queue;
+
 /// Call 0. `data`: `scene::wire::encode_assets`; `flags` bit 0: fullscreen.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -86,6 +89,7 @@ mod unix_side {
     use scene::Driver;
     use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_DEVICE_BUSY, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};
 
+    use super::art_queue::ArtQueue;
     use super::*;
 
     struct Viewer {
@@ -158,7 +162,7 @@ mod unix_side {
     static ART: Mutex<Option<(render_desc::Compiled, render_desc::Growing)>> = Mutex::new(None);
 
     /// The art of `a` (a whole description) compiled, kept to be grown.
-    fn compile(a: &scene::wire::Assets) -> Result<render_desc::Compiled, String> {
+    fn compile(a: &scene::wire::Assets, stop: &dyn Fn() -> bool) -> Result<(render_desc::Compiled, render_desc::Growing), String> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
         let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
         // Pages for this GPU, the same the driver's compile of the tables
@@ -167,7 +171,7 @@ mod unix_side {
         // nothing but names and values (the atlas itself never crosses).
         let max_page = max_page();
         let started = std::time::Instant::now();
-        let (compiled, growing) = desc.compile_growing(&Civ3Loader::new(files), max_page, true).map_err(|e| e.to_string())?;
+        let (compiled, growing) = desc.compile_growing(&render_desc::StopWhen::new(Civ3Loader::new(files), stop), max_page, true).map_err(|e| e.to_string())?;
         if compiled.atlas.page_size > render_desc::DEFAULT_PAGE {
             log::info!("civ3r-native: art {}: atlas pages of {1}×{1} for a sprite of {2}", a.generation, compiled.atlas.page_size, desc.largest_sprite());
         }
@@ -182,18 +186,17 @@ mod unix_side {
             compiled.atlas.index_pages.len(),
             index >> 20
         );
-        *ART.lock().unwrap_or_else(|e| e.into_inner()) = Some((compiled.without_pixels(), growing));
-        Ok(compiled)
+        Ok((compiled, growing))
     }
 
     /// The growth of the art by `a` (an addition), applied to the tables
     /// kept.
-    fn grow(a: &scene::wire::Assets) -> Result<render_desc::Growth, String> {
+    fn grow(a: &scene::wire::Assets, stop: &dyn Fn() -> bool) -> Result<render_desc::Growth, String> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
         let mut art = ART.lock().unwrap_or_else(|e| e.into_inner());
         let Some((compiled, growing)) = art.as_mut() else { return Err("no art to grow".into()) };
         let started = std::time::Instant::now();
-        let growth = growing.grow(compiled, &a.description, &Civ3Loader::new(files)).map_err(|e| e.to_string())?;
+        let growth = growing.grow(compiled, &a.description, &render_desc::StopWhen::new(Civ3Loader::new(files), stop)).map_err(|e| e.to_string())?;
         compiled.apply(&growth);
         let (rgba, index) = growing.pages();
         log::info!(
@@ -232,7 +235,7 @@ mod unix_side {
 
     /// Art waiting for the art thread, in order (a whole description makes
     /// what waits before it obsolete).
-    static NEXT: (Mutex<std::collections::VecDeque<scene::wire::Assets>>, std::sync::Condvar) = (Mutex::new(std::collections::VecDeque::new()), std::sync::Condvar::new());
+    static NEXT: ArtQueue = ArtQueue::new();
 
     /// Compiles new art off the caller's thread (the game's publisher goes
     /// on meanwhile; the viewer draws the last scene of its old art until a
@@ -243,39 +246,46 @@ mod unix_side {
         let mut result = Ok(());
         STARTED.call_once(|| {
             result = wine_unixlib::unix::spawn_native("civ3r-native-art", || loop {
-                let a = {
-                    let mut next = NEXT.0.lock().unwrap_or_else(|e| e.into_inner());
-                    loop {
-                        if let Some(a) = next.pop_front() {
-                            break a;
-                        }
-                        next = NEXT.1.wait(next).unwrap_or_else(|e| e.into_inner());
-                    }
-                };
+                let a = NEXT.pop();
+                let stop = || NEXT.superseded(a.generation);
                 let viewer = || VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|v| v.assets.clone());
                 if a.reserve > 0 {
-                    if let Some(assets) = viewer() {
-                        assets.reserve(0, a.reserve);
-                    }
+                    NEXT.with_current(a.generation, || {
+                        if let Some(assets) = viewer() {
+                            assets.reserve(0, a.reserve);
+                        }
+                    });
                 }
-                if a.append {
-                    match grow(&a) {
-                        Ok(g) => {
+                let started = std::time::Instant::now();
+                let result = if a.append {
+                    grow(&a, &stop).map(|g| {
+                        NEXT.with_current(a.generation, || {
                             if let Some(assets) = viewer() {
                                 assets.grow(Arc::new(g), a.generation);
                             }
-                        }
-                        Err(e) => log::error!("civ3r-native: art {}: {e}", a.generation),
-                    }
+                        })
+                    })
                 } else {
-                    match compile(&a) {
-                        Ok(c) => {
+                    compile(&a, &stop).map(|(c, growing)| {
+                        let tables = c.without_pixels();
+                        let mut retired = None;
+                        let accepted = NEXT.with_current(a.generation, || {
+                            retired = ART.lock().unwrap_or_else(|e| e.into_inner()).replace((tables, growing));
                             if let Some(assets) = viewer() {
                                 assets.set(Arc::new(c), a.generation);
                             }
-                        }
-                        Err(e) => log::error!("civ3r-native: assets: {e}"),
-                    }
+                        });
+                        // Dropping the previous compile's shelves and shared
+                        // pixels must not hold up the next art request.
+                        drop(retired);
+                        accepted
+                    })
+                };
+                match result {
+                    Ok(true) => {}
+                    Ok(false) => log::info!("civ3r-native: art {} superseded while finishing after {} ms", a.generation, started.elapsed().as_millis()),
+                    Err(e) if stop() => log::info!("civ3r-native: art {} superseded after {} ms: {e}", a.generation, started.elapsed().as_millis()),
+                    Err(e) => log::error!("civ3r-native: art {}: {e}", a.generation),
                 }
                 // (Done with it, compiled or not: the bridge waits for no more.)
                 PROCESSED.fetch_max(a.generation, std::sync::atomic::Ordering::Release);
@@ -283,12 +293,7 @@ mod unix_side {
             .map(drop);
         });
         result?;
-        let mut next = NEXT.0.lock().unwrap_or_else(|e| e.into_inner());
-        if !a.append {
-            next.clear();
-        }
-        next.push_back(a);
-        NEXT.1.notify_one();
+        NEXT.push(a);
         Ok(())
     }
 
@@ -328,8 +333,11 @@ mod unix_side {
             return STATUS_INVALID_PARAMETER;
         }
         let generation = a.generation;
-        let compiled = match compile(&a) {
-            Ok(c) => Arc::new(c),
+        let compiled = match compile(&a, &|| false) {
+            Ok((c, growing)) => {
+                *ART.lock().unwrap_or_else(|e| e.into_inner()) = Some((c.without_pixels(), growing));
+                Arc::new(c)
+            }
             Err(e) => {
                 log::error!("civ3r-native: assets: {e}");
                 return STATUS_UNSUCCESSFUL;
