@@ -164,6 +164,8 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         focus_city: optional("focus_city", game.focus_city()),
         outposts: optional("outposts", game.outposts()),
         selection: optional("selection", game.selection()),
+        targeting: optional("targeting", game.targeting()),
+        goto: crate::targeting::latest_path(),
         relations: relations(game, view.player_civ),
         wall_buildings: players
             .wall_buildings
@@ -325,6 +327,8 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
     // The generated pictures of our preferences tabs (`crate::prefs`).
     text += &crate::prefs::Prefs::description();
+    // What the map shows while a command waits for its tile (`crate::targeting`).
+    text += &crate::targeting::description();
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     // The native viewer: loaded first, its GPU's limits size the atlas pages.
     let native = match mode.starts_with("native") {
@@ -367,6 +371,11 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Ok(hooks) => std::mem::forget(hooks),
             Err(e) => log::warn!("no map input while menus are open: {e}"),
         }
+    }
+    // The go-to path the map shows (`crate::targeting`, found on the
+    // game's thread).
+    if let Err(e) = crate::targeting::install(game) {
+        log::warn!("no go-to paths: {e}");
     }
     // Which system pointer the game sets (busy, resizing).
     match inproc::pointer::hook_set_cursor(inproc::pe::main_module()) {
@@ -852,6 +861,11 @@ fn publish(
             }
             _ => Vec::new(),
         };
+        // The go-to path's turn count (§10.14), with the world as the labels.
+        let target_items = match shown {
+            Shown::Map(world, view) => crate::targeting::label_items(world, view.zoomed_out, &mut label_env),
+            _ => Vec::new(),
+        };
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
             // (The game's own view as the viewer shows it.)
@@ -923,6 +937,10 @@ fn publish(
         if ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files) {
             recompile = true;
             wanted_for.push("city labels");
+        }
+        if ui_screen::add_art(&target_items, &mut screen_art, &mut fonts, &files) {
+            recompile = true;
+            wanted_for.push("go-to turns");
         }
         // Art the description does not have yet: units, text fonts.
         let units_world = match shown {
@@ -1092,6 +1110,10 @@ fn publish(
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));
                 }
+                // Choosing a target (§10.14): ours, whether or not the game
+                // draws its map.
+                scene.sprites.extend(crate::targeting::range_sprites(world, &compiled, view.zoomed_out));
+                scene.sprites.extend(crate::targeting::sprites(world, view.zoomed_out, &mut art, &compiled));
                 // The point of interest: the active unit.
                 // (In the game view's pixels: halved zoomed out; the sprites
                 // stay at full size, the renderer halves them.)
@@ -1136,6 +1158,19 @@ fn publish(
             }
         }
         scene.sprites.extend(labels);
+        // The go-to path's turn count, over the fog, under the units (laid
+        // out as the labels).
+        let under_units = units::unit_passes(&compiled).1;
+        let mut turns: Vec<_> = ui_screen::sprites(&target_items, &fonts, &compiled, under_units, outlines)
+            .into_iter()
+            .map(|s| scene::FreeSprite { screen: false, clip: None, ..s })
+            .collect();
+        if let Shown::Map(_, view) = shown {
+            if view.zoomed_out {
+                crate::scene_map::from_zoomed_out(&mut turns);
+            }
+        }
+        scene.sprites.extend(turns);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
