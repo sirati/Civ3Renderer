@@ -215,7 +215,9 @@ mod unix_side {
             title: "Civ III (native renderer)".into(),
             size: (1024, 768),
             fullscreen: args.flags & 1 != 0,
-            overhang: (0, 128, 0, 128),
+            // (As `civ3_bridge::scene_map::OVERHANG`: tall art above and
+            // below, units' frames and an army's banner to the sides.)
+            overhang: (128, 128, 128, 128),
             ..Default::default()
         };
         let a = assets.clone();

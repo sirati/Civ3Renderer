@@ -173,7 +173,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             let size = viewport(args)?;
             let scene = trace_scene(&trace, &compiled, art.as_mut(), size);
             let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-            let config = tile_viewer::ViewerConfig { overhang: (0, 64, 0, 64), ..Default::default() };
+            let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
             let img = tile_viewer::render_offscreen(&gpu, &compiled, &scene, size, &config);
             image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8)
                 .map_err(|e| e.to_string())?;
@@ -391,7 +391,7 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     let (compiled, mut art) = compile(Some(trace))?;
     let scene = trace_scene(trace, &compiled, art.as_mut(), viewport);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-    let config = tile_viewer::ViewerConfig { overhang: (0, 128, 0, 128), ..Default::default() };
+    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
     let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, viewport, &config);
     // The map alone: the pixels no unit, label or interface sprite of ours
     // covers are the terrain's (layers of the world: terrain, objects,
