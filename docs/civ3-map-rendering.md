@@ -1395,6 +1395,51 @@ The background (1024x768) has three dark panels with the checkboxes baked in (le
 
 Which screen is open: a composed form with vtable 0x66E628 (`ui::Frame::forms`), and where: the draw of `x_pref background.pcx` among its draws (its screen position minus its source offset is the background's top-left), else the form's canvas centred. The bridge draws its own tabs ("Resolution", "Layout") over this screen (`civ3_bridge::prefs`).
 
+### 16.12 Screens and HUD buttons the viewer places
+
+The viewer places some of the game's screens in one of its views and keeps the corner buttons in the view the pointer is in (`scene::Interface`). The bridge identifies them in the composited forms (`ui::Frame::forms`: vtable, canvas, origin, size), from the static code of the PCGames build (`Civ3Conquests-Unmodded.exe`, `.rdata` 0x665000/0x1A400) [X] and C3X's `civ_prog_objects.csv` (GOG, Steam, PCG columns) [H]. GOG's vtables equal PCGames' (the csv gives the same vptrs for every `.rdata` entry); GOG's globals from 0x7409C0 to 0xCAA2F0 are PCGames' + 0x40 [H]. No GOG or Steam executable was at hand: their values rest on the csv deltas. `civ3_sys::ui_hooks::screen_forms` and `hud_buttons` hold them.
+
+**Function keys** [X]. `Main_Screen_Form` m82 (vptr 0x66B520) is 0x4E0670; it handles Tab and passes the rest to 0x6087D0. The F-keys are in `handle_key_down` 0x4E06B0: at 0x4E0AEE `sub vk,0x70` and a jump table at 0x4E2248 (F1-F11).
+- F1-F6 (0x4E0B56-0x4E0BDD): `mov ecx,0x9AFD58; push kind; call 0x49D100` (`Advisor_GUI_open`), kind 0-5: domestic, trade, military, foreign, cultural, science. Shift+F1 calls 0x4E3740 instead. The `Advisor_GUI` (vtable 0x6688B8, canvas 0x9AFFCC) is the advisors' common background; each advisor is a form of its own class, composited with it.
+- F7: `mov ecx,0xCA7C90; call 0x5D07C0` (Wonders of the World; 0x5D0440 loads `art\Advisors\wonders_background.pcx`, `WondersBox.pcx`, `WONDER_WIN`). Not vtable 0x66FE08: that is the wonder-completion splash (`art\wonder splash\wonderBackground.pcx`).
+- F8: `mov ecx,0xB30208; call 0x545F10` (Histograph; `art\histograph-top5_final.pcx`).
+- F9: `mov ecx,0xB6DDF8; push 0xB71248 + player·0xB0; call 0x57C600` (palace view; `text\PalaceView.txt`, `art\PalaceView\`, `PALACE_INSTRUCTIONS`), skipped while byte [0x9C5B02] is set.
+- F10: `mov ecx,0xC90E40; push 0; call 0x5A3610` (spaceship). F11: `mov ecx,0xA32B90; call 0x4FD0E0` (demographics).
+
+Each global screen is built by a static initializer (`mov ecx,obj; call ctor`); the constructor writes the vtable to `[esi]` and the canvas' own vtable to `[esi+0x274]`:
+
+| Screen (settings name) | vtable (PCG = GOG) | object PCG | Steam vtable | evidence |
+|---|---|---|---|---|
+| Domestic advisor (F1) | 0x66C270 | (in `Advisor_GUI`) | 0x68935C | csv `Advisor_Base_Form_domestic_m95` vptr − 0x17C (slot 95) |
+| Trade (F2) | 0x66F750 | | 0x68C80C | csv, as F1 |
+| Military (F3) | 0x66DF50 | | 0x68B03C | csv |
+| Foreign (F4) | 0x66C930 | | 0x689A20 | csv |
+| Cultural (F5) | 0x66BBC0 | | 0x688CB8 | csv; §16.5 |
+| Science (F6) | 0x66F420 | | 0x68C4DC | csv |
+| Wonders (F7) | 0x66FF98 | 0xCA7C90 | ? | ctor 0x5D0210 (vtable write 0x5D0289) |
+| Histograph (F8) | 0x66D380 | 0xB30208 | ? | ctor 0x541CA0 (0x541D2B) |
+| City screen (City) | 0x6658B0 | 0x7409C0 | 0x682914 | csv `City_Form_m82` vptr − 0x148; traces |
+| Palace view (Palace) | 0x66E0F8 | 0xB6DDF8 | ? | ctor 0x57B020 (0x57B0BA) |
+| Espionage (Spy) | 0x66C5E0 | 0xA422B8 | 0x6896D0 | csv `Espionage_Form_m22_Draw` vptr − 0x58 |
+| Game menu (Menu) | 0x66DD80 | 0xB429F0 | ? | ctor 0x56C6E0 (0x56C720); traces: 364×266 |
+| Civilopedia (Help) | 0x66B0A8 | 0x9E85B0 | 0x6881A8 | csv `Civilopedia_Form_m22_Draw` vptr − 0x58 |
+
+The game menu is what the HUD's menu button opens: `Main_GUI_handle_button_press` 0x5577A0 (jump table 0x557DD0), button id 0x31 at 0x557A94: `mov ecx,0xB429F0; call 0x56C760`, a popup-derived global with text key `GMENU_MAIN` (`script.txt`) run modally (0x611460); its m22 is the generic popups' 0x613AE0. Ctrl+M opens the same (0x4E174E). Escape on the map does not open it: 0x4E08F3 calls 0x4DFEF0, which builds a popup on the stack (vtable 0x666408, the generic one) with key `REALLYQUIT`, so it cannot be told from other popups.
+
+**HUD buttons** [X; offsets from `Civ3Conquests.h` compiled with `gcc -m32`]. `Main_GUI` is at 0x9FDB10 (GOG 0x9FDB50, Steam 0xA20350). Every button is a `Button` (vtable 0x6656C0, 0x6D4 bytes) with its own canvas at +0x274:
+
+| Field | Offset | Canvas PCG | Button id | Position at 1920×1080 [D] |
+|---|---|---|---|---|
+| `Advisors_Btn` | 0x845C | 0xA061E0 | 0x33 | (94, 12) 34×30 |
+| `Menu_Btn` | 0x8B30 | 0xA068B4 | 0x31 | (21, 12) 36×30 |
+| `Geography_Btn` | 0x9204 | 0xA06F88 | 0x2A | (12, 1007) 15×15 |
+| `Civilopedia_Btn` | 0x98D8 | 0xA0765C | 0x32 | (57, 12) 36×30 |
+| `Unit_Command_Buttons[42]` | 0x16CE4 | 0xA14A68, every 0x6DC | | 32×32, two rows above the bottom middle |
+
+The top-left corner's three buttons are menu, Civilopedia and advisors. The unit's orders are `Command_Button`s (0x6DC bytes: a `Button` and its command); the constructor builds the array at 0x558AA9 (`push 0x2A; push 0x6DC; lea ecx,[esi+0x16CE4]`, element ctor 0x558BC0, which only calls the `Button` ctor 0x609E70: no vtable of their own). Only the orders the unit has are composited (10 in the traces, x 836-1092, y 966-1062 at 1920×1080).
+
+**Popups.** An open popup is the modal form (0xCAD384, `civ3_sys::modal`) when it is none of the screens above; its draws are those composited from it on (its children and what the game draws over it afterwards, e.g. the cursor).
+
 ---
 
 ## 17. Minimap

@@ -11,6 +11,7 @@ pub mod city_site;
 pub mod district_art;
 pub mod districts;
 pub mod edge;
+pub mod interface_parts;
 pub mod label_check;
 pub mod minimap;
 pub mod modal;
