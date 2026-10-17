@@ -9,7 +9,8 @@
 //! tile *means* for rendering) is the business of the crates above.
 // No unsafe code of our own; the hook declarations in `hooks` expand
 // `inproc::fastcall_hook!`, whose generated trampolines are the exception,
-// and so are the call-site hooks and foreign functions in `modal`.
+// and so are the call-site hooks and foreign functions in `modal` and the
+// hook in `menus`.
 #![deny(unsafe_code)]
 
 pub mod build;
@@ -20,6 +21,7 @@ pub mod controls;
 pub mod cursor;
 pub mod hooks;
 pub mod layout;
+pub mod menus;
 pub mod modal;
 pub mod sprites;
 pub mod ui_hooks;
