@@ -8,6 +8,9 @@
 //!       renders the trace's world on the GPU
 //!   civ3-tool stats TRACE
 //!       how big the atlas compiled for the trace is
+//!   civ3-tool preview SCENARIO.biq OUT.png [--viewport WxH]
+//!       renders a scenario's world as the Load Scenario screen previews it
+//!       (beside the screen's place, left empty)
 //!   civ3-tool pixeldiff TRACE GAME.png [DIFF.png]
 //!       renders the trace's world and compares it with a screenshot of the
 //!       game taken at the same moment, ignoring the screen rectangles of
@@ -238,6 +241,10 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             println!("minimap: {same} of {} pixels identical ({pct:.2}%); {white} of the others white in the game", w * h);
             Ok(ExitCode::SUCCESS)
         }
+        Some("preview") => {
+            let usage = "preview SCENARIO.biq OUT.png [--viewport WxH]";
+            preview(args.get(1).ok_or(usage)?, args.get(2).ok_or(usage)?, viewport(args)?)
+        }
         Some("labels") => {
             let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
             let paths: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with('-')).collect();
@@ -246,8 +253,41 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             }
             labels(&paths, verbose)
         }
-        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | pixeldiff TRACE GAME.png [DIFF.png] | minimap TRACE GAME.png | labels TRACE... [-v]  [--viewport WxH]".into()),
+        _ => Err("usage: civ3-tool drawdiff TRACE | render TRACE OUT.png | preview SCENARIO.biq OUT.png | pixeldiff TRACE GAME.png [DIFF.png] | minimap TRACE GAME.png | labels TRACE... [-v]  [--viewport WxH]".into()),
     }
+}
+
+/// Renders the world of scenario `file` as the Load Scenario screen previews
+/// it (`ifc23::preview`), beside the screen's place (a 1024×768 dialog in
+/// the middle of the window, left empty), as the viewer arranges it.
+fn preview(file: &str, out: &str, size: (u32, u32)) -> Result<ExitCode, String> {
+    let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+    let desc_path = std::env::var("CIV3_DESC").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/civ3/civ3.toml").into());
+    let mut text = std::fs::read_to_string(&desc_path).map_err(|e| format!("{desc_path}: {e}"))?;
+    let p = ifc23::preview::load(install.as_ref(), file).map_err(|e| e.to_string())?;
+    let files = || assets::game_files(install.as_ref(), p.scenario_folder.as_deref(), &p.search_folders);
+    let mut art = units::UnitArt::new(files());
+    text.push_str(&units::Needed::still(&p.world, &mut art).description());
+    let mut env = ifc23::city_labels::FileEnv::new(Box::new(files()));
+    let labels = ifc23::preview::label_items(&p.world, &mut env);
+    let items: Vec<ui_screen::Item> = labels.iter().flat_map(|(_, items)| items.iter().cloned()).collect();
+    let (mut screen, mut fonts) = (menu::screen::ScreenArt::default(), text::Fonts::default());
+    ui_screen::add_art(&items, &mut screen, &mut fonts, &files());
+    text.push_str(&fonts.description());
+    text.push_str(&ui_screen::description(&screen));
+    let compiled = assets::compile(&text, files()).map_err(|e| e.to_string())?;
+    let dialog = [(size.0 as i32 - 1024) / 2, (size.1 as i32 - 768) / 2, 1024, 768];
+    let n = ifc23::preview::downscale(&p.world, (size.0 as i32 - dialog[2], size.1 as i32));
+    let mut scene = ifc23::preview::scene(&p.world, n, &Mapper::new(&compiled), &mut art, &compiled, &labels, &fonts);
+    scene.interface.beside = Some(scene::Beside { screen: dialog, edge: scene::Edge::Left });
+    ifc23::scene_map::overlay_screen_sprites(&mut scene);
+    let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
+    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+    let img = tile_viewer::render_arranged(&gpu, &compiled, &scene, size, &config);
+    image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
+    let w = &p.world;
+    println!("{out}: {}x{} map shown 1/{n}, {} cities, {} units", w.width, w.height, w.cities.len(), w.units.len());
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Compares the city labels our rules draw with the game's own, per dump (see

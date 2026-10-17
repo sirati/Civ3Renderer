@@ -1,0 +1,543 @@
+//! The world of the scenario highlighted on the game's Load Scenario
+//! screen, shown beside it (docs §19).
+//!
+//! The screen loads the highlighted scenario into the game's tables to show
+//! its players, description and map size (`civ3_sys::menus`); a hook on
+//! that call tells us which file it is. We read the file ourselves
+//! (`civ3_assets::biq`) and make a world of it as a nation that does not
+//! exist would see it if it knew the whole map: every tile the scenario
+//! defines, no fog of war, no player's highlights, no active unit.
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use civ3_assets::biq::{Biq, Map, Owner, Player, Rules};
+
+use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3World, IconBuilding, WallBuilding};
+
+/// A scenario's world, ready to show.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preview {
+    /// The file, as the game named it.
+    pub file: String,
+    pub world: Arc<Civ3World>,
+    /// Where the game would look for the scenario's art: its own folder
+    /// (the file's path without the extension) and its search folders.
+    pub scenario_folder: Option<String>,
+    pub search_folders: Vec<String>,
+}
+
+/// Why a scenario shows no world.
+#[derive(Debug, thiserror::Error)]
+pub enum PreviewError {
+    #[error("{0}: {1}")]
+    Read(PathBuf, std::io::Error),
+    #[error("{0}: no map of its own (the game makes one)")]
+    NoMap(PathBuf),
+    #[error("no rules: {0}")]
+    Rules(String),
+}
+
+/// The game's own rules (`Conquests/conquests.biq`), for scenarios without
+/// theirs; read once.
+fn default_rules(install: &Path) -> Result<Arc<Rules>, PreviewError> {
+    static RULES: OnceLock<Mutex<Option<Arc<Rules>>>> = OnceLock::new();
+    let cell = RULES.get_or_init(|| Mutex::new(None));
+    let mut slot = cell.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(r) = slot.as_ref() {
+        return Ok(r.clone());
+    }
+    let path = install.join("Conquests").join("conquests.biq");
+    let biq = Biq::open(&path).map_err(|e| PreviewError::Read(path.clone(), e))?;
+    let rules = Arc::new(biq.rules().ok_or_else(|| PreviewError::Rules(format!("{path:?} has none")))?);
+    *slot = Some(rules.clone());
+    Ok(rules)
+}
+
+/// The file `name` (as the game passed it: absolute, or relative to its
+/// working folder or to the install).
+fn resolve(install: &Path, name: &str) -> PathBuf {
+    let native = name.replace('\\', std::path::MAIN_SEPARATOR_STR);
+    let path = PathBuf::from(&native);
+    if path.is_absolute() || path.exists() {
+        return std::path::absolute(&path).unwrap_or(path);
+    }
+    [install.join("Conquests"), install.to_path_buf()].into_iter().map(|b| b.join(&native)).find(|p| p.exists()).unwrap_or(path)
+}
+
+/// The scenario's own art folder as the game names it (relative to the
+/// install, the extension dropped, e.g. `Conquests\9 WWII in the Pacific\`).
+fn scenario_folder(install: &Path, file: &Path) -> Option<String> {
+    let stem = file.with_extension("");
+    let rel = stem.strip_prefix(install).ok()?;
+    let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    // (The game's folders are relative to the install's Conquests folder.)
+    let parts = match parts.split_first() {
+        Some((first, rest)) if first.eq_ignore_ascii_case("Conquests") => rest.to_vec(),
+        _ => parts,
+    };
+    (!parts.is_empty()).then(|| parts.join("\\") + "\\")
+}
+
+/// Reads the scenario `name` the game highlighted.
+pub fn load(install: &Path, name: &str) -> Result<Preview, PreviewError> {
+    let path = resolve(install, name);
+    let biq = Biq::open(&path).map_err(|e| PreviewError::Read(path.clone(), e))?;
+    let map = biq.map().ok_or_else(|| PreviewError::NoMap(path.clone()))?;
+    let rules = match biq.rules() {
+        Some(r) => Arc::new(r),
+        None => default_rules(install)?,
+    };
+    let world = world(&map, &biq.players(), &rules);
+    Ok(Preview { file: name.to_owned(), world: Arc::new(world), scenario_folder: scenario_folder(install, &path), search_folders: biq.search_folders() })
+}
+
+/// One of the world's civilizations, numbered as the world counts them.
+#[derive(Copy, Clone, Debug)]
+struct Civ {
+    race: i32,
+    color: i32,
+    era: i32,
+    government: i32,
+}
+
+/// The scenario's civilizations: the barbarians (0), then its players in
+/// order (the game numbers them only when the scenario starts), then any
+/// race that owns something without being a player.
+struct Civs {
+    list: Vec<Civ>,
+}
+
+impl Civs {
+    fn new(players: &[Player], rules: &Rules) -> Civs {
+        let race_color = |race: i32| usize::try_from(race).ok().and_then(|r| rules.races.get(r)).map_or(0, |r| r.default_color);
+        let mut list = vec![Civ { race: 0, color: 0, era: 0, government: -1 }];
+        for p in players.iter().take(31) {
+            let color = if p.custom { p.color } else { race_color(p.race) };
+            list.push(Civ { race: p.race, color, era: if p.custom { p.initial_era } else { 0 }, government: if p.custom { p.government } else { -1 } });
+        }
+        Civs { list }
+    }
+
+    /// The civ playing `race` (a new one if none does yet).
+    fn of_race(&mut self, race: i32, rules: &Rules) -> i32 {
+        if race == 0 {
+            return 0;
+        }
+        if let Some(i) = self.list.iter().position(|c| c.race == race) {
+            return i as i32;
+        }
+        if self.list.len() >= 32 {
+            return 0;
+        }
+        let color = usize::try_from(race).ok().and_then(|r| rules.races.get(r)).map_or(0, |r| r.default_color);
+        self.list.push(Civ { race, color, era: 0, government: -1 });
+        self.list.len() as i32 - 1
+    }
+
+    fn of(&mut self, owner: Owner, rules: &Rules) -> i32 {
+        match owner {
+            Owner::None | Owner::Barbarians => 0,
+            Owner::Player(p) if (0..31).contains(&p) && (p as usize + 1) < self.list.len() => p + 1,
+            Owner::Player(_) => 0,
+            Owner::Race(r) => self.of_race(r, rules),
+        }
+    }
+}
+
+/// `Tile.Overlays` bit of a road (docs §6.6): every city tile has one.
+const ROAD: u32 = 1;
+
+/// The world of a scenario's map as a nation that does not exist sees it:
+/// it has explored every tile and sees all of them now (no fog of war),
+/// owns nothing and has no unit; every resource shows.
+pub fn world(map: &Map, players: &[Player], rules: &Rules) -> Civ3World {
+    let mut civs = Civs::new(players, rules);
+    let cities: Vec<Civ3City> = map
+        .cities
+        .iter()
+        .enumerate()
+        .map(|(id, c)| {
+            let mut improvements = [0u8; 32];
+            for &b in c.buildings.iter().filter(|b| (0..256).contains(*b)) {
+                improvements[b as usize >> 3] |= 1 << (b & 7);
+            }
+            // Walls the city has without the building (a scenario setting).
+            let walls = rules.buildings.iter().position(|b| b.bombard_defence > 0);
+            if let (true, Some(w)) = (c.has_walls, walls) {
+                if !c.buildings.iter().any(|&b| rules.buildings.get(b.max(0) as usize).is_some_and(|b| b.bombard_defence > 0)) {
+                    improvements[w >> 3] |= 1 << (w & 7);
+                }
+            }
+            Civ3City { id: id as i32, x: c.x, y: c.y, civ: civs.of(c.owner, rules), size: c.size, improvements, name: c.name.clone(), ..Default::default() }
+        })
+        .collect();
+    // The capitals: the cities with a palace.
+    let mut capitals = vec![-1; 32];
+    for (c, src) in cities.iter().zip(&map.cities) {
+        if src.has_palace {
+            capitals[c.civ.clamp(0, 31) as usize] = c.id;
+        }
+    }
+    // One unit shown per tile: the best defender, as the game shows a stack.
+    let defence = |t: i32| usize::try_from(t).ok().and_then(|t| rules.unit_types.get(t)).map_or(0, |u| u.defence);
+    let mut top: std::collections::BTreeMap<(i32, i32), usize> = std::collections::BTreeMap::new();
+    for (i, u) in map.units.iter().enumerate() {
+        let best = top.entry((u.y, u.x)).or_insert(i);
+        if defence(u.unit_type) > defence(map.units[*best].unit_type) {
+            *best = i;
+        }
+    }
+    let units = top
+        .values()
+        .map(|&i| {
+            let u = &map.units[i];
+            Civ3Unit {
+                id: i as i32,
+                x: u.x,
+                y: u.y,
+                civ: civs.of(u.owner, rules),
+                unit_type: u.unit_type,
+                experience: u.experience,
+                container: -1,
+                // Idle, facing the viewer, at the tile's centre (§10).
+                pixel: (64 * u.x + 64, 32 * u.y + 32),
+                direction: 3,
+                animation: 1,
+                visible: true,
+                ..Default::default()
+            }
+        })
+        .collect();
+    let outposts = map
+        .colonies
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.kind == 3)
+        .map(|(i, c)| (i as i32, civs.of(c.owner, rules)))
+        .collect();
+    let tiles = map
+        .tiles
+        .iter()
+        .map(|t| Civ3Tile {
+            square_type: u32::from(t.terrain) << 8,
+            square_parts: u16::from(t.texture_file) << 8 | u16::from(t.texture_location),
+            overlays: t.overlays | if t.city >= 0 { ROAD } else { 0 },
+            terrain_overlays: t.bonuses << 16,
+            river: t.river,
+            resource: t.resource,
+            owner: t.border_race().map_or(0, |r| civs.of_race(r, rules)) as i8,
+            city: t.city,
+            // Explored and in sight of everyone (no fog of war).
+            fow_status: u32::MAX,
+            explored: u32::MAX,
+            victory_location: t.victory_location,
+            building: Some(t.colony).filter(|&c| c >= 0),
+            ruins: t.ruin,
+            city_area: -1,
+            continent: t.continent,
+            ..Default::default()
+        })
+        .collect();
+    // The viewer: a civ that does not exist (the first number no civ has).
+    let player = if civs.list.len() < 32 { civs.list.len() as i32 } else { 0 };
+    let n = 32;
+    let column = |f: fn(&Civ) -> i32, missing: i32| -> Vec<i32> { (0..n).map(|i| civs.list.get(i).map_or(missing, f)).collect() };
+    let mut eras = column(|c| c.era, 0);
+    // The viewer's era (fortresses, colonies): the scenario's latest.
+    eras[player as usize] = civs.list.iter().map(|c| c.era).max().unwrap_or(0).clamp(0, 3);
+    let race = |r: i32| usize::try_from(r).ok().and_then(|r| rules.races.get(r));
+    Civ3World {
+        player,
+        resource_icons: rules.resources.iter().map(|r| r.icon).collect(),
+        resource_visible: vec![true; rules.resources.len()],
+        eras,
+        color_tables: column(|c| c.color, 0),
+        capitals,
+        races: column(|c| c.race, -1),
+        culture_groups: rules.races.iter().map(|r| r.culture_group).collect(),
+        max_town: rules.max_town,
+        max_city: rules.max_city,
+        civ_adjectives: (0..n).map(|i| civs.list.get(i).and_then(|c| race(c.race)).map_or(String::new(), |r| r.adjective.clone())).collect(),
+        governments: column(|c| c.government, -1),
+        wall_buildings: rules
+            .buildings
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.bombard_defence > 0)
+            .map(|(id, b)| WallBuilding { id: id as i32, government: b.government, obsolete_for: 0 })
+            .collect(),
+        icon_buildings: rules
+            .buildings
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.flags & civ3_sys::IconBuilding::FLAGS != 0)
+            .map(|(id, b)| IconBuilding { id: id as i32, flags: b.flags & civ3_sys::IconBuilding::FLAGS, obsolete_for: 0 })
+            .collect(),
+        cities,
+        outposts,
+        units,
+        unit_type_keys: rules.unit_types.iter().map(|u| u.key.clone()).collect(),
+        era_keys: rules.eras.iter().map(|e| e.key.clone()).collect(),
+        // (No unit statistics: the units show without health bars, LEDs or
+        // stack lines, which keep their size in a world shown small.)
+        width: map.width,
+        height: map.height,
+        wrap_x: map.flags & 1 != 0,
+        wrap_y: map.flags & 2 != 0,
+        seed: map.seed as u32,
+        flags: map.flags,
+        tiles,
+        ..Default::default()
+    }
+}
+
+/// The scenario the Load Scenario screen last loaded for its preview, and
+/// how many it has loaded (`selected`).
+static SELECTED: Mutex<(u64, Option<String>)> = Mutex::new((0, None));
+
+/// The file the Load Scenario screen last highlighted, numbered (a new
+/// number whenever it loads one, also the same again).
+pub fn selected() -> (u64, Option<String>) {
+    SELECTED.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Follows the Load Scenario screen's preview loads
+/// (`civ3_sys::menus::scenario_preview`); the hook stays for the life of
+/// the process.
+#[cfg(windows)]
+pub fn install(game: &civ3_sys::Civ3) {
+    use civ3_sys::menus;
+    let Some((site, bytes)) = menus::scenario_preview_site(game.build) else {
+        return log::info!("scenario preview: not known for this build");
+    };
+    let hook = menus::scenario_preview::install_call_site(site, &bytes, |call| {
+        let result = call.original();
+        let name = inproc::Ptr32::<u8>::new(call.path).read_array(260).ok().map(|b| b.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>());
+        log::debug!("scenario preview: the game loaded {name:?} ({result})");
+        let mut s = SELECTED.lock().unwrap_or_else(|e| e.into_inner());
+        *s = (s.0 + 1, name.filter(|n| !n.is_empty()));
+        result
+    });
+    match hook {
+        Ok(h) => std::mem::forget(h),
+        Err(e) => log::warn!("scenario preview: not following the Load Scenario screen: {e}"),
+    }
+}
+
+/// The scenario previewed: the one last loaded for the Load Scenario
+/// screen, read again whenever the screen loads one.
+#[derive(Default)]
+pub struct Previews {
+    seen: u64,
+    current: Option<Preview>,
+}
+
+impl Previews {
+    /// The world of the scenario the screen shows now (`None`: none, or one
+    /// without a map of its own).
+    pub fn update(&mut self, install: &Path) -> Option<&Preview> {
+        let (n, file) = selected();
+        if n != self.seen {
+            self.seen = n;
+            let started = std::time::Instant::now();
+            self.current = file.and_then(|f| {
+                load(install, &f)
+                    .inspect(|p| {
+                        let w = &p.world;
+                        log::info!(
+                            "scenario preview: {f}: {}x{} map, {} cities, {} units shown, art {:?} {:?} ({} ms)",
+                            w.width,
+                            w.height,
+                            w.cities.len(),
+                            w.units.len(),
+                            p.scenario_folder,
+                            p.search_folders,
+                            started.elapsed().as_millis()
+                        )
+                    })
+                    .inspect_err(|e| log::info!("scenario preview: {e}"))
+                    .ok()
+            });
+        }
+        self.current.as_ref()
+    }
+}
+
+/// The Load Scenario screen's rectangle (x, y, w, h), while `frame` shows it.
+pub fn screen(frame: &crate::ui::Frame, build: civ3_sys::Build) -> Option<[i32; 4]> {
+    let form = civ3_sys::menus::load_scenario_form(build)?;
+    let (_, _, (x, y), (w, h)) = *frame.forms.iter().rev().find(|f| f.0 == form)?;
+    Some([x, y, w, h])
+}
+
+/// The game's view of a preview world: all of it (the viewer fits it
+/// beside the screen, `scene::Beside`).
+pub fn view(world: &Civ3World) -> crate::world::Civ3View {
+    crate::world::Civ3View { camera_x: 0, camera_y: 0, tile_x: (-2, world.width + 2), tile_y: (-2, world.height + 2), zoomed_out: false }
+}
+
+/// How many times smaller a preview world is shown (`View::downscale`) in
+/// `room` (pixels): a power of two (the map's 64×32 grid steps divide by it)
+/// at which the whole map is nearest to filling the room either way (the
+/// viewer zooms the rest, `scene::Beside`). The city labels are laid out
+/// for it ([`place_label`]).
+pub fn downscale(world: &Civ3World, room: (i32, i32)) -> u32 {
+    let (w, h) = ((64 * world.width.max(1) + 64) as f64, (32 * world.height.max(1) + 64) as f64);
+    let (rw, rh) = (room.0.max(1) as f64, room.1.max(1) as f64);
+    // The zoom that fits the map shown n times smaller, and how far from 1.
+    let off = |n: u32| {
+        let z = (rw / (w / n as f64)).min(rh / (h / n as f64));
+        if z >= 1.0 { z } else { 1.0 / z }
+    };
+    [1, 2, 4, 8, 16, 32].into_iter().min_by(|&a, &b| off(a).total_cmp(&off(b))).unwrap_or(1)
+}
+
+/// Places the sprites of a city label laid out at full size for the city
+/// of tile (x, y) so that it keeps its size beside the city in a world shown
+/// `n` times smaller (the renderer divides world positions by `n`): moved
+/// with the tile's bottom corner, its parts as far from it as before.
+pub fn place_label(sprites: &mut [scene::FreeSprite], (x, y): (i32, i32), n: u32) {
+    let n = n.max(1) as i32;
+    let anchor = (64 * x + 64, 32 * y + 64);
+    for s in sprites.iter_mut().filter(|s| !s.screen) {
+        s.x = anchor.0 + (s.x - anchor.0) * n;
+        s.y = anchor.1 + (s.y - anchor.1) * n;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_label_keeps_its_size_beside_its_city_in_a_world_shown_smaller() {
+        let mut s = vec![scene::FreeSprite { x: 64 * 7 + 64 - 30, y: 32 * 25 + 66, ..Default::default() }];
+        place_label(&mut s, (7, 25), 8);
+        // Divided by 8 by the renderer: 30 left of the tile's bottom corner,
+        // 2 below it, as at full size.
+        let (cx, cy) = ((64 * 7 + 64) / 8, (32 * 25 + 64) / 8);
+        assert_eq!((s[0].x / 8, s[0].y / 8), (cx - 30, cy + 2));
+    }
+
+    /// WWII in the Pacific as the screen previews it (with an installation at
+    /// `CIV3_INSTALL`).
+    #[test]
+    fn a_scenario_as_a_nation_that_knows_its_map_sees_it() {
+        let install = PathBuf::from(std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into()));
+        if !install.is_dir() {
+            return eprintln!("no Civ III install, skipped");
+        }
+        let p = load(&install, "Conquests\\9 WWII in the Pacific.biq").unwrap();
+        assert_eq!(p.scenario_folder.as_deref(), Some("Conquests\\9 WWII in the Pacific\\"));
+        assert_eq!(p.search_folders, ["WWII in the Pacific"]);
+        let w = &p.world;
+        // Barbarians, five players, and the viewer: the first civ there is not.
+        assert_eq!(w.player, 6);
+        assert!(w.tiles.iter().all(|t| w.visible_now(t) && t.explored & (1 << w.player) != 0));
+        // China is the fourth player (LEAD 3): civ 4, colour table 3, its
+        // cities, borders and capital (Chunking has the palace).
+        let lanchow = &w.cities[0];
+        assert_eq!((lanchow.name.as_str(), lanchow.civ), ("Lanchow", 4));
+        assert_eq!(w.color_tables[4], 3);
+        assert_eq!(w.tile(7, 25).map(|t| (t.owner, t.city, t.overlays & ROAD)), Some((4, 0, ROAD)));
+        assert_eq!(w.capitals[4], 3);
+        assert_eq!(w.civ_adjectives[4], "Chinese");
+        assert_eq!(w.eras[w.player as usize], 3);
+        // The stray tile's tile: a mountain on grassland.
+        assert_eq!(w.tile(0, 0).map(|t| (t.real_terrain(), t.terrain())), Some((2, 6)));
+        // One unit per tile with units, none selected or active.
+        let tiles: std::collections::BTreeSet<(i32, i32)> = w.units.iter().map(|u| (u.x, u.y)).collect();
+        assert_eq!(tiles.len(), w.units.len());
+        assert!(w.selection.is_none() && w.current_unit.is_none() && w.unit_type_stats.is_empty());
+    }
+
+    #[test]
+    fn the_downscale_fits_the_map_into_the_room() {
+        let world = |w, h| Civ3World { width: w, height: h, ..Default::default() };
+        // WWII in the Pacific beside the dialog at 1920×1080: 8 (16 would
+        // show it half as big as the room).
+        assert_eq!(downscale(&world(136, 120), (892, 1080)), 8);
+        assert_eq!(downscale(&world(10, 10), (892, 1080)), 1);
+        assert_eq!(downscale(&world(362, 362), (300, 200)), 32);
+    }
+}
+
+/// The labels of a preview world's cities: the name only, in the owner's
+/// label colour over a shadow, centred below the city (the game's own
+/// labels, with their plates and icons, would cover a map shown this small).
+/// Laid out at full size like the game's ([`place_label`] keeps them so).
+pub fn labels(world: &Civ3World, env: &mut dyn crate::city_labels::Env) -> Vec<crate::city_labels::CityLabel> {
+    use crate::city_labels::{CityLabel, FACE, LabelOp};
+    let font = civ3_assets::fonts::FontStyle { face: FACE.to_owned(), height: 10, weight: 700, italic: false };
+    world
+        .cities
+        .iter()
+        .filter(|c| !c.name.is_empty())
+        .map(|c| {
+            let width = env.text_width(&font, &c.name);
+            let color = env.table_color(world.color_tables.get(c.civ.clamp(0, 31) as usize).copied().unwrap_or(0));
+            let run = |dx: i32, color: [u8; 3]| crate::text::TextRun {
+                x: 64 * c.x + 64 - width / 2 + dx,
+                y: 32 * c.y + 64 + 10 + dx,
+                color,
+                face: font.face.clone(),
+                height: -font.height,
+                weight: font.weight,
+                italic: false,
+                underline: false,
+                text: c.name.clone(),
+                backdrop: None,
+            };
+            CityLabel { city: c.id, items: vec![LabelOp::Text(run(1, [0, 0, 0])), LabelOp::Text(run(0, color))] }
+        })
+        .collect()
+}
+
+/// The items of the labels of a preview world (see [`labels`]), per city
+/// tile: what `ui_screen::add_art` makes the art of, and [`scene`] draws.
+pub type LabelItems = Vec<((i32, i32), Vec<crate::ui_screen::Item>)>;
+
+pub fn label_items(world: &Civ3World, env: &mut dyn crate::city_labels::Env) -> LabelItems {
+    let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
+    labels(world, env)
+        .into_iter()
+        .filter_map(|label| {
+            let city = world.city(label.city)?;
+            Some(((city.x, city.y), crate::city_labels::items(std::slice::from_ref(&label), (0, 0), everywhere, true)))
+        })
+        .collect()
+}
+
+/// The scene of a preview world shown `n` times smaller (see [`downscale`]):
+/// all of it in the game's view (`scene_map::GAME_VIEW`, which the viewer
+/// fits beside the screen), its units, and its labels (`labels`, laid out to
+/// keep their size).
+#[allow(clippy::too_many_arguments)]
+pub fn scene(
+    world: &Civ3World,
+    n: u32,
+    mapper: &crate::scene_map::Mapper,
+    art: &mut crate::units::UnitArt,
+    compiled: &render_desc::Compiled,
+    labels: &LabelItems,
+    fonts: &crate::text::Fonts,
+) -> scene::Scene {
+    let view = view(world);
+    let mut scene = mapper.scene(world, &view, (0, 0), 0);
+    crate::units::place(world, &view, art, compiled, None, &mut scene);
+    let game_view = &mut scene.view_mut(crate::scene_map::GAME_VIEW).view;
+    (game_view.downscale, game_view.cull) = (n.max(1), None);
+    // (Their text drawn from outlines at the zoom the viewer shows it at.)
+    scene.zooms = crate::ui_screen::outline_zooms(compiled);
+    let outlines = !scene.zooms.is_empty();
+    for (tile, items) in labels {
+        let mut sprites: Vec<scene::FreeSprite> = crate::ui_screen::sprites(items, fonts, compiled, crate::ui_screen::under_pass(compiled), outlines)
+            .into_iter()
+            .map(|s| scene::FreeSprite { screen: false, clip: None, ..s })
+            .collect();
+        place_label(&mut sprites, *tile, n);
+        scene.sprites.extend(sprites);
+    }
+    scene
+}
