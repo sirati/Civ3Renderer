@@ -543,14 +543,26 @@ impl HudButtons {
     }
 }
 
-pub fn hud_buttons(build: Build) -> HudButtons {
-    // `Main_GUI` (PCGames 0x9FDB10; GOG 0x40 and Steam 0x22840 further, as
-    // C3X's globals around it) + the field + 0x274 (the canvas).
-    let main_gui = match build {
+/// `Main_GUI`, the map screen's interface (PCGames 0x9FDB10; GOG 0x40 and
+/// Steam 0x22840 further, as C3X's globals around it).
+fn main_gui(build: Build) -> u32 {
+    match build {
         Build::PcGames => 0x9F_DB10,
         Build::Gog => 0x9F_DB50,
         Build::Steam => 0xA2_0350,
-    };
+    }
+}
+
+/// The canvas of `Main_GUI` (a form, its canvas at +0x274): composed while
+/// a game runs, under any screen open over the map. (The title menus are
+/// drawn over the main screen form as well, but without it.)
+pub fn main_gui_canvas(build: Build) -> u32 {
+    main_gui(build) + 4 + crate::layout::BASE_FORM_DATA_CANVAS
+}
+
+pub fn hud_buttons(build: Build) -> HudButtons {
+    // `Main_GUI` + the field + 0x274 (the canvas).
+    let main_gui = main_gui(build);
     let canvas = |field: u32| main_gui + field + 0x274;
     HudButtons { corner: [canvas(0x8B30), canvas(0x98D8), canvas(0x845C)], unit_orders: (canvas(0x1_6CE4), 0x6DC, 42) }
 }
