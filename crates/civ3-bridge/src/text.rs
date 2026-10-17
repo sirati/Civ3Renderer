@@ -56,14 +56,21 @@ impl TextRun {
 
 type FontKey = (FontStyle, [u8; 3]);
 
+/// The font `r` is drawn with: its style at the nearest size there are
+/// glyphs for (zoomed text asks for sizes the game never uses, see
+/// [`zoomed`] and `civ3_assets::fonts::available_height`).
 fn key(r: &TextRun) -> FontKey {
-    (FontStyle { face: r.face.clone(), height: r.height.abs(), weight: r.weight, italic: r.italic }, r.color)
+    let style = FontStyle { face: r.face.clone(), height: r.height.abs(), weight: r.weight, italic: r.italic };
+    (FontStyle { height: civ3_assets::fonts::available_height(&style), ..style }, r.color)
 }
 
 /// The fonts (face, size, colour) text runs need, loaded.
 #[derive(Default)]
 pub struct Fonts {
     fonts: BTreeMap<FontKey, Option<GlyphFont>>,
+    /// Fonts (face, size, style) that failed to load: reported once, not per
+    /// colour.
+    failed: BTreeSet<FontStyle>,
 }
 
 impl Fonts {
@@ -74,7 +81,11 @@ impl Fonts {
             let key = key(r);
             if !self.fonts.contains_key(&key) {
                 let font = civ3_assets::fonts::load(files, &key.0, key.1)
-                    .inspect_err(|e| log::warn!("font {key:?}: {e}"))
+                    .inspect_err(|e| {
+                        if self.failed.insert(key.0.clone()) {
+                            log::warn!("font {:?}: {e}", key.0);
+                        }
+                    })
                     .ok();
                 self.fonts.insert(key, font);
                 added = true;
@@ -232,6 +243,33 @@ mod tests {
         assert_eq!((r.x, r.y, r.height, r.weight, r.italic, r.underline, r.text.as_str()), (10, 20, -24, 700, true, true, "Rome"));
         let old = TextRun::parse("text dc 0 at 1 2 color 3 4 5 font \"Lucida Sans\"/-12 str a b").unwrap();
         assert_eq!((old.color, old.weight, old.italic, old.underline, old.text.as_str()), ([3, 4, 5], 0, false, false, "a b"));
+    }
+
+    /// The heights `tools/gen-civ3-fonts` makes by default.
+    fn generated_heights() -> Vec<i32> {
+        let script = include_str!("../../../tools/gen-civ3-fonts");
+        let line = script.lines().find_map(|l| l.strip_prefix("default_sizes=\"")).expect("default_sizes line");
+        let (seq, rest) = line.strip_prefix("$(seq -s ' ' ").and_then(|l| l.split_once(')')).expect("$(seq ...) first");
+        let (from, to) = seq.split_once(' ').expect("seq FROM TO");
+        let mut out: Vec<i32> = (from.parse().unwrap()..=to.parse().unwrap()).collect();
+        out.extend(rest.trim_end_matches('"').split_whitespace().map(|v| v.parse::<i32>().unwrap()));
+        out
+    }
+
+    /// Every size the viewer's zooms make of the game's text sizes has its
+    /// glyph sheet (up to the largest made, which larger ones are capped to).
+    #[test]
+    fn the_generated_sheets_cover_every_zoomed_size() {
+        use civ3_assets::fonts::{MAX_HEIGHT, MIN_HEIGHT};
+        let have = generated_heights();
+        assert_eq!((have.iter().min(), have.iter().max()), (Some(&MIN_HEIGHT), Some(&MAX_HEIGHT)));
+        let run = |height| TextRun { x: 0, y: 0, color: [0; 3], face: "Lucida Sans".into(), height, weight: 0, italic: false, underline: false, text: String::new() };
+        for base in [8, 10, 12, 14, 16, 18, 24] {
+            for &zoom in &tile_viewer::layout::ZOOMS {
+                let h = zoomed(&run(-base), zoom).height.abs().clamp(MIN_HEIGHT, MAX_HEIGHT);
+                assert!(have.contains(&h), "{base} px at {zoom:?}: {h} px has no sheet");
+            }
+        }
     }
 }
 
