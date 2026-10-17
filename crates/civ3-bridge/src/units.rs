@@ -157,18 +157,30 @@ pub struct Recolor {
 }
 
 impl Recolor {
-    fn civ(table: i32) -> Recolor {
+    pub fn civ(table: i32) -> Recolor {
         Recolor { table, army: None }
+    }
+
+    /// The palette row unit art is drawn with in these colours: the colour
+    /// table's (`ntp@NN`, civ3.toml), or an army's (generated, see
+    /// [`Needed::description`]).
+    pub fn palette(&self) -> String {
+        match self.army {
+            None => format!("ntp@{}", self.table),
+            Some((first, members)) => format!("UnitArmy@{}a{first}x{members}", self.table),
+        }
+    }
+
+    /// Whether the art is the army's own (entries 64..127 recoloured too).
+    fn army_art(&self) -> bool {
+        self.army.is_some()
     }
 }
 
-impl std::fmt::Display for Recolor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.army {
-            None => write!(f, "{}", self.table),
-            Some((first, members)) => write!(f, "{}a{first}x{members}", self.table),
-        }
-    }
+/// The name part telling an army's own art (entries 0..127 palette
+/// references) from the others' (0..63).
+fn art_kind(army: bool) -> &'static str {
+    if army { "#army" } else { "" }
 }
 
 /// The unit art a world needs: animation files and, per file, the colours
@@ -193,6 +205,16 @@ fn colors(world: &Civ3World, civ: i32) -> i32 {
     world.color_tables.get(civ.max(0) as usize).copied().unwrap_or(0)
 }
 
+/// The civ whose colours unit `u` (an army: also its member) is drawn in
+/// (§10.2 step 2): its owner's, or the barbarians' (civ 0) for a unit of
+/// hidden nationality (`UTA_Hidden_Nationality`) another real civ looks
+/// at, unless the debug mode shows everything.
+fn color_civ(world: &Civ3World, u: &Civ3Unit) -> i32 {
+    let abilities = world.unit_type_stats.get(u.unit_type.max(0) as usize).map_or(0, |s| s[6]);
+    let hidden = abilities >> civ3_sys::layout::UTA_HIDDEN_NATIONALITY & 1 != 0;
+    if hidden && world.player > 0 && world.player != u.civ && world.debug_mode_bits & 8 == 0 { 0 } else { u.civ }
+}
+
 /// The member an army shows (§10.11), if `u` is an army with members.
 fn army_member<'w>(world: &'w Civ3World, u: &Civ3Unit) -> Option<&'w Civ3Unit> {
     let id = u.army_member?;
@@ -201,7 +223,7 @@ fn army_member<'w>(world: &'w Civ3World, u: &Civ3Unit) -> Option<&'w Civ3Unit> {
 
 /// The colours of an army's own art.
 fn army_recolor(world: &Civ3World, u: &Civ3Unit) -> Recolor {
-    Recolor { table: colors(world, u.civ), army: Some((colors(world, 0), u.army_size.clamp(0, 4) as u8)) }
+    Recolor { table: colors(world, color_civ(world, u)), army: Some((colors(world, 0), u.army_size.clamp(0, 4) as u8)) }
 }
 
 impl Needed {
@@ -226,9 +248,9 @@ impl Needed {
             match army_member(world, u) {
                 Some(member) => {
                     add(u, u.civ, army_recolor(world, u), art);
-                    add(member, u.civ, Recolor::civ(colors(world, u.civ)), art);
+                    add(member, u.civ, Recolor::civ(colors(world, color_civ(world, u))), art);
                 }
-                None => add(u, u.civ, Recolor::civ(colors(world, u.civ)), art),
+                None => add(u, u.civ, Recolor::civ(colors(world, color_civ(world, u))), art),
             }
         }
         for table in crate::city_site::needed(world) {
@@ -268,9 +290,13 @@ impl Needed {
     }
 
     /// Render description entries for this art: sprites
-    /// `UnitArt@<file>#<colours>/<chunk>` and `UnitShadow@<file>/<chunk>`,
-    /// per direction block the animations `UnitAnim@<file>#<colours>/<block>`
-    /// and `UnitShadowAnim@<file>/<block>`, and the HUD's art ([`hud`]).
+    /// `UnitArt@<file>/<chunk>` (indexed, its indices 0..63 remapped: drawn
+    /// in the colours a draw picks, [`Recolor::palette`]; an army's own art
+    /// `UnitArt@<file>#army/<chunk>`, 0..127) and
+    /// `UnitShadow@<file>/<chunk>`, per direction block the animations
+    /// `UnitAnim@<file>[#army]/<block>` and `UnitShadowAnim@<file>/<block>`,
+    /// the armies' palette rows, and the HUD's art ([`hud`]). One copy of
+    /// each file's art serves every nation.
     pub fn description(&self) -> String {
         let mut out = String::from("\n# Unit art (generated, docs §10).\n");
         let all: Vec<String> = (0..256).map(|i| i.to_string()).collect();
@@ -280,20 +306,30 @@ impl Needed {
             all.iter().enumerate().filter(|(i, _)| !SHADOWS.contains(&(*i as u32))).map(|(_, s)| s.as_str()).collect::<Vec<_>>().join(", ")
         );
         let shadow_rgba: Vec<String> = SHADOWS.map(|i| format!("{i} = [{}, 0, 0, 255]", i - 239)).collect();
+        // Armies' own art (§10.11): entries 64..127 repeat the first 16
+        // colours of the table, the first `members`·16 of them from another
+        // table (the game reads civ 0's).
+        let armies: BTreeSet<Recolor> = self.files.values().flat_map(|(_, c)| c.iter().copied()).filter(Recolor::army_art).collect();
+        for r in &armies {
+            let Some((first, members)) = r.army else { continue };
+            let copies: Vec<String> = (0..4u8)
+                .map(|k| format!("[\"ntp@{}\", 0, {}, 16]", if k < members { first } else { r.table }, 64 + 16 * u32::from(k)))
+                .collect();
+            let _ = writeln!(out, "[palettes.{}]\nbase = \"ntp@{}\"\ncopy = [{}]\n", toml_str(&r.palette()), r.table, copies.join(", "));
+        }
         for (n, (path, (file, colors))) in self.files.iter().enumerate() {
             let source = toml_str(path);
+            // Every frame (chunk) of the file, one sprite each.
             let sheets = |out: &mut String, image: &str, group: &str| {
-                for k in 0..file.chunks {
-                    let _ = writeln!(
-                        out,
-                        "[sheets.\"{image}_{k}\"]\nimage = \"{image}\"\nframe = {k}\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = {}\nfirst_index = {k}\n",
-                        file.size.0,
-                        file.size.1,
-                        file.anchor.0,
-                        file.anchor.1,
-                        toml_str(group)
-                    );
-                }
+                let _ = writeln!(
+                    out,
+                    "[sheets.\"{image}\"]\nimage = \"{image}\"\nall_frames = true\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = {}\n",
+                    file.size.0,
+                    file.size.1,
+                    file.anchor.0,
+                    file.anchor.1,
+                    toml_str(group)
+                );
             };
             // Per direction block, its frames (the ring frame last, §10.4) as
             // one animation, for the unit layers (a cell's phase is the frame).
@@ -308,20 +344,14 @@ impl Needed {
             let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\ntransparent = {shadow_transparent}\nrgba = {{ {} }}\n", shadow_rgba.join(", "));
             sheets(&mut out, &shadow, &format!("UnitShadow@{path}"));
             blocks(&mut out, &format!("UnitShadowAnim@{path}"), &format!("UnitShadow@{path}"));
-            for c in colors {
-                let image = format!("unit{n}c{c}");
-                let mut palette = format!("palette = \"Art/Units/Palettes/ntp{:02}.pcx\"\npalette_range = [0, 64]\n", c.table);
-                // Armies: entries 64..127 repeat the first 16 colours, the
-                // first `members`·16 of them from another table (§10.11).
-                if let Some((first, members)) = c.army {
-                    let split = 64 + 16 * u32::from(members);
-                    let map = |r: std::ops::Range<u32>| r.map(|i| format!("{i} = {}", (i - 64) % 16)).collect::<Vec<_>>().join(", ");
-                    let _ = writeln!(palette, "palette_map = {{ {} }}", map(split..128));
-                    let _ = writeln!(palette, "palette2 = \"Art/Units/Palettes/ntp{first:02}.pcx\"\npalette2_map = {{ {} }}", map(64..split));
-                }
-                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{palette}transparent = {body_transparent}\n");
-                sheets(&mut out, &image, &format!("UnitArt@{path}#{c}"));
-                blocks(&mut out, &format!("UnitAnim@{path}#{c}"), &format!("UnitArt@{path}#{c}"));
+            let kinds: BTreeSet<bool> = colors.iter().map(Recolor::army_art).collect();
+            for army in kinds {
+                let image = format!("unit{n}{}", if army { "a" } else { "" });
+                let remap = if army { 128 } else { 64 };
+                let _ = writeln!(out, "[images.{image}]\nsource = {source}\nremap = [0, {remap}]\ntransparent = {body_transparent}\n");
+                let kind = art_kind(army);
+                sheets(&mut out, &image, &format!("UnitArt@{path}{kind}"));
+                blocks(&mut out, &format!("UnitAnim@{path}{kind}"), &format!("UnitArt@{path}{kind}"));
             }
         }
         // In the file's own colours, frames at their top-left.
@@ -427,11 +457,14 @@ pub struct Piece {
     pub at: (i32, i32),
     /// 0 alpha, else as `scene::FreeSprite::scale_den`.
     pub scale_den: u32,
+    /// The named palette its indexed art is drawn with (a palette of the
+    /// description; empty: none).
+    pub palette: String,
 }
 
 impl Piece {
     fn new(part: Part, set: String, at: (i32, i32)) -> Piece {
-        Piece { part, set, phase: 0, sprite: None, at, scale_den: 0 }
+        Piece { part, set, phase: 0, sprite: None, at, scale_den: 0, palette: String::new() }
     }
 }
 
@@ -451,7 +484,8 @@ pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<
         _ => (x, y),
     };
     if world.preferences & SHOW_TEAM_COLOR_DISC != 0 && !in_city {
-        out.push(Piece::new(Part::Disc, format!("TeamDisc@{}/0", colors(world, u.civ)), (mx - 64, my - 32)));
+        let palette = format!("disc@{}", colors(world, color_civ(world, u)));
+        out.push(Piece { palette, ..Piece::new(Part::Disc, "TeamDisc/0".into(), (mx - 64, my - 32)) });
     }
     // Around it, how the viewer stands with a foreign owner.
     if let (Some(rings), false, false) = (rings, in_city, u.civ == world.player) {
@@ -462,45 +496,52 @@ pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<
     }
     if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
         let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
-        out.push(animation(Part::Cursor, cursor, colors(world, world.player).to_string(), block, frame, (mx, my)));
+        out.push(animation(Part::Cursor, cursor, Some(Recolor::civ(colors(world, world.player))), block, frame, (mx, my)));
     }
     let mut body = |unit: &Civ3Unit, recolor: Recolor, at: (i32, i32), part: Part, shadow: bool, out: &mut Vec<Piece>| {
         let type_key = world.unit_type_keys.get(unit.unit_type.max(0) as usize);
         if let Some(file) = type_key.and_then(|k| art.file(k, era_key(world, u.civ), unit.animation)) {
             let block = DIRECTION_BLOCK.get(unit.direction.max(0) as usize).copied().unwrap_or(2);
             if shadow {
-                let mut p = animation(Part::Shadow, file, String::new(), block, unit.frame, at);
+                let mut p = animation(Part::Shadow, file, None, block, unit.frame, at);
                 p.scale_den = 16;
                 out.push(p);
             }
-            out.push(animation(part, file, recolor.to_string(), block, unit.frame, at));
+            out.push(animation(part, file, Some(recolor), block, unit.frame, at));
         }
     };
     match member {
         Some(m) => {
             let attacking_east = u.animation == ANIMATION_ATTACK1 && u.direction == DIRECTION_EAST;
             body(u, army_recolor(world, u), (x + 40, y - if attacking_east { 20 } else { 0 }), Part::Banner, false, &mut out);
-            body(m, Recolor::civ(colors(world, u.civ)), (mx, my), Part::Body, false, &mut out);
+            body(m, Recolor::civ(colors(world, color_civ(world, u))), (mx, my), Part::Body, false, &mut out);
         }
-        None => body(u, Recolor::civ(colors(world, u.civ)), (x, y), Part::Body, true, &mut out),
+        None => body(u, Recolor::civ(colors(world, color_civ(world, u))), (x, y), Part::Body, true, &mut out),
     }
     out.extend(hud(world, u, (mx, my)));
     out
 }
 
-/// Frame `frame` of `file`'s block `block` (in `colors`; empty: its
+/// Frame `frame` of `file`'s block `block` (in `colors`; `None`: its
 /// shadow) at `at`: the set of the block's frames (its last one the ring
 /// frame, §10.4) and the single frame's sprite.
-fn animation(part: Part, file: &AnimFile, colors: String, block: u32, frame: i32, at: (i32, i32)) -> Piece {
+fn animation(part: Part, file: &AnimFile, colors: Option<Recolor>, block: u32, frame: i32, at: (i32, i32)) -> Piece {
     let n = file.frames_per_direction;
     // (The chunk as the game seeks it, clamped to the file.)
     let chunk = (block * (n + 1) + frame.max(0) as u32).min(file.chunks.saturating_sub(1));
-    let (set, sprite) = if colors.is_empty() {
-        (format!("UnitShadowAnim@{}/{block}", file.path), format!("UnitShadow@{}/{chunk}", file.path))
-    } else {
-        (format!("UnitAnim@{}#{colors}/{block}", file.path), format!("UnitArt@{}#{colors}/{chunk}", file.path))
+    let (set, sprite, palette) = match colors {
+        None => (format!("UnitShadowAnim@{}/{block}", file.path), format!("UnitShadow@{}/{chunk}", file.path), String::new()),
+        Some(c) => {
+            let kind = art_kind(c.army_art());
+            (format!("UnitAnim@{}{kind}/{block}", file.path), format!("UnitArt@{}{kind}/{chunk}", file.path), c.palette())
+        }
     };
-    Piece { phase: chunk.saturating_sub(block * (n + 1)).min(n).min(255) as u8, sprite: Some(sprite), ..Piece::new(part, set, at) }
+    Piece { phase: chunk.saturating_sub(block * (n + 1)).min(n).min(255) as u8, sprite: Some(sprite), palette, ..Piece::new(part, set, at) }
+}
+
+/// The palette row `p` is drawn with (0: none, or not in the description).
+fn piece_palette(compiled: &Compiled, p: &Piece) -> u32 {
+    if p.palette.is_empty() { 0 } else { compiled.palette(&p.palette).unwrap_or(0) }
 }
 
 /// The index of the render pass that `layer` is in (among the passes that
@@ -548,7 +589,8 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &C
                 continue;
             };
             let layer = format!("{}_{}", SLOTS[slot], p.part.layer());
-            let (Some(index), Some(value)) = (compiled.layer_index(&layer), compiled.value(&layer, &p.set)) else { continue };
+            let palette = piece_palette(compiled, &p);
+            let (Some(index), Some(value)) = (compiled.layer_index(&layer), compiled.value_in(&layer, &p.set, palette)) else { continue };
             scene.set(index, col, row, value);
             scene.set_phase(index, col, row, p.phase);
             let (ox, oy) = p.part.origin();
@@ -614,6 +656,7 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
         clip: None,
         not_in_view: None,
         glyph: None,
+        palette: 0,
     })
 }
 
@@ -639,7 +682,7 @@ pub fn free_sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, r
 /// generated HUD art (`hud::description`), which keeps its size zoomed out.
 fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<Piece> {
     let mut out = Vec::new();
-    let Some(&[attack, defence, movement, hp_bonus, class, _]) = world.unit_type_stats.get(u.unit_type.max(0) as usize) else {
+    let Some(&[attack, defence, movement, hp_bonus, class, _, _]) = world.unit_type_stats.get(u.unit_type.max(0) as usize) else {
         return out;
     };
     let at = (anchor.0 - 32, anchor.1 - 32);
@@ -807,14 +850,14 @@ mod tests {
     /// One unit type (attack 1, defence 1, one move) and one experience level
     /// (3 hit points).
     fn world() -> Civ3World {
-        Civ3World { unit_type_stats: vec![[1, 1, 1, 0, 0, 0]], experience_hit_points: vec![3], ..Default::default() }
+        Civ3World { unit_type_stats: vec![[1, 1, 1, 0, 0, 0, 0]], experience_hit_points: vec![3], ..Default::default() }
     }
 
     /// What `Unit_draw_hud` puts where (§10.6, §10.10), pixel by pixel, from
     /// the HUD's origin: `led` the LED cells' colours.
     fn game_hud(world: &Civ3World, u: &Civ3Unit, led: [[u8; 4]; 3]) -> BTreeMap<(i32, i32), [u8; 4]> {
         let mut out = BTreeMap::new();
-        let [attack, defence, movement, hp_bonus, class, _] = world.unit_type_stats[u.unit_type as usize];
+        let [attack, defence, movement, hp_bonus, class, _, _] = world.unit_type_stats[u.unit_type as usize];
         let mut rect = |c: [u8; 4], (x0, y0, x1, y1): (i32, i32, i32, i32)| {
             for y in y0..y1 {
                 for x in x0..x1 {
@@ -903,7 +946,7 @@ mod tests {
             out
         };
         let mut w = world();
-        w.unit_type_stats.push([0, 0, 1, 0, 0, 0]);
+        w.unit_type_stats.push([0, 0, 1, 0, 0, 0, 0]);
         let mut checked = 0;
         for bonus in [0, 1, 4, 6, 9, 13, 17, 30] {
             w.unit_type_stats[0][3] = bonus;
@@ -919,6 +962,34 @@ mod tests {
             }
         }
         assert_eq!(checked, 512);
+    }
+
+    #[test]
+    fn units_pick_their_colours_hidden_nationality_and_armies_included() {
+        // Player 1 looks at civ 2's units (colour tables 5, 7, 9): one of
+        // hidden nationality (barbarian colours, ntp 5), one not.
+        let hidden = 1 << civ3_sys::layout::UTA_HIDDEN_NATIONALITY;
+        let mut w = Civ3World { player: 1, color_tables: vec![5, 7, 9], unit_type_stats: vec![[1, 1, 1, 0, 0, 0, hidden], [1, 1, 1, 0, 0, 0, 0]], ..Default::default() };
+        let u = |unit_type| Civ3Unit { civ: 2, unit_type, army_size: 2, ..Default::default() };
+        let palette = |w: &Civ3World, unit: &Civ3Unit| Recolor::civ(colors(w, color_civ(w, unit))).palette();
+        assert_eq!((palette(&w, &u(0)), palette(&w, &u(1))), ("ntp@5".to_owned(), "ntp@9".to_owned()));
+        // Its owner, and the debug mode showing everything, see its colours.
+        w.player = 2;
+        assert_eq!(palette(&w, &u(0)), "ntp@9");
+        (w.player, w.debug_mode_bits) = (1, 8);
+        assert_eq!(palette(&w, &u(0)), "ntp@9");
+        // An army: entries 64..127 from civ 0's table for its two members,
+        // its own after; one image of the file for every colour.
+        w.debug_mode_bits = 0;
+        let army = army_recolor(&w, &u(1));
+        assert_eq!(army.palette(), "UnitArmy@9a5x2");
+        let file = AnimFile { path: "Art/Units/A/A.flc".into(), frames_per_direction: 1, chunks: 16, size: (8, 8), anchor: (0, 0) };
+        let mut needed = Needed::default();
+        needed.files.insert(file.path.clone(), (file, [army, Recolor::civ(9), Recolor::civ(7)].into()));
+        let d = needed.description();
+        assert!(d.contains("[palettes.\"UnitArmy@9a5x2\"]\nbase = \"ntp@9\"\ncopy = [[\"ntp@5\", 0, 64, 16], [\"ntp@5\", 0, 80, 16], [\"ntp@9\", 0, 96, 16], [\"ntp@9\", 0, 112, 16]]"), "{d}");
+        assert_eq!(d.matches("source = \"Art/Units/A/A.flc\"").count(), 3, "shadow, body, army body: {d}");
+        assert!(d.contains("remap = [0, 64]") && d.contains("remap = [0, 128]"));
     }
 
     #[test]

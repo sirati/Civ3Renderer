@@ -473,8 +473,18 @@ anchor = [0, -64]
 group = "Terrain_Buldings_Radar_Shadow"
 sample_from = "box"
 
+# §10.5: the 32 civ colour tables (`Art/Units/Palettes/ntpNN.pcx`) as named
+# palettes `ntp@NN`. The art is indexed (one byte a pixel, drawn through its
+# own palette); what the game recolours with a civ's table (units, the team
+# disc, borders) has the indices it takes from the table in its `remap` range,
+# drawn through the palette the cell or sprite picks: one copy for every civ.
+[palettes.ntp]
+source = "Art/Units/Palettes/ntp{v:02}.pcx"
+variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
 # §6.9: territory borders, in the owner's colours: palette entries 64/65
-# come from its ntpNN.pcx; 1 is transparent; 249/252 darken to 10/16 and
+# come from its ntpNN.pcx (remapped: the cell picks the owner's `ntp@NN`);
+# 1 is transparent; 249/252 darken to 10/16 and
 # 13/16 (measured), drawn as a separate "shade" layer. The game turns the
 # file's pixels 0 and 1 into 255 before it cuts the sprites (0x4C6ABA,
 # 0x4C6ACA), so those are blank as well when it crops them to their boxes.
@@ -482,17 +492,14 @@ sample_from = "box"
 source = "Art/Terrain/Territory.pcx"
 transparent = [0, 1, 249, 252, 254, 255]
 blank = { transparent = [0, 1, 255] }
-palette = "Art/Units/Palettes/ntp{v:02}.pcx"
-palette_range = [64, 2]
-variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+remap = [64, 66]
 
 [sheets.territory]
-image = "territory@{v}"
+image = "territory"
 cell = [128, 72]
 grid = [2, 4]
 anchor = [0, -8]
-group = "Territory_Images@{v}"
-variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+group = "Territory_Images"
 sample_from = "box"
 
 [images.territory_shade]
@@ -798,27 +805,30 @@ group = "CityIcon_Barracks"
 
 # §10.6: unit HUD. Team disc: Art/Cursor.pcx cell (259, 155), its ring
 # (index 247) in the owner's ntpNN entry 66.
+# (Indexed art: index 247 is drawn through the owner's `disc@NN` row, its
+# colour table with entry 66 copied to 247.)
+[palettes.disc]
+base = "ntp@{v}"
+copy = [["ntp@{v}", 66, 247, 1]]
+variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
 [images.team_disc]
 source = "Art/Cursor.pcx"
 transparent = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 248, 249, 250, 251, 252, 253, 254, 255]
-palette = "Art/Units/Palettes/ntp{v:02}.pcx"
-palette_range = [0, 0]
-palette_map = { 247 = 66 }
-variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+remap = [247, 248]
 
 # Zoomed out the game draws another sprite: the cell at (259, 90) holds a filled
 # ellipse (848 pixels of index 247 against the ring's 308), drawn at half size
 # like everything else (0x5CBF57..0x5CBFAD: sprite 0xB3F290 instead of 0xB3F2BC,
 # both cut with the box rule, §3.1).
 [sheets.team_disc]
-image = "team_disc@{v}"
+image = "team_disc"
 origin = [259, 155]
 scaled_origin = [259, 90]
 cell = [128, 64]
 grid = [1, 1]
-group = "TeamDisc@{v}"
+group = "TeamDisc"
 sample_from = "box"
-variants = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
 # Movement LED: green, yellow, red. The unit HUD (this and the bar below) is drawn
 # at full size zoomed out too, only 16 px instead of 32 px from the unit (§10.2).
@@ -1559,7 +1569,8 @@ sets = ["Territory_Shade/*"]
 [[layers]]
 name = "border_nw"
 pass = 3
-sets = ["Territory_Images@*"]
+sets = ["Territory_Images/*"]
+palettes = true
 
 [[layers]]
 name = "border_ne_shade"
@@ -1570,7 +1581,8 @@ sets = ["Territory_Shade/*"]
 [[layers]]
 name = "border_ne"
 pass = 3
-sets = ["Territory_Images@*"]
+sets = ["Territory_Images/*"]
+palettes = true
 
 [[layers]]
 name = "border_sw_shade"
@@ -1581,7 +1593,8 @@ sets = ["Territory_Shade/*"]
 [[layers]]
 name = "border_sw"
 pass = 3
-sets = ["Territory_Images@*"]
+sets = ["Territory_Images/*"]
+palettes = true
 
 [[layers]]
 name = "border_se_shade"
@@ -1592,7 +1605,8 @@ sets = ["Territory_Shade/*"]
 [[layers]]
 name = "border_se"
 pass = 3
-sets = ["Territory_Images@*"]
+sets = ["Territory_Images/*"]
+palettes = true
 
 [[layers]]
 name = "road"
@@ -1795,7 +1809,8 @@ name = "unit_disc"
 pass = 6
 descending = true
 per_cell_offset = true
-sets = ["TeamDisc@*"]
+sets = ["TeamDisc/*"]
+palettes = true
 
 [[layers]]
 name = "unit_ring"
@@ -1813,6 +1828,7 @@ per_cell_offset = true
 per_cell_phase = true
 ticks_per_frame = 0
 sets = ["UnitAnim@Art/Animations/Cursor/*"]
+palettes = true
 
 [[layers]]
 name = "unit_banner"
@@ -1823,6 +1839,7 @@ per_cell_offset = true
 per_cell_phase = true
 ticks_per_frame = 0
 sets = ["UnitAnim@*"]
+palettes = true
 
 [[layers]]
 name = "unit_shadow"
@@ -1844,6 +1861,7 @@ per_cell_offset = true
 per_cell_phase = true
 ticks_per_frame = 0
 sets = ["UnitAnim@*"]
+palettes = true
 
 # The HUD at its origin, 32 px left of and above the unit (zoomed out 16:
 # the offset is halved, the HUD's art keeps its size).
@@ -1884,7 +1902,8 @@ name = "unit_over_disc"
 pass = 6
 descending = true
 per_cell_offset = true
-sets = ["TeamDisc@*"]
+sets = ["TeamDisc/*"]
+palettes = true
 
 [[layers]]
 name = "unit_over_ring"
@@ -1902,6 +1921,7 @@ per_cell_offset = true
 per_cell_phase = true
 ticks_per_frame = 0
 sets = ["UnitAnim@Art/Animations/Cursor/*"]
+palettes = true
 
 [[layers]]
 name = "unit_over_banner"
@@ -1912,6 +1932,7 @@ per_cell_offset = true
 per_cell_phase = true
 ticks_per_frame = 0
 sets = ["UnitAnim@*"]
+palettes = true
 
 [[layers]]
 name = "unit_over_shadow"
@@ -1933,6 +1954,7 @@ per_cell_offset = true
 per_cell_phase = true
 ticks_per_frame = 0
 sets = ["UnitAnim@*"]
+palettes = true
 
 # The HUD at its origin, 32 px left of and above the unit (zoomed out 16:
 # the offset is halved, the HUD's art keeps its size).

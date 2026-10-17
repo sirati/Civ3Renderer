@@ -140,7 +140,17 @@ mod unix_side {
         let mut cache = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
         let started = std::time::Instant::now();
         let compiled = desc.compile_cached(&Civ3Loader::new(files), 2048, &mut cache).map_err(|e| e.to_string())?;
-        log::info!("civ3r-native: art {}: {} sprites compiled in {} ms", a.generation, compiled.sprite_names.len(), started.elapsed().as_millis());
+        let (rgba, index) = compiled.atlas.page_bytes();
+        log::info!(
+            "civ3r-native: art {}: {} sprites compiled in {} ms; atlas {} colour pages ({} MiB), {} index pages ({} MiB)",
+            a.generation,
+            compiled.sprite_names.len(),
+            started.elapsed().as_millis(),
+            compiled.atlas.pages.len(),
+            rgba >> 20,
+            compiled.atlas.index_pages.len(),
+            index >> 20
+        );
         Ok((compiled, a.generation))
     }
 

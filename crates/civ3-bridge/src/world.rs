@@ -179,8 +179,9 @@ pub struct Civ3World {
     pub unit_type_keys: Vec<String>,
     pub era_keys: Vec<String>,
     /// Per unit type: attack, defence, movement (tiles), hit point bonus,
-    /// class (0 land, 1 sea, 2 air), worker actions (bit 1: found cities).
-    pub unit_type_stats: Vec<[i32; 6]>,
+    /// class (0 land, 1 sea, 2 air), worker actions (bit 1: found cities),
+    /// abilities (bit `n`: ability `n`; traces from before have none).
+    pub unit_type_stats: Vec<[i32; 7]>,
     /// The tile under the mouse, if it is over the map.
     pub mouse_tile: Option<(i32, i32)>,
     /// The selected unit (also while its cursor blinks off).
@@ -756,7 +757,7 @@ impl Trace {
                 }
                 Some("unit_type_stats") => {
                     let opt = |k: usize| -> Result<i32, TraceError> { Ok(f.get(k).map(|_| n(k)).transpose()?.unwrap_or(0) as i32) };
-                    t.world.unit_type_stats.push([n(2)? as i32, n(3)? as i32, n(4)? as i32, n(5)? as i32, opt(6)?, opt(7)?]);
+                    t.world.unit_type_stats.push([n(2)? as i32, n(3)? as i32, n(4)? as i32, n(5)? as i32, opt(6)?, opt(7)?, opt(8)?]);
                 }
                 Some("experience_hit_points") => {
                     t.world.experience_hit_points = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?;

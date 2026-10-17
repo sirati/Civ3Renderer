@@ -105,7 +105,10 @@ mod tests {
         // one is sampled (sample 31), the even one is not (sample 32).
         assert_eq!(small.get(31, 0)[3], 255);
         assert_eq!(small.get(32, 0)[3], 0);
-        let page = &compiled.atlas.pages[s.page as usize];
-        assert_eq!(small.get(31, 0), page.get(s.atlas_x + 63, s.atlas_y));
+        // (The terrain is indexed art: a palette index a texel, through its row.)
+        assert_ne!(s.palette, 0);
+        let index = compiled.atlas.index_pages[s.page as usize].get(s.atlas_x + 63, s.atlas_y) as u32;
+        let color = compiled.atlas.palettes[(s.palette * tile_render::PALETTE_SIZE + index) as usize].to_le_bytes();
+        assert_eq!(small.get(31, 0), color);
     }
 }

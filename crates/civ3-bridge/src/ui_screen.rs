@@ -73,13 +73,14 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
             // colours (§16.9), over their shadow as on the map.
             // Leader heads: in their own colours.
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: true } => {
-                Element::Sprite { name: format!("Flc@{}/{chunk}", relative_path(path, roots)), at: (*x, *y), clip: *clip, scale_den: 0 }
+                Element::Sprite { name: format!("Flc@{}/{chunk}", relative_path(path, roots)), at: (*x, *y), clip: *clip, scale_den: 0, palette: String::new() }
             }
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: false } => {
                 let path = relative_path(path, roots);
                 let shadow = format!("UnitShadow@{path}/{chunk}");
-                out.push(Item::Element(Element::Sprite { name: shadow, at: (*x, *y), clip: *clip, scale_den: 16 }, under));
-                Element::Sprite { name: format!("UnitArt@{path}#{unit_colors}/{chunk}"), at: (*x, *y), clip: *clip, scale_den: 0 }
+                out.push(Item::Element(Element::Sprite { name: shadow, at: (*x, *y), clip: *clip, scale_den: 16, palette: String::new() }, under));
+                let palette = crate::units::Recolor::civ(unit_colors).palette();
+                Element::Sprite { name: format!("UnitArt@{path}/{chunk}"), at: (*x, *y), clip: *clip, scale_den: 0, palette }
             }
             ScreenDraw::Surface { image, rect, x, y, clip, size } => {
                 let Some(&(_, name)) = generated.iter().find(|g| g.0 == *image) else { continue };
