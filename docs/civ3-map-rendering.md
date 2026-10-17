@@ -1754,3 +1754,43 @@ Order: for a kind drawn over resources (the Great Wall) the resources come **bef
 - A generated resource needs its kind's other `resource_prereqs` connected to a city by the Trade Net (14651); taken as met.
 - Read from the exe, not from C3X [X]: `Leader.Auto_Improvements` (Leader+0x20D0, a `Hash_Table`: items +4, key count +8, `Capacity` +0xC, mask +0x10) is open addressed: `Get_Key_Index` (0x56BB40) is `key & mask`, `Init_Items` (0x56B880) fills unused items with the key -1, `Hash_Table_look_up` (0x4C2010) probes linearly until the key is found or every item was seen, and `City_has_improvement` (0x4ACBE0) asks it for the building and for the continent key, as the port reads it. The continent is `m46_Get_ContinentID` = `Tile+0x1E`; `m18_Check_Mines` and `m20_Check_Pollution` test bits 2 and 6 of `m42_Get_Overlays(civ)`; `m35_Check_Is_Water` is effective terrain 11..13; `Territory_OwnerID` is a signed `char`.
 - To be compared with the game: the zoomed-out offsets (18.4, 18.10), the places the district and the resources are drawn in relative to pollution and the city (18.1, 18.10), that a bridge really has no roads or railroads of its own on top (18.1), the alignment of ports (18.8) and wonders on rivers (18.9), and the colours of the resource shadows under a district.
+
+---
+
+## 19. Scenario files and the Load Scenario preview
+
+### 19.1 The Load Scenario screen [X][D]
+
+The title menu's *Load Scenario* (and *Conquests!*) screen is a form of class 0x66EAB0 (PCG), a 1024×768 dialog in the middle of the screen. When a scenario is highlighted (also the one it remembers when it opens), its code (around 0x59F600) builds the file's path (`Conquests\<name>.biq`, relative to the game's working folder, the install's `Conquests`) and calls `BIC::load_scenario_preview` (0x59B1A0, `__thiscall`, `this` = the global `BIC` 0x9C34C8, args: path, `int *out`; `ret 8`; 0 when it loaded) from **0x59F72A**, its only caller. That function calls `load_scenario` (0x59A870) with the file: the game loads the whole scenario — rules, map tiles, cities, units, the art search folders (BIC+0xC7C, not the scenario folder BIC+0x128) — into its tables to show the players, description and map size. C3X redirects `load_scenario` and recognises this load by its return address 0x59B1B9 (`ADDR_LOAD_SCENARIO_PREVIEW_RETURN`) to skip its own setup, so a hook belongs one level up: `civ3-bridge` points the `call` at 0x59F72A at itself (`civ3_sys::menus`), calls the original and records the path.
+
+The map in the game's tables after such a load is the previewed scenario's, not a game's: with no game running the bridge used to draw it as the map (the main screen form, 0x66B3D8, composes the title menus too, so the map looked available), as seen by player 0 who has explored nothing: everything black but the top of tile (0, 0)'s mountain, which reaches above the map's first row where no fog is drawn (WWII in the Pacific: tile (0, 0) is a mountain on grassland, `SquareType` 0x6200). The same happens with the last game's map after leaving it. A game runs while `Main_GUI`'s canvas (0x9FDB10 + 0x274) is composed: it is under every screen open over the map (advisors, the city screen, the game menu), never on the title menus or the loading screen.
+
+### 19.2 The `.biq` format [D]
+
+Compressed with PKWare DCL (`blast.c`; uncompressed files start with `BIC`). Then `BICX` and sections: a four-letter name, a record count, the records, each an `i32` length and that many bytes (`VER#` is the first; `FLAV` is the exception: a group count, then per group a count and records of 4 + 256 + 4 + 4·n bytes without lengths). A scenario without rules of its own has no `BLDG`…`WSIZ` sections and uses `Conquests/conquests.biq`'s; one without a map (no `WCHR`/`WMAP`/`TILE`) has the game generate one. Field offsets below are from the record's data (after its length); checked against the game's memory after starting *9 WWII in the Pacific* (all 8160 tiles: `SquareParts`, `SquareType`, rivers, resources, cities, continents and ruins equal; 69 city tiles gain the road and railroad the game adds, victory locations get numbered, colonies renumbered):
+
+| section | fields |
+|---|---|
+| `WMAP` | 0 resource count n, 4·n resource ids, then (at a = 4 + 4n) a continents, a+4 height, a+8 civ distance, a+12 civ count, a+24 width, a+28 32 starting locations, a+156 seed, a+160 flags (bit 0 wrap x, 1 wrap y, 2 polar caps) |
+| `TILE` (45 bytes, width·height/2 records in `Map.Tiles` order) | 0 `River_Code`, 1 border (0 none, else 33 + the owner's race), 2 resource, 6 texture location, 7 texture file (= `SquareParts`), 14 barbarian tribe, **16 city, 18 colony** (QueryCiv3 has these two swapped), 20 continent, 23 victory location (0 yes, -1 no), 25 ruins, 29 `Overlays` (u32), 34 `SquareType` bits 8-15, 37 fog of war (bit per player), 39 `Terrain_Overlays >> 16` (the game sets bit 17 itself) |
+| `CITY` | 0 walls, 1 palace, 2 name[24], 26 owner kind (1 barbarians, 2 race, 3 player), 30 building count n, 34 4·n buildings, then culture, owner, size, x, y, level, border level |
+| `UNIT` | 0 name[32], 32 owner kind, 36 experience, 40 owner, 44 unit type, 48 AI strategy, 52 x, 56 y |
+| `CLNY` | 0 owner kind, 4 owner, 8 x, 12 y, 16 kind (0 colony, 1 airfield, 2 radar, 3 outpost) |
+| `LEAD` | 0 custom data, 4 human, 8 leader name[32], 48 start unit count u, 52 8·u, then (at b) gender, b+4 tech count t, 4·t, then difficulty, initial era, cash, government, race, colour (the colour table), … |
+| `RACE` | 0 city name count, 24 each, leader count, 32 each, then 208 bytes of text (leader name 32, title 24, Civilopedia key 32, adjective 40, name 40, noun 40), 520 per era (two file names), then culture group, leader gender, civ gender, aggression, unique counter, shunned and favourite government, default colour, unique colour, … |
+| `GOOD` | 0 name[24], 24 key[32], 56 type, 60 appearance, 64 disappearance, 68 icon, 72 prerequisite |
+| `PRTO` | 4 name[32], 36 key[32], 84 defence, 88 icon, 92 attack, 108 movement |
+| `ERAS` | 0 name[64], 64 key[32] |
+| `BLDG` | 64 name[32], 152 bombard defence (walls), 208 government, 220 obsoleted by, 232 `ImprovementFlags` |
+| `RULE` | 96 spaceship part count p, 4·p, then at c = 100 + 4p: c+144 largest town, c+148 largest city |
+| `GAME` | 8 playable civ count k, 4·k, then at 116 + 4k the search folders (`;`-separated, 5200 bytes) |
+
+The game numbers a scenario's civilizations only when it starts (the human player first). A preview numbers them barbarians 0, then the `LEAD` players in order, then races owning something without a player; a city, unit or border owned by a race belongs to the player playing it.
+
+### 19.3 The preview [D]
+
+`civ3-bridge` (`preview.rs`) reads the highlighted file with `civ3_assets::biq` and makes a `Civ3World` of it as a nation that does not exist would see it if it knew the map: every tile explored and in sight (no fog of war), no player's highlights, no active unit, every resource shown, the best defender of each stack (no health bars, LEDs or stack lines, whose art keeps its size in a world shown small). The scenario's own art folders (its folder, the file's path without extension, and its search folders) are the art's folders while it shows. The scene asks the viewer for the screen at the left and the world beside it (`scene::Beside`): the world shown 2^k times smaller (`View::downscale`, the power of two at which it is nearest to filling the space either way), the viewer zooming the rest. City labels are the name only, centred below the city, laid out at full size and kept so beside the city in the smaller world. `civ3-tool preview SCENARIO.biq OUT.png` renders the same offline.
+
+Beyond downscale 2 the renderer samples sprites on the cells' grid (`tile_render_shared::placed`): sampled from each crop box's own corner, as the game does at 2, tiles cropped to different boxes left about one pixel per tile vertex uncovered (black dots on the sea; isolated black pixels in the preview of WWII in the Pacific: 5005 before, 830 after).
+
+Not covered: a scenario without a map of its own shows none; saved games (`.sav`, the Load Game file picker, another code path) are not previewed.
