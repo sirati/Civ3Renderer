@@ -14,6 +14,13 @@ use scene::{Scene, View, WorldShape};
 use crate::rules;
 use crate::world::{Civ3View, Civ3World};
 
+/// How far the map's sprites reach beyond their cells (left, top, right,
+/// bottom; see `tile_render::Camera::overhang`): tall art (mountains,
+/// cities) up, units' 240×240 frames around their tiles' centres up, down
+/// and to the sides, an army's banner 40 px further right (§10.11). Views
+/// without the game's cull rectangle draw the cells that far outside.
+pub const OVERHANG: (u32, u32, u32, u32) = (128, 128, 128, 128);
+
 /// The view showing what the game shows.
 pub const GAME_VIEW: u32 = 0;
 /// The city screen's view of the city's surroundings (while it is open).

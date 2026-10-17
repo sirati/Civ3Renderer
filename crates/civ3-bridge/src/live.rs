@@ -407,7 +407,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             title: VIEWER_TITLE.into(),
             size: (1024, 768),
             fullscreen: mode == "fullscreen",
-            overhang: (0, 128, 0, 128),
+            overhang: crate::scene_map::OVERHANG,
             ..Default::default()
         };
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
