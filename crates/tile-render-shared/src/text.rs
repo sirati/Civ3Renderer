@@ -55,6 +55,21 @@ const BISECT: u32 = 6;
 const SCALE_SHIFT: u32 = 12;
 /// The largest em drawn, in pixels (larger text is drawn at this size).
 pub const TEXT_MAX_EM: i32 = 256;
+/// Text smaller than this em (pixels at the view's zoom) is darkened: its
+/// stems widened by `(SMALL_EM − em) / 24` pixels (a quarter pixel at 6),
+/// as hinting keeps Windows' small text dark (stems at least a pixel wide),
+/// where an outline's exact coverage turns them grey.
+pub const SMALL_EM: i32 = 12;
+
+/// How far a glyph of `em64` 64ths of a pixel at zoom `n/d` is widened (see
+/// [`SMALL_EM`]), in fixed-point units.
+pub fn darkening(em64: u32, n: u32, d: u32) -> i32 {
+    let em = (if em64 > 1 << 14 { 1 << 14 } else { em64 }) as i32;
+    let (n, d) = (n as i32, if d == 0 { 1 } else { d as i32 });
+    let at_zoom = em * n * TEXT_FIXED / (64 * d);
+    let short = SMALL_EM * TEXT_FIXED - at_zoom;
+    if short > 0 { short / 24 } else { 0 }
+}
 
 /// First word of a face block.
 pub const FACE_MAGIC: u32 = 0x3158_5447;
@@ -137,7 +152,8 @@ pub struct GlyphPlace {
     pub y: i32,
     /// Font units to fixed-point units, `· scale / 2^12`.
     pub scale: i32,
-    /// How far crossings leaving the glyph move right (emboldening).
+    /// How far crossings leaving the glyph move right (emboldening: bold,
+    /// and small text darkened, [`darkening`]).
     pub bold: i32,
     /// `TEXT_*` flags.
     pub flags: u32,
@@ -228,7 +244,7 @@ pub fn place(words: &[u32], g: &TextGlyph, rel_x: i32, rel_y: i32, n: u32, d: u3
         return None;
     }
     let scale = scale_of(g.em, n, d, word(words, g.face + 1));
-    let bold = if flags & TEXT_BOLD != 0 { TEXT_FIXED } else { 0 };
+    let bold = if flags & TEXT_BOLD != 0 { TEXT_FIXED } else { 0 } + darkening(g.em, n, d);
     let own = units(signed(words, g.glyph + 4), scale) + bold;
     Some(GlyphPlace { x: x + floor_div(advance - own, 2), y, scale, bold, flags, glyph: g.glyph, face: g.face, bar_w: 0, bar_top: 0, bar_h: 0 })
 }
@@ -503,6 +519,13 @@ mod tests {
         assert_eq!(fixed_at_zoom(1 << 21, 1, 1), None);
         // 12 px per em at 3/2, 2048 units per em: 18 px.
         assert_eq!(units(2048, scale_of(12 * 64, 3, 2, 2048)), 18 * TEXT_FIXED);
+    }
+
+    #[test]
+    fn small_text_is_darkened() {
+        assert_eq!(darkening(6 * 64, 1, 1), TEXT_FIXED / 4);
+        assert_eq!(darkening(10 * 64, 1, 2), (12 * 96 - 5 * 96) / 24);
+        assert_eq!((darkening(12 * 64, 1, 1), darkening(10 * 64, 2, 1)), (0, 0));
     }
 
     #[test]
