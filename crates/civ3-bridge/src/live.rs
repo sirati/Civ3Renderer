@@ -1046,7 +1046,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                 window.mouse_button(button, down, double, x, y, forwarder.held);
             }
             Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
-            Input::Key { vk, down, text } => key(window, vk, down, text),
+            Input::Key { vk, down, text } => {
+                log::debug!("input: key {vk:#x} {}", if down { "down" } else { "up" });
+                key(window, vk, down, text)
+            }
             // A key over a view of the viewer's own: acted on (a few of
             // them) while a menu is open that allows it, else the key it is.
             // A release goes where its press went.
