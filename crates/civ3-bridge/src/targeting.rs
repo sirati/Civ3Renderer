@@ -350,6 +350,7 @@ pub use live::{install, latest_path, on_game_thread};
 /// change).
 #[cfg(windows)]
 mod live {
+    use std::cell::Cell;
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -442,11 +443,12 @@ mod live {
         let place = game.unit_at_ptr(unit).ok()?;
         let civ = game.player_civ().ok()?;
         let map = game.map().ok()?;
-        // (Read back through memory: the game writes it.)
-        let length = Box::new(-1i32);
-        let out = std::ptr::from_ref::<i32>(&length) as usize as u32;
+        // The game writes this out parameter during the call. Cell permits
+        // that write while the storage stays alive on this thread's stack.
+        let length = Cell::new(-1i32);
+        let out = length.as_ptr() as usize as u32;
         let found = live.set_unit_path.call(live.trade_net, from.0 as u32, from.1 as u32, to.0 as u32, to.1 as u32, unit, civ as u32, t::PATH_FLAGS, out) as i32;
-        let length: i32 = inproc::Ptr32::<i32>::new(out).read().ok()?;
+        let length = length.get();
         if found <= 0 {
             log::debug!("go-to path from {from:?} to {to:?}: none ({found}, length {length})");
             return None;
