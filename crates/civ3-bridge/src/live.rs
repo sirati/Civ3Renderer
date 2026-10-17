@@ -16,8 +16,6 @@ use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, IconBuildi
 /// The viewer window's title (also how we tell it from the game's window).
 const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
 
-/// Shortest time between two art rebuilds.
-const RECOMPILE_EVERY: Duration = Duration::from_secs(2);
 
 /// How often the publisher looks at the game.
 const POLL: Duration = Duration::from_millis(33);
@@ -252,9 +250,12 @@ impl Compiler {
         assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search)
     }
 
-    /// The compiled description, and what a renderer compiling its own copy
-    /// needs (the full text, the art roots).
-    fn compile(
+    /// A rebuild of the art: the description with everything the game
+    /// showed so far, and what a renderer compiling its own copy needs (the
+    /// full text, the art roots). `pixels`: the atlas too (for a renderer
+    /// given it), else only the tables.
+    #[allow(clippy::too_many_arguments)]
+    fn job(
         &self,
         folders: &ArtFolders,
         units: &units::Needed,
@@ -262,7 +263,8 @@ impl Compiler {
         screen: &menu::screen::ScreenArt,
         districts: &crate::district_art::DistrictArt,
         zoomed_out: bool,
-    ) -> Result<(Arc<Compiled>, scene::wire::Assets), LiveError> {
+        pixels: bool,
+    ) -> ArtJob {
         let text = format!(
             "{}{}{}{}{}",
             self.text,
@@ -273,22 +275,81 @@ impl Compiler {
         );
         let files = self.files(folders);
         let wire = scene::wire::Assets {
-            description: text.clone(),
+            description: text,
             roots: files.roots().iter().map(|r| r.to_string_lossy().into_owned()).collect(),
             scale_down: if zoomed_out { 2 } else { 1 },
             // (The presenter numbers them.)
             generation: 0,
         };
-        let compiled = assets::compile_scaled(&text, files, wire.scale_down).map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()))?;
-        let pages = &compiled.atlas.pages;
-        let mb = pages.iter().map(|p| p.width as u64 * p.height as u64 * 4).sum::<u64>() >> 20;
-        log::info!(
-            "live renderer: {} layers, {} sprites, {} atlas pages ({mb} MiB) ({folders:?})",
-            compiled.layers.len(),
-            compiled.sprite_names.len(),
-            pages.len()
-        );
-        Ok((Arc::new(compiled), wire))
+        ArtJob { name: self.name.clone(), files, wire, pixels, folders: folders.clone(), token: 0, generation: 0 }
+    }
+}
+
+/// A rebuild of the art (see [`Compiler::job`]), for the art thread.
+struct ArtJob {
+    /// The description's name, for messages.
+    name: String,
+    files: civ3_assets::GameFiles,
+    wire: scene::wire::Assets,
+    pixels: bool,
+    folders: ArtFolders,
+    /// See `ArtSchedule::start`.
+    token: u64,
+    /// The presenter's (`Presenter::prepare_assets`).
+    generation: u64,
+}
+
+/// A rebuild done.
+struct ArtDone {
+    token: u64,
+    generation: u64,
+    compiled: Result<Compiled, LiveError>,
+    took: Duration,
+}
+
+impl ArtJob {
+    /// Compiles; with the pixels, reusing the sheets in `cache` (the art
+    /// grows a little at a time) and keeping this compile's there.
+    fn run(self, cache: &mut render_desc::SheetCache) -> ArtDone {
+        let started = std::time::Instant::now();
+        let pixels = if self.pixels { assets::Pixels::Made(Some(cache)) } else { assets::Pixels::TablesOnly };
+        let compiled = assets::compile_as(&self.wire.description, self.files, self.wire.scale_down, pixels)
+            .map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()));
+        if let Ok(c) = &compiled {
+            let pages = &c.atlas.pages;
+            let mb = pages.iter().map(|p| p.width as u64 * p.height as u64 * 4).sum::<u64>() >> 20;
+            log::info!(
+                "live renderer: {} layers, {} sprites, {} ({:?})",
+                c.layers.len(),
+                c.sprite_names.len(),
+                if self.pixels { format!("{} atlas pages ({mb} MiB)", pages.len()) } else { "the tables only (the renderer makes the atlas)".into() },
+                self.folders
+            );
+        }
+        ArtDone { token: self.token, generation: self.generation, compiled, took: started.elapsed() }
+    }
+}
+
+/// Runs art rebuilds on a thread of their own, so that the publisher goes
+/// on publishing with the art it has meanwhile.
+struct ArtThread {
+    jobs: std::sync::mpsc::Sender<ArtJob>,
+    done: std::sync::mpsc::Receiver<ArtDone>,
+}
+
+impl ArtThread {
+    /// `cache`: the sheets of the compiles so far.
+    fn start(mut cache: render_desc::SheetCache) -> std::io::Result<ArtThread> {
+        let (jobs, job_rx) = std::sync::mpsc::channel::<ArtJob>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        std::thread::Builder::new().name("civ3r-art".into()).spawn(move || {
+            for job in job_rx {
+                if done_tx.send(job.run(&mut cache)).is_err() {
+                    break;
+                }
+            }
+        })?;
+        Ok(ArtThread { jobs, done })
     }
 }
 
@@ -328,8 +389,14 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("no map input while menus are open: {e}"),
         }
     }
-    let (compiled, wire) = compiler.compile(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), false)?;
+    hook_edge_scroll();
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
+    // The native viewer makes its own atlas: this side needs the tables only.
+    let pixels = !mode.starts_with("native");
+    let first = compiler.job(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), false, pixels);
+    let wire = first.wire.clone();
+    let mut cache = render_desc::SheetCache::new();
+    let compiled = Arc::new(first.run(&mut cache).compiled?);
     let mut presenter = if mode.starts_with("native") {
         let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
         Presenter::native(native)
@@ -343,11 +410,15 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         };
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
     };
+    log::info!("renderer {}", presenter.describe());
     presenter.set_assets(&compiled, &wire);
-    let compiled = Arc::new(compiled.without_pixels());
+    presenter.forward_log();
+    let compiled = if pixels { Arc::new(compiled.without_pixels()) } else { compiled };
+    let art_thread = ArtThread::start(cache).map_err(LiveError::Install)?;
+    let timing = if pixels { crate::art_schedule::Timing::SHARED_ATLAS } else { crate::art_schedule::Timing::OWN_ATLAS };
     std::thread::Builder::new()
         .name("civ3r-publish".into())
-        .spawn(move || publish(game, &compiler, folders, compiled, presenter))
+        .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels))
         .map_err(LiveError::Install)?;
     Ok(())
 }
@@ -363,7 +434,17 @@ enum Shown {
 }
 
 /// Publishes a new scene whenever what the game shows changes.
-fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compiled: Arc<Compiled>, mut presenter: Presenter) {
+#[allow(clippy::too_many_arguments)]
+fn publish(
+    game: Civ3,
+    compiler: &Compiler,
+    mut folders: ArtFolders,
+    mut compiled: Arc<Compiled>,
+    mut presenter: Presenter,
+    art_thread: ArtThread,
+    timing: crate::art_schedule::Timing,
+    pixels: bool,
+) {
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
@@ -379,8 +460,11 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
     let mut label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
     let mut zoomed_out = false;
     let mut table_colors = std::collections::HashMap::new();
-    let mut art_pending = false;
-    let mut last_compile = std::time::Instant::now() - RECOMPILE_EVERY;
+    let mut schedule = crate::art_schedule::ArtSchedule::new(timing);
+    // When the art being built was first wanted, and whether new art came
+    // (the scene goes out again, with it).
+    let mut art_wanted: Option<std::time::Instant> = None;
+    let mut new_art = false;
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
     loop {
@@ -404,9 +488,37 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 district_art.len(),
             );
         }
+        // A rebuild of the art done: from now on the scenes use it.
+        if let Ok(done) = art_thread.done.try_recv() {
+            match done.compiled {
+                Ok(c) => {
+                    let c = Arc::new(c);
+                    let started = std::time::Instant::now();
+                    presenter.adopt_assets(&c, done.generation);
+                    // The viewer has the pixels; this side needs the rest only.
+                    compiled = if pixels { Arc::new(c.without_pixels()) } else { c };
+                    mapper = Mapper::new(&compiled);
+                    menus = menus_of(&compiled);
+                    log::info!(
+                        "art: built in {} ms, handed over in {} ms; {} ms after it was first wanted",
+                        done.took.as_millis(),
+                        started.elapsed().as_millis(),
+                        art_wanted.map_or(0, |t| t.elapsed().as_millis())
+                    );
+                }
+                Err(e) => log::error!("recompiling for {folders:?}: {e}"),
+            }
+            schedule.done(std::time::Instant::now(), done.token);
+            if !schedule.pending() {
+                art_wanted = None;
+            }
+            new_art = true;
+        }
         // A scenario brings its own art.
         let now = ArtFolders::of(&game);
         let mut recompile = false;
+        // Art for what the game's screen shows (held back without it).
+        let mut screen_recompile = false;
         if now != folders {
             folders = now;
             art = units::UnitArt::new(compiler.files(&folders));
@@ -415,6 +527,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             recompile = true;
         }
         let inputs = presenter.take_input();
+        presenter.forward_log();
         let shown = match snapshot(&game) {
             Ok((world, view)) => Shown::Map(world, view),
             // Between games: the title menu, which follows the pointer.
@@ -441,7 +554,7 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
         let ui = ui_trace::frame();
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
         let state = (shown, texts, ui);
-        if last.as_ref() == Some(&state) && !recompile && !art_pending && input.look.is_none() && input.world_buttons.is_empty() {
+        if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() {
             continue;
         }
         let (shown, texts, ui) = &state;
@@ -526,10 +639,10 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
             }
             if more != have {
                 have = more;
-                recompile = true;
+                screen_recompile = true;
             }
         }
-        recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms);
+        screen_recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms);
         recompile |= ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms);
         // The zoomed-out view has its own (half-size) art.
         if let Shown::Map(_, view) = shown {
@@ -555,26 +668,29 @@ fn publish(game: Civ3, compiler: &Compiler, mut folders: ArtFolders, mut compile
                 recompile |= district_art.add(&slices);
             }
         }
-        // Rebuild the art at most every `RECOMPILE_EVERY`: a new screen asks
-        // for new art several times in a row, and each atlas is big (a 32-bit
-        // process with a software renderer runs out of memory otherwise).
-        art_pending |= recompile;
-        if art_pending && last_compile.elapsed() >= RECOMPILE_EVERY {
-            art_pending = false;
-            match compiler.compile(&folders, &have, &fonts, &screen_art, &district_art, zoomed_out) {
-                Ok((c, wire)) => {
-                    presenter.set_assets(&c, &wire);
-                    // The viewer has the pixels; this side needs the rest only.
-                    compiled = Arc::new(c.without_pixels());
-                    mapper = Mapper::new(&compiled);
-                    menus = menus_of(&compiled);
-                }
-                Err(e) => log::error!("recompiling for {folders:?}: {e}"),
-            }
-            // From the end: on a slow machine a compile can take longer than
-            // the interval itself.
-            last_compile = std::time::Instant::now();
+        // Rebuild the art once the requests settle (a new screen asks for
+        // new art several times in a row), one rebuild at a time, on the art
+        // thread (`crate::art_schedule`).
+        let now = std::time::Instant::now();
+        if recompile || screen_recompile {
+            schedule.want(now, screen_recompile);
+            art_wanted.get_or_insert(now);
         }
+        if let Some(token) = schedule.start(now) {
+            let job = compiler.job(&folders, &have, &fonts, &screen_art, &district_art, zoomed_out, pixels);
+            // A renderer that compiles its own copy starts at once.
+            let generation = presenter.prepare_assets(&job.wire);
+            if art_thread.jobs.send(ArtJob { token, generation, ..job }).is_err() {
+                log::error!("the art thread is gone");
+                schedule.done(now, token);
+            }
+        }
+        // The screen's art is not built yet: the viewer keeps the last
+        // complete scene a little longer rather than show empty panels.
+        if schedule.hold(now) {
+            continue;
+        }
+        new_art = false;
         seq += 1;
         let mut scene = match shown {
             Shown::Map(world, view) => {
@@ -672,6 +788,11 @@ struct InputForwarder {
     /// World keys (`Input::WorldKey`) whose press went to the game's window
     /// as a plain key.
     plain_keys: Vec<u32>,
+    /// Where the viewer's pointer rests at its window's edge
+    /// (`Input::Edge`), and the game pointer that makes the game scroll
+    /// (`crate::edge`).
+    edge: (i32, i32),
+    edge_point: Option<(i32, i32)>,
 }
 
 impl InputForwarder {
@@ -771,7 +892,8 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::WorldButton { button, down: true, x, y } => forwarder.world_buttons.push((button, (x, y))),
             Input::WorldButton { .. } => {}
             Input::Resized { width, height } => forwarder.viewport = (width, height),
-            Input::Quit => {}
+            Input::Quit => forwarder.edge = (0, 0),
+            Input::Edge { x, y } => forwarder.edge = (x, y),
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
             Input::Zooms(zooms) => {
@@ -779,4 +901,42 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             }
         }
     }
+    // The viewer's pointer at its edge: the game's at its own, to scroll.
+    let point = window.client_size().and_then(|size| crate::edge::game_point(forwarder.edge, size));
+    if point != forwarder.edge_point {
+        match point {
+            Some((x, y)) => log::debug!("edge scroll: the viewer's pointer at {:?}, the game's at ({x}, {y})", forwarder.edge),
+            None => log::debug!("edge scroll: ends"),
+        }
+        forwarder.edge_point = point;
+        inproc::pointer::set(point.map(|(x, y)| inproc::pointer::Override { window, x, y }));
+    }
+}
+
+/// Lets the game scroll at the viewer's edge (`crate::edge`): its
+/// executable's `GetFocus` and `jgl.dll`'s `GetCursorPos` (loaded later)
+/// answer with `inproc::pointer`'s override while there is one. The hooks
+/// stay for the life of the process.
+fn hook_edge_scroll() {
+    match inproc::pointer::hook_focus(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => return log::warn!("edge scroll: the game does not import GetFocus"),
+        Err(e) => return log::warn!("edge scroll: hooking GetFocus: {e}"),
+    }
+    std::thread::spawn(|| {
+        for _ in 0..600 {
+            if let Some(module) = inproc::pe::module_base("jgl.dll") {
+                match inproc::pointer::hook_cursor_pos(module) {
+                    Ok(Some(hook)) => {
+                        log::info!("edge scroll: following the viewer's pointer at its edge");
+                        std::mem::forget(hook);
+                    }
+                    Ok(None) => log::warn!("edge scroll: jgl.dll does not import GetCursorPos"),
+                    Err(e) => log::warn!("edge scroll: hooking GetCursorPos: {e}"),
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    });
 }

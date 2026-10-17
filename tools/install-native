@@ -13,12 +13,14 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 game=${1:-"/mnt/datasets/winvm/wine-civ3-wow64/drive_c/Games/Civilization III Complete/Conquests"}
 out=${CIV3R_NATIVE_DIR:-/mnt/datasets/winvm/civ3r-native}
+# Cargo's output directory (CARGO_TARGET_DIR, else the repository's target/).
+target=${CARGO_TARGET_DIR:-$repo/target}
 cd "$repo"
 cargo build -q --release -p civ3r-native
 cargo build -q --release -p civ3r-native -p civ3-bridge --target i686-pc-windows-gnu
 mkdir -p "$out/i386-windows" "$out/x86_64-unix"
-cp -f target/release/libciv3r_native.so "$out/x86_64-unix/civ3r_native.so"
-cp -f target/i686-pc-windows-gnu/release/civ3r_native.dll "$out/i386-windows/civ3r_native.dll"
+cp -f "$target"/release/libciv3r_native.so "$out/x86_64-unix/civ3r_native.so"
+cp -f "$target"/i686-pc-windows-gnu/release/civ3r_native.dll "$out/i386-windows/civ3r_native.dll"
 tools/mark-wine-builtin "$out/i386-windows/civ3r_native.dll"
 cp -f "$out/i386-windows/civ3r_native.dll" "$game/civ3r_native.dll"
 tools/install-bridge "$game" release

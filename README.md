@@ -125,7 +125,10 @@ every view that shows it. A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
 arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
-(the bridge clicks its minimap). `TILE_VIEWER_LAYOUT` sets it up at start,
+(the bridge clicks its minimap). Where the main pane shows the game's view
+unmoved (zoom 1), the pointer resting at the window's edge scrolls the
+game's map as at the game's own screen edge (`scene::Input::Edge`; the
+game polls the pointer, `inproc::pointer`). `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one

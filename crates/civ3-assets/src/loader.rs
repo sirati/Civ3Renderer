@@ -151,6 +151,12 @@ fn to_rgba_with(
 
 /// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>[/<weight>/<italic 0|1>]`.
 pub fn font_of(files: &GameFiles, spec: &str) -> Result<crate::fonts::GlyphFont, String> {
+    let (style, rgb) = font_spec(spec)?;
+    crate::fonts::load(files, &style, rgb)
+}
+
+/// The style and colour a `font:` source names.
+fn font_spec(spec: &str) -> Result<(crate::fonts::FontStyle, [u8; 3]), String> {
     let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>[/<weight>/<italic>]");
     let mut parts = spec.split('/');
     let (face, height, color) = (parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?);
@@ -159,10 +165,32 @@ pub fn font_of(files: &GameFiles, spec: &str) -> Result<crate::fonts::GlyphFont,
     let italic = parts.next().is_some_and(|i| i == "1");
     let rgb: Vec<u8> = color.split(',').map(|v| v.trim().parse().map_err(|_| err())).collect::<Result<_, _>>()?;
     let rgb = <[u8; 3]>::try_from(rgb).map_err(|_| err())?;
-    crate::fonts::load(files, &crate::fonts::FontStyle { face: face.to_owned(), height, weight, italic }, rgb)
+    Ok((crate::fonts::FontStyle { face: face.to_owned(), height, weight, italic }, rgb))
 }
 
 impl ImageLoader for Civ3Loader {
+    /// From the files' headers (FLC: and their chunks'), and font sheets'
+    /// metrics: no pixels are made.
+    fn sizes(&self, source: &str, _options: &toml::Table) -> Result<Vec<(u32, u32)>, String> {
+        if let Some(spec) = source.strip_prefix("font:") {
+            let sizes = crate::fonts::glyph_sizes(&self.files, &font_spec(spec)?.0)?;
+            return Ok(crate::fonts::charset().map(|c| sizes.get(&c).copied().unwrap_or((1, 1))).collect());
+        }
+        let path = self.files.resolve(source).map_err(|e| e.to_string())?;
+        let mut file = std::fs::File::open(&path).map_err(|e| format!("{source}: {e}"))?;
+        let lower = source.to_lowercase();
+        if lower.ends_with(".pcx") {
+            let mut header = [0u8; 128];
+            std::io::Read::read_exact(&mut file, &mut header).map_err(|e| format!("{source}: {e}"))?;
+            Ok(vec![pcx::dimensions(&header).map_err(|e| format!("{source}: {e}"))?])
+        } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
+            let (w, h, n) = flc::dimensions(&mut file).map_err(|e| format!("{source}: {e}"))?;
+            Ok(vec![(w, h); n])
+        } else {
+            Err(format!("{source}: unknown image format"))
+        }
+    }
+
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
         if let Some(spec) = source.strip_prefix("font:") {
             let font = font_of(&self.files, spec)?;
@@ -208,5 +236,34 @@ impl ImageLoader for Civ3Loader {
         } else {
             Err(format!("{source}: unknown image format"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sizes told without pixels are those of the loaded frames, for the
+    /// game's own art (`CIV3_INSTALL`; skipped without an installation) and
+    /// the glyph sheets (skipped without them).
+    #[test]
+    fn sizes_without_pixels_are_the_loaded_ones() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).is_dir() {
+            return eprintln!("no Civ III install, skipped");
+        }
+        let loader = Civ3Loader::new(GameFiles::complete(&install));
+        let none = toml::Table::new();
+        let mut sources = vec!["Art/city screen/background.pcx", "Art/Animations/Disorder/CivilDisorder.flc", "Art/Units/Aegis Cruiser/AegisCruiserDefault.flc"];
+        let font = "font:Lucida Sans/12/0,0,0/0/0";
+        if crate::fonts::glyph_sizes(&loader.files, &crate::fonts::FontStyle { face: "Lucida Sans".into(), height: 12, weight: 0, italic: false }).is_ok() {
+            sources.push(font);
+        }
+        for source in sources {
+            let Ok(frames) = loader.load(source, &none) else { continue };
+            let loaded: Vec<(u32, u32)> = frames.iter().map(|f| (f.width, f.height)).collect();
+            assert_eq!(loader.sizes(source, &none).unwrap(), loaded, "{source}");
+        }
+        assert!(loader.sizes("Art/none.pcx", &none).is_err());
     }
 }

@@ -81,6 +81,44 @@ const BLACK: u16 = 13;
 const BYTE_RUN: u16 = 15;
 const FLI_COPY: u16 = 16;
 
+/// The frame size and how many frames [`decode`] makes of the file at
+/// `file`, from its header and the headers of its chunks (their bodies are
+/// skipped, not read).
+pub fn dimensions(file: &mut (impl std::io::Read + std::io::Seek)) -> Result<(u32, u32, usize), FlcError> {
+    use std::io::SeekFrom;
+    let mut header = [0u8; 128];
+    file.read_exact(&mut header).map_err(|_| FlcError::NotFlc)?;
+    let word = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]);
+    let magic = word(4);
+    if magic != FLC_MAGIC && magic != FLI_MAGIC {
+        return Err(FlcError::NotFlc);
+    }
+    let (width, height, depth) = (word(8) as u32, word(10) as u32, word(12));
+    if depth != 8 && depth != 0 {
+        return Err(FlcError::Depth(depth));
+    }
+    let len = file.seek(SeekFrom::End(0)).map_err(|_| FlcError::Truncated)?;
+    let mut at = match u32::from_le_bytes(header[80..84].try_into().unwrap()) {
+        off if magic == FLC_MAGIC && off != 0 => off as u64,
+        _ => 128,
+    };
+    let mut frames = 0;
+    // As `decode` walks them: every frame chunk is a frame.
+    while at + 6 <= len {
+        let mut chunk = [0u8; 6];
+        file.seek(SeekFrom::Start(at)).and_then(|_| file.read_exact(&mut chunk)).map_err(|_| FlcError::Truncated)?;
+        let size = u32::from_le_bytes(chunk[..4].try_into().unwrap()) as u64;
+        if size < 6 {
+            return Err(FlcError::Truncated);
+        }
+        if u16::from_le_bytes([chunk[4], chunk[5]]) == FRAME_CHUNK {
+            frames += 1;
+        }
+        at += size;
+    }
+    Ok((width, height, frames))
+}
+
 pub fn decode(bytes: &[u8]) -> Result<Flc, FlcError> {
     if bytes.len() < 128 {
         return Err(FlcError::NotFlc);

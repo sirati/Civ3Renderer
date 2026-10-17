@@ -41,19 +41,25 @@ impl Indexed {
     }
 }
 
-pub fn decode(bytes: &[u8]) -> Result<Indexed, PcxError> {
-    if bytes.len() < 128 || bytes[0] != 0x0A || bytes[2] != 1 {
+/// The size of the image whose file starts with `header` (its first 128
+/// bytes, or more), as [`decode`] makes it.
+pub fn dimensions(header: &[u8]) -> Result<(u32, u32), PcxError> {
+    if header.len() < 128 || header[0] != 0x0A || header[2] != 1 {
         return Err(PcxError::NotPcx);
     }
-    let bits = bytes[3];
-    let planes = bytes[65];
+    let bits = header[3];
+    let planes = header[65];
     if bits != 8 || planes != 1 {
         return Err(PcxError::Unsupported { bits, planes });
     }
-    let word = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]) as u32;
+    let word = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]) as u32;
     let (xmin, ymin, xmax, ymax) = (word(4), word(6), word(8), word(10));
-    let width = xmax - xmin + 1;
-    let height = ymax - ymin + 1;
+    Ok((xmax.wrapping_sub(xmin).wrapping_add(1), ymax.wrapping_sub(ymin).wrapping_add(1)))
+}
+
+pub fn decode(bytes: &[u8]) -> Result<Indexed, PcxError> {
+    let (width, height) = dimensions(bytes)?;
+    let word = |at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]) as u32;
     // Scanlines are padded to an even byte count.
     let stride = word(66).max(width) as usize;
 
