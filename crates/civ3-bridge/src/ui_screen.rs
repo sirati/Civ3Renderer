@@ -49,8 +49,18 @@ pub fn relative_path(path: &str, roots: &[PathBuf]) -> String {
 /// itself that we make ourselves (others are left out); `unit_colors`: the
 /// colour table of unit pictures.
 pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32) -> Vec<Item> {
+    items_with(frame, roots, generated, unit_colors, None)
+}
+
+/// [`items`] with `extra` (index, items) among them: over the draws before
+/// that index, under the others.
+pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32, extra: Option<(usize, Vec<Item>)>) -> Vec<Item> {
     let mut out = Vec::new();
+    let (at, mut extra) = extra.map_or((usize::MAX, None), |(at, items)| (at, Some(items)));
     for (i, d) in frame.draws.iter().enumerate() {
+        if i == at {
+            out.extend(extra.take().unwrap_or_default());
+        }
         let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
         let element = match d {
             ScreenDraw::Image { path, rect, x, y, keyed, clip, mask, palette } => Element::Image {
@@ -90,6 +100,7 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
         };
         out.push(Item::Element(element, under));
     }
+    out.extend(extra.unwrap_or_default());
     out
 }
 
@@ -262,6 +273,17 @@ mod tests {
     fn lines_are_made_of_power_of_two_pieces() {
         assert_eq!(pieces(13), [(0, 8), (8, 4), (12, 1)]);
         assert_eq!(pieces(0), []);
+    }
+
+    #[test]
+    fn extra_items_go_between_the_draws() {
+        let fill = |x: i32| ScreenDraw::Fill { rect: [x, 0, 1, 1], rgb: [0, 0, 0], alpha: 255, clip: [0, 0, 10, 10] };
+        let frame = Frame { draws: vec![fill(1), fill(2)], ..Default::default() };
+        let extra = || vec![Item::Element(Element::Fill { rect: [9, 9, 1, 1], rgb: [1, 1, 1], alpha: 255, clip: [0, 0, 10, 10] }, false)];
+        let xs = |items: Vec<Item>| -> Vec<i32> { items.iter().map(|i| if let Item::Element(Element::Fill { rect, .. }, _) = i { rect[0] } else { -1 }).collect() };
+        assert_eq!(xs(items_with(&frame, &[], &[], 0, Some((1, extra())))), [1, 9, 2]);
+        assert_eq!(xs(items_with(&frame, &[], &[], 0, Some((2, extra())))), [1, 2, 9]);
+        assert_eq!(xs(items_with(&frame, &[], &[], 0, None)), [1, 2]);
     }
 
     #[test]

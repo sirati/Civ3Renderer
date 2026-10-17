@@ -584,8 +584,10 @@ fn publish(
         }
         // The game's interface, mirrored (else its text only).
         let ui = ui_trace::frame();
+        let modal = game.modal_form().ok().flatten().filter(|&m| m != 0);
         // Our tabs over the game's Preferences screen, while it is shown.
-        prefs.update(ui.as_ref(), civ3_sys::ui_hooks::preferences_form(game.build), input.viewport);
+        let prefs_form = civ3_sys::ui_hooks::preferences_form(game.build);
+        prefs.update(ui.as_ref(), prefs_form, input.viewport, modal);
         let prefs_draws = prefs.draws(&fonts);
         let prefs_changed = published_prefs.0 != prefs_draws || published_prefs.1.as_ref() != Some(prefs.settings());
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
@@ -616,7 +618,6 @@ fn publish(
         // screen open, the popup over it (split off: the viewer may draw it
         // elsewhere).
         let screen_open = ui.as_ref().and_then(|f| crate::interface_parts::screen(f, civ3_sys::ui_hooks::screen_forms(game.build)));
-        let modal = game.modal_form().ok().flatten().filter(|&m| m != 0);
         let screen_size = (input.viewport.0 as i32, input.viewport.1 as i32);
         let popup = match (ui, modal, shown) {
             (Some(f), Some(m), Shown::Map(..)) => crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size),
@@ -646,7 +647,18 @@ fn publish(
             Some((_, first)) => ui_below.as_ref().map(|f| ui_screen::from_draw(f, first)),
             None => ui_below.clone(),
         };
-        let mut ui_items = visible_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        // Our tabs on top of the game's Preferences screen, in the part of
+        // the interface that draws it (the screen may be the popup split
+        // off), under what the game draws over it (a popup over it, e.g.
+        // C3X's info box, and that popup's frame).
+        let mut prefs_items = Some(crate::prefs::items(&prefs_draws)).filter(|i| !i.is_empty());
+        let popup_canvas = modal.filter(|&m| prefs_form.is_none_or(|f| f.form != m)).map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4);
+        let mut with_tabs = |f: &crate::ui::Frame| {
+            let at = prefs_form.as_ref().and_then(|form| crate::prefs::tabs_slot(f, form, popup_canvas));
+            ui_screen::items_with(f, files.roots(), generated, unit_colors, at.and_then(|at| prefs_items.take().map(|items| (at, items))))
+        };
+        let mut ui_items = visible_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
         // On the map's own screen: the corner's buttons (drawn in the view
         // the pointer is in) and the unit's orders (reachable from every
         // view).
@@ -659,7 +671,6 @@ fn publish(
             (Some(r), Some(f)) => ui_screen::items(&crate::interface_parts::region(f, r), files.roots(), generated, unit_colors),
             _ => Vec::new(),
         };
-        let popup_items = ui_popup.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -686,8 +697,8 @@ fn publish(
         if let Shown::Map(world, view) = shown {
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
         }
-        // Our tabs on top of the game's Preferences screen.
-        ui_items.extend(crate::prefs::items(&prefs_draws));
+        // (Our tabs where no part draws the screen: on top.)
+        ui_items.extend(prefs_items.take().unwrap_or_default());
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         // Not while a menu is open: the click would go to the menu.
