@@ -552,6 +552,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
+    /// The split and roles pictures' labels fit inside their panes, in the
+    /// game's Lucida Sans (with an installation at `CIV3_INSTALL`).
+    #[test]
+    fn the_pictures_labels_fit_their_panes() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).join("LSANS.TTF").is_file() {
+            return eprintln!("no Civ III installation, skipped");
+        }
+        let files = civ3_assets::GameFiles::complete(&install);
+        let table: toml::Table = toml::from_str(PANELS).unwrap();
+        let mut fonts = Fonts::default();
+        for (split, variant) in [
+            (render_desc::PanesSplit::Standard, "Standard"),
+            (render_desc::PanesSplit::Vertical1To1, "Vertical1To1"),
+            (render_desc::PanesSplit::Vertical2To1, "Vertical2To1"),
+            (render_desc::PanesSplit::Horizontal1To1, "Horizontal1To1"),
+        ] {
+            let panes = render_desc::panes_rects(split, (100, 60));
+            for art in [format!("panes_{variant}"), format!("roles_free_{variant}"), format!("roles_unit_{variant}")] {
+                for (label, pane) in table["art"][&art]["labels"].as_array().unwrap().iter().zip(&panes) {
+                    let style = &table["styles"][label["style"].as_str().unwrap()];
+                    let run = TextRun {
+                        x: 0,
+                        y: 0,
+                        color: [0, 0, 0],
+                        face: style["face"].as_str().unwrap().into(),
+                        height: -(style["height"].as_integer().unwrap() as i32),
+                        weight: style.get("weight").and_then(|w| w.as_integer()).unwrap_or(400) as i32,
+                        italic: false,
+                        underline: false,
+                        text: label["text"].as_str().unwrap().into(),
+                        backdrop: None,
+                    };
+                    fonts.add(&files, std::slice::from_ref(&run));
+                    let (width, _, _) = fonts.metrics(&run).unwrap();
+                    // (A pixel of the pane's frame on each side.)
+                    assert!(width <= pane[2] - 2, "{art}: {:?} is {width} px wide, its pane {} px", run.text, pane[2]);
+                }
+            }
+        }
+    }
+
     /// Every piece of art the panel cuts from the game's files is there
     /// (with an installation at `CIV3_INSTALL`).
     #[test]
