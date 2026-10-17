@@ -135,6 +135,17 @@ impl Presenter {
         }
     }
 
+    /// Whether every art request sent so far has reached the drawable GPU
+    /// atlas. Background preload starts only then, bounding its backlog to
+    /// one chunk even when compilation is much faster than uploading.
+    pub fn preload_ready(&mut self) -> bool {
+        let uploaded = match &mut self.sink {
+            Sink::InProcess { assets, .. } => assets.uploaded_generation(),
+            Sink::Native(n) => n.uploaded_generation(),
+        };
+        uploaded >= self.prepared.max(self.generation)
+    }
+
     /// Makes the renderer's scene `scene`, sending only what changed.
     /// While the renderer has not taken the last batch, nothing is sent: what
     /// changed goes with a later one (a slow renderer does not queue up
@@ -213,6 +224,8 @@ impl Presenter {
 pub struct Native {
     #[cfg(all(windows, target_arch = "x86"))]
     lib: wine_unixlib::pe::UnixLib,
+    #[cfg(all(windows, target_arch = "x86"))]
+    upload_status: Option<bool>,
     fullscreen: bool,
     input: Vec<u8>,
     log: Vec<u8>,
@@ -222,7 +235,7 @@ impl Native {
     #[cfg(all(windows, target_arch = "x86"))]
     pub fn load(fullscreen: bool) -> Result<Native, String> {
         let lib = wine_unixlib::pe::UnixLib::load("civ3r_native.dll").map_err(|s| format!("civ3r_native.dll: status {s:#x}"))?;
-        Ok(Native { lib, fullscreen, input: vec![0; 64 * 1024], log: vec![0; 16 * 1024] })
+        Ok(Native { lib, upload_status: None, fullscreen, input: vec![0; 64 * 1024], log: vec![0; 16 * 1024] })
     }
 
     #[cfg(not(all(windows, target_arch = "x86")))]
@@ -268,6 +281,26 @@ impl Native {
         {
             let mut args = civ3r_native::ArtStatus::default();
             if self.lib.call(civ3r_native::CALL_STATUS, &mut args) != 0 {
+                return 0;
+            }
+            args.generation_lo as u64 | (args.generation_hi as u64) << 32
+        }
+        #[cfg(not(all(windows, target_arch = "x86")))]
+        0
+    }
+
+    /// The latest art committed to the drawable atlas. An older native
+    /// library without this call safely disables optional preloading.
+    fn uploaded_generation(&mut self) -> u64 {
+        #[cfg(all(windows, target_arch = "x86"))]
+        {
+            let supported = *self.upload_status.get_or_insert_with(|| {
+                let mut limits = civ3r_native::Limits::default();
+                self.lib.call(civ3r_native::CALL_LIMITS, &mut limits) == 0 && limits._pad & civ3r_native::LIMIT_UPLOADED != 0
+            });
+            if !supported { return 0; }
+            let mut args = civ3r_native::ArtStatus::default();
+            if self.lib.call(civ3r_native::CALL_UPLOADED, &mut args) != 0 {
                 return 0;
             }
             args.generation_lo as u64 | (args.generation_hi as u64) << 32

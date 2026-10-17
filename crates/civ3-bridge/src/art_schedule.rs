@@ -7,9 +7,10 @@
 //! until the requests settle (or have waited long enough), runs one at a
 //! time (off the publishing thread), and covers every request made before
 //! it started.
-//! [`ArtSchedule::hold`] tells whether art the game's *screen* needs is
-//! still missing; the publisher does not hold scenes back for it (nothing
-//! waits for art: what is missing is drawn once it is built).
+//! [`ArtSchedule::screen_pending`] distinguishes a pending screen request
+//! from a completed request whose art could not be compiled. Publication
+//! also checks actual visible-item readiness (`crate::ui_screen`), rather
+//! than releasing an incomplete valid screen after a timeout.
 
 use std::time::{Duration, Instant};
 
@@ -68,6 +69,12 @@ impl ArtSchedule {
     /// Whether art is wanted that is not built yet (nor being built).
     pub fn pending(&self) -> bool {
         self.asked > self.running.unwrap_or(self.covered)
+    }
+
+    /// Whether a screen-art request has not completed yet. Unlike `hold`,
+    /// this never expires, and unrelated map requests cannot extend it.
+    pub fn screen_pending(&self) -> bool {
+        self.screen_asked > self.covered
     }
 
     /// How many requests there were so far (the last one's number, see
@@ -198,5 +205,11 @@ mod tests {
         s.want(ms(t0, 1000), true);
         assert!(s.hold(ms(t0, 4999)));
         assert!(!s.hold(ms(t0, 5000)));
+        assert!(s.screen_pending(), "real request readiness does not expire with the legacy timer");
+        let token = s.start(ms(t0, 6000)).unwrap();
+        s.want(ms(t0, 6010), false);
+        s.done(ms(t0, 6100), token);
+        assert!(!s.screen_pending(), "pending map work cannot retain a terminally failed screen request");
+        assert!(s.pending());
     }
 }

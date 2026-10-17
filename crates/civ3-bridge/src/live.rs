@@ -568,6 +568,7 @@ fn publish(
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
     let mut held_since: Option<std::time::Instant> = None;
+    let mut unavailable_screen = false;
     // What the last publish made of the parts of the world and of the
     // interface that did not change since (`Memo`): the world's cells, the
     // city labels, the interface's and the labels' sprites, the minimap.
@@ -683,6 +684,9 @@ fn publish(
                         now.duration_since(done.wanted).as_millis()
                     );
                     if g.is_empty() {
+                        // A no-op still completes its prepared generation,
+                        // including the end-to-end preload acknowledgment.
+                        presenter.adopt_growth(&g, done.generation);
                         if let Some(token) = done.token {
                             schedule.done(now, token);
                         }
@@ -861,12 +865,18 @@ fn publish(
         // A completed asynchronous font load changes a static screen too.
         if fonts.take_loaded() {
             recompile = true;
+            screen_recompile = true;
             wanted_for.push("text");
         }
         let state = (shown, texts, ui, interactables, cursor);
         let unchanged = last.as_ref() == Some(&state);
         mark(&mut profile, "compare", &mut t);
-        if unchanged && replay_revision == last_replay_revision && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+        // GPU upload completion can make another optional preload chunk
+        // eligible even on a static screen. CPU compilation alone must not
+        // let background art outrun the viewer.
+        let preload_ready = presenter.preload_ready();
+        let preload_work = planning.is_some() || (!preload.finished() && preload_ready);
+        if unchanged && replay_revision == last_replay_revision && !recompile && !new_art && !schedule.pending() && !preload_work && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             if let Some(p) = &mut profile {
                 p.event("unchanged", 1);
             }
@@ -1137,6 +1147,7 @@ fn publish(
         }
         if fonts.add(&compiler.files(&folders), texts) {
             recompile = true;
+            screen_recompile = true;
             wanted_for.push("text");
         }
         if let Some(last) = &mut text_trace {
@@ -1245,7 +1256,7 @@ fn publish(
         // wanted now goes first).
         // (A renderer compiling its own art has the last addition first:
         // what it is sent queues behind what it has not compiled yet.)
-        if art_thread.idle() && pending_growths.is_empty() && !schedule.pending() && !whole_wanted {
+        if preload_ready && art_thread.idle() && pending_growths.is_empty() && !schedule.pending() && !whole_wanted {
             let have_ref = &have;
             let wanted = |item: &crate::preload::Item| match item {
                 crate::preload::Item::Unit(f, colors) => have_ref.files.get(&f.path).is_some_and(|(_, c)| colors.is_subset(c)) && !have_ref.stills.contains_key(&f.path),
@@ -1278,9 +1289,35 @@ fn publish(
                 }
             }
         }
-        // (Nothing waits for art: what is not built yet is left out, or
-        // drawn as it was, until it is.)
-        let _ = &mut held_since;
+        // Keep the last complete screen until all currently visible UI
+        // resolves. The viewer keeps drawing that screen with local cursor,
+        // hover and layout updates while input and art processing continue.
+        // Optional alternate states, hints and world labels do not hold the
+        // screen back, and there is no timeout that publishes missing art.
+        let plain_text: Vec<_> = if ui.is_none() {
+            texts.iter().cloned().map(|run| ui_screen::Item::Text(run, [i32::MIN, i32::MIN, i32::MAX, i32::MAX], false)).collect()
+        } else { Vec::new() };
+        let mandatory = ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&plain_text);
+        match ui_screen::readiness(mandatory, &fonts, &compiled, schedule.screen_pending()) {
+            ui_screen::Readiness::Pending => {
+                if held_since.is_none() {
+                    held_since = Some(std::time::Instant::now());
+                    log::debug!("scene: retaining the complete screen while mandatory art is built");
+                }
+                last = None;
+                continue;
+            }
+            ui_screen::Readiness::Unavailable => {
+                if !unavailable_screen {
+                    log::warn!("scene: mandatory art request completed without all visible art; using the available screen fallback");
+                }
+                unavailable_screen = true;
+            }
+            ui_screen::Readiness::Ready => unavailable_screen = false,
+        }
+        if let Some(since) = held_since.take() {
+            log::info!("scene: mandatory screen art settled after {} ms", since.elapsed().as_millis());
+        }
         new_art = false;
         seq += 1;
         // How much smaller a previewed world is shown: about the size of the
