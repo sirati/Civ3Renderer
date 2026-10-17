@@ -13,6 +13,7 @@ pub mod cursor;
 pub mod district_art;
 pub mod districts;
 pub mod edge;
+pub mod game_render;
 pub mod interface_parts;
 pub mod label_check;
 pub mod minimap;
@@ -53,7 +54,13 @@ fn init() {
         Err(e) => return log::error!("not attaching: {e}"),
     };
     log::info!("detected build {:?}", game.build);
-    if std::env::var("CIV3R_GAME_MAP").is_ok_and(|v| v == "off") {
+    // `CIV3R_GAME_RENDER=off` (the default with the native viewer, its
+    // window not shown): the game skips its pixel work, the map's
+    // included (`game_render`).
+    let var = |name: &str| std::env::var(name).ok();
+    let game_draws = game_render::game_draws(var("CIV3R_GAME_RENDER").as_deref(), var("CIV3R_VIEWER").as_deref(), var("CIV3R_GAME_WINDOW").as_deref());
+    ui_trace::set_game_draws(game_draws);
+    if std::env::var("CIV3R_GAME_MAP").is_ok_and(|v| v == "off") || !game_draws {
         log::info!("the game's map rendering is off");
         trace::GAME_MAP_OFF.store(true, std::sync::atomic::Ordering::Relaxed);
     }

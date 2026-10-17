@@ -1,0 +1,151 @@
+//! Whether the game does its own pixel work (`CIV3R_GAME_RENDER`).
+//!
+//! With the renderer drawing everything, the game only has to decide what
+//! to show: the interface mirror (`ui_trace`) records every drawing
+//! operation it hooks and then skips the game's own drawing of it
+//! (sprite blits, image copies, fills, lines, translucent shades, text
+//! output), the window update (`present`'s `BitBlt`) and, through the map's
+//! tracer, the map's blits. Everything that decides what is drawn still
+//! runs: forms redraw, compose and present as before, text is measured,
+//! animations pick their frames, the map pass visits its tiles.
+//!
+//! Drawing goes on where the game reads the result back: onto the images
+//! listed at the start (the minimap's, `ui_hooks::read_back_images`), and
+//! onto any image the game made itself and cuts a sprite from (found when
+//! it does; see [`Skipper::cut_from`]).
+
+use std::collections::HashSet;
+
+/// Whether the game draws itself, from `CIV3R_GAME_RENDER` (`on` / `off`),
+/// `CIV3R_VIEWER` and `CIV3R_GAME_WINDOW`: by default not with the native
+/// viewer (the game's window is not what the player looks at) unless the
+/// game's window is asked to be shown (`show`), else yes (the in-process
+/// viewer may show the game's window beside its own).
+pub fn game_draws(setting: Option<&str>, viewer: Option<&str>, window: Option<&str>) -> bool {
+    match setting {
+        Some("off") => false,
+        Some("on") => true,
+        _ => !viewer.is_some_and(|v| v.starts_with("native")) || window == Some("show"),
+    }
+}
+
+/// Which drawing is skipped.
+#[derive(Debug, Default)]
+pub struct Skipper {
+    /// Images drawn onto as before.
+    keep: HashSet<u32>,
+    /// Images some drawing onto was skipped (since their content was last
+    /// replaced by a file).
+    skipped: HashSet<u32>,
+    /// Images holding a file's pixels.
+    files: HashSet<u32>,
+}
+
+impl Skipper {
+    /// `keep`: images whose pixels the game reads.
+    pub fn new(keep: Vec<u32>) -> Self {
+        Self { keep: keep.into_iter().collect(), ..Default::default() }
+    }
+
+    /// Whether to skip a drawing onto `canvas` (noted if so).
+    pub fn skip(&mut self, canvas: u32) -> bool {
+        if canvas == 0 || self.keep.contains(&canvas) {
+            return false;
+        }
+        self.skipped.insert(canvas);
+        true
+    }
+
+    /// A file was loaded into `image` (all its pixels replaced).
+    pub fn loaded(&mut self, image: u32) {
+        self.skipped.remove(&image);
+        self.files.insert(image);
+    }
+
+    /// `image` lost its pixels.
+    pub fn cleared(&mut self, image: u32) {
+        self.skipped.remove(&image);
+        self.files.remove(&image);
+    }
+
+    /// The game cuts a sprite out of `image`, so it uses those pixels: an
+    /// image the game drew itself (not a file as loaded) is drawn onto as
+    /// before from now on. Whether drawing onto it was skipped before (the
+    /// sprite then lacks that).
+    pub fn cut_from(&mut self, image: u32) -> bool {
+        let skipped = self.skipped.remove(&image);
+        if skipped || !self.files.contains(&image) {
+            self.keep.insert(image);
+        }
+        skipped
+    }
+
+    /// Whether some drawing onto `image` was skipped.
+    pub fn was_skipped(&self, image: u32) -> bool {
+        self.skipped.contains(&image)
+    }
+
+    /// Whether drawing onto `image` is kept.
+    pub fn keeps(&self, image: u32) -> bool {
+        self.keep.contains(&image)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_native_viewer_skips_by_default_the_in_process_one_does_not() {
+        assert!(!game_draws(None, Some("native"), None));
+        assert!(!game_draws(None, Some("native-fullscreen"), None));
+        assert!(game_draws(None, Some("1"), None));
+        assert!(game_draws(None, Some("fullscreen"), None));
+        assert!(game_draws(None, None, None));
+        assert!(game_draws(Some("on"), Some("native"), None));
+        assert!(!game_draws(Some("off"), Some("1"), None));
+        // Anything else is the default.
+        assert!(!game_draws(Some("yes"), Some("native"), None));
+    }
+
+    #[test]
+    fn a_shown_game_window_draws_unless_told_not_to() {
+        assert!(game_draws(None, Some("native"), Some("show")));
+        assert!(!game_draws(None, Some("native"), Some("hide")));
+        assert!(!game_draws(Some("off"), Some("native"), Some("show")));
+    }
+
+    #[test]
+    fn kept_images_are_drawn_onto() {
+        let mut s = Skipper::new(vec![7]);
+        assert!(!s.skip(7));
+        assert!(s.skip(8));
+        assert!(!s.skip(0));
+        assert!(s.was_skipped(8) && !s.was_skipped(7));
+    }
+
+    #[test]
+    fn an_image_a_sprite_is_cut_from_is_drawn_onto_from_then_on() {
+        let mut s = Skipper::new(Vec::new());
+        assert!(s.skip(5));
+        assert!(s.cut_from(5), "the earlier skip is reported");
+        assert!(!s.skip(5));
+        assert!(!s.cut_from(5));
+        // One the game made itself, never drawn onto by a skipped drawing yet.
+        assert!(!s.cut_from(6) && s.keeps(6));
+    }
+
+    #[test]
+    fn files_as_loaded_are_not_kept() {
+        let mut s = Skipper::new(Vec::new());
+        assert!(s.skip(9));
+        s.loaded(9);
+        assert!(!s.was_skipped(9));
+        assert!(!s.cut_from(9) && !s.keeps(9));
+        // Drawn onto after loading: what the sprite needs was skipped.
+        assert!(s.skip(9));
+        assert!(s.cut_from(9) && s.keeps(9));
+        s.cleared(4);
+        assert!(!s.cut_from(4) && s.keeps(4));
+    }
+}
