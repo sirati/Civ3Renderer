@@ -1,7 +1,8 @@
 //! The game's text (labels, status lines), as it draws it through
 //! `jgl.dll`'s `TextOutA`: runs of characters at a baseline position in a
-//! font and colour. Drawn with the same GDI-rasterised glyphs
-//! (`civ3_assets::fonts`), as screen-space sprites on top of everything.
+//! font and colour. Drawn 1:1 with the same GDI-rasterised glyphs
+//! (`civ3_assets::fonts`), as screen-space sprites on top of everything,
+//! and at other zooms from the face's outlines (see [`Fonts::run_glyphs`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
