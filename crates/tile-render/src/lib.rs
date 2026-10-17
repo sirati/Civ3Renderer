@@ -19,3 +19,6 @@ pub use camera::Camera;
 pub use gpu::Headless;
 pub use renderer::{MAX_VIEWS, ScreenCopy, TileRenderer};
 pub use world::{Blend, ColorModel, Grid, LayerId, LayerSpec, Layout, Pass, PlacedSprite, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
+/// How sprites are drawn in views showing the world smaller
+/// (`Camera::downscale`).
+pub use tile_render_shared::{KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, placed};

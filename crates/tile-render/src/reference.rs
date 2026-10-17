@@ -3,7 +3,7 @@
 //! It is the oracle for the GPU path (tests compare both byte for byte) and
 //! a fallback for tools that have no GPU.
 
-use tile_render_shared::{ByteReader, QUANTIZED_BIAS, alpha_steps, cell_origin, expand, mix_stored, quantize, scale_stored, wrap_cell};
+use tile_render_shared::{ByteReader, Placed, QUANTIZED_BIAS, alpha_steps, cell_origin, drawn_sprite, expand, mix_stored, placed, quantize, scale_stored, shrunk, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
@@ -14,7 +14,10 @@ use crate::world::{Blend, ColorModel, TileWorld};
 /// viewport (screen pixels at zoom 1).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Draw {
+    /// The sprite drawn (in a view showing the world smaller, its
+    /// `downscaled` twin if it has one).
     pub sprite: crate::SpriteId,
+    /// Where the sprite's top-left lands (at the view's scale).
     pub x: i32,
     pub y: i32,
     /// Index of the render pass, and the layer's blend.
@@ -22,6 +25,27 @@ pub struct Draw {
     pub blend: Blend,
     /// Viewport rectangle the draw is limited to.
     pub clip: Option<[i32; 4]>,
+    /// Which texels are drawn where, from (`x`, `y`) (its corner left
+    /// aside): the whole sprite, or in a view showing the world smaller
+    /// what `tile_render_shared::placed` says.
+    pub placed: Placed,
+}
+
+impl Draw {
+    /// The drawn rectangle's top-left.
+    fn rect_x(&self) -> i32 {
+        self.x + self.placed.inset_x as i32
+    }
+
+    fn rect_y(&self) -> i32 {
+        self.y + self.placed.inset_y as i32
+    }
+
+    /// The atlas texel at pixel (i, j) of the drawn rectangle.
+    fn texel(&self, sprite: &tile_render_shared::SpriteDesc, i: u32, j: u32) -> (u32, u32) {
+        let p = &self.placed;
+        (sprite.atlas_x + p.texel_x + p.step * i, sprite.atlas_y + p.texel_y + p.step * j)
+    }
 }
 
 /// The sprites `TileRenderer::draw` draws, in drawing order (without
@@ -216,11 +240,11 @@ fn compose<P: Copy>(
                 }
                 let sprite = atlas.sprites[d.sprite.0 as usize];
                 // The sprite's zoom-1 rectangle from the origin, clipped.
-                let (x0, y0) = (d.x - ox, d.y - oy);
+                let (x0, y0) = (d.rect_x() - ox, d.rect_y() - oy);
                 let l = x0.max(clip[0].saturating_sub(ox));
                 let t = y0.max(clip[1].saturating_sub(oy));
-                let r = (x0 + sprite.width as i32).min(clip[2].saturating_sub(ox));
-                let b = (y0 + sprite.height as i32).min(clip[3].saturating_sub(oy));
+                let r = (x0 + d.placed.width as i32).min(clip[2].saturating_sub(ox));
+                let b = (y0 + d.placed.height as i32).min(clip[3].saturating_sub(oy));
                 if r <= l || b <= t {
                     return;
                 }
@@ -230,8 +254,8 @@ fn compose<P: Copy>(
                     for px in (ox + tl).max(scissor[0])..(ox + tr).min(scissor[2]) {
                         let sx = ((px - ox) as i64 * dd as i64).div_euclid(n as i64) as i32;
                         let sy = ((py - oy) as i64 * dd as i64).div_euclid(n as i64) as i32;
-                        let (tx, ty) = (sx.max(l) - x0, sy.max(t) - y0);
-                        let src = page.get(sprite.atlas_x + tx as u32, sprite.atlas_y + ty as u32);
+                        let (tx, ty) = d.texel(&sprite, (sx.max(l) - x0) as u32, (sy.max(t) - y0) as u32);
+                        let src = page.get(tx, ty);
                         if src[3] != 0 {
                             put(&mut out[(py as u32 * w + px as u32) as usize], &d, src);
                         }
@@ -262,16 +286,17 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
 fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32, u32, [u8; 4])) {
     let sprite = atlas.sprites[d.sprite.0 as usize];
     let page = &atlas.pages[sprite.page as usize];
-    for sy in 0..sprite.height as i32 {
-        for sx in 0..sprite.width as i32 {
-            let (px, py) = (d.x + sx, d.y + sy);
+    for sy in 0..d.placed.height {
+        for sx in 0..d.placed.width {
+            let (px, py) = (d.rect_x() + sx as i32, d.rect_y() + sy as i32);
             if px < 0 || py < 0 || px >= w as i32 || py >= h as i32 {
                 continue;
             }
             if d.clip.is_some_and(|[x0, y0, x1, y1]| px < x0 || py < y0 || px >= x1 || py >= y1) {
                 continue;
             }
-            let src = page.get(sprite.atlas_x + sx as u32, sprite.atlas_y + sy as u32);
+            let (tx, ty) = d.texel(&sprite, sx, sy);
+            let src = page.get(tx, ty);
             if src[3] != 0 {
                 f(px as u32, py as u32, src);
             }
@@ -310,7 +335,9 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     let packed = world.pack();
     let data = ByteReader::new(&packed.data);
     let passes = world.passes();
-    let period = tile_render_shared::world_period(&world.grid.params());
+    // The world at the view's scale (see `Camera::downscale`).
+    let dn = camera.downscale.max(1);
+    let period = tile_render_shared::world_period(&tile_render_shared::grid_at(&world.grid.params(), dn));
     // Free sprites following pass `p`, in list order.
     let free_after = |p: usize, draw: &mut dyn FnMut(Draw, bool)| {
         if !steps.contains(&(2 * p + 1)) {
@@ -323,44 +350,51 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 continue;
             }
             let f = (frame / s.ticks_per_frame.max(1) + s.phase) % frames;
-            let sprite_id = packed.sets[set + 1 + f as usize];
-            let sprite = atlas.sprites[sprite_id as usize];
+            // World sprites at the view's scale; screen sprites as they are.
+            let n = if s.screen { 1 } else { dn };
+            let sprite_id = drawn_sprite(&atlas.sprites, packed.sets[set + 1 + f as usize], n);
+            let placed = placed(&atlas.sprites[sprite_id as usize], n);
             // In a wrapping world, the copy of a world sprite near the camera.
             let s = &crate::PlacedSprite {
-                x: if s.screen { s.x } else { camera.x + tile_render_shared::wrap_distance(s.x - camera.x, period.0) },
-                y: if s.screen { s.y } else { camera.y + tile_render_shared::wrap_distance(s.y - camera.y, period.1) },
+                x: if s.screen { s.x } else { camera.x + tile_render_shared::wrap_distance(shrunk(s.x, n) - camera.x, period.0) },
+                y: if s.screen { s.y } else { camera.y + tile_render_shared::wrap_distance(shrunk(s.y, n) - camera.y, period.1) },
                 ..*s
             };
             // Screen sprites are given in target pixels (moved by the shift).
             let (sx, sy) = camera.screen_shift;
             let (cx, cy) = if s.screen { (-sx, -sy) } else { (camera.x - vx, camera.y - vy) };
-            if let Some(((n, d), (dx, dy))) = zoomed_for(s) {
+            if let Some(((zn, zd), (dx, dy))) = zoomed_for(s) {
                 // At its 1:1 position (from the screen origin or the camera)
-                // scaled, plus its offset; its clip likewise.
+                // scaled, plus its offset; its clip likewise (a world
+                // sprite's at the view's scale).
                 let (bx, by) = if s.screen { (vx - sx, vy - sy) } else { (camera.x, camera.y) };
-                let sc = |v: i32, b: i32| ((v - b) as i64 * n as i64).div_euclid(d as i64) as i32;
+                let sc = |v: i32, b: i32| ((v - b) as i64 * zn as i64).div_euclid(zd as i64) as i32;
+                let cl = |v: i32, b: i32| sc(shrunk(v, n), b);
                 draw(Draw {
                     sprite: crate::SpriteId(sprite_id),
-                    x: vx + sc(s.x, bx) + dx + sprite.anchor_x,
-                    y: vy + sc(s.y, by) + dy + sprite.anchor_y,
+                    x: vx + sc(s.x, bx) + dx + placed.corner_x,
+                    y: vy + sc(s.y, by) + dy + placed.corner_y,
                     pass: p,
                     blend: s.blend,
-                    clip: within(s.clip.map(|[x0, y0, x1, y1]| [vx + sc(x0, bx), vy + sc(y0, by), vx + sc(x1, bx), vy + sc(y1, by)])),
+                    clip: within(s.clip.map(|[x0, y0, x1, y1]| [vx + cl(x0, bx), vy + cl(y0, by), vx + cl(x1, bx), vy + cl(y1, by)])),
+                    placed,
                 }, true);
                 continue;
             }
             draw(Draw {
                 sprite: crate::SpriteId(sprite_id),
-                x: s.x + sprite.anchor_x - cx,
-                y: s.y + sprite.anchor_y - cy,
+                x: s.x + placed.corner_x - cx,
+                y: s.y + placed.corner_y - cy,
                 pass: p,
                 blend: s.blend,
                 clip: within(s.clip.map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
+                placed,
             }, false);
         }
     };
     for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
+        // (Its grid is the grid at the view's scale.)
         let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0, None);
         for local in 0..if camera.cells && steps.contains(&(2 * pass_index)) { params.cols * params.rows } else { 0 } {
             let col = params.first_col + (local % params.cols) as i32;
@@ -372,7 +406,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     continue;
                 }
                 if let Some((x0, y0, x1, y1)) = camera.cull {
-                    let (ax, ay) = (ox + layer.cull_offset_x, oy + layer.cull_offset_y);
+                    let (ax, ay) = (ox + shrunk(layer.cull_offset_x, dn), oy + shrunk(layer.cull_offset_y, dn));
                     if ax < x0 || ax >= x1 || ay < y0 || ay >= y1 {
                         continue;
                     }
@@ -389,15 +423,16 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     continue;
                 }
                 let f = (frame / layer.ticks_per_frame.max(1) + phase) % frames;
-                let sprite_id = packed.sets[set + 1 + f as usize];
-                let sprite = atlas.sprites[sprite_id as usize];
+                let sprite_id = drawn_sprite(&atlas.sprites, packed.sets[set + 1 + f as usize], dn);
+                let placed = placed(&atlas.sprites[sprite_id as usize], dn);
                 draw(Draw {
                     sprite: crate::SpriteId(sprite_id),
-                    x: ox + layer.offset_x + sprite.anchor_x - camera.x + vx,
-                    y: oy + layer.offset_y + sprite.anchor_y - camera.y + vy,
+                    x: ox + shrunk(layer.offset_x, dn) + placed.corner_x - camera.x + vx,
+                    y: oy + shrunk(layer.offset_y, dn) + placed.corner_y - camera.y + vy,
                     pass: pass_index,
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
                     clip: within(None),
+                    placed,
                 }, false);
             }
         }

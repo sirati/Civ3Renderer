@@ -12,7 +12,9 @@
 //! that offsets the layer's animation per cell. The value indexes the layer's
 //! lookup table, which yields a *sprite set*: an animation, i.e. a frame count
 //! followed by sprite indices. A sprite is a rectangle in the atlas plus the
-//! offset at which it is drawn relative to the cell's origin.
+//! offset at which it is drawn relative to the cell's origin, and the part of
+//! it a view showing the world smaller samples (see [`placed`]): the atlas
+//! holds the art once, at full size.
 //!
 //! ```text
 //! tile_data[layer, cell] --value--> layer_lut[layer.lut_offset + value]
@@ -135,6 +137,17 @@ pub struct FrameParams {
     /// With `scaled`: the target pixel where the view's viewport starts.
     pub target_x: i32,
     pub target_y: i32,
+
+    /// The view shows the world this many times smaller (1: as it is), as a
+    /// game's zoomed-out view does, from the same art: `grid` is the grid at
+    /// that scale ([`grid_at`]), the camera and the cull rectangle are in
+    /// its pixels; layer offsets and world sprites' positions are divided
+    /// ([`shrunk`]), and every sprite is drawn as [`placed`] says.
+    /// Screen-space sprites are drawn as they are.
+    pub downscale: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -266,7 +279,111 @@ pub struct SpriteDesc {
     pub anchor_y: i32,
     /// Atlas array layer.
     pub page: u32,
-    pub _pad: u32,
+    /// How a view showing the world smaller draws it: [`SHRINK`],
+    /// [`SHRINK_KEEP_ANCHOR`] or [`KEEP_SIZE`] (see [`placed`]).
+    pub scaling: u32,
+
+    /// The rectangle of the sprite's texels a view showing the world `n`
+    /// times smaller samples (x, y, width, height; e.g. the box of its
+    /// non-blank pixels, for a game that keeps sprites cropped to it):
+    /// every `n`-th texel of every `n`-th row from its top-left, `width / n`
+    /// by `height / n` of them (rounded down), drawn from its top-left
+    /// divided by `n` (rounded down) on. Width 0: nothing is drawn there.
+    pub box_x: u32,
+    pub box_y: u32,
+    pub box_w: u32,
+    pub box_h: u32,
+
+    /// Non-zero: a view showing the world smaller draws sprite
+    /// `downscaled - 1` instead (art a game keeps in a second place for its
+    /// zoomed-out view).
+    pub downscaled: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+}
+
+/// [`SpriteDesc::scaling`]: shrunk, its anchor divided by the factor
+/// (rounded toward zero).
+pub const SHRINK: u32 = 0;
+/// [`SpriteDesc::scaling`]: shrunk, its anchor kept.
+pub const SHRINK_KEEP_ANCHOR: u32 = 1;
+/// [`SpriteDesc::scaling`]: drawn as it is, anchor and all (e.g. art meant
+/// for the screen).
+pub const KEEP_SIZE: u32 = 2;
+
+/// Where and how a sprite is drawn, relative to the point it is anchored
+/// at (see [`placed`]).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Placed {
+    /// The sprite's top-left at the view's scale, from the anchor point.
+    pub corner_x: i32,
+    pub corner_y: i32,
+    /// Where the drawn rectangle starts, from the corner, and its size.
+    pub inset_x: u32,
+    pub inset_y: u32,
+    pub width: u32,
+    pub height: u32,
+    /// The texel (in the sprite) drawn at the rectangle's top-left; the one
+    /// at (i, j) of the rectangle is `texel + step·(i, j)`.
+    pub texel_x: u32,
+    pub texel_y: u32,
+    pub step: u32,
+}
+
+/// How `sprite` is drawn in a view showing the world `n` times smaller
+/// (`FrameParams::downscale`; 1: whole, at its anchor). A shrunk sprite
+/// covers its box divided by `n` (see [`SpriteDesc::box_x`]) and samples
+/// every `n`-th texel of it: pixel (i, j) of the drawn rectangle shows
+/// texel `(box_x + n·i, box_y + n·j)` and lies at
+/// `anchor' + (box_x / n + i, box_y / n + j)`, `anchor'` being the anchor
+/// divided by `n` (rounded toward zero) or kept, as `scaling` says.
+pub fn placed(sprite: &SpriteDesc, n: u32) -> Placed {
+    if n <= 1 || sprite.scaling == KEEP_SIZE {
+        return Placed {
+            corner_x: sprite.anchor_x,
+            corner_y: sprite.anchor_y,
+            inset_x: 0,
+            inset_y: 0,
+            width: sprite.width,
+            height: sprite.height,
+            texel_x: 0,
+            texel_y: 0,
+            step: 1,
+        };
+    }
+    let keep = sprite.scaling == SHRINK_KEEP_ANCHOR;
+    Placed {
+        corner_x: if keep { sprite.anchor_x } else { shrunk(sprite.anchor_x, n) },
+        corner_y: if keep { sprite.anchor_y } else { shrunk(sprite.anchor_y, n) },
+        inset_x: sprite.box_x / n,
+        inset_y: sprite.box_y / n,
+        width: sprite.box_w / n,
+        height: sprite.box_h / n,
+        texel_x: sprite.box_x,
+        texel_y: sprite.box_y,
+        step: n,
+    }
+}
+
+/// The sprite drawn for sprite `id` in a view showing the world `n` times
+/// smaller (see [`SpriteDesc::downscaled`]).
+pub fn drawn_sprite(sprites: &[SpriteDesc], id: u32, n: u32) -> u32 {
+    let alt = sprites[id as usize].downscaled;
+    if n > 1 && alt != 0 { alt - 1 } else { id }
+}
+
+/// A world position or offset `v` in a view showing the world `n` times
+/// smaller: divided, rounded toward zero (as C divides).
+pub fn shrunk(v: i32, n: u32) -> i32 {
+    if n <= 1 { v } else { v / n as i32 }
+}
+
+/// `grid` as a view showing the world `n` times smaller lays it out: its
+/// steps divided (rounded down).
+pub fn grid_at(grid: &GridParams, n: u32) -> GridParams {
+    let n = if n == 0 { 1 } else { n };
+    GridParams { step_x: grid.step_x / n, step_y: grid.step_y / n, ..*grid }
 }
 
 /// Little-endian byte addressing on top of a `u32` buffer.
@@ -440,6 +557,22 @@ mod tests {
         assert_eq!(size_of::<GridParams>() % 16, 0);
         assert_eq!(size_of::<LayerDesc>() % 16, 0);
         assert_eq!(size_of::<SpriteDesc>() % 16, 0);
+    }
+
+    #[test]
+    fn shrunk_sprites_sample_their_box_from_its_corner() {
+        let s = SpriteDesc { width: 128, height: 64, anchor_x: -19, anchor_y: -15, box_x: 1, box_y: 3, box_w: 126, box_h: 61, ..Default::default() };
+        // Whole at 1:1, the box aside.
+        assert_eq!(placed(&s, 1), Placed { corner_x: -19, corner_y: -15, width: 128, height: 64, step: 1, ..Default::default() });
+        // Half size: the anchor toward zero, the box's corner and size rounded down.
+        let p = placed(&s, 2);
+        assert_eq!((p.corner_x, p.corner_y, p.inset_x, p.inset_y, p.width, p.height, p.texel_x, p.texel_y, p.step), (-9, -7, 0, 1, 63, 30, 1, 3, 2));
+        let keep = placed(&SpriteDesc { scaling: SHRINK_KEEP_ANCHOR, ..s }, 2);
+        assert_eq!((keep.corner_x, keep.corner_y), (-19, -15));
+        assert_eq!(placed(&SpriteDesc { scaling: KEEP_SIZE, ..s }, 2), placed(&s, 1));
+        assert_eq!((shrunk(-13, 2), shrunk(13, 2), shrunk(-13, 1)), (-6, 6, -13));
+        let sprites = [s, SpriteDesc { downscaled: 1, ..s }];
+        assert_eq!((drawn_sprite(&sprites, 1, 1), drawn_sprite(&sprites, 1, 2), drawn_sprite(&sprites, 0, 2)), (1, 0, 0));
     }
 
     #[test]

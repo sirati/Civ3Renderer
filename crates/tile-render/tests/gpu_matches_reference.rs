@@ -770,3 +770,154 @@ fn a_viewers_most_views_are_all_drawn() {
     let without = gpu.render_views(&mut renderer, &cameras[..11], (400, 240), 1, CLEAR);
     assert_ne!(got.pixels, without.pixels, "the last view is drawn");
 }
+
+/// `scene_with`'s world and atlas, its sprites cut for views showing the
+/// world smaller (`Camera::downscale`): sample boxes with odd corners and
+/// sizes, each `scaling`, a twin drawn instead, an empty box; layers with
+/// odd and negative offsets.
+fn downscaled_scene(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
+    use tile_render_shared::{KEEP_SIZE, SHRINK_KEEP_ANCHOR};
+    let (mut world, atlas) = scene_with(grid, shading);
+    // (Rebuilt: the builder keeps the sprites' tables.)
+    let mut b = AtlasBuilder::new(512);
+    let shade_id = b.add(&shade(), (0, 0)).unwrap();
+    let shadow_id = b.add(&shade(), (20, -30)).unwrap();
+    let terrain: Vec<_> = (0..5u8).map(|i| b.add(&diamond(i * 40), (0, 0)).unwrap()).collect();
+    let anim: Vec<_> = (0..4u8).map(|i| b.add(&tall(i * 60), (34, -40)).unwrap()).collect();
+    // The terrain's diamonds: column 0 is clear, so the box starts at 1
+    // (odd: odd columns are sampled) and is 126 wide (Civ III's terrain).
+    for (i, &t) in terrain.iter().enumerate() {
+        *b.sprite_mut(t) = tile_render_shared::SpriteDesc { box_x: 1, box_y: i as u32 % 2, box_w: 126, box_h: 64 - i as u32 % 2, ..*b.sprite(t) };
+    }
+    // The animation: odd boxes, one frame keeping its anchor, one its size,
+    // one drawing another sprite (the second terrain diamond) instead, one
+    // with an empty box.
+    let boxes = [(3, 5, 51, 77), (0, 1, 60, 87), (7, 2, 49, 80), (2, 2, 0, 0)];
+    for (k, (&a, (x, y, w, h))) in anim.iter().zip(boxes).enumerate() {
+        let s = b.sprite_mut(a);
+        (s.box_x, s.box_y, s.box_w, s.box_h) = (x, y, w, h);
+        s.scaling = [0, SHRINK_KEEP_ANCHOR, KEEP_SIZE, 0][k];
+    }
+    b.sprite_mut(anim[1]).downscaled = terrain[1].0 + 1;
+    b.sprite_mut(shadow_id).box_x = 5;
+    b.sprite_mut(shadow_id).box_w = 117;
+    let _ = shade_id;
+    let rebuilt = b.finish();
+    assert_eq!(rebuilt.sprites.len(), atlas.sprites.len(), "same sprites as scene_with");
+    for l in 0..world.layers().len() {
+        let spec = world.layer_mut(tile_render::LayerId(l));
+        spec.offset = [(0, 0), (-5, -13), (3, 7), (-1, 1), (7, -3), (0, -9), (-11, 0)][l % 7];
+        spec.cull_offset = (1, -33);
+    }
+    // World sprites at odd and negative positions.
+    world.free.push(PlacedSprite { after_pass: 0, ..PlacedSprite::new(tile_render::SpriteSetId::from_raw(world.free.first().map_or(0, |s| s.set.raw())), -37, 121) });
+    world.free.retain(|s| s.set != tile_render::SpriteSetId::EMPTY);
+    (world, rebuilt)
+}
+
+#[test]
+fn downscaled_views_are_pixel_exact() {
+    // Views showing the world 2 and 3 times smaller, from the same atlas:
+    // wrapping, past the edges, culled, with world, screen, clipped and
+    // darkening sprites, in both colour models (direct: no blends, as
+    // elsewhere).
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = downscaled_scene(grid, color != ColorModel::Direct);
+        world.color = color;
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        let mut drawn = 0;
+        renderer.set_world(&gpu.device, &world);
+        for n in [2, 3] {
+            for (x, y) in [(0, 0), (167, 51), (-259, 20), (700, -25), (39, 200)] {
+                let mut camera = Camera { x, y, downscale: n, overhang: (0, 40, 0, 0), ..Camera::new((400, 240)) };
+                for cull in [None, Some((x + 40, y + 20, x + 300, y + 200))] {
+                    camera.cull = cull;
+                    let got = gpu.render(&mut renderer, &camera, 5, CLEAR);
+                    let want = reference::render(&world, &atlas, &camera, 5, CLEAR);
+                    assert_same(&got, &want, &format!("1/{n} at ({x}, {y}), cull {cull:?}, {color:?}"));
+                    drawn += got.pixels.iter().any(|p| *p != CLEAR) as u32;
+                }
+            }
+        }
+        assert!(drawn >= 15, "{drawn} of 20 views show something");
+    }
+}
+
+#[test]
+fn downscaled_views_compose_with_zoom() {
+    // A half-size view shown at 2/1 and 3/2 in a pane (copied from its
+    // zoom-1 picture, or drawn at the zoom straight into the target once it
+    // shows zoomed art), next to a 1:1 view of the same world and an
+    // interface on top.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = downscaled_scene(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let s = world.free.iter().find(|s| s.screen).cloned().unwrap();
+    world.free.push(PlacedSprite { view: Some(2), x: 20, y: 30, ..s });
+    for zoom in [(2, 1), (3, 2)] {
+        world.free.push(PlacedSprite { after_pass: 0, zoom_art: ZoomArt::Zoomed { zoom, offset: (1, -1) }, ..PlacedSprite::new(s.set, 90, 70) });
+    }
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let overhang = (0, 40, 0, 0);
+    for zoom in [(2, 1), (3, 2)] {
+        for zoomed_art in [false, true] {
+            let pane = Camera { x: 31, y: 17, zoom, downscale: 2, overhang, zoomed_art, ..Camera::new((260, 240)) };
+            let plain = Camera { x: 70, y: 40, origin: (260, 0), overhang, ..Camera::new((140, 240)) };
+            let interface = Camera { cells: false, ..Camera::new((400, 240)) };
+            let cameras = [pane, plain, interface];
+            let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 2, CLEAR);
+            let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 2, CLEAR);
+            assert_same(&got, &want, &format!("half size at zoom {zoom:?}, zoomed art {zoomed_art}"));
+        }
+        // At zoom 2/1 every pixel of the half-size picture is a 2×2 block.
+        if zoom == (2, 1) {
+            let flat = Camera { x: 31, y: 17, downscale: 2, overhang, ..Camera::new((130, 120)) };
+            let small = gpu.render_views(&mut renderer, &[flat], (130, 120), 2, CLEAR);
+            let big = gpu.render_views(&mut renderer, &[Camera { zoom, viewport: (260, 240), ..flat }], (260, 240), 2, CLEAR);
+            for y in 0..240 {
+                for x in 0..260 {
+                    assert_eq!(big.get(x, y), small.get(x / 2, y / 2), "({x}, {y})");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn downscaled_sprites_sample_their_box() {
+    // One sprite, 1/2: pixel (i, j) of its drawn rectangle is texel
+    // (box + 2·(i, j)), from the anchor halved plus the box's corner halved.
+    let gpu = Headless::new().expect("GPU");
+    let mut b = AtlasBuilder::new(64);
+    let img = RgbaImage::from_fn(9, 7, |x, y| [x as u8 * 20, y as u8 * 30, 7, 255]);
+    let id = b.add(&img, (-5, 3)).unwrap();
+    let s = b.sprite_mut(id);
+    (s.box_x, s.box_y, s.box_w, s.box_h) = (3, 1, 5, 6);
+    let mut sets = SpriteSets::default();
+    let set = sets.single(id);
+    let atlas = b.finish();
+    let grid = Grid { cols: 4, rows: 4, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (16, 16) };
+    let mut world = TileWorld::new(grid, sets);
+    world.add_layer(LayerSpec::new("none", vec![tile_render::SpriteSetId::EMPTY]));
+    world.free.push(PlacedSprite::new(set, 21, 9));
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let camera = Camera { downscale: 2, ..Camera::new((20, 20)) };
+    let got = gpu.render(&mut renderer, &camera, 0, CLEAR);
+    assert_same(&got, &reference::render(&world, &atlas, &camera, 0, CLEAR), "one sprite");
+    // At (21/2 + -5/2 + 3/2, 9/2 + 3/2 + 1/2) = (9, 5): 5/2 × 6/2 pixels.
+    for y in 0..20 {
+        for x in 0..20 {
+            let inside = (9..11).contains(&x) && (5..8).contains(&y);
+            let want = if inside { img.get(3 + 2 * (x - 9), 1 + 2 * (y - 5)) } else { CLEAR };
+            assert_eq!(got.get(x, y), want, "({x}, {y})");
+        }
+    }
+}

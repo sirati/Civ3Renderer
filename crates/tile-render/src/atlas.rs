@@ -116,9 +116,18 @@ impl AtlasBuilder {
             anchor_x: anchor.0,
             anchor_y: anchor.1,
             page: page as u32,
-            _pad: 0,
+            // Shrunk from the whole sprite (see `sprite_mut`).
+            box_w: w,
+            box_h: h,
+            ..Default::default()
         });
         Ok(id)
+    }
+
+    /// Sprite `id`, to say how a view showing the world smaller draws it
+    /// (its `scaling`, sample box and `downscaled` twin).
+    pub fn sprite_mut(&mut self, id: SpriteId) -> &mut SpriteDesc {
+        &mut self.sprites[id.0 as usize]
     }
 
     fn new_page(&mut self) {

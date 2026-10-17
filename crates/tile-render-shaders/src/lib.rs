@@ -10,7 +10,10 @@
 //! The vertex shader pulls everything from storage buffers (see
 //! `tile_render_shared` for the data model) and emits a quad per instance, or
 //! a degenerate one when the cell has nothing to draw on that layer. The
-//! fragment shader fetches atlas texels 1:1, so sprites stay pixel exact.
+//! fragment shader fetches atlas texels 1:1, so sprites stay pixel exact. In
+//! a view showing the world `n` times smaller (`FrameParams::downscale`) it
+//! fetches every `n`-th texel of each sprite's sample box from the same
+//! atlas (`tile_render_shared::placed`): the art is held once, at full size.
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 use spirv_std::glam::{IVec2, Vec2, Vec4};
@@ -18,7 +21,7 @@ use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, expand, mix_offset, quantize, scale_offset, world_period, wrap_cell, wrap_distance,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, drawn_sprite, expand, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -53,9 +56,11 @@ fn resolve_sprite(
     let (c, r) = wrap_cell(&params.grid, col, row)?;
     // Position from the unwrapped coordinates, so a wrapped-around column
     // is drawn next to the edge it continues, not on top of its original.
+    // (`grid` is the grid at the view's scale, offsets are shrunk to it.)
     let (origin_x, origin_y) = cell_origin(&params.grid, col, row);
+    let n = params.downscale;
     if params.cull != 0 {
-        let (ax, ay) = (origin_x + layer.cull_offset_x, origin_y + layer.cull_offset_y);
+        let (ax, ay) = (origin_x + shrunk(layer.cull_offset_x, n), origin_y + shrunk(layer.cull_offset_y, n));
         if ax < params.cull_x0 || ax >= params.cull_x1 || ay < params.cull_y0 || ay >= params.cull_y1 {
             return None;
         }
@@ -77,7 +82,7 @@ fn resolve_sprite(
     }
     let frame = (params.frame / layer.ticks_per_frame + phase) % frames;
     let sprite = sprite_sets[(set + 1 + frame) as usize];
-    Some((sprite, origin_x + layer.offset_x, origin_y + layer.offset_y))
+    Some((sprite, origin_x + shrunk(layer.offset_x, n), origin_y + shrunk(layer.offset_y, n)))
 }
 
 #[spirv(vertex)]
@@ -99,6 +104,7 @@ pub fn tile_vs(
     #[spirv(flat)] out_base: &mut IVec2,
     #[spirv(flat)] out_lo: &mut IVec2,
     #[spirv(flat)] out_scaled: &mut u32,
+    #[spirv(flat)] out_step: &mut u32,
 ) {
     let layer_index = params.layer_first + instance % params.layer_count;
     let local_cell = instance / params.layer_count;
@@ -112,18 +118,23 @@ pub fn tile_vs(
     *out_base = IVec2::ZERO;
     *out_lo = IVec2::ZERO;
     *out_scaled = 0;
+    *out_step = 1;
     let Some((sprite_index, x, y)) =
         resolve_sprite(params, layer, local_cell, tile_data, layer_lut, sprite_sets)
     else {
         *out_pos = CULLED;
         return;
     };
-    let sprite = &sprites[sprite_index as usize];
+    let n = params.downscale;
+    let sprite = &sprites[drawn_sprite(sprites, sprite_index, n) as usize];
+    let p = placed(sprite, n);
 
     let (u, v) = quad_corner(vertex);
-    // The sprite's rectangle at zoom 1, from the viewport's corner.
-    let (x0, y0) = (x + sprite.anchor_x - params.camera_x, y + sprite.anchor_y - params.camera_y);
-    let rect = (x0, y0, x0 + sprite.width as i32, y0 + sprite.height as i32);
+    // The sprite's rectangle at zoom 1, from the viewport's corner (at the
+    // view's scale: the part of its box it covers).
+    let x0 = x + p.corner_x + p.inset_x as i32 - params.camera_x;
+    let y0 = y + p.corner_y + p.inset_y as i32 - params.camera_y;
+    let rect = (x0, y0, x0 + p.width as i32, y0 + p.height as i32);
     let Some((l, t, r, b)) = on_target(params, rect) else {
         *out_pos = CULLED;
         return;
@@ -135,10 +146,11 @@ pub fn tile_vs(
     // IVec2 varying also gives naga's SPIR-V frontend the ivec2 type it needs
     // for integer fetches from an arrayed image.
     *out_local = Vec2::new(sx - x0 as f32, sy - y0 as f32);
-    *out_origin = IVec2::new(sprite.atlas_x as i32, sprite.atlas_y as i32);
+    *out_origin = IVec2::new((sprite.atlas_x + p.texel_x) as i32, (sprite.atlas_y + p.texel_y) as i32);
     *out_page = sprite.page;
     *out_base = IVec2::new(x0, y0);
     *out_scaled = params.scaled;
+    *out_step = p.step;
 }
 
 /// Where a sprite whose (clipped) rectangle at zoom 1 is (left, top, right,
@@ -172,17 +184,20 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
     }
 }
 
-/// The atlas offset inside the sprite a fragment shows: the interpolated
-/// `local`, or (`scaled` views) the zoom-1 pixel under the fragment less the
-/// sprite's corner `base`, at least `lo` (where a clip or a hairline starts).
-fn texel_offset(local: Vec2, base: IVec2, lo: IVec2, scaled_view: u32, frag: Vec4, params: &FrameParams) -> IVec2 {
+/// The atlas offset from the sprite's first drawn texel a fragment shows:
+/// `step` times the pixel of the sprite's rectangle under it, which is the
+/// interpolated `local`, or (`scaled` views) the zoom-1 pixel under the
+/// fragment less the rectangle's corner `base`, at least `lo` (where a clip
+/// or a hairline starts).
+fn texel_offset(local: Vec2, base: IVec2, lo: IVec2, scaled_view: u32, step: u32, frag: Vec4, params: &FrameParams) -> IVec2 {
+    let s = step as i32;
     if scaled_view == 0 {
-        return IVec2::new(local.x.floor() as i32, local.y.floor() as i32);
+        return IVec2::new(local.x.floor() as i32 * s, local.y.floor() as i32 * s);
     }
     let (n, d) = (params.zoom_num, params.zoom_den);
     let sx = scaled(frag.x as i32 - params.target_x, d, n) - base.x;
     let sy = scaled(frag.y as i32 - params.target_y, d, n) - base.y;
-    IVec2::new(if sx < lo.x { lo.x } else { sx }, if sy < lo.y { lo.y } else { sy })
+    IVec2::new(if sx < lo.x { lo.x } else { sx } * s, if sy < lo.y { lo.y } else { sy } * s)
 }
 
 /// Free sprites: instance `i` is `free[i]` (draw calls select a range with
@@ -204,6 +219,7 @@ pub fn free_vs(
     #[spirv(flat)] out_base: &mut IVec2,
     #[spirv(flat)] out_lo: &mut IVec2,
     #[spirv(flat)] out_scaled: &mut u32,
+    #[spirv(flat)] out_step: &mut u32,
 ) {
     let f = &free[instance as usize];
     *out_tint = f.tint;
@@ -214,6 +230,7 @@ pub fn free_vs(
     *out_base = IVec2::ZERO;
     *out_lo = IVec2::ZERO;
     *out_scaled = 0;
+    *out_step = 1;
     let frames = sprite_sets[f.set as usize];
     // Zoom art: zoomed sprites only where a view at their zoom is drawn at
     // it, low ones not where zoomed ones are shown.
@@ -233,35 +250,40 @@ pub fn free_vs(
     }
     let ticks = if f.ticks_per_frame == 0 { 1 } else { f.ticks_per_frame };
     let frame = (params.frame / ticks + f.phase) % frames;
-    let sprite = &sprites[sprite_sets[(f.set + 1 + frame) as usize] as usize];
+    let screen = f.flags & FREE_SCREEN != 0;
+    // A view showing the world smaller shows world sprites smaller, at
+    // their positions shrunk; screen sprites as they are.
+    let n = if screen { 1 } else { params.downscale };
+    let sprite = &sprites[drawn_sprite(sprites, sprite_sets[(f.set + 1 + frame) as usize], n) as usize];
+    let p = placed(sprite, n);
     let (u, v) = quad_corner(vertex);
     // Where 1:1 positions start in the viewport: screen sprites are given in
     // target pixels from the view's screen origin, world sprites in world
     // pixels from the camera. Zoomed art is placed at its position scaled to
     // the view's zoom, plus its offset, and drawn unscaled.
-    let (bx, by) = if f.flags & FREE_SCREEN != 0 { (params.origin_x, params.origin_y) } else { (params.camera_x, params.camera_y) };
+    let (bx, by) = if screen { (params.origin_x, params.origin_y) } else { (params.camera_x, params.camera_y) };
     let (zn, zd) = if zoomed { (params.zoom_num, params.zoom_den) } else { (1, 1) };
     let (dx, dy) = if zoomed { (f.zoom_dx, f.zoom_dy) } else { (0, 0) };
     // In a wrapping world, the copy of a world sprite near the camera.
-    let (fx, fy) = if f.flags & FREE_SCREEN != 0 {
+    let (fx, fy) = if screen {
         (f.x - bx, f.y - by)
     } else {
         let (px, py) = world_period(&params.grid);
-        (wrap_distance(f.x - bx, px), wrap_distance(f.y - by, py))
+        (wrap_distance(shrunk(f.x, n) - bx, px), wrap_distance(shrunk(f.y, n) - by, py))
     };
-    let x0 = scaled(fx, zn, zd) + dx + sprite.anchor_x;
-    let y0 = scaled(fy, zn, zd) + dy + sprite.anchor_y;
+    let x0 = scaled(fx, zn, zd) + dx + p.corner_x + p.inset_x as i32;
+    let y0 = scaled(fy, zn, zd) + dy + p.corner_y + p.inset_y as i32;
     let (mut l, mut t) = (x0, y0);
-    let (mut r, mut b) = (x0 + sprite.width as i32, y0 + sprite.height as i32);
+    let (mut r, mut b) = (x0 + p.width as i32, y0 + p.height as i32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
     if f.flags & FREE_CLIP != 0 {
         // (Target pixels from the screen origin, like screen sprites; for
-        // zoomed art in its 1:1 coordinates, scaled.)
-        let (ox, oy) = if zoomed { (bx, by) } else { (params.origin_x, params.origin_y) };
-        l = max(l, scaled(f.clip[0] - ox, zn, zd));
-        t = max(t, scaled(f.clip[1] - oy, zn, zd));
-        r = min(r, scaled(f.clip[2] - ox, zn, zd));
-        b = min(b, scaled(f.clip[3] - oy, zn, zd));
+        // zoomed art in its 1:1 coordinates, scaled; world ones shrunk.)
+        let (ox, oy, cn) = if zoomed { (bx, by, n) } else { (params.origin_x, params.origin_y, 1) };
+        l = max(l, scaled(shrunk(f.clip[0], cn) - ox, zn, zd));
+        t = max(t, scaled(shrunk(f.clip[1], cn) - oy, zn, zd));
+        r = min(r, scaled(shrunk(f.clip[2], cn) - ox, zn, zd));
+        b = min(b, scaled(shrunk(f.clip[3], cn) - oy, zn, zd));
     }
     // (Zoomed art is at the target's resolution already.)
     let rect = if zoomed {
@@ -276,11 +298,12 @@ pub fn free_vs(
     let (sx, sy) = (ql as f32 + u * (qr - ql) as f32, qt as f32 + v * (qb - qt) as f32);
     *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
     *out_local = Vec2::new(sx - x0 as f32, sy - y0 as f32);
-    *out_origin = IVec2::new(sprite.atlas_x as i32, sprite.atlas_y as i32);
+    *out_origin = IVec2::new((sprite.atlas_x + p.texel_x) as i32, (sprite.atlas_y + p.texel_y) as i32);
     *out_page = sprite.page;
     *out_base = IVec2::new(x0, y0);
     *out_lo = IVec2::new(l - x0, t - y0);
     *out_scaled = if zoomed { 0 } else { params.scaled };
+    *out_step = p.step;
 }
 
 fn max(a: i32, b: i32) -> i32 {
@@ -306,12 +329,13 @@ pub fn tile_fs(
     #[spirv(flat)] base: IVec2,
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    let xy = origin + texel_offset(local, base, lo, scaled_view, frag, params);
+    let xy = origin + texel_offset(local, base, lo, scaled_view, step, frag, params);
     let color: Vec4 = atlas.fetch(xy.extend(page as i32));
     if color.w == 0.0 {
         spirv_std::arch::kill();
@@ -387,12 +411,13 @@ pub fn subpixel_r_fs(
     #[spirv(flat)] base: IVec2,
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    *output = subpixel(texel_offset(local, base, lo, scaled_view, frag, params), origin, page, tint, params, atlas, 0);
+    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, tint, params, atlas, 0);
 }
 
 #[spirv(fragment)]
@@ -405,12 +430,13 @@ pub fn subpixel_g_fs(
     #[spirv(flat)] base: IVec2,
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    *output = subpixel(texel_offset(local, base, lo, scaled_view, frag, params), origin, page, tint, params, atlas, 1);
+    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, tint, params, atlas, 1);
 }
 
 #[spirv(fragment)]
@@ -423,12 +449,13 @@ pub fn subpixel_b_fs(
     #[spirv(flat)] base: IVec2,
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    *output = subpixel(texel_offset(local, base, lo, scaled_view, frag, params), origin, page, tint, params, atlas, 2);
+    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, tint, params, atlas, 2);
 }
 
 /// A triangle covering the viewport, for the full-screen pass.

@@ -49,11 +49,34 @@ pub struct Camera {
     /// target (as views showing zoomed art are from their first zoomed
     /// sprite on), which shows the same but for those.
     pub hairline: bool,
+    /// Shows the world this many times smaller (1: as it is), from the same
+    /// art, as a game's zoomed-out view does: cells at the grid's steps
+    /// divided, layer offsets and world sprites' positions divided (rounded
+    /// toward zero), every sprite drawn as its `scaling` and sample box say
+    /// (`tile_render_shared::placed`). `x`, `y`, `cull` and `overhang` are
+    /// then in the view's own pixels (the world's divided). Its screen-space
+    /// sprites are drawn as they are. Applies before `zoom`: a view at
+    /// downscale 2 and zoom 2/1 shows the half-size world twice as big.
+    pub downscale: u32,
 }
 
 impl Camera {
     pub fn new(viewport: (u32, u32)) -> Self {
-        Self { x: 0, y: 0, zoom: (1, 1), viewport, overhang: (0, 0, 0, 0), cull: None, origin: (0, 0), cells: true, screen_shift: (0, 0), zoomed_art: false, stacked: false, hairline: false }
+        Self {
+            x: 0,
+            y: 0,
+            zoom: (1, 1),
+            viewport,
+            overhang: (0, 0, 0, 0),
+            cull: None,
+            origin: (0, 0),
+            cells: true,
+            screen_shift: (0, 0),
+            zoomed_art: false,
+            stacked: false,
+            hairline: false,
+            downscale: 1,
+        }
     }
 
     /// Whether the view is scaled (zoom other than 1).
@@ -93,7 +116,10 @@ impl Camera {
     pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32, scaled_at: Option<(i32, i32)>) -> FrameParams {
         let (ew, eh) = self.source_size();
         let (ol, ot, or, ob) = self.overhang;
-        let (sx, sy) = (grid.step.0 as i32, grid.step.1 as i32);
+        // The grid at the view's scale.
+        let n = self.downscale.max(1);
+        let grid_params = tile_render_shared::grid_at(&grid.params(), n);
+        let (sx, sy) = ((grid_params.step_x as i32).max(1), (grid_params.step_y as i32).max(1));
         // A cell's origin is its top-left; its footprint is one step (two
         // horizontally on a staggered grid) wide.
         let col_step = match grid.layout {
@@ -130,7 +156,7 @@ impl Camera {
             first_row,
             cols: (last_col - first_col + 1) as u32,
             rows: (last_row - first_row + 1) as u32,
-            grid: grid.params(),
+            grid: grid_params,
             origin_x: self.origin.0 - self.screen_shift.0,
             origin_y: self.origin.1 - self.screen_shift.1,
             world: self.cells as u32,
@@ -139,6 +165,10 @@ impl Camera {
             hairline: (scaled_at.is_some() && self.hairline) as u32,
             target_x: scaled_at.map_or(0, |t| t.0),
             target_y: scaled_at.map_or(0, |t| t.1),
+            downscale: n,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         }
     }
 }
