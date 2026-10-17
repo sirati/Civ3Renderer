@@ -1183,7 +1183,7 @@ fn publish(
             // The Load Scenario screen at the window's left, its scenario's
             // world beside it.
             beside: match shown {
-                Shown::Preview(rect, _) => Some(scene::Beside { screen: *rect, edge: scene::Edge::Left }),
+                Shown::Preview(rect, _) => Some(scene::Beside { screen: *rect, edge: scene::Edge::Left, world: None }),
                 _ => None,
             },
         };
