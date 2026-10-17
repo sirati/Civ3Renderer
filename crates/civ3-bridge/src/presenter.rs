@@ -19,6 +19,9 @@ pub struct Presenter {
     /// The pixels last sent per run-time sprite (unchanged ones are not
     /// sent again: the renderer keeps them, also across new art).
     sent_patches: std::collections::HashMap<String, Vec<u8>>,
+    /// Index pages to ask a renderer compiling its own art to make room
+    /// for, with the next art sent (see [`Presenter::reserve`]).
+    reserve: u32,
 }
 
 enum Sink {
@@ -37,13 +40,13 @@ impl Presenter {
                 log::error!("viewer: {e}");
             }
         })?;
-        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, prepared: 1, sent_patches: Default::default() })
+        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, prepared: 1, sent_patches: Default::default(), reserve: 0 })
     }
 
     /// The native Linux viewer (only in a Wine process with
     /// `civ3r_native.dll`).
     pub fn native(native: Native) -> Presenter {
-        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, prepared: 0, sent_patches: Default::default() }
+        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, prepared: 0, sent_patches: Default::default(), reserve: 0 }
     }
 
     /// New render assets: `compiled` for this side, `wire` for a renderer
@@ -60,7 +63,7 @@ impl Presenter {
     pub fn prepare_assets(&mut self, wire: &scene::wire::Assets) -> u64 {
         self.prepared = self.prepared.max(self.generation) + 1;
         if let Sink::Native(n) = &mut self.sink {
-            n.set_assets(&scene::wire::Assets { generation: self.prepared, ..wire.clone() });
+            n.set_assets(&scene::wire::Assets { generation: self.prepared, reserve: std::mem::take(&mut self.reserve), ..wire.clone() });
         }
         self.prepared
     }
@@ -85,12 +88,13 @@ impl Presenter {
         }
     }
 
-    /// Asks a renderer given the art to make room in its atlas for this many
-    /// colour and index pages (art expected soon); one compiling its own
-    /// grows as its art comes.
+    /// Asks the renderer to make room in its atlas for this many colour and
+    /// index pages (art expected soon): one given the art now, one
+    /// compiling its own with the next art sent (index pages only).
     pub fn reserve(&mut self, pages: u32, index_pages: u32) {
-        if let Sink::InProcess { assets, .. } = &self.sink {
-            assets.reserve(pages, index_pages);
+        match &self.sink {
+            Sink::InProcess { assets, .. } => assets.reserve(pages, index_pages),
+            Sink::Native(_) => self.reserve = index_pages,
         }
     }
 
