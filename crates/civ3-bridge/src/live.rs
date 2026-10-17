@@ -491,6 +491,8 @@ fn publish(
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
     // The last scene's size: bytes of cells, world sprites, overlay sprites.
     let mut scene_size = (0, 0, 0);
+    // The map screen's interface: while it is composed, a game runs.
+    let main_gui = civ3_sys::ui_hooks::main_gui_canvas(game.build);
     loop {
         std::thread::sleep(POLL);
         // Now and then, how much everything holds (memory diagnostics).
@@ -541,6 +543,13 @@ fn publish(
             }
             new_art = true;
         }
+        // The game's interface, mirrored (else its text only).
+        let ui = ui_trace::frame();
+        // The world shows while the map screen's interface is composed (under
+        // whatever screens are open over it). Between games the game's tables
+        // may still hold one (the last game's, or the scenario the Load
+        // Scenario screen loaded to describe it), which is not one to show.
+        let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui));
         // A scenario brings its own art.
         let now = ArtFolders::of(&game);
         let mut recompile = false;
@@ -560,7 +569,8 @@ fn publish(
         // What our preferences tabs take does not reach the game.
         let inputs = prefs.route(inputs, input.viewport);
         presenter.forward_log();
-        let shown = match snapshot(&game) {
+        let snapshot = if in_game { snapshot(&game) } else { Err(Civ3Error::NoGame) };
+        let shown = match snapshot {
             Ok((world, view)) => Shown::Map(world, view),
             // Between games: the title menu, which follows the pointer.
             Err(Civ3Error::NoGame) => {
@@ -582,8 +592,6 @@ fn publish(
         if input.viewport == (0, 0) {
             input.game_window();
         }
-        // The game's interface, mirrored (else its text only).
-        let ui = ui_trace::frame();
         let modal = game.modal_form().ok().flatten().filter(|&m| m != 0);
         // Our tabs over the game's Preferences screen, while it is shown.
         let prefs_form = civ3_sys::ui_hooks::preferences_form(game.build);
