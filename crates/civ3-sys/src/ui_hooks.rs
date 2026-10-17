@@ -450,6 +450,57 @@ pub fn jgl_shade_slot(base: u32) -> (Ptr32<u32>, u32) {
     (Ptr32::new(base + 0x6_8238 + 0x48), base + 0x2320)
 }
 
+inproc::fastcall_hook! {
+    /// jgl.dll `graphics::present(this, RECT *r)` (vtable slot +0xA4):
+    /// `BitBlt`s the back buffer's rectangle `r` (all of it if null) to the
+    /// window, the last step of the exe's `present` (docs §16.1, §16.5).
+    pub mod jgl_present(graphics, edx; rect) -> i32;
+}
+
+/// The graphics object's vtable slot of `present` in jgl.dll loaded at
+/// `base`, and the function expected there (vtable at RVA 0x685F8, the
+/// function at RVA 0x3BAA0). jgl.dll is relocated under Wine: use its
+/// load address, not 0x10000000.
+pub fn jgl_present_slot(base: u32) -> (Ptr32<u32>, u32) {
+    (Ptr32::new(base + 0x6_85F8 + 0xA4), base + 0x3_BAA0)
+}
+
+inproc::fastcall_hook! {
+    /// jgl.dll `JGL_Image::pixel_at(this, x, y)` (vtable slot +0x0C; +0x14
+    /// and +0x1C jump to it): a pointer to the pixel (x, y).
+    pub mod jgl_pixel_at(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
+    /// jgl.dll `JGL_Image::lock(this)` (vtable slot +0x10; +0x18 and +0x20
+    /// jump to it): the pixels (the DIB section's bits).
+    pub mod jgl_lock(image, edx;) -> u32;
+}
+
+/// The `JGL_Image` vtable slots giving out its pixels (`pixel_at`, `lock`)
+/// in jgl.dll loaded at `base`, and the functions expected there (RVAs
+/// 0x1BC0, 0x1B70): every read or write of a canvas's pixels that is not
+/// one of jgl's own drawing operations goes through them.
+pub fn jgl_pixel_slots(base: u32) -> [(Ptr32<u32>, u32); 2] {
+    let vt = base + 0x6_8238;
+    [(Ptr32::new(vt + 0x0C), base + 0x1BC0), (Ptr32::new(vt + 0x10), base + 0x1B70)]
+}
+
+/// Images whose pixels the game itself reads back (so drawing onto them
+/// must not be skipped, see `CIV3R_GAME_RENDER`): the four images of each
+/// navigator (minimap) of [`generated_surfaces`] (`Navigator_Data` +0x18,
+/// +0x2D0, +0x588, +0x858, docs §17.1): the minimap's builders copy them
+/// into each other and read and write their pixels one by one.
+pub fn read_back_images(build: Build) -> Vec<u32> {
+    generated_surfaces(build)
+        .iter()
+        .flat_map(|&(shown, _)| {
+            let nav = shown - 0x858;
+            [0x18, 0x2D0, 0x588, 0x858].map(|o| nav + o)
+        })
+        .collect()
+}
+
 /// The `PCX_Image` owning a `JGL_Image` (its +0x80 back pointer).
 pub fn jgl_owner(jgl_image: u32) -> Option<u32> {
     Ptr32::<u32>::new(jgl_image.wrapping_add(0x80)).read().ok().filter(|&p| p != 0)
