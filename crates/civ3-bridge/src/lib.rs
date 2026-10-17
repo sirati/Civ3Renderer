@@ -17,6 +17,7 @@ pub mod interface_parts;
 pub mod label_check;
 pub mod minimap;
 pub mod modal;
+pub mod preload;
 pub mod prefs;
 pub mod preview;
 pub mod rings;

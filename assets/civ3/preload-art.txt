@@ -1,0 +1,3 @@
+# Art the game's interface shows (screen regions, fills, run-time pictures, fonts), made
+# ahead at the start of a game (civ3-bridge preload.rs). Lines as civ3-bridge writes them with
+# CIV3R_ART_LIST=<file>: tab-separated, see menu::screen::ScreenArt::to_lines and preload::font_line.
