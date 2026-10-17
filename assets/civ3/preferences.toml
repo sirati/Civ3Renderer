@@ -61,6 +61,12 @@ height = 11
 weight = 700
 color = [60, 48, 24]
 
+# (For the narrow pane of the 2:1 split, about 33 pixels wide.)
+[styles.icon_tiny]
+face = "Lucida Sans"
+height = 9
+color = [60, 48, 24]
+
 # ---------------------------------------------------------------- art
 
 # The parchment of the game's menus, over the Preferences screen's panels.
@@ -191,7 +197,7 @@ labels = [{ text = "Unit", at = [25, 30], style = "icon_small" }, { text = "Mous
 [art.roles_unit_Vertical2To1]
 generated = "panes:60,48,24,255:100x60:vertical21"
 size = [100, 60]
-labels = [{ text = "Unit", at = [33, 30], style = "icon_small" }, { text = "Mouse", at = [83, 30], style = "icon_small" }]
+labels = [{ text = "Unit", at = [33, 30], style = "icon_small" }, { text = "Mouse", at = [83, 30], style = "icon_tiny" }]
 
 [art.roles_unit_Horizontal1To1]
 generated = "panes:60,48,24,255:100x60:horizontal11"
@@ -474,7 +480,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "(vertical splits)"
 style = "caption"
-at = [210, 208]
+at = [222, 208]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
