@@ -194,7 +194,7 @@ While the mouse is captured the world cursor sits in the middle of B (off
 the middle only at the edge of a map that does not wrap), is drawn in every
 view that shows its pixel, and the whole divider is a wall. Ctrl tapped on
 its own (no other key, button, wheel or mouse motion while it is down) lets
-the mouse go (Alt stays the button snapping's); the divider opens only
+the mouse go (Alt is button snapping's); the divider opens only
 then. Over B the pointer is then a crosshair, and a click there captures it
 again: only that (nothing goes to the game), the world cursor in B's middle
 where it was, B staying put. While the mouse is free B keeps looking where
@@ -235,15 +235,22 @@ driver's point of interest (the active unit), the world cursor, or nothing
 (Ctrl+Shift+F); a view following the world cursor keeps it in its middle
 and captures the mouse when clicked into (Ctrl+Shift+Space lets go, and
 takes it over such a view; each change is logged), the cursor drawn in
-every view that shows it. While the mouse is captured, holding Alt snaps
-the pointer to what the interface can be clicked on (`tile_viewer::snap`;
-the driver lists buttons, list entries and lists, `scene::Interactable`):
-a hidden pointer moved by the mouse glides on with friction, a few times a
-second the element nearest to where it would come to rest becomes the
-target, and the visible pointer flies there on a spring, a translucent
-ghost showing the next target meanwhile; the game gets the pointer once it
-rests. In a list, moving on scrolls the list under the pointer. A click
-clicks the element; releasing Alt leaves the pointer there.
+every view that shows it. Alt pressed on its own turns on button snapping
+(`tile_viewer::snap`; on every screen, the mouse captured or not), and it
+stays on: Alt again, Esc or Ctrl turn it off (Alt with another key is the
+game's shortcut). The pointer then goes from one thing the interface can
+be clicked on to the next (the driver lists buttons, list entries and
+lists, `scene::Interactable`), anywhere in the window, across the divider
+and the views: on Alt to the one nearest the pointer (or, turned on again,
+the one it last rested on), then a few times a second to the one the
+mouse moved towards (within 45° of its direction, the closest to that
+direction first; small jitter moves nothing). Each move is a short spring
+flight (1.33 update intervals, a slight overshoot) that lands exactly on
+the element; the game gets the pointer once it rests, and a translucent
+ghost shows the next target meanwhile. While it is on, its pointer is the
+only cursor. In a list, moving up or down scrolls the list under the
+pointer. A click clicks the element, never the map; the view following the
+world cursor is a target too, and a click on it captures the mouse again.
 (`snap_updates_per_second`, `snap_ghost_fps` in the viewer's settings.)
 A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
