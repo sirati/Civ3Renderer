@@ -50,14 +50,15 @@ pub struct AnimFile {
 
 impl AnimFile {
     fn read(files: &GameFiles, path: &str) -> Option<AnimFile> {
-        let anim = flc::decode(&files.read(path).ok()?).ok()?;
+        // (The layout only: frames are decoded when the art is built.)
+        let anim = flc::layout(&files.read(path).ok()?).ok()?;
         let h = &anim.header;
         let u16_at = |o: usize| u16::from_le_bytes([h[o], h[o + 1]]) as i32;
         let (left, top, w, hgt) = (u16_at(0x64), u16_at(0x66), u16_at(0x68), u16_at(0x6A));
         Some(AnimFile {
             path: path.to_owned(),
             frames_per_direction: u16_at(0x62).max(1) as u32,
-            chunks: anim.frames.len() as u32,
+            chunks: anim.frames as u32,
             size: (anim.width, anim.height),
             anchor: (left - (w >> 1), top - (hgt >> 1)),
         })
@@ -82,6 +83,8 @@ pub struct UnitArt {
     cursor: Option<Option<AnimFile>>,
     /// Files asked for by path, cached.
     by_path: HashMap<String, Option<AnimFile>>,
+    /// Units' INI files, cached.
+    inis: HashMap<String, Option<Ini>>,
 }
 
 impl UnitArt {
@@ -96,7 +99,7 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new() }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new() }
     }
 
     /// Entry `index` of colour table `table` (`ntpNN.pcx`).
@@ -131,18 +134,21 @@ impl UnitArt {
         self.resolved[&key].as_ref()
     }
 
-    fn lookup(&self, type_key: &str, era_key: &str, animation: i32) -> Option<AnimFile> {
+    fn lookup(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<AnimFile> {
         let name = self
             .anim_names
             .get(&format!("{type_key}_{era_key}"))
             .or_else(|| self.anim_names.get(type_key))?;
         let ini_path = format!("Art/Units/{name}/{name}.INI");
-        let ini = Ini::parse_bytes(&self.files.read(&ini_path).ok()?);
+        let files = &self.files;
+        let ini = self.inis.entry(ini_path).or_insert_with_key(|p| files.read(p).ok().map(|b| Ini::parse_bytes(&b))).as_ref()?;
         let file = ini.get("Animations", ANIMATION_NAMES.get(animation as usize)?)?.trim();
         if file.is_empty() {
             return None;
         }
-        AnimFile::read(&self.files, &format!("Art/Units/{name}/{file}"))
+        let path = format!("Art/Units/{name}/{file}");
+        let files = &self.files;
+        self.by_path.entry(path).or_insert_with_key(|p| AnimFile::read(files, p)).clone()
     }
 }
 
