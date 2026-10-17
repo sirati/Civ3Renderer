@@ -8,7 +8,7 @@
 //! Reads go through [`Mem`] so they can be tested without the game. Only
 //! the PCGames build is decoded.
 
-use crate::controls::{Control, ControlKind, Mem, Sites, TAG_CHECK, TAG_CHOICE, TAG_TAB};
+use crate::controls::{Control, ControlKind, Mem, Sites, TAG_CHECK, TAG_CHOICE, TAG_MENU, TAG_TAB};
 use crate::layout;
 
 /// The draw (vtable +0x58) of every `Button` that picks its art by its
@@ -95,11 +95,21 @@ pub struct StateArt {
     pub pieces: Vec<Vec<(Look, u32)>>,
     /// How far its text moves in a state (x, y), where it does.
     pub text_offsets: Vec<(Look, (i32, i32))>,
-    /// The colour of its text in a state (the game's packed colour: bit 31
-    /// and RGB555, else a palette index, which is black on its canvases;
-    /// docs §16.10), where it changes.
-    pub text_colors: Vec<(Look, u32)>,
+    /// The colours of its text and fills in a state, where they change (the
+    /// i-th of one state becomes the i-th of another).
+    pub colors: Vec<(Look, Vec<Color>)>,
     pub select: Select,
+}
+
+/// A colour the game draws a control's text or a fill in, as it has it.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Color {
+    /// A text colour: packed (bit 31 and RGB555, as `SetTextColor` gets
+    /// it), else a palette index, black on the game's canvases (docs
+    /// §16.10).
+    Text(u32),
+    /// A fill's RGB555 colour.
+    Fill(u32),
 }
 
 /// Which of a canvas' draws are a control's.
@@ -127,6 +137,7 @@ pub fn of(mem: &dyn Mem, sites: &Sites, control: &Control) -> Option<StateArt> {
         (o, TAG_TAB) if o == sites.advisor => advisor_tab(mem, o, part & 0x0FFF_FFFF),
         (o, TAG_CHECK) => check_box(mem, o, part & 0x0FFF_FFFF),
         (o, 0) if part & TAG_CHOICE != 0 => bullet_row(mem, o, part & !TAG_CHOICE),
+        (o, TAG_MENU) => menu_row(mem, o, part & 0x0FFF_FFFF),
         _ => None,
     }
 }
@@ -173,7 +184,7 @@ pub fn button(mem: &dyn Mem, addr: u32) -> Option<StateArt> {
         forced,
         pieces,
         text_offsets: vec![(LOOKS[2], text)],
-        text_colors: Vec::new(),
+        colors: Vec::new(),
         select: Select::None,
     })
 }
@@ -201,7 +212,7 @@ pub fn advisor_tab(mem: &dyn Mem, advisor: u32, k: u32) -> Option<StateArt> {
         forced: false,
         pieces,
         text_offsets: Vec::new(),
-        text_colors: Vec::new(),
+        colors: Vec::new(),
         select: Select::Pick(advisor),
     })
 }
@@ -232,8 +243,61 @@ pub fn check_box(mem: &dyn Mem, form: u32, i: u32) -> Option<StateArt> {
         forced: false,
         pieces,
         text_offsets: Vec::new(),
-        text_colors: Vec::new(),
+        colors: Vec::new(),
         select: Select::Toggle,
+    })
+}
+
+/// A context menu's items (28 bytes: +0xC status, bit 1 disabled, bit 2 a
+/// separator; +0x18 bit 0 red), the item under the pointer, and a hook that
+/// draws its rows instead (0x61B250).
+const MENU_ITEMS: u32 = 0x578;
+const MENU_ITEM_BYTES: u32 = 28;
+const MENU_HOVERED: u32 = 0x2190;
+const MENU_ROW_HOOK: u32 = 0x21AC;
+/// The globals holding a row's colours: fill, text and its shadow, normal
+/// (black or red) and highlighted (0x61B250).
+const MENU_FILL: u32 = 0x73_02F8;
+const MENU_FILL_HIGHLIGHT: u32 = 0xCA_DF8C;
+const MENU_TEXT: [u32; 2] = [0xCA_DF90, 0x73_0304];
+const MENU_TEXT_RED: [u32; 2] = [0x73_031C, 0x73_0320];
+const MENU_TEXT_HIGHLIGHT: [u32; 2] = [0x73_02FC, 0x73_0308];
+
+/// Row `i` of the context menu at `form`: its fill and text colours,
+/// highlighted while the pointer is over it (disabled rows, highlighted
+/// without the text's shadow, and rows drawn by a hook are left out).
+pub fn menu_row(mem: &dyn Mem, form: u32, i: u32) -> Option<StateArt> {
+    if i >= 512 || mem.u32(form + MENU_ROW_HOOK)? != 0 {
+        return None;
+    }
+    let item = form + MENU_ITEMS + MENU_ITEM_BYTES * i;
+    if mem.u32(item + 0xC)? & 6 != 0 {
+        return None;
+    }
+    let read = |a: u32| mem.u32(a);
+    let text = if mem.u32(item + 0x18)? & 1 != 0 { MENU_TEXT_RED } else { MENU_TEXT };
+    let colors = |fill: u32, [t, s]: [u32; 2]| -> Option<Vec<Color>> {
+        let (t, s) = (read(t)?, read(s)?);
+        let mut v = vec![Color::Fill(read(fill)?), Color::Text(t)];
+        if s != u32::MAX {
+            v.push(Color::Text(s));
+        }
+        Some(v)
+    };
+    let (normal, highlight) = (colors(MENU_FILL, text)?, colors(MENU_FILL_HIGHLIGHT, MENU_TEXT_HIGHLIGHT)?);
+    if normal.len() != highlight.len() {
+        return None;
+    }
+    let hovered = mem.i32(form + MENU_HOVERED)? == i as i32;
+    Some(StateArt {
+        canvas: form + layout::BASE_FORM_DATA_CANVAS + 4,
+        part: Part::Within,
+        state: look(if hovered { Pointer::Hover } else { Pointer::Normal }, false),
+        forced: false,
+        pieces: Vec::new(),
+        text_offsets: Vec::new(),
+        colors: vec![(look(Pointer::Normal, false), normal), (look(Pointer::Hover, false), highlight.clone()), (look(Pointer::Pressed, false), highlight)],
+        select: Select::None,
     })
 }
 
@@ -286,7 +350,7 @@ fn bullet_row_of(mem: &dyn Mem, list: crate::controls::BulletList, form: u32, r:
         forced: false,
         pieces: vec![looks.iter().map(|&(l, s, _)| (l, s)).collect()],
         text_offsets: Vec::new(),
-        text_colors: looks.iter().map(|&(l, _, c)| (l, c)).collect(),
+        colors: looks.iter().map(|&(l, _, c)| (l, vec![Color::Text(c)])).collect(),
         select: Select::Pick(form),
     })
 }
@@ -338,7 +402,7 @@ mod tests {
                 forced: false,
                 pieces: vec![vec![(NORMAL, 0xA0), (HOVER, 0xA1), (PRESSED_LOOK, 0xA2)]],
                 text_offsets: vec![(PRESSED_LOOK, (2, 2))],
-                text_colors: vec![],
+                colors: vec![],
                 select: Select::None,
             }
         );
@@ -435,11 +499,48 @@ mod bullet_tests {
         assert_eq!(over.state, look(Pointer::Hover, false));
         assert_eq!((plain.state, plain.part, plain.select), (look(Pointer::Normal, false), Part::Within, Select::Pick(f)));
         assert_eq!(plain.pieces[0][1], (look(Pointer::Hover, false), 0xB3_DD54));
-        assert_eq!(plain.text_colors[1], (look(Pointer::Hover, false), 0x8000_5960));
+        assert_eq!(plain.colors[1], (look(Pointer::Hover, false), vec![Color::Text(0x8000_5960)]));
         // Pressed: selected.
         assert_eq!(plain.pieces[0][2], (look(Pointer::Pressed, false), 0xB3_DD80));
         // An outline around the selected text: none.
         m.0.insert(l + 0xBC, 5);
         assert_eq!(bullet_row_of(&m, list, f, 1), None);
+    }
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Fake(std::collections::HashMap<u32, u32>);
+
+    impl Mem for Fake {
+        fn u32(&self, addr: u32) -> Option<u32> {
+            Some(self.0.get(&addr).copied().unwrap_or(0))
+        }
+        fn u8(&self, addr: u32) -> Option<u8> {
+            self.u32(addr & !3).map(|v| (v >> (8 * (addr & 3))) as u8)
+        }
+    }
+
+    #[test]
+    fn a_context_menus_rows_highlight_under_the_pointer() {
+        let form = 0x20_0000;
+        let mut m = Fake::default();
+        for (a, v) in [(MENU_FILL, 0x111), (MENU_FILL_HIGHLIGHT, 0x222), (MENU_TEXT[0], 0x8000_0000), (MENU_TEXT[1], u32::MAX), (MENU_TEXT_HIGHLIGHT[0], 0x8000_7FFF), (MENU_TEXT_HIGHLIGHT[1], u32::MAX)] {
+            m.0.insert(a, v);
+        }
+        m.0.insert(form + MENU_HOVERED, 1);
+        let row = menu_row(&m, form, 1).unwrap();
+        assert_eq!(row.state, look(Pointer::Hover, false));
+        assert_eq!(row.colors[0], (look(Pointer::Normal, false), vec![Color::Fill(0x111), Color::Text(0x8000_0000)]));
+        assert_eq!(row.colors[1], (look(Pointer::Hover, false), vec![Color::Fill(0x222), Color::Text(0x8000_7FFF)]));
+        assert_eq!(menu_row(&m, form, 0).unwrap().state, look(Pointer::Normal, false));
+        // Disabled, a separator, a hook drawing the rows: none.
+        m.0.insert(form + MENU_ITEMS + MENU_ITEM_BYTES * 2 + 0xC, 2);
+        assert_eq!(menu_row(&m, form, 2), None);
+        m.0.insert(form + MENU_ROW_HOOK, 0x40_0000);
+        assert_eq!(menu_row(&m, form, 1), None);
     }
 }
