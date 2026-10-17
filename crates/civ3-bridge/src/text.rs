@@ -77,6 +77,8 @@ pub struct Fonts {
     /// Fonts (face, size, style) that failed to load: reported once, not per
     /// colour.
     failed: BTreeSet<FontStyle>,
+    /// When each font was last asked for (see [`Fonts::prune`]).
+    used: BTreeMap<FontKey, std::time::Instant>,
 }
 
 impl Fonts {
@@ -85,6 +87,7 @@ impl Fonts {
         let mut added = false;
         for r in runs {
             let key = key(r);
+            self.used.insert(key.clone(), std::time::Instant::now());
             if !self.fonts.contains_key(&key) {
                 let font = civ3_assets::fonts::load(files, &key.0, key.1)
                     .inspect_err(|e| {
@@ -98,6 +101,18 @@ impl Fonts {
             }
         }
         added
+    }
+
+    /// Drops the fonts not asked for in the last `age` (zooms and screens
+    /// come and go; every font is a sheet of glyphs in the art); how many.
+    pub fn prune(&mut self, age: std::time::Duration) -> usize {
+        let now = std::time::Instant::now();
+        let before = self.fonts.len();
+        let used = &self.used;
+        self.fonts.retain(|k, _| used.get(k).is_some_and(|t| now.duration_since(*t) < age));
+        let fonts = &self.fonts;
+        self.used.retain(|k, _| fonts.contains_key(k));
+        before - self.fonts.len()
     }
 
     /// Whether `compiled` has the glyphs of `run` (its art is built).
@@ -287,4 +302,22 @@ mod tests {
 pub fn zoomed(r: &TextRun, (n, d): (u32, u32)) -> TextRun {
     let height = ((r.height.abs() as i64 * n as i64 + d as i64 / 2) / d.max(1) as i64) as i32;
     TextRun { height: height * r.height.signum(), ..r.clone() }
+}
+
+#[cfg(test)]
+mod prune_tests {
+    use super::*;
+
+    #[test]
+    fn fonts_not_asked_for_are_pruned() {
+        let mut fonts = Fonts::default();
+        let style = FontStyle { face: "Lucida Sans".into(), height: 12, weight: 400, italic: false };
+        let (old, new) = ((style.clone(), [1, 2, 3], None), (style, [4, 5, 6], None));
+        fonts.fonts.insert(old.clone(), None);
+        fonts.fonts.insert(new.clone(), None);
+        fonts.used.insert(old.clone(), std::time::Instant::now() - std::time::Duration::from_secs(120));
+        fonts.used.insert(new.clone(), std::time::Instant::now());
+        assert_eq!(fonts.prune(std::time::Duration::from_secs(60)), 1);
+        assert!(fonts.fonts.contains_key(&new) && !fonts.fonts.contains_key(&old));
+    }
 }

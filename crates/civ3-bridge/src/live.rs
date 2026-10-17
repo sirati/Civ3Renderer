@@ -19,6 +19,8 @@ const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
 
 /// How often the publisher looks at the game.
 const POLL: Duration = Duration::from_millis(33);
+/// How long a font no text has asked for stays in the art (see `text::Fonts::prune`).
+const FONT_KEPT: Duration = Duration::from_secs(60);
 
 fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
     Civ3Unit {
@@ -677,7 +679,14 @@ fn publish(
             art_wanted.get_or_insert(now);
         }
         if let Some(token) = schedule.start(now) {
-            let job = compiler.job(&folders, &have, &fonts, &screen_art, &district_art, zoomed_out, pixels);
+            // Fonts no screen or zoom has asked for in a while go with this
+            // rebuild (each is a sheet of glyphs; zooming through sizes
+            // would add up).
+            let dropped = fonts.prune(FONT_KEPT);
+            if dropped > 0 {
+                log::debug!("art: {dropped} fonts not used for {FONT_KEPT:?} left out");
+            }
+            let job =compiler.job(&folders, &have, &fonts, &screen_art, &district_art, zoomed_out, pixels);
             // A renderer that compiles its own copy starts at once.
             let generation = presenter.prepare_assets(&job.wire);
             if art_thread.jobs.send(ArtJob { token, generation, ..job }).is_err() {
