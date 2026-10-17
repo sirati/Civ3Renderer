@@ -108,6 +108,19 @@ palette files, or another palette with entries copied over).
 tested byte for byte against it (`cargo test -p tile-render`), including an
 exhaustive test of the rounding.
 
+What costs the GPU is shading fragments, so none is shaded only to be
+discarded where that is known ahead: a compiled atlas notes each sprite's
+blank margins and blank isometric corners (`SpriteDesc::blank`, `cuts`),
+and quads leave them out (cells of passes of diamonds are octagons); a
+free sprite drawn again later the same, all opaque or clear, is drawn once
+(a mirrored interface repeats pictures many times). Changes are uploaded
+alone: the records of changed cells (`TileWorld::take_dirty`,
+`TileRenderer::update_cells`), the free sprites, and the *markers* that
+change every frame (`set_markers`: a cursor, a frame counter). A frame
+whose views, world and tick are the last frame's shows the picture drawn
+then, its overlay views (`render_layered`) drawn anew over it
+(`TILE_RENDER_REUSE=0`: every frame drawn whole).
+
 ## In the game
 
 `civ3-bridge` is installed as the game's `ifc23.dll` (a proxy forwarding to
@@ -392,6 +405,22 @@ tools/install-bridge            # into the Wine prefix's game copy
 
 The first build compiles rust-gpu's codegen backend (several minutes, cached
 per user). Set `TILE_RENDER_ADAPTER=radv` to pick the AMD iGPU.
+
+Frame rate: the viewer's `[display]` settings `present` (`Vsync`, the
+default: frames at the display's refresh rate; `Mailbox`, `Immediate`: as
+fast as they are drawn, two in flight) and `max_fps` (0: no cap), or
+`TILE_VIEWER_PRESENT=vsync|mailbox|immediate`, `TILE_VIEWER_MAX_FPS=N`; the
+frame counter is `show_fps`. The viewer paces its own frames; the driver's
+scenes are taken as they come.
+
+Profiling: `TILE_VIEWER_PROFILE=1` logs every 5 s where the viewer's frames
+go (CPU per step, GPU per view from timestamp queries, read back without
+waiting; `TILE_RENDER_GPU_TIMING=passes`: per render pass), how often the
+driver's scenes come, the native side's decoding and the publisher's
+rounds (`CIV3R_PROFILE=1`: the publisher alone). `civ3-tool bench TRACE
+[--frames N] [--rebuild]` draws a trace's scene offscreen the same way
+(with `TILE_RENDER_GPU_TIMING=1`, and `TILE_RENDER_REUSE=0` for whole
+frames).
 
 ## Civilization III facts
 
