@@ -112,12 +112,16 @@ impl Camera {
     /// `zoom_art`: see `FrameParams::zoom_art`; `scaled_at`: drawn at its zoom
     /// straight into the target, its viewport starting at that target pixel
     /// (`FrameParams::scaled`).
+    /// `reach`: how far per-cell offsets move sprites beyond their cells
+    /// (`TileWorld::offset_reach`, world pixels), on top of the overhang.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32, scaled_at: Option<(i32, i32)>) -> FrameParams {
+    pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32, scaled_at: Option<(i32, i32)>, reach: (u32, u32, u32, u32)) -> FrameParams {
         let (ew, eh) = self.source_size();
-        let (ol, ot, or, ob) = self.overhang;
         // The grid at the view's scale.
         let n = self.downscale.max(1);
+        let r = |v: u32| v.div_ceil(n);
+        let (ol, ot, or, ob) = self.overhang;
+        let (ol, ot, or, ob) = (ol + r(reach.0), ot + r(reach.1), or + r(reach.2), ob + r(reach.3));
         let grid_params = tile_render_shared::grid_at(&grid.params(), n);
         let (sx, sy) = ((grid_params.step_x as i32).max(1), (grid_params.step_y as i32).max(1));
         // A cell's origin is its top-left; its footprint is one step (two
@@ -166,7 +170,7 @@ impl Camera {
             target_x: scaled_at.map_or(0, |t| t.0),
             target_y: scaled_at.map_or(0, |t| t.1),
             downscale: n,
-            _pad0: 0,
+            descending: pass.descending as u32,
             _pad1: 0,
             _pad2: 0,
         }
@@ -185,7 +189,7 @@ mod tests {
         cam.x = 300;
         cam.y = 200;
         cam.overhang = (0, 24, 0, 0);
-        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3 }, 0, 0, None);
+        let p = cam.frame_params(&grid, ColorModel::Direct, 0, &Pass { first: 0, count: 3, descending: false }, 0, 0, None, (0, 0, 0, 0));
         // Every cell whose 128×64 footprint (+24 px upwards) touches the
         // viewport must be inside the window.
         for row in -10..120 {

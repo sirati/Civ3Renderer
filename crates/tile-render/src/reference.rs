@@ -4,7 +4,7 @@
 //! a fallback for tools that have no GPU.
 
 use tile_render_shared::text;
-use tile_render_shared::{ByteReader, Placed, QUANTIZED_BIAS, alpha_steps, cell_origin, drawn_sprite, expand, mix_stored, placed, quantize, scale_stored, shrunk, wrap_cell};
+use tile_render_shared::{ByteReader, Placed, cell_offset, frame_of, record_at, window_col, QUANTIZED_BIAS, alpha_steps, cell_origin, drawn_sprite, expand, mix_stored, placed, quantize, scale_stored, shrunk, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
@@ -472,9 +472,9 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
     for (pass_index, pass) in passes.iter().enumerate() {
         let (first, count) = (pass.first, pass.count);
         // (Its grid is the grid at the view's scale.)
-        let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0, None);
+        let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0, None, packed.reach);
         for local in 0..if camera.cells && steps.contains(&(2 * pass_index)) { params.cols * params.rows } else { 0 } {
-            let col = params.first_col + (local % params.cols) as i32;
+            let col = window_col(&params, local);
             let row = params.first_row + (local / params.cols) as i32;
             let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };
             let (ox, oy) = cell_origin(&params.grid, col, row);
@@ -488,7 +488,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                         continue;
                     }
                 }
-                let byte = layer.data_byte_offset + (r * params.grid.cols + c) * (layer.value_bytes + layer.phase_bytes);
+                let byte = record_at(layer, params.grid.cols, c, r);
                 let value = data.uint(byte, layer.value_bytes);
                 if value >= layer.lut_len {
                     continue;
@@ -499,13 +499,14 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 if frames == 0 {
                     continue;
                 }
-                let f = (frame / layer.ticks_per_frame.max(1) + phase) % frames;
+                let f = frame_of(frame, layer.ticks_per_frame, phase, frames);
+                let (dx, dy) = cell_offset(&data, layer, byte, dn);
                 let sprite_id = drawn_sprite(&atlas.sprites, packed.sets[set + 1 + f as usize], dn);
                 let placed = placed(&atlas.sprites[sprite_id as usize], dn);
                 draw(Draw {
                     sprite: crate::SpriteId(sprite_id),
-                    x: ox + shrunk(layer.offset_x, dn) + placed.corner_x - camera.x + vx,
-                    y: oy + shrunk(layer.offset_y, dn) + placed.corner_y - camera.y + vy,
+                    x: ox + shrunk(layer.offset_x, dn) + dx + placed.corner_x - camera.x + vx,
+                    y: oy + shrunk(layer.offset_y, dn) + dy + placed.corner_y - camera.y + vy,
                     pass: pass_index,
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
                     clip: within(None),

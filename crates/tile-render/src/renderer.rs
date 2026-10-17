@@ -63,6 +63,8 @@ struct WorldBuffers {
     grid: Grid,
     color: ColorModel,
     passes: Vec<Pass>,
+    /// How far per-cell offsets move sprites (`TileWorld::offset_reach`).
+    reach: (u32, u32, u32, u32),
     /// Free sprites, ordered by the pass they follow, and per pass the
     /// range of them to draw after it (the last entry: after all passes).
     free: wgpu::Buffer,
@@ -353,6 +355,7 @@ impl TileRenderer {
             grid: world.grid,
             color: world.color,
             passes: world.passes(),
+            reach: packed.reach,
             free: storage(device, "tile-render free sprites", bytemuck::cast_slice(&free)),
             free_after,
             text: storage(device, "tile-render text", bytemuck::cast_slice(&text)),
@@ -374,6 +377,9 @@ impl TileRenderer {
         match &self.world {
             Some(w) if w.grid == world.grid && w.color == world.color && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
                 queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
+                if let Some(w) = self.world.as_mut() {
+                    w.reach = packed.reach;
+                }
                 self.update_free(device, queue, world);
             }
             _ => self.set_world(device, world),
@@ -732,8 +738,8 @@ impl Steps<'_> {
             if !cells && !sprites {
                 continue;
             }
-            let pass = world.passes.get(i).copied().filter(|_| i < passes).unwrap_or(Pass { first: 0, count: 0 });
-            let params = camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at);
+            let pass = world.passes.get(i).copied().filter(|_| i < passes).unwrap_or_default();
+            let params = camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach);
             // Each (view, step) has its own parameter slot: buffer writes all
             // land before the commands run.
             let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;

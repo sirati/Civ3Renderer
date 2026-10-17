@@ -9,7 +9,10 @@
 //! A world is a grid of cells. Every cell has one value per *layer*. A layer's
 //! values are packed back to back in the `tile_data` buffer, `value_bytes`
 //! bytes each (1–4, little endian), optionally followed by one *phase* byte
-//! that offsets the layer's animation per cell. The value indexes the layer's
+//! that offsets the layer's animation per cell, and optionally by a signed
+//! pixel *offset* (x, y; two little-endian `i16`) that moves the cell's
+//! sprite off its place (e.g. a unit on its way to the next cell): a layer
+//! pays for what it uses only. The value indexes the layer's
 //! lookup table, which yields a *sprite set*: an animation, i.e. a frame count
 //! followed by sprite indices. A sprite is a rectangle in the atlas plus the
 //! offset at which it is drawn relative to the cell's origin, and the part of
@@ -147,7 +150,10 @@ pub struct FrameParams {
     /// ([`shrunk`]), and every sprite is drawn as [`placed`] says.
     /// Screen-space sprites are drawn as they are.
     pub downscale: u32,
-    pub _pad0: u32,
+    /// 1: the pass sweeps each row of cells from its last column to its
+    /// first (rows still top to bottom), as a game drawing its units right
+    /// to left does.
+    pub descending: u32,
     pub _pad1: u32,
     pub _pad2: u32,
 }
@@ -200,7 +206,9 @@ pub struct LayerDesc {
     /// `LAYER_*` flags.
     pub flags: u32,
 
-    /// Animation ticks per frame for this layer (>= 1).
+    /// Animation ticks per frame for this layer; 0: the animation does not
+    /// follow the clock, a cell shows the frame its phase says (see
+    /// [`frame_of`]).
     pub ticks_per_frame: u32,
     /// Offset from the cell origin to the point tested against the
     /// camera's cull rectangle.
@@ -210,6 +218,64 @@ pub struct LayerDesc {
     /// `k / scale_den` (`k` = the sprite's red channel) instead of covering
     /// it.
     pub scale_den: u32,
+
+    /// 0 or [`OFFSET_BYTES`]: whether every record ends with the cell's
+    /// pixel offset (see [`cell_offset`]).
+    pub offset_bytes: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+}
+
+/// Bytes of a cell's pixel offset in its record: x and y, `i16` each.
+pub const OFFSET_BYTES: u32 = 4;
+
+/// Byte offset of a cell's record in `tile_data`, and its size.
+pub fn record_at(layer: &LayerDesc, grid_cols: u32, col: u32, row: u32) -> u32 {
+    layer.data_byte_offset + (row * grid_cols + col) * (layer.value_bytes + layer.phase_bytes + layer.offset_bytes)
+}
+
+/// The pixel offset of the cell whose record starts at byte `record`
+/// (0, 0 if the layer has none), in a view showing the world `n` times
+/// smaller: divided, rounded down (the offset moves a sprite to a position,
+/// and a game halving positions rounds those down; a cell origin is a
+/// multiple of the steps).
+pub fn cell_offset(data: &ByteReader, layer: &LayerDesc, record: u32, n: u32) -> (i32, i32) {
+    if layer.offset_bytes == 0 {
+        return (0, 0);
+    }
+    let at = record + layer.value_bytes + layer.phase_bytes;
+    let x = sign_extend_16(data.uint(at, 2));
+    let y = sign_extend_16(data.uint(at + 2, 2));
+    (floor_div(x, n), floor_div(y, n))
+}
+
+fn sign_extend_16(v: u32) -> i32 {
+    ((v << 16) as i32) >> 16
+}
+
+/// `v / n` rounded down (`n` 0 or 1: `v`).
+pub fn floor_div(v: i32, n: u32) -> i32 {
+    if n <= 1 {
+        return v;
+    }
+    let d = n as i32;
+    if v >= 0 { v / d } else { -((-v + d - 1) / d) }
+}
+
+/// The frame of an animation of `frames` frames a cell or sprite with
+/// `phase` shows at clock `tick`: `(tick / ticks_per_frame + phase) %
+/// frames`, or with `ticks_per_frame` 0 its phase alone (modulo `frames`).
+pub fn frame_of(tick: u32, ticks_per_frame: u32, phase: u32, frames: u32) -> u32 {
+    let clock = if ticks_per_frame == 0 { 0 } else { tick / ticks_per_frame };
+    (clock + phase) % frames
+}
+
+/// The column of the visible window drawn as its `local`-th cell of a row
+/// (`FrameParams::descending`: from the last column back).
+pub fn window_col(params: &FrameParams, local: u32) -> i32 {
+    let i = local % params.cols;
+    params.first_col + if params.descending != 0 { (params.cols - 1 - i) as i32 } else { i as i32 }
 }
 
 /// A sprite placed freely rather than on a grid cell (units, effects, UI).
@@ -606,6 +672,13 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn offsets_divide_rounding_down_and_frames_may_ignore_the_clock() {
+        assert_eq!((floor_div(-7, 2), floor_div(7, 2), floor_div(-6, 3), floor_div(-7, 1)), (-4, 3, -2, -7));
+        assert_eq!((sign_extend_16(0xFFFF), sign_extend_16(0x8000), sign_extend_16(0x7FFF)), (-1, -32768, 32767));
+        assert_eq!((frame_of(10, 3, 1, 4), frame_of(10, 0, 5, 4), frame_of(u32::MAX, 0, 2, 3)), (0, 1, 2));
     }
 
     #[test]

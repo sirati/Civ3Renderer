@@ -5,7 +5,9 @@
 //! `i / layer_count`, so all of the pass's layers of a cell are drawn before
 //! the next cell, in row-major order. That is the order an isometric renderer
 //! needs for tall sprites (hills, buildings, units) to overlap the rows
-//! behind them.
+//! behind them. A pass may sweep each row from its last column back
+//! (`FrameParams::descending`), as a game drawing its units right to left
+//! does.
 //!
 //! The vertex shader pulls everything from storage buffers (see
 //! `tile_render_shared` for the data model) and emits a quad per instance, or
@@ -22,7 +24,7 @@ use spirv_std::glam::{IVec2, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ALL_VIEWS, ByteReader, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ALL_VIEWS, ByteReader, cell_offset, frame_of, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, drawn_sprite, expand, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
@@ -53,7 +55,7 @@ fn resolve_sprite(
     if layer.flags & LAYER_HIDDEN != 0 {
         return None;
     }
-    let col = params.first_col + (local_cell % params.cols) as i32;
+    let col = window_col(params, local_cell);
     let row = params.first_row + (local_cell / params.cols) as i32;
     let (c, r) = wrap_cell(&params.grid, col, row)?;
     // Position from the unwrapped coordinates, so a wrapped-around column
@@ -61,6 +63,8 @@ fn resolve_sprite(
     // (`grid` is the grid at the view's scale, offsets are shrunk to it.)
     let (origin_x, origin_y) = cell_origin(&params.grid, col, row);
     let n = params.downscale;
+    // (The cell's anchor, not moved by a per-cell offset: a game that
+    // clips by tile range draws what is on its tiles wherever it is.)
     if params.cull != 0 {
         let (ax, ay) = (origin_x + shrunk(layer.cull_offset_x, n), origin_y + shrunk(layer.cull_offset_y, n));
         if ax < params.cull_x0 || ax >= params.cull_x1 || ay < params.cull_y0 || ay >= params.cull_y1 {
@@ -68,8 +72,7 @@ fn resolve_sprite(
         }
     }
 
-    let record = layer.value_bytes + layer.phase_bytes;
-    let byte = layer.data_byte_offset + (r * params.grid.cols + c) * record;
+    let byte = record_at(layer, params.grid.cols, c, r);
     let data = ByteReader::new(tile_data);
     let value = data.uint(byte, layer.value_bytes);
     if value >= layer.lut_len {
@@ -82,9 +85,11 @@ fn resolve_sprite(
     if frames == 0 {
         return None;
     }
-    let frame = (params.frame / layer.ticks_per_frame + phase) % frames;
+    let frame = frame_of(params.frame, layer.ticks_per_frame, phase, frames);
     let sprite = sprite_sets[(set + 1 + frame) as usize];
-    Some((sprite, origin_x + shrunk(layer.offset_x, n), origin_y + shrunk(layer.offset_y, n)))
+    // The cell's own offset on top of the layer's.
+    let (dx, dy) = cell_offset(&data, layer, byte, n);
+    Some((sprite, origin_x + shrunk(layer.offset_x, n) + dx, origin_y + shrunk(layer.offset_y, n) + dy))
 }
 
 #[spirv(vertex)]

@@ -43,7 +43,13 @@ its compute pass that wrote sprite indices into a vertex buffer became vertex
 pulling: one instanced draw where instance *i* is layer *i mod L* of visible
 cell *i / L*. All layers of a cell are drawn before the next cell, row by row,
 which is the order an isometric map needs for tall sprites to overlap the rows
-behind. Sprites are anchored quads fetched texel-exact from an atlas.
+behind (a pass may sweep each row right to left instead, as Civ III draws
+its units). Sprites are anchored quads fetched texel-exact from an atlas.
+A layer may store, after the value and the phase, a signed pixel offset per
+cell, for the few cells whose sprite is between cells (a unit on its way);
+only layers that use it pay for it, and the renderer widens the window of
+drawn cells by how far the offsets reach. A layer whose `ticks_per_frame`
+is 0 shows the frame its cells' phases say, whatever the clock.
 
 Beyond the grid, a world has *free sprites* (units, effects, UI): animated
 sprite sets placed in world or screen space and drawn after any pass. A free

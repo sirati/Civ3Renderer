@@ -1,6 +1,6 @@
 //! CPU-side description of a tile world: grid, layers and their cell values.
 
-use tile_render_shared::{GridParams, LAYER_HIDDEN, LAYOUT_ORTHOGONAL, LAYOUT_STAGGERED, LayerDesc, WRAP_X, WRAP_Y};
+use tile_render_shared::{GridParams, LAYER_HIDDEN, LAYOUT_ORTHOGONAL, LAYOUT_STAGGERED, LayerDesc, OFFSET_BYTES, WRAP_X, WRAP_Y};
 
 use crate::atlas::SpriteId;
 
@@ -348,10 +348,13 @@ impl PlacedSprite {
 }
 
 /// A range of layers drawn together, see [`TileWorld::passes`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Pass {
     pub first: u32,
     pub count: u32,
+    /// Each row is swept from its last column back (see
+    /// [`LayerSpec::descending`]).
+    pub descending: bool,
 }
 
 /// Static configuration of one layer.
@@ -362,12 +365,22 @@ pub struct LayerSpec {
     pub lut: Vec<SpriteSetId>,
     /// Store a per-cell animation phase next to every value.
     pub per_cell_phase: bool,
+    /// Store a per-cell pixel offset next to every value (and phase): the
+    /// cell's sprite is drawn that far from its place (e.g. a unit on its
+    /// way to the next cell). See [`TileWorld::set_offset`].
+    pub per_cell_offset: bool,
     /// Pixel offset of the whole layer relative to cell origins.
     pub offset: (i32, i32),
+    /// Animation ticks per frame; 0: a cell shows the frame its phase says,
+    /// whatever the clock.
     pub ticks_per_frame: u32,
     pub hidden: bool,
     /// Render pass. A world's layers must be ordered by pass.
     pub pass: u32,
+    /// The pass sweeps each row of cells from its last column to its first
+    /// (all layers of a pass must agree), as a game drawing right to left
+    /// does.
+    pub descending: bool,
     /// Point tested against `Camera::cull`, relative to the cell origin.
     pub cull_offset: (i32, i32),
     pub blend: Blend,
@@ -375,7 +388,19 @@ pub struct LayerSpec {
 
 impl LayerSpec {
     pub fn new(name: impl Into<String>, lut: Vec<SpriteSetId>) -> Self {
-        Self { name: name.into(), lut, per_cell_phase: false, offset: (0, 0), ticks_per_frame: 1, hidden: false, pass: 0, cull_offset: (0, 0), blend: Blend::Alpha }
+        Self {
+            name: name.into(),
+            lut,
+            per_cell_phase: false,
+            per_cell_offset: false,
+            offset: (0, 0),
+            ticks_per_frame: 1,
+            hidden: false,
+            pass: 0,
+            descending: false,
+            cull_offset: (0, 0),
+            blend: Blend::Alpha,
+        }
     }
 
     /// Smallest value width (bytes) that can index the whole table.
@@ -389,7 +414,7 @@ impl LayerSpec {
     }
 
     fn record_bytes(&self) -> u32 {
-        self.value_bytes() + self.per_cell_phase as u32
+        self.value_bytes() + self.per_cell_phase as u32 + if self.per_cell_offset { OFFSET_BYTES } else { 0 }
     }
 }
 
@@ -422,6 +447,12 @@ impl TileWorld {
         assert!(self.layers.len() < 255);
         if let Some(prev) = self.layers.last() {
             assert!(spec.pass >= prev.pass, "layer {} (pass {}) after pass {}: layers must be ordered by pass", spec.name, spec.pass, prev.pass);
+            assert!(
+                spec.pass != prev.pass || spec.descending == prev.descending,
+                "layer {} sweeps its pass otherwise than layer {}: the layers of a pass must agree",
+                spec.name,
+                prev.name
+            );
         }
         let bytes = (spec.record_bytes() * self.grid.cells()) as usize;
         self.layers.push(spec);
@@ -441,7 +472,7 @@ impl TileWorld {
             if last_pass == Some(l.pass) {
                 out.last_mut().unwrap().count += 1;
             } else {
-                out.push(Pass { first: i as u32, count: 1 });
+                out.push(Pass { first: i as u32, count: 1, descending: l.descending });
                 last_pass = Some(l.pass);
             }
         }
@@ -476,6 +507,58 @@ impl TileWorld {
         self.data[layer.0][at] = phase;
     }
 
+    /// Sets the cell's pixel offset (x, y): its sprite is drawn that far
+    /// from where the cell and the layer put it (in a view showing the
+    /// world `n` times smaller, the offset divided by `n`, rounded down).
+    /// Requires `per_cell_offset`.
+    pub fn set_offset(&mut self, layer: LayerId, col: u32, row: u32, (x, y): (i16, i16)) {
+        let at = self.offset_at(layer, col, row);
+        self.data[layer.0][at..at + 2].copy_from_slice(&x.to_le_bytes());
+        self.data[layer.0][at + 2..at + 4].copy_from_slice(&y.to_le_bytes());
+    }
+
+    /// The cell's pixel offset (0, 0 on a layer without them).
+    pub fn offset(&self, layer: LayerId, col: u32, row: u32) -> (i16, i16) {
+        if !self.layers[layer.0].per_cell_offset {
+            return (0, 0);
+        }
+        let at = self.offset_at(layer, col, row);
+        let d = &self.data[layer.0];
+        (i16::from_le_bytes([d[at], d[at + 1]]), i16::from_le_bytes([d[at + 2], d[at + 3]]))
+    }
+
+    fn offset_at(&self, layer: LayerId, col: u32, row: u32) -> usize {
+        let spec = &self.layers[layer.0];
+        assert!(spec.per_cell_offset, "layer {} has no per-cell offset", spec.name);
+        self.record_at(layer, col, row) + (spec.value_bytes() + spec.per_cell_phase as u32) as usize
+    }
+
+    /// How far the per-cell offsets of the cells that draw something move
+    /// their sprites beyond their cells' places, at most: (left, top,
+    /// right, bottom), to be added to a camera's overhang (cells that far
+    /// outside the viewport may reach into it).
+    pub fn offset_reach(&self) -> (u32, u32, u32, u32) {
+        let mut reach = (0, 0, 0, 0);
+        for (i, spec) in self.layers.iter().enumerate() {
+            if !spec.per_cell_offset {
+                continue;
+            }
+            let (n, at) = (spec.value_bytes() as usize, (spec.value_bytes() + spec.per_cell_phase as u32) as usize);
+            for record in self.data[i].chunks_exact(spec.record_bytes() as usize) {
+                if record[..n].iter().all(|&b| b == 0) {
+                    continue;
+                }
+                let x = i16::from_le_bytes([record[at], record[at + 1]]) as i32;
+                let y = i16::from_le_bytes([record[at + 2], record[at + 3]]) as i32;
+                reach.0 = reach.0.max((-x).max(0) as u32);
+                reach.1 = reach.1.max((-y).max(0) as u32);
+                reach.2 = reach.2.max(x.max(0) as u32);
+                reach.3 = reach.3.max(y.max(0) as u32);
+            }
+        }
+        reach
+    }
+
     fn record_at(&self, layer: LayerId, col: u32, row: u32) -> usize {
         assert!(col < self.grid.cols && row < self.grid.rows, "cell ({col}, {row}) outside the grid");
         let spec = &self.layers[layer.0];
@@ -498,13 +581,17 @@ impl TileWorld {
                 offset_x: spec.offset.0,
                 offset_y: spec.offset.1,
                 flags: if spec.hidden { LAYER_HIDDEN } else { 0 },
-                ticks_per_frame: spec.ticks_per_frame.max(1),
+                ticks_per_frame: spec.ticks_per_frame,
                 cull_offset_x: spec.cull_offset.0,
                 cull_offset_y: spec.cull_offset.1,
                 scale_den: match spec.blend {
                     Blend::Invert | Blend::Subpixel { .. } => 0,
                     b => b.scale_den(),
                 },
+                offset_bytes: if spec.per_cell_offset { OFFSET_BYTES } else { 0 },
+                _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
             });
             lut.extend(spec.lut.iter().map(|s| s.0));
             data.extend_from_slice(bytes);
@@ -518,7 +605,7 @@ impl TileWorld {
         if lut.is_empty() {
             lut.push(0);
         }
-        PackedWorld { layers, lut, data: bytemuck::pod_collect_to_vec(&data), sets: self.sets.words().to_vec() }
+        PackedWorld { layers, lut, data: bytemuck::pod_collect_to_vec(&data), sets: self.sets.words().to_vec(), reach: self.offset_reach() }
     }
 }
 
@@ -527,6 +614,8 @@ pub(crate) struct PackedWorld {
     pub lut: Vec<u32>,
     pub data: Vec<u32>,
     pub sets: Vec<u32>,
+    /// See [`TileWorld::offset_reach`].
+    pub reach: (u32, u32, u32, u32),
 }
 
 #[cfg(test)]
@@ -551,8 +640,23 @@ mod tests {
                 w.set_phase(big, c, r, (c * r) as u8);
             }
         }
+        let mut moved_spec = LayerSpec::new("moved", vec![SpriteSetId::EMPTY, a]);
+        (moved_spec.per_cell_phase, moved_spec.per_cell_offset) = (true, true);
+        let moved = w.add_layer(moved_spec);
+        w.set(moved, 3, 2, 1);
+        w.set_phase(moved, 3, 2, 9);
+        w.set_offset(moved, 3, 2, (-300, 7));
+        w.set_offset(moved, 4, 2, (-500, -9));
+        // (Cells drawing nothing do not reach.)
+        assert_eq!(w.offset_reach(), (300, 0, 0, 7));
         let p = w.pack();
         let reader = ByteReader::new(&p.data);
+        let l = &p.layers[2];
+        let at = tile_render_shared::record_at(l, 7, 3, 2);
+        assert_eq!((reader.uint(at, 1), reader.u8(at + 1)), (1, 9));
+        assert_eq!(tile_render_shared::cell_offset(&reader, l, at, 1), (-300, 7));
+        assert_eq!(tile_render_shared::cell_offset(&reader, l, at, 2), (-150, 3));
+        assert_eq!(tile_render_shared::cell_offset(&reader, &p.layers[0], 0, 1), (0, 0));
         for r in 0..5u32 {
             for c in 0..7u32 {
                 let l = &p.layers[1];

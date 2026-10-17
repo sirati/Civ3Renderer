@@ -921,3 +921,113 @@ fn downscaled_sprites_sample_their_box() {
         }
     }
 }
+
+/// `downscaled_scene`'s world plus a pass drawn right to left whose cells
+/// are moved by per-cell offsets (odd, negative, larger than a cell, some
+/// across the wrap), its animation following the cells' phases alone
+/// (`ticks_per_frame` 0), one of its layers darkening.
+fn offset_scene(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
+    let (mut world, atlas) = downscaled_scene(grid, shading);
+    let anim = world.layers()[1].lut[1];
+    let tile = world.layers()[0].lut[2];
+    let shadow = world.layers().iter().find(|l| l.blend != Blend::Alpha).map(|l| l.lut[1]);
+    let last = world.layers().last().map_or(0, |l| l.pass) + 1;
+    let moved = |name: &str, lut, blend| LayerSpec {
+        pass: last,
+        descending: true,
+        per_cell_offset: true,
+        per_cell_phase: true,
+        ticks_per_frame: 0,
+        offset: (64, 32),
+        blend,
+        ..LayerSpec::new(name, lut)
+    };
+    let base = world.add_layer(moved("under", vec![tile_render::SpriteSetId::EMPTY, tile], Blend::Alpha));
+    let mut layers = vec![base];
+    if let Some(shadow) = shadow {
+        layers.push(world.add_layer(moved("shadow", vec![tile_render::SpriteSetId::EMPTY, shadow], Blend::Scale { denominator: 16 })));
+    }
+    layers.push(world.add_layer(moved("unit", vec![tile_render::SpriteSetId::EMPTY, anim], Blend::Alpha)));
+    let offsets: [(i16, i16); 7] = [(0, 0), (-37, 11), (64, -32), (-129, 70), (5, -3), (200, 1), (-1, -1)];
+    for r in 0..grid.rows {
+        for c in 0..grid.cols {
+            if (c + r) % 3 == 0 {
+                for (k, &l) in layers.iter().enumerate() {
+                    world.set(l, c, r, 1);
+                    world.set_offset(l, c, r, offsets[((c * 5 + r + k as u32) % 7) as usize]);
+                    world.set_phase(l, c, r, ((c * 7 + r) % 9) as u8);
+                }
+            }
+        }
+    }
+    (world, atlas)
+}
+
+#[test]
+fn per_cell_offsets_are_pixel_exact() {
+    // Cells moved by per-cell offsets, swept right to left, in both colour
+    // models (direct: no blends), 1:1 and shown 2 and 3 times smaller,
+    // across the wrap, past the edges, culled, and in zoomed views.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = offset_scene(grid, color != ColorModel::Direct);
+        world.color = color;
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        for n in [1, 2, 3] {
+            for (x, y) in [(0, 0), (167, 51), (-259, 20), (1400, -25), (39, 200)] {
+                let mut camera = Camera { x, y, downscale: n, overhang: (0, 40, 0, 0), ..Camera::new((400, 240)) };
+                for cull in [None, Some((x + 40, y + 20, x + 300, y + 200))] {
+                    camera.cull = cull;
+                    for frame in [0, 7] {
+                        let got = gpu.render(&mut renderer, &camera, frame, CLEAR);
+                        let want = reference::render(&world, &atlas, &camera, frame, CLEAR);
+                        assert_same(&got, &want, &format!("1/{n} at ({x}, {y}), cull {cull:?}, frame {frame}, {color:?}"));
+                    }
+                }
+            }
+        }
+        let overhang = (0, 40, 0, 0);
+        let main = Camera { x: 50, y: 7, zoom: (3, 2), overhang, ..Camera::new((400, 240)) };
+        let inset = Camera { x: -20, y: 30, zoom: (1, 2), downscale: 2, origin: (-30, 150), overhang, ..Camera::new((160, 100)) };
+        let magnifier = Camera { x: 1500, y: 90, zoom: (2, 1), origin: (250, 10), overhang, ..Camera::new((121, 80)) };
+        let cameras = [main, inset, magnifier];
+        let got = gpu.render_views(&mut renderer, &cameras, (400, 240), 3, CLEAR);
+        let want = reference::render_views(&world, &atlas, &cameras, (400, 240), 3, CLEAR);
+        assert_same(&got, &want, &format!("zoomed views, {color:?}"));
+    }
+}
+
+#[test]
+fn per_cell_offsets_move_cells_in_their_order() {
+    // Two cells of one row in a pass swept right to left: the right one is
+    // drawn first; offsets move them (halved and rounded down at 1/2), the
+    // frame is the phase whatever the clock, and a cell moved in from outside
+    // the viewport is drawn.
+    let mut b = AtlasBuilder::new(64);
+    let frames: Vec<_> = (0..3u8).map(|i| b.add(&RgbaImage::from_fn(4, 4, |_, _| [i * 80, 0, 0, 255]), (0, 0)).unwrap()).collect();
+    let mut sets = SpriteSets::default();
+    let set = sets.add(&frames);
+    let atlas = b.finish();
+    let grid = Grid { cols: 8, rows: 2, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (16, 16) };
+    let mut world = TileWorld::new(grid, sets);
+    let l = world.add_layer(LayerSpec { descending: true, per_cell_offset: true, per_cell_phase: true, ticks_per_frame: 0, ..LayerSpec::new("units", vec![tile_render::SpriteSetId::EMPTY, set]) });
+    for (c, off, phase) in [(1, (3, -5), 2), (2, (-7, 9), 1), (7, (-70, 0), 0)] {
+        world.set(l, c, 0, 1);
+        world.set_offset(l, c, 0, off);
+        world.set_phase(l, c, 0, phase);
+    }
+    assert_eq!(world.offset(l, 2, 0), (-7, 9));
+    assert_eq!(world.offset_reach(), (70, 5, 3, 9));
+    let camera = Camera::new((64, 32));
+    let draws = reference::draw_list(&world, &atlas, &camera, 1000);
+    let at: Vec<_> = draws.iter().map(|d| (d.sprite, d.x, d.y)).collect();
+    // Cell 7 (origin 112, moved to 42) is outside the viewport's cells but
+    // drawn, first: the row is swept from its right.
+    assert_eq!(at, vec![(frames[0], 42, 0), (frames[1], 25, 9), (frames[2], 19, -5)]);
+    let half = reference::draw_list(&world, &atlas, &Camera { downscale: 2, ..camera }, 1000);
+    let at: Vec<_> = half.iter().map(|d| (d.x, d.y)).collect();
+    assert_eq!(at, vec![(56 - 35, 0), (16 - 4, 4), (8 + 1, -3)]);
+}
