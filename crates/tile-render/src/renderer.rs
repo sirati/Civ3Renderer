@@ -14,10 +14,11 @@ const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
 /// Per-pass `FrameParams` live in one buffer at this stride (the minimum
 /// uniform offset alignment wgpu guarantees).
 const PARAMS_STRIDE: u64 = 256;
-/// Views [`TileRenderer::render_views`] draws at most (a viewer's most: a
-/// game's few views, a second pane, insets with their frames, a magnifier
-/// with its frame).
-pub const MAX_VIEWS: usize = 16;
+/// Views [`TileRenderer::render_views`] draws at most. A split needs
+/// divider fills and lines as well as the driver's views, anchored HUD
+/// panels, three framed insets, a framed magnifier, cursor and FPS.
+/// The fixed uniform buffers use 140 KiB more than the former 16 views.
+pub const MAX_VIEWS: usize = 32;
 /// Most passes a world may have.
 pub const MAX_PASSES: usize = 16;
 /// `FrameParams` slots per view: one per pass and one for after all, drawn
