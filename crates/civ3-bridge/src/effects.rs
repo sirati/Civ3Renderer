@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(addition.effects.len(), needed.effects.len());
         assert_eq!(addition.smoke, needed.smoke);
         assert!(addition.bytes() > 0);
-        let (mut compiled, mut growing) = crate::assets::compile_growing(base, files(), true, 4096).unwrap();
+        let (mut compiled, mut growing) = crate::assets::compile_growing(base, files(), true, 4096, &|| false).unwrap();
         let growth = crate::assets::grow(&mut growing, &compiled, &addition.addition(), files()).unwrap();
         compiled.apply(&growth);
         have.merge(&addition);
