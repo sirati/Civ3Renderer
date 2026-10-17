@@ -13,6 +13,10 @@
 #   --window   the viewer in a window instead of fullscreen
 #   --nvidia   the renderer on the NVIDIA GPU instead of the Intel iGPU
 #
+# The game takes the desktop's resolution in physical pixels (KeepRes=1).
+# Atlas pages are 2048x2048 and the game's full-screen art has to fit on one,
+# so on a 4K screen (3840x2160 at scale 2) the viewer stays black.
+#
 # Layout (CIV3R_HOME, default ~/.local/share/civ3r):
 #   wine-wow64        Wine (new WoW64) store path, a GC root   (or $WINE)
 #   wine-civ3-wow64   the prefix; game in drive_c/Games/Civilization III Complete (or $WINEPREFIX)
@@ -117,7 +121,7 @@ esac
 if [ -f "$f" ]; then export VK_DRIVER_FILES=$f; else unset VK_DRIVER_FILES; fi
 
 mkdir -p "$home/logs"
-ls -1t "$home/logs"/civ3-play-*.log 2>/dev/null | tail -n +20 | xargs -r rm -f
+{ ls -1t "$home/logs"/civ3-play-*.log 2>/dev/null || true; } | tail -n +20 | xargs -r rm -f
 log=$home/logs/civ3-play-$(date +%Y%m%d-%H%M%S).log
 echo "civ3-play: renderer on $gpu ($TILE_RENDER_ADAPTER), viewer $viewer, game map $map"
 echo "civ3-play: Wine's output in $log"
