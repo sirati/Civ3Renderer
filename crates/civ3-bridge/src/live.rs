@@ -480,8 +480,19 @@ fn publish(
     let mut previews = crate::preview::Previews::default();
     // The map screen's interface: while it is composed, a game runs.
     let main_gui = civ3_sys::ui_hooks::main_gui_canvas(game.build);
+    // (Measuring: when this round of the publisher began, and since when a
+    // scene has been held back.)
+    let mut round_began: Option<std::time::Instant> = None;
+    let mut held_since: Option<std::time::Instant> = None;
     loop {
+        if let Some(t) = round_began.take() {
+            let took = t.elapsed();
+            if took >= Duration::from_millis(40) {
+                log::info!("publish: a round took {} ms", took.as_millis());
+            }
+        }
         std::thread::sleep(POLL);
+        round_began = Some(std::time::Instant::now());
         // Now and then, how much everything holds (memory diagnostics).
         if last_stats.elapsed() >= Duration::from_secs(30) {
             last_stats = std::time::Instant::now();
@@ -1012,6 +1023,7 @@ fn publish(
         }
         // (Nothing waits for art: what is not built yet is left out, or
         // drawn as it was, until it is.)
+        let _ = &mut held_since;
         new_art = false;
         seq += 1;
         // How much smaller a previewed world is shown: about the size of the
