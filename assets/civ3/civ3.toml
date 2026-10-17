@@ -1510,6 +1510,51 @@ only = [9]
 anchor_marks = [228, 152, 24]
 group = "Viewer@capture"
 
+# The Preferences' roles picture (assets/civ3/preferences.toml, art
+# `unit_icon`, `mouse_icon`): the Warrior's 32x32 unit icon (Art/Units/
+# units_32.pcx cell 6, its art 17x30 at (207, 2)) for the view following the
+# unit, the game's pointer (Art/cursor.pcx cell 0, its arrow 17x28 at
+# (2, 2)) for the one following the mouse; at 1:1, and smaller (nearest
+# pixel) for the panes of a horizontal split (28 and 29 high). (Loaded as
+# colours: indexed art cannot be resized.)
+[images.prefs_unit]
+source = "Art/Units/units_32.pcx"
+indexed = false
+
+[images.prefs_mouse]
+source = "Art/cursor.pcx"
+indexed = false
+
+[sheets.prefs_unit]
+image = "prefs_unit"
+origin = [207, 2]
+cell = [17, 30]
+grid = [1, 1]
+group = "Prefs@unit"
+
+[sheets.prefs_unit_small]
+image = "prefs_unit"
+origin = [207, 2]
+cell = [17, 30]
+grid = [1, 1]
+resize = [15, 26]
+group = "Prefs@unit_small"
+
+[sheets.prefs_mouse]
+image = "prefs_mouse"
+origin = [2, 2]
+cell = [17, 28]
+grid = [1, 1]
+group = "Prefs@mouse"
+
+[sheets.prefs_mouse_small]
+image = "prefs_mouse"
+origin = [2, 2]
+cell = [17, 28]
+grid = [1, 1]
+resize = [14, 23]
+group = "Prefs@mouse_small"
+
 # The divider between the viewer's views (tile-viewer `Viewer@divider_v`,
 # `_h`): a light line drawn in the middle of the dark gap, seen over black
 # (unexplored) and bright terrain alike.
