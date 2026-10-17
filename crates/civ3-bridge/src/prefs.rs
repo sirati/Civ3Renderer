@@ -387,10 +387,9 @@ mod tests {
         assert_eq!((s.layout.zoom, s.layout.smooth_world_movement, s.layout.zoom_strip), (Zoom::Mouse131, true, 0.4));
     }
 
-    fn label_points(table: &toml::Table, art: &str) -> Vec<(i32, i32)> {
-        table["art"][art]["labels"]
-            .as_array()
-            .unwrap()
+    /// The points of art `art`'s `kind` ("labels" or "icons").
+    fn art_points(table: &toml::Table, art: &str, kind: &str) -> Vec<(i32, i32)> {
+        table["art"][art].get(kind).and_then(|l| l.as_array()).map_or(&[][..], |a| a.as_slice())
             .iter()
             .map(|l| {
                 let a = l["at"].as_array().unwrap();
@@ -442,8 +441,20 @@ mod tests {
             assert!(description.contains(&format!("panes:60,48,24,255:100x60:{name}\"")));
             assert!(description.contains(&format!("panes:60,48,24,255:100x60:{name}:free\"")));
             let centres = render_desc::panes_centres(split, (100, 60));
-            for art in [format!("panes_{variant}"), format!("roles_free_{variant}"), format!("roles_unit_{variant}")] {
-                assert_eq!(label_points(&table, &art), centres, "{art}");
+            for art in [format!("panes_{variant}"), format!("roles_free_{variant}")] {
+                assert_eq!(art_points(&table, &art, "labels"), centres, "{art}");
+            }
+            // The unit and mouse roles: icons, no words, in the middle of
+            // their panes and inside them (a pixel of the frame aside).
+            let art = format!("roles_unit_{variant}");
+            assert!(art_points(&table, &art, "labels").is_empty(), "{art}");
+            assert_eq!(art_points(&table, &art, "icons"), centres, "{art}");
+            let panes = render_desc::panes_rects(split, (100, 60));
+            for ((icon, (cx, cy)), [px, py, pw, ph]) in table["art"][&art]["icons"].as_array().unwrap().iter().zip(art_points(&table, &art, "icons")).zip(panes) {
+                let size = table["art"][icon["art"].as_str().unwrap()]["size"].as_array().unwrap();
+                let (w, h) = (size[0].as_integer().unwrap() as i32, size[1].as_integer().unwrap() as i32);
+                let (x, y) = (cx - w / 2, cy - h / 2);
+                assert!(x >= px + 1 && y >= py + 1 && x + w <= px + pw - 1 && y + h <= py + ph - 1, "{art}: {icon} at {:?} in pane {:?}", [x, y, w, h], [px, py, pw, ph]);
             }
         }
     }
@@ -574,8 +585,12 @@ mod tests {
         let count = |s: &str| texts.iter().filter(|t| *t == s).count();
         // (One "Right": the zoom placement's, greyed out.)
         assert_eq!((count("Top"), count("Bottom"), count("Right"), count("Left")), (13, 13, 1, 1));
-        // "B" in three split pictures and the free roles one; "Mouse" in the other.
-        assert_eq!((count("B"), count("Mouse")), (4, 1));
+        // "B" in three split pictures and the free roles one; no words in the
+        // unit and mouse one: the game's unit icon and pointer.
+        assert_eq!((count("B"), count("Mouse"), count("Unit")), (4, 0, 0));
+        let sprites: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Element(menu::screen::Element::Sprite { name, .. }) = d { Some(name.clone()) } else { None }).collect();
+        // (The split horizontal: their smaller ones.)
+        assert!(["Prefs@unit_small/0", "Prefs@mouse_small/0"].iter().all(|s| sprites.iter().any(|n| n == s)), "{sprites:?}");
         let f1 = p.settings().layout.screens["F1"];
         assert_eq!((f1.horizontal, f1.vertical), (Place::RightOrTop, Place::Floating));
         // The height slider shows only with the strip or a box at the mouse.
@@ -626,7 +641,7 @@ mod tests {
             (render_desc::PanesSplit::Horizontal1To1, "Horizontal1To1"),
         ] {
             let panes = render_desc::panes_rects(split, (100, 60));
-            for art in [format!("panes_{variant}"), format!("roles_free_{variant}"), format!("roles_unit_{variant}")] {
+            for art in [format!("panes_{variant}"), format!("roles_free_{variant}")] {
                 for (label, pane) in table["art"][&art]["labels"].as_array().unwrap().iter().zip(&panes) {
                     let style = &table["styles"][label["style"].as_str().unwrap()];
                     let run = TextRun {

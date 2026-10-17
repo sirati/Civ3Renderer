@@ -14,7 +14,8 @@
 # states from the player setup screen, the checkboxes, the Preferences
 # screen's own slider bar, the scroll bar's thumb, the menu parchment);
 # the split pictures are generated (`panes:` sources of the render
-# description), their letters drawn as text.
+# description), their letters drawn as text; in the roles picture the
+# game's unit icon and pointer stand for the unit and the mouse.
 
 # ---------------------------------------------------------------- text
 
@@ -53,18 +54,6 @@ color = [72, 60, 36]
 face = "Lucida Sans"
 height = 14
 weight = 700
-color = [60, 48, 24]
-
-[styles.icon_small]
-face = "Lucida Sans"
-height = 11
-weight = 700
-color = [60, 48, 24]
-
-# (For the narrow pane of the 2:1 split, about 33 pixels wide.)
-[styles.icon_tiny]
-face = "Lucida Sans"
-height = 9
 color = [60, 48, 24]
 
 # ---------------------------------------------------------------- art
@@ -183,26 +172,45 @@ generated = "panes:60,48,24,255:100x60:horizontal11:free"
 size = [100, 60]
 labels = [{ text = "A", at = [50, 15], style = "icon" }, { text = "B", at = [50, 45], style = "icon" }]
 
-# ... or A following the unit, B the mouse (one pane: the unit only).
+# ... or A following the unit, B the mouse (one pane: the unit only): the
+# game's unit icon and pointer in their panes (render description sheets
+# `Prefs@unit`, `Prefs@mouse`, at 1:1; smaller for the low panes of a
+# horizontal split), centred.
+[art.unit_icon]
+sprite = "Prefs@unit/0"
+size = [17, 30]
+
+[art.unit_icon_small]
+sprite = "Prefs@unit_small/0"
+size = [15, 26]
+
+[art.mouse_icon]
+sprite = "Prefs@mouse/0"
+size = [17, 28]
+
+[art.mouse_icon_small]
+sprite = "Prefs@mouse_small/0"
+size = [14, 23]
+
 [art.roles_unit_Standard]
 generated = "panes:60,48,24,255:100x60:standard"
 size = [100, 60]
-labels = [{ text = "Unit", at = [50, 30], style = "icon_small" }]
+icons = [{ art = "unit_icon", at = [50, 30] }]
 
 [art.roles_unit_Vertical1To1]
 generated = "panes:60,48,24,255:100x60:vertical11"
 size = [100, 60]
-labels = [{ text = "Unit", at = [25, 30], style = "icon_small" }, { text = "Mouse", at = [75, 30], style = "icon_small" }]
+icons = [{ art = "unit_icon", at = [25, 30] }, { art = "mouse_icon", at = [75, 30] }]
 
 [art.roles_unit_Vertical2To1]
 generated = "panes:60,48,24,255:100x60:vertical21"
 size = [100, 60]
-labels = [{ text = "Unit", at = [33, 30], style = "icon_small" }, { text = "Mouse", at = [83, 30], style = "icon_tiny" }]
+icons = [{ art = "unit_icon", at = [33, 30] }, { art = "mouse_icon", at = [83, 30] }]
 
 [art.roles_unit_Horizontal1To1]
 generated = "panes:60,48,24,255:100x60:horizontal11"
 size = [100, 60]
-labels = [{ text = "Unit", at = [50, 15], style = "icon_small" }, { text = "Mouse", at = [50, 45], style = "icon_small" }]
+icons = [{ art = "unit_icon_small", at = [50, 15] }, { art = "mouse_icon_small", at = [50, 45] }]
 
 # ---------------------------------------------------------------- panel
 
