@@ -15,6 +15,13 @@
 //!   recolour units to a civilisation's colours; `palette_map = { 247 = 66 }`
 //!   also copies its entry 66 to entry 247; `palette2 = "..."` with
 //!   `palette2_map = { 64 = 0 }` copies entries of a second palette.
+//! Indexed frames (`render_desc::ImageLoader::indexed`): PCX and FLC sources
+//! as their palette indices, each index's colour as `load` draws it (all of
+//! the above options but `alpha_image`, whose alpha is per pixel: such
+//! images are loaded in colour).
+//!
+//! Palettes (`render_desc::ImageLoader::palette`): a PCX or FLC file's
+//! palette, its colours reduced as `quantize` says.
 //!
 //! * `alpha_image = "Art/mask.pcx"` alpha per pixel from another PCX (repeated
 //!   if smaller), whose palette indices are inverted weights (alpha = 255 −
@@ -112,6 +119,15 @@ pub fn rgb555(v: u8) -> u8 {
     (v5 << 3) | (v5 >> 2)
 }
 
+/// The colour reduction `quantize` asks for.
+fn quantizer(options: &toml::Table) -> Result<fn(u8) -> u8, String> {
+    match options.get("quantize").and_then(|v| v.as_str()) {
+        None => Ok(|v| v),
+        Some("rgb555") => Ok(rgb555),
+        Some(other) => Err(format!("unknown quantize mode {other:?}")),
+    }
+}
+
 /// Explicit RGBA per palette index from the options.
 fn rgba_table(options: &toml::Table) -> Result<[Option<[u8; 4]>; 256], String> {
     let mut out = [None; 256];
@@ -150,6 +166,22 @@ fn to_rgba_with(
         let c = palette.get(i);
         [q(c.0), q(c.1), q(c.2), a]
     })
+}
+
+/// The colour `to_rgba_with` draws each palette index in.
+fn index_colors(palette: &Palette, alpha: &[u8; 256], explicit: &[Option<[u8; 4]>; 256], q: impl Fn(u8) -> u8) -> Vec<[u8; 4]> {
+    (0..256)
+        .map(|i| {
+            if let Some(px) = explicit[i] {
+                return px;
+            }
+            if alpha[i] == 0 {
+                return [0, 0, 0, 0];
+            }
+            let c = palette.get(i as u8);
+            [q(c.0), q(c.1), q(c.2), alpha[i]]
+        })
+        .collect()
 }
 
 /// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>[/<weight>/<italic 0|1>[/on=<r>,<g>,<b>]]`.
@@ -232,6 +264,46 @@ impl ImageLoader for Civ3Loader {
         std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    fn indexed(&self, source: &str, options: &toml::Table) -> Result<Option<Vec<render_desc::IndexedFrame>>, String> {
+        let lower = source.to_lowercase();
+        let flc = lower.ends_with(".flc") || lower.ends_with(".fli");
+        // (Alpha per pixel from a mask is no palette's.)
+        if source.starts_with("font:") || options.contains_key("alpha_image") || !(lower.ends_with(".pcx") || flc) {
+            return Ok(None);
+        }
+        let bytes = self.files.read(source).map_err(|e| e.to_string())?;
+        let alpha = alpha_table(options)?;
+        let explicit = rgba_table(options)?;
+        let q = quantizer(options)?;
+        let frame = |w: u32, h: u32, pixels: &[u8], palette: &Palette| -> Result<render_desc::IndexedFrame, String> {
+            Ok(render_desc::IndexedFrame {
+                pixels: tile_render::IndexImage { width: w, height: h, pixels: pixels.to_vec() },
+                palette: index_colors(&self.options_palette(options, palette)?, &alpha, &explicit, q),
+            })
+        };
+        if flc {
+            let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            anim.frames.iter().map(|f| frame(anim.width, anim.height, &f.pixels, &f.palette)).collect::<Result<_, _>>().map(Some)
+        } else {
+            let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            Ok(Some(vec![frame(img.width, img.height, &img.pixels, &img.palette)?]))
+        }
+    }
+
+    fn palette(&self, source: &str, options: &toml::Table) -> Result<Vec<[u8; 4]>, String> {
+        let bytes = self.files.read(source).map_err(|e| e.to_string())?;
+        let q = quantizer(options)?;
+        let lower = source.to_lowercase();
+        let palette = if lower.ends_with(".pcx") {
+            pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?.palette
+        } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
+            flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?.frames.first().ok_or_else(|| format!("{source}: no frames"))?.palette.clone()
+        } else {
+            return Err(format!("{source}: unknown palette format"));
+        };
+        Ok(palette.0.iter().map(|c| [q(c.0), q(c.1), q(c.2), 255]).collect())
+    }
+
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
         if let Some(spec) = source.strip_prefix("font:") {
             let font = font_of(&self.files, spec)?;
@@ -240,11 +312,7 @@ impl ImageLoader for Civ3Loader {
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
         let alpha = alpha_table(options)?;
         let explicit = rgba_table(options)?;
-        let q: fn(u8) -> u8 = match options.get("quantize").and_then(|v| v.as_str()) {
-            None => |v| v,
-            Some("rgb555") => rgb555,
-            Some(other) => return Err(format!("unknown quantize mode {other:?}")),
-        };
+        let q = quantizer(options)?;
         let lower = source.to_lowercase();
         if lower.ends_with(".pcx") {
             let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
