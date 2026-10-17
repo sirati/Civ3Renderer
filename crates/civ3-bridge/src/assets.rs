@@ -111,4 +111,44 @@ mod tests {
         let color = compiled.atlas.palettes[(s.palette * tile_render::PALETTE_SIZE + index) as usize].to_le_bytes();
         assert_eq!(small.get(31, 0), color);
     }
+
+    /// The colours a sprite of `c` is drawn in, texel by texel.
+    fn drawn(c: &Compiled, name: &str) -> Option<Vec<[u8; 4]>> {
+        let s = c.atlas.sprites[c.sprite(name)?.0 as usize];
+        let mut out = Vec::new();
+        for y in s.atlas_y..s.atlas_y + s.height {
+            for x in s.atlas_x..s.atlas_x + s.width {
+                out.push(if s.palette == 0 {
+                    c.atlas.pages[s.page as usize].get(x, y)
+                } else {
+                    let i = c.atlas.index_pages[s.page as usize].get(x, y) as u32;
+                    c.atlas.palettes[(s.palette * tile_render::PALETTE_SIZE + i) as usize].to_le_bytes()
+                });
+            }
+        }
+        Some(out)
+    }
+
+    /// A compile that reuses the sheets of the last one draws what a fresh
+    /// one does when the art folders changed in between (a scenario's own
+    /// city art in place of the game's: same file names, other files).
+    #[test]
+    fn cached_compiles_follow_the_art_folders() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        let install = Path::new(&install);
+        if !install.join("Conquests/Conquests/WWII in the Pacific").is_dir() {
+            return eprintln!("no Civ III install with the WWII scenario, skipped");
+        }
+        let desc = Description::parse(BUILTIN_DESC).unwrap();
+        let scenario = || game_files(install, Some("Conquests\\9 WWII in the Pacific\\"), &["WWII in the Pacific".to_owned()]);
+        let mut cache = render_desc::SheetCache::new();
+        desc.compile_cached(&Civ3Loader::new(game_files(install, None, &[])), 2048, &mut cache).unwrap();
+        let cached = desc.compile_cached(&Civ3Loader::new(scenario()), 2048, &mut cache).unwrap();
+        let fresh = desc.compile(&Civ3Loader::new(scenario()), 2048).unwrap();
+        let stale: Vec<&String> = fresh.sprite_names.iter().filter(|n| drawn(&cached, n) != drawn(&fresh, n)).collect();
+        assert!(stale.is_empty(), "{} sprites kept the art of the folders before: {:?}", stale.len(), &stale[..stale.len().min(10)]);
+        // (The scenario has city art of its own.)
+        let default = desc.compile(&Civ3Loader::new(game_files(install, None, &[])), 2048).unwrap();
+        assert_ne!(drawn(&default, "City_Images/15"), drawn(&fresh, "City_Images/15"));
+    }
 }
