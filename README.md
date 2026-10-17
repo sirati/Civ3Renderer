@@ -160,7 +160,11 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   `UnitMouse`: A follows the focus of interest (the active unit; while a
   popup is open the middle of the game's view), B follows the world cursor
   and captures the mouse when clicked into, so the unit stays in sight in
-  the other view. An open popup moves fully into A where it fits.
+  the other view. An open popup moves fully into A where it fits; one
+  the game opens at a click (a context menu) opens where that click was
+  made, e.g. at the world cursor in B. While a popup is open the mouse is
+  let go, so the pointer can reach it; it is captured again when the
+  popup closes.
 - **Smooth world movement**: a view following the game's view or the focus
   glides there by pixels (a critically damped spring that keeps its
   velocity when the target moves) instead of jumping a tile at a time.
