@@ -472,6 +472,8 @@ fn publish(
     // screen (`crate::prefs`); what they drew and the settings last published.
     let mut prefs = crate::prefs::Prefs::load(viewer_settings::Settings::default_path());
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
+    // The last scene's size: bytes of cells, world sprites, overlay sprites.
+    let mut scene_size = (0, 0, 0);
     loop {
         std::thread::sleep(POLL);
         // Now and then, how much everything holds (memory diagnostics).
@@ -480,7 +482,7 @@ fn publish(
             let mem = inproc::process::memory().unwrap_or_default();
             let (canvases, ops, presented) = crate::ui_trace::stats().unwrap_or_default();
             log::info!(
-                "memory: working set {} MiB (peak {}), commit {} MiB (peak {}); sprites {}, fonts {}, screen art {}+{}+{}, districts {}; ui canvases {canvases}, ops {ops}, presented {presented}",
+                "memory: working set {} MiB (peak {}), commit {} MiB (peak {}); sprites {}, fonts {}, screen art {}+{}+{}, districts {}; ui canvases {canvases}, ops {ops}, presented {presented}; scene cells {} KiB, sprites {}+{}",
                 mem.working_set >> 20,
                 mem.peak_working_set >> 20,
                 mem.commit >> 20,
@@ -491,6 +493,9 @@ fn publish(
                 screen_art.fills.len(),
                 screen_art.dynamic.len(),
                 district_art.len(),
+                scene_size.0 >> 10,
+                scene_size.1,
+                scene_size.2,
             );
         }
         // A rebuild of the art done: from now on the scenes use it.
@@ -846,6 +851,7 @@ fn publish(
         scene.settings = Some(prefs.settings().clone());
         scene.interactables = interactables.clone();
         scene.seq = seq;
+        scene_size = (scene.cell_bytes(), scene.sprites.len(), scene.views.iter().map(|v| v.overlay.len()).sum::<usize>());
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
         if published {
