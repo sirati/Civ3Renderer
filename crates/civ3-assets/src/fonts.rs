@@ -207,7 +207,17 @@ fn sheet_meta(font: &FontStyle) -> Result<SheetMeta, String> {
 /// sheets.
 pub fn glyph_sizes(files: &GameFiles, font: &FontStyle) -> Result<BTreeMap<char, (u32, u32)>, String> {
     if !from_sheets() {
-        return Ok(load(files, font, [0; 3])?.glyphs.into_iter().map(|(c, g)| (c, (g.image.width, g.image.height))).collect());
+        // (Rasterising them is slow, and the same in every colour: once a
+        // style.)
+        type Sizes = std::collections::HashMap<(Vec<std::path::PathBuf>, FontStyle), BTreeMap<char, (u32, u32)>>;
+        static MADE: std::sync::Mutex<Option<Sizes>> = std::sync::Mutex::new(None);
+        let key = (files.roots().to_vec(), font.clone());
+        if let Some(sizes) = MADE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&key)) {
+            return Ok(sizes.clone());
+        }
+        let sizes: BTreeMap<char, (u32, u32)> = load(files, font, [0; 3])?.glyphs.into_iter().map(|(c, g)| (c, (g.image.width, g.image.height))).collect();
+        MADE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, sizes.clone());
+        return Ok(sizes);
     }
     let font = &FontStyle { height: available_height(font), ..font.clone() };
     let SheetMeta { meta, cell: (_, ch), .. } = sheet_meta(font)?;
