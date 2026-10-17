@@ -1199,6 +1199,12 @@ fn publish(
             // (In its place while the mouse is captured.)
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
         }
+        // The hint for exploring a preview world with the mouse captured
+        // (the viewer puts it at the world's corner).
+        let preview_hint = matches!(shown, Shown::Preview(_, Some(_)));
+        if preview_hint {
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
+        }
         if let Some((_, r)) = screen_part {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(&screen_items));
         }
@@ -1214,7 +1220,7 @@ fn publish(
         scene.interface = scene::Interface {
             screen: screen_open.map(|s| s.1.to_owned()),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
-            capture_hint: corner.map(|_| crate::interface_parts::HINT_VIEW),
+            capture_hint: (corner.is_some() || preview_hint).then_some(crate::interface_parts::HINT_VIEW),
             popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
             screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
             // Where the pointer goes when the screen opens: the city
