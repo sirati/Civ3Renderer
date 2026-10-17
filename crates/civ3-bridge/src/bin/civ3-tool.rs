@@ -348,6 +348,10 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
     use std::time::Instant;
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     println!("adapter: {:?}", gpu.adapter.get_info());
+    let mut atlas = compiled.atlas.clone();
+    let t = Instant::now();
+    atlas.trim_blank();
+    println!("atlas: {} sprites, {} + {} pages; blank margins found in {} ms", atlas.sprites.len(), atlas.pages.len(), atlas.index_pages.len(), t.elapsed().as_millis());
     let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let mut renderer = tile_render::TileRenderer::new(&gpu.device, format);
