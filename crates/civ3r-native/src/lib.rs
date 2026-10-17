@@ -10,6 +10,7 @@
 //! 1. publish: a batch of scene updates (`scene::wire`)
 //! 2. input: take the viewer's queued input (`scene::wire`)
 //! 3. log: take this side's log lines (`log_lines`), for the driver's log
+//! 4. status: the latest art generation the viewer has been given
 
 use wine_unixlib::Buffer32;
 
@@ -45,11 +46,22 @@ pub struct TakeInput {
 /// call into `out`, like [`TakeInput`].
 pub type TakeLog = TakeInput;
 
+/// Call 4. `generation`: the latest art generation compiled and given to
+/// the viewer (whole or grown, `scene::wire::Assets::generation`): scenes
+/// referring to it are drawn without waiting for art.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ArtStatus {
+    pub generation_lo: u32,
+    pub generation_hi: u32,
+}
+
 /// Call numbers.
 pub const CALL_ASSETS: u32 = 0;
 pub const CALL_PUBLISH: u32 = 1;
 pub const CALL_INPUT: u32 = 2;
 pub const CALL_LOG: u32 = 3;
+pub const CALL_STATUS: u32 = 4;
 
 #[cfg(target_os = "linux")]
 mod unix_side {
@@ -128,18 +140,18 @@ mod unix_side {
         }
     }
 
-    /// The compiled description and its generation.
-    fn compile(bytes: &[u8]) -> Result<(render_desc::Compiled, u64), String> {
-        let a = scene::wire::decode_assets(bytes).map_err(|e| e.to_string())?;
+    /// The art compiled so far, to be grown (`render_desc::Growing`): its
+    /// tables (the pixels go to the viewer) and how it grows.
+    static ART: Mutex<Option<(render_desc::Compiled, render_desc::Growing)>> = Mutex::new(None);
+
+    /// The art of `a` (a whole description) compiled, kept to be grown.
+    fn compile(a: &scene::wire::Assets) -> Result<render_desc::Compiled, String> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
         let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
         // Same page size as the driver, so both sides agree on nothing but
-        // names and values (the atlas itself never crosses). The sheets of
-        // the last compile are kept: art grows a little at a time, and only
-        // the new sheets are loaded.
-        let mut cache = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
+        // names and values (the atlas itself never crosses).
         let started = std::time::Instant::now();
-        let compiled = desc.compile_cached(&Civ3Loader::new(files), 2048, &mut cache).map_err(|e| e.to_string())?;
+        let (compiled, growing) = desc.compile_growing(&Civ3Loader::new(files), 2048, true).map_err(|e| e.to_string())?;
         let (rgba, index) = compiled.atlas.page_bytes();
         log::info!(
             "civ3r-native: art {}: {} sprites compiled in {} ms; atlas {} colour pages ({} MiB), {} index pages ({} MiB)",
@@ -151,56 +163,104 @@ mod unix_side {
             compiled.atlas.index_pages.len(),
             index >> 20
         );
-        Ok((compiled, a.generation))
+        *ART.lock().unwrap_or_else(|e| e.into_inner()) = Some((compiled.without_pixels(), growing));
+        Ok(compiled)
     }
 
-    /// The sheets of the last compile (see `render_desc::SheetCache`).
-    static SHEETS: Mutex<render_desc::SheetCache> = Mutex::new(render_desc::SheetCache::new());
+    /// The growth of the art by `a` (an addition), applied to the tables
+    /// kept.
+    fn grow(a: &scene::wire::Assets) -> Result<render_desc::Growth, String> {
+        let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
+        let mut art = ART.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((compiled, growing)) = art.as_mut() else { return Err("no art to grow".into()) };
+        let started = std::time::Instant::now();
+        let growth = growing.grow(compiled, &a.description, &Civ3Loader::new(files)).map_err(|e| e.to_string())?;
+        compiled.apply(&growth);
+        let (rgba, index) = growing.pages();
+        log::info!(
+            "civ3r-native: art {}: grown by {} sprites ({} KiB of pixels) in {} ms; atlas {rgba} colour pages, {index} index pages",
+            a.generation,
+            growth.atlas.sprites.len(),
+            growth.atlas.bytes() >> 10,
+            started.elapsed().as_millis(),
+        );
+        Ok(growth)
+    }
 
-    /// Assets waiting for the art thread (only the latest counts), and
-    /// whether it runs.
-    static NEXT: (Mutex<Option<Vec<u8>>>, std::sync::Condvar) = (Mutex::new(None), std::sync::Condvar::new());
+    /// Art waiting for the art thread, in order (a whole description makes
+    /// what waits before it obsolete).
+    static NEXT: (Mutex<std::collections::VecDeque<scene::wire::Assets>>, std::sync::Condvar) = (Mutex::new(std::collections::VecDeque::new()), std::sync::Condvar::new());
 
-    /// Compiles new assets off the caller's thread (the game's publisher
-    /// goes on meanwhile; the viewer draws the last scene of its old art
-    /// until the new art is there and a scene refers to it).
-    fn compile_later(bytes: Vec<u8>) -> Result<(), std::io::Error> {
+    /// Compiles new art off the caller's thread (the game's publisher goes
+    /// on meanwhile; the viewer draws the last scene of its old art until a
+    /// new whole description is there and a scene refers to it, growths
+    /// at once).
+    fn compile_later(a: scene::wire::Assets) -> Result<(), std::io::Error> {
         static STARTED: std::sync::Once = std::sync::Once::new();
         let mut result = Ok(());
         STARTED.call_once(|| {
             result = wine_unixlib::unix::spawn_native("civ3r-native-art", || loop {
-                let bytes = {
+                let a = {
                     let mut next = NEXT.0.lock().unwrap_or_else(|e| e.into_inner());
                     loop {
-                        if let Some(b) = next.take() {
-                            break b;
+                        if let Some(a) = next.pop_front() {
+                            break a;
                         }
                         next = NEXT.1.wait(next).unwrap_or_else(|e| e.into_inner());
                     }
                 };
-                match compile(&bytes) {
-                    Ok((c, generation)) => {
-                        if let Some(v) = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-                            v.assets.set(Arc::new(c), generation);
+                let viewer = || VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|v| v.assets.clone());
+                if a.append {
+                    match grow(&a) {
+                        Ok(g) => {
+                            if let Some(assets) = viewer() {
+                                assets.grow(Arc::new(g), a.generation);
+                            }
                         }
+                        Err(e) => log::error!("civ3r-native: art {}: {e}", a.generation),
                     }
-                    Err(e) => log::error!("civ3r-native: assets: {e}"),
+                } else {
+                    match compile(&a) {
+                        Ok(c) => {
+                            if let Some(assets) = viewer() {
+                                assets.set(Arc::new(c), a.generation);
+                            }
+                        }
+                        Err(e) => log::error!("civ3r-native: assets: {e}"),
+                    }
                 }
             })
             .map(drop);
         });
         result?;
-        *NEXT.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes);
+        let mut next = NEXT.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !a.append {
+            next.clear();
+        }
+        next.push_back(a);
         NEXT.1.notify_one();
         Ok(())
+    }
+
+    pub fn status(args: &mut ArtStatus) -> Status {
+        let generation = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.latest());
+        (args.generation_lo, args.generation_hi) = (generation as u32, (generation >> 32) as u32);
+        STATUS_SUCCESS
     }
 
     pub fn assets(args: &mut Assets) -> Status {
         log_init();
         let Ok(bytes) = wine_unixlib::unix::read(args.data) else { return STATUS_INVALID_PARAMETER };
+        let a = match scene::wire::decode_assets(&bytes) {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("civ3r-native: assets: {e}");
+                return STATUS_INVALID_PARAMETER;
+            }
+        };
         // A running viewer gets new art when it is compiled.
         if VIEWER.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
-            return match compile_later(bytes) {
+            return match compile_later(a) {
                 Ok(()) => STATUS_SUCCESS,
                 Err(e) => {
                     log::error!("civ3r-native: starting the art thread: {e}");
@@ -209,8 +269,13 @@ mod unix_side {
             };
         }
         // The first, before the viewer starts.
-        let (compiled, generation) = match compile(&bytes) {
-            Ok((c, g)) => (Arc::new(c), g),
+        if a.append {
+            log::error!("civ3r-native: art {}: an addition before any art", a.generation);
+            return STATUS_INVALID_PARAMETER;
+        }
+        let generation = a.generation;
+        let compiled = match compile(&a) {
+            Ok(c) => Arc::new(c),
             Err(e) => {
                 log::error!("civ3r-native: assets: {e}");
                 return STATUS_UNSUCCESSFUL;
@@ -308,7 +373,7 @@ mod unix_side {
 }
 
 #[cfg(target_os = "linux")]
-use unix_side::{assets, input, publish, take_log};
+use unix_side::{assets, input, publish, status, take_log};
 
 #[cfg(target_os = "linux")]
-wine_unixlib::unix_call_table![assets, publish, input, take_log];
+wine_unixlib::unix_call_table![assets, publish, input, take_log, status];
