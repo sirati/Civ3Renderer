@@ -53,7 +53,7 @@ down, like a game averaging two RGB555 values.
 Views can be zoomed by any ratio without blur: a zoomed view is drawn at
 zoom 1 into a texture of its own and copied into its rectangle by nearest
 pixel, at its place in the view order (later views blend over it). From the
-first sprite made for its zoom on (text rasterised at the zoom), it is drawn
+first sprite made for its zoom on (text drawn from outlines at the zoom), it is drawn
 at its zoom straight into the target instead, every sprite scaled exactly
 as the copy would show it, so such text stays in its pass (under the fog of
 war); a *hairline* view (an interface shown smaller) keeps sprites the
