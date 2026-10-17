@@ -658,7 +658,7 @@ fn publish(
             ui_screen::items_with(f, files.roots(), generated, unit_colors, at.and_then(|at| prefs_items.take().map(|items| (at, items))))
         };
         let mut ui_items = visible_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
         // On the map's own screen: the corner's buttons (drawn in the view
         // the pointer is in) and the unit's orders (reachable from every
         // view).
@@ -699,6 +699,13 @@ fn publish(
         }
         // (Our tabs where no part draws the screen: on top.)
         ui_items.extend(prefs_items.take().unwrap_or_default());
+        // Only a popup over the map's own screen is the viewer's to place;
+        // one over another screen (the Preferences screen, an advisor) stays
+        // with it, in the interface.
+        let popup = popup.filter(|_| on_map && !prefs.is_open());
+        if popup.is_none() {
+            ui_items.append(&mut popup_items);
+        }
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         // Not while a menu is open: the click would go to the menu.

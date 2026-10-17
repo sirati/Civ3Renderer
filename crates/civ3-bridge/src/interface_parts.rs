@@ -64,22 +64,53 @@ pub fn region(frame: &Frame, [x, y, w, h]: [i32; 4]) -> Frame {
     Frame { draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws: Vec::new() }
 }
 
+/// How far from a popup's canvas the frame the game draws around it (its
+/// border, its title band) may reach.
+const POPUP_FRAME: i32 = 48;
+
+/// The rectangle (x0, y0, x1, y1) draw `d` reaches on the screen, clipped
+/// (a text by its pen's point).
+fn reach(d: &ScreenDraw) -> Option<[i32; 4]> {
+    let (r, clip) = match d {
+        ScreenDraw::Image { rect, x, y, clip, .. } | ScreenDraw::Surface { rect, x, y, clip, .. } => ([*x, *y, x + rect[2], y + rect[3]], clip),
+        ScreenDraw::Fill { rect, clip, .. } => ([rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]], clip),
+        ScreenDraw::Text { run, clip } => ([run.x, run.y - 1, run.x + 1, run.y], clip),
+        ScreenDraw::Flc { .. } => return None,
+    };
+    let r = intersect(r, *clip);
+    (r[2] > r[0] && r[3] > r[1]).then_some(r)
+}
+
 /// The popup open in `frame`: the modal form (its canvas `canvas`) when it
 /// is composited above the screen the viewer places (`screen`, an index
 /// into `frame.forms`) and is none itself. Its first draw (it and what is
 /// composited over it: its controls, the cursor) and its rectangle
-/// (x, y, w, h) on the screen of `size`.
+/// (x, y, w, h) on the screen of `size`. The frame the game draws around
+/// it straight onto the screen just before it (on no form's canvas: its
+/// border, its title band above it) goes with it.
 pub fn popup(frame: &Frame, canvas: u32, screen: Option<usize>, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
     let index = frame.forms.iter().rposition(|f| f.1 == canvas)?;
     if screen.is_some_and(|s| index <= s) {
         return None;
     }
     let (_, _, (x, y), (w, h)) = frame.forms[index];
-    let [l, t, r, b] = intersect([x, y, x + w, y + h], [0, 0, size.0, size.1]);
+    let mut first = frame.form_draws.iter().find(|(c, _)| *c == canvas).map(|(_, r)| r.start)?;
+    let mut bounds = [x, y, x + w, y + h];
+    let near = [x - POPUP_FRAME, y - POPUP_FRAME, x + w + POPUP_FRAME, y + h + POPUP_FRAME];
+    let owned = |i: usize| frame.form_draws.iter().map(|(_, r)| r).chain(&frame.underlay_draws).any(|r| r.contains(&i));
+    let meets = |a: [i32; 4], b: [i32; 4]| {
+        let c = intersect(a, b);
+        c[2] > c[0] && c[3] > c[1]
+    };
+    while first > 0 && !owned(first - 1) {
+        let Some(r) = reach(&frame.draws[first - 1]).filter(|&r| meets(r, near)) else { break };
+        bounds = [bounds[0].min(r[0]), bounds[1].min(r[1]), bounds[2].max(r[2]), bounds[3].max(r[3])];
+        first -= 1;
+    }
+    let [l, t, r, b] = intersect(bounds, [0, 0, size.0, size.1]);
     if r <= l || b <= t {
         return None;
     }
-    let first = frame.form_draws.iter().find(|(c, _)| *c == canvas).map(|(_, r)| r.start)?;
     Some((first, [l, t, r - l, b - t]))
 }
 
@@ -180,6 +211,14 @@ mod tests {
         let (below, above) = split_at(&f, first);
         assert_eq!((below.draws.len(), above.draws.len()), (4, 2));
         assert_eq!(above.form_draws, [(0x50_0000, 0..1), (0x50_1000, 1..2)]);
+        // The frame the game draws around it on no canvas, just before it
+        // (a title band above it), goes with it; draws further off do not.
+        let mut f = frame();
+        let band = ScreenDraw::Image { path: "popupborders.pcx".into(), rect: [251, 1, 60, 35], x: 690, y: 365, keyed: true, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX], mask: None, palette: None };
+        f.draws.insert(4, fill(10, 10, 20, 20));
+        f.draws.insert(5, band);
+        f.form_draws = vec![(0x9F_8934, 0..2), (0xA0_68B4, 2..3), (0xA1_4A68, 3..4), (0x50_0000, 6..7), (0x50_1000, 7..8)];
+        assert_eq!(popup(&f, 0x50_0000, None, (1920, 1080)), Some((5, [690, 365, 510, 335])));
         // Under a screen composited above it: not a popup of its own.
         assert_eq!(popup(&f, 0x50_0000, Some(7), (1920, 1080)), None);
         assert_eq!(popup(&f, 0x12_3456, None, (1920, 1080)), None);
