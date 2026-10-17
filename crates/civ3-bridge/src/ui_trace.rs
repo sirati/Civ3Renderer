@@ -96,9 +96,9 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
 }
 
 /// Which civ's colours `sprite`'s own colour table holds (its first 64), if
-/// it has one and they are a civ's.
+/// it has one and they are a civ's; else those of the palette it was cut
+/// with.
 fn own_civ_colors(sprite: u32) -> Option<u32> {
-    let own = h::sprite_own_colors(sprite)?;
     // The civ tables do not change once loaded.
     static CIVS: std::sync::OnceLock<Vec<Vec<u32>>> = std::sync::OnceLock::new();
     let civs = match CIVS.get() {
@@ -108,7 +108,8 @@ fn own_civ_colors(sprite: u32) -> Option<u32> {
             CIVS.get_or_init(|| loaded)
         }
     };
-    civs.iter().position(|c| *c == own).map(|n| n as u32)
+    let civ = |colors: Vec<u32>| civs.iter().position(|c| *c == colors).map(|n| n as u32);
+    h::sprite_own_colors(sprite).and_then(civ).or_else(|| h::sprite_cut_colors(sprite).and_then(civ))
 }
 
 /// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`, within
