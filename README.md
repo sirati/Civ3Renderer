@@ -166,6 +166,26 @@ the frame on a tile the command takes, and the go-to path (the game's own
 path finder, run on the game's thread) with its marker and turn count; the
 command's pointer is the game's cursor.
 
+The game decides what its interface shows; how a control looks under the
+pointer the viewer draws itself, at its own frame rate
+(`tile_viewer::looks`, `scene::Looks`). With each scene the bridge sends,
+per control the game draws by its state (buttons, the advisors' tabs,
+check boxes, popups' choice rows, context menu rows; our preferences
+tabs and title menu too), its sprites in its other states: its own draws
+with the game's art for that state swapped in (the sprites its fields
+name for normal, rollover, pressed, selected; text and fill colours),
+and where the interface's views draw it. The moment the pointer reaches
+the game over a control (also the snapping pointer once it rests), the
+viewer draws its hover look in place of its sprites; pressed while the
+left button went down on it; normal once the pointer leaves; selected (or
+a check box flipped) at a click, for up to a second until the game shows
+it. Once the game's own redraw shows the same, its sprites are drawn
+again, which look the same; a control the game shows otherwise (latched,
+drawn without its state's art) keeps the game's look.
+`TILE_VIEWER_LOOKS=off` leaves them to the game (to compare);
+`CIV3R_HOLD_POINTER=<file>` keeps the pointer from the game while the
+file exists (to see the viewer's looks alone).
+
 The viewer arranges the world beyond the views the driver asks for
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled), as
 the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
