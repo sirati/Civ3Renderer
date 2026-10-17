@@ -16,6 +16,7 @@ pub mod build;
 pub mod c3x;
 pub mod c3x_layout;
 pub mod city_label;
+pub mod controls;
 pub mod hooks;
 pub mod layout;
 pub mod modal;

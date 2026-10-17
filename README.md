@@ -176,6 +176,34 @@ perhaps cropped), the pointer resting at the window's edge scrolls the
 game's map as at the game's own screen edge. `TILE_VIEWER_LAYOUT`
 overrides the settings at start, for testing, e.g.
 `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
+(`tile_viewer::layout`; the driver's interface stays on top, unscaled):
+the main view zoomed (Ctrl+wheel), a second pane beside or below it
+(Ctrl+Shift+S, a draggable divider), up to three floating insets
+(Ctrl+Shift+I), and a magnifier beside the pointer showing everything or
+the world only (Ctrl+Shift+M). Each view follows the game's view, the
+driver's point of interest (the active unit), the world cursor, or nothing
+(Ctrl+Shift+F); a view following the world cursor keeps it in its middle
+and captures the mouse when clicked into (Ctrl+Shift+Space lets go, and
+takes it over such a view; each change is logged), the cursor drawn in
+every view that shows it. While the mouse is captured, holding Alt snaps
+the pointer to what the interface can be clicked on (`tile_viewer::snap`;
+the driver lists buttons, list entries and lists, `scene::Interactable`):
+a hidden pointer moved by the mouse glides on with friction, a few times a
+second the element nearest to where it would come to rest becomes the
+target, and the visible pointer flies there on a spring, a translucent
+ghost showing the next target meanwhile; the game gets the pointer once it
+rests. In a list, moving on scrolls the list under the pointer. A click
+clicks the element; releasing Alt leaves the pointer there.
+(`snap_updates_per_second`, `snap_ghost_fps` in the viewer's settings.)
+A free view set up before the game shows a map
+is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
+arrow over the active unit. Clicks are routed to the game where its view
+shows the same world pixel; elsewhere the game is asked to look there
+(the bridge clicks its minimap). Where the main pane shows the game's view
+unmoved (zoom 1), the pointer resting at the window's edge scrolls the
+game's map as at the game's own screen edge (`scene::Input::Edge`; the
+game polls the pointer, `inproc::pointer`). `TILE_VIEWER_LAYOUT` sets it up at start,
+e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
 scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`
