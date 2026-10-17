@@ -155,8 +155,8 @@ const MAX_PIECES: usize = 16;
 enum Layer {
     /// A form's canvas put on the screen with its (0, 0) at `origin`.
     Form { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool },
-    /// Drawn straight onto the back buffer, during a paint or between
-    /// paints (the frames of framed forms, e.g. a popup's border).
+    /// Drawn straight onto the screen during a paint (the frames of
+    /// framed forms, e.g. a popup's border).
     Screen(Vec<Op>),
     /// What a present drew onto the screen over everything (the tooltip):
     /// always the top layer.
@@ -232,8 +232,8 @@ pub struct UiModel {
     skip: Vec<u32>,
     /// Canvases left out of every paint.
     skip_canvases: Vec<u32>,
-    /// The back buffer: writes land in its composition even between
-    /// paints. A present alone makes them visible in the window.
+    /// The back buffer: drawing into it during a paint lands on the screen
+    /// directly (frames, the tooltip, the mouse cursor).
     screen: u32,
     /// Whether `skip_canvases` are left out now.
     skipping: bool,
@@ -714,20 +714,30 @@ impl UiModel {
                 overlay.extend(ops);
                 return;
             }
-            // A back-buffer write is part of the current composition,
-            // including after a paint has ended. It reaches the window at
-            // the next present, and is not a transient present overlay.
-            let layers = self.pending.as_mut().unwrap_or(&mut self.order);
-            if !matches!(layers.last(), Some(Layer::Screen(_))) {
-                layers.push(Layer::Screen(Vec::new()));
-            }
-            let Some(Layer::Screen(screen)) = layers.last_mut() else { unreachable!() };
-            for op in ops {
-                retain_op(screen, op);
+            // Straight onto the screen: part of the paint in progress.
+            if let Some(layers) = self.pending.as_mut() {
+                match layers.last_mut() {
+                    Some(Layer::Screen(screen)) => screen.extend(ops),
+                    _ => layers.push(Layer::Screen(ops)),
+                }
             }
             return;
         }
-        retain_op(self.canvases.entry(canvas).or_default(), op);
+        let ops = self.canvases.entry(canvas).or_default();
+        // The same picture again where it was: the earlier one shows nothing
+        // the new one does not cover. Some forms draw themselves again over
+        // what they drew without clearing it first (the advisors' common
+        // background, every few seconds); their lists, every copy of them,
+        // and so the screen would grow without end.
+        if overdraws_itself(&op) {
+            if let Some(i) = ops.iter().rposition(|o| *o == op) {
+                ops.remove(i);
+            }
+        }
+        if ops.len() >= MAX_OPS {
+            ops.drain(..MAX_OPS / 2);
+        }
+        ops.push(op);
     }
 
     /// Whether `rect` (x, y, w, h) covers all of `canvas` (when its size is
@@ -761,25 +771,6 @@ impl UiModel {
         }
         out
     }
-}
-
-/// Retains a draw without accumulating repeated opaque pictures or an
-/// unbounded history, for both canvases and direct back-buffer writes.
-fn retain_op(ops: &mut Vec<Op>, op: Op) {
-    // The same picture again where it was: the earlier one shows nothing
-    // the new one does not cover. Some forms draw themselves again over
-    // what they drew without clearing it first (the advisors' common
-    // background, every few seconds); their lists, every copy of them,
-    // and so the screen would grow without end.
-    if overdraws_itself(&op) {
-        if let Some(i) = ops.iter().rposition(|o| *o == op) {
-            ops.remove(i);
-        }
-    }
-    if ops.len() >= MAX_OPS {
-        ops.drain(..MAX_OPS / 2);
-    }
-    ops.push(op);
 }
 
 /// Whether drawing `op` over itself shows the same as drawing it once: an
@@ -1516,75 +1507,6 @@ mod tests {
         paint(&mut m, [150, 150, 200, 170]);
         assert_eq!(frames(&m.shown_frame()), 1);
         assert_eq!(frames(&m.frame()), 1);
-    }
-
-    /// A direct back-buffer copy can cover the HUD after composition has
-    /// finished. It is retained until another paint, not until the next
-    /// tooltip present. Its source may already be reused before present.
-    #[test]
-    fn writes_between_paints_are_retained_back_buffer_content() {
-        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
-        m.apply(Event::Size { image: 999, size: (1000, 800) });
-        m.apply(Event::Fill { canvas: 400, rect: [0, 0, 1000, 800], rgb: [2, 2, 2], alpha: 255, clip: None });
-        let paint = |m: &mut UiModel| {
-            m.apply(Event::PaintBegin);
-            m.apply(composite(400, (0, 0), (1000, 800)));
-            m.apply(Event::CompositeEnd);
-            m.apply(Event::PaintEnd);
-        };
-        // Evaluate the opaque fills at sample pixels independently of the
-        // model's layers, including the clipping of partial presents.
-        let pixel = |f: &Frame, x: i32, y: i32| {
-            f.draws.iter().fold(None, |under, d| match d {
-                ScreenDraw::Fill { rect: [l, t, w, h], rgb, alpha: 255, clip }
-                    if x >= *l && x < l + w && y >= *t && y < t + h
-                        && x >= clip[0] && x < clip[2] && y >= clip[1] && y < clip[3] => Some(*rgb),
-                _ => under,
-            })
-        };
-        paint(&mut m);
-        m.apply(Event::Present { rect: None });
-        let before = m.shown_frame();
-        assert_eq!(pixel(&before, 5, 5), Some([2, 2, 2]));
-        m.apply(Event::Fill { canvas: 600, rect: [0, 0, 1000, 800], rgb: [0, 0, 0], alpha: 255, clip: None });
-        m.apply(Event::Fill { canvas: 600, rect: [100, 100, 400, 300], rgb: [7, 7, 7], alpha: 255, clip: None });
-        m.apply(Event::Copy { from: 600, src: [0, 0, 1000, 800], canvas: 999, x: 0, y: 0, keyed: false });
-        m.apply(Event::Cleared { image: 600 });
-        assert_eq!(m.shown_frame(), before, "writing is not a present");
-        assert_eq!(pixel(&m.frame(), 5, 5), Some([0, 0, 0]));
-        assert_eq!(pixel(&m.frame(), 200, 200), Some([7, 7, 7]));
-        m.apply(Event::PresentBegin);
-        m.apply(Event::Fill { canvas: 999, rect: [10, 10, 20, 10], rgb: [8, 8, 8], alpha: 255, clip: None });
-        m.apply(Event::Present { rect: None });
-        assert_eq!(pixel(&m.shown_frame(), 15, 15), Some([8, 8, 8]));
-        m.apply(Event::PresentBegin);
-        m.apply(Event::Present { rect: None });
-        assert_eq!(pixel(&m.shown_frame(), 15, 15), Some([0, 0, 0]), "only the tooltip expires");
-        assert_eq!(pixel(&m.shown_frame(), 200, 200), Some([7, 7, 7]));
-        // A later direct write changes the back buffer everywhere, but a
-        // partial present updates only the requested window rectangle.
-        m.apply(Event::Fill { canvas: 999, rect: [0, 0, 1000, 800], rgb: [9, 9, 9], alpha: 255, clip: None });
-        m.apply(Event::Present { rect: Some([100, 100, 300, 300]) });
-        assert_eq!(pixel(&m.frame(), 5, 5), Some([9, 9, 9]));
-        assert_eq!(pixel(&m.shown_frame(), 5, 5), Some([0, 0, 0]));
-        assert_eq!(pixel(&m.shown_frame(), 200, 200), Some([9, 9, 9]));
-        paint(&mut m);
-        m.apply(Event::PresentBegin);
-        m.apply(Event::Present { rect: None });
-        assert_eq!(pixel(&m.shown_frame(), 5, 5), Some([2, 2, 2]));
-        assert_eq!(pixel(&m.shown_frame(), 200, 200), Some([2, 2, 2]));
-    }
-
-    #[test]
-    fn repeated_direct_back_buffer_writes_do_not_accumulate() {
-        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
-        for _ in 0..MAX_OPS + 1 {
-            m.apply(Event::Fill { canvas: 999, rect: [0, 0, 1000, 800], rgb: [0, 0, 0], alpha: 255, clip: None });
-        }
-        assert_eq!(m.frame().draws.len(), 1);
-        m.apply(Event::PresentBegin);
-        m.apply(Event::Present { rect: None });
-        assert_eq!(m.shown_frame().draws.len(), 1);
     }
 
     #[test]
