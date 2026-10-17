@@ -508,6 +508,17 @@ fn publish(
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
     let mut held_since: Option<std::time::Instant> = None;
+    // What the last publish made of the parts of the world and of the
+    // interface that did not change since (`Memo`): the world's cells, the
+    // city labels, the interface's and the labels' sprites, the minimap.
+    let mut cells_memo = Memo::default();
+    let mut labels_memo = Memo::default();
+    let mut ui_sprites_memo = Memo::default();
+    let mut label_sprites_memo = Memo::default();
+    let mut minimap_memo = Memo::default();
+    // Bumped whenever `compiled` changes (new art, a growth): the memos of
+    // what is made of the art key on it.
+    let mut art_generation = 0u64;
     // Where the publisher's time goes (`CIV3R_PROFILE=1`, or the viewer's
     // `TILE_VIEWER_PROFILE=1`), logged every 5 s.
     let mut profile = (tile_viewer::profile::env_on("CIV3R_PROFILE") || tile_viewer::profile::env_on("TILE_VIEWER_PROFILE"))
@@ -577,6 +588,7 @@ fn publish(
                     presenter.adopt_assets(&c, done.generation);
                     // The viewer has the pixels; this side needs the rest only.
                     compiled = c.without_pixels();
+                    art_generation += 1;
                     mapper = Mapper::new(&compiled);
                     menus = menus_of(&compiled);
                     for (_, _, token) in pending_growths.drain(..) {
@@ -630,6 +642,7 @@ fn publish(
                 let Some((generation, g, token)) = pending_growths.pop_front() else { break };
                 presenter.adopt_growth(&g, generation);
                 compiled.apply(&g);
+                art_generation += 1;
                 // (Art the screen waited for is there now.)
                 if let Some(token) = token {
                     schedule.done(now, token);
@@ -668,6 +681,7 @@ fn publish(
             folders = now;
             art = units::UnitArt::new(compiler.files(&folders));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
+            labels_memo = Memo::default();
             have = units::Needed::default();
             whole_wanted = true;
             recompile = true;
@@ -747,6 +761,11 @@ fn publish(
             continue;
         }
         let (shown, texts, ui, interactables, cursor) = &state;
+        // (Once per round: the memos below key on it.)
+        let still = match shown {
+            Shown::Map(world, _) => Arc::new(still_world(world)),
+            _ => Arc::default(),
+        };
         let files = compiler.files(&folders);
         let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
         // The parts of the interface the viewer arranges (docs §16.11): the
@@ -865,7 +884,7 @@ fn publish(
                 // may have drawn none itself, e.g. with its map rendering off.)
                 labels_not_in_game_view = (screen_open.is_some() || modal.is_some()) && !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
-                let labels = crate::city_labels::labels(world, view.zoomed_out, &mut label_env);
+                let labels = labels_memo.get((still.clone(), view.zoomed_out), || crate::city_labels::labels(world, view.zoomed_out, &mut label_env));
                 let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
                 crate::city_labels::items(&labels, (0, 0), everywhere, true)
             }
@@ -1108,7 +1127,8 @@ fn publish(
         let mut title_menu = Vec::new();
         let mut scene = match shown {
             Shown::Map(world, view) => {
-                let mut scene = mapper.scene(world, view, (0, 0), 0);
+                // (Only what units do changes most of the time.)
+                let mut scene = cells_memo.get((still.clone(), *view, art_generation), || mapper.scene(world, view, (0, 0), 0));
                 // The mirrored interface has the game's own city-site lines.
                 if ui.is_none() {
                     scene.sprites = city_site::sprites(world, &compiled);
@@ -1143,14 +1163,17 @@ fn publish(
         // every zoom (where the art has the face).
         scene.zooms = ui_screen::outline_zooms(&compiled);
         let outlines = !scene.zooms.is_empty();
-        scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
+        // (The art, its fonts and the items give the sprites.)
+        let art_key = (art_generation, fonts.len(), outlines);
+        scene.sprites.extend(ui_sprites_memo.get((ui_items.clone(), art_key), || ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
         let mut menu_sprites = title_menu;
         menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
         // The city labels go with the world (laid out in the game view's
         // pixels: zoomed out at full size, which the renderer halves).
         // (A preview's are in its scene already.)
         let label_items = if matches!(shown, Shown::Preview(..)) { Vec::new() } else { label_items };
-        let mut labels: Vec<_> = ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)
+        let mut labels: Vec<_> = label_sprites_memo
+            .get((label_items.clone(), art_key), || ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines))
             .into_iter()
             .map(|s| {
                 let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
@@ -1167,8 +1190,10 @@ fn publish(
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
-            scene.patches = ui_screen::minimap_patches(&both, world, &compiled, |table| {
-                *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
+            // (Made of the minimap items, the world without its units and the art.)
+            let minimaps: Vec<_> = both.iter().filter(|i| matches!(i, ui_screen::Item::Element(menu::screen::Element::Dynamic { name, .. }, _) if name.starts_with("minimap"))).cloned().collect();
+            scene.patches = minimap_memo.get((minimaps, still.clone(), art_generation), || {
+                ui_screen::minimap_patches(&both, world, &compiled, |table| *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default()))
             });
         }
         mark(&mut profile, "minimap", &mut t);
@@ -1291,6 +1316,38 @@ fn addition(
 /// The head of an art list (`CIV3R_ART_LIST`, `crate::preload::ArtList`).
 fn art_list_header() -> &'static str {
     "# Art the game's interface showed (civ3-bridge, CIV3R_ART_LIST): screen regions, fills,\n# run-time pictures, fonts; tab-separated (menu::screen::ScreenArt::to_lines, preload::font_line).\n"
+}
+
+/// The last result of a function of a key, kept while the key stays the
+/// same (made again otherwise).
+struct Memo<K, V> {
+    last: Option<(K, V)>,
+}
+
+impl<K, V> Default for Memo<K, V> {
+    fn default() -> Self {
+        Self { last: None }
+    }
+}
+
+impl<K: PartialEq, V: Clone> Memo<K, V> {
+    fn get(&mut self, key: K, make: impl FnOnce() -> V) -> V {
+        match &self.last {
+            Some((k, v)) if *k == key => v.clone(),
+            _ => {
+                let v = make();
+                self.last = Some((key, v.clone()));
+                v
+            }
+        }
+    }
+}
+
+/// `world` without what changes as units move and animate (where they
+/// are, what is selected, the pointer's tile), which the cells, the city
+/// labels and the minimap do not depend on: what their memos key on.
+fn still_world(world: &Civ3World) -> Civ3World {
+    Civ3World { units: Vec::new(), army_members: Vec::new(), mouse_tile: None, current_unit: None, selection: None, unit_tiles: Vec::new(), ..world.clone() }
 }
 
 /// Adds the time since `t` to span `name` of the profile, if one is kept,
