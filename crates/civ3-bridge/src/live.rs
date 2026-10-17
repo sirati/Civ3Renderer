@@ -1461,7 +1461,18 @@ fn control_art(sites: &civ3_sys::controls::Sites, control: &civ3_sys::controls::
         id: control.id,
         select,
         canvas: art.canvas,
-        part: art.part.then_some(control.rect),
+        part: match art.part {
+            civ3_sys::control_art::Part::Whole => crate::looks::Part::Whole,
+            civ3_sys::control_art::Part::LastArt => crate::looks::Part::LastArt(control.rect),
+            civ3_sys::control_art::Part::Within => crate::looks::Part::Within(control.rect),
+        },
+        // (A packed colour: bit 31 and RGB555, as SetTextColor gets it; else a
+        // palette index, black on the game's 16-bit canvases, docs §16.10.)
+        text_colors: art
+            .text_colors
+            .iter()
+            .map(|(l, c)| (look_state(*l), if c & 0x8000_0000 != 0 { [((c >> 7) & 0xF8) as u8, ((c >> 2) & 0xF8) as u8, ((c & 0x1F) << 3) as u8] } else { [0, 0, 0] }))
+            .collect(),
         state: look_state(art.state),
         pieces,
         text_offsets: art.text_offsets.iter().map(|(l, o)| (look_state(*l), *o)).collect(),

@@ -34,10 +34,8 @@ pub struct ControlArt {
     pub select: Select,
     /// The canvas the control is drawn on.
     pub canvas: u32,
-    /// The control's rectangle on the screen (x, y, w, h) if it is a part
-    /// of what the canvas shows: its draw is then the last of its art drawn
-    /// there; else all of the canvas' draws are the control's.
-    pub part: Option<[i32; 4]>,
+    /// Which of the canvas' draws are the control's.
+    pub part: Part,
     /// The state the game's fields say it is in (preferred where its draws
     /// would fit several).
     pub state: LookState,
@@ -46,9 +44,23 @@ pub struct ControlArt {
     pub pieces: Vec<Vec<(LookState, Source)>>,
     /// How far its text moves in a state (x, y), where it does.
     pub text_offsets: Vec<(LookState, (i32, i32))>,
+    /// The colour of its text in a state, where it changes.
+    pub text_colors: Vec<(LookState, [u8; 3])>,
     /// Whether its fields say whether it is selected (its draws need not:
     /// a check box just clicked shows its hover art).
     pub selected_by_fields: bool,
+}
+
+/// Which of a canvas' draws are a control's.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// All of them.
+    Whole,
+    /// The last draw of its art within this rectangle of the screen (x, y,
+    /// w, h): a tab or box drawn over what was there.
+    LastArt([i32; 4]),
+    /// All within this rectangle: a row redrawn as a whole.
+    Within([i32; 4]),
 }
 
 /// A control's draws as the game shows it, and in its other states (the
@@ -105,6 +117,7 @@ impl ControlArt {
             }
         }
         let offset = |s: LookState| self.text_offsets.iter().find(|(t, _)| *t == s).map_or((0, 0), |(_, o)| *o);
+        let color = |s: LookState| self.text_colors.iter().find(|(t, _)| *t == s).map(|(_, c)| *c);
         let ((fx, fy), (tx, ty)) = (offset(from), offset(to));
         let mut out = draws.to_vec();
         for d in &mut out {
@@ -120,6 +133,11 @@ impl ControlArt {
                 ScreenDraw::Text { run, .. } => {
                     run.x += tx - fx;
                     run.y += ty - fy;
+                    if let (Some(a), Some(b)) = (color(from), color(to)) {
+                        if run.color == a {
+                            run.color = b;
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -130,10 +148,24 @@ impl ControlArt {
     /// Its draws among `draws` (those of its canvas): all of them, or for a
     /// part, the last draw of its art within its rectangle.
     fn own(&self, draws: &[ScreenDraw]) -> Option<Vec<ScreenDraw>> {
-        let Some([x, y, w, h]) = self.part else { return Some(draws.to_vec()) };
-        let inside = |d: &ScreenDraw| matches!(d, ScreenDraw::Image { x: dx, y: dy, .. } if *dx >= x && *dy >= y && *dx < x + w && *dy < y + h);
+        let at = |d: &ScreenDraw| match d {
+            ScreenDraw::Image { x, y, .. } | ScreenDraw::Flc { x, y, .. } | ScreenDraw::Surface { x, y, .. } => (*x, *y),
+            ScreenDraw::Fill { rect, .. } => (rect[0], rect[1]),
+            ScreenDraw::Text { run, .. } => (run.x, run.y),
+        };
+        let inside = |d: &ScreenDraw, [x, y, w, h]: [i32; 4]| {
+            let (px, py) = at(d);
+            px >= x && py >= y && px < x + w && py < y + h
+        };
         let art = |d: &ScreenDraw| self.pieces.iter().flatten().any(|(_, s)| draws_region(d, s));
-        draws.iter().rev().find(|d| inside(d) && art(d)).map(|d| vec![d.clone()])
+        match self.part {
+            Part::Whole => Some(draws.to_vec()),
+            Part::LastArt(r) => draws.iter().rev().find(|d| inside(d, r) && art(d)).map(|d| vec![d.clone()]),
+            Part::Within(r) => {
+                let own: Vec<ScreenDraw> = draws.iter().filter(|d| inside(d, r)).cloned().collect();
+                own.iter().any(art).then_some(own)
+            }
+        }
     }
 }
 
@@ -230,7 +262,8 @@ mod tests {
             id: 7,
             select: Select::None,
             canvas: 0x500,
-            part: None,
+            part: Part::Whole,
+            text_colors: vec![],
             state: NORMAL,
             pieces: vec![vec![(NORMAL, region(0)), (HOVER, region(32)), (PRESSED, region(64))]],
             text_offsets: vec![],
@@ -282,7 +315,7 @@ mod tests {
         // A check box: unchecked, hovered, checked (hovered checked shows checked).
         let a = ControlArt {
             select: Select::Toggle,
-            part: Some([100, 200, 16, 16]),
+            part: Part::LastArt([100, 200, 16, 16]),
             state: sel_hover,
             pieces: vec![vec![(NORMAL, region(0)), (HOVER, region(32)), (sel, region(64)), (sel_hover, region(64))]],
             selected_by_fields: true,
@@ -301,6 +334,38 @@ mod tests {
         assert_eq!(looks.shown, sel_hover);
         let states: Vec<_> = looks.states.iter().map(|(s, d)| (*s, d.clone())).collect();
         assert_eq!(states, [(NORMAL, vec![image(0, (100, 200))]), (HOVER, vec![image(32, (100, 200))]), (sel, vec![image(64, (100, 200))])]);
+    }
+
+    #[test]
+    fn a_rows_bullet_and_text_colour_change_with_its_state() {
+        let run = |x: i32, y: i32, color: [u8; 3]| ScreenDraw::Text {
+            run: crate::text::TextRun { x, y, color, face: "Lucida Sans".into(), height: -16, weight: 0, italic: false, underline: false, text: "Map".into(), backdrop: None },
+            clip: [0, 0, 1024, 768],
+        };
+        let strip = |y: i32| ScreenDraw::Image { path: "C:\\Civ3\\Art\\bg.pcx".into(), rect: [25, y, 314, 20], x: 803, y, keyed: false, clip: [0, 0, 1024, 768], mask: None, palette: None };
+        let sel = LookState { pointer: PointerState::Normal, selected: true };
+        let a = ControlArt {
+            select: Select::Pick { group: 9 },
+            part: Part::Within([803, 189, 314, 20]),
+            state: NORMAL,
+            pieces: vec![vec![(NORMAL, region(0)), (HOVER, region(32)), (sel, region(64))]],
+            text_colors: vec![(NORMAL, [0, 0, 0]), (HOVER, [176, 88, 0]), (sel, [0, 112, 184])],
+            selected_by_fields: true,
+            ..art()
+        };
+        // Two rows: the first selected, the second not.
+        let f = Frame {
+            draws: vec![strip(163), image(64, (803, 163)), run(823, 179, [0, 112, 184]), strip(189), image(0, (803, 189)), run(823, 205, [0, 0, 0])],
+            forms: vec![],
+            form_draws: vec![(0x500, 0..6)],
+            underlay_draws: vec![],
+        };
+        let looks = control_looks(&f, &a).unwrap();
+        assert_eq!(looks.draws, [strip(189), image(0, (803, 189)), run(823, 205, [0, 0, 0])]);
+        let hover = &looks.states.iter().find(|(s, _)| *s == HOVER).unwrap().1;
+        assert_eq!(hover, &[strip(189), image(32, (803, 189)), run(823, 205, [176, 88, 0])]);
+        let chosen = &looks.states.iter().find(|(s, _)| *s == sel).unwrap().1;
+        assert_eq!(chosen, &[strip(189), image(64, (803, 189)), run(823, 205, [0, 112, 184])]);
     }
 
     #[test]
