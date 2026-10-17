@@ -63,7 +63,12 @@ fn every_unit_animation_decodes() {
                 n += 1;
                 // (What the header and chunk headers alone tell must agree.)
                 let told = flc::dimensions(&mut std::fs::File::open(&path).unwrap()).ok();
-                match flc::decode(&std::fs::read(&path).unwrap()) {
+                let bytes = std::fs::read(&path).unwrap();
+                let laid_out = flc::layout(&bytes).ok().map(|l| (l.width, l.height, l.frames));
+                if laid_out != told {
+                    failures.push(format!("{path:?}: {told:?} told, {laid_out:?} laid out"));
+                }
+                match flc::decode(&bytes) {
                     Ok(anim) if told != Some((anim.width, anim.height, anim.frames.len())) => {
                         failures.push(format!("{path:?}: {told:?} told, {}x{} x {} decoded", anim.width, anim.height, anim.frames.len()))
                     }

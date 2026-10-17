@@ -119,6 +119,50 @@ pub fn dimensions(file: &mut (impl std::io::Read + std::io::Seek)) -> Result<(u3
     Ok((width, height, frames))
 }
 
+/// What [`decode`] tells of a file without decoding its frames: its size,
+/// header and how many frame chunks it has (`Flc::frames`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Layout {
+    pub width: u32,
+    pub height: u32,
+    pub frames: usize,
+    pub header: [u8; 128],
+}
+
+/// The [`Layout`] of an FLC/FLI file: its frame chunks counted, not decoded.
+pub fn layout(bytes: &[u8]) -> Result<Layout, FlcError> {
+    if bytes.len() < 128 {
+        return Err(FlcError::NotFlc);
+    }
+    let mut r = Reader { bytes, at: 4 };
+    let magic = r.u16()?;
+    if magic != FLC_MAGIC && magic != FLI_MAGIC {
+        return Err(FlcError::NotFlc);
+    }
+    let _frame_count = r.u16()?;
+    let width = r.u16()? as u32;
+    let height = r.u16()? as u32;
+    let mut header = [0u8; 128];
+    header.copy_from_slice(&bytes[..128]);
+    let first_frame = match u32::from_le_bytes(bytes[80..84].try_into().unwrap()) as usize {
+        off if magic == FLC_MAGIC && off != 0 => off,
+        _ => 128,
+    };
+    r.at = first_frame;
+    let mut frames = 0;
+    while r.at + 6 <= bytes.len() {
+        let start = r.at;
+        let size = r.u32()? as usize;
+        let kind = r.u16()?;
+        if size < 6 {
+            return Err(FlcError::Truncated);
+        }
+        frames += (kind == FRAME_CHUNK) as usize;
+        r.at = start + size;
+    }
+    Ok(Layout { width, height, frames, header })
+}
+
 pub fn decode(bytes: &[u8]) -> Result<Flc, FlcError> {
     if bytes.len() < 128 {
         return Err(FlcError::NotFlc);
