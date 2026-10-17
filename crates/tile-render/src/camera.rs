@@ -47,7 +47,10 @@ pub struct Camera {
     /// screen pixel (e.g. the one-pixel lines of an interface shown
     /// smaller). The view is then drawn at its zoom straight into the
     /// target (as views showing zoomed art are from their first zoomed
-    /// sprite on), which shows the same but for those.
+    /// sprite on), which shows the same but for those. A scaled view so
+    /// drawn that shows no world (`cells` false, not `stacked`) has no
+    /// background of its own: what is below it shows where it draws
+    /// nothing (an interface scaled over other views).
     pub hairline: bool,
     /// Shows the world this many times smaller (1: as it is), from the same
     /// art, as a game's zoomed-out view does: cells at the grid's steps
@@ -344,9 +347,13 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
                 from
             }
         };
-        // The picture is copied once its last zoom-1 step is drawn.
+        // The picture is copied once its last zoom-1 step is drawn; not at
+        // all for a view drawn at its zoom from its start that shows no
+        // world: it has nothing of its own beneath what it draws (an
+        // interface over other views, scaled).
         let starts_scaling = scaled_from.is_some() && !out.last().is_some_and(|p: &Placement| p.source == source && p.scaled_from.is_some());
-        let blit = source.filter(|_| starts_scaling || (last && scaled_from.is_none())).map(|r| (group, r));
+        let empty = scaled_from == Some(0) && !c.stacked && !c.cells;
+        let blit = source.filter(|_| !empty && (starts_scaling || (last && scaled_from.is_none()))).map(|r| (group, r));
         out.push(Placement { drawn, rect, source, blit, art, scaled_from, scaled, scaled_scissor });
     }
     out

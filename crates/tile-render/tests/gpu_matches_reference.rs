@@ -1,7 +1,7 @@
 //! The GPU renderer must produce exactly the reference renderer's pixels.
 
 use tile_render::{
-    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, RgbaImage, ScreenCopy, SpriteSets, TileRenderer, TileWorld, ZoomArt,
+    Atlas, AtlasBuilder, Blend, Camera, ColorModel, Grid, PlacedSprite, Headless, LayerSpec, Layout, Present, RgbaImage, ScreenCopy, SpriteSets, TileRenderer, TileWorld, ZoomArt,
     reference,
 };
 
@@ -338,6 +338,32 @@ fn several_views_share_one_target() {
 }
 
 #[test]
+fn a_scaled_interface_shows_what_is_below_it() {
+    // A world view shown 2× and an interface over it at 3/2 (drawn straight
+    // at its zoom, `hairline`): the interface's sprites over the world,
+    // the world where it has none; the same on the GPU.
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let screen_sprite = world.free.iter().find(|s| s.screen && s.clip.is_none()).cloned().unwrap();
+    world.free.retain(|s| !s.screen);
+    world.free.push(PlacedSprite { view: Some(1), x: 40, y: 30, ..screen_sprite });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let main = Camera { x: 30, y: 10, zoom: (2, 1), overhang: (0, 40, 0, 0), ..Camera::new((400, 240)) };
+    let interface = Camera { zoom: (3, 2), cells: false, hairline: true, ..Camera::new((400, 240)) };
+    let got = gpu.render_views(&mut renderer, &[main, interface], (400, 240), 1, CLEAR);
+    let want = reference::render_views(&world, &atlas, &[main, interface], (400, 240), 1, CLEAR);
+    assert_same(&got, &want, "scaled interface");
+    let alone = gpu.render_views(&mut renderer, &[main], (400, 240), 1, CLEAR);
+    let same = got.pixels.iter().zip(&alone.pixels).filter(|(a, b)| a == b).count();
+    assert!(same > got.pixels.len() / 2, "the world shows around the interface's sprite ({same} of {} pixels)", got.pixels.len());
+    assert!(same < got.pixels.len(), "the interface's sprite shows");
+}
+
+#[test]
 fn world_sprites_can_skip_one_view() {
     let gpu = Headless::new().expect("GPU");
     let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
@@ -487,6 +513,54 @@ fn screen_copies_magnify_the_finished_picture() {
         assert_same(&got, &want, &format!("screen copies, {color:?}"));
         let plain = gpu.render_views(&mut renderer, &[main], (320, 200), 1, CLEAR);
         assert_ne!(got.pixels, plain.pixels);
+    }
+}
+
+#[test]
+fn a_presented_picture_is_the_canvas_with_each_pixel_doubled() {
+    // A 160x100 picture shown 2x in a larger target, off its corner: each
+    // target pixel is the canvas pixel it covers, the rest is clear; in
+    // both colour models (the quantized one is composed internally anyway,
+    // the direct one only for this).
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    for color in [ColorModel::Quantized { bits: 5 }, ColorModel::Direct] {
+        let (mut world, atlas) = scene_with(grid, color != ColorModel::Direct);
+        world.color = color;
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let camera = Camera { x: 30, y: 10, overhang: (0, 40, 0, 0), ..Camera::new((160, 100)) };
+        let small = gpu.render_views(&mut renderer, &[camera], (160, 100), 1, CLEAR);
+        let present = Present { canvas: (160, 100), zoom: (2, 1), at: (5, 10), target: (330, 220) };
+        let big = gpu.render_presented(&mut renderer, &[camera], &[], present, 1, CLEAR);
+        for y in 0..220 {
+            for x in 0..330 {
+                let (cx, cy) = ((x as i32 - 5).div_euclid(2), (y as i32 - 10).div_euclid(2));
+                let inside = (0..160).contains(&cx) && (0..100).contains(&cy);
+                let want = if inside { small.get(cx as u32, cy as u32) } else { CLEAR };
+                assert_eq!(big.get(x, y), want, "({x}, {y}), {color:?}");
+            }
+        }
+        // As large as fits, not a whole number of times: every target pixel
+        // shows the canvas pixel ⌊(p − at)·den/num⌋.
+        let present = Present { canvas: (160, 100), zoom: (5, 3), at: (2, 1), target: (270, 170) };
+        let odd = gpu.render_presented(&mut renderer, &[camera], &[], present, 1, CLEAR);
+        for y in 0..170 {
+            for x in 0..270 {
+                let (cx, cy) = ((x as i32 - 2) * 3 / 5, (y as i32 - 1) * 3 / 5);
+                let inside = x >= 2 && y >= 1 && cx < 160 && cy < 100;
+                let want = if inside { small.get(cx as u32, cy as u32) } else { CLEAR };
+                assert_eq!(odd.get(x, y), want, "5/3: ({x}, {y}), {color:?}");
+            }
+        }
+        let present = Present { canvas: (160, 100), zoom: (2, 1), at: (5, 10), target: (330, 220) };
+        // The pointer over it, back in the canvas's pixels; beside the
+        // picture (on the target), at its edge.
+        assert_eq!(present.to_canvas((5.0, 10.0)), (0, 0));
+        assert_eq!(present.to_canvas((324.9, 209.9)), (159, 99));
+        assert_eq!(present.to_canvas((0.0, 219.0)), (0, 99));
+        assert_eq!(present.to_canvas((-6.0, 10.0)), (-6, 0));
     }
 }
 

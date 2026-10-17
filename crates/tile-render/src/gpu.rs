@@ -15,6 +15,11 @@ pub enum GpuError {
 /// Picks an adapter. `filter` (or else the `TILE_RENDER_ADAPTER` environment
 /// variable) selects by case-insensitive substring of the adapter name, e.g.
 /// "radeon" or "llvmpipe"; without either, wgpu's default choice is used.
+/// With a `surface`, only an adapter that can present to it: if the named
+/// ones cannot (e.g. a discrete GPU not driving the display, whose driver
+/// cannot hand its pictures to the compositor), the default choice for the
+/// surface instead, logged as an error. No adapter of that name at all
+/// (e.g. its driver did not load): the default one too, with a warning.
 pub async fn select_adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
@@ -23,16 +28,40 @@ pub async fn select_adapter(
     let filter = filter.map(str::to_owned).or_else(|| std::env::var("TILE_RENDER_ADAPTER").ok());
     if let Some(f) = &filter {
         let needle = f.to_lowercase();
+        let (mut seen, mut unpresentable) = (Vec::new(), Vec::new());
         for adapter in instance.enumerate_adapters(wgpu::Backends::all()).await {
             let info = adapter.get_info();
-            let compatible = surface.is_none_or(|s| adapter.is_surface_supported(s));
-            if compatible && info.name.to_lowercase().contains(&needle) {
-                log::info!("using adapter {} ({:?})", info.name, info.backend);
+            let name = format!("{} ({:?})", info.name, info.backend);
+            if !info.name.to_lowercase().contains(&needle) {
+                seen.push(name);
+            } else if surface.is_none_or(|s| adapter.is_surface_supported(s)) {
+                log::info!("using adapter {name}");
                 return Ok(adapter);
+            } else {
+                unpresentable.push(name);
             }
         }
-        return Err(GpuError::NoAdapter(filter));
+        if unpresentable.is_empty() {
+            log::warn!(
+                "no adapter matches {f:?} (its driver is not loaded, or there is no such GPU); there are: {}; using the default adapter",
+                if seen.is_empty() { "none".into() } else { seen.join(", ") }
+            );
+            return default_adapter(instance, surface).await;
+        }
+        log::error!(
+            "{} {} {f:?} but cannot present to this window; using the default adapter for it instead (of: {})",
+            unpresentable.join(", "),
+            if unpresentable.len() == 1 { "matches" } else { "match" },
+            if seen.is_empty() { "none".into() } else { seen.join(", ") }
+        );
     }
+    default_adapter(instance, surface).await
+}
+
+/// wgpu's default adapter (low power; with a `surface`, one that presents
+/// to it), whatever `TILE_RENDER_ADAPTER` says: e.g. when the one named
+/// cannot show a window after all.
+pub async fn default_adapter(instance: &wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<wgpu::Adapter, GpuError> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
@@ -44,6 +73,29 @@ pub async fn select_adapter(
         .map_err(|_| GpuError::NoAdapter(None))?;
     log::info!("using adapter {} ({:?})", adapter.get_info().name, adapter.get_info().backend);
     Ok(adapter)
+}
+
+/// The largest texture side (`max_texture_dimension_2d`) of the adapter
+/// [`select_adapter`] picks without a surface: what a device
+/// [`request_device`] makes on it allows, e.g. for the atlas pages
+/// (`render_desc::page_size`). Probed once per process; `None` without an
+/// adapter.
+pub fn max_texture_dimension() -> Option<u32> {
+    static MAX: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    *MAX.get_or_init(|| {
+        let instance = wgpu::Instance::new(instance_descriptor());
+        match pollster::block_on(select_adapter(&instance, None, None)) {
+            Ok(adapter) => {
+                let max = adapter.limits().max_texture_dimension_2d;
+                log::info!("{}: textures up to {max}×{max}", adapter.get_info().name);
+                Some(max)
+            }
+            Err(e) => {
+                log::warn!("no texture size limit known: {e}");
+                None
+            }
+        }
+    })
 }
 
 pub async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), GpuError> {
@@ -109,7 +161,21 @@ impl Headless {
         frame: u32,
         clear: [u8; 4],
     ) -> RgbaImage {
-        let (w, h) = size;
+        self.render_presented(renderer, cameras, copies, crate::Present::unscaled(size), frame, clear)
+    }
+
+    /// Renders views and screen copies into a picture shown on an offscreen
+    /// image of `present.target` (see `TileRenderer::render_presented`).
+    pub fn render_presented(
+        &self,
+        renderer: &mut TileRenderer,
+        cameras: &[Camera],
+        copies: &[crate::ScreenCopy],
+        present: crate::Present,
+        frame: u32,
+        clear: [u8; 4],
+    ) -> RgbaImage {
+        let (w, h) = present.target;
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
             size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
@@ -121,7 +187,7 @@ impl Headless {
             view_formats: &[],
         });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        renderer.render_composed(&self.device, &self.queue, &mut encoder, &target, cameras, copies, frame, clear);
+        renderer.render_presented(&self.device, &self.queue, &mut encoder, &target, cameras, copies, frame, clear, present);
         read_texture(&self.device, &self.queue, encoder, &target)
     }
 }
