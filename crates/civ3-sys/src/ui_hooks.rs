@@ -19,6 +19,12 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// `int PCX_Image::create_and_init_jgl_image(this, width, height,
+    /// bit_depth, param_4, param_5, param_6)` (C3X's declaration).
+    pub mod pcx_create(image, edx; width, height, bit_depth, param_4, param_5, param_6) -> i32;
+}
+
+inproc::fastcall_hook! {
     /// `int Sprite::slice_pcx(this, PCX_Image *img, x, y, w, h, type,
     /// bool crop)`: cuts a sprite from an 8-bit image.
     pub mod sprite_slice(sprite, edx; image, x, y, w, h, kind, crop) -> i32;
@@ -226,6 +232,7 @@ pub type Site = (u32, &'static [u8]);
 pub struct UiSites {
     pub pcx_read_file: Site,
     pub pcx_clear: Site,
+    pub pcx_create: Site,
     pub sprite_slice: Site,
     pub sprite_copy: Site,
     pub sprite_reset: Site,
@@ -265,6 +272,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             pcx_read_file: (0x5F_C700, &[0x6A, 0xFF, 0x68, 0x29, 0x2E, 0x66, 0x00]),
             // push ebx / push ebp / push esi / mov esi,ecx
             pcx_clear: (0x5F_C4D0, &[0x53, 0x55, 0x56, 0x8B, 0xF1]),
+            // push esi / push edi / mov esi,ecx / call pcx_clear
+            pcx_create: (0x5F_C5F0, &[0x56, 0x57, 0x8B, 0xF1, 0xE8, 0xD7, 0xFE, 0xFF, 0xFF]),
             // push esi / mov esi,[esp+8]
             sprite_slice: (0x5F_7EC0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
             // push esi / push edi / mov edi,[esp+0Ch]
