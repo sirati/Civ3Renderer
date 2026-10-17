@@ -370,6 +370,7 @@ pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings:
                     zoom_offset: (0, 0),
                     clip: None,
                     not_in_view: None,
+                    glyph: None,
                 });
             }
         };

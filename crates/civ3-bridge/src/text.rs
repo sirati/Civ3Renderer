@@ -250,6 +250,7 @@ impl Fonts {
                     zoom_offset,
                     clip,
                     not_in_view: None,
+                    glyph: None,
                 });
             }
             pen += glyph.advance;
