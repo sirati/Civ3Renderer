@@ -329,6 +329,7 @@ pub struct FreeSprite {
     /// (left, top, right, bottom; right and bottom exclusive) is drawn.
     pub clip: [i32; 4],
     /// With `scale_den == SCALE_SUBPIXEL`: the colour drawn (0xRRGGBB).
+    /// With ordinary alpha blending: the high byte is inverse opacity.
     pub tint: u32,
     /// With `FREE_ZOOMED`: the zoom the art is made for (`num << 16 | den`)
     /// and where its anchor goes from its 1:1 position scaled (pixels at

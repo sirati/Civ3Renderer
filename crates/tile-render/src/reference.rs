@@ -134,6 +134,11 @@ pub fn render_composed(
         ColorModel::Direct => {
             let mut out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
                 Blend::Alpha => *dst = blend(src, *dst),
+                Blend::AlphaOpacity { opacity } => {
+                    let mut src = src;
+                    src[3] = (u32::from(src[3]) * u32::from(opacity) / 255) as u8;
+                    *dst = blend(src, *dst);
+                }
                 // Each channel with its own coverage (the GPU draws one channel
                 // at a time).
                 Blend::Subpixel { color } => {
@@ -184,8 +189,9 @@ pub fn render_composed(
                 *c = top - *c;
             }
         }
-        Blend::Alpha => {
-            let k = alpha_steps(src[3].into());
+        Blend::Alpha | Blend::AlphaOpacity { .. } => {
+            let opacity = match d.blend { Blend::AlphaOpacity { opacity } => u32::from(opacity), _ => 255 };
+            let k = alpha_steps(u32::from(src[3]) * opacity / 255);
             if k > 0 {
                 for (c, s) in dst.iter_mut().zip(src) {
                     *c = mix_stored(stored(s), *c, k);

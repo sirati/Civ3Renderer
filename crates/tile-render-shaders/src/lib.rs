@@ -402,7 +402,7 @@ pub fn tile_fs(
     #[spirv(flat)] origin: IVec2,
     #[spirv(flat)] page: u32,
     #[spirv(flat)] scale_den: u32,
-    #[spirv(flat)] _tint: u32,
+    #[spirv(flat)] tint: u32,
     #[spirv(flat)] base: IVec2,
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
@@ -416,7 +416,12 @@ pub fn tile_fs(
     output: &mut Vec4,
 ) {
     let xy = origin + texel_offset(local, base, lo, scaled_view, step, frag, params);
-    let color = texel(xy, page, palette, params, atlas, index_atlas, palettes);
+    let mut color = texel(xy, page, palette, params, atlas, index_atlas, palettes);
+    if scale_den == 0 && tint >> 24 != 0 {
+        // The high byte is inverse opacity: existing zero tints stay opaque.
+        let opacity = 255 - (tint >> 24);
+        color.w = tile_render_shared::div255(to_u8(color.w) * opacity) as f32 / 255.0;
+    }
     if color.w == 0.0 {
         spirv_std::arch::kill();
     }

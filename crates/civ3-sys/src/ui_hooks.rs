@@ -56,6 +56,12 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// `Sprite::draw_opacity(this, canvas, x, y, float opacity, ct, flags)`.
+    /// The ABI carries the float's raw bits in the fourth stack argument.
+    pub mod sprite_draw_opacity(sprite, edx; canvas, x, y, opacity, ct, flags) -> i32;
+}
+
+inproc::fastcall_hook! {
     /// `Sprite::draw_blend(this, canvas, x, y, void *lut, ct)`: translucent
     /// overlay through a blend table.
     pub mod sprite_draw_blend(sprite, edx; canvas, x, y, lut, ct) -> i32;
@@ -228,6 +234,7 @@ pub struct UiSites {
     pub sprite_draw_a4: Site,
     pub sprite_draw_a4b: Site,
     pub sprite_draw_blend: Site,
+    pub sprite_draw_opacity: Site,
     pub sprite_draw_alpha: Site,
     pub sprite_draw_masked: Site,
     pub pcx_draw_onto: Site,
@@ -272,6 +279,7 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             sprite_draw_a4: (0x5F_84A0, &[0x8B, 0xC1, 0x56, 0x8B, 0x48, 0x08]),
             // mov eax,[ecx+8] / push esi / test eax,eax
             sprite_draw_a4b: (0x5F_8760, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
+            sprite_draw_opacity: (0x5F_89A0, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             sprite_draw_blend: (0x5F_8620, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             // mov eax,[esp+8] / push esi
             sprite_draw_alpha: (0x5F_8310, &[0x8B, 0x44, 0x24, 0x08, 0x56]),
