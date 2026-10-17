@@ -326,3 +326,42 @@ fn pieces(len: i32) -> Vec<(i32, i32)> {
     }
     out
 }
+
+/// The game's controls (`civ3_sys::controls`) as things to point at in the
+/// viewer (button snapping): the game's client pixels are the driver's.
+pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Interactable> {
+    use civ3_sys::controls::ControlKind;
+    use scene::InteractableKind;
+    controls
+        .iter()
+        .map(|c| scene::Interactable {
+            rect: c.rect,
+            kind: match c.kind {
+                ControlKind::Button => InteractableKind::Button,
+                ControlKind::ListItem => InteractableKind::ListItem,
+                ControlKind::List { scroll, step } => InteractableKind::List { scroll, step },
+            },
+            id: c.id,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod interactable_tests {
+    use civ3_sys::controls::{Control, ControlKind};
+    use scene::{Interactable, InteractableKind};
+
+    #[test]
+    fn controls_become_interactables() {
+        let controls = [
+            Control { rect: [1, 2, 3, 4], kind: ControlKind::Button, id: 7 },
+            Control { rect: [0, 0, 100, 200], kind: ControlKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
+            Control { rect: [0, 0, 100, 20], kind: ControlKind::ListItem, id: 9 },
+        ];
+        assert_eq!(super::interactables(&controls), [
+            Interactable { rect: [1, 2, 3, 4], kind: InteractableKind::Button, id: 7 },
+            Interactable { rect: [0, 0, 100, 200], kind: InteractableKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
+            Interactable { rect: [0, 0, 100, 20], kind: InteractableKind::ListItem, id: 9 },
+        ]);
+    }
+}

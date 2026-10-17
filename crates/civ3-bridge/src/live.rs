@@ -448,7 +448,7 @@ fn publish(
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
-    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>)> = None;
+    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>)> = None;
     let mut seq = 0;
     let mut input = InputForwarder::default();
     let mut title = menu::MenuState::default();
@@ -555,11 +555,20 @@ fn publish(
         // The game's interface, mirrored (else its text only).
         let ui = ui_trace::frame();
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
-        let state = (shown, texts, ui);
+        // What can be clicked (for the viewer's button snapping): our own
+        // title menu's buttons, else the game's controls.
+        let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
+        let interactables = match own_title {
+            Some((ms, m)) => ms.interactables(m, input.viewport),
+            None => civ3_sys::controls::sites(game.build)
+                .map(|s| ui_screen::interactables(&civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)))
+                .unwrap_or_default(),
+        };
+        let state = (shown, texts, ui, interactables);
         if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() {
             continue;
         }
-        let (shown, texts, ui) = &state;
+        let (shown, texts, ui, interactables) = &state;
         let files = compiler.files(&folders);
         let generated = civ3_sys::ui_hooks::generated_surfaces(game.build);
         // Unit pictures in panels are drawn in the viewing player's colours.
@@ -768,6 +777,7 @@ fn publish(
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
             crate::scene_map::city_view(&mut scene, (view.camera_x, view.camera_y), [x, y, w, h]);
         }
+        scene.interactables = interactables.clone();
         scene.seq = seq;
         // Held back while the renderer is busy: publish again next time.
         last = presenter.publish(scene).then_some(state);
