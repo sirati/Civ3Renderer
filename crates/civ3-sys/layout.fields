@@ -404,3 +404,10 @@ Button field_574[1]
 Button field_574[28]
 Button field_5FC[6]
 Button field_630[1]
+
+# Summary replay geometry. Images are identified by address, never read back.
+Game_Results_Form Navigator_Data
+Navigator_Data PCX_1
+Navigator_Data PCX_2
+Navigator_Data Mini_Map_Width2
+Navigator_Data Mini_Map_Height2

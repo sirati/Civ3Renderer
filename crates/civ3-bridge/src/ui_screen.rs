@@ -63,16 +63,19 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
         }
         let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
         let element = match d {
-            ScreenDraw::Image { path, rect, x, y, keyed, clip, mask, palette } => Element::Image {
-                region: Region {
+            ScreenDraw::Image { path, rect, x, y, keyed, clip, mask, palette, opacity } => {
+                let region = Region {
                     source: relative_path(path, roots),
                     rect: *rect,
                     keyed: *keyed,
                     mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
                     palette: palette.clone(),
-                },
-                at: (*x, *y),
-                clip: *clip,
+                };
+                if *opacity == 255 {
+                    Element::Image { region, at: (*x, *y), clip: *clip }
+                } else {
+                    Element::OpacityImage { region, at: (*x, *y), clip: *clip, opacity: *opacity }
+                }
             },
             ScreenDraw::Fill { rect, rgb, alpha, clip } => Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip },
             ScreenDraw::Text { run, clip } => {
@@ -268,6 +271,16 @@ pub fn minimap_patches(
         out.extend(menu::screen::patch(compiled, name, *size, rgba));
     }
     out
+}
+
+/// Patches for generated surfaces shown by `items`. The renderer supplies
+/// RGBA pixels made from game state, including the replay map.
+pub fn surface_patches<'a>(items: impl Iterator<Item = &'a Item> + Clone, surfaces: &[(&str, (u32, u32), Vec<u8>)], compiled: &Compiled) -> Vec<scene::Patch> {
+    surfaces
+        .iter()
+        .filter(|(name, size, _)| items.clone().any(|i| matches!(i, Item::Element(Element::Dynamic { name: n, size: s, .. }, _) if n == name && s == size)))
+        .filter_map(|(name, size, pixels)| menu::screen::patch(compiled, name, *size, pixels.clone()))
+        .collect()
 }
 
 /// The open city screen (§16.8): where it shows the map — the transparent
@@ -547,7 +560,7 @@ mod interactable_tests {
     #[test]
     fn the_city_screen_s_citizens_and_units_are_targets() {
         use crate::ui::{Frame, ScreenDraw};
-        let image = |path: &str, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4]| ScreenDraw::Image { path: path.into(), rect, x, y, keyed: true, clip, mask: None, palette: None };
+        let image = |path: &str, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4]| ScreenDraw::Image { path: path.into(), rect, x, y, keyed: true, clip, mask: None, palette: None, opacity: 255 };
         let all = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
         let frame = Frame {
             draws: vec![

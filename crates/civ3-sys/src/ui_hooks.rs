@@ -5,7 +5,7 @@
 
 use inproc::Ptr32;
 
-use crate::Build;
+use crate::{Build, layout as L};
 
 inproc::fastcall_hook! {
     /// `int PCX_Image::read_file(this, char *path, PCX_Color_Table *ct,
@@ -16,6 +16,22 @@ inproc::fastcall_hook! {
 inproc::fastcall_hook! {
     /// `void PCX_Image::clear(this)`: frees the pixels.
     pub mod pcx_clear(image, edx;) -> ();
+}
+
+inproc::fastcall_hook! {
+    /// `int PCX_Image::create_and_init_jgl_image(this, width, height,
+    /// bit_depth, param_4, param_5, param_6)` (C3X's declaration).
+    pub mod pcx_create(image, edx; width, height, bit_depth, param_4, param_5, param_6) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// The same PCX creation function, called when a form sizes its canvas.
+    pub mod pcx_create_sized(image, edx; width, height, bit_depth, param_4, param_5, param_6) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// The same PCX creation function, called when a form recreates its canvas.
+    pub mod pcx_create_resized(image, edx; width, height, bit_depth, param_4, param_5, param_6) -> i32;
 }
 
 inproc::fastcall_hook! {
@@ -53,6 +69,12 @@ inproc::fastcall_hook! {
 inproc::fastcall_hook! {
     /// Blit variants with one more argument (the second of the pair).
     pub mod sprite_draw_a4b(sprite, edx; canvas, x, y, a4, ct) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// `Sprite::draw_opacity(this, canvas, x, y, float opacity, ct, flags)`.
+    /// The ABI carries the float's raw bits in the fourth stack argument.
+    pub mod sprite_draw_opacity(sprite, edx; canvas, x, y, opacity, ct, flags) -> i32;
 }
 
 inproc::fastcall_hook! {
@@ -151,6 +173,17 @@ inproc::fastcall_hook! {
 }
 
 inproc::cdecl_hook! {
+    /// `void compose_all(RECT *r, Base_Form *form)` (cdecl): composes the
+    /// forms shown onto the back buffer, bottom to top: all of them, or,
+    /// with `form` while the draw list starts at a modal form
+    /// ([`modal_draw_root`] set), `form` and those above it.
+    /// `Controller::paint` is this and a present; screens running a loop of
+    /// their own (the victory screen at the end of a game) call it and
+    /// present themselves (docs §16.5).
+    pub mod compose_all(rect, form) -> ();
+}
+
+inproc::cdecl_hook! {
     /// `void present(RECT *r)` (cdecl): draws the tooltip and the mouse
     /// cursor onto the back buffer and copies its rectangle `r` (screen
     /// coordinates; all of it if null) to the window. The only way the
@@ -179,6 +212,28 @@ inproc::fastcall_hook! {
     pub mod text_draw_rect(image, edx; text, rect, len) -> i32;
 }
 
+inproc::fastcall_hook! {
+    /// Creates navigator geometry and images, then optionally tints and reveals them.
+    pub mod navigator_init(navigator, edx; width, height, tint) -> ();
+}
+inproc::fastcall_hook! {
+    /// Tints one tile's navigator pixels with an RGB555 colour.
+    pub mod navigator_tint(navigator, edx; x, y, color) -> ();
+}
+inproc::fastcall_hook! {
+    pub mod navigator_restore(navigator, edx; x, y) -> ();
+}
+inproc::fastcall_hook! {
+    pub mod navigator_add_city(navigator, edx; x, y) -> ();
+}
+inproc::fastcall_hook! {
+    pub mod navigator_erase_city(navigator, edx; x, y, color) -> ();
+}
+inproc::cdecl_hook! {
+    /// Writes the navigator's terrain pixels, without changing game state.
+    pub mod navigator_terrain(image, width, height) -> ();
+}
+
 /// A function to hook: its address and its first instructions (checked
 /// before patching; position independent).
 pub type Site = (u32, &'static [u8]);
@@ -187,6 +242,9 @@ pub type Site = (u32, &'static [u8]);
 pub struct UiSites {
     pub pcx_read_file: Site,
     pub pcx_clear: Site,
+    pub form_canvas_create: (u32, &'static [u8; 5]),
+    pub form_canvas_size: (u32, &'static [u8; 5]),
+    pub form_canvas_recreate: (u32, &'static [u8; 5]),
     pub sprite_slice: Site,
     pub sprite_copy: Site,
     pub sprite_reset: Site,
@@ -195,6 +253,7 @@ pub struct UiSites {
     pub sprite_draw_a4: Site,
     pub sprite_draw_a4b: Site,
     pub sprite_draw_blend: Site,
+    pub sprite_draw_opacity: Site,
     pub sprite_draw_alpha: Site,
     pub sprite_draw_masked: Site,
     pub pcx_draw_onto: Site,
@@ -210,6 +269,7 @@ pub struct UiSites {
     pub pcx_vline: Site,
     pub form_composite: Site,
     pub paint: Site,
+    pub compose_all: Site,
     pub present: Site,
     pub text_draw: Site,
     pub text_worker: Site,
@@ -224,6 +284,12 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             pcx_read_file: (0x5F_C700, &[0x6A, 0xFF, 0x68, 0x29, 0x2E, 0x66, 0x00]),
             // push ebx / push ebp / push esi / mov esi,ecx
             pcx_clear: (0x5F_C4D0, &[0x53, 0x55, 0x56, 0x8B, 0xF1]),
+            // Base_Form creates, sizes, and recreates its canvas through
+            // these calls. Leave the callee's relative-call prologue at
+            // its original address.
+            form_canvas_create: (0x60_209D, &[0xE8, 0x4E, 0xA5, 0xFF, 0xFF]),
+            form_canvas_size: (0x60_23FE, &[0xE8, 0xED, 0xA1, 0xFF, 0xFF]),
+            form_canvas_recreate: (0x60_2952, &[0xE8, 0x99, 0x9C, 0xFF, 0xFF]),
             // push esi / mov esi,[esp+8]
             sprite_slice: (0x5F_7EC0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
             // push esi / push edi / mov edi,[esp+0Ch]
@@ -238,6 +304,7 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             sprite_draw_a4: (0x5F_84A0, &[0x8B, 0xC1, 0x56, 0x8B, 0x48, 0x08]),
             // mov eax,[ecx+8] / push esi / test eax,eax
             sprite_draw_a4b: (0x5F_8760, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
+            sprite_draw_opacity: (0x5F_89A0, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             sprite_draw_blend: (0x5F_8620, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             // mov eax,[esp+8] / push esi
             sprite_draw_alpha: (0x5F_8310, &[0x8B, 0x44, 0x24, 0x08, 0x56]),
@@ -264,6 +331,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             form_composite: (0x60_2710, &[0x83, 0xEC, 0x18, 0x55, 0x56]),
             // push esi / mov esi,[esp+8]
             paint: (0x62_C3F0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
+            // mov eax,[0CAD3C0h] / sub esp,10h
+            compose_all: (0x60_9210, &[0xA1, 0xC0, 0xD3, 0xCA, 0x00, 0x83, 0xEC, 0x10]),
             // mov eax,[0CAD2ECh]
             present: (0x60_6680, &[0xA1, 0xEC, 0xD2, 0xCA, 0x00]),
             // sub esp,8 / mov eax,[esp+0Ch] / push ebp
@@ -283,6 +352,16 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
 pub fn back_buffer(build: Build) -> Option<u32> {
     match build {
         Build::PcGames => Some(0xCA_CFF0),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// The modal form the draw list starts at, if any (`Base_Form *`; docs
+/// §16.5): while it is null, `compose_all` composes every form whatever
+/// form it is given.
+pub fn modal_draw_root(build: Build) -> Option<u32> {
+    match build {
+        Build::PcGames => Some(0xCA_D310),
         Build::Gog | Build::Steam => None,
     }
 }
@@ -465,6 +544,73 @@ pub const fn generated_surfaces_pcg() -> &'static [(u32, &'static str)] {
     &[(0xA0_E230 + 0x858, "minimap"), (0x9B_3F38 + 0x858, "minimap-advisor")]
 }
 
+/// The navigator operations used by the summary replay. These express
+/// terrain and history changes, independently of the game's image pixels.
+pub struct ReplaySites {
+    pub init: Site,
+    pub tint: Site,
+    pub restore: Site,
+    pub add_city: Site,
+    pub erase_city: Site,
+    pub terrain: Site,
+}
+
+pub fn replay_sites(build: Build) -> Option<ReplaySites> {
+    match build {
+        Build::PcGames => Some(ReplaySites {
+            init: (0x57_8050, &[0x64, 0xA1, 0, 0, 0, 0]),
+            tint: (0x57_9290, &[0x83, 0xEC, 0x1C, 0x8B, 0x15, 0x94, 0x74, 0x9C, 0]),
+            restore: (0x57_9510, &[0x83, 0xEC, 0x24, 0xA1, 0x94, 0x74, 0x9C, 0]),
+            add_city: (0x57_97B0, &[0x51, 0x55, 0x56, 0x57, 0x8B, 0xF9]),
+            erase_city: (0x57_99B0, &[0x83, 0xEC, 0x38, 0x53, 0x55]),
+            terrain: (0x57_A760, &[0x83, 0xEC, 0x34, 0x53, 0x55]),
+        }),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// Whether this navigator belongs to a summary replay form. The form's
+/// layout is checked by the executable's callers, rather than pixel data.
+pub fn replay_navigator(build: Build, navigator: u32) -> bool {
+    build == Build::PcGames && Ptr32::<u32>::new(navigator.wrapping_sub(L::GAME_RESULTS_FORM_NAVIGATOR_DATA)).read().ok() == Some(0x66_E838)
+}
+
+pub fn navigator_size(navigator: u32) -> Option<(u32, u32)> {
+    let w = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_WIDTH2)).read().ok()?;
+    let h = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_HEIGHT2)).read().ok()?;
+    (w > 0 && h > 0 && w <= 4096 && h <= 4096).then_some((w, h))
+}
+
+/// An image the game fills pixel by pixel that belongs to a form: it is at
+/// `offset` from every form of class `vtable`. The renderer makes its
+/// picture from world and replay state.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct FormSurface {
+    pub vtable: u32,
+    pub offset: u32,
+    pub name: &'static str,
+}
+
+/// The [`FormSurface`]s of `build`: the summary replay's map (its
+/// navigator's political image, 426×202 in the games measured, copied onto
+/// the replay's canvas. The navigator is at form +0x51E4 and the source image
+/// at navigator +0x2D0, rather than its explored-only image at +0x858).
+pub fn form_surfaces(build: Build) -> &'static [FormSurface] {
+    match build {
+        Build::PcGames => &[FormSurface { vtable: 0x66_E838, offset: L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2, name: "replay-map" }],
+        Build::Gog | Build::Steam => &[],
+    }
+}
+
+/// The [`FormSurface`] that `image`, copied onto `canvas` (a form's
+/// canvas), is: one of the form's own.
+pub fn form_surface(build: Build, image: u32, canvas: u32) -> Option<FormSurface> {
+    let form = canvas.wrapping_sub(4 + crate::layout::BASE_FORM_DATA_CANVAS);
+    let surfaces = form_surfaces(build);
+    let s = surfaces.iter().find(|s| form.wrapping_add(s.offset) == image)?;
+    (Ptr32::<u32>::new(form).read().ok() == Some(s.vtable)).then_some(*s)
+}
+
 inproc::fastcall_hook! {
     /// jgl.dll `JGL_Image::shade_rect(this, RECT *r, color, percent)`
     /// (vtable slot +0x48): mixes `color` into the rectangle (NULL: the whole
@@ -642,6 +788,19 @@ fn main_gui(build: Build) -> u32 {
         Build::PcGames => 0x9F_DB10,
         Build::Gog => 0x9F_DB50,
         Build::Steam => 0xA2_0350,
+    }
+}
+
+/// The screens shown once a game has ended (won, lost or retired), by the
+/// class (vtable) of their forms: the victory screen, the summary replay,
+/// the top five cities, the historical ranking and the hall of fame (the
+/// end-of-game sequence at 0x4F1572, PCGames). `Main_GUI` is still
+/// composed under them, but there is no game to show any more: the game
+/// leaves its map black there.
+pub fn end_of_game_forms(build: Build) -> &'static [u32] {
+    match build {
+        Build::PcGames => &[0x66_B888, 0x66_E838, 0x66_BF10, 0x66_B700, 0x66_D1F0],
+        Build::Gog | Build::Steam => &[],
     }
 }
 

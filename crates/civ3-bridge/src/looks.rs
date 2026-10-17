@@ -270,11 +270,11 @@ mod tests {
     const PRESSED: LookState = LookState { pointer: PointerState::Pressed, selected: false };
 
     fn region(y: i32) -> Source {
-        Source::File { path: "C:\\Civ3\\Art\\buttons.pcx".into(), rect: [0, y, 32, 32], mask: None, palette: None }
+        Source::File { path: "C:\\Civ3\\Art\\buttons.pcx".into(), rect: [0, y, 32, 32], mask: None, palette: None, opacity: 255 }
     }
 
     fn image(y: i32, at: (i32, i32)) -> ScreenDraw {
-        ScreenDraw::Image { path: "C:\\Civ3\\Art\\buttons.pcx".into(), rect: [0, y, 32, 32], x: at.0, y: at.1, keyed: true, clip: [0, 0, 1024, 768], mask: None, palette: None }
+        ScreenDraw::Image { path: "C:\\Civ3\\Art\\buttons.pcx".into(), rect: [0, y, 32, 32], x: at.0, y: at.1, keyed: true, clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 }
     }
 
     fn fill(x: i32) -> ScreenDraw {
@@ -390,7 +390,7 @@ mod tests {
             run: crate::text::TextRun { x, y, color, face: "Lucida Sans".into(), height: -16, weight: 0, italic: false, underline: false, text: "Map".into(), backdrop: None },
             clip: [0, 0, 1024, 768],
         };
-        let strip = |y: i32| ScreenDraw::Image { path: "C:\\Civ3\\Art\\bg.pcx".into(), rect: [25, y, 314, 20], x: 803, y, keyed: false, clip: [0, 0, 1024, 768], mask: None, palette: None };
+        let strip = |y: i32| ScreenDraw::Image { path: "C:\\Civ3\\Art\\bg.pcx".into(), rect: [25, y, 314, 20], x: 803, y, keyed: false, clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
         let sel = LookState { pointer: PointerState::Normal, selected: true };
         let a = ControlArt {
             select: Select::Pick { group: 9 },
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn a_state_whose_art_is_another_size_or_missing_is_left_out() {
         let mut a = art();
-        a.pieces[0][2].1 = Source::File { path: "C:\\Civ3\\Art\\buttons.pcx".into(), rect: [0, 64, 30, 32], mask: None, palette: None };
+        a.pieces[0][2].1 = Source::File { path: "C:\\Civ3\\Art\\buttons.pcx".into(), rect: [0, 64, 30, 32], mask: None, palette: None, opacity: 255 };
         a.pieces[0].remove(1);
         let looks = control_looks(&frame(0), &a);
         assert_eq!(looks, None);
