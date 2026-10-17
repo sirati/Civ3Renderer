@@ -42,6 +42,12 @@ fn quad_corner(vertex: u32) -> (f32, f32) {
     }
 }
 
+/// Corner `vertex` (0..4: left top, right top, left bottom, right bottom)
+/// of a cell's quad (see `tile_render_shared::CELL_INDICES`).
+fn cell_corner(vertex: u32) -> (f32, f32) {
+    ((vertex & 1) as f32, ((vertex >> 1) & 1) as f32)
+}
+
 /// Resolves the sprite drawn by `layer` in the cell at the given visible
 /// window position, together with the cell's world-pixel origin.
 fn resolve_sprite(
@@ -75,7 +81,8 @@ fn resolve_sprite(
     let byte = record_at(layer, params.grid.cols, c, r);
     let data = ByteReader::new(tile_data);
     let (value, palette) = layer_value(layer, data.uint(byte, layer.value_bytes));
-    if value >= layer.lut_len {
+    // (Most cells of most layers: nothing, without reading the tables.)
+    if value >= layer.lut_len || (value == 0 && layer.flags & tile_render_shared::LAYER_ZERO_EMPTY != 0) {
         return None;
     }
     let phase = if layer.phase_bytes != 0 { data.u8(byte + layer.value_bytes) } else { 0 };
@@ -138,7 +145,8 @@ pub fn tile_vs(
     let sprite = &sprites[drawn_sprite(sprites, sprite_index, n) as usize];
     let p = placed(sprite, n);
 
-    let (u, v) = quad_corner(vertex);
+    // (Cells are drawn indexed, `CELL_INDICES`: `vertex` is a corner.)
+    let (u, v) = cell_corner(vertex);
     // The sprite's rectangle at zoom 1, from the viewport's corner (at the
     // view's scale: the part of its box it covers).
     let x0 = x + p.corner_x + p.inset_x as i32 - params.camera_x;
@@ -179,23 +187,19 @@ fn trimmed(sprite: &SpriteDesc, p: &tile_render_shared::Placed, params: &FramePa
     if params.hairline != 0 { (0, 0, p.width, p.height) } else { drawn_part(sprite, p) }
 }
 
-/// Vertex `vertex` (of [`tile_render_shared::OCTAGON_VERTICES`]) of the
-/// octagon a sprite of `size` texels whose texel (0, 0) is at pixel
-/// `origin` covers in rectangle (l, t, r, b): the rectangle less its
-/// corners `cuts` leaves blank (`SpriteDesc::cuts`, which keeps every
-/// texel centre that is not blank strictly inside), as six triangles
-/// fanned from its first corner (`cuts` 0: the rectangle).
-fn octagon_corner(vertex: u32, (l, t, r, b): (i32, i32, i32, i32), (x0, y0): (i32, i32), (w, h): (u32, u32), cuts: u32) -> (f32, f32) {
+/// Corner `corner` (0..8, clockwise from the top edge's left end; see
+/// `tile_render_shared::CELL_INDICES`) of the octagon a sprite of `size`
+/// texels whose texel (0, 0) is at pixel `origin` covers in rectangle (l,
+/// t, r, b): the rectangle less its corners `cuts` leaves blank
+/// (`SpriteDesc::cuts`, which keeps every texel centre that is not blank
+/// strictly inside; `cuts` 0: the rectangle).
+fn octagon_corner(corner: u32, (l, t, r, b): (i32, i32, i32, i32), (x0, y0): (i32, i32), (w, h): (u32, u32), cuts: u32) -> (f32, f32) {
     let c = |k: u32| ((cuts >> (8 * k)) & 0xFF) as f32;
     let (w, h) = (w as f32, h as f32);
     // The rectangle in the sprite's texels.
     let (ul, ur, vt, vb) = ((l - x0) as f32, (r - x0) as f32, (t - y0) as f32, (b - y0) as f32);
     let cu = |u: f32| if u < ul { ul } else if u > ur { ur } else { u };
     let cv = |v: f32| if v < vt { vt } else if v > vb { vb } else { v };
-    // The fan's triangles (0, k, k + 1), k = 1..=6, of corners 0..8
-    // clockwise from the top edge's left end.
-    let corner = (vertex % 18) / 3 + if vertex % 3 == 0 { 0 } else { vertex % 3 };
-    let corner = if vertex % 3 == 0 { 0 } else { corner };
     if cuts == 0 {
         // (The rectangle, as it is: also where it is not in texels.)
         let (x, y) = match corner {

@@ -693,7 +693,8 @@ impl TileWorld {
                 lut_len: spec.lut.len() as u32,
                 offset_x: spec.offset.0,
                 offset_y: spec.offset.1,
-                flags: if spec.hidden { LAYER_HIDDEN } else { 0 },
+                flags: if spec.hidden { LAYER_HIDDEN } else { 0 }
+                    | if spec.lut.first().is_none_or(|s| *s == SpriteSetId::EMPTY) { tile_render_shared::LAYER_ZERO_EMPTY } else { 0 },
                 ticks_per_frame: spec.ticks_per_frame,
                 cull_offset_x: spec.cull_offset.0,
                 cull_offset_y: spec.cull_offset.1,

@@ -54,6 +54,8 @@ pub struct TileRenderer {
     bind_group: Option<wgpu::BindGroup>,
     /// Whether more views than drawn were asked for (warned once).
     too_many_views: bool,
+    /// `tile_render_shared::CELL_INDICES`.
+    cell_indices: wgpu::Buffer,
     /// GPU time per pass, when profiling (see [`TileRenderer::enable_timing`]).
     timer: Option<crate::timing::GpuTimer>,
     /// The markers (see [`TileRenderer::set_markers`]) and how they are
@@ -320,6 +322,11 @@ impl TileRenderer {
             world: None,
             bind_group: None,
             too_many_views: false,
+            cell_indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("tile-render cell indices"),
+                contents: bytemuck::cast_slice(&tile_render_shared::CELL_INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
             timer: None,
             markers: Vec::new(),
             marker_runs: Vec::new(),
@@ -1008,7 +1015,7 @@ impl TileRenderer {
         } else {
             (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
         };
-        let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref() };
+        let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), cell_indices: &self.cell_indices };
         for (v, place) in placements.iter().enumerate() {
             if reuse && v < overlay_from {
                 continue;
@@ -1223,6 +1230,7 @@ struct Steps<'a> {
     frame: u32,
     named_palettes: u32,
     timer: Option<&'a crate::timing::GpuTimer>,
+    cell_indices: &'a wgpu::Buffer,
 }
 
 impl Steps<'_> {
@@ -1284,8 +1292,10 @@ impl Steps<'_> {
             };
             if cells {
                 render.set_pipeline(tiles);
-                let vertices = if octagons { tile_render_shared::OCTAGON_VERTICES } else { QUAD_VERTICES };
-                render.draw(0..vertices, 0..params.cols * params.rows * pass.count);
+                // (Indexed: the vertex shader runs once per corner.)
+                let indices = if octagons { 6..6 + tile_render_shared::OCTAGON_VERTICES } else { 0..QUAD_VERTICES };
+                render.set_index_buffer(self.cell_indices.slice(..), wgpu::IndexFormat::Uint16);
+                render.draw_indexed(indices, 0, 0..params.cols * params.rows * pass.count);
             }
             if sprites {
                 draw_free(render, world, i, free);

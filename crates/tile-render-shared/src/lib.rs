@@ -43,12 +43,20 @@ pub const LAYOUT_STAGGERED: u32 = 1;
 
 /// The layer is not drawn.
 pub const LAYER_HIDDEN: u32 = 1 << 0;
+/// `LayerDesc::flags`: value 0 draws nothing (its table's entry 0 is the
+/// empty set), known without reading the table.
+pub const LAYER_ZERO_EMPTY: u32 = 1 << 1;
 
 /// Vertices per sprite quad (two triangles, no index buffer).
 pub const QUAD_VERTICES: u32 = 6;
 /// Vertices per cell of a pass drawn as octagons
 /// ([`FrameParams::corner_cuts`]): six triangles fanned from one corner.
 pub const OCTAGON_VERTICES: u32 = 18;
+
+/// The index buffer cells are drawn with: a quad's two triangles over its
+/// four corners (indices `0..6`), then an octagon's six over its eight
+/// (`6..24`), so that the vertex shader runs once per corner.
+pub const CELL_INDICES: [u16; 24] = [0, 1, 2, 2, 1, 3, 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 7];
 
 /// One copy of the output pass: the rectangle of the source texture at
 /// (src_x, src_y) into the target at (dst_x, dst_y) (the pass's scissor
