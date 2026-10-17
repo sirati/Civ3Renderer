@@ -42,7 +42,10 @@ inproc::entry!(init);
 #[cfg(windows)]
 fn init() {
     let _ = inproc::log_to_file(std::path::Path::new("civ3-bridge.log"), log::LevelFilter::Debug);
-    log::info!("civ3-bridge loaded");
+    // (The wall clock, so that the log's times since loading can be
+    // matched with outside measurements.)
+    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    log::info!("civ3-bridge loaded (unix time {:.3})", unix.as_secs_f64());
     let game = match Civ3::attach() {
         Ok(g) => g,
         Err(e) => return log::error!("not attaching: {e}"),
