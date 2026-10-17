@@ -118,24 +118,63 @@ pixel by pixel (the minimap) are generated from the world state and sent
 as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
 
 The viewer arranges the world beyond the views the driver asks for
-(`tile_viewer::layout`; the driver's interface stays on top, unscaled):
-the main view zoomed (Ctrl+wheel), a second pane beside or below it
-(Ctrl+Shift+S, a draggable divider), up to three floating insets
-(Ctrl+Shift+I), and a magnifier beside the pointer showing everything or
-the world only (Ctrl+Shift+M). Each view follows the game's view, the
-driver's point of interest (the active unit), the world cursor, or nothing
-(Ctrl+Shift+F); a view following the world cursor keeps it in its middle
-and captures the mouse when clicked into (Ctrl+Shift+Space lets go, and
-takes it over such a view; each change is logged), the cursor drawn in
-every view that shows it. A free view set up before the game shows a map
-is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
-arrow over the active unit. Clicks are routed to the game where its view
-shows the same world pixel; elsewhere the game is asked to look there
-(the bridge clicks its minimap). Where the main pane shows the game's view
-unmoved (zoom 1), the pointer resting at the window's edge scrolls the
-game's map as at the game's own screen edge (`scene::Input::Edge`; the
-game polls the pointer, `inproc::pointer`). `TILE_VIEWER_LAYOUT` sets it up at start,
-e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
+(`tile_viewer::layout`; the driver's interface stays on top, unscaled), as
+the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
+`~/.config/civ3r/settings.toml`, the preferences screen's *Layout* tab):
+
+- **Split**: one view, views A and B side by side (1:1, or A twice as
+  wide), or A above B.
+- **Zoom box**: off; a world magnifier in a box over the window sized
+  1:3:1 or 1:7:1 (margin : box : margin), or about the pointer (1:1:1,
+  1:3:1); or a strip across the top, `zoom_strip` (10-50 %) of the height,
+  that the views give room to. In a side-by-side split `zoom_place` puts
+  it over both views, A or B. Ctrl+wheel over it zooms it.
+- **Screens**: the advisors F1-F8, the city screen, the palace, espionage,
+  the game menu and the Civilopedia (the bridge names the open one,
+  `scene::Interface`, docs §16.11) go over the window, or the game's whole
+  screen is fitted into A or B (left or bottom, right or top), one place
+  per orientation.
+- **Roles**: `Free` (A shows the game's view, B is moved by hand), or
+  `UnitMouse`: A follows the focus of interest (the active unit; while a
+  popup is open the middle of the game's view), B follows the world cursor
+  and captures the mouse when clicked into, so the unit stays in sight in
+  the other view. An open popup moves fully into A where it fits.
+- **Smooth world movement**: a view following the game's view or the focus
+  glides there by pixels (a critically damped spring that keeps its
+  velocity when the target moves) instead of jumping a tile at a time.
+
+While the mouse is free the divider between A and B is a wall except in
+its middle third (drawn without the line) and where the unit's order
+buttons are: the pointer pushed against it stays in its view (the system
+pointer is moved back where the platform allows) and scrolls that view
+instead: the game's own view as at its screen edge (`scene::Input::Edge`;
+the game polls the pointer, `inproc::pointer`), the viewer's views by
+itself. Through the gaps it passes freely. The game's top-left menu,
+Civilopedia and advisor buttons are drawn in the view the pointer is in.
+While the mouse is captured the world cursor sits in the middle of B (off
+the middle only at the edge of a map that does not wrap), is drawn in every
+view that shows its pixel, and the whole divider is a wall. Ctrl pressed and
+released on its own lets the mouse go (Alt stays the button snapping's);
+over B the pointer is then a crosshair, and a click there captures it
+again.
+
+The Ctrl+Shift keys change the arrangement for the session on top of the
+settings: S cycles the split, I adds a floating inset at the pointer (X
+removes it), M cycles a magnifier beside the pointer (everything on
+screen, the world only), F cycles what the view under the pointer follows
+(the game's view, the active unit, the world cursor, nothing), Space lets
+go of the mouse (and takes it over a view following the world cursor;
+each change is logged), A toggles a blinking arrow over the active unit,
++/−/0 and arrows zoom and pan the view under the pointer; a middle-button
+drag pans a view, a left drag on the divider's open middle moves it. A free
+view set up before the game shows a map is placed at the middle of its view
+once it does. Clicks are routed to the game where its view shows the same
+world pixel; elsewhere the game is asked to look there (the bridge clicks
+its minimap). Where the main pane shows the game's view unmoved (zoom 1,
+perhaps cropped), the pointer resting at the window's edge scrolls the
+game's map as at the game's own screen edge. `TILE_VIEWER_LAYOUT`
+overrides the settings at start, for testing, e.g.
+`split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
 scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`
