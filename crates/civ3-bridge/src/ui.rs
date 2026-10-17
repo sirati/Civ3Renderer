@@ -613,6 +613,16 @@ impl UiModel {
             return;
         }
         let ops = self.canvases.entry(canvas).or_default();
+        // The same picture again where it was: the earlier one shows nothing
+        // the new one does not cover. Some forms draw themselves again over
+        // what they drew without clearing it first (the advisors' common
+        // background, every few seconds); their lists, every copy of them,
+        // and so the screen would grow without end.
+        if overdraws_itself(&op) {
+            if let Some(i) = ops.iter().rposition(|o| *o == op) {
+                ops.remove(i);
+            }
+        }
         if ops.len() >= MAX_OPS {
             ops.drain(..MAX_OPS / 2);
         }
@@ -649,6 +659,18 @@ impl UiModel {
             }
         }
         out
+    }
+}
+
+/// Whether drawing `op` over itself shows the same as drawing it once: an
+/// image (opaque, or colour-keyed: where it is transparent neither copy
+/// draws) or an opaque fill. Not what blends with what is under it (masked
+/// images, translucent fills, text) nor a surface the game keeps changing.
+fn overdraws_itself(op: &Op) -> bool {
+    match op {
+        Op::Image { source: Source::File { mask, .. }, .. } => mask.is_none(),
+        Op::Fill { alpha, .. } => *alpha == 255,
+        Op::Image { source: Source::Surface { .. }, .. } | Op::Text(_) | Op::Flc { .. } => false,
     }
 }
 
@@ -1118,6 +1140,52 @@ mod tests {
         assert_eq!(shown.forms.len(), 3);
         assert!(shown.draws.contains(&ScreenDraw::Fill { rect: [500, 500, 5, 5], rgb: [9, 9, 9], alpha: 255, clip: [500, 500, 505, 505] }));
         assert_eq!(m.shown_frame(), shown);
+    }
+
+    #[test]
+    fn a_form_drawn_again_over_itself_does_not_grow() {
+        // The advisors' common background (measured: F5): every few seconds
+        // its art, head and tabs are drawn again without the canvas being
+        // cleared; the cultural advisor copies it into its own canvas.
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        m.apply(Event::Size { image: 400, size: (100, 100) });
+        m.apply(Event::Loaded { image: 10, path: "Art/Advisors/culture.pcx".into(), size: (100, 100) });
+        m.apply(Event::Loaded { image: 11, path: "Art/SmallHeads/popupCULTURE.pcx".into(), size: (50, 50) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0, 0, 100, 100] });
+        m.apply(Event::Sliced { sprite: 21, image: 11, rect: [0, 0, 20, 20] });
+        let redraw = |m: &mut UiModel| {
+            m.apply(Event::Blit { sprite: 20, canvas: 300, x: 0, y: 0, clip: None, palette: None });
+            m.apply(Event::Blit { sprite: 21, canvas: 300, x: 70, y: 2, clip: None, palette: None });
+            m.apply(Event::Fill { canvas: 300, rect: [5, 5, 3, 3], rgb: [1, 2, 3], alpha: 255, clip: None });
+            m.apply(Event::Fill { canvas: 300, rect: [30, 30, 5, 5], rgb: [0, 0, 0], alpha: 128, clip: None });
+            m.apply(Event::Copy { from: 300, src: [0, 0, 100, 100], canvas: 400, x: 0, y: 0, keyed: false });
+            m.apply(Event::Text { canvas: 400, run: text(10, 20, "Culture") });
+            m.apply(Event::PaintBegin);
+            m.apply(composite(400, (0, 0), (100, 100)));
+            m.apply(Event::PaintEnd);
+            m.frame().draws
+        };
+        let once = redraw(&mut m);
+        let twice = redraw(&mut m);
+        // The translucent fill is drawn as often as the game drew it (the
+        // earlier one now under the background, as in the game).
+        let shades = |d: &[ScreenDraw]| d.iter().filter(|d| matches!(d, ScreenDraw::Fill { alpha: 128, .. })).count();
+        assert_eq!(shades(&once), 1);
+        assert_eq!(shades(&twice), 2);
+        // The pictures and the opaque fill once each, however often.
+        for _ in 0..20 {
+            redraw(&mut m);
+        }
+        let many = redraw(&mut m);
+        let images = |d: &[ScreenDraw]| d.iter().filter(|d| matches!(d, ScreenDraw::Image { .. })).count();
+        let opaque = |d: &[ScreenDraw]| d.iter().filter(|d| matches!(d, ScreenDraw::Fill { alpha: 255, .. })).count();
+        assert_eq!((images(&once), images(&many)), (2, 2));
+        assert_eq!((opaque(&once), opaque(&many)), (1, 1));
+        // In the order they were last drawn: the background under the head.
+        let paths: Vec<_> = many.iter().filter_map(|d| if let ScreenDraw::Image { path, .. } = d { Some(path.as_str()) } else { None }).collect();
+        assert_eq!(paths, ["Art/Advisors/culture.pcx", "Art/SmallHeads/popupCULTURE.pcx"]);
+        assert_eq!(many.iter().filter(|d| matches!(d, ScreenDraw::Text { .. })).count(), 1);
     }
 
     #[test]
