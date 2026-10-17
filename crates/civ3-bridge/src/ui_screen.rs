@@ -371,6 +371,32 @@ fn pieces(len: i32) -> Vec<(i32, i32)> {
     out
 }
 
+/// The citizens the open city screen shows (§16.8): its heads
+/// (`popHeads.pcx`) drawn by the city form, each clicked to change what the
+/// citizen does (the city form tests them in its code: no control of their
+/// own). Their ids: the city form's canvas above, the head's place below.
+pub fn city_citizens(frame: &Frame) -> Vec<scene::Interactable> {
+    let lower = |p: &str| p.to_ascii_lowercase().replace('/', "\\");
+    let Some(background) = frame.draws.iter().position(|d| matches!(d, ScreenDraw::Image { path, .. } if lower(path).ends_with("city screen\\background.pcx"))) else { return vec![] };
+    let Some((canvas, range)) = frame.form_draws.iter().find(|(_, r)| r.contains(&background)) else { return vec![] };
+    frame.draws[range.clone()]
+        .iter()
+        .filter_map(|d| match d {
+            ScreenDraw::Image { path, rect, x, y, clip, .. } if lower(path).ends_with("popheads.pcx") => {
+                let [cl, ct, cr, cb] = *clip;
+                let (l, t) = ((*x).max(cl), (*y).max(ct));
+                let (r, b) = ((x + rect[2]).min(cr), (y + rect[3]).min(cb));
+                (r > l && b > t).then(|| scene::Interactable {
+                    rect: [l, t, r - l, b - t],
+                    kind: scene::InteractableKind::Button,
+                    id: (*canvas as u64) << 32 | 0x0C00_0000 | ((l as u32 & 0xFFF) << 12) as u64 | (t as u32 & 0xFFF) as u64,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The game's controls (`civ3_sys::controls`) as things to point at in the
 /// viewer (button snapping): the game's client pixels are the driver's.
 pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Interactable> {
@@ -426,6 +452,31 @@ mod view_mark_tests {
 mod interactable_tests {
     use civ3_sys::controls::{Control, ControlKind};
     use scene::{Interactable, InteractableKind};
+
+    #[test]
+    fn the_city_screen_s_citizens_are_targets() {
+        use crate::ui::{Frame, ScreenDraw};
+        let image = |path: &str, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4]| ScreenDraw::Image { path: path.into(), rect, x, y, keyed: true, clip, mask: None, palette: None };
+        let all = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
+        let frame = Frame {
+            draws: vec![
+                // An advisor's heads under it (another form): not the city's.
+                image("Art/SmallHeads/popHeads.pcx", [0, 0, 25, 30], 5, 5, all),
+                image("Art/City Screen/background.pcx", [0, 0, 1024, 768], 0, 0, all),
+                image("C:/Games/Art/SmallHeads/POPHEADS.PCX", [50, 0, 25, 30], 100, 40, all),
+                image("Art/SmallHeads/popHeads.pcx", [75, 0, 25, 30], 125, 40, [0, 0, 140, 768]),
+                image("Art/City Screen/CityIcons.pcx", [0, 0, 16, 16], 300, 300, all),
+            ],
+            form_draws: vec![(0x111, 0..1), (0x740C34, 1..5)],
+            ..Default::default()
+        };
+        let got = super::city_citizens(&frame);
+        assert_eq!(got.iter().map(|i| i.rect).collect::<Vec<_>>(), [[100, 40, 25, 30], [125, 40, 15, 30]]);
+        assert!(got.iter().all(|i| i.kind == InteractableKind::Button && i.id >> 32 == 0x740C34));
+        assert_ne!(got[0].id, got[1].id);
+        // Without the city screen: none.
+        assert!(super::city_citizens(&Frame { draws: frame.draws[..1].to_vec(), ..Default::default() }).is_empty());
+    }
 
     #[test]
     fn controls_become_interactables() {
