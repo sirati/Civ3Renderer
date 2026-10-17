@@ -1,0 +1,16 @@
+[package]
+name = "wl-pointer"
+description = "Safe Wayland pointer constraints for a winit window: confine the pointer to a region, move it by a locked pointer's hint"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+log.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+winit.workspace = true
+# The same libwayland connection winit uses (its `wayland-dlopen` loads it).
+wayland-client = { version = "0.31", features = ["system"] }
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
