@@ -25,6 +25,16 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The same PCX creation function, called when a form sizes its canvas.
+    pub mod pcx_create_sized(image, edx; width, height, bit_depth, param_4, param_5, param_6) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// The same PCX creation function, called when a form recreates its canvas.
+    pub mod pcx_create_resized(image, edx; width, height, bit_depth, param_4, param_5, param_6) -> i32;
+}
+
+inproc::fastcall_hook! {
     /// `int Sprite::slice_pcx(this, PCX_Image *img, x, y, w, h, type,
     /// bool crop)`: cuts a sprite from an 8-bit image.
     pub mod sprite_slice(sprite, edx; image, x, y, w, h, kind, crop) -> i32;
@@ -233,6 +243,8 @@ pub struct UiSites {
     pub pcx_read_file: Site,
     pub pcx_clear: Site,
     pub form_canvas_create: (u32, &'static [u8; 5]),
+    pub form_canvas_size: (u32, &'static [u8; 5]),
+    pub form_canvas_recreate: (u32, &'static [u8; 5]),
     pub sprite_slice: Site,
     pub sprite_copy: Site,
     pub sprite_reset: Site,
@@ -272,10 +284,12 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             pcx_read_file: (0x5F_C700, &[0x6A, 0xFF, 0x68, 0x29, 0x2E, 0x66, 0x00]),
             // push ebx / push ebp / push esi / mov esi,ecx
             pcx_clear: (0x5F_C4D0, &[0x53, 0x55, 0x56, 0x8B, 0xF1]),
-            // Base_Form::m03 calls PCX creation before sizing/redrawing
-            // the form. A call-site hook leaves the callee's relative-call
-            // prologue at its original address.
-            form_canvas_create: (0x60_23FE, &[0xE8, 0xED, 0xA1, 0xFF, 0xFF]),
+            // Base_Form creates, sizes, and recreates its canvas through
+            // these calls. Leave the callee's relative-call prologue at
+            // its original address.
+            form_canvas_create: (0x60_209D, &[0xE8, 0x4E, 0xA5, 0xFF, 0xFF]),
+            form_canvas_size: (0x60_23FE, &[0xE8, 0xED, 0xA1, 0xFF, 0xFF]),
+            form_canvas_recreate: (0x60_2952, &[0xE8, 0x99, 0x9C, 0xFF, 0xFF]),
             // push esi / mov esi,[esp+8]
             sprite_slice: (0x5F_7EC0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
             // push esi / push edi / mov edi,[esp+0Ch]

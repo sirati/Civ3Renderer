@@ -353,6 +353,19 @@ fn fill(canvas: u32, rect: [i32; 4], color: u32) {
     emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: clip_of(canvas) });
 }
 
+/// Records the initial content before the form draws into a new canvas.
+fn initialized_canvas(image: u32, result: i32) -> i32 {
+    // Software JGL canvases allocate zeroed DIBs. Opaque copies include
+    // unwritten black pixels, for example around a centered picture.
+    // Palette-index images have different zero colours and stay excluded.
+    if result == 0 && obj::image_bits(image) == Some(16) {
+        if let Some((width, height)) = size_of(image) {
+            emit(Event::Fill { canvas: image, rect: [0, 0, width, height], rgb: [0, 0, 0], alpha: 255, clip: None });
+        }
+    }
+    result
+}
+
 /// The hooks; they stay installed while this lives.
 pub struct UiTracer {
     _hooks: Vec<Box<dyn std::any::Any + Send>>,
@@ -397,20 +410,12 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         with_skipper(|s| s.cleared(c.image));
         c.original()
     });
-    hooks.push(Box::new(h::pcx_create::install_call_site(sites.form_canvas_create.0, sites.form_canvas_create.1, |c| {
-        let result = c.original();
-        // The form's software JGL canvas allocates a zeroed DIB. Opaque copies
-        // include its unwritten black pixels too, for example around a
-        // centered picture. Keep that initial content as a drawing event.
-        // Palette-index images have different zero colours and do not
-        // reach the interface as direct 16-bit canvas copies.
-        if result == 0 && obj::image_bits(c.image) == Some(16) {
-            if let Some((w, height)) = size_of(c.image) {
-                emit(Event::Fill { canvas: c.image, rect: [0, 0, w, height], rgb: [0, 0, 0], alpha: 255, clip: None });
-            }
-        }
-        result
-    })?));
+    hooks.push(Box::new(h::pcx_create::install_call_site(sites.form_canvas_create.0, sites.form_canvas_create.1,
+        |c| initialized_canvas(c.image, c.original()))?));
+    hooks.push(Box::new(h::pcx_create_sized::install_call_site(sites.form_canvas_size.0, sites.form_canvas_size.1,
+        |c| initialized_canvas(c.image, c.original()))?));
+    hooks.push(Box::new(h::pcx_create_resized::install_call_site(sites.form_canvas_recreate.0, sites.form_canvas_recreate.1,
+        |c| initialized_canvas(c.image, c.original()))?));
     hook!(sprite_slice, sites.sprite_slice, |c| {
         // The game takes these pixels: drawing onto an image it made
         // itself goes on from now on.
