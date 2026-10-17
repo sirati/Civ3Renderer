@@ -31,9 +31,6 @@ const PRELOAD_CHUNK: u64 = 3 << 20;
 /// and in a native renderer (an integrated GPU's memory is the system's).
 const PRELOAD_MIB_IN_PROCESS: u64 = 640;
 const PRELOAD_MIB_NATIVE: u64 = 1536;
-/// How long after a game is first shown its units' art is waited for (the
-/// scene held back, see `crate::art_schedule`).
-const UNITS_HELD: Duration = Duration::from_secs(5);
 
 fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
     Civ3Unit {
@@ -428,7 +425,11 @@ fn publish(
     let mut title = menu::MenuState::default();
     let mut art = units::UnitArt::new(compiler.files(&folders));
     let mut have = units::Needed::default();
-    let mut fonts = text::Fonts::default();
+    // (Loaded on a thread of their own: text waits for no font.)
+    let mut fonts = text::Fonts::in_background().unwrap_or_else(|e| {
+        log::warn!("fonts loaded on the publisher's thread: {e}");
+        text::Fonts::default()
+    });
     let mut screen_art = menu::screen::ScreenArt::default();
     let mut district_art = crate::district_art::DistrictArt::default();
     let mut label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
@@ -465,8 +466,6 @@ fn publish(
     // `CIV3R_ART_LIST`: where to write the art the game showed (for the
     // built-in list of `crate::preload`).
     let art_list_out = std::env::var_os("CIV3R_ART_LIST").map(PathBuf::from);
-    // When the game shown (its units) was first seen.
-    let mut game_shown: Option<std::time::Instant> = None;
     // Why art is wanted, since the last addition started (for the log).
     let mut reasons: std::collections::BTreeSet<&'static str> = Default::default();
     let mut city_bands = std::collections::HashMap::new();
@@ -883,17 +882,11 @@ fn publish(
             let needed = if matches!(shown, Shown::Preview(..)) { units::Needed::still(world, &mut art) } else { units::Needed::of(world, &mut art) };
             if !have.covers(&needed) {
                 have.merge(&needed);
-                // (A game just shown waits for its units' art, as for a
-                // screen's: the map comes up with them.)
-                if game_shown.is_some_and(|t| t.elapsed() < UNITS_HELD) {
-                    screen_recompile = true;
-                } else {
-                    recompile = true;
-                }
+                recompile = true;
                 wanted_for.push("units");
             }
         }
-        if fonts.add(&compiler.files(&folders), texts) {
+        if fonts.take_loaded() | fonts.add(&compiler.files(&folders), texts) {
             recompile = true;
             wanted_for.push("text");
         }
@@ -1017,11 +1010,8 @@ fn publish(
                 }
             }
         }
-        // The screen's art is not built yet: the viewer keeps the last
-        // complete scene a little longer rather than show empty panels.
-        if schedule.hold(now) {
-            continue;
-        }
+        // (Nothing waits for art: what is not built yet is left out, or
+        // drawn as it was, until it is.)
         new_art = false;
         seq += 1;
         // How much smaller a previewed world is shown: about the size of the
