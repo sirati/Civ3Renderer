@@ -51,7 +51,7 @@ only layers that use it pay for it, and the renderer widens the window of
 drawn cells by how far the offsets reach. A layer whose `ticks_per_frame`
 is 0 shows the frame its cells' phases say, whatever the clock.
 
-Beyond the grid, a world has *free sprites* (units, effects, UI): animated
+Beyond the grid, a world has *free sprites* (effects, labels, UI): animated
 sprite sets placed in world or screen space and drawn after any pass. A free
 sprite may be clipped to a viewport rectangle (the quad is shrunk in the vertex
 shader). Translucent texels in a quantized model mix in 1/32 steps and round
@@ -120,7 +120,7 @@ regions of the game's art files (alpha-masked where the game masks them),
 fills, translucent shades, lines, text and unit animation frames, clipped —
 that the `menu` crate's run-time screens draw. The map canvas is mirrored
 without the map itself (ours): the city labels on it go under our fog of
-war; the unit overlay is left out (we draw units). Pictures the game makes
+war; the unit overlay is left out (we draw units, on layers of their tiles: docs §10.13). Pictures the game makes
 pixel by pixel (the minimap) are generated from the world state and sent
 as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
 

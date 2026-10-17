@@ -1505,7 +1505,7 @@ group = "Viewer@arrow"
 
 # §4: passes. 1: vertices (terrain, flood plains); 2: rivers touching
 # mountains/buildings; 3: tiles, all objects in this order; 4: other rivers;
-# 5: fog of war.
+# 5: fog of war; 6: units (at the end).
 [[layers]]
 name = "terrain"
 cull_offset = [0, -32]
@@ -1781,3 +1781,190 @@ cull_offset = [0, -32]
 pass = 5
 blend = { scale = 16 }
 sets = ["Fog_Of_War_Images/*"]
+
+# §10.2: units, after the terrain and the fog of war. The animator draws the
+# tiles' units row by row, each row from its right end, a tile's units
+# (at most two: a moving unit over the one under it) one after the other,
+# each as Unit_draw does: team disc, (our ring,) selection cursor, body
+# with shadow (an army: its banner art, then its member), HUD. A unit's
+# cells carry the offset of where it is from where it would stand
+# (crate::units::place); frames come from the cells' phases (the game's own
+# frame), not from the clock.
+[[layers]]
+name = "unit_disc"
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["TeamDisc@*"]
+
+[[layers]]
+name = "unit_ring"
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitRing@*"]
+
+[[layers]]
+name = "unit_cursor"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+sets = ["UnitAnim@Art/Animations/Cursor/*"]
+
+[[layers]]
+name = "unit_banner"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+sets = ["UnitAnim@*"]
+
+[[layers]]
+name = "unit_shadow"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+blend = { scale = 16 }
+sets = ["UnitShadowAnim@*"]
+
+[[layers]]
+name = "unit_body"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+sets = ["UnitAnim@*"]
+
+# The HUD at its origin, 32 px left of and above the unit (zoomed out 16:
+# the offset is halved, the HUD's art keeps its size).
+[[layers]]
+name = "unit_hud_bar"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_bar/*"]
+
+[[layers]]
+name = "unit_hud_frame"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_frame/*"]
+
+[[layers]]
+name = "unit_hud_led"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_led@*"]
+
+[[layers]]
+name = "unit_hud_stack"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_stack/*"]
+
+[[layers]]
+name = "unit_over_disc"
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["TeamDisc@*"]
+
+[[layers]]
+name = "unit_over_ring"
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitRing@*"]
+
+[[layers]]
+name = "unit_over_cursor"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+sets = ["UnitAnim@Art/Animations/Cursor/*"]
+
+[[layers]]
+name = "unit_over_banner"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+sets = ["UnitAnim@*"]
+
+[[layers]]
+name = "unit_over_shadow"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+blend = { scale = 16 }
+sets = ["UnitShadowAnim@*"]
+
+[[layers]]
+name = "unit_over_body"
+offset = [64, 32]
+pass = 6
+descending = true
+per_cell_offset = true
+per_cell_phase = true
+ticks_per_frame = 0
+sets = ["UnitAnim@*"]
+
+# The HUD at its origin, 32 px left of and above the unit (zoomed out 16:
+# the offset is halved, the HUD's art keeps its size).
+[[layers]]
+name = "unit_over_hud_bar"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_bar/*"]
+
+[[layers]]
+name = "unit_over_hud_frame"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_frame/*"]
+
+[[layers]]
+name = "unit_over_hud_led"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_led@*"]
+
+[[layers]]
+name = "unit_over_hud_stack"
+offset = [32, 0]
+pass = 6
+descending = true
+per_cell_offset = true
+sets = ["UnitHud_stack/*"]
+

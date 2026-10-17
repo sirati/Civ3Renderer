@@ -113,7 +113,11 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         if ui.is_none() {
             scene.sprites = city_site::sprites(&trace.world, compiled);
         }
-        scene.sprites.extend(units::sprites(&trace.world, art, compiled, None, trace.view.zoomed_out));
+        if std::env::var("CIV3_UNITS_FREE").as_deref() == Ok("1") {
+            scene.sprites.extend(units::free_sprites(&trace.world, art, compiled, None));
+        } else {
+            units::place(&trace.world, &trace.view, art, compiled, None, &mut scene);
+        }
         match &ui {
             // The mirrored interface has the city icons and all text.
             Some(frame) => {
@@ -395,6 +399,12 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     let terrain_of = {
         let mut bare = scene.clone();
         bare.sprites.clear();
+        // (The units' layers too.)
+        for (layer, cells) in compiled.layers.iter().zip(&mut bare.layers) {
+            if units::SLOTS.iter().any(|s| layer.name.starts_with(&format!("{s}_"))) {
+                cells.values.iter_mut().for_each(|v| *v = 0);
+            }
+        }
         bare.patches.clear();
         bare.views.iter_mut().for_each(|v| v.overlay.clear());
         tile_viewer::render_offscreen(&gpu, &compiled, &bare, viewport, &config)

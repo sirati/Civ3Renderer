@@ -1,6 +1,8 @@
 //! Units (docs §10): which animation file each drawn unit shows, the render
-//! description entries for those files in the owners' colours, and the
-//! free sprites that draw them.
+//! description entries for those files in the owners' colours, and where
+//! they go: the unit layers of the tiles they stand on (moved by per-cell
+//! offsets where they are not at their tile's centre), or free sprites
+//! where those cannot keep the game's order.
 //!
 //! Unit art is too large to load for every type and colour up front, so the
 //! description entries are generated for the (animation file, colour) pairs
@@ -12,9 +14,10 @@ use std::fmt::Write as _;
 use civ3_assets::ini::Ini;
 use civ3_assets::{GameFiles, flc};
 use render_desc::Compiled;
+use scene::Scene;
 
 use crate::rules::terrain::COAST;
-use crate::world::{Civ3Unit, Civ3World};
+use crate::world::{Civ3Unit, Civ3View, Civ3World};
 
 /// `UnitState` of a fortified unit.
 const STATE_FORTIFIED: i32 = 1;
@@ -265,7 +268,9 @@ impl Needed {
     }
 
     /// Render description entries for this art: sprites
-    /// `UnitArt@<file>#<colours>/<chunk>` and `UnitShadow@<file>/<chunk>`.
+    /// `UnitArt@<file>#<colours>/<chunk>` and `UnitShadow@<file>/<chunk>`,
+    /// per direction block the animations `UnitAnim@<file>#<colours>/<block>`
+    /// and `UnitShadowAnim@<file>/<block>`, and the HUD's art ([`hud`]).
     pub fn description(&self) -> String {
         let mut out = String::from("\n# Unit art (generated, docs §10).\n");
         let all: Vec<String> = (0..256).map(|i| i.to_string()).collect();
@@ -290,9 +295,19 @@ impl Needed {
                     );
                 }
             };
+            // Per direction block, its frames (the ring frame last, §10.4) as
+            // one animation, for the unit layers (a cell's phase is the frame).
+            let blocks = |out: &mut String, set: &str, sprite: &str| {
+                let per = file.frames_per_direction + 1;
+                for b in 0..file.chunks.div_ceil(per) {
+                    let frames: Vec<String> = (b * per..((b + 1) * per).min(file.chunks)).map(|k| toml_str(&format!("{sprite}/{k}"))).collect();
+                    let _ = writeln!(out, "[sets.{}]\nframes = [{}]\n", toml_str(&format!("{set}/{b}")), frames.join(", "));
+                }
+            };
             let shadow = format!("unitshadow{n}");
             let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\ntransparent = {shadow_transparent}\nrgba = {{ {} }}\n", shadow_rgba.join(", "));
             sheets(&mut out, &shadow, &format!("UnitShadow@{path}"));
+            blocks(&mut out, &format!("UnitShadowAnim@{path}"), &format!("UnitShadow@{path}"));
             for c in colors {
                 let image = format!("unit{n}c{c}");
                 let mut palette = format!("palette = \"Art/Units/Palettes/ntp{:02}.pcx\"\npalette_range = [0, 64]\n", c.table);
@@ -306,6 +321,7 @@ impl Needed {
                 }
                 let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{palette}transparent = {body_transparent}\n");
                 sheets(&mut out, &image, &format!("UnitArt@{path}#{c}"));
+                blocks(&mut out, &format!("UnitAnim@{path}#{c}"), &format!("UnitArt@{path}#{c}"));
             }
         }
         // In the file's own colours, frames at their top-left.
@@ -324,6 +340,7 @@ impl Needed {
         }
         let sites: Vec<(i32, [u8; 3])> = self.site_colors.iter().map(|(k, v)| (*k, *v)).collect();
         out.push_str(&crate::city_site::description(&sites));
+        out.push_str(&hud::description());
         out
     }
 }
@@ -335,9 +352,6 @@ fn toml_str(s: &str) -> String {
 /// `P_SHOW_TEAM_COLOR_DISC`.
 const SHOW_TEAM_COLOR_DISC: u32 = 0x800;
 
-/// The free sprites drawing the world's units, after all passes (over the
-/// fog of war), in the animator's order: per unit its team disc, its body
-/// with shadow, then its HUD (§10.2 `Unit_draw`).
 /// Where the selected unit stands (its tile centre, or where it is on its
 /// way), if one is selected and shown.
 pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
@@ -345,177 +359,445 @@ pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
     world.units.iter().find(|u| u.id == id && u.visible).map(|u| u.pixel)
 }
 
-/// `rings`: second rings around foreign units (`crate::rings`).
-/// `zoomed_out`: the positions are those the zoomed-out view halves; the
-/// HUD is not drawn smaller there, so its pieces keep their distances from
-/// its origin by being placed twice as far from it here.
-pub fn sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>, zoomed_out: bool) -> Vec<scene::FreeSprite> {
+/// The layers a tile's units are drawn on (civ3.toml), one set per unit
+/// the tile shows, in drawing order: the animator draws a tile's units one
+/// after the other, at most two (a moving unit over the one under it,
+/// §10.2).
+pub const SLOTS: [&str; 2] = ["unit", "unit_over"];
+
+/// What `Unit_draw` puts on the map for one unit, in its order (§10.2):
+/// each is a layer of a slot (`<slot>_<part>`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Part {
+    Disc,
+    /// Our ring around a foreign unit's disc (`crate::rings`).
+    Ring,
+    Cursor,
+    /// An army's own (banner) art, beside the member it shows (§10.11).
+    Banner,
+    Shadow,
+    Body,
+    Bar,
+    Frame,
+    Led,
+    Stack,
+}
+
+impl Part {
+    fn layer(self) -> &'static str {
+        match self {
+            Part::Disc => "disc",
+            Part::Ring => "ring",
+            Part::Cursor => "cursor",
+            Part::Banner => "banner",
+            Part::Shadow => "shadow",
+            Part::Body => "body",
+            Part::Bar => "hud_bar",
+            Part::Frame => "hud_frame",
+            Part::Led => "hud_led",
+            Part::Stack => "hud_stack",
+        }
+    }
+
+    /// The layer's offset from its cell's origin (the tile box's top-left,
+    /// civ3.toml): where [`Piece::at`] is for a unit at its tile's centre.
+    /// The disc's box is the tile's, the HUD's origin 32 px left of and
+    /// above the unit's anchor (zoomed out 16: the layer offset is halved,
+    /// the HUD's sprites keep their size and anchors, §10.2).
+    fn origin(self) -> (i32, i32) {
+        match self {
+            Part::Disc | Part::Ring => (0, 0),
+            Part::Cursor | Part::Banner | Part::Shadow | Part::Body => (64, 32),
+            Part::Bar | Part::Frame | Part::Led | Part::Stack => (32, 0),
+        }
+    }
+}
+
+/// One thing drawn for a unit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Piece {
+    pub part: Part,
+    /// The set its layer draws, and the frame of it shown (the phase).
+    pub set: String,
+    pub phase: u8,
+    /// The single sprite of that frame, for drawing it as a free sprite
+    /// (`None`: the set has one frame).
+    pub sprite: Option<String>,
+    /// The world pixel (full size) its sprites' anchors are relative to.
+    pub at: (i32, i32),
+    /// 0 alpha, else as `scene::FreeSprite::scale_den`.
+    pub scale_den: u32,
+}
+
+impl Piece {
+    fn new(part: Part, set: String, at: (i32, i32)) -> Piece {
+        Piece { part, set, phase: 0, sprite: None, at, scale_den: 0 }
+    }
+}
+
+/// What the animator draws for unit `u`, in its order (§10.2 `Unit_draw`,
+/// §10.11 for armies): team disc (our ring), selection cursor, body with
+/// shadow (an army: its banner art, then its member), HUD.
+pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<&crate::rings::Rings>) -> Vec<Piece> {
+    let mut out = Vec::new();
+    let (x, y) = u.pixel;
+    let in_city = world.tile(u.x, u.y).is_some_and(|t| t.city >= 0);
+    // An army shows its strongest member at the tile, its own (banner)
+    // art 40 px to the right behind it, and its HUD at the member
+    // (§10.11).
+    let member = army_member(world, u);
+    let (mx, my) = match member {
+        Some(m) if !u.moving => m.pixel,
+        _ => (x, y),
+    };
+    if world.preferences & SHOW_TEAM_COLOR_DISC != 0 && !in_city {
+        out.push(Piece::new(Part::Disc, format!("TeamDisc@{}/0", colors(world, u.civ)), (mx - 64, my - 32)));
+    }
+    // Around it, how the viewer stands with a foreign owner.
+    if let (Some(rings), false, false) = (rings, in_city, u.civ == world.player) {
+        let relation = world.relations.get(u.civ.max(0) as usize).copied().unwrap_or(civ3_sys::world::Relation::None);
+        if let Some((name, scale_den)) = rings.sprite(relation) {
+            out.push(Piece { scale_den, ..Piece::new(Part::Ring, name, (mx - 64, my - 32)) });
+        }
+    }
+    if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
+        let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
+        out.push(animation(Part::Cursor, cursor, colors(world, world.player).to_string(), block, frame, (mx, my)));
+    }
+    let mut body = |unit: &Civ3Unit, recolor: Recolor, at: (i32, i32), part: Part, shadow: bool, out: &mut Vec<Piece>| {
+        let type_key = world.unit_type_keys.get(unit.unit_type.max(0) as usize);
+        if let Some(file) = type_key.and_then(|k| art.file(k, era_key(world, u.civ), unit.animation)) {
+            let block = DIRECTION_BLOCK.get(unit.direction.max(0) as usize).copied().unwrap_or(2);
+            if shadow {
+                let mut p = animation(Part::Shadow, file, String::new(), block, unit.frame, at);
+                p.scale_den = 16;
+                out.push(p);
+            }
+            out.push(animation(part, file, recolor.to_string(), block, unit.frame, at));
+        }
+    };
+    match member {
+        Some(m) => {
+            let attacking_east = u.animation == ANIMATION_ATTACK1 && u.direction == DIRECTION_EAST;
+            body(u, army_recolor(world, u), (x + 40, y - if attacking_east { 20 } else { 0 }), Part::Banner, false, &mut out);
+            body(m, Recolor::civ(colors(world, u.civ)), (mx, my), Part::Body, false, &mut out);
+        }
+        None => body(u, Recolor::civ(colors(world, u.civ)), (x, y), Part::Body, true, &mut out),
+    }
+    out.extend(hud(world, u, (mx, my)));
+    out
+}
+
+/// Frame `frame` of `file`'s block `block` (in `colors`; empty: its
+/// shadow) at `at`: the set of the block's frames (its last one the ring
+/// frame, §10.4) and the single frame's sprite.
+fn animation(part: Part, file: &AnimFile, colors: String, block: u32, frame: i32, at: (i32, i32)) -> Piece {
+    let n = file.frames_per_direction;
+    // (The chunk as the game seeks it, clamped to the file.)
+    let chunk = (block * (n + 1) + frame.max(0) as u32).min(file.chunks.saturating_sub(1));
+    let (set, sprite) = if colors.is_empty() {
+        (format!("UnitShadowAnim@{}/{block}", file.path), format!("UnitShadow@{}/{chunk}", file.path))
+    } else {
+        (format!("UnitAnim@{}#{colors}/{block}", file.path), format!("UnitArt@{}#{colors}/{chunk}", file.path))
+    };
+    Piece { phase: chunk.saturating_sub(block * (n + 1)).min(n).min(255) as u8, sprite: Some(sprite), ..Piece::new(part, set, at) }
+}
+
+/// The index of the render pass that `layer` is in (among the passes that
+/// have layers, as `tile_render::TileWorld::passes` counts them).
+pub fn pass_of(compiled: &Compiled, layer: &str) -> Option<u32> {
+    let pass = compiled.layers.iter().find(|l| l.name == layer)?.pass;
+    let mut passes: Vec<u32> = compiled.layers.iter().map(|l| l.pass).collect();
+    passes.dedup();
+    passes.iter().position(|&p| p == pass).map(|i| i as u32)
+}
+
+/// The pass the units are drawn in (§10.2: after the terrain and the fog
+/// of war), and the one before it: what goes over the fog but under the
+/// units follows that one (the city-site preview, §10.9).
+pub fn unit_passes(compiled: &Compiled) -> (u32, u32) {
+    let units = pass_of(compiled, "unit_body").unwrap_or(u32::MAX);
+    (units, if units == u32::MAX { u32::MAX } else { units.saturating_sub(1) })
+}
+
+/// Puts the world's units into `scene` (built by `scene_map::Mapper` for
+/// `world` seen by `view`): each unit the animator draws on the layers of
+/// its tile's next slot (`SLOTS`), with the offset of where it is from where
+/// it would stand (a unit on its way, an army's banner), in the animator's
+/// order: the units pass sweeps the rows top to bottom, each from its right
+/// end (§10.2: x descending), a tile's slots in order. What does not fit
+/// that order (always-on-top units, appended at the end of the game's
+/// list; a third unit on a tile) is drawn, with all units after it, as free
+/// sprites after the units pass, in the list's order; inverting rings
+/// (which a layer cannot draw) as free sprites under the units.
+pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>, scene: &mut Scene) {
+    let (units_pass, under_units) = unit_passes(compiled);
+    // (A description without unit layers: all free.)
+    let layered = compiled.layer_index("unit_body").is_some();
+    let shape = scene.shape;
+    let units: Vec<&Civ3Unit> = world.units.iter().filter(|u| u.visible).collect();
+    let slots = if layered { slots(world, view, &units, (shape.cols, shape.rows)) } else { vec![None; units.len()] };
+    let invert = tile_render::Blend::Invert.scale_den();
+    log::trace!("units: {} on layers, {} as free sprites", slots.iter().filter(|s| s.is_some()).count(), slots.iter().filter(|s| s.is_none()).count());
+    for (u, slot) in units.into_iter().zip(slots) {
+        let (col, row) = ((u.x >> 1) as u32, u.y as u32);
+        for p in pieces(world, art, u, rings) {
+            // Inverting rings under the units (a layer cannot invert).
+            let Some(slot) = slot.filter(|_| p.scale_den != invert) else {
+                scene.sprites.extend(free_sprite(compiled, &p, if p.scale_den == invert { under_units } else { units_pass }));
+                continue;
+            };
+            let layer = format!("{}_{}", SLOTS[slot], p.part.layer());
+            let (Some(index), Some(value)) = (compiled.layer_index(&layer), compiled.value(&layer, &p.set)) else { continue };
+            scene.set(index, col, row, value);
+            scene.set_phase(index, col, row, p.phase);
+            let (ox, oy) = p.part.origin();
+            let dx = wrapped_offset(p.at.0 - (64 * u.x + ox), world.wrap_x, 64 * world.width);
+            let dy = wrapped_offset(p.at.1 - (32 * u.y + oy), world.wrap_y, 32 * world.height);
+            scene.set_offset(index, col, row, (dx, dy));
+        }
+    }
+}
+
+/// The slot (of [`SLOTS`]) each of `units` (in the animator's order) is
+/// drawn in on its tile's cell (`cells`: the grid's columns and rows), if
+/// the layers can draw it in that order: rows top to bottom (as the game's
+/// view sweeps them, unwrapped from its first tile), each from its right
+/// end, a tile's slots in order. From the first that does not fit on, none.
+pub fn slots(world: &Civ3World, view: &Civ3View, units: &[&Civ3Unit], (cols, rows): (u32, u32)) -> Vec<Option<usize>> {
+    let unwrapped = |v: i32, wraps: bool, from: i32, size: i32| if wraps && size > 0 { from + (v - from).rem_euclid(size) } else { v };
+    let mut used: HashMap<(i32, i32), usize> = HashMap::new();
+    let mut last: Option<(i32, i32, usize)> = None;
+    let mut fits = true;
+    units
+        .iter()
+        .map(|u| {
+            let on_grid = u.x >= 0 && u.y >= 0 && ((u.x >> 1) as u32) < cols && (u.y as u32) < rows;
+            let order = (unwrapped(u.y, world.wrap_y, view.tile_y.0, world.height), -unwrapped(u.x, world.wrap_x, view.tile_x.0, world.width));
+            let first = used.get(&(u.x, u.y)).copied().unwrap_or(0);
+            let slot = (first..SLOTS.len()).find(|&s| last < Some((order.0, order.1, s))).filter(|_| on_grid && fits);
+            match slot {
+                Some(s) => {
+                    used.insert((u.x, u.y), s + 1);
+                    last = Some((order.0, order.1, s));
+                }
+                None => fits = false,
+            }
+            slot
+        })
+        .collect()
+}
+
+/// An offset from a unit's tile on a map repeating every `period` pixels
+/// (when it `wraps`): the shortest way, as a cell's offset.
+fn wrapped_offset(d: i32, wraps: bool, period: i32) -> i16 {
+    let d = if wraps && period > 0 && d.abs() > period / 2 { d - period * (d as f64 / period as f64).round() as i32 } else { d };
+    d.clamp(i16::MIN.into(), i16::MAX.into()) as i16
+}
+
+/// `p` as a free sprite after pass `after_pass` (its frame's own sprite).
+fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene::FreeSprite> {
+    let (set, _) = compiled.set(p.sprite.as_deref().unwrap_or(&p.set))?;
+    Some(scene::FreeSprite {
+        set: set.raw(),
+        x: p.at.0,
+        y: p.at.1,
+        screen: false,
+        after_pass,
+        phase: 0,
+        ticks_per_frame: 1,
+        scale_den: p.scale_den,
+        tint: 0,
+        zoom_art: 0,
+        zoom: (0, 0),
+        zoom_offset: (0, 0),
+        clip: None,
+        not_in_view: None,
+        glyph: None,
+    })
+}
+
+/// The free sprites drawing the world's units as `place` would put them
+/// on layers, in the animator's order, after the units pass (and inverting
+/// rings under it): for comparing the two, and for a description without
+/// unit layers.
+pub fn free_sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>) -> Vec<scene::FreeSprite> {
+    let (units_pass, under_units) = unit_passes(compiled);
     let mut out = Vec::new();
     for u in world.units.iter().filter(|u| u.visible) {
-        let (x, y) = u.pixel;
-        let mut put = |name: &str, (px, py): (i32, i32), scale_den| {
-            if let Some((set, _)) = compiled.set(name) {
-                out.push(scene::FreeSprite {
-                    set: set.raw(),
-                    x: px,
-                    y: py,
-                    screen: false,
-                    after_pass: u32::MAX,
-                    phase: 0,
-                    ticks_per_frame: 1,
-                    scale_den,
-                    tint: 0,
-                    zoom_art: 0,
-                    zoom: (0, 0),
-                    zoom_offset: (0, 0),
-                    clip: None,
-                    not_in_view: None,
-                    glyph: None,
-                });
-            }
-        };
-        let in_city = world.tile(u.x, u.y).is_some_and(|t| t.city >= 0);
-        // An army shows its strongest member at the tile, its own (banner)
-        // art 40 px to the right behind it, and its HUD at the member
-        // (§10.11).
-        let member = army_member(world, u);
-        let (mx, my) = match member {
-            Some(m) if !u.moving => m.pixel,
-            _ => (x, y),
-        };
-        if world.preferences & SHOW_TEAM_COLOR_DISC != 0 && !in_city {
-            put(&format!("TeamDisc@{}/0", colors(world, u.civ)), (mx - 64, my - 32), 0);
-        }
-        // Around it, how the viewer stands with a foreign owner.
-        if let (Some(rings), false, false) = (rings, in_city, u.civ == world.player) {
-            let relation = world.relations.get(u.civ.max(0) as usize).copied().unwrap_or(civ3_sys::world::Relation::None);
-            if let Some((name, scale_den)) = rings.sprite(relation) {
-                put(&name, (mx - 64, my - 32), scale_den);
-            }
-        }
-        if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
-            let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
-            let chunk = (block * (cursor.frames_per_direction + 1) + frame.max(0) as u32).min(cursor.chunks.saturating_sub(1));
-            put(&format!("UnitArt@{}#{}/{chunk}", cursor.path, colors(world, world.player)), (mx, my), 0);
-        }
-        let mut body = |unit: &Civ3Unit, recolor: Recolor, at: (i32, i32), shadow: bool| {
-            let type_key = world.unit_type_keys.get(unit.unit_type.max(0) as usize);
-            if let Some(file) = type_key.and_then(|k| art.file(k, era_key(world, u.civ), unit.animation)) {
-                let chunk = chunk(file, unit);
-                if shadow {
-                    put(&format!("UnitShadow@{}/{chunk}", file.path), at, 16);
-                }
-                put(&format!("UnitArt@{}#{recolor}/{chunk}", file.path), at, 0);
-            }
-        };
-        match member {
-            Some(m) => {
-                let attacking_east = u.animation == ANIMATION_ATTACK1 && u.direction == DIRECTION_EAST;
-                body(u, army_recolor(world, u), (x + 40, y - if attacking_east { 20 } else { 0 }), false);
-                body(m, Recolor::civ(colors(world, u.civ)), (mx, my), false);
-            }
-            None => body(u, Recolor::civ(colors(world, u.civ)), (x, y), true),
-        }
-        for (name, at) in hud(world, u, (mx, my), if zoomed_out { 2 } else { 1 }) {
-            put(name, at, 0);
+        for p in pieces(world, art, u, rings) {
+            let after = if p.scale_den == tile_render::Blend::Invert.scale_den() { under_units } else { units_pass };
+            out.extend(free_sprite(compiled, &p, after));
         }
     }
     out
 }
 
-/// §10.6: health bar, movement LED and stack lines of a unit, as 1×1
-/// colour pixels and LED sprites at world positions.
-/// `anchor`: where it is drawn (an army's HUD sits at its member). `spread`:
-/// the factor the pieces' distances from the HUD's origin are multiplied by
-/// (2 where positions are halved afterwards and the HUD keeps its size).
-fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32), spread: i32) -> Vec<(&'static str, (i32, i32))> {
-    let mut out = hud_pieces(world, u, anchor);
-    let origin = (anchor.0 - 32, anchor.1 - 32);
-    if spread != 1 {
-        for (_, (x, y)) in &mut out {
-            *x = origin.0 + spread * (*x - origin.0);
-            *y = origin.1 + spread * (*y - origin.1);
-        }
-    }
-    out
-}
-
-fn hud_pieces(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<(&'static str, (i32, i32))> {
+/// §10.6: health bar, fortified frame, movement LED and stack lines of a
+/// unit, drawn at `anchor` (an army's HUD sits at its member), as pieces at
+/// the HUD's origin (32 px left of and above the anchor): sprites of the
+/// generated HUD art (`hud::description`), which keeps its size zoomed out.
+fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<Piece> {
     let mut out = Vec::new();
     let Some(&[attack, defence, movement, hp_bonus, class, _]) = world.unit_type_stats.get(u.unit_type.max(0) as usize) else {
         return out;
     };
+    let at = (anchor.0 - 32, anchor.1 - 32);
     let has_bar = attack > 0 || defence > 0;
-    let (hx, hy) = (anchor.0 - 32, anchor.1 - 32);
     let base_hp = world.experience_hit_points.get(u.experience.max(0) as usize).copied().unwrap_or(1);
     let max = (base_hp + hp_bonus).max(1);
     let hp = (max - u.damage).clamp(0, 9999);
-    let pitch = if 5 * max - 1 > 40 { (41 / max).max(2) } else { 5 };
-    let bar = (pitch * max - 1).min(40);
-    let (left, bottom) = (hx + 6, hy + 24);
-    let rect = |name: &'static str, (x0, y0, x1, y1): (i32, i32, i32, i32), out: &mut Vec<_>| {
-        for py in y0..y1 {
-            for px in x0..x1 {
-                out.push((name, (px, py)));
-            }
-        }
+    let bar = hud::bar_height(max);
+    let color = if hp <= 1 {
+        hud::RED
+    } else if 3 * u.damage < max || u.damage == 0 {
+        hud::GREEN
+    } else if 3 * u.damage < 2 * max {
+        hud::YELLOW
+    } else {
+        hud::RED
     };
     if has_bar {
-        rect("Hud_black/0", (left, bottom - bar, left + 2, bottom), &mut out);
-    }
-    let color = if hp <= 1 {
-        "Hud_red/0"
-    } else if 3 * u.damage < max || u.damage == 0 {
-        "Hud_green/0"
-    } else if 3 * u.damage < 2 * max {
-        "Hud_yellow/0"
-    } else {
-        "Hud_red/0"
-    };
-    let mut seg_bottom = bottom;
-    for _ in 0..if has_bar { hp.min(20) } else { 0 } {
-        rect(color, (left, seg_bottom - pitch + 1, left + 2, seg_bottom), &mut out);
-        seg_bottom -= pitch;
+        out.push(Piece::new(Part::Bar, format!("UnitHud_bar/{}", hud::bar_index(max, hp, color)), at));
     }
     // §10.10: fortified land units on land with moves left get a white
     // outline around the bar (the LED drawn next covers most of its top).
     let left_moves = movement * 3 - u.moves;
     let on_water = world.tile(u.x, u.y).is_some_and(|t| t.terrain() >= COAST);
     if has_bar && class == 0 && !on_water && u.state == STATE_FORTIFIED && left_moves > 0 {
-        let (x0, y0, x1, y1) = (left - 1, bottom - bar - 1, left + 2, bottom);
-        rect("Hud_white/0", (x0, y0, x1 + 1, y0 + 1), &mut out);
-        rect("Hud_white/0", (x0, y1, x1 + 1, y1 + 1), &mut out);
-        rect("Hud_white/0", (x0, y0 + 1, x0 + 1, y1), &mut out);
-        rect("Hud_white/0", (x1, y0 + 1, x1 + 1, y1), &mut out);
+        out.push(Piece::new(Part::Frame, format!("UnitHud_frame/{bar}"), at));
     }
     // Own units: how much of their move is left (moves count thirds).
     if u.civ == world.player {
         let led = if left_moves <= 0 {
-            "MovementLED/2"
+            2
         } else if u.moves != 0 {
-            "MovementLED/1"
+            1
         } else {
-            "MovementLED/0"
+            0
         };
-        out.push((led, (hx + 4, hy + 18 - bar)));
+        out.push(Piece::new(Part::Led, format!("UnitHud_led@{bar}/{led}"), at));
     }
     // Stack lines: one per unit on the tile (up to 8), when there are
     // several and the unit is not moving.
     if !u.always_on_top {
-        let n = world.unit_tiles.iter().filter(|&&(x, y, c)| x == u.x && y == u.y && c < 0).count().clamp(1, 8) as i32;
+        let n = world.unit_tiles.iter().filter(|&&(x, y, c)| x == u.x && y == u.y && c < 0).count().clamp(1, 8);
         if n > 1 {
-            for i in 0..n {
-                rect("Hud_white/0", (hx + 5, hy + 26 + 2 * i, hx + 9, hy + 27 + 2 * i), &mut out);
-            }
+            out.push(Piece::new(Part::Stack, format!("UnitHud_stack/{n}"), at));
         }
     }
     out
 }
 
-/// The frame chunk a unit shows: its facing's block, its frame.
-fn chunk(file: &AnimFile, u: &Civ3Unit) -> u32 {
-    let block = DIRECTION_BLOCK.get(u.direction.max(0) as usize).copied().unwrap_or(2);
-    (block * (file.frames_per_direction + 1) + u.frame.max(0) as u32).min(file.chunks.saturating_sub(1))
+/// The unit HUD's art (§10.6), made once for every state it can show:
+/// health bars, fortified frames, LEDs at every bar height, stack lines.
+/// Sprites are anchored at the HUD's origin and keep their size zoomed out.
+pub mod hud {
+    use std::fmt::Write as _;
+
+    pub const GREEN: usize = 0;
+    pub const YELLOW: usize = 1;
+    pub const RED: usize = 2;
+    const COLORS: [&str; 3] = ["0,255,0,255", "255,255,0,255", "255,0,0,255"];
+    const BLACK: &str = "0,0,0,255";
+    const WHITE: &str = "255,255,255,255";
+    /// From this many hit points on, bars look the same (2 px a point, 40 px
+    /// high, at most 20 segments).
+    const MAX_DISTINCT: i32 = 21;
+    /// Bars are at most this high.
+    const TALLEST: i32 = 40;
+
+    /// Pixels per hit point and the bar's height for `max` hit points.
+    pub fn pitch_and_height(max: i32) -> (i32, i32) {
+        let max = max.max(1);
+        let pitch = if 5 * max - 1 > TALLEST { (41 / max).max(2) } else { 5 };
+        (pitch, (pitch * max - 1).min(TALLEST))
+    }
+
+    pub fn bar_height(max: i32) -> i32 {
+        pitch_and_height(max).1
+    }
+
+    /// Bar sprite of a unit with `max` hit points, `hp` of them left, in
+    /// `color`: bars are numbered by (max up to `MAX_DISTINCT`, segments,
+    /// colour).
+    pub fn bar_index(max: i32, hp: i32, color: usize) -> u32 {
+        let m = max.clamp(1, MAX_DISTINCT);
+        let segments = hp.clamp(0, 20).min(m);
+        // Bars of fewer hit points before: m' + 1 of them for each m' < m.
+        let before = (m - 1) * (m + 2) / 2;
+        (3 * (before + segments) + color as i32) as u32
+    }
+
+    fn bar_heights() -> Vec<i32> {
+        let mut h: Vec<i32> = (1..=MAX_DISTINCT).map(bar_height).collect();
+        h.sort();
+        h.dedup();
+        h
+    }
+
+    /// Render description entries: images and sheets `UnitHud_bar/<i>`,
+    /// `UnitHud_frame/<height>`, `UnitHud_led@<height>/<0 green, 1
+    /// yellow, 2 red>`, `UnitHud_stack/<lines>`.
+    pub fn description() -> String {
+        let mut out = String::from("\n# Unit HUD (generated, docs §10.6): sprites at the HUD's origin.\n");
+        // Bars: 2 px wide cells, 40 high, their bottom row 23 px below the
+        // origin; black, then the segments from the bottom up.
+        let mut bars = Vec::new();
+        for m in 1..=MAX_DISTINCT {
+            let (pitch, height) = pitch_and_height(m);
+            for segments in 0..=m.min(20) {
+                for color in COLORS {
+                    let x = 2 * bars.len();
+                    let mut cell = format!("{BLACK}:{x},{},2,{height}", TALLEST - height);
+                    if segments > 0 {
+                        let _ = write!(cell, ";{color}:{x},{},2,{}*{segments},0,{}", TALLEST + 1 - pitch, pitch - 1, -pitch);
+                    }
+                    bars.push(cell);
+                }
+            }
+        }
+        debug_assert_eq!(bars.len() as u32, bar_index(MAX_DISTINCT, 20, RED) + 1);
+        // One sheet cutting image `name` into `cells` cells in a row, named
+        // `group/<first>`, `group/<first + 1>`, ...
+        let sheet = |out: &mut String, (name, group): (&str, &str), cell: (usize, i32), cells: usize, anchor: (i32, i32), first: i32| {
+            let _ = writeln!(
+                out,
+                "[sheets.{name}]\nimage = \"{name}\"\ncell = [{}, {}]\ngrid = [{cells}, 1]\nanchor = [{}, {}]\ngroup = \"{group}\"\nfirst_index = {first}\nscaling = \"keep\"\n",
+                cell.0,
+                cell.1,
+                anchor.0,
+                anchor.1,
+            );
+        };
+        let _ = writeln!(out, "[images.unit_hud_bar]\nsource = \"rects:{}x{TALLEST};{}\"\n", 2 * bars.len(), bars.join(";"));
+        sheet(&mut out, ("unit_hud_bar", "UnitHud_bar"), (2, TALLEST), bars.len(), (6, 24 - TALLEST), 0);
+        // Fortified frames: the outline of [5, 8] × [23 − height, 24], by
+        // height (cell k for height k + 1), bottom row 24 below the origin.
+        let tall = TALLEST + 2;
+        let frames: Vec<String> = (1..=TALLEST)
+            .map(|h| {
+                let x = 4 * (h - 1);
+                let top = tall - 2 - h;
+                format!("{WHITE}:{x},{top},4,1;{WHITE}:{x},{},4,1;{WHITE}:{x},{},1,{h};{WHITE}:{},{},1,{h}", tall - 1, top + 1, x + 3, top + 1)
+            })
+            .collect();
+        let _ = writeln!(out, "[images.unit_hud_frame]\nsource = \"rects:{}x{tall};{}\"\n", 4 * TALLEST, frames.join(";"));
+        sheet(&mut out, ("unit_hud_frame", "UnitHud_frame"), (4, tall), TALLEST as usize, (5, 25 - tall), 1);
+        // The LED above the bar, at every height a bar has.
+        for h in bar_heights() {
+            let _ = writeln!(
+                out,
+                "[sheets.unit_hud_led_{h}]\nimage = \"movement_led\"\norigin = [1, 1]\ncell = [6, 6]\nspacing = [8, 0]\ngrid = [3, 1]\nanchor = [4, {}]\ngroup = \"UnitHud_led@{h}\"\nscaling = \"keep\"\n",
+                18 - h
+            );
+        }
+        // Stack lines: 2 to 8 white lines 4 px long, 2 px apart, from (5, 26).
+        let stacks: Vec<String> = (2..=8).map(|n| format!("{WHITE}:{},0,4,1*{n},0,2", 4 * (n - 2))).collect();
+        let _ = writeln!(out, "[images.unit_hud_stack]\nsource = \"rects:28x15;{}\"\n", stacks.join(";"));
+        sheet(&mut out, ("unit_hud_stack", "UnitHud_stack"), (4, 15), 7, (5, 26), 2);
+        out
+    }
 }
 
 #[cfg(test)]
@@ -528,22 +810,154 @@ mod tests {
         Civ3World { unit_type_stats: vec![[1, 1, 1, 0, 0, 0]], experience_hit_points: vec![3], ..Default::default() }
     }
 
-    #[test]
-    fn a_zoomed_out_hud_keeps_its_size_at_half_the_distance() {
-        // Zoomed out the sprites' positions are halved afterwards, but the
-        // HUD is not drawn smaller: its pieces are 16 px from the unit's
-        // half-scale anchor, at the distances they have 32 px from the
-        // anchor at full scale.
-        let (world, unit) = (world(), Civ3Unit::default());
-        let anchor = (200, 100);
-        let full = hud(&world, &unit, anchor, 1);
-        let spread = hud(&world, &unit, anchor, 2);
-        assert!(full.len() > 4);
-        assert_eq!(full.len(), spread.len());
-        let origin = (anchor.0 - 32, anchor.1 - 32);
-        for ((name, (x, y)), (spread_name, (sx, sy))) in full.into_iter().zip(spread) {
-            assert_eq!(name, spread_name);
-            assert_eq!((sx / 2, sy / 2), (origin.0 / 2 + x - origin.0, origin.1 / 2 + y - origin.1), "{name} at ({x}, {y})");
+    /// What `Unit_draw_hud` puts where (§10.6, §10.10), pixel by pixel, from
+    /// the HUD's origin: `led` the LED cells' colours.
+    fn game_hud(world: &Civ3World, u: &Civ3Unit, led: [[u8; 4]; 3]) -> BTreeMap<(i32, i32), [u8; 4]> {
+        let mut out = BTreeMap::new();
+        let [attack, defence, movement, hp_bonus, class, _] = world.unit_type_stats[u.unit_type as usize];
+        let mut rect = |c: [u8; 4], (x0, y0, x1, y1): (i32, i32, i32, i32)| {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    out.insert((x, y), c);
+                }
+            }
+        };
+        let max = (world.experience_hit_points[u.experience as usize] + hp_bonus).max(1);
+        let hp = (max - u.damage).clamp(0, 9999);
+        let pitch = if 5 * max - 1 > 40 { (41 / max).max(2) } else { 5 };
+        let bar = (pitch * max - 1).min(40);
+        let (left, bottom) = (6, 24);
+        let has_bar = attack > 0 || defence > 0;
+        if has_bar {
+            rect([0, 0, 0, 255], (left, bottom - bar, left + 2, bottom));
         }
+        let color = if hp <= 1 {
+            [255, 0, 0, 255]
+        } else if 3 * u.damage < max || u.damage == 0 {
+            [0, 255, 0, 255]
+        } else if 3 * u.damage < 2 * max {
+            [255, 255, 0, 255]
+        } else {
+            [255, 0, 0, 255]
+        };
+        let mut seg_bottom = bottom;
+        for _ in 0..if has_bar { hp.min(20) } else { 0 } {
+            rect(color, (left, seg_bottom - pitch + 1, left + 2, seg_bottom));
+            seg_bottom -= pitch;
+        }
+        let left_moves = movement * 3 - u.moves;
+        let white = [255; 4];
+        if has_bar && class == 0 && u.state == STATE_FORTIFIED && left_moves > 0 {
+            let (x0, y0, x1, y1) = (left - 1, bottom - bar - 1, left + 2, bottom);
+            rect(white, (x0, y0, x1 + 1, y0 + 1));
+            rect(white, (x0, y1, x1 + 1, y1 + 1));
+            rect(white, (x0, y0 + 1, x0 + 1, y1));
+            rect(white, (x1, y0 + 1, x1 + 1, y1));
+        }
+        if u.civ == world.player {
+            let k = if left_moves <= 0 { 2 } else if u.moves != 0 { 1 } else { 0 };
+            rect(led[k], (4, 18 - bar, 10, 24 - bar));
+        }
+        let n = world.unit_tiles.iter().filter(|&&(x, y, c)| x == u.x && y == u.y && c < 0).count().clamp(1, 8) as i32;
+        if !u.always_on_top && n > 1 {
+            for i in 0..n {
+                rect(white, (5, 26 + 2 * i, 9, 27 + 2 * i));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_hud_art_draws_what_the_game_does() {
+        // The LED sheet's image as civ3.toml cuts it, each LED one colour.
+        let led = [[0, 200, 0, 255], [200, 200, 0, 255], [200, 0, 0, 255]];
+        let desc = format!(
+            "grid = {{ layout = \"staggered\", step = [64, 32] }}\n[images.movement_led]\nsource = \"rects:44x8;0,200,0,255:1,1,6,6;200,200,0,255:15,1,6,6;200,0,0,255:29,1,6,6\"\n{}",
+            hud::description()
+        );
+        struct NoFiles;
+        impl render_desc::ImageLoader for NoFiles {
+            fn load(&self, source: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+                Err(format!("no file {source}"))
+            }
+        }
+        let compiled = render_desc::Description::parse(&desc).unwrap().compile(&NoFiles, 4096).unwrap();
+        // Our pieces' sprites drawn in order, from the HUD's origin.
+        let ours = |world: &Civ3World, u: &Civ3Unit| {
+            let mut out = BTreeMap::new();
+            for p in hud(world, u, (32, 32)) {
+                assert_eq!(p.at, (0, 0));
+                let (set, _) = compiled.set(&p.set).unwrap_or_else(|| panic!("no sprite {}", p.set));
+                let s = compiled.atlas.sprites[compiled.sets.frame(set, 0).unwrap().0 as usize];
+                assert_eq!(s.scaling, tile_render::KEEP_SIZE, "{}: the HUD keeps its size zoomed out", p.set);
+                let page = &compiled.atlas.pages[s.page as usize];
+                for y in 0..s.height {
+                    for x in 0..s.width {
+                        let c = page.get(s.atlas_x + x, s.atlas_y + y);
+                        if c[3] != 0 {
+                            out.insert((s.anchor_x + x as i32, s.anchor_y + y as i32), c);
+                        }
+                    }
+                }
+            }
+            out
+        };
+        let mut w = world();
+        w.unit_type_stats.push([0, 0, 1, 0, 0, 0]);
+        let mut checked = 0;
+        for bonus in [0, 1, 4, 6, 9, 13, 17, 30] {
+            w.unit_type_stats[0][3] = bonus;
+            for damage in [0, 1, 2, 3, 5, 8, 12, 40] {
+                for (state, moves, civ, stack) in [(0, 0, 0, 1), (STATE_FORTIFIED, 1, 0, 3), (STATE_FORTIFIED, 3, 1, 9), (0, 2, 0, 2)] {
+                    for unit_type in [0, 1] {
+                        w.unit_tiles = vec![(4, 6, -1); stack];
+                        let u = Civ3Unit { x: 4, y: 6, unit_type, damage, state, moves, civ, ..Default::default() };
+                        assert_eq!(ours(&w, &u), game_hud(&w, &u, led), "bonus {bonus}, damage {damage}, state {state}, moves {moves}, civ {civ}, stack {stack}");
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 512);
+    }
+
+    #[test]
+    fn bars_are_numbered_without_gaps() {
+        let mut seen = BTreeSet::new();
+        for max in 1..=40 {
+            for hp in 0..=max {
+                for color in [hud::GREEN, hud::YELLOW, hud::RED] {
+                    seen.insert(hud::bar_index(max, hp, color));
+                }
+            }
+        }
+        assert_eq!(seen.into_iter().collect::<Vec<_>>(), (0..753).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn units_take_their_tiles_slots_in_the_animators_order() {
+        let world = Civ3World { width: 20, height: 20, wrap_x: true, ..Default::default() };
+        let view = Civ3View { tile_x: (16, 30), tile_y: (2, 12), ..Default::default() };
+        let at = |x, y| Civ3Unit { x, y, ..Default::default() };
+        // Rows top to bottom, right to left (across the wrap: 1 is 21, right
+        // of 19); a moving unit over the one under it; then an always-on-top
+        // unit back on an earlier tile, and all after it, free.
+        let units = [at(19, 3), at(1, 5), at(17, 5), at(17, 5), at(4, 6), at(2, 6), at(5, 3), at(8, 8)];
+        let refs: Vec<&Civ3Unit> = units.iter().collect();
+        let got = slots(&world, &view, &refs, (10, 20));
+        assert_eq!(got, vec![Some(0), Some(0), Some(0), Some(1), Some(0), Some(0), None, None]);
+        // A third unit on a tile does not fit either.
+        let three = [at(4, 6), at(4, 6), at(4, 6), at(2, 6)];
+        let refs: Vec<&Civ3Unit> = three.iter().collect();
+        assert_eq!(slots(&world, &view, &refs, (10, 20)), vec![Some(0), Some(1), None, None]);
+    }
+
+    #[test]
+    fn offsets_take_the_short_way_round_the_map() {
+        assert_eq!(wrapped_offset(-40, true, 1280), -40);
+        assert_eq!(wrapped_offset(1280 - 40, true, 1280), -40);
+        assert_eq!(wrapped_offset(-1280 + 64, true, 1280), 64);
+        assert_eq!(wrapped_offset(1240, false, 1280), 1240);
+        assert_eq!(wrapped_offset(100_000, false, 0), i16::MAX);
     }
 }
