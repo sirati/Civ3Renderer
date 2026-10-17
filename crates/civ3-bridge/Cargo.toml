@@ -26,3 +26,6 @@ tile-viewer = { path = "../tile-viewer" }
 thiserror.workspace = true
 image.workspace = true
 env_logger.workspace = true
+
+[dev-dependencies]
+viewer-settings = { path = "../viewer-settings" }
