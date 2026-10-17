@@ -194,6 +194,10 @@ pub struct Needed {
     /// heads): sprites `Flc@<file>/<chunk>`. Only those shown (they are
     /// big).
     pub plain: BTreeMap<String, AnimFile>,
+    /// Files of which only some frames are drawn (units standing still,
+    /// [`Needed::still`]): those chunks, the only ones made. A file not
+    /// listed is made whole.
+    pub stills: BTreeMap<String, BTreeSet<u32>>,
 }
 
 fn era_key(world: &Civ3World, civ: i32) -> &str {
@@ -261,9 +265,32 @@ impl Needed {
         out
     }
 
+    /// What [`Needed::of`] says, for units that stand still: of their
+    /// animations only the frame each unit shows (the many units of a whole
+    /// scenario would otherwise bring all of theirs: eight directions of
+    /// every animation, in every owner's colours).
+    pub fn still(world: &Civ3World, art: &mut UnitArt) -> Needed {
+        let mut out = Needed::of(world, art);
+        for u in &world.units {
+            let Some(key) = world.unit_type_keys.get(u.unit_type.max(0) as usize) else { continue };
+            let Some(file) = art.file(key, era_key(world, u.civ), u.animation) else { continue };
+            let block = DIRECTION_BLOCK.get(u.direction.max(0) as usize).copied().unwrap_or(2);
+            let chunk = (block * (file.frames_per_direction + 1) + u.frame.max(0) as u32).min(file.chunks.saturating_sub(1));
+            out.stills.entry(file.path.clone()).or_default().insert(chunk);
+        }
+        out
+    }
+
     /// Whether everything `other` needs is already here.
     pub fn covers(&self, other: &Needed) -> bool {
-        other.files.iter().all(|(p, (_, c))| self.files.get(p).is_some_and(|(_, mine)| c.is_subset(mine)))
+        // (A file made whole has every frame; one made in part the frames
+        // listed.)
+        let frames = |p: &String| match (self.stills.get(p), other.stills.get(p)) {
+            (None, _) => true,
+            (Some(mine), Some(theirs)) => theirs.is_subset(mine),
+            (Some(_), None) => false,
+        };
+        other.files.iter().all(|(p, (_, c))| self.files.get(p).is_some_and(|(_, mine)| c.is_subset(mine)) && frames(p))
             && other.site_colors.keys().all(|c| self.site_colors.contains_key(c))
             && other.plain.keys().all(|p| self.plain.contains_key(p))
     }
@@ -282,6 +309,14 @@ impl Needed {
     }
 
     pub fn merge(&mut self, other: &Needed) {
+        for p in other.files.keys() {
+            let mine_whole = self.files.contains_key(p) && !self.stills.contains_key(p);
+            match other.stills.get(p) {
+                _ if mine_whole => {}
+                None => drop(self.stills.remove(p)),
+                Some(theirs) => self.stills.entry(p.clone()).or_default().extend(theirs),
+            }
+        }
         for (p, (f, c)) in &other.files {
             self.files.entry(p.clone()).or_insert_with(|| (f.clone(), BTreeSet::new())).1.extend(c);
         }
@@ -319,36 +354,58 @@ impl Needed {
         }
         for (n, (path, (file, colors))) in self.files.iter().enumerate() {
             let source = toml_str(path);
-            // Every frame (chunk) of the file, one sprite each.
-            let sheets = |out: &mut String, image: &str, group: &str| {
-                let _ = writeln!(
-                    out,
-                    "[sheets.\"{image}\"]\nimage = \"{image}\"\nall_frames = true\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = {}\n",
-                    file.size.0,
-                    file.size.1,
-                    file.anchor.0,
-                    file.anchor.1,
-                    toml_str(group)
-                );
+            // Every frame (chunk) of the file, one sprite each (of a file drawn
+            // still, the frames shown).
+            let made = |k: &u32| self.stills.get(path).is_none_or(|s| s.contains(k));
+            let sheets = |out: &mut String, image: &str, group: &str| match self.stills.get(path) {
+                None => {
+                    let _ = writeln!(
+                        out,
+                        "[sheets.\"{image}\"]\nimage = \"{image}\"\nall_frames = true\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = {}\n",
+                        file.size.0,
+                        file.size.1,
+                        file.anchor.0,
+                        file.anchor.1,
+                        toml_str(group)
+                    );
+                }
+                Some(frames) => {
+                    for k in frames {
+                        let _ = writeln!(
+                            out,
+                            "[sheets.\"{image}_{k}\"]\nimage = \"{image}\"\nframe = {k}\ncell = [{}, {}]\nanchor = [{}, {}]\ngroup = {}\nfirst_index = {k}\n",
+                            file.size.0,
+                            file.size.1,
+                            file.anchor.0,
+                            file.anchor.1,
+                            toml_str(group)
+                        );
+                    }
+                }
             };
             // Per direction block, its frames (the ring frame last, §10.4) as
             // one animation, for the unit layers (a cell's phase is the frame).
             let blocks = |out: &mut String, set: &str, sprite: &str| {
                 let per = file.frames_per_direction + 1;
                 for b in 0..file.chunks.div_ceil(per) {
-                    let frames: Vec<String> = (b * per..((b + 1) * per).min(file.chunks)).map(|k| toml_str(&format!("{sprite}/{k}"))).collect();
+                    let frames: Vec<String> = (b * per..((b + 1) * per).min(file.chunks)).filter(made).map(|k| toml_str(&format!("{sprite}/{k}"))).collect();
+                    if frames.is_empty() {
+                        continue;
+                    }
                     let _ = writeln!(out, "[sets.{}]\nframes = [{}]\n", toml_str(&format!("{set}/{b}")), frames.join(", "));
                 }
             };
             let shadow = format!("unitshadow{n}");
-            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\ntransparent = {shadow_transparent}\nrgba = {{ {} }}\n", shadow_rgba.join(", "));
+            // (Of a file drawn still, only its frames shown are made.)
+            let only = self.stills.get(path).map_or(String::new(), |s| format!("frames = [{}]\n", s.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")));
+            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{only}transparent = {shadow_transparent}\nrgba = {{ {} }}\n", shadow_rgba.join(", "));
             sheets(&mut out, &shadow, &format!("UnitShadow@{path}"));
             blocks(&mut out, &format!("UnitShadowAnim@{path}"), &format!("UnitShadow@{path}"));
             let kinds: BTreeSet<bool> = colors.iter().map(Recolor::army_art).collect();
             for army in kinds {
                 let image = format!("unit{n}{}", if army { "a" } else { "" });
                 let remap = if army { 128 } else { 64 };
-                let _ = writeln!(out, "[images.{image}]\nsource = {source}\nremap = [0, {remap}]\ntransparent = {body_transparent}\n");
+                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{only}remap = [0, {remap}]\ntransparent = {body_transparent}\n");
                 let kind = art_kind(army);
                 sheets(&mut out, &image, &format!("UnitArt@{path}{kind}"));
                 blocks(&mut out, &format!("UnitAnim@{path}{kind}"), &format!("UnitArt@{path}{kind}"));
@@ -846,6 +903,34 @@ pub mod hud {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn still_frames_cover_only_themselves_and_a_whole_file_wins() {
+        let file = AnimFile { path: "a.flc".into(), frames_per_direction: 2, chunks: 24, size: (8, 8), anchor: (0, 0) };
+        let colors = BTreeSet::from([Recolor::civ(3)]);
+        let with = |stills: Option<&[u32]>| Needed {
+            files: BTreeMap::from([("a.flc".to_owned(), (file.clone(), colors.clone()))]),
+            stills: stills.map(|s| BTreeMap::from([("a.flc".to_owned(), s.iter().copied().collect())])).unwrap_or_default(),
+            ..Default::default()
+        };
+        let (whole, one, two) = (with(None), with(Some(&[9])), with(Some(&[9, 12])));
+        assert!(whole.covers(&one) && two.covers(&one));
+        assert!(!one.covers(&two) && !one.covers(&whole));
+        // Only the frames listed are made: chunk 9 and its block (block 3 of
+        // three frames each).
+        let d = one.description();
+        assert!(d.contains("frame = 9\n") && !d.contains("frame = 10\n"));
+        assert!(d.contains("frames = [9]\n"), "only frame 9 is decoded");
+        assert!(d.contains("UnitAnim@a.flc/3") && !d.contains("UnitAnim@a.flc/2\""));
+        let mut merged = one.clone();
+        merged.merge(&two);
+        assert_eq!(merged.stills["a.flc"], BTreeSet::from([9, 12]));
+        merged.merge(&whole);
+        assert!(merged.stills.is_empty() && merged.covers(&whole));
+        let mut kept = whole.clone();
+        kept.merge(&one);
+        assert!(kept.stills.is_empty());
+    }
 
     /// One unit type (attack 1, defence 1, one move) and one experience level
     /// (3 hit points).
