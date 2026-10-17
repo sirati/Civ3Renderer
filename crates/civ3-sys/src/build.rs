@@ -47,6 +47,11 @@ pub struct Addresses {
     pub game_difficulty: u32,
     /// `p_human_player_bits`: bit per civ run by a human.
     pub human_player_bits: u32,
+    /// The first of the game's tile effects (`Tile_Animated_Effect *`, a
+    /// linked list; docs §10.14): the global right after the null tile
+    /// (`p_null_tile` + `sizeof(Tile)`), from the disassembly of the
+    /// PCGames build, the others by the null tile's address in theirs.
+    pub tile_effects: u32,
 }
 
 impl Build {
@@ -67,6 +72,7 @@ impl Build {
                 debug_mode_bits: 0xA5_2680,
                 game_difficulty: 0xA5_2684,
                 human_player_bits: 0xA5_26BC,
+                tile_effects: 0xCA_A40C,
             },
             Build::Steam => Addresses {
                 bic_data: 0x9E_5D08,
@@ -83,6 +89,7 @@ impl Build {
                 debug_mode_bits: 0xA7_4E78,
                 game_difficulty: 0xA7_4E7C,
                 human_player_bits: 0xA7_4EB4,
+                tile_effects: 0xCC_CC74,
             },
             Build::PcGames => Addresses {
                 bic_data: 0x9C_34C8,
@@ -99,6 +106,7 @@ impl Build {
                 debug_mode_bits: 0xA5_2640,
                 game_difficulty: 0xA5_2644,
                 human_player_bits: 0xA5_267C,
+                tile_effects: 0xCA_A3CC,
             },
         }
     }
