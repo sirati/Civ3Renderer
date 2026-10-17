@@ -61,7 +61,6 @@ impl AnimFile {
     /// From the file's headers alone (its frames are not decoded: the art
     /// thread does that when it builds the art).
     fn read(files: &GameFiles, path: &str) -> Option<AnimFile> {
-        // (The layout only: frames are decoded when the art is built.)
         let anim = flc::layout(&files.read(path).ok()?).ok()?;
         let h = &anim.header;
         let u16_at = |o: usize| u16::from_le_bytes([h[o], h[o + 1]]) as i32;
@@ -202,7 +201,7 @@ impl UnitArt {
 
     fn lookup(&mut self, type_key: &str, era_key: &str, animation: i32) -> Option<AnimFile> {
         let ini_path = self.unit_ini(type_key, era_key)?;
-        let name = ini_path.split('/').nth(2)?;
+        let name = ini_path.split('/').nth(2)?.to_owned();
         let files = &self.files;
         let ini = self.inis.entry(ini_path).or_insert_with_key(|p| files.read(p).ok().map(|b| Ini::parse_bytes(&b))).as_ref()?;
         let file = ini.get("Animations", ANIMATION_NAMES.get(animation as usize)?)?.trim();
@@ -458,7 +457,7 @@ impl Needed {
 
     /// What this needs that `other` does not have.
     pub fn minus(&self, other: &Needed) -> Needed {
-        let mut out = Needed::default();
+        let mut out = Needed { smoke: self.smoke.clone(), ..Needed::default() };
         for (p, (f, c)) in &self.files {
             // (Frames `other` lacks: a file it has in part, wanted whole or
             // with other frames, goes again, in all its colours.)
@@ -482,18 +481,19 @@ impl Needed {
         }
         out.site_colors = self.site_colors.iter().filter(|(k, _)| !other.site_colors.contains_key(k)).map(|(k, v)| (*k, *v)).collect();
         out.plain = self.plain.iter().filter(|(k, _)| !other.plain.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+        out.effects = self.effects.iter().filter(|(k, _)| !other.effects.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
         out
     }
 
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.site_colors.is_empty() && self.plain.is_empty()
+        self.files.is_empty() && self.site_colors.is_empty() && self.plain.is_empty() && self.effects.is_empty()
     }
 
     /// Pixels of art this describes (RGBA bytes: every frame of every file
     /// in every colouring and its shadow), for budgeting.
     pub fn bytes(&self) -> u64 {
         let frames = |f: &AnimFile| f.chunks as u64 * f.size.0 as u64 * f.size.1 as u64 * 4;
-        self.files.values().map(|(f, c)| frames(f) * (c.len() as u64 + 1)).sum::<u64>() + self.plain.values().map(frames).sum::<u64>()
+        self.files.values().map(|(f, c)| frames(f) * (c.len() as u64 + 1)).sum::<u64>() + self.plain.values().map(frames).sum::<u64>() + 2 * self.effects.values().map(frames).sum::<u64>()
     }
 
     /// The description entries of this art as an addition to art that

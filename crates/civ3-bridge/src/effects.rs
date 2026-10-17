@@ -211,13 +211,23 @@ mod tests {
         preload(&mut needed, &mut art, &Civ3World::default());
         assert!(needed.effects.contains_key("Art/Animations/Trajectory/miss.flc"), "{:?}", needed.effects.keys());
         assert_eq!(needed.smoke.len(), 16);
-        let desc = format!(
-            "[grid]\nlayout = \"staggered\"\nstep = [64, 32]\ncolor_bits = 5\n[loader]\nquantize = \"rgb555\"\ntransparent = [254, 255]\n\
+        let base = "[grid]\nlayout = \"staggered\"\nstep = [64, 32]\ncolor_bits = 5\n[loader]\nquantize = \"rgb555\"\ntransparent = [254, 255]\n\
              [[layers]]\nname = \"fog\"\npass = 5\nsets = []\n[[layers]]\nname = \"unit_body\"\npass = 6\nsets = []\n\
-             [images.movement_led]\nsource = \"rects:44x8;0,200,0,255:1,1,6,6\"\n{}",
-            needed.description()
-        );
-        let compiled = crate::assets::compile(&desc, files()).unwrap();
+             [images.movement_led]\nsource = \"rects:44x8;0,200,0,255:1,1,6,6\"\n";
+        // The publisher grows an existing atlas. Effect-only additions must
+        // survive its difference and empty checks, and keep the smoke table
+        // for both effect art and units loaded later.
+        let mut have = Needed { smoke: needed.smoke.clone(), ..Needed::default() };
+        let addition = needed.minus(&have);
+        assert!(!addition.is_empty());
+        assert_eq!(addition.effects.len(), needed.effects.len());
+        assert_eq!(addition.smoke, needed.smoke);
+        assert!(addition.bytes() > 0);
+        let (mut compiled, mut growing) = crate::assets::compile_growing(base, files(), true, 4096).unwrap();
+        let growth = crate::assets::grow(&mut growing, &compiled, &addition.addition(), files()).unwrap();
+        compiled.apply(&growth);
+        have.merge(&addition);
+        assert!(have.covers(&needed) && needed.minus(&have).is_empty());
         // A miss on tile (2, 2), frame 11 (smoke in it), over the units.
         let mut world = Civ3World { player: 1, width: 6, height: 6, tiles: vec![Civ3Tile::default(); 18], ..Default::default() };
         world.tiles[(2 * 6 + 2) / 2].visibility = 1 << 1;
@@ -235,6 +245,34 @@ mod tests {
         let alpha = |i: usize| (row[i] >> 24) as u8;
         assert_eq!(alpha(224), needed.smoke[0][3]);
         assert_eq!((alpha(200), alpha(255)), (255, 0));
+        // Every view draws the same world sprites, including a view whose
+        // zoom differs from the game's and the game's half-size map.
+        let tiles = tile_viewer::scene_world(&compiled, &scene);
+        let reference = tile_render::reference::render;
+        for (zoom, downscale) in [((1, 1), 1), ((2, 1), 1), ((1, 2), 1), ((1, 1), 2)] {
+            let camera = tile_render::Camera { zoom, downscale, ..tile_render::Camera::new((512, 384)) };
+            let shown = reference(&tiles, &compiled.atlas, &camera, 0, [48, 96, 144, 255]);
+            let mut without = tiles.clone();
+            without.free.clear();
+            assert_ne!(shown, reference(&without, &compiled.atlas, &camera, 0, [48, 96, 144, 255]), "effect absent at zoom {zoom:?}, downscale {downscale}");
+        }
+        // Under-unit animations precede even free unit sprites. Hits follow
+        // them. An unavailable frame is omitted until its atlas arrives.
+        let marker = scene::FreeSprite { x: -777, ..scene.sprites[0] };
+        scene.sprites = vec![marker];
+        world.effects.push(Civ3Effect {
+            source: civ3_sys::EffectSource::City { effect: 1 }, animation: ATTACK1,
+            ini: "Art/Animations/Disorder/Disorder.ini".into(), ..world.effects[0].clone()
+        });
+        place(&world, &Civ3View::default(), &mut art, &compiled, &mut scene);
+        assert_eq!(scene.sprites.len(), 5);
+        assert!(scene.sprites[..2].iter().all(|s| s.after_pass < units_pass));
+        assert_eq!(scene.sprites[2], marker);
+        assert!(scene.sprites[3..].iter().all(|s| s.after_pass == units_pass));
+        let empty = crate::assets::compile(base, files()).unwrap();
+        let mut waiting = Scene::empty(scene::WorldShape::default(), empty.layers.len());
+        place(&world, &Civ3View::default(), &mut art, &empty, &mut waiting);
+        assert!(waiting.sprites.is_empty());
     }
 
     #[test]
