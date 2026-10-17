@@ -500,6 +500,7 @@ impl TileRenderer {
     /// many again (see [`TileRenderer::reserve_atlas`]). Without an atlas,
     /// does nothing.
     pub fn grow_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, growth: &crate::AtlasGrowth) {
+        self.generation += 1;
         let Some(mut a) = self.atlas.take() else { return };
         if growth.first as usize != a.sprites.len() {
             log::error!("atlas growth for {} sprites, the atlas has {}", growth.first, a.sprites.len());
