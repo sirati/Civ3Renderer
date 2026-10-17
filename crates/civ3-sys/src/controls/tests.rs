@@ -302,3 +302,62 @@ fn the_form_tree_lists_every_form_visited() {
     assert_eq!(got, [(0, 0x10_0000, true, [100, 50, 300, 200], 2), (1, 0x20_0000, true, [110, 70, 60, 24], 0), (1, 0x40_0000, false, [100, 150, 200, 100], 1)]);
     assert!(tree.iter().all(|f| f.list.is_none()));
 }
+
+/// A typed control at `f` (class 0x666908): its draw thunk to a dispatcher
+/// on the type at `[ecx-8]`, type 8 to `add ecx,-0x8C; jmp CHOICE_DRAW`;
+/// its object B, form part F = B + 0x16C, `count` items of the layout.
+fn choices(m: &mut Fake, f: u32, layout: ItemLayout, count: i32, kind: u32) {
+    let (vtable, thunk, d, idx, table, entry): (u32, u32, u32, u32, u32, u32) = (0x70_0000, 0x71_0000, 0x71_1000, 0x71_2000, 0x71_3000, 0x71_4000);
+    m.form(f, vtable, 0, true, [100, 100, 414, 152], 0, &[]);
+    m.put(vtable + 0x58, thunk);
+    m.bytes(thunk, &[0x2B, 0x49, 0xFC, 0xE9]);
+    m.put(thunk + 4, d.wrapping_sub(thunk + 8));
+    m.bytes(d, &[0x8B, 0x41, 0xF8, 0x48, 0x83, 0xF8, 0x0F, 0x77, 0x43, 0x33, 0xD2, 0x8A, 0x90]);
+    m.put(d + 13, idx);
+    m.bytes(d + 17, &[0xFF, 0x24, 0x95]);
+    m.put(d + 20, table);
+    // Types 1..16: 8 at entry 1, the rest at entry 0 (a `ret`).
+    for t in 0..16u32 {
+        m.bytes(idx + t, &[if t + 1 == 8 { 1 } else { 0 }]);
+    }
+    m.put(table, entry + 0x100);
+    m.put(table + 4, entry);
+    m.bytes(entry, &[0x81, 0xC1]);
+    m.put(entry + 2, (-0x8C_i32) as u32);
+    m.bytes(entry + 6, &[0xE9]);
+    m.put(entry + 7, CHOICE_DRAW.wrapping_sub(entry + 11));
+    m.bytes(entry + 0x100, &[0xC3; 11]);
+    // F − [F−4] = ecx; the type at ecx − 8; B = ecx − 0x8C − 0xE0.
+    m.put(f - 4, 0x10);
+    let ecx = f - 0x10;
+    m.put(ecx - 8, kind);
+    let b = ecx - 0x8C - 0xE0;
+    let vb = 0x72_0000;
+    m.put(b, vb);
+    m.put(vb + 4, f - b);
+    m.put(vb + 8, 0x200);
+    let l = b + 0x200;
+    m.put(l + L_X0, layout.x0 as u32);
+    m.put(l + L_Y0, layout.y0 as u32);
+    m.put(l + L_LAYOUT, 0);
+    m.put(l + L_GAP, layout.gap as u32);
+    m.put(l + L_ROWS, layout.rows as u32);
+    m.put(l + L_WIDTH, layout.width as u32);
+    m.put(l + L_HEIGHT, layout.height as u32);
+    m.put(l + L_COUNT, count as u32);
+    with_roots(m, &[f]);
+}
+
+#[test]
+fn a_popup_s_choices_are_buttons() {
+    let mut m = Fake::default();
+    let f = 0x10_0000;
+    choices(&mut m, f, ItemLayout { gap: 2, rows: 2, width: 300, height: 25, ..Default::default() }, 2, 8);
+    let c = controls(&m, &sites());
+    assert_eq!(c.iter().map(|c| (c.rect, c.kind)).collect::<Vec<_>>(), [([100, 101, 300, 25], ControlKind::Button), ([100, 126, 300, 25], ControlKind::Button)]);
+    assert_eq!(c[1].id, (f as u64) << 32 | TAG_CHOICE as u64 | 1);
+    // Another type: none.
+    let mut m = Fake::default();
+    choices(&mut m, f, ItemLayout { gap: 4, rows: 2, width: 300, height: 26, ..Default::default() }, 2, 4);
+    assert!(controls(&m, &sites()).is_empty());
+}

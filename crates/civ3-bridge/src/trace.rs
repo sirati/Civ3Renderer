@@ -494,7 +494,8 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         for f in civ3_sys::controls::form_tree(&civ3_sys::controls::Live, &sites) {
             let [x, y, w, h] = f.shown;
             let list = f.list.map_or(String::new(), |(p, count, first, shown, sane)| format!(" list {:#x} items {:#x} count {count} first {first} shown {shown} sane {sane}", p.list, p.items));
-            let _ = writeln!(out, "control_form {} {:#x} vt {:#x} status1 {:#x} visible {} {x} {y} {w} {h} children {}{list}", f.depth, f.addr, f.vtable, f.status1, f.visible as u8, f.children);
+            let typed = f.typed.map_or(String::new(), |t| format!(" typed draw {t:#x}"));
+            let _ = writeln!(out, "control_form {} {:#x} vt {:#x} status1 {:#x} visible {} {x} {y} {w} {h} children {}{list}{typed}", f.depth, f.addr, f.vtable, f.status1, f.visible as u8, f.children);
         }
     }
     // The mirrored interface (docs §16).
