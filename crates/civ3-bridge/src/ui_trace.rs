@@ -397,9 +397,9 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         with_skipper(|s| s.cleared(c.image));
         c.original()
     });
-    hook!(pcx_create, sites.pcx_create, |c| {
+    hooks.push(Box::new(h::pcx_create::install_call_site(sites.form_canvas_create.0, sites.form_canvas_create.1, |c| {
         let result = c.original();
-        // The software JGL image allocates a zeroed DIB. Opaque copies
+        // The form's software JGL canvas allocates a zeroed DIB. Opaque copies
         // include its unwritten black pixels too, for example around a
         // centered picture. Keep that initial content as a drawing event.
         // Palette-index images have different zero colours and do not
@@ -410,7 +410,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
             }
         }
         result
-    });
+    })?));
     hook!(sprite_slice, sites.sprite_slice, |c| {
         // The game takes these pixels: drawing onto an image it made
         // itself goes on from now on.

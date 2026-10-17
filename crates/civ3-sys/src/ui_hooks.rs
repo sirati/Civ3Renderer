@@ -232,7 +232,7 @@ pub type Site = (u32, &'static [u8]);
 pub struct UiSites {
     pub pcx_read_file: Site,
     pub pcx_clear: Site,
-    pub pcx_create: Site,
+    pub form_canvas_create: (u32, &'static [u8; 5]),
     pub sprite_slice: Site,
     pub sprite_copy: Site,
     pub sprite_reset: Site,
@@ -272,8 +272,10 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             pcx_read_file: (0x5F_C700, &[0x6A, 0xFF, 0x68, 0x29, 0x2E, 0x66, 0x00]),
             // push ebx / push ebp / push esi / mov esi,ecx
             pcx_clear: (0x5F_C4D0, &[0x53, 0x55, 0x56, 0x8B, 0xF1]),
-            // push esi / push edi / mov esi,ecx / call pcx_clear
-            pcx_create: (0x5F_C5F0, &[0x56, 0x57, 0x8B, 0xF1, 0xE8, 0xD7, 0xFE, 0xFF, 0xFF]),
+            // Base_Form::m03 calls PCX creation before sizing/redrawing
+            // the form. A call-site hook leaves the callee's relative-call
+            // prologue at its original address.
+            form_canvas_create: (0x60_23FE, &[0xE8, 0xED, 0xA1, 0xFF, 0xFF]),
             // push esi / mov esi,[esp+8]
             sprite_slice: (0x5F_7EC0, &[0x56, 0x8B, 0x74, 0x24, 0x08]),
             // push esi / push edi / mov edi,[esp+0Ch]
