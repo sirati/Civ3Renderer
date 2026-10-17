@@ -20,11 +20,9 @@ install=${CIV3_INSTALL:-/mnt/datasets/winvm/civ3-src/Civilization III Complete}
 out=${CIV3R_FONT_CACHE:-$HOME/.cache/civ3r/fonts}
 target=${CARGO_TARGET_DIR:-$repo/target}
 vm=${CIV3R_FONT_VM:-fontsheets}
-# The sizes made: every height from 5 to 48 pixels, then the larger ones the viewer's zooms
-# make of the game's fonts (8..24 pixels times 1/4 .. 8, tile_viewer::layout::ZOOMS) up to
-# 96, the largest text is made at (civ3_assets::fonts::MAX_HEIGHT; larger requests and
-# sizes in between take the nearest, civ3_assets::fonts::nearest_height).
-default_sizes="$(seq -s ' ' 5 48) 54 56 60 64 72 80 84 96"
+# The sizes made: the game's own, 8 to 24 pixels (text at other zooms is drawn from the
+# font's outlines; a size without a sheet takes the nearest, civ3_assets::fonts::nearest_height).
+default_sizes="$(seq -s ' ' 8 24)"
 wine=0
 if [ "${1:-}" = --wine ]; then wine=1; shift; fi
 mkdir -p "$out"
