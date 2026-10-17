@@ -9,8 +9,11 @@
 //! 0. assets: compile a render description; starts the viewer on first use
 //! 1. publish: a batch of scene updates (`scene::wire`)
 //! 2. input: take the viewer's queued input (`scene::wire`)
+//! 3. log: take this side's log lines (`log_lines`), for the driver's log
 
 use wine_unixlib::Buffer32;
+
+pub mod log_lines;
 
 /// Call 0. `data`: `scene::wire::encode_assets`; `flags` bit 0: fullscreen.
 #[repr(C)]
@@ -38,10 +41,15 @@ pub struct TakeInput {
     pub _pad: u32,
 }
 
+/// Call 3. Writes `log_lines::encode` of the lines logged since the last
+/// call into `out`, like [`TakeInput`].
+pub type TakeLog = TakeInput;
+
 /// Call numbers.
 pub const CALL_ASSETS: u32 = 0;
 pub const CALL_PUBLISH: u32 = 1;
 pub const CALL_INPUT: u32 = 2;
+pub const CALL_LOG: u32 = 3;
 
 #[cfg(target_os = "linux")]
 mod unix_side {
@@ -65,10 +73,41 @@ mod unix_side {
 
     static VIEWER: Mutex<Option<Viewer>> = Mutex::new(None);
 
+    /// Lines for the driver's log (`CALL_LOG`); at most this many wait.
+    static FOR_DRIVER: Mutex<crate::log_lines::LogQueue> = Mutex::new(crate::log_lines::LogQueue::new(1000));
+
+    /// Logs to standard error (`RUST_LOG`, default `info`) and, from `info`
+    /// up, for the driver's log.
+    struct Logger(env_logger::Logger);
+
+    impl log::Log for Logger {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            self.0.enabled(metadata) || metadata.level() <= log::Level::Info
+        }
+
+        fn log(&self, record: &log::Record) {
+            if self.0.matches(record) {
+                self.0.log(record);
+            }
+            if record.level() <= log::Level::Info {
+                let line = crate::log_lines::LogLine { level: record.level(), target: record.target().to_owned(), message: record.args().to_string() };
+                FOR_DRIVER.lock().unwrap_or_else(|e| e.into_inner()).push(line);
+            }
+        }
+
+        fn flush(&self) {
+            self.0.flush();
+        }
+    }
+
     fn log_init() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
-            let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init();
+            let inner = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).build();
+            let max = inner.filter().max(log::LevelFilter::Info);
+            if log::set_boxed_logger(Box::new(Logger(inner))).is_ok() {
+                log::set_max_level(max);
+            }
         });
     }
 
@@ -183,10 +222,28 @@ mod unix_side {
         v.pending.clear();
         STATUS_SUCCESS
     }
+
+    /// Lines kept for the driver's log until it has room for them all.
+    static LOG_PENDING: Mutex<Vec<crate::log_lines::LogLine>> = Mutex::new(Vec::new());
+
+    pub fn take_log(args: &mut TakeLog) -> Status {
+        let mut pending = LOG_PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        pending.extend(FOR_DRIVER.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let bytes = crate::log_lines::encode(&pending);
+        args.len = bytes.len() as u32;
+        if bytes.len() > args.out.len as usize {
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+        if wine_unixlib::unix::write(args.out, &bytes).is_err() {
+            return STATUS_INVALID_PARAMETER;
+        }
+        pending.clear();
+        STATUS_SUCCESS
+    }
 }
 
 #[cfg(target_os = "linux")]
-use unix_side::{assets, input, publish};
+use unix_side::{assets, input, publish, take_log};
 
 #[cfg(target_os = "linux")]
-wine_unixlib::unix_call_table![assets, publish, input];
+wine_unixlib::unix_call_table![assets, publish, input, take_log];
