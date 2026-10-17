@@ -287,3 +287,105 @@ fn context_menus_check_boxes_tabs_and_links() {
     let c = controls(&m, &sites());
     assert!(c.iter().any(|c| c.id == check as u64 && c.rect == [0, 400, 300, 50]));
 }
+
+#[test]
+fn the_form_tree_lists_every_form_visited() {
+    let mut m = Fake::default();
+    m.form(0x10_0000, PANEL, KEYED, true, [100, 50, 400, 250], 0, &[0x20_0000, 0x40_0000]);
+    m.form(0x20_0000, BUTTON, 0, true, [10, 20, 70, 44], 0x10_0000, &[]);
+    // Hidden: listed, its children not.
+    m.form(0x40_0000, PANEL, 0, false, [0, 100, 200, 200], 0x10_0000, &[0x50_0000]);
+    m.form(0x50_0000, BUTTON, 0, true, [0, 0, 60, 24], 0x40_0000, &[]);
+    with_roots(&mut m, &[0x10_0000]);
+    let tree = form_tree(&m, &sites());
+    let got: Vec<(u32, u32, bool, [i32; 4], u32)> = tree.iter().map(|f| (f.depth, f.addr, f.visible, f.shown, f.children)).collect();
+    assert_eq!(got, [(0, 0x10_0000, true, [100, 50, 300, 200], 2), (1, 0x20_0000, true, [110, 70, 60, 24], 0), (1, 0x40_0000, false, [100, 150, 200, 100], 1)]);
+    assert!(tree.iter().all(|f| f.list.is_none()));
+}
+
+/// A typed control at `f` (class 0x666908): its draw thunk to a dispatcher
+/// on the type at `[ecx-8]` (`kind`), type `of` to `add ecx,add; jmp draw`;
+/// its object B `back` below that, form part F, `count` items of the
+/// layout, item nodes of `lines` each.
+#[allow(clippy::too_many_arguments)]
+fn typed(m: &mut Fake, f: u32, size: (i32, i32), layout: ItemLayout, count: i32, kind: u32, of: u32, draw: u32, add: i32, back: u32, lines: &[i32]) {
+    let (vtable, thunk, d, idx, table, entry): (u32, u32, u32, u32, u32, u32) = (0x70_0000, 0x71_0000, 0x71_1000, 0x71_2000, 0x71_3000, 0x71_4000);
+    m.form(f, vtable, 0, true, [100, 100, 100 + size.0, 100 + size.1], 0, &[]);
+    m.put(vtable + 0x58, thunk);
+    m.bytes(thunk, &[0x2B, 0x49, 0xFC, 0xE9]);
+    m.put(thunk + 4, d.wrapping_sub(thunk + 8));
+    m.bytes(d, &[0x8B, 0x41, 0xF8, 0x48, 0x83, 0xF8, 0x0F, 0x77, 0x43, 0x33, 0xD2, 0x8A, 0x90]);
+    m.put(d + 13, idx);
+    m.bytes(d + 17, &[0xFF, 0x24, 0x95]);
+    m.put(d + 20, table);
+    // Types 1..16: `of` at entry 1, the rest at entry 0 (a `ret`).
+    for t in 0..16u32 {
+        m.bytes(idx + t, &[if t + 1 == of { 1 } else { 0 }]);
+    }
+    m.put(table, entry + 0x100);
+    m.put(table + 4, entry);
+    m.bytes(entry, &[0x81, 0xC1]);
+    m.put(entry + 2, add as u32);
+    m.bytes(entry + 6, &[0xE9]);
+    m.put(entry + 7, draw.wrapping_sub(entry + 11));
+    m.bytes(entry + 0x100, &[0xC3; 11]);
+    // F − [F−4] = ecx; the type at ecx − 8.
+    m.put(f - 4, 0x10);
+    let ecx = f - 0x10;
+    m.put(ecx - 8, kind);
+    let b = ecx.wrapping_add(add as u32) - back;
+    let vb = 0x72_0000;
+    m.put(b, vb);
+    m.put(vb + 4, f - b);
+    m.put(vb + 8, 0x200);
+    let l = b + 0x200;
+    m.put(l + L_X0, layout.x0 as u32);
+    m.put(l + L_Y0, layout.y0 as u32);
+    m.put(l + L_LAYOUT, 0);
+    m.put(l + L_GAP, layout.gap as u32);
+    m.put(l + L_ROWS, layout.rows as u32);
+    m.put(l + L_WIDTH, layout.width as u32);
+    m.put(l + L_HEIGHT, layout.height as u32);
+    m.put(l + L_COUNT, count as u32);
+    // Item nodes: +8 data (its +8 the lines), +0xC the next.
+    let mut node = 0;
+    for (k, n) in lines.iter().enumerate().rev() {
+        let (at, data) = (0x73_0000 + 0x100 * k as u32, 0x74_0000 + 0x100 * k as u32);
+        m.put(at + 8, data);
+        m.put(data + 8, *n as u32);
+        m.put(at + 0xC, node);
+        node = at;
+    }
+    m.put(l + L_FIRST_NODE, node);
+    with_roots(m, &[f]);
+}
+
+#[test]
+fn a_choice_grid_s_items_are_buttons() {
+    let mut m = Fake::default();
+    let f = 0x10_0000;
+    let grid = ItemLayout { gap: 2, rows: 2, width: 300, height: 25, ..Default::default() };
+    typed(&mut m, f, (314, 52), grid, 2, 8, 8, CHOICE_DRAW, -0x8C, 0xE0, &[]);
+    let c = controls(&m, &sites());
+    assert_eq!(c.iter().map(|c| (c.rect, c.kind)).collect::<Vec<_>>(), [([100, 101, 300, 25], ControlKind::Button), ([100, 126, 300, 25], ControlKind::Button)]);
+    assert_eq!(c[1].id, (f as u64) << 32 | TAG_CHOICE as u64 | 1);
+    // Of another type: none.
+    let mut m = Fake::default();
+    typed(&mut m, f, (314, 52), grid, 2, 4, 8, CHOICE_DRAW, -0x8C, 0xE0, &[]);
+    assert!(controls(&m, &sites()).is_empty());
+}
+
+#[test]
+fn a_popup_s_choices_share_its_height_by_their_lines() {
+    // Type 16 (the quit popup's "No, not really." / "Yes, immediately!"):
+    // 314×52, rows of one and of three lines.
+    let mut m = Fake::default();
+    let f = 0x10_0000;
+    typed(&mut m, f, (314, 52), ItemLayout { rows: 1, width: 314, height: 13, ..Default::default() }, 2, 16, 16, LINES_DRAW, -0x184, 0x28, &[1, 3]);
+    let c = controls(&m, &sites());
+    assert_eq!(c.iter().map(|c| c.rect).collect::<Vec<_>>(), [[100, 100, 314, 13], [100, 113, 314, 39]]);
+    assert!(c.iter().all(|c| c.kind == ControlKind::Button));
+    // Two of one line: half each.
+    typed(&mut m, f, (314, 52), ItemLayout { rows: 1, width: 314, height: 26, ..Default::default() }, 2, 16, 16, LINES_DRAW, -0x184, 0x28, &[1, 1]);
+    assert_eq!(controls(&m, &sites()).iter().map(|c| c.rect).collect::<Vec<_>>(), [[100, 100, 314, 26], [100, 126, 314, 26]]);
+}

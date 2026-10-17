@@ -615,12 +615,18 @@ fn publish(
         // What can be clicked (for the viewer's button snapping): our own
         // title menu's buttons, else the game's controls.
         let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
-        let interactables = match own_title {
+        let mut interactables = match own_title {
             Some((ms, m)) => ms.interactables(m, input.viewport),
             None => civ3_sys::controls::sites(game.build)
                 .map(|s| ui_screen::interactables(&civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)))
                 .unwrap_or_default(),
         };
+        // What the open city screen tests in its code (citizens, units).
+        if let (Shown::Map(world, _), Some(f)) = (&shown, ui.as_ref()) {
+            if world.focus_city.is_some() {
+                interactables.extend(ui_screen::city_drawn_targets(f, modal.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)));
+            }
+        }
         // The pointer the game shows (docs §16.11).
         let game_cursor = civ3_sys::cursor::sites(game.build).and_then(|s| civ3_sys::cursor::read(&civ3_sys::controls::Live, &s));
         let standard = inproc::pointer::last_set_cursor().and_then(inproc::pointer::standard_cursor);
