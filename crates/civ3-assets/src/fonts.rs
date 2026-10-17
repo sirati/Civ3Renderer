@@ -180,9 +180,19 @@ pub fn cache_stem(font: &FontStyle) -> String {
     s
 }
 
-fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
-    // A size without a sheet: the nearest there is.
-    let font = &FontStyle { height: available_height(font), ..font.clone() };
+/// A font's sheet (see [`from_cache`]): its file stem, its metrics
+/// (`*.toml`), and the cell size.
+struct SheetMeta {
+    stem: std::path::PathBuf,
+    meta: toml::Table,
+    cell: (u32, u32),
+}
+
+fn int(v: Option<&toml::Value>) -> i64 {
+    v.and_then(|v| v.as_integer()).unwrap_or(0)
+}
+
+fn sheet_meta(font: &FontStyle) -> Result<SheetMeta, String> {
     let dir = cache_dir().ok_or("no font cache directory")?;
     let stem = dir.join(cache_stem(font));
     let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
@@ -190,15 +200,42 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
         .map_err(|e| missing(&e))?
         .parse()
         .map_err(|e| missing(&e))?;
-    let sheet = image::open(stem.with_extension("png")).map_err(|e| missing(&e))?.to_rgba8();
-    let light_sheet = image::open(stem.with_file_name(format!("{}-light.png", cache_stem(font)))).map_err(|e| missing(&e))?.to_rgba8();
-    let int = |v: Option<&toml::Value>| v.and_then(|v| v.as_integer()).unwrap_or(0);
     let cell = meta.get("cell").and_then(|c| c.as_array()).ok_or_else(|| missing(&"no cell"))?;
-    let (cw, ch) = (int(cell.first()) as u32, int(cell.get(1)) as u32);
-    let first = int(meta.get("first")) as u32;
+    let cell = (int(cell.first()) as u32, int(cell.get(1)) as u32);
     if meta.get("coverage").and_then(|c| c.as_str()) != Some("rgb") {
         return Err(missing(&"old sheet format"));
     }
+    Ok(SheetMeta { stem, meta, cell })
+}
+
+/// The size of each glyph image [`load`] makes of `font` (in any colour),
+/// by character; from the sheet's metrics alone where glyphs come from
+/// sheets.
+pub fn glyph_sizes(files: &GameFiles, font: &FontStyle) -> Result<BTreeMap<char, (u32, u32)>, String> {
+    if !from_sheets() {
+        return Ok(load(files, font, [0; 3])?.glyphs.into_iter().map(|(c, g)| (c, (g.image.width, g.image.height))).collect());
+    }
+    let font = &FontStyle { height: available_height(font), ..font.clone() };
+    let SheetMeta { meta, cell: (_, ch), .. } = sheet_meta(font)?;
+    let table = meta.get("glyphs").and_then(|g| g.as_table()).ok_or("no glyphs")?;
+    Ok(table
+        .iter()
+        .filter_map(|(code, m)| {
+            let c = char::from_u32(code.parse().ok()?)?;
+            // (As `image` makes them: at least 1 × 1.)
+            Some((c, ((int(m.get("width")) as u32).max(1), ch.max(1))))
+        })
+        .collect())
+}
+
+fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
+    // A size without a sheet: the nearest there is.
+    let font = &FontStyle { height: available_height(font), ..font.clone() };
+    let SheetMeta { stem, meta, cell: (cw, ch) } = sheet_meta(font)?;
+    let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
+    let sheet = image::open(stem.with_extension("png")).map_err(|e| missing(&e))?.to_rgba8();
+    let light_sheet = image::open(stem.with_file_name(format!("{}-light.png", cache_stem(font)))).map_err(|e| missing(&e))?.to_rgba8();
+    let first = int(meta.get("first")) as u32;
     let ascent = int(meta.get("ascent")) as i32;
     let underline = match meta.get("underline").and_then(|u| u.as_array()) {
         Some(u) => (int(u.first()) as i32, int(u.get(1)) as i32),
