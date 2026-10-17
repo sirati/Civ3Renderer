@@ -198,8 +198,9 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   popup closes. A screen (an advisor, the city screen, the menu, the
   Civilopedia) opening lets go of the mouse the same way, the pointer put
   on its main control where the screen shows (the city screen's production
-  box; else the screen's middle; where the system pointer cannot be moved,
-  as on Wayland, it stays where it is), and the mouse is captured again,
+  box; else the screen's middle; on Wayland through a pointer lock and a
+  position hint; where the system pointer cannot be
+  moved at all it stays where it is), and the mouse is captured again,
   the world cursor where it was, when the screen closes.
 - **Smooth world movement**: a view following the game's view or the focus
   glides there by pixels (a critically damped spring that keeps its
@@ -223,7 +224,9 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
 While the mouse is free the divider between A and B is a wall except in
 its middle third (drawn without the line) and where the unit's order
 buttons are: the pointer pushed against it stays in its view (the system
-pointer is moved back where the platform allows) and scrolls that view
+pointer is moved back where the platform allows; on Wayland the compositor
+holds it out of the walls through a pointer confinement, which also keeps
+it in the window while the mouse is free) and scrolls that view
 instead: the game's own view as at its screen edge (`scene::Input::Edge`;
 the game polls the pointer, `inproc::pointer`), the viewer's views by
 itself. Through the gaps it passes freely. The game's top-left menu,

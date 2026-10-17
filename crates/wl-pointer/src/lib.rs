@@ -21,6 +21,20 @@
 //!
 //! Coordinates are the surface's (logical pixels); [`holes_in_surface`]
 //! turns window pixels into them.
+//!
+//! # Compositor verification
+//!
+//! Sway with wlroots holds the pointer at the divider's closed stretches
+//! and allows it through the gaps. Region changes apply with a surface
+//! commit. The seat's pointer is recreated after pointer capability returns,
+//! for example when a virtual input device reconnects.
+//!
+//! GNOME with Mutter has not been verified. The protocol lets a compositor
+//! ignore a position hint; a move also gives up after 300 ms if the lock
+//! does not activate. Fractional coordinate conversion has unit tests but
+//! still needs compositor verification. In a window with client decorations,
+//! confinement to the content surface can prevent reaching its title bar
+//! until keyboard focus changes.
 
 /// A rectangle in surface coordinates (logical pixels).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -33,7 +47,7 @@ pub struct Rect {
 
 impl Rect {
     pub fn contains(&self, (x, y): (i32, i32)) -> bool {
-        x >= self.x && y >= self.y && x < self.x + self.w && y < self.y + self.h
+        x >= self.x && y >= self.y && (x as i64) < self.x as i64 + self.w as i64 && (y as i64) < self.y as i64 + self.h as i64
     }
 }
 
@@ -48,8 +62,8 @@ pub fn holes_in_surface(holes: &[[i32; 4]], scale: f64) -> Vec<Rect> {
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let span = |from: i32, len: i32| {
         let a = (from as f64 / scale).ceil() as i32;
-        let b = ((from + len) as f64 / scale).floor() as i32;
-        (a, (b - a).max(1))
+        let b = ((from as i64 + len as i64) as f64 / scale).floor() as i32;
+        (a, (b as i64 - a as i64).clamp(1, i32::MAX as i64) as i32)
     };
     holes
         .iter()
@@ -122,6 +136,14 @@ mod tests {
         // 400..404 at 3 covers no surface pixel wholly (133.3..134.7).
         assert_eq!(holes_in_surface(&[[400, 0, 4, 9]], 3.0), vec![Rect { x: 134, y: 0, w: 1, h: 3 }]);
         assert_eq!(holes_in_surface(&[[400, 0, 0, 9]], 3.0), vec![]);
+    }
+
+    #[test]
+    fn rectangles_keep_wide_coordinates_without_overflow() {
+        let r = Rect { x: i32::MAX - 1, y: 0, w: 10, h: 1 };
+        assert!(r.contains((i32::MAX, 0)));
+        assert!(!r.contains((i32::MIN, 0)));
+        assert_eq!(holes_in_surface(&[[i32::MAX - 1, 0, 10, 1]], 2.0), vec![Rect { x: 1_073_741_823, y: 0, w: 5, h: 1 }]);
     }
 
     #[test]
