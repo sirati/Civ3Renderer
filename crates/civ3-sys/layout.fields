@@ -358,3 +358,18 @@ BIC DifficultyLevelCount
 BIC CitizenTypeCount
 BIC transition_government
 value TR_ACCELERATED_PRODUCTION TR_ACCELERATED_PRODUCTION
+
+# Targeting modes (docs §10.14): the unit command waiting for a target
+# tile, its range, and what the game decided about the tile under the mouse.
+Main_Screen_Form Mode_Action
+Main_Screen_Form field_4ED0
+Main_Screen_Form Mode_Action_Range
+Main_Screen_Form field_2E1AC
+
+# The range a targeting command reaches, outlined tile by tile in the map's
+# grid pass (0x4C57C0, docs §10.14).
+Map Renderer
+Map_Renderer b_Action_Mode
+Map_Renderer Action_Mode_Range
+Map_Renderer Action_Mode_CenterX
+Map_Renderer Action_Mode_CenterY

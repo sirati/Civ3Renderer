@@ -32,6 +32,63 @@ pub struct ViewState {
     pub player_civ: i32,
 }
 
+/// The main screen's targeting state (docs §10.14): `Mode_Action` (a
+/// `Unit_Mode_Actions` value, or 0 / `IDC_ARROW` 0x7F00 for none) is the
+/// command waiting for a target tile and the index of its pointer in
+/// `Art/Cursor.pcx`; `Mode_Action_Range` its range in tiles (-1: any).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Targeting {
+    pub mode: i32,
+    /// The pointer shows "not here" (`field_4ED0`).
+    pub refused: bool,
+    pub range: i32,
+    /// The tile under the mouse is a target the command takes, within
+    /// range (`field_2E1AC`, set by 0x4DC360 as the mouse moves).
+    pub target_ok: bool,
+    /// The command was given (by key or button: `field_4E80[0]`, set by
+    /// `Main_Screen_Form::issue_command`; dragging a unit with the right
+    /// button leaves it off) and waits for its tile: the map shows the
+    /// overlays only then (0x4EF187).
+    pub armed: bool,
+    /// Where a go-to path starts (`field_4E80[1..2]`, the unit's tile when
+    /// the command was given).
+    pub start: (i32, i32),
+    /// The tile under the pointer (0x4E3D20), which the tile frame marks
+    /// (the go-to modes keep theirs in `field_4E80[3..4]`).
+    pub pointer_tile: Option<(i32, i32)>,
+    /// The tiles the command reaches, which the map outlines (see
+    /// [`RangeGrid`]), while it shows them.
+    pub range_grid: Option<RangeGrid>,
+}
+
+/// The range of a targeting command the map's grid pass outlines tile by
+/// tile (`Map_Renderer::m36`, 0x4C57C0): every tile at most `range` from
+/// `centre` (`Map::get_distance`, 0x44A950) gets its diamond's four edges
+/// in red (`Map_Renderer.field_2C8`, set to pure red at 0x5F4437). Set
+/// with the command (0x4D8822: `b_Action_Mode`, `Action_Mode_*`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct RangeGrid {
+    pub centre: (i32, i32),
+    pub range: i32,
+}
+
+/// 0x4E3D20: the tile at pixel `p` of the main view (its camera plus the
+/// pointer), tiles `w × h` = 128 × 64 (zoomed out 64 × 32), the map `size`
+/// tiles big (in tile units) wrapping as `wrap` says; `None` off the map.
+pub fn tile_under((px, py): (i32, i32), zoomed_out: bool, size: (i32, i32), wrap: (bool, bool)) -> Option<(i32, i32)> {
+    let (w, h) = if zoomed_out { (64, 32) } else { (128, 64) };
+    let cell = w * h / 2;
+    let (a, b) = (px * (h / 2), py * (w / 2));
+    let half = cell / 2;
+    // (C division, rounding towards zero after the game's shift down.)
+    let down = |v: i32| if v < 0 { v - cell } else { v } / cell;
+    let p = down(half - b + a);
+    let q = down(half + a + b);
+    let axis = |v: i32, n: i32, wraps: bool| if wraps && v < 0 { v + n } else if wraps && v >= n { v - n } else { v };
+    let (x, y) = (axis(q + p - 1, size.0, wrap.0), axis(q - p - 1, size.1, wrap.1));
+    ((0..size.0).contains(&x) && (0..size.1).contains(&y)).then_some((x, y))
+}
+
 /// A city, as far as the map shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CityInfo {
@@ -1010,6 +1067,48 @@ impl Civ3 {
         Ok((x >= 0 && y >= 0).then_some((x, y)))
     }
 
+    /// The unit command waiting for a target tile, and what the game made
+    /// of the tile under the mouse (docs §10.14).
+    pub fn targeting(&self) -> Result<Targeting, Civ3Error> {
+        let f = L::MAIN_SCREEN_FORM_FIELD_4E80;
+        Ok(Targeting {
+            mode: self.screen(L::MAIN_SCREEN_FORM_MODE_ACTION)?,
+            refused: self.screen::<u8>(L::MAIN_SCREEN_FORM_FIELD_4ED0)? != 0,
+            range: self.screen(L::MAIN_SCREEN_FORM_MODE_ACTION_RANGE)?,
+            target_ok: self.screen::<u8>(L::MAIN_SCREEN_FORM_FIELD_2E1AC)? != 0,
+            armed: self.screen::<u8>(f)? != 0,
+            start: (self.screen(f + 4)?, self.screen(f + 8)?),
+            pointer_tile: self.tile_under_mouse()?,
+            range_grid: self.range_grid()?,
+        })
+    }
+
+    /// The range the map outlines now, if any (see [`RangeGrid`]).
+    pub fn range_grid(&self) -> Result<Option<RangeGrid>, Civ3Error> {
+        let r = |f: u32| self.map_field::<i32>(L::MAP_RENDERER + f);
+        if r(L::MAP_RENDERER_B_ACTION_MODE)? == 0 {
+            return Ok(None);
+        }
+        Ok(Some(RangeGrid {
+            centre: (r(L::MAP_RENDERER_ACTION_MODE_CENTERX)?, r(L::MAP_RENDERER_ACTION_MODE_CENTERY)?),
+            range: r(L::MAP_RENDERER_ACTION_MODE_RANGE)?,
+        }))
+    }
+
+    /// The tile under the game's pointer (`mouse_x/y`), as
+    /// `Main_Screen_Form::get_tile_coords_under_mouse` (0x4E3D20) finds it;
+    /// `None` off the map.
+    pub fn tile_under_mouse(&self) -> Result<Option<(i32, i32)>, Civ3Error> {
+        let view = self.view()?;
+        let map = self.map()?;
+        Ok(tile_under(
+            (view.camera_x + view.mouse_x, view.camera_y + view.mouse_y),
+            self.zoomed_out()?,
+            (map.width, map.height),
+            (map.wrap_x, map.wrap_y),
+        ))
+    }
+
     pub fn zoomed_out(&self) -> Result<bool, Civ3Error> {
         Ok(self.bic::<u8>(L::BIC_IS_ZOOMED_OUT)? != 0)
     }
@@ -1024,6 +1123,24 @@ impl MapInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pointer_finds_the_diamond_it_is_in() {
+        // Tile (x, y)'s centre is at (64x + 64, 32y + 32); zoomed out half.
+        for (x, y) in [(81, 51), (79, 51), (80, 50), (0, 0), (1, 1)] {
+            let c = (64 * x + 64, 32 * y + 32);
+            assert_eq!(tile_under(c, false, (200, 200), (false, false)), Some((x, y)));
+            assert_eq!(tile_under((c.0 / 2, c.1 / 2), true, (200, 200), (false, false)), Some((x, y)));
+            // Just inside the diamond's corners.
+            for (dx, dy) in [(-62, 0), (62, 0), (0, -30), (0, 30)] {
+                assert_eq!(tile_under((c.0 + dx, c.1 + dy), false, (200, 200), (false, false)), Some((x, y)), "{:?}", (x, y, dx, dy));
+            }
+        }
+        // Off the map's edge, unless it wraps.
+        assert_eq!(tile_under((2, 60), false, (200, 200), (false, false)), None);
+        assert_eq!(tile_under((2, 60), false, (200, 200), (true, false)), Some((199, 1)));
+        assert_eq!(tile_under((2, 2), false, (200, 200), (true, false)), None);
+    }
 
     #[test]
     fn tile_record_mirrors_the_game_struct_size() {
