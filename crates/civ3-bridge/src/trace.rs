@@ -144,6 +144,29 @@ fn request_path() -> PathBuf {
     PathBuf::from("civ3-trace.request")
 }
 
+/// The text import is redirected before the game's LoadLibraryA returns.
+/// Keep its guard process-wide; the later tracer setup may discover the
+/// same module concurrently and must not patch the import twice.
+static TEXT_HOOK: Mutex<Option<hooks::text_out::Installed>> = Mutex::new(None);
+
+/// Installs jgl's text capture synchronously, before its first draw. Safe
+/// during early DLL setup: this only reads and patches an existing import,
+/// without loading a library or waiting for another initialization thread.
+/// Returns whether the module imports TextOutA; an installed hook is reused.
+pub(crate) fn hook_jgl_text(base: u32) -> Result<bool, inproc::hook::HookError> {
+    let mut installed = TEXT_HOOK.lock().unwrap_or_else(|e| e.into_inner());
+    if installed.is_some() { return Ok(true); }
+    let Some(slot) = inproc::pe::import_slot(base, "GDI32.dll", "TextOutA")? else { return Ok(false); };
+    *installed = Some(hooks::text_out::install_slot(slot, |call| {
+        record_text(call);
+        // Measuring text remains available even when its mirrored pixel
+        // drawing is skipped; GetTextExtentPoint32 is not redirected.
+        if crate::ui_trace::skips_text() { 1 } else { call.original() }
+    })?);
+    log::info!("tracing text (jgl.dll TextOutA, synchronous import hook)");
+    Ok(true)
+}
+
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let _ = BUILD.set(game.build);
     let sprite = match hooks::sprite_draw_on_map_site(game.build) {
@@ -185,32 +208,16 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
         })?),
         None => None,
     };
-    // The game loads its graphics library (jgl.dll) later: hook its text
-    // output once it is there. The hook stays for the life of the process.
-    std::thread::spawn(|| {
-        for _ in 0..600 {
-            if let Some(module) = inproc::pe::module_base("jgl.dll") {
-                match inproc::pe::import_slot(module, "GDI32.dll", "TextOutA") {
-                    Ok(Some(slot)) => match hooks::text_out::install_slot(slot, |call| {
-                        record_text(call);
-                        // Recorded for the mirror: not drawn while the game
-                        // does not draw (measuring text still works: that
-                        // is GetTextExtentPoint32).
-                        if crate::ui_trace::skips_text() { 1 } else { call.original() }
-                    }) {
-                        Ok(installed) => {
-                            log::info!("tracing text (jgl.dll TextOutA)");
-                            std::mem::forget(installed);
-                        }
-                        Err(e) => log::warn!("hooking TextOutA: {e}"),
-                    },
-                    other => log::warn!("no TextOutA import in jgl.dll ({other:?})"),
-                }
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
+    // Normally game_window's early LoadLibraryA callback installed this
+    // before any jgl call. Cover injection into an already-loaded module
+    // synchronously as well, without a detached polling race.
+    if let Some(base) = inproc::pe::module_base("jgl.dll") {
+        match hook_jgl_text(base) {
+            Ok(true) => {}
+            Ok(false) => log::warn!("no TextOutA import in jgl.dll"),
+            Err(e) => log::warn!("hooking TextOutA: {e}"),
         }
-    });
+    }
     let draw_tiles = draw_tiles::install_slot(hooks::draw_tiles_slot(game.build), move |call| {
         DRAW_TILES_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         {
