@@ -25,6 +25,7 @@ game could drive the same renderer, with or without Civ III's art.
 | `civ3-sys` | facts only | Civ III binary facts: build detection, addresses, generated struct layouts |
 | `civ3-bridge` | **yes** | runs in the game (as `ifc23.dll`), reads its state, drives the renderer |
 | `gdi-text` | no | safe wrapper for GDI text rasterisation (glyph sheets matching old games' text) |
+| `gpu-text` | no | font outlines (TrueType/OpenType, `ttf-parser`) packed for drawing text on the GPU at any size |
 | `wine-unixlib` | no | safe abstractions for Wine dual-stack programs (PE code calling a native Linux unixlib) |
 | `civ3r-native` | asset loader only | native Linux side of the renderer inside the Wine game process |
 
@@ -141,8 +142,8 @@ scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`
 keeps the menus (and a city screen's map) 1:1 over the window and resizes
 only the world. The game's minimap also marks what the split pane and the insets show
 (`CIV3R_VIEW_RECT_COLOR`, `R;G;B`, yellow by default). Zoomed views show
-text rasterised at their zoom (`text=sharp`, Ctrl+Shift+T; `pixel`: its
-pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
+text drawn at their zoom from the font's outlines (`text=sharp`, Ctrl+Shift+T;
+`pixel`: the 1:1 text's pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
 second ring around foreign units by diplomacy: war, mutual defence,
 peace.
 
