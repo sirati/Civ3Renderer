@@ -1282,4 +1282,47 @@ fn a_frame_like_the_last_shows_the_same_with_its_overlays_drawn_anew() {
     let dirty = world.take_dirty();
     renderer.update_cells(&gpu.device, &gpu.queue, &world, &dirty);
     check(&mut renderer, &world, &both, &[PlacedSprite::new(anim, 310, 200), cursor(30)], 3, "a cell changed");
+    check(&mut renderer, &world, &both[..1], &[in_main], 3, "a newer picture without overlays");
+    assert!(!renderer.reused());
+    check(&mut renderer, &world, &both, &[in_main, cursor(30)], 3, "overlays return over the newer picture");
+    assert!(renderer.reused());
+    check(&mut renderer, &world, &both, &[in_main, cursor(80)], 3, "the newer picture survives another overlay frame");
+    assert!(renderer.reused());
+}
+
+#[test]
+fn scaled_overlays_redraw_their_sources_without_old_markers() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, false);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let terrain = world.layers()[0].lut.clone();
+    let size = (320, 200);
+    for stacked in [false, true] {
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
+        renderer.set_world(&gpu.device, &world);
+        let main = Camera { x: 100, y: 50, zoom: if stacked { (2, 1) } else { (1, 1) }, ..Camera::new(size) };
+        let overlay = Camera { cells: false, stacked, zoom: (2, 1), ..Camera::new(size) };
+        let cameras = [main, overlay];
+        for x in [Some(20), Some(70), None, Some(35)] {
+            let markers: Vec<_> = x.map(|x| PlacedSprite { screen: true, view: Some(1), ..PlacedSprite::new(terrain[3], x, 20) }).into_iter().collect();
+            renderer.set_markers(&gpu.device, &gpu.queue, &markers);
+            let got = gpu.render_layered(&mut renderer, &cameras, 1, &[], Present::unscaled(size), 0, CLEAR);
+            let mut expected = world.clone();
+            expected.free.extend(markers);
+            let want = reference::render_views(&expected, &atlas, &cameras, size, 0, CLEAR);
+            assert_same(&got, &want, &format!("scaled overlay, stacked {stacked}, marker {x:?}"));
+            assert!(!renderer.reused(), "a scaled overlay source is drawn in full");
+        }
+        // An unscaled overlay after a scaled arrangement must start with
+        // a fresh cached picture, then can reuse it on later frames.
+        let cameras = [main, Camera { cells: false, ..Camera::new(size) }];
+        renderer.set_markers(&gpu.device, &gpu.queue, &[]);
+        for again in [false, true] {
+            let got = gpu.render_layered(&mut renderer, &cameras, 1, &[], Present::unscaled(size), 0, CLEAR);
+            assert_same(&got, &reference::render_views(&world, &atlas, &cameras, size, 0, CLEAR), "unscaled overlay after a scaled one");
+            assert_eq!(renderer.reused(), again);
+        }
+    }
 }

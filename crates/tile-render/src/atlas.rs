@@ -353,8 +353,13 @@ impl Atlas {
     /// this one has); with pixels (pages), its pixels too.
     pub fn grow(&mut self, growth: &AtlasGrowth) {
         debug_assert_eq!(growth.first as usize, self.sprites.len(), "a growth for another atlas");
+        if !growth.palettes.is_empty() {
+            let mut palettes = self.palettes.clone();
+            palettes.extend_from_slice(&growth.palettes);
+            palette_bounds(&mut self.sprites, &self.palettes, &palettes, self.named_palettes);
+            self.palettes = palettes;
+        }
         self.sprites.extend_from_slice(&growth.sprites);
-        self.palettes.extend_from_slice(&growth.palettes);
         if self.pages.is_empty() {
             return;
         }
@@ -393,8 +398,7 @@ impl Atlas {
             return false;
         }
         page.blit(image, 0, 0, image.width, image.height, s.atlas_x, s.atlas_y);
-        // (Its blank margins are not known any more.)
-        (self.sprites[sprite.0 as usize].blank, self.sprites[sprite.0 as usize].cuts) = (0, 0);
+        patch_bounds(&mut self.sprites, &s, image);
         true
     }
 
@@ -428,6 +432,81 @@ impl Atlas {
         let bytes = |w: u32, h: u32| w as u64 * h as u64;
         (self.pages.iter().map(|p| 4 * bytes(p.width, p.height)).sum(), self.index_pages.iter().map(|p| bytes(p.width, p.height)).sum())
     }
+}
+
+/// Updates every colour sprite whose texels a patch touches, including
+/// aliases and subregions. Pixels wholly inside the patch are known;
+/// partial overlaps lose their bounds until the atlas is trimmed again.
+/// Returns the descriptors whose bounds changed, for a GPU table update.
+pub(crate) fn patch_bounds(sprites: &mut [SpriteDesc], patched: &SpriteDesc, image: &RgbaImage) -> Vec<usize> {
+    let whole = margins(patched, &[(true, true); 256], &[], Some((image, 0, 0)), None);
+    let alpha_flags = tile_render_shared::BLANK_BINARY | tile_render_shared::BLANK_OPAQUE;
+    let mut changed = Vec::new();
+    for (i, s) in sprites.iter_mut().enumerate() {
+        if s.palette != 0 || s.page != patched.page
+            || s.atlas_x >= patched.atlas_x + patched.width || patched.atlas_x >= s.atlas_x + s.width
+            || s.atlas_y >= patched.atlas_y + patched.height || patched.atlas_y >= s.atlas_y + s.height
+        {
+            continue;
+        }
+        let bounds = if s.atlas_x >= patched.atlas_x && s.atlas_y >= patched.atlas_y
+            && s.atlas_x + s.width <= patched.atlas_x + patched.width && s.atlas_y + s.height <= patched.atlas_y + patched.height
+        {
+            if s.atlas_x == patched.atlas_x && s.atlas_y == patched.atlas_y && s.width == patched.width && s.height == patched.height {
+                whole
+            } else {
+                margins(s, &[(true, true); 256], &[], Some((image, s.atlas_x - patched.atlas_x, s.atlas_y - patched.atlas_y)), None)
+            }
+        } else {
+            // Both the old pixels and every replacement texel must prove
+            // an alpha property before a partially overwritten alias keeps it.
+            (s.blank & whole.0 & alpha_flags, 0)
+        };
+        if (s.blank, s.cuts) != bounds {
+            (s.blank, s.cuts) = bounds;
+            changed.push(i);
+        }
+    }
+    changed
+}
+
+/// Alpha changes can expose indexed texels outside their old bounds, or
+/// make a formerly binary sprite translucent. RGB-only changes keep all
+/// bounds. Without the index pages, binary alpha can still be proved from
+/// the affected palette rows; unchanged sprites keep their exact metadata.
+pub(crate) fn palette_bounds(sprites: &mut [SpriteDesc], old: &[u32], new: &[u32], named_palettes: u32) -> Vec<usize> {
+    let size = tile_render_shared::PALETTE_SIZE as usize;
+    let alpha = |p: &[u32], i: usize| p.get(i).copied().unwrap_or(0) >> 24;
+    let rows = old.len().max(new.len()).div_ceil(size);
+    let changed_rows: Vec<bool> = (0..rows).map(|r| (r * size..(r + 1) * size).any(|i| alpha(old, i) != alpha(new, i))).collect();
+    let (before, after) = (named_alpha(old, named_palettes), named_alpha(new, named_palettes));
+    let mut changed = Vec::new();
+    for (i, s) in sprites.iter_mut().enumerate().filter(|(_, s)| s.palette != 0) {
+        let own_changed = changed_rows.get(s.palette as usize).copied().unwrap_or(false);
+        let (lo, hi) = ((s.remap & 0xFFFF).min(256) as usize, (s.remap >> 16).min(256) as usize);
+        let named_changed = (lo..hi).any(|k| before[k] != after[k]);
+        if !own_changed && !named_changed {
+            continue;
+        }
+        let (mut binary, mut opaque) = (true, true);
+        for k in 0..size {
+            let a = alpha(new, s.palette as usize * size + k);
+            binary &= a == 0 || a == 255;
+            opaque &= a == 255;
+            if (lo..hi).contains(&k) {
+                binary &= after[k].0;
+                opaque &= after[k].1;
+            }
+        }
+        let flags = if binary { tile_render_shared::BLANK_BINARY } else { 0 } | if opaque { tile_render_shared::BLANK_OPAQUE } else { 0 };
+        let margins = if own_changed { 0 } else { s.blank & !(tile_render_shared::BLANK_BINARY | tile_render_shared::BLANK_OPAQUE) };
+        let bounds = (margins | flags, if own_changed { 0 } else { s.cuts });
+        if (s.blank, s.cuts) != bounds {
+            (s.blank, s.cuts) = bounds;
+            changed.push(i);
+        }
+    }
+    changed
 }
 
 /// The blank margins of `s` and its alpha flags, and its corner cuts
@@ -587,7 +666,43 @@ mod tests {
         let half = tile_render_shared::Placed { texel_x: 1, texel_y: 0, step: 2, width: 5, height: 5, ..Default::default() };
         assert_eq!(tile_render_shared::drawn_part(&s, &half), (1, 1, 3, 5));
         assert!(atlas.patch(a, &RgbaImage::new(12, 10)));
-        assert_eq!(atlas.sprites[a.0 as usize].blank, 0);
+        assert_eq!(atlas.sprites[a.0 as usize].blank, tile_render_shared::blank_margins(12, 10, 12, 10) | tile_render_shared::BLANK_BINARY);
+    }
+
+    #[test]
+    fn palette_rgb_keeps_bounds_and_binary_alpha_can_be_proved_again() {
+        let binary = tile_render_shared::BLANK_BINARY;
+        let mut sprites = [SpriteDesc { palette: 1, blank: tile_render_shared::blank_margins(2, 1, 3, 0) | binary, cuts: 1, ..Default::default() }];
+        let mut old = vec![0; 512];
+        old[257] = 0xFF00_0000;
+        let mut new = old.clone();
+        new[257] |= 0x0012_3456;
+        assert!(palette_bounds(&mut sprites, &old, &new, 2).is_empty());
+        assert_ne!(sprites[0].blank & !binary, 0);
+        old = new.clone();
+        new[257] = 0x8012_3456;
+        assert_eq!(palette_bounds(&mut sprites, &old, &new, 2), vec![0]);
+        assert_eq!((sprites[0].blank, sprites[0].cuts), (0, 0));
+        old = new.clone();
+        new[257] = 0xFF12_3456;
+        assert_eq!(palette_bounds(&mut sprites, &old, &new, 2), vec![0]);
+        assert_eq!(sprites[0].blank, binary);
+    }
+
+    #[test]
+    fn a_growth_invalidates_existing_alpha_flags_and_keeps_new_sprites_bounds() {
+        let mut b = AtlasBuilder::new(16);
+        b.add_indexed(&IndexImage::from_fn(4, 4, |_, _| 1), (0, 0), 1, tile_render_shared::remap_range(1, 2)).unwrap();
+        let mut atlas = b.finish();
+        atlas.palettes = vec![0; 256];
+        atlas.palettes.extend(vec![0xFF00_0000; 256]);
+        atlas.named_palettes = 2;
+        atlas.trim_blank();
+        assert_ne!(atlas.sprites[0].blank & tile_render_shared::BLANK_BINARY, 0);
+        let fresh = SpriteDesc { blank: tile_render_shared::blank_margins(1, 1, 1, 1), palette: 2, ..atlas.sprites[0] };
+        atlas.grow(&AtlasGrowth { first: 1, pages: 0, index_pages: 1, palettes: vec![0x8000_0000; 256], sprites: vec![fresh], ..Default::default() });
+        assert_eq!(atlas.sprites[0].blank & tile_render_shared::BLANK_BINARY, 0);
+        assert_eq!(atlas.sprites[1], fresh);
     }
 
     #[test]
