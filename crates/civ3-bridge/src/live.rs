@@ -560,6 +560,8 @@ fn publish(
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
     let mut held_since: Option<std::time::Instant> = None;
+    // How many controls had looks last (for the log).
+    let mut last_looks = (0, 0, 0, 0);
     loop {
         if let Some(t) = round_began.take() {
             let took = t.elapsed();
@@ -774,12 +776,18 @@ fn publish(
         // What can be clicked (for the viewer's button snapping): our own
         // title menu's buttons, else the game's controls.
         let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
-        let mut interactables = match own_title {
-            Some((ms, m)) => ms.interactables(m, input.viewport),
-            None => civ3_sys::controls::sites(game.build)
-                .map(|s| ui_screen::interactables(&civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)))
-                .unwrap_or_default(),
+        let controls = match own_title {
+            Some(_) => Vec::new(),
+            None => civ3_sys::controls::sites(game.build).map(|s| civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)).unwrap_or_default(),
         };
+        // Our preferences tabs' controls are over the game's.
+        let prefs_looks = prefs.looks(&fonts);
+        let mut interactables: Vec<scene::Interactable> =
+            prefs_looks.iter().map(|l| scene::Interactable { rect: l.rect, kind: scene::InteractableKind::Button, id: l.id }).collect();
+        interactables.extend(match own_title {
+            Some((ms, m)) => ms.interactables(m, input.viewport),
+            None => ui_screen::interactables(&controls),
+        });
         // What the open city screen tests in its code (citizens, units).
         if let (Shown::Map(world, _), Some(f)) = (&shown, ui.as_ref()) {
             if world.focus_city.is_some() {
@@ -990,6 +998,28 @@ fn publish(
                 screen_recompile = true;
                 wanted_for.push("unit pictures");
             }
+        }
+        // The controls in their other states (hover, pressed), for the
+        // viewer to draw at once (`crate::looks`), and their art.
+        let arts: Vec<crate::looks::ControlArt> = match (ui, civ3_sys::controls::sites(game.build)) {
+            (Some(_), Some(sites)) => controls.iter().filter_map(|c| control_art(&sites, c)).collect(),
+            _ => Vec::new(),
+        };
+        let control_looks: Vec<crate::looks::ControlLooks> = match ui {
+            Some(f) => arts.iter().filter_map(|a| crate::looks::control_looks(f, a)).collect(),
+            None => Vec::new(),
+        };
+        let looks_items = |draws: &[crate::ui::ScreenDraw]| ui_screen::items(&crate::ui::Frame { draws: draws.to_vec(), ..Default::default() }, files.roots(), generated, unit_colors);
+        let mut looks_art = false;
+        for (_, draws) in control_looks.iter().flat_map(|c| &c.states) {
+            looks_art |= ui_screen::add_art(&looks_items(draws), &mut screen_art, &mut fonts, &files);
+        }
+        for (_, draws) in prefs_looks.iter().flat_map(|c| &c.states) {
+            looks_art |= ui_screen::add_art(&crate::prefs::items(draws), &mut screen_art, &mut fonts, &files);
+        }
+        if looks_art {
+            screen_recompile = true;
+            wanted_for.push("control states");
         }
         if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&menu_items, &mut screen_art, &mut fonts, &files)
@@ -1314,6 +1344,48 @@ fn publish(
         // The game's screen: a viewer with a larger window shows it scaled
         // up (e.g. the game at the desktop's logical size, `CIV3R_SCALE`).
         scene.screen_size = input.game_window().and_then(|w| w.client_size()).unwrap_or_default();
+        // Where the interface's views draw the controls, and how they look
+        // in their other states there (the corner's copy clipped to it).
+        let looks_views = [
+            (crate::scene_map::INTERFACE_VIEW, None),
+            (crate::scene_map::MENU_VIEW, None),
+            (crate::interface_parts::CORNER_VIEW, corner),
+            (crate::interface_parts::SCREEN_VIEW, None),
+            (crate::interface_parts::POPUP_VIEW, None),
+        ];
+        scene.looks = crate::looks::scene_looks(&scene, &control_looks, &looks_views, |d, part| Some(part_sprites(&looks_items(&crate::looks::in_part(d, part)))));
+        // Our preferences tabs' and title menu's controls.
+        let prefs_looks: Vec<crate::looks::ControlLooks<Vec<menu::panel::Draw>>> = prefs_looks
+            .into_iter()
+            .map(|l| crate::looks::ControlLooks { id: l.id, select: l.select, shown: l.shown, draws: l.draws, states: l.states })
+            .collect();
+        scene.looks.extend(crate::looks::scene_looks(&scene, &prefs_looks, &looks_views, |d, _| Some(part_sprites(&crate::prefs::items(d)))));
+        if let (Some((ms, m)), Shown::Title(state)) = (own_title, shown) {
+            let title_looks: Vec<crate::looks::ControlLooks<Vec<scene::FreeSprite>>> = ms
+                .looks(m, state, input.viewport, u32::MAX)
+                .into_iter()
+                .map(|l| crate::looks::ControlLooks { id: l.id, select: scene::Select::None, shown: l.shown, draws: l.sprites, states: l.states })
+                .collect();
+            scene.looks.extend(crate::looks::scene_looks(&scene, &title_looks, &looks_views, |d, _| Some(d.clone())));
+        }
+        let looks_count = (arts.len(), control_looks.len(), scene.looks.len(), scene.looks.iter().map(|l| l.views.len()).sum::<usize>());
+        if looks_count != last_looks {
+            log::debug!("looks: {} buttons drawn by state, {} with other states, {} found in the scene ({} views)", looks_count.0, looks_count.1, looks_count.2, looks_count.3);
+            last_looks = looks_count;
+        }
+        if looks_log() {
+            let short = |s: &scene::LookState| format!("{:?}{}", s.pointer, if s.selected { "+sel" } else { "" });
+            let detail: Vec<String> = scene
+                .looks
+                .iter()
+                .map(|l| {
+                    let views: Vec<String> = l.views.iter().map(|v| format!("v{}@{}..{}:[{}]", v.view, v.sprites.0, v.sprites.1, v.states.iter().map(|(s, d)| format!("{}={}", short(s), d.len())).collect::<Vec<_>>().join(","))).collect();
+                    format!("{:#x} {} {}", l.id, short(&l.shown), views.join(" "))
+                })
+                .collect();
+            let missing: Vec<String> = control_looks.iter().filter(|c| !scene.looks.iter().any(|l| l.id == c.id)).map(|c| format!("{:#x}", c.id)).collect();
+            log::debug!("looks detail: {}; not found in the scene: {}", detail.join("; "), missing.join(" "));
+        }
         scene.seq = seq;
         scene_size = (scene.cell_bytes(), scene.sprites.len(), scene.views.iter().map(|v| v.overlay.len()).sum::<usize>());
         // Held back while the renderer is busy: publish again next time.
@@ -1364,6 +1436,57 @@ fn addition(
 /// The head of an art list (`CIV3R_ART_LIST`, `crate::preload::ArtList`).
 fn art_list_header() -> &'static str {
     "# Art the game's interface showed (civ3-bridge, CIV3R_ART_LIST): screen regions, fills,\n# run-time pictures, fonts; tab-separated (menu::screen::ScreenArt::to_lines, preload::font_line).\n"
+
+}
+
+/// The art of `control`'s states, if it is a button the game draws by its
+/// state and that state is the pointer's (not forced): the sprites of its
+/// pieces as the mirror knows them.
+fn control_art(sites: &civ3_sys::controls::Sites, control: &civ3_sys::controls::Control) -> Option<crate::looks::ControlArt> {
+    use crate::looks::look_state;
+    use civ3_sys::control_art::Select;
+    let art = civ3_sys::control_art::of(&civ3_sys::controls::Live, sites, control).filter(|a| !a.forced)?;
+    let sprites: Vec<u32> = art.pieces.iter().flatten().map(|(_, s)| *s).collect();
+    let mut sources = ui_trace::sprite_sources(&sprites).into_iter();
+    let pieces = art
+        .pieces
+        .iter()
+        .map(|p| p.iter().filter_map(|(l, _)| Some((look_state(*l), sources.next()??))).collect())
+        .collect();
+    let select = match art.select {
+        Select::None => scene::Select::None,
+        Select::Toggle => scene::Select::Toggle,
+        Select::Pick(group) => scene::Select::Pick { group: group as u64 },
+    };
+    Some(crate::looks::ControlArt {
+        id: control.id,
+        select,
+        canvas: art.canvas,
+        part: match art.part {
+            civ3_sys::control_art::Part::Whole => crate::looks::Part::Whole,
+            civ3_sys::control_art::Part::LastArt => crate::looks::Part::LastArt(control.rect),
+            civ3_sys::control_art::Part::Within => crate::looks::Part::Within(control.rect),
+        },
+        colors: art.colors.iter().map(|(l, c)| (look_state(*l), c.iter().map(|&c| color_rgb(c)).collect())).collect(),
+        state: look_state(art.state),
+        pieces,
+        text_offsets: art.text_offsets.iter().map(|(l, o)| (look_state(*l), *o)).collect(),
+        selected_by_fields: select != scene::Select::None,
+    })
+}
+
+/// Whether the viewer's pointer moves and buttons are kept from the game:
+/// while the file `CIV3R_HOLD_POINTER` names exists (for testing the looks
+/// the viewer draws itself: the game then never shows them).
+fn hold_pointer() -> bool {
+    static FILE: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    FILE.get_or_init(|| std::env::var_os("CIV3R_HOLD_POINTER").map(Into::into)).as_ref().is_some_and(|f| f.exists())
+}
+
+/// Whether every scene's looks are logged in detail (`CIV3R_LOOKS_LOG=1`).
+fn looks_log() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CIV3R_LOOKS_LOG").as_deref() == Ok("1"))
 }
 
 /// Whether city labels are made from the world (see `publish`), unless
@@ -1506,6 +1629,11 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
     let Some(window) = forwarder.game_window() else { return };
     for input in inputs {
         log::trace!("input {input:?}");
+        // (For testing what the viewer draws itself: the pointer never
+        // reaches the game.)
+        if hold_pointer() && matches!(input, Input::MouseMove { .. } | Input::MouseButton { .. }) {
+            continue;
+        }
         match input {
             Input::MouseMove { x, y } => {
                 forwarder.pointer = Some((x, y));
@@ -1688,4 +1816,17 @@ fn hook_game_window(hidden_window: bool) {
             );
         }
     });
+}
+
+/// A colour of the game's controls as the mirror has it: text as
+/// `SetTextColor` gets it (a packed colour: bit 31 and RGB555, each channel
+/// shifted up; else a palette index, black on the game's 16-bit canvases,
+/// docs §16.10), fills as RGB555 expanded.
+fn color_rgb(c: civ3_sys::control_art::Color) -> [u8; 3] {
+    use civ3_sys::control_art::Color;
+    match c {
+        Color::Text(c) if c & 0x8000_0000 != 0 => [((c >> 7) & 0xF8) as u8, ((c >> 2) & 0xF8) as u8, ((c & 0x1F) << 3) as u8],
+        Color::Text(_) => [0, 0, 0],
+        Color::Fill(c) => crate::ui::rgb555(c),
+    }
 }

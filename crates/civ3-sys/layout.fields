@@ -393,3 +393,14 @@ Map_Renderer b_Action_Mode
 Map_Renderer Action_Mode_Range
 Map_Renderer Action_Mode_CenterX
 Map_Renderer Action_Mode_CenterY
+
+# Button (docs §16.11): its state images, its frame pieces per state, and
+# the fields its draw (0x60A010) picks the state by.
+Button
+Button Images
+Button Border_Images
+Button field_668
+Button field_574[1]
+Button field_574[28]
+Button field_5FC[6]
+Button field_630[1]
