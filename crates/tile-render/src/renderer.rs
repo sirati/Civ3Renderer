@@ -43,14 +43,73 @@ pub struct TileRenderer {
     scratch: Option<Scratch>,
     /// The pictures of zoomed views at zoom 1 (see `Camera::source_size`).
     sources: Option<Scratch>,
-    atlas: Option<wgpu::TextureView>,
-    /// The atlas texture and its sprites (for run-time pixel updates).
-    atlas_texture: Option<(wgpu::Texture, Vec<SpriteDesc>)>,
+    /// The atlas on the GPU.
+    atlas: Option<AtlasTextures>,
+    /// The row of named palette 1 (`Atlas::named_palettes`).
+    named_palettes: u32,
     sprites: Option<wgpu::Buffer>,
+    /// The palette rows indexed sprites are drawn through (`Atlas::palettes`).
+    palettes: Option<wgpu::Buffer>,
     world: Option<WorldBuffers>,
     bind_group: Option<wgpu::BindGroup>,
     /// Whether more views than drawn were asked for (warned once).
     too_many_views: bool,
+}
+
+/// The atlas on the GPU: its colour and index pages and its sprites.
+struct AtlasTextures {
+    rgba: PageArray,
+    index: PageArray,
+    sprites: Vec<SpriteDesc>,
+}
+
+/// Atlas pages of one format: a texture array with room for `capacity`
+/// pages of `size`² texels (none: a single texel, so that it can be bound).
+struct PageArray {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    format: wgpu::TextureFormat,
+    size: u32,
+    capacity: u32,
+}
+
+impl PageArray {
+    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: u32, capacity: u32) -> Self {
+        let (side, layers) = if capacity == 0 { (1, 1) } else { (size, capacity) };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("tile-render atlas"),
+            size: wgpu::Extent3d { width: side, height: side, depth_or_array_layers: layers },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        Self { texture, view, format, size, capacity }
+    }
+
+    fn texel_bytes(&self) -> u32 {
+        if self.format == wgpu::TextureFormat::R8Unorm { 1 } else { 4 }
+    }
+
+    fn bytes(&self) -> u64 {
+        self.size as u64 * self.size as u64 * self.capacity as u64 * self.texel_bytes() as u64
+    }
+
+    fn write(&self, queue: &wgpu::Queue, page: u32, x: u32, y: u32, (w, h): (u32, u32), bytes: &[u8]) {
+        if w == 0 || h == 0 || page >= self.capacity || x + w > self.size || y + h > self.size {
+            return;
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &self.texture, mip_level: 0, origin: wgpu::Origin3d { x, y, z: page }, aspect: wgpu::TextureAspect::All },
+            bytes,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * self.texel_bytes()), rows_per_image: Some(h) },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+    }
+
 }
 
 /// An internal texture and the bind group reading it in the output pass.
@@ -90,6 +149,19 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         ty: wgpu::BindingType::Texture {
             sample_type: wgpu::TextureSampleType::Float { filterable: false },
             view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn texture_array_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2Array,
             multisampled: false,
         },
         count: None,
@@ -139,16 +211,9 @@ impl TileRenderer {
                 storage_entry(7),
                 storage_entry(8),
                 wgpu::BindGroupLayoutEntry { visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ..storage_entry(9) },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
+                wgpu::BindGroupLayoutEntry { visibility: wgpu::ShaderStages::FRAGMENT, ..storage_entry(10) },
+                wgpu::BindGroupLayoutEntry { binding: 11, ..texture_array_entry(6) },
+                texture_array_entry(6),
             ],
         });
         let output_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -190,8 +255,9 @@ impl TileRenderer {
             scratch: None,
             sources: None,
             atlas: None,
-            atlas_texture: None,
+            named_palettes: 1,
             sprites: None,
+            palettes: None,
             world: None,
             bind_group: None,
             too_many_views: false,
@@ -273,75 +339,68 @@ impl TileRenderer {
     /// changes at run time, e.g. a minimap). `image` must have the sprite's
     /// size; returns whether it was written.
     pub fn patch_sprite(&self, queue: &wgpu::Queue, sprite: crate::SpriteId, image: &crate::RgbaImage) -> bool {
-        let Some((texture, sprites)) = &self.atlas_texture else { return false };
-        let Some(s) = sprites.get(sprite.0 as usize) else { return false };
-        if (s.width, s.height) != (image.width, image.height) || s.width == 0 || s.height == 0 {
+        let Some(a) = &self.atlas else { return false };
+        let Some(s) = a.sprites.get(sprite.0 as usize) else { return false };
+        if (s.width, s.height) != (image.width, image.height) || s.width == 0 || s.height == 0 || s.palette != 0 {
             return false;
         }
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x: s.atlas_x, y: s.atlas_y, z: s.page },
-                aspect: wgpu::TextureAspect::All,
-            },
-            image.as_bytes(),
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(image.width * 4), rows_per_image: Some(image.height) },
-            wgpu::Extent3d { width: image.width, height: image.height, depth_or_array_layers: 1 },
-        );
+        a.rgba.write(queue, s.page, s.atlas_x, s.atlas_y, (image.width, image.height), image.as_bytes());
         true
     }
 
-    /// Uploads the atlas pages and sprite table.
+    /// Uploads the atlas pages (colour and index), sprite and palette tables.
     pub fn set_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, atlas: &Atlas) {
         // Release the old atlas first: two at once may not fit (32-bit
         // processes, software renderers).
         self.bind_group = None;
         self.atlas = None;
-        self.atlas_texture = None;
         self.sprites = None;
+        self.palettes = None;
         // Dropped resources are only freed once the GPU is done with them:
         // wait for that, so the old atlas is really gone.
         if let Err(e) = device.poll(wgpu::PollType::wait_indefinitely()) {
             log::warn!("waiting for the GPU before a new atlas: {e}");
         }
-        let size = wgpu::Extent3d {
-            width: atlas.page_size.max(atlas.pages[0].width),
-            height: atlas.page_size.max(atlas.pages[0].height),
-            depth_or_array_layers: atlas.pages.len() as u32,
+        // (A 1×1 page stands for none.)
+        let rgba_pages = atlas.pages.iter().filter(|p| p.width == atlas.page_size).count() as u32;
+        let index_pages = atlas.index_pages.len() as u32;
+        let textures = AtlasTextures {
+            rgba: PageArray::new(device, wgpu::TextureFormat::Rgba8Unorm, atlas.page_size, rgba_pages),
+            index: PageArray::new(device, wgpu::TextureFormat::R8Unorm, atlas.page_size, index_pages),
+            sprites: atlas.sprites.clone(),
         };
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("tile-render atlas"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        for (i, page) in atlas.pages.iter().enumerate() {
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                page.as_bytes(),
-                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(page.width * 4), rows_per_image: Some(page.height) },
-                wgpu::Extent3d { width: page.width, height: page.height, depth_or_array_layers: 1 },
-            );
+        for (i, page) in atlas.pages.iter().enumerate().filter(|(_, p)| p.width == atlas.page_size) {
+            textures.rgba.write(queue, i as u32, 0, 0, (page.width, page.height), page.as_bytes());
         }
-        self.atlas = Some(texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        }));
-        self.atlas_texture = Some((texture, atlas.sprites.clone()));
+        for (i, page) in atlas.index_pages.iter().enumerate() {
+            textures.index.write(queue, i as u32, 0, 0, (page.width, page.height), &page.pixels);
+        }
+        self.atlas = Some(textures);
+        self.named_palettes = atlas.named_palettes;
         let empty = [SpriteDesc::default()];
         let sprites: &[SpriteDesc] = if atlas.sprites.is_empty() { &empty } else { &atlas.sprites };
         self.sprites = Some(storage(device, "tile-render sprites", bytemuck::cast_slice(sprites)));
+        self.palettes = Some(storage(device, "tile-render palettes", bytemuck::cast_slice(&palette_words(&atlas.palettes))));
         self.rebuild_bind_group(device);
+    }
+
+    /// Bytes the atlas takes on the GPU: colour pages, index pages (as
+    /// allocated).
+    pub fn atlas_bytes(&self) -> (u64, u64) {
+        self.atlas.as_ref().map_or((0, 0), |a| (a.rgba.bytes(), a.index.bytes()))
+    }
+
+    /// Replaces the palette rows (see `Atlas::palettes`), e.g. a driver's
+    /// colours changing at run time: no atlas is uploaded again.
+    pub fn set_palettes(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, palettes: &[u32]) {
+        let words = palette_words(palettes);
+        match &self.palettes {
+            Some(b) if b.size() >= (words.len() * 4) as u64 => queue.write_buffer(b, 0, bytemuck::cast_slice(&words)),
+            _ => {
+                self.palettes = Some(storage(device, "tile-render palettes", bytemuck::cast_slice(&words)));
+                self.rebuild_bind_group(device);
+            }
+        }
     }
 
     /// Uploads a whole world. Call again (or `update_world`) when it changes.
@@ -419,7 +478,7 @@ impl TileRenderer {
 
     fn rebuild_bind_group(&mut self, device: &wgpu::Device) {
         self.bind_group = None;
-        let (Some(atlas), Some(sprites), Some(world)) = (&self.atlas, &self.sprites, &self.world) else { return };
+        let (Some(atlas), Some(sprites), Some(palettes), Some(world)) = (&self.atlas, &self.sprites, &self.palettes, &self.world) else { return };
         self.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tile-render"),
             layout: &self.layout,
@@ -437,10 +496,12 @@ impl TileRenderer {
                 wgpu::BindGroupEntry { binding: 3, resource: world.lut.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 4, resource: world.sets.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 5, resource: sprites.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(atlas) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(&atlas.rgba.view) },
+                wgpu::BindGroupEntry { binding: 11, resource: wgpu::BindingResource::TextureView(&atlas.index.view) },
                 wgpu::BindGroupEntry { binding: 7, resource: world.free.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 8, resource: world.text.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 9, resource: world.outlines.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 10, resource: palettes.as_entire_binding() },
             ],
         }));
     }
@@ -563,7 +624,7 @@ impl TileRenderer {
         } else {
             (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
         };
-        let steps = Steps { queue, params: &self.params, world, bind_group, frame };
+        let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes };
         for (v, place) in placements.iter().enumerate() {
             // Its steps at zoom 1.
             let rect = place.rect;
@@ -710,6 +771,7 @@ struct Steps<'a> {
     world: &'a WorldBuffers,
     bind_group: &'a wgpu::BindGroup,
     frame: u32,
+    named_palettes: u32,
 }
 
 impl Steps<'_> {
@@ -739,7 +801,7 @@ impl Steps<'_> {
                 continue;
             }
             let pass = world.passes.get(i).copied().filter(|_| i < passes).unwrap_or_default();
-            let params = camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach);
+            let params = FrameParams { named_palettes: self.named_palettes, ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach) };
             // Each (view, step) has its own parameter slot: buffer writes all
             // land before the commands run.
             let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;
@@ -914,6 +976,13 @@ fn scratch_for<'a>(
         *slot = Some(Scratch { main, output });
     }
     slot.as_ref().unwrap()
+}
+
+/// A palette table as uploaded: at least row 0.
+fn palette_words(palettes: &[u32]) -> Vec<u32> {
+    let mut words = palettes.to_vec();
+    words.resize(words.len().max(tile_render_shared::PALETTE_SIZE as usize), 0);
+    words
 }
 
 fn storage(device: &wgpu::Device, label: &str, contents: &[u8]) -> wgpu::Buffer {

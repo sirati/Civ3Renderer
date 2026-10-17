@@ -154,7 +154,8 @@ pub struct FrameParams {
     /// first (rows still top to bottom), as a game drawing its units right
     /// to left does.
     pub descending: u32,
-    pub _pad1: u32,
+    /// The row of named palette 1 (see [`PALETTE_SIZE`]).
+    pub named_palettes: u32,
     pub _pad2: u32,
 }
 
@@ -222,9 +223,19 @@ pub struct LayerDesc {
     /// 0 or [`OFFSET_BYTES`]: whether every record ends with the cell's
     /// pixel offset (see [`cell_offset`]).
     pub offset_bytes: u32,
-    pub _pad0: u32,
+    /// Non-zero: a value's bits from this one on pick the named palette its
+    /// indexed sprites are drawn with (see `FreeSprite::palette`), the bits
+    /// below it index the lookup table (see [`layer_value`]).
+    pub palette_shift: u32,
     pub _pad1: u32,
     pub _pad2: u32,
+}
+
+/// A cell's raw value on `layer` as (lookup table index, named palette; see
+/// `LayerDesc::palette_shift`).
+pub fn layer_value(layer: &LayerDesc, raw: u32) -> (u32, u32) {
+    let shift = layer.palette_shift;
+    if shift == 0 || shift >= 32 { (raw, 0) } else { (raw & ((1u32 << shift) - 1), raw >> shift) }
 }
 
 /// Bytes of a cell's pixel offset in its record: x and y, `i16` each.
@@ -311,6 +322,13 @@ pub struct FreeSprite {
     pub zoom: u32,
     pub zoom_dx: i32,
     pub zoom_dy: i32,
+
+    /// The named palette its indexed sprites' remapped indices are drawn
+    /// with (see [`SpriteDesc::remap`]; 0: none, their own colours).
+    pub palette: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// The free sprite's position is in viewport pixels, unaffected by the
@@ -366,9 +384,40 @@ pub struct SpriteDesc {
     /// `downscaled - 1` instead (art a game keeps in a second place for its
     /// zoomed-out view).
     pub downscaled: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
+    /// Non-zero: an *indexed* sprite, drawn from the index atlas (one byte,
+    /// a palette index, per texel) through palette rows (see
+    /// [`PALETTE_SIZE`]): this is the absolute row of its own colours (an
+    /// art file's palette with its transparent and translucent entries).
+    /// 0: a colour sprite of the RGBA atlas.
+    pub palette: u32,
+    /// An indexed sprite's indices in `[remap & 0xFFFF, remap >> 16)` take
+    /// their colours from the palette row the drawing cell or free sprite
+    /// picks (a nation's colours, say), where it picks one: so one copy of
+    /// the art serves every colouring (see [`indexed_color`]).
+    pub remap: u32,
     pub _pad2: u32,
+}
+
+/// Entries per palette row. Palette rows are `PALETTE_SIZE` RGBA8 colours
+/// each (one `u32` per colour, red in the low byte), back to back: row 0
+/// (all clear), the sprites' own rows, then the *named* rows draws pick by
+/// number (1 is the first; `FrameParams::named_palettes` is its row).
+pub const PALETTE_SIZE: u32 = 256;
+
+/// `SpriteDesc::remap` of the index range `[lo, hi)`.
+pub fn remap_range(lo: u32, hi: u32) -> u32 {
+    lo | hi << 16
+}
+
+/// The colour (8 bits per channel) of index `index` of an indexed sprite
+/// whose own row is `own` and remapped range `remap`, drawn with named
+/// palette `named` (0: none; the named rows start at row `named_base`).
+pub fn indexed_color(index: u32, own: u32, remap: u32, named: u32, named_base: u32, palettes: &[u32]) -> [u32; 4] {
+    let remapped = named != 0 && index >= (remap & 0xFFFF) && index < (remap >> 16);
+    let row = if remapped { named_base + named - 1 } else { own };
+    let i = (row * PALETTE_SIZE + index) as usize;
+    let c = if i < palettes.len() { palettes[i] } else { 0 };
+    [c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF, c >> 24]
 }
 
 /// [`SpriteDesc::scaling`]: shrunk, its anchor divided by the factor

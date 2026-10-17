@@ -228,6 +228,9 @@ pub struct PlacedSprite {
     pub except_view: bool,
     /// Art for a zoom (screen sprites of a view; see [`ZoomArt`]).
     pub zoom_art: ZoomArt,
+    /// The named palette its indexed sprites' remapped indices are drawn
+    /// with (see `tile_render_shared::SpriteDesc::remap`; 0: none).
+    pub palette: u32,
     /// A glyph drawn from its font's outline instead of the sprite (`set`,
     /// `blend` and `zoom_art` do not matter then): zoomed art for every
     /// zoom, drawn in views drawn at their zoom showing zoomed art, at its
@@ -304,7 +307,7 @@ impl OutlineGlyph {
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, palette: 0 }
     }
 
     /// Its `FREE_SCREEN`, `FREE_CLIP` and `FREE_EXCEPT_VIEW` flags.
@@ -343,6 +346,10 @@ impl PlacedSprite {
                 ZoomArt::Zoomed { offset, .. } => offset.1,
                 _ => 0,
             },
+            palette: self.palette,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         }
     }
 }
@@ -384,6 +391,10 @@ pub struct LayerSpec {
     /// Point tested against `Camera::cull`, relative to the cell origin.
     pub cull_offset: (i32, i32),
     pub blend: Blend,
+    /// Bits of a value above those indexing `lut` that pick the named
+    /// palette of its indexed sprites (0: the layer picks none;
+    /// see [`LayerSpec::value_in`]).
+    pub palette_bits: u32,
 }
 
 impl LayerSpec {
@@ -400,17 +411,37 @@ impl LayerSpec {
             descending: false,
             cull_offset: (0, 0),
             blend: Blend::Alpha,
+            palette_bits: 0,
         }
     }
 
     /// Smallest value width (bytes) that can index the whole table.
     pub fn value_bytes(&self) -> u32 {
-        match self.lut.len() {
-            0..=0x100 => 1,
-            0x101..=0x1_0000 => 2,
-            0x1_0001..=0x100_0000 => 3,
-            _ => 4,
+        let bits = self.palette_shift() + self.palette_bits;
+        if self.palette_bits == 0 {
+            return match self.lut.len() {
+                0..=0x100 => 1,
+                0x101..=0x1_0000 => 2,
+                0x1_0001..=0x100_0000 => 3,
+                _ => 4,
+            };
         }
+        bits.div_ceil(8).clamp(1, 4)
+    }
+
+    /// Where the palette row starts in a value (the bits indexing `lut`;
+    /// 0 without palettes).
+    pub fn palette_shift(&self) -> u32 {
+        if self.palette_bits == 0 { 0 } else { (usize::BITS - self.lut.len().saturating_sub(1).leading_zeros()).max(1) }
+    }
+
+    /// The value drawing `lut` entry `index` with palette row `row` (rows
+    /// past `palette_bits` are not drawn as asked: `None`).
+    pub fn value_in(&self, index: u32, row: u32) -> Option<u32> {
+        if row == 0 {
+            return Some(index);
+        }
+        (self.palette_bits > 0 && row >> self.palette_bits == 0).then(|| index | row << self.palette_shift())
     }
 
     fn record_bytes(&self) -> u32 {
@@ -589,7 +620,7 @@ impl TileWorld {
                     b => b.scale_den(),
                 },
                 offset_bytes: if spec.per_cell_offset { OFFSET_BYTES } else { 0 },
-                _pad0: 0,
+                palette_shift: spec.palette_shift(),
                 _pad1: 0,
                 _pad2: 0,
             });

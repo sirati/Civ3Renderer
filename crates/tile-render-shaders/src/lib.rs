@@ -20,12 +20,12 @@
 
 pub mod text;
 
-use spirv_std::glam::{IVec2, Vec2, Vec4};
+use spirv_std::glam::{IVec2, UVec3, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
     ALL_VIEWS, ByteReader, cell_offset, frame_of, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
-    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, drawn_sprite, expand, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
+    ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, alpha_steps, drawn_sprite, expand, indexed_color, layer_value, mix_offset, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
 /// Outside every clip volume: all six vertices of a culled quad land here,
@@ -51,7 +51,7 @@ fn resolve_sprite(
     tile_data: &[u32],
     layer_lut: &[u32],
     sprite_sets: &[u32],
-) -> Option<(u32, i32, i32)> {
+) -> Option<(u32, u32, i32, i32)> {
     if layer.flags & LAYER_HIDDEN != 0 {
         return None;
     }
@@ -74,7 +74,7 @@ fn resolve_sprite(
 
     let byte = record_at(layer, params.grid.cols, c, r);
     let data = ByteReader::new(tile_data);
-    let value = data.uint(byte, layer.value_bytes);
+    let (value, palette) = layer_value(layer, data.uint(byte, layer.value_bytes));
     if value >= layer.lut_len {
         return None;
     }
@@ -89,7 +89,7 @@ fn resolve_sprite(
     let sprite = sprite_sets[(set + 1 + frame) as usize];
     // The cell's own offset on top of the layer's.
     let (dx, dy) = cell_offset(&data, layer, byte, n);
-    Some((sprite, origin_x + shrunk(layer.offset_x, n) + dx, origin_y + shrunk(layer.offset_y, n) + dy))
+    Some((sprite, palette, origin_x + shrunk(layer.offset_x, n) + dx, origin_y + shrunk(layer.offset_y, n) + dy))
 }
 
 #[spirv(vertex)]
@@ -112,6 +112,7 @@ pub fn tile_vs(
     #[spirv(flat)] out_lo: &mut IVec2,
     #[spirv(flat)] out_scaled: &mut u32,
     #[spirv(flat)] out_step: &mut u32,
+    #[spirv(flat)] out_palette: &mut UVec3,
 ) {
     let layer_index = params.layer_first + instance % params.layer_count;
     let local_cell = instance / params.layer_count;
@@ -126,7 +127,8 @@ pub fn tile_vs(
     *out_lo = IVec2::ZERO;
     *out_scaled = 0;
     *out_step = 1;
-    let Some((sprite_index, x, y)) =
+    *out_palette = UVec3::ZERO;
+    let Some((sprite_index, palette, x, y)) =
         resolve_sprite(params, layer, local_cell, tile_data, layer_lut, sprite_sets)
     else {
         *out_pos = CULLED;
@@ -158,6 +160,7 @@ pub fn tile_vs(
     *out_base = IVec2::new(x0, y0);
     *out_scaled = params.scaled;
     *out_step = p.step;
+    *out_palette = UVec3::new(sprite.palette, sprite.remap, palette);
 }
 
 /// Where a sprite whose (clipped) rectangle at zoom 1 is (left, top, right,
@@ -227,6 +230,7 @@ pub fn free_vs(
     #[spirv(flat)] out_lo: &mut IVec2,
     #[spirv(flat)] out_scaled: &mut u32,
     #[spirv(flat)] out_step: &mut u32,
+    #[spirv(flat)] out_palette: &mut UVec3,
 ) {
     let f = &free[instance as usize];
     *out_tint = f.tint;
@@ -238,6 +242,7 @@ pub fn free_vs(
     *out_lo = IVec2::ZERO;
     *out_scaled = 0;
     *out_step = 1;
+    *out_palette = UVec3::ZERO;
     let frames = sprite_sets[f.set as usize];
     // Zoom art: zoomed sprites only where a view at their zoom is drawn at
     // it, low ones not where zoomed ones are shown.
@@ -311,6 +316,7 @@ pub fn free_vs(
     *out_lo = IVec2::new(l - x0, t - y0);
     *out_scaled = if zoomed { 0 } else { params.scaled };
     *out_step = p.step;
+    *out_palette = UVec3::new(sprite.palette, sprite.remap, f.palette);
 }
 
 fn max(a: i32, b: i32) -> i32 {
@@ -337,13 +343,16 @@ pub fn tile_fs(
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
     let xy = origin + texel_offset(local, base, lo, scaled_view, step, frag, params);
-    let color: Vec4 = atlas.fetch(xy.extend(page as i32));
+    let color = texel(xy, page, palette, params, atlas, index_atlas, palettes);
     if color.w == 0.0 {
         spirv_std::arch::kill();
     }
@@ -379,14 +388,46 @@ pub fn tile_fs(
     }
 }
 
+/// The colour of atlas texel `xy` of page `page`: of a colour sprite, or of
+/// an indexed one (`palette`: its own row, remapped range and the named
+/// palette it is drawn with, see `tile_render_shared::indexed_color`)
+/// through its palette rows.
+fn texel(
+    xy: IVec2,
+    page: u32,
+    palette: UVec3,
+    params: &FrameParams,
+    atlas: &Image!(2D, type = f32, sampled, arrayed),
+    index_atlas: &Image!(2D, type = f32, sampled, arrayed),
+    palettes: &[u32],
+) -> Vec4 {
+    if palette.x == 0 {
+        return atlas.fetch(xy.extend(page as i32));
+    }
+    let index: Vec4 = index_atlas.fetch(xy.extend(page as i32));
+    let c = indexed_color(to_u8(index.x), palette.x, palette.y, palette.z, params.named_palettes, palettes);
+    Vec4::new(c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, c[3] as f32 / 255.0)
+}
+
 /// One colour channel (0 red, 1 green, 2 blue) of a ClearType-like sprite
 /// (`SCALE_SUBPIXEL`): its texels hold that channel's coverage in the same
 /// channel, `tint` is the colour. Drawn three times, the pipeline writing
 /// one channel each time, so each channel blends with its own alpha (in
 /// whole alpha steps, rounded down, in a quantized model).
-fn subpixel(offset: IVec2, origin: IVec2, page: u32, tint: u32, params: &FrameParams, atlas: &Image!(2D, type = f32, sampled, arrayed), channel: u32) -> Vec4 {
-    let xy = origin + offset;
-    let texel: Vec4 = atlas.fetch(xy.extend(page as i32));
+#[allow(clippy::too_many_arguments)]
+fn subpixel(
+    offset: IVec2,
+    origin: IVec2,
+    page: u32,
+    palette: UVec3,
+    tint: u32,
+    params: &FrameParams,
+    atlas: &Image!(2D, type = f32, sampled, arrayed),
+    index_atlas: &Image!(2D, type = f32, sampled, arrayed),
+    palettes: &[u32],
+    channel: u32,
+) -> Vec4 {
+    let texel = texel(origin + offset, page, palette, params, atlas, index_atlas, palettes);
     let coverage = if channel == 0 { texel.x } else if channel == 1 { texel.y } else { texel.z };
     let c8 = (tint >> (16 - 8 * channel)) & 0xFF;
     let bits = params.color_bits;
@@ -419,12 +460,15 @@ pub fn subpixel_r_fs(
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, tint, params, atlas, 0);
+    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, palette, tint, params, atlas, index_atlas, palettes, 0);
 }
 
 #[spirv(fragment)]
@@ -438,12 +482,15 @@ pub fn subpixel_g_fs(
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, tint, params, atlas, 1);
+    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, palette, tint, params, atlas, index_atlas, palettes, 1);
 }
 
 #[spirv(fragment)]
@@ -457,12 +504,15 @@ pub fn subpixel_b_fs(
     #[spirv(flat)] lo: IVec2,
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, tint, params, atlas, 2);
+    *output = subpixel(texel_offset(local, base, lo, scaled_view, step, frag, params), origin, page, palette, tint, params, atlas, index_atlas, palettes, 2);
 }
 
 /// A triangle covering the viewport, for the full-screen pass.

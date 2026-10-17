@@ -33,6 +33,8 @@ pub struct Draw {
     /// Text drawn from outlines instead of the sprite: the glyph's pixels
     /// from (`x`, `y`) on.
     pub text: Option<TextPixels>,
+    /// The named palette an indexed sprite is drawn with (0: none).
+    pub palette: u32,
 }
 
 impl Draw {
@@ -49,6 +51,16 @@ impl Draw {
     fn texel(&self, sprite: &tile_render_shared::SpriteDesc, i: u32, j: u32) -> (u32, u32) {
         let p = &self.placed;
         (sprite.atlas_x + p.texel_x + p.step * i, sprite.atlas_y + p.texel_y + p.step * j)
+    }
+
+    /// The colour atlas texel (`tx`, `ty`) of `sprite` is drawn in (an
+    /// indexed sprite's through its palette rows).
+    fn color(&self, atlas: &Atlas, sprite: &tile_render_shared::SpriteDesc, (tx, ty): (u32, u32)) -> [u8; 4] {
+        if sprite.palette == 0 {
+            return atlas.pages[sprite.page as usize].get(tx, ty);
+        }
+        let index = atlas.index_pages[sprite.page as usize].get(tx, ty);
+        tile_render_shared::indexed_color(index.into(), sprite.palette, sprite.remap, self.palette, atlas.named_palettes, &atlas.palettes).map(|c| c as u8)
     }
 }
 
@@ -293,13 +305,12 @@ fn compose<P: Copy>(
                     return;
                 }
                 let (Some((tl, tr)), Some((tt, tb))) = (scaled_span(l, r, n, dd, c.hairline), scaled_span(t, b, n, dd, c.hairline)) else { return };
-                let page = &atlas.pages[sprite.page as usize];
                 for py in (oy + tt).max(scissor[1])..(oy + tb).min(scissor[3]) {
                     for px in (ox + tl).max(scissor[0])..(ox + tr).min(scissor[2]) {
                         let sx = ((px - ox) as i64 * dd as i64).div_euclid(n as i64) as i32;
                         let sy = ((py - oy) as i64 * dd as i64).div_euclid(n as i64) as i32;
                         let (tx, ty) = d.texel(&sprite, (sx.max(l) - x0) as u32, (sy.max(t) - y0) as u32);
-                        let src = page.get(tx, ty);
+                        let src = d.color(atlas, &sprite, (tx, ty));
                         if src[3] != 0 {
                             put(&mut out[(py as u32 * w + px as u32) as usize], &d, src);
                         }
@@ -329,7 +340,6 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
 /// Calls `f` for every opaque texel of `d` inside the viewport.
 fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32, u32, [u8; 4])) {
     let sprite = atlas.sprites[d.sprite.0 as usize];
-    let page = &atlas.pages[sprite.page as usize];
     for sy in 0..d.placed.height {
         for sx in 0..d.placed.width {
             let (px, py) = (d.rect_x() + sx as i32, d.rect_y() + sy as i32);
@@ -340,7 +350,7 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
                 continue;
             }
             let (tx, ty) = d.texel(&sprite, sx, sy);
-            let src = page.get(tx, ty);
+            let src = d.color(atlas, &sprite, (tx, ty));
             if src[3] != 0 {
                 f(px as u32, py as u32, src);
             }
@@ -416,6 +426,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     clip: within(clip),
                     placed: Placed::default(),
                     text: Some(TextPixels { place, size: (r - l, b - t_), origin: (vx, vy), color: g.color, key: t.key.map(|_| g.key) }),
+                    palette: 0,
                 }, true);
                 continue;
             }
@@ -454,6 +465,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     clip: within(s.clip.map(|[x0, y0, x1, y1]| [vx + cl(x0, bx), vy + cl(y0, by), vx + cl(x1, bx), vy + cl(y1, by)])),
                     placed,
                     text: None,
+                    palette: s.palette,
                 }, true);
                 continue;
             }
@@ -466,6 +478,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 clip: within(s.clip.map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
                 placed,
                 text: None,
+                palette: s.palette,
             }, false);
         }
     };
@@ -489,7 +502,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     }
                 }
                 let byte = record_at(layer, params.grid.cols, c, r);
-                let value = data.uint(byte, layer.value_bytes);
+                let (value, palette) = tile_render_shared::layer_value(layer, data.uint(byte, layer.value_bytes));
                 if value >= layer.lut_len {
                     continue;
                 }
@@ -512,6 +525,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     clip: within(None),
                     placed,
                     text: None,
+                    palette,
                 }, false);
             }
         }

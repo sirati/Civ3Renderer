@@ -171,7 +171,7 @@ impl Camera {
             target_y: scaled_at.map_or(0, |t| t.1),
             downscale: n,
             descending: pass.descending as u32,
-            _pad1: 0,
+            named_palettes: 0,
             _pad2: 0,
         }
     }

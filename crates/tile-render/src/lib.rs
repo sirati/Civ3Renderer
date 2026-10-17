@@ -14,7 +14,7 @@ pub mod reference;
 pub mod renderer;
 pub mod world;
 
-pub use atlas::{Atlas, AtlasBuilder, RgbaImage, SpriteId};
+pub use atlas::{Atlas, AtlasBuilder, IndexImage, RgbaImage, Shelves, SpriteId};
 pub use camera::Camera;
 pub use gpu::Headless;
 pub use renderer::{MAX_VIEWS, ScreenCopy, TileRenderer};
@@ -22,4 +22,6 @@ pub use world::{Blend, ColorModel, GlyphShape, Grid, LayerId, LayerSpec, Layout,
 /// How sprites are drawn in views showing the world smaller
 /// (`Camera::downscale`).
 pub use tile_render_shared::{KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, placed};
+/// Indexed sprites (`SpriteDesc::palette`).
+pub use tile_render_shared::{PALETTE_SIZE, remap_range};
 pub use gpu_text;
