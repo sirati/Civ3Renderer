@@ -436,6 +436,8 @@ fn publish(
     // Growths a renderer compiling its own art may not have yet (scenes
     // use them once it has).
     let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>)> = Default::default();
+    // What units drew last (shown while their new animation's art is built).
+    let mut unit_memory = units::UnitMemory::default();
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
     // The renderer's own settings, and our tabs over the game's Preferences
@@ -917,7 +919,7 @@ fn publish(
                 if ui.is_none() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
-                units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut scene);
+                units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut unit_memory, &mut scene);
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
                     scene.sprites.extend(city_hud::sprites(world, &compiled));

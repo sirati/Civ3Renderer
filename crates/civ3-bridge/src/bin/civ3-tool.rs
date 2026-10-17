@@ -121,7 +121,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         if std::env::var("CIV3_UNITS_FREE").as_deref() == Ok("1") {
             scene.sprites.extend(units::free_sprites(&trace.world, art, compiled, None));
         } else {
-            units::place(&trace.world, &trace.view, art, compiled, None, &mut scene);
+            units::place(&trace.world, &trace.view, art, compiled, None, &mut units::UnitMemory::default(), &mut scene);
         }
         match &ui {
             // The mirrored interface has the city icons and all text.

@@ -671,7 +671,15 @@ pub fn unit_passes(compiled: &Compiled) -> (u32, u32) {
 /// list; a third unit on a tile) is drawn, with all units after it, as free
 /// sprites after the units pass, in the list's order; inverting rings
 /// (which a layer cannot draw) as free sprites under the units.
-pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>, scene: &mut Scene) {
+pub fn place(
+    world: &Civ3World,
+    view: &Civ3View,
+    art: &mut UnitArt,
+    compiled: &Compiled,
+    rings: Option<&crate::rings::Rings>,
+    memory: &mut UnitMemory,
+    scene: &mut Scene,
+) {
     let (units_pass, under_units) = unit_passes(compiled);
     // (A description without unit layers: all free.)
     let layered = compiled.layer_index("unit_body").is_some();
@@ -680,9 +688,11 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &C
     let slots = if layered { slots(world, view, &units, (shape.cols, shape.rows)) } else { vec![None; units.len()] };
     let invert = tile_render::Blend::Invert.scale_den();
     log::trace!("units: {} on layers, {} as free sprites", slots.iter().filter(|s| s.is_some()).count(), slots.iter().filter(|s| s.is_none()).count());
+    memory.begin();
     for (u, slot) in units.into_iter().zip(slots) {
         let (col, row) = ((u.x >> 1) as u32, u.y as u32);
-        for p in pieces(world, art, u, rings) {
+        let pieces = pieces(world, art, u, rings);
+        for p in memory.drawable(world, art, compiled, u, pieces) {
             // Inverting rings under the units (a layer cannot invert).
             let Some(slot) = slot.filter(|_| p.scale_den != invert) else {
                 scene.sprites.extend(free_sprite(compiled, &p, if p.scale_den == invert { under_units } else { units_pass }));
@@ -699,6 +709,87 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &C
             scene.set_offset(index, col, row, (dx, dy));
         }
     }
+}
+
+/// What units drew last, so that a unit whose new animation has no art
+/// yet (it is being built) goes on showing its last frame rather than
+/// vanish (see [`UnitMemory::drawable`]).
+#[derive(Default)]
+pub struct UnitMemory {
+    /// Per unit and part, the piece drawn last.
+    last: HashMap<(i32, PartKey), Piece>,
+    /// Units seen in this scene.
+    seen: std::collections::HashSet<i32>,
+    /// Per unit whose body art is missing: its animation and since when.
+    missing: HashMap<i32, (i32, std::time::Instant)>,
+}
+
+/// [`Part`] as a map key.
+type PartKey = u8;
+
+impl UnitMemory {
+    /// A new scene: units not in the last one are forgotten.
+    fn begin(&mut self) {
+        let seen = std::mem::take(&mut self.seen);
+        self.last.retain(|(id, _), _| seen.contains(id));
+        self.missing.retain(|id, _| seen.contains(id));
+    }
+
+    /// `pieces` of unit `u` with those whose art is not compiled replaced:
+    /// by what the unit drew last for that part, else by the first frame of
+    /// its DEFAULT animation in the same direction, else left out.
+    fn drawable(&mut self, world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, u: &Civ3Unit, pieces: Vec<Piece>) -> Vec<Piece> {
+        self.seen.insert(u.id);
+        let has = |p: &Piece| compiled.set(p.sprite.as_deref().unwrap_or(&p.set)).is_some() && compiled.set(&p.set).is_some();
+        let mut out = Vec::with_capacity(pieces.len());
+        let mut body_missing = false;
+        for p in pieces {
+            let key = (u.id, p.part as PartKey);
+            if has(&p) {
+                self.last.insert(key, p.clone());
+                out.push(p);
+                continue;
+            }
+            body_missing |= p.part == Part::Body;
+            let previous = self.last.get(&key).filter(|q| has(q)).map(|q| Piece { at: p.at, ..q.clone() });
+            match previous.or_else(|| still(world, art, u, &p).filter(has)) {
+                Some(q) => out.push(q),
+                None => log::debug!("units: unit {} has no art for {} yet, nothing to show instead", u.id, p.set),
+            }
+        }
+        // (How long a new animation waits for its art, for the log.)
+        match (body_missing, self.missing.get(&u.id).copied()) {
+            (true, None) => drop(self.missing.insert(u.id, (u.animation, std::time::Instant::now()))),
+            (false, Some((animation, since))) => {
+                self.missing.remove(&u.id);
+                log::info!("units: unit {} shows animation {animation} {} ms after it started (its last frame drawn meanwhile)", u.id, since.elapsed().as_millis());
+            }
+            _ => {}
+        }
+        out
+    }
+}
+
+/// The first frame of the DEFAULT animation (in the same direction and
+/// colours) of what piece `p` of unit `u` shows: its body or shadow (an
+/// army's member), its banner.
+fn still(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, p: &Piece) -> Option<Piece> {
+    if !matches!(p.part, Part::Body | Part::Shadow | Part::Banner) {
+        return None;
+    }
+    let unit = match (p.part, army_member(world, u)) {
+        (Part::Banner, _) | (_, None) => u,
+        (_, Some(m)) => m,
+    };
+    let type_key = world.unit_type_keys.get(unit.unit_type.max(0) as usize)?;
+    let file = art.file(type_key, era_key(world, u.civ), 1)?.clone();
+    let block: u32 = p.set.rsplit_once('/')?.1.parse().ok()?;
+    let colors = match p.part {
+        Part::Shadow => None,
+        Part::Banner => Some(army_recolor(world, u)),
+        _ => Some(Recolor::civ(colors(world, u.civ))),
+    };
+    Some(Piece { scale_den: p.scale_den, ..animation(p.part, &file, colors, block, 0, p.at) })
 }
 
 /// The slot (of [`SLOTS`]) each of `units` (in the animator's order) is
@@ -767,8 +858,10 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
 pub fn free_sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>) -> Vec<scene::FreeSprite> {
     let (units_pass, under_units) = unit_passes(compiled);
     let mut out = Vec::new();
+    let mut memory = UnitMemory::default();
     for u in world.units.iter().filter(|u| u.visible) {
-        for p in pieces(world, art, u, rings) {
+        let pieces = pieces(world, art, u, rings);
+        for p in memory.drawable(world, art, compiled, u, pieces) {
             let after = if p.scale_den == tile_render::Blend::Invert.scale_den() { under_units } else { units_pass };
             out.extend(free_sprite(compiled, &p, after));
         }
