@@ -331,7 +331,8 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     let back_buffer = h::back_buffer(game.build).unwrap_or(0);
     hook!(present, sites.present, move |c| {
-        // (It draws the tooltip and the cursor onto the back buffer first.)
+        // It draws the tooltip and the cursor onto the back buffer first.
+        emit(Event::PresentBegin);
         updating(c.rect, || c.original());
         size_of(back_buffer);
         emit(Event::Present { rect: if c.rect == 0 { None } else { obj::rect(c.rect) } });

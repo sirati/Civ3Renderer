@@ -81,6 +81,11 @@ pub enum Event {
     CompositeEnd,
     /// The paint is complete.
     PaintEnd,
+    /// A present starts: what it draws onto the back buffer (the tooltip;
+    /// the game's mouse cursor too, which the tracer leaves out) lies over
+    /// everything composed and is drawn anew by every present (`present`,
+    /// 0x606680; docs §16.5).
+    PresentBegin,
     /// The back buffer's `rect` (left, top, right, bottom; all of it if
     /// none) copied to the window: from now on the screen shows it there.
     Present { rect: Option<[i32; 4]> },
@@ -148,8 +153,12 @@ const MAX_PIECES: usize = 16;
 enum Layer {
     /// A form's canvas put on the screen with its (0, 0) at `origin`.
     Form { canvas: u32, vtable: u32, origin: (i32, i32), size: (i32, i32), clip: [i32; 4], keyed: bool },
-    /// Drawn straight onto the screen (frames, the tooltip, the cursor).
+    /// Drawn straight onto the screen during a paint (the frames of
+    /// framed forms, e.g. a popup's border).
     Screen(Vec<Op>),
+    /// What a present drew onto the screen over everything (the tooltip):
+    /// always the top layer.
+    Overlay(Vec<Op>),
 }
 
 /// Part of a layer as the window shows it: the layer as it was presented,
@@ -177,7 +186,7 @@ impl Piece {
     fn extent(&self) -> [i32; 4] {
         match self.layer {
             Layer::Form { origin, size, clip, .. } => intersect(clip, [origin.0, origin.1, origin.0 + size.0, origin.1 + size.1]),
-            Layer::Screen(_) => ALL,
+            Layer::Screen(_) | Layer::Overlay(_) => ALL,
         }
     }
 }
@@ -211,6 +220,10 @@ pub struct UiModel {
     shown: Option<Vec<Vec<Piece>>>,
     /// The paint in progress.
     pending: Option<Vec<Layer>>,
+    /// What the last present drew over everything (see [`Layer::Overlay`]).
+    overlay: Vec<Op>,
+    /// Inside a present: what it has drawn so far.
+    presenting: Option<Vec<Op>>,
     /// Inside a form's composition.
     compositing: bool,
     /// Form classes (vtables) whose canvases we render ourselves.
@@ -303,7 +316,8 @@ impl UiModel {
     /// canvases showed when last put on it (the game composes changed forms
     /// on their own, outside a full paint).
     pub fn frame(&self) -> Frame {
-        self.compose_layers(self.order.iter().map(|layer| [self.piece(layer)]))
+        let overlay = Layer::Overlay(self.overlay.clone());
+        self.compose_layers(self.order.iter().chain([&overlay]).map(|layer| [self.piece(layer)]))
     }
 
     /// The screen now: what the window shows (see `shown`), as of the last
@@ -319,7 +333,7 @@ impl UiModel {
     fn piece(&self, layer: &Layer) -> Piece {
         let ops = match layer {
             Layer::Form { canvas, .. } => self.presented.get(canvas).cloned(),
-            Layer::Screen(_) => None,
+            Layer::Screen(_) | Layer::Overlay(_) => None,
         };
         Piece { layer: layer.clone(), ops, region: ALL }
     }
@@ -330,10 +344,12 @@ impl UiModel {
         for pieces in layers {
             let pieces = pieces.as_ref();
             match pieces.last().map(|p| &p.layer) {
-                Some(Layer::Screen(_)) => {
+                Some(Layer::Screen(_) | Layer::Overlay(_)) => {
+                    // In pieces, each has what reaches into it.
+                    let split = pieces.len() > 1;
                     for p in pieces {
-                        if let Layer::Screen(ops) = &p.layer {
-                            frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), p.region)));
+                        if let Layer::Screen(ops) | Layer::Overlay(ops) = &p.layer {
+                            frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), p.region)).filter(|d| !split || reaches_clip(d)));
                         }
                     }
                 }
@@ -391,9 +407,11 @@ impl UiModel {
 
     /// The back buffer's `rect` (all of it if none) is copied to the window:
     /// the layers being composed (or else those of the last paint) show
-    /// there now, and what was shown before stays elsewhere.
+    /// there now, with what the present drew over them, and what was shown
+    /// before stays elsewhere.
     fn present(&mut self, rect: Option<[i32; 4]>) {
-        let now: Vec<Piece> = self.pending.as_ref().unwrap_or(&self.order).iter().map(|l| self.piece(l)).collect();
+        let overlay = Layer::Overlay(self.overlay.clone());
+        let now: Vec<Piece> = self.pending.as_ref().unwrap_or(&self.order).iter().chain([&overlay]).map(|l| self.piece(l)).collect();
         // All of the back buffer: everywhere.
         let whole = |r: [i32; 4]| self.sizes.get(&self.screen).is_some_and(|&(w, h)| r[0] <= 0 && r[1] <= 0 && r[2] >= w && r[3] >= h);
         let region = rect.filter(|&r| !whole(r)).unwrap_or(ALL);
@@ -588,7 +606,16 @@ impl UiModel {
                     self.order = layers;
                 }
             }
-            Event::Present { rect } => self.present(rect),
+            Event::PresentBegin => self.presenting = Some(Vec::new()),
+            Event::Present { rect } => {
+                // What this present drew over everything replaces what the
+                // last one drew (without a `PresentBegin`, e.g. an older
+                // trace, it stays part of the paint).
+                if let Some(ops) = self.presenting.take() {
+                    self.overlay = ops;
+                }
+                self.present(rect)
+            }
         }
     }
 
@@ -642,8 +669,13 @@ impl UiModel {
             if self.compositing {
                 return;
             }
-            // Straight onto the screen: part of the paint in progress.
             let ops = self.resolve(&op, 0);
+            // Drawn by a present: over everything, until the next present.
+            if let Some(overlay) = self.presenting.as_mut() {
+                overlay.extend(ops);
+                return;
+            }
+            // Straight onto the screen: part of the paint in progress.
             if let Some(layers) = self.pending.as_mut() {
                 match layers.last_mut() {
                     Some(Layer::Screen(screen)) => screen.extend(ops),
@@ -735,7 +767,7 @@ pub(crate) fn reaches_clip(d: &ScreenDraw) -> bool {
 fn same_slot(a: &Layer, b: &Layer) -> bool {
     match (a, b) {
         (Layer::Form { canvas: x, .. }, Layer::Form { canvas: y, .. }) => x == y,
-        (Layer::Screen(_), Layer::Screen(_)) => true,
+        (Layer::Screen(_), Layer::Screen(_)) | (Layer::Overlay(_), Layer::Overlay(_)) => true,
         _ => false,
     }
 }
@@ -1224,6 +1256,63 @@ mod tests {
         assert_eq!(m.shown_frame(), m.frame());
     }
 
+    /// The game draws its tooltip in every present (over everything, onto
+    /// the back buffer) and copies a rectangle of the back buffer to the
+    /// window; presents of rectangles composed on their own come between
+    /// the paints.
+    #[test]
+    fn a_tooltip_is_drawn_by_every_present_and_goes_with_it() {
+        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+        m.apply(Event::Size { image: 999, size: (1000, 800) });
+        m.apply(Event::Fill { canvas: 400, rect: [0, 0, 1000, 800], rgb: [2, 2, 2], alpha: 255, clip: None });
+        let present = |m: &mut UiModel, tip: Option<(i32, &str)>, rect: Option<[i32; 4]>| {
+            m.apply(Event::PresentBegin);
+            if let Some((x, s)) = tip {
+                m.apply(Event::Fill { canvas: 999, rect: [x, 500, 150, 14], rgb: [255, 255, 255], alpha: 255, clip: None });
+                m.apply(Event::Text { canvas: 999, run: text(x + 3, 511, s) });
+            }
+            m.apply(Event::Present { rect });
+        };
+        let paint = |m: &mut UiModel, tip: Option<(i32, &str)>, rect: [i32; 4]| {
+            m.apply(Event::PaintBegin);
+            m.apply(composite(400, (0, 0), (1000, 800)));
+            m.apply(Event::CompositeEnd);
+            present(m, tip, Some(rect));
+            m.apply(Event::PaintEnd);
+        };
+        let at = |x: i32| Some([x - 1, 499, x + 152, 515]);
+        // The texts shown: their pen inside their clip.
+        let texts = |f: &Frame| -> Vec<String> {
+            let shown = |run: &TextRun, c: &[i32; 4]| run.x >= c[0] && run.x < c[2] && run.y - 2 >= c[1] && run.y - 2 < c[3];
+            f.draws.iter().filter_map(|d| if let ScreenDraw::Text { run, clip } = d { shown(run, clip).then(|| run.text.clone()) } else { None }).collect()
+        };
+        let boxes = |f: &Frame| f.draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { rgb: [255, 255, 255], .. })).count();
+        paint(&mut m, None, [0, 0, 1000, 800]);
+        // The pointer rests on a button: the tooltip appears in a present
+        // of its rectangle outside a paint, box and text.
+        present(&mut m, Some((100, "Fortify")), at(100));
+        assert_eq!((texts(&m.shown_frame()), boxes(&m.shown_frame())), (vec!["Fortify".to_string()], 1));
+        // The button is painted (its rectangle): the tooltip stays whole.
+        paint(&mut m, Some((100, "Fortify")), [100, 520, 132, 552]);
+        assert_eq!((texts(&m.shown_frame()), boxes(&m.shown_frame())), (vec!["Fortify".to_string()], 1));
+        // The whole screen presented (an animation): still there.
+        present(&mut m, Some((100, "Fortify")), None);
+        assert_eq!(texts(&m.shown_frame()), ["Fortify"]);
+        // On the next button: the old one's place presented without it,
+        // then the new one's; no trace of the old text is left.
+        present(&mut m, Some((300, "Bombard")), at(100));
+        present(&mut m, Some((300, "Bombard")), at(300));
+        assert_eq!(texts(&m.shown_frame()), ["Bombard"]);
+        present(&mut m, Some((300, "Bombard")), None);
+        assert_eq!((texts(&m.shown_frame()), boxes(&m.shown_frame())), (vec!["Bombard".to_string()], 1));
+        // Off the buttons: its place presented with no tooltip.
+        present(&mut m, None, at(300));
+        assert!(texts(&m.shown_frame()).is_empty());
+        assert!(texts(&m.frame()).is_empty());
+        present(&mut m, None, None);
+        assert_eq!(boxes(&m.shown_frame()), 0);
+    }
+
     #[test]
     fn the_rectangle_being_updated_is_no_clip() {
         let (r, parent) = ([100, 520, 132, 552], [90, 500, 140, 540]);
@@ -1231,6 +1320,33 @@ mod tests {
         assert_eq!(content_clip(Some(parent), Some(r)), Some(parent));
         assert_eq!(content_clip(Some(r), None), Some(r));
         assert_eq!(content_clip(None, Some(r)), None);
+    }
+
+    /// A popup's frame, drawn onto the screen in every paint, stays when a
+    /// paint updates only a rectangle inside the popup.
+    #[test]
+    fn a_frame_drawn_onto_the_screen_stays_through_partial_paints() {
+        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+        m.apply(Event::Size { image: 999, size: (1000, 800) });
+        m.apply(Event::Fill { canvas: 400, rect: [0, 0, 1000, 800], rgb: [2, 2, 2], alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 500, rect: [0, 0, 300, 200], rgb: [3, 3, 3], alpha: 255, clip: None });
+        let paint = |m: &mut UiModel, rect: [i32; 4]| {
+            m.apply(Event::PaintBegin);
+            m.apply(composite(400, (0, 0), (1000, 800)));
+            m.apply(Event::CompositeEnd);
+            m.apply(Event::Fill { canvas: 999, rect: [97, 97, 306, 3], rgb: [8, 74, 41], alpha: 255, clip: None });
+            m.apply(composite(500, (100, 100), (300, 200)));
+            m.apply(Event::CompositeEnd);
+            m.apply(Event::PresentBegin);
+            m.apply(Event::Present { rect: Some(rect) });
+            m.apply(Event::PaintEnd);
+        };
+        let frames = |f: &Frame| f.draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { rgb: [8, 74, 41], .. })).count();
+        paint(&mut m, [0, 0, 1000, 800]);
+        assert_eq!(frames(&m.shown_frame()), 1);
+        paint(&mut m, [150, 150, 200, 170]);
+        assert_eq!(frames(&m.shown_frame()), 1);
+        assert_eq!(frames(&m.frame()), 1);
     }
 
     #[test]
