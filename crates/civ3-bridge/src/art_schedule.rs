@@ -7,9 +7,9 @@
 //! until the requests settle (or have waited long enough), runs one at a
 //! time (off the publishing thread), and covers every request made before
 //! it started.
-//! While art the game's *screen* needs is missing, the scene is held back:
-//! the viewer keeps showing the last complete one rather than a screen with
-//! empty panels, for at most [`Timing::hold_max`].
+//! [`ArtSchedule::hold`] tells whether art the game's *screen* needs is
+//! still missing; the publisher does not hold scenes back for it (nothing
+//! waits for art: what is missing is drawn once it is built).
 
 use std::time::{Duration, Instant};
 

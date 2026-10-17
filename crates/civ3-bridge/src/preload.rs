@@ -1,7 +1,8 @@
 //! Art made ahead of need, so that what the game shows next is there when
 //! it does: at the start of a game, every animation of the units on screen,
 //! then of the other units present, the interface's art (the screens'
-//! regions and the fonts a list names: `assets/civ3/preload-art.txt`),
+//! regions and the fonts a list names: `assets/civ3/preload-art.txt`, and
+//! its common font styles in its common colours),
 //! then every animation of every unit type of the game in every era, in
 //! the colours of the civs present. The publisher appends it to the art
 //! a little at a time while the art thread has nothing else to do (art the
@@ -180,6 +181,25 @@ impl Preload {
             interface.push_back(Item::Screen(rest));
         }
         interface.extend(list.fonts.iter().map(|(s, c, b)| Item::Font(s.clone(), *c, *b)));
+        // The list's common styles in its common colours too: text the
+        // screens show in another colour (a tooltip, a popup) finds its
+        // font there.
+        let mut styles: std::collections::BTreeMap<&FontStyle, usize> = Default::default();
+        let mut colours: std::collections::BTreeMap<[u8; 3], usize> = Default::default();
+        for (s, c, b) in &list.fonts {
+            *styles.entry(s).or_default() += 1;
+            if b.is_none() {
+                *colours.entry(*c).or_default() += 1;
+            }
+        }
+        let listed: BTreeSet<(&FontStyle, [u8; 3])> = list.fonts.iter().filter(|(_, _, b)| b.is_none()).map(|(s, c, _)| (s, *c)).collect();
+        for (style, _) in styles.iter().filter(|(_, n)| **n >= 3) {
+            for (colour, _) in colours.iter().filter(|(_, n)| **n >= 2) {
+                if !listed.contains(&(*style, *colour)) {
+                    interface.push_back(Item::Font((*style).clone(), *colour, None));
+                }
+            }
+        }
         tiers.push_back(Tier { name: "interface", items: interface });
         // Every unit type in every era, in the colours of the civs present
         // (with palettes, more colourings cost no pixels).
