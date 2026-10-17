@@ -478,7 +478,23 @@ pub struct TileWorld {
     layers: Vec<LayerSpec>,
     /// Each layer's records, packed, little endian.
     data: Vec<Vec<u8>>,
+    /// The records changed since [`TileWorld::take_dirty`] last took them.
+    dirty: Dirty,
 }
+
+/// Which cells' records changed (see [`TileWorld::take_dirty`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Dirty {
+    #[default]
+    None,
+    /// These (layer, cell index) records, maybe more than once.
+    Records(Vec<(u32, u32)>),
+    /// Too many to list: all of them.
+    All,
+}
+
+/// More changed records than this are [`Dirty::All`].
+const MOST_DIRTY: usize = 1 << 14;
 
 /// Index of a layer in a `TileWorld`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -486,7 +502,7 @@ pub struct LayerId(pub usize);
 
 impl TileWorld {
     pub fn new(grid: Grid, sets: SpriteSets) -> Self {
-        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), fonts: Vec::new(), layers: Vec::new(), data: Vec::new() }
+        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), fonts: Vec::new(), layers: Vec::new(), data: Vec::new(), dirty: Dirty::All }
     }
 
     pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {
@@ -503,6 +519,7 @@ impl TileWorld {
         let bytes = (spec.record_bytes() * self.grid.cells()) as usize;
         self.layers.push(spec);
         self.data.push(vec![0; bytes]);
+        self.dirty = Dirty::All;
         LayerId(self.layers.len() - 1)
     }
 
@@ -535,6 +552,54 @@ impl TileWorld {
         let n = spec.value_bytes() as usize;
         let at = self.record_at(layer, col, row);
         self.data[layer.0][at..at + n].copy_from_slice(&value.to_le_bytes()[..n]);
+        self.touch(layer, col, row);
+    }
+
+    /// Notes that the record of (`col`, `row`) on `layer` changed.
+    fn touch(&mut self, layer: LayerId, col: u32, row: u32) {
+        let cell = row * self.grid.cols + col;
+        match &mut self.dirty {
+            Dirty::All => {}
+            Dirty::None => self.dirty = Dirty::Records(vec![(layer.0 as u32, cell)]),
+            Dirty::Records(r) if r.len() >= MOST_DIRTY => self.dirty = Dirty::All,
+            Dirty::Records(r) => r.push((layer.0 as u32, cell)),
+        }
+    }
+
+    /// The records changed since the last call (all of them in a world
+    /// just made), to upload only those (`TileRenderer::update_cells`).
+    pub fn take_dirty(&mut self) -> Dirty {
+        std::mem::take(&mut self.dirty)
+    }
+
+    /// Where the record of `cell` on `layer` lies in the packed data the
+    /// GPU reads (byte offset, length; see `pack`).
+    pub fn packed_record(&self, layer: u32, cell: u32) -> Option<(usize, usize)> {
+        let spec = self.layers.get(layer as usize)?;
+        let len = spec.record_bytes() as usize;
+        let start: usize = self.data[..layer as usize].iter().map(Vec::len).sum();
+        let at = cell as usize * len;
+        (at + len <= self.data[layer as usize].len()).then_some((start + at, len))
+    }
+
+    /// The packed data's bytes `range` (zeros past the records, as `pack`
+    /// pads them).
+    pub fn packed_bytes(&self, range: std::ops::Range<usize>) -> Vec<u8> {
+        let mut out = vec![0; range.len()];
+        let mut start = 0;
+        for d in &self.data {
+            let (lo, hi) = (range.start.max(start), range.end.min(start + d.len()));
+            if lo < hi {
+                out[lo - range.start..hi - range.start].copy_from_slice(&d[lo - start..hi - start]);
+            }
+            start += d.len();
+        }
+        out
+    }
+
+    /// Whether `layer` stores per-cell offsets.
+    pub fn has_offsets(&self, layer: u32) -> bool {
+        self.layers.get(layer as usize).is_some_and(|l| l.per_cell_offset)
     }
 
     pub fn get(&self, layer: LayerId, col: u32, row: u32) -> u32 {
@@ -551,6 +616,7 @@ impl TileWorld {
         assert!(spec.per_cell_phase, "layer {} has no per-cell phase", spec.name);
         let at = self.record_at(layer, col, row) + spec.value_bytes() as usize;
         self.data[layer.0][at] = phase;
+        self.touch(layer, col, row);
     }
 
     /// Sets the cell's pixel offset (x, y): its sprite is drawn that far
@@ -561,6 +627,7 @@ impl TileWorld {
         let at = self.offset_at(layer, col, row);
         self.data[layer.0][at..at + 2].copy_from_slice(&x.to_le_bytes());
         self.data[layer.0][at + 2..at + 4].copy_from_slice(&y.to_le_bytes());
+        self.touch(layer, col, row);
     }
 
     /// The cell's pixel offset (0, 0 on a layer without them).

@@ -1192,3 +1192,51 @@ fn trimmed(atlas: &tile_render::Atlas) -> tile_render::Atlas {
     a.trim_blank();
     a
 }
+
+#[test]
+fn changed_cells_markers_and_sprites_drawn_again_show_what_a_new_world_does() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, true);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let terrain = world.layers()[0].lut.clone();
+    let anim = world.free[0].set;
+    // The same opaque-or-clear picture three times, something else between:
+    // only the last shows anything, and the GPU draws only that one.
+    let tile = |x, y| PlacedSprite { screen: true, ..PlacedSprite::new(terrain[2], x, y) };
+    world.free.extend([tile(40, 30), PlacedSprite { screen: true, ..PlacedSprite::new(anim, 60, 80) }, tile(40, 30), tile(300, 30), tile(40, 30)]);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
+    renderer.set_world(&gpu.device, &world);
+    let _ = world.take_dirty();
+    // Some cells change (values, and phases of the animated layer), and
+    // markers come on top.
+    for (c, r) in [(0, 0), (5, 7), (11, 19), (6, 3)] {
+        world.set(tile_render::LayerId(0), c, r, (c + r) % 5);
+    }
+    world.set_phase(tile_render::LayerId(1), 4, 4, 3);
+    world.set(tile_render::LayerId(1), 4, 4, 1);
+    let dirty = world.take_dirty();
+    assert!(matches!(&dirty, tile_render::Dirty::Records(r) if r.len() == 6), "{dirty:?}");
+    renderer.update_cells(&gpu.device, &gpu.queue, &world, &dirty);
+    let markers = [PlacedSprite { screen: true, ..PlacedSprite::new(anim, 200, 200) }, tile(10, 10)];
+    renderer.set_markers(&gpu.device, &gpu.queue, &markers);
+    let mut with_markers = world.clone();
+    with_markers.free.extend(markers);
+    for (x, y) in [(0, 0), (333, 101), (-517, 40)] {
+        let camera = Camera { x, y, overhang: (0, 40, 0, 0), ..Camera::new((640, 360)) };
+        for frame in [0, 5] {
+            let got = gpu.render(&mut renderer, &camera, frame, CLEAR);
+            let want = reference::render(&with_markers, &atlas, &camera, frame, CLEAR);
+            assert_same(&got, &want, &format!("camera ({x}, {y}) frame {frame}"));
+        }
+    }
+    // Other markers, and none.
+    renderer.set_markers(&gpu.device, &gpu.queue, &markers[1..]);
+    let camera = Camera::new((640, 360));
+    let mut one = world.clone();
+    one.free.push(markers[1]);
+    assert_same(&gpu.render(&mut renderer, &camera, 0, CLEAR), &reference::render(&one, &atlas, &camera, 0, CLEAR), "one marker");
+    renderer.set_markers(&gpu.device, &gpu.queue, &[]);
+    assert_same(&gpu.render(&mut renderer, &camera, 0, CLEAR), &reference::render(&world, &atlas, &camera, 0, CLEAR), "no markers");
+}

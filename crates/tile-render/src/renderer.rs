@@ -56,6 +56,10 @@ pub struct TileRenderer {
     too_many_views: bool,
     /// GPU time per pass, when profiling (see [`TileRenderer::enable_timing`]).
     timer: Option<crate::timing::GpuTimer>,
+    /// The markers (see [`TileRenderer::set_markers`]) and how they are
+    /// drawn (runs from 0).
+    markers: Vec<FreeSprite>,
+    marker_runs: FreeRuns,
 }
 
 /// The atlas on the GPU: its colour and index pages, its sprites and
@@ -143,10 +147,15 @@ struct WorldBuffers {
     passes: Vec<Pass>,
     /// How far per-cell offsets move sprites (`TileWorld::offset_reach`).
     reach: (u32, u32, u32, u32),
-    /// Free sprites, ordered by the pass they follow, and per pass the
-    /// range of them to draw after it (the last entry: after all passes).
+    /// Free sprites, ordered by the pass they follow, then the markers
+    /// (see [`TileRenderer::set_markers`]), and per pass the range of them
+    /// to draw after it (the last entry: after all passes).
     free: wgpu::Buffer,
     free_after: Vec<FreeRuns>,
+    /// The world's free sprites as uploaded, and the runs of them after
+    /// all passes (the markers' runs follow).
+    scene_free: Vec<FreeSprite>,
+    last_runs: FreeRuns,
     /// Text drawn from outlines (`tile_render_shared::text::TextGlyph`), in
     /// drawing order (`free_after`'s text runs index it).
     text: wgpu::Buffer,
@@ -281,6 +290,8 @@ impl TileRenderer {
             bind_group: None,
             too_many_views: false,
             timer: None,
+            markers: Vec::new(),
+            marker_runs: Vec::new(),
         }
     }
 
@@ -535,14 +546,23 @@ impl TileRenderer {
         let empty = [LayerDesc::default()];
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
         let (outlines, bases) = crate::world::outline_words(&world.fonts);
-        let (free, text, free_after) = free_sprites(world, &bases);
+        let sprites = self.atlas.as_ref().map_or(&[][..], |a| &a.sprites[..]);
+        let (free, text, mut free_after) = free_sprites(world, &bases, sprites);
+        let last_runs = free_after.last().cloned().unwrap_or_default();
+        if let Some(last) = free_after.last_mut() {
+            last.extend(shifted(&self.marker_runs, free.len() as u32));
+        }
+        let mut all = free.clone();
+        all.extend_from_slice(&self.markers);
         self.world = Some(WorldBuffers {
             grid: world.grid,
             color: world.color,
             passes: world.passes(),
             reach: packed.reach,
-            free: storage(device, "tile-render free sprites", bytemuck::cast_slice(&free)),
+            free: storage_with_room(device, "tile-render free sprites", bytemuck::cast_slice(&all)),
             free_after,
+            scene_free: free,
+            last_runs,
             text: storage(device, "tile-render text", bytemuck::cast_slice(&text)),
             outlines: storage(device, "tile-render outlines", bytemuck::cast_slice(&outlines)),
             fonts: font_ids(world),
@@ -576,11 +596,26 @@ impl TileRenderer {
     pub fn update_free(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
         let Some(w) = &mut self.world else { return self.set_world(device, world) };
         let fonts = font_ids(world);
-        let (outlines, bases) = crate::world::outline_words(&world.fonts);
-        let (free, text, free_after) = free_sprites(world, &bases);
+        // (The fonts' outlines are put together only when they change.)
+        let bases = font_bases(&world.fonts);
+        let sprites = self.atlas.as_ref().map_or(&[][..], |a| &a.sprites[..]);
+        let (free, text, mut free_after) = free_sprites(world, &bases, sprites);
         w.first_zoomed = crate::world::first_zoomed(&world.free, w.passes.len().min(MAX_PASSES));
+        w.last_runs = free_after.last().cloned().unwrap_or_default();
+        if let Some(last) = free_after.last_mut() {
+            last.extend(shifted(&self.marker_runs, free.len() as u32));
+        }
         w.free_after = free_after;
+        let mut all = free.clone();
+        all.extend_from_slice(&self.markers);
+        w.scene_free = free;
         let mut rebind = false;
+        if w.free.size() >= (all.len() * size_of::<FreeSprite>()) as u64 {
+            queue.write_buffer(&w.free, 0, bytemuck::cast_slice(&all));
+        } else {
+            w.free = storage_with_room(device, "tile-render free sprites", bytemuck::cast_slice(&all));
+            rebind = true;
+        }
         // Into the buffer if it fits, else a new one.
         let mut write = |buffer: &mut wgpu::Buffer, label: &str, bytes: &[u8]| {
             if buffer.size() >= bytes.len() as u64 {
@@ -590,15 +625,97 @@ impl TileRenderer {
                 rebind = true;
             }
         };
-        write(&mut w.free, "tile-render free sprites", bytemuck::cast_slice(&free));
         write(&mut w.text, "tile-render text", bytemuck::cast_slice(&text));
         if w.fonts != fonts {
+            let (outlines, _) = crate::world::outline_words(&world.fonts);
             w.outlines = storage(device, "tile-render outlines", bytemuck::cast_slice(&outlines));
             w.fonts = fonts;
             rebind = true;
         }
         if rebind {
             self.rebuild_bind_group(device);
+        }
+    }
+
+    /// Sprites drawn after everything else, in list order, that change
+    /// more often than the world (a viewer's cursor, markers, a frame
+    /// counter): uploaded on their own, after the world's free sprites,
+    /// which are not touched. They must not be text drawn from outlines
+    /// (those are left out); their `after_pass` does not matter.
+    pub fn set_markers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, markers: &[crate::PlacedSprite]) {
+        let mut runs: FreeRuns = Vec::new();
+        self.markers.clear();
+        for m in markers.iter().filter(|m| m.text.is_none()) {
+            self.markers.push(m.gpu());
+            push_run(&mut runs, self.markers.len() as u32 - 1, free_kind(m));
+        }
+        self.marker_runs = runs;
+        let Some(w) = &mut self.world else { return };
+        let base = w.scene_free.len();
+        if let Some(last) = w.free_after.last_mut() {
+            *last = w.last_runs.clone();
+            last.extend(shifted(&self.marker_runs, base as u32));
+        }
+        let size = size_of::<FreeSprite>();
+        if w.free.size() >= ((base + self.markers.len()) * size) as u64 {
+            if !self.markers.is_empty() {
+                queue.write_buffer(&w.free, (base * size) as u64, bytemuck::cast_slice(&self.markers));
+            }
+        } else {
+            let mut all = w.scene_free.clone();
+            all.extend_from_slice(&self.markers);
+            w.free = storage_with_room(device, "tile-render free sprites", bytemuck::cast_slice(&all));
+            self.rebuild_bind_group(device);
+        }
+    }
+
+    /// Uploads the records of `world`'s cells that `dirty` lists (taken
+    /// from `TileWorld::take_dirty`), into a world of the same shape
+    /// uploaded before; all of them (or a new world) otherwise. Its free
+    /// sprites are not uploaded (see [`TileRenderer::update_free`]).
+    pub fn update_cells(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld, dirty: &crate::world::Dirty) {
+        let records = match dirty {
+            crate::world::Dirty::None => return,
+            crate::world::Dirty::Records(r) => r,
+            crate::world::Dirty::All => {
+                let packed = world.pack();
+                match &mut self.world {
+                    Some(w) if w.grid == world.grid && w.color == world.color && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
+                        queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
+                        w.reach = packed.reach;
+                    }
+                    _ => self.set_world(device, world),
+                }
+                return;
+            }
+        };
+        let Some(w) = &mut self.world else { return self.set_world(device, world) };
+        if w.grid != world.grid || w.color != world.color {
+            return self.set_world(device, world);
+        }
+        // The byte ranges, word aligned, merged where they touch.
+        let mut ranges: Vec<(usize, usize)> = records
+            .iter()
+            .filter_map(|&(layer, cell)| world.packed_record(layer, cell))
+            .map(|(at, len)| (at & !3, (at + len + 3) & !3))
+            .collect();
+        ranges.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+        for (a, b) in ranges {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 + 64 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        let size = w.tile_data.size() as usize;
+        for (a, b) in merged {
+            let b = b.min(size);
+            if a < b {
+                queue.write_buffer(&w.tile_data, a as u64, &world.packed_bytes(a..b));
+            }
+        }
+        if records.iter().any(|&(layer, _)| world.has_offsets(layer)) {
+            w.reach = world.offset_reach();
         }
     }
 
@@ -1066,14 +1183,15 @@ type FreeRuns = Vec<(std::ops::Range<u32>, FreeKind)>;
 /// then list order), its text drawn from outlines likewise (`bases`: where
 /// each font starts in the outline buffer), and per pass the runs of them
 /// that follow it; the last entry follows all passes.
-fn free_sprites(world: &TileWorld, bases: &[u32]) -> (Vec<FreeSprite>, Vec<tile_render_shared::text::TextGlyph>, Vec<FreeRuns>) {
+fn free_sprites(world: &TileWorld, bases: &[u32], sprites: &[SpriteDesc]) -> (Vec<FreeSprite>, Vec<tile_render_shared::text::TextGlyph>, Vec<FreeRuns>) {
     let passes = world.passes().len().min(MAX_PASSES);
     let mut order: Vec<&crate::PlacedSprite> = world.free.iter().collect();
     order.sort_by_key(|s| s.after_pass.min(passes));
+    let shown = shown_free(&order, passes, &world.sets, sprites);
     let mut runs: Vec<FreeRuns> = vec![Vec::new(); passes + 1];
     let mut gpu: Vec<FreeSprite> = Vec::with_capacity(order.len());
     let mut text = Vec::new();
-    for s in order {
+    for (s, _) in order.into_iter().zip(shown).filter(|(_, shown)| *shown) {
         let (kind, i) = match s.text {
             Some(t) => {
                 let Some(g) = t.gpu(s, &world.fonts, bases) else { continue };
@@ -1082,19 +1200,10 @@ fn free_sprites(world: &TileWorld, bases: &[u32]) -> (Vec<FreeSprite>, Vec<tile_
             }
             None => {
                 gpu.push(s.gpu());
-                let kind = match s.blend {
-                    crate::Blend::Invert => FreeKind::Invert,
-                    crate::Blend::Subpixel { .. } => FreeKind::Subpixel,
-                    _ => FreeKind::Normal,
-                };
-                (kind, gpu.len() as u32 - 1)
+                (free_kind(s), gpu.len() as u32 - 1)
             }
         };
-        let p = s.after_pass.min(passes);
-        match runs[p].last_mut() {
-            Some((range, k)) if *k == kind && range.end == i => range.end = i + 1,
-            _ => runs[p].push((i..i + 1, kind)),
-        }
+        push_run(&mut runs[s.after_pass.min(passes)], i, kind);
     }
     if gpu.is_empty() {
         gpu.push(FreeSprite::default());
@@ -1103,6 +1212,85 @@ fn free_sprites(world: &TileWorld, bases: &[u32]) -> (Vec<FreeSprite>, Vec<tile_
         text.push(Default::default());
     }
     (gpu, text, runs)
+}
+
+/// Of free sprites in drawing order, those that show anything: not one
+/// drawn again later the same (same frames, place, clip, blend, view,
+/// palette, after the same pass) whose texels are all clear or opaque
+/// (`BLANK_BINARY`, every frame): the later one covers all it drew,
+/// whatever is drawn between them. (A game's interface mirrored as a
+/// display list may draw the same picture many times over.)
+fn shown_free(order: &[&crate::PlacedSprite], passes: usize, sets: &crate::SpriteSets, sprites: &[SpriteDesc]) -> Vec<bool> {
+    let mut binary: std::collections::HashMap<u32, bool> = std::collections::HashMap::new();
+    let mut is_binary = |set: crate::SpriteSetId| {
+        *binary.entry(set.raw()).or_insert_with(|| {
+            let mut frames = (0..).map_while(|i| sets.frame(set, i)).peekable();
+            frames.peek().is_some() && frames.all(|id| sprites.get(id.0 as usize).is_some_and(|d| d.blank & tile_render_shared::BLANK_BINARY != 0))
+        })
+    };
+    let mut later: std::collections::HashSet<(usize, [u32; size_of::<FreeSprite>() / 4])> = std::collections::HashSet::new();
+    let mut shown = vec![true; order.len()];
+    for (i, s) in order.iter().enumerate().rev() {
+        if s.text.is_some() || s.blend != crate::Blend::Alpha {
+            continue;
+        }
+        let key = (s.after_pass.min(passes), bytemuck::cast(s.gpu()));
+        if !later.insert(key) && is_binary(s.set) {
+            shown[i] = false;
+        }
+    }
+    shown
+}
+
+/// How free sprite `s` (not text) is drawn.
+fn free_kind(s: &crate::PlacedSprite) -> FreeKind {
+    match s.blend {
+        crate::Blend::Invert => FreeKind::Invert,
+        crate::Blend::Subpixel { .. } => FreeKind::Subpixel,
+        _ => FreeKind::Normal,
+    }
+}
+
+/// Adds instance `i`, drawn as `kind`, to `runs`.
+fn push_run(runs: &mut FreeRuns, i: u32, kind: FreeKind) {
+    match runs.last_mut() {
+        Some((range, k)) if *k == kind && range.end == i => range.end = i + 1,
+        _ => runs.push((i..i + 1, kind)),
+    }
+}
+
+/// `runs` of instances `by` further on.
+fn shifted(runs: &FreeRuns, by: u32) -> impl Iterator<Item = (std::ops::Range<u32>, FreeKind)> + '_ {
+    runs.iter().map(move |(r, k)| (r.start + by..r.end + by, *k))
+}
+
+/// Where each font's words start in the outline buffer (see
+/// `world::outline_words`).
+fn font_bases(fonts: &[std::sync::Arc<gpu_text::Face>]) -> Vec<u32> {
+    let mut at = 0;
+    fonts
+        .iter()
+        .map(|f| {
+            let base = at;
+            at += f.words.len() as u32;
+            base
+        })
+        .collect()
+}
+
+/// A storage buffer of `contents` with room for a quarter more (and a few
+/// markers), so that what grows a little is written into it.
+fn storage_with_room(device: &wgpu::Device, label: &str, contents: &[u8]) -> wgpu::Buffer {
+    let size = (contents.len() + contents.len() / 4 + 64 * size_of::<FreeSprite>()).next_multiple_of(4) as u64;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: true,
+    });
+    buffer.slice(..contents.len() as u64).get_mapped_range_mut().expect("mapped at creation").copy_from_slice(contents);
+    buffer.unmap();
+    buffer
 }
 
 /// Which fonts `world` has (to tell when its outlines change).

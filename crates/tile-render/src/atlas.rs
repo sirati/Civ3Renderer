@@ -401,8 +401,22 @@ impl Atlas {
     /// Finds every sprite's blank margins (`SpriteDesc::blank`) from its
     /// pixels (none without them), once the palettes are set: texels of
     /// alpha 0, of an indexed sprite those whose entry of its own row has
-    /// alpha 0 (not those of the range a draw may remap).
+    /// alpha 0 (not those of the range a draw may remap); and whether its
+    /// texels are all opaque or clear (remapped ones as every named
+    /// palette has them).
     pub fn trim_blank(&mut self) {
+        // The alphas of the named rows' entries: per entry, whether every
+        // named row has it at 0 or 255, and at 255.
+        let size = tile_render_shared::PALETTE_SIZE as usize;
+        let named = self.palettes.get(self.named_palettes as usize * size..).unwrap_or(&[]);
+        let mut named_alpha = [(true, true); 256];
+        for row in named.chunks(size) {
+            for (i, &c) in row.iter().enumerate() {
+                let a = c >> 24;
+                named_alpha[i].0 &= a == 0 || a == 255;
+                named_alpha[i].1 &= a == 255;
+            }
+        }
         let mut found: std::collections::HashMap<[u32; 7], u32> = std::collections::HashMap::new();
         for i in 0..self.sprites.len() {
             let s = self.sprites[i];
@@ -410,7 +424,7 @@ impl Atlas {
             let blank = match found.get(&key) {
                 Some(&b) => b,
                 None => {
-                    let b = self.margins(&s);
+                    let b = self.margins(&s, &named_alpha);
                     found.insert(key, b);
                     b
                 }
@@ -419,15 +433,20 @@ impl Atlas {
         }
     }
 
-    /// The blank margins of `s` (0 where its pixels are not here).
-    fn margins(&self, s: &SpriteDesc) -> u32 {
+    /// The blank margins of `s` and its alpha flags (0 where its pixels are
+    /// not here).
+    fn margins(&self, s: &SpriteDesc, named: &[(bool, bool); 256]) -> u32 {
         let (w, h) = (s.width, s.height);
         if w == 0 || h == 0 {
             return 0;
         }
-        let blank: Box<dyn Fn(u32, u32) -> bool + '_> = if s.palette == 0 {
+        // Per texel: alpha 0 (blank), alpha 0 or 255, alpha 255.
+        let alpha: Box<dyn Fn(u32, u32) -> (bool, bool, bool) + '_> = if s.palette == 0 {
             let Some(page) = self.pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return 0 };
-            Box::new(move |x, y| page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize][3] == 0)
+            Box::new(move |x, y| {
+                let a = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize][3];
+                (a == 0, a == 0 || a == 255, a == 255)
+            })
         } else {
             let Some(page) = self.index_pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return 0 };
             let row = s.palette as usize * tile_render_shared::PALETTE_SIZE as usize;
@@ -435,19 +454,33 @@ impl Atlas {
             let (lo, hi) = (s.remap & 0xFFFF, s.remap >> 16);
             Box::new(move |x, y| {
                 let i = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize] as u32;
-                !(lo..hi).contains(&i) && entries[i as usize] >> 24 == 0
+                let a = entries[i as usize] >> 24;
+                // (A remapped entry is drawn from the own row or any named
+                // one.)
+                let (binary, opaque) = if (lo..hi).contains(&i) { (named[i as usize].0 && (a == 0 || a == 255), named[i as usize].1 && a == 255) } else { (a == 0 || a == 255, a == 255) };
+                (!(lo..hi).contains(&i) && a == 0, binary, opaque)
             })
         };
+        let (mut binary, mut opaque) = (true, true);
+        for y in 0..h {
+            for x in 0..w {
+                let (_, b, o) = alpha(x, y);
+                binary &= b;
+                opaque &= o;
+            }
+        }
+        let flags = if binary { tile_render_shared::BLANK_BINARY } else { 0 } | if opaque { tile_render_shared::BLANK_OPAQUE } else { 0 };
+        let blank = |x: u32, y: u32| alpha(x, y).0;
         let row_blank = |y: u32| (0..w).all(|x| blank(x, y));
         let top = (0..h).take_while(|&y| row_blank(y)).count() as u32;
         if top == h {
-            return tile_render_shared::blank_margins(w, h, w, h);
+            return tile_render_shared::blank_margins(w, h, w, h) | flags;
         }
         let bottom = (top..h).rev().take_while(|&y| row_blank(y)).count() as u32;
         let column_blank = |x: u32| (top..h - bottom).all(|y| blank(x, y));
         let left = (0..w).take_while(|&x| column_blank(x)).count() as u32;
         let right = (left..w).rev().take_while(|&x| column_blank(x)).count() as u32;
-        tile_render_shared::blank_margins(left, top, right, bottom)
+        tile_render_shared::blank_margins(left, top, right, bottom) | flags
     }
 
     /// Bytes its pages take: colour pages, index pages.
@@ -484,6 +517,7 @@ mod tests {
         let img = RgbaImage::from_fn(12, 10, |x, y| if (3..7).contains(&x) && (2..9).contains(&y) { [9, 9, 9, if x == 3 { 1 } else { 255 }] } else { [7, 7, 7, 0] });
         let a = b.add(&img, (0, 0)).unwrap();
         let empty = b.add(&RgbaImage::new(4, 3), (0, 0)).unwrap();
+        let opaque = b.add(&RgbaImage::from_fn(5, 5, |_, _| [1, 2, 3, 255]), (0, 0)).unwrap();
         // Indexed: index 0 clear in its own row, 5 opaque, 200 remapped.
         let idx = IndexImage::from_fn(8, 4, |x, _| match x {
             1 => 5,
@@ -497,8 +531,11 @@ mod tests {
         atlas.palettes = palettes;
         atlas.trim_blank();
         assert_eq!(atlas.sprites[a.0 as usize].blank, tile_render_shared::blank_margins(3, 2, 5, 1));
-        assert_eq!(atlas.sprites[empty.0 as usize].blank, tile_render_shared::blank_margins(4, 3, 4, 3));
-        assert_eq!(atlas.sprites[i.0 as usize].blank, tile_render_shared::blank_margins(1, 0, 1, 0));
+        let binary = tile_render_shared::BLANK_BINARY;
+        assert_eq!(atlas.sprites[empty.0 as usize].blank, tile_render_shared::blank_margins(4, 3, 4, 3) | binary);
+        assert_eq!(atlas.sprites[opaque.0 as usize].blank, binary | tile_render_shared::BLANK_OPAQUE);
+        // (Its remapped index 200 is clear in every named row.)
+        assert_eq!(atlas.sprites[i.0 as usize].blank, tile_render_shared::blank_margins(1, 0, 1, 0) | binary);
         let s = atlas.sprites[a.0 as usize];
         assert_eq!(tile_render_shared::drawn_part(&s, &tile_render_shared::placed(&s, 1)), (3, 2, 7, 9));
         // Every other texel from texel 1 on: pixels 1..3 show texels 3, 5.

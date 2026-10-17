@@ -396,17 +396,25 @@ pub struct SpriteDesc {
     /// the art serves every colouring (see [`indexed_color`]).
     pub remap: u32,
     /// How many columns at its left, rows at its top, columns at its right
-    /// and rows at its bottom draw nothing (texels of alpha 0), at most 255
-    /// each, a byte each from the low one ([`blank_margins`]): drawn
-    /// rectangles leave them out ([`drawn_part`]), so that no fragment is
-    /// shaded only to be discarded. 0: none known.
+    /// and rows at its bottom draw nothing (texels of alpha 0), at most 127
+    /// each, in the low 7 bits of a byte each from the low one
+    /// ([`blank_margins`]): drawn rectangles leave them out
+    /// ([`drawn_part`]), so that no fragment is shaded only to be
+    /// discarded. 0: none known. The top bits of the low bytes say more of
+    /// its texels: [`BLANK_BINARY`], [`BLANK_OPAQUE`].
     pub blank: u32,
 }
 
+/// [`SpriteDesc::blank`]: every texel has alpha 0 or 255 (drawn over
+/// itself, the sprite shows what it showed once).
+pub const BLANK_BINARY: u32 = 1 << 7;
+/// [`SpriteDesc::blank`]: every texel has alpha 255.
+pub const BLANK_OPAQUE: u32 = 1 << 15;
+
 /// [`SpriteDesc::blank`] of blank margins (left, top, right, bottom),
-/// each cut to 255.
+/// each cut to 127.
 pub fn blank_margins(left: u32, top: u32, right: u32, bottom: u32) -> u32 {
-    left.min(255) | top.min(255) << 8 | right.min(255) << 16 | bottom.min(255) << 24
+    left.min(127) | top.min(127) << 8 | right.min(127) << 16 | bottom.min(127) << 24
 }
 
 /// The part of the rectangle `p` draws `sprite` in (pixels `0..p.width` ×
@@ -416,8 +424,8 @@ pub fn blank_margins(left: u32, top: u32, right: u32, bottom: u32) -> u32 {
 /// Pixel `i` of the rectangle shows texel `p.texel + p.step·i`.
 pub fn drawn_part(sprite: &SpriteDesc, p: &Placed) -> (u32, u32, u32, u32) {
     let m = sprite.blank;
-    let (x0, x1) = drawn_span(m & 0xFF, (m >> 16) & 0xFF, sprite.width, p.texel_x, p.step, p.width);
-    let (y0, y1) = drawn_span((m >> 8) & 0xFF, m >> 24, sprite.height, p.texel_y, p.step, p.height);
+    let (x0, x1) = drawn_span(m & 0x7F, (m >> 16) & 0x7F, sprite.width, p.texel_x, p.step, p.width);
+    let (y0, y1) = drawn_span((m >> 8) & 0x7F, (m >> 24) & 0x7F, sprite.height, p.texel_y, p.step, p.height);
     (x0, y0, x1, y1)
 }
 
