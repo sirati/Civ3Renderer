@@ -348,10 +348,7 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
     use std::time::Instant;
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
     println!("adapter: {:?}", gpu.adapter.get_info());
-    let mut atlas = compiled.atlas.clone();
-    let t = Instant::now();
-    atlas.trim_blank();
-    println!("atlas: {} sprites, {} + {} pages; blank margins found in {} ms", atlas.sprites.len(), atlas.pages.len(), atlas.index_pages.len(), t.elapsed().as_millis());
+    println!("atlas: {} sprites, {} + {} pages", compiled.atlas.sprites.len(), compiled.atlas.pages.len(), compiled.atlas.index_pages.len());
     let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let mut renderer = tile_render::TileRenderer::new(&gpu.device, format);
@@ -361,6 +358,7 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
     let frame = tile_viewer::arranged_frame(compiled, scene, size, &config);
     let world = tile_viewer::scene_world_for(compiled, scene, &frame.view_cameras);
     renderer.set_world(&gpu.device, &world);
+    tile_viewer::apply_patches(&mut renderer, &gpu.queue, compiled, &scene.patches);
     println!(
         "scene: {}x{} cells, {} layers, {} world sprites, overlays {:?}; {} cameras, {} free sprites",
         scene.shape.cols,
