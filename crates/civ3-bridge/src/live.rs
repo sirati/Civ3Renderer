@@ -619,8 +619,14 @@ fn publish(
         // elsewhere).
         let screen_open = ui.as_ref().and_then(|f| crate::interface_parts::screen(f, civ3_sys::ui_hooks::screen_forms(game.build)));
         let screen_size = (input.viewport.0 as i32, input.viewport.1 as i32);
+        // (A context menu over the map is one too, modal or not: the topmost
+        // form there.)
+        let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
         let popup = match (ui, modal, shown) {
-            (Some(f), Some(m), Shown::Map(..)) => crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size),
+            (Some(f), m, Shown::Map(..)) => {
+                let modal_popup = m.and_then(|m| crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size));
+                modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size)))
+            }
             _ => None,
         };
         let (ui_below, ui_popup) = match (ui, popup) {
