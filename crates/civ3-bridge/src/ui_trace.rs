@@ -248,35 +248,31 @@ fn own_civ_colors(sprite: u32) -> Option<u32> {
     h::sprite_own_colors(sprite).and_then(civ).or_else(|| h::sprite_cut_colors(sprite).and_then(civ))
 }
 
-/// Our replay picture, changed by the game's semantic navigator operations.
-struct Replay {
-    navigator: u32,
-    image: crate::replay::ReplayMap,
-}
-
-static REPLAY: Mutex<Option<Replay>> = Mutex::new(None);
+/// Replay graphics live on a worker, separate from the game's hook thread.
+static REPLAY: std::sync::OnceLock<crate::replay_thread::ReplayThread> = std::sync::OnceLock::new();
 static REPLAY_NAVIGATOR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-static REPLAY_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+// Navigator initialization itself calls political-map operations. Replay
+// starts from terrain only, then records the history operations afterwards.
+static REPLAY_READY: AtomicBool = AtomicBool::new(false);
 
-/// A revision of the renderer's replay map, without copying its pixels.
 pub fn replay_revision() -> u64 {
-    REPLAY_REVISION.load(Relaxed)
+    REPLAY.get().map_or(0, |replay| replay.revision())
 }
 
-/// The renderer's replay picture. All pixels come from terrain and the
-/// recorded navigator operations; none are read from the game's images.
-pub fn replay_picture() -> Option<(u64, (u32, u32), Vec<u8>)> {
-    let replay = REPLAY.lock().ok()?;
-    let replay = replay.as_ref()?;
-    Some((replay_revision(), replay.image.size(), replay.image.rgba()))
+/// Pixels and revision from the same worker publication. Copying the Arc
+/// is brief; conversion and image updates never hold a game-thread lock.
+pub fn replay_picture() -> crate::replay_thread::Picture {
+    REPLAY.get().map(|replay| replay.picture()).unwrap_or_default()
 }
 
 fn replay_operation(navigator: u32, operation: crate::replay::Operation) -> bool {
-    if navigator != REPLAY_NAVIGATOR.load(Relaxed) { return false; }
-    let Ok(mut replay) = REPLAY.lock() else { return false };
-    let Some(replay) = replay.as_mut().filter(|r| r.navigator == navigator) else { return false };
-    replay.image.apply(&operation);
-    REPLAY_REVISION.fetch_add(1, Relaxed);
+    if navigator == 0 || navigator != REPLAY_NAVIGATOR.load(Relaxed) { return false; }
+    // Initialization's live-ownership paints are ignored. Their original
+    // rasterizers are still skipped; only later history enters our map.
+    if REPLAY_READY.load(Relaxed) && !REPLAY.get().is_some_and(|replay| replay.apply(operation)) {
+        static FAILED: AtomicBool = AtomicBool::new(false);
+        if !FAILED.swap(true, Relaxed) { log::error!("UI mirror: replay worker is no longer receiving operations"); }
+    }
     true
 }
 
@@ -453,6 +449,15 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         draw(c.canvas, c.sprite, || c.original())
     });
+    hook!(sprite_draw_opacity, sites.sprite_draw_opacity, |c| {
+        let opacity = crate::ui::sprite_opacity(c.opacity);
+        let (cx, cy) = obj::sprite_crop(c.sprite).map_or((0, 0), |p| (p.0, p.1));
+        let palette = BUILD.get().and_then(|&b| h::civ_color_table(b, c.ct)).map(|n| menu::screen::PaletteFrom {
+            image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 0, count: 256,
+        });
+        emit(Event::OpacityBlit { sprite: c.sprite, canvas: c.canvas, x: c.x as i32 + cx, y: c.y as i32 + cy, clip: clip_of(c.canvas), palette, opacity });
+        draw(c.canvas, c.sprite, || c.original())
+    });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
         // No crop offset: the stored pixels go to (x, y).
         emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
@@ -587,30 +592,41 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     }
     if let Some(sites) = h::replay_sites(game.build) {
         let game = *game;
+        match crate::replay_thread::ReplayThread::start(move || {
+            // Replay needs only terrain and geometry, without live units,
+            // diplomacy, fonts, districts or other full-scene state.
+            let map = game.map().map_err(|e| e.to_string())?;
+            let tiles = game.tiles(&map).map_err(|e| e.to_string())?.iter()
+                .map(|tile| crate::world::Civ3Tile { square_type: tile.square_type(), ..Default::default() }).collect();
+            Ok(crate::world::Civ3World {
+                width: map.width, height: map.height, flags: map.flags,
+                wrap_x: map.wrap_x, wrap_y: map.wrap_y, tiles,
+                ..Default::default()
+            })
+        }) {
+            Ok(worker) => { let _ = REPLAY.set(worker); }
+            Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
+        }
         hook!(navigator_init, sites.init, move |c| {
             let replay = h::replay_navigator(game.build, c.navigator);
             if replay {
+                REPLAY_READY.store(false, Relaxed);
                 REPLAY_NAVIGATOR.store(c.navigator, Relaxed);
-                *REPLAY.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                if let Some(worker) = REPLAY.get() { worker.clear(); }
             } else if REPLAY_NAVIGATOR.load(Relaxed) == c.navigator {
                 // A freed replay form's memory can become another navigator.
+                REPLAY_READY.store(false, Relaxed);
                 REPLAY_NAVIGATOR.store(0, Relaxed);
-                *REPLAY.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                REPLAY_REVISION.fetch_add(1, Relaxed);
+                if let Some(worker) = REPLAY.get() { worker.clear(); }
             }
             // Geometry, hit testing and replay state still initialize.
             // Only the terrain rasterizer below is skipped in render-off mode.
             c.original();
             if replay {
-                match h::navigator_size(c.navigator).zip(crate::live::snapshot(&game).ok()) {
-                    Some((size, (world, _))) => {
-                        let image = crate::replay::ReplayMap::new(&world, size);
-                        *REPLAY.lock().unwrap_or_else(|e| e.into_inner()) = Some(Replay { navigator: c.navigator, image });
-                        REPLAY_REVISION.fetch_add(1, Relaxed);
-                        log::debug!("UI mirror: replay map from world state, {}x{}", size.0, size.1);
-                    }
-                    None => log::warn!("UI mirror: replay terrain state is unavailable"),
-                }
+                let ready = h::navigator_size(c.navigator)
+                    .is_some_and(|size| REPLAY.get().is_some_and(|worker| worker.init(size)));
+                REPLAY_READY.store(ready, Relaxed);
+                if !ready { log::warn!("UI mirror: replay dimensions or worker unavailable"); }
             }
         });
         hook!(navigator_terrain, sites.terrain, |c| {

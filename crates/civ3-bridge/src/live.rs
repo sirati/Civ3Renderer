@@ -543,6 +543,8 @@ fn publish(
     let mut reasons: std::collections::BTreeSet<&'static str> = Default::default();
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
+    // Opt-in text diagnostics, printed only when their contents change.
+    let mut text_trace = (std::env::var("CIV3R_TEXT_TRACE").as_deref() == Ok("1")).then(String::new);
     // The renderer's own settings, and our tabs over the game's Preferences
     // screen (`crate::prefs`); what they drew and the settings last published.
     let mut prefs = crate::prefs::Prefs::load(crate::prefs::settings_path());
@@ -849,12 +851,17 @@ fn publish(
             log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
         }
         mark(&mut profile, "controls+prefs", &mut t);
-        let revision = crate::ui_trace::replay_revision();
-        if revision != replay_revision {
-            replay_surface = crate::ui_trace::replay_picture()
-                .map(|(_, size, pixels)| vec![("replay-map", size, pixels)])
+        if crate::ui_trace::replay_revision() != replay_revision {
+            let picture = crate::ui_trace::replay_picture();
+            replay_revision = picture.revision;
+            replay_surface = picture.pixels
+                .map(|(size, pixels)| vec![("replay-map", size, pixels.to_vec())])
                 .unwrap_or_default();
-            replay_revision = revision;
+        }
+        // A completed asynchronous font load changes a static screen too.
+        if fonts.take_loaded() {
+            recompile = true;
+            wanted_for.push("text");
         }
         let state = (shown, texts, ui, interactables, cursor);
         let unchanged = last.as_ref() == Some(&state);
@@ -1128,9 +1135,19 @@ fn publish(
                 wanted_for.push("units");
             }
         }
-        if fonts.take_loaded() | fonts.add(&compiler.files(&folders), texts) {
+        if fonts.add(&compiler.files(&folders), texts) {
             recompile = true;
             wanted_for.push("text");
+        }
+        if let Some(last) = &mut text_trace {
+            trace_text(
+                match shown { Shown::Map(..) => "map", Shown::Title(..) => "title", Shown::Preview(..) => "preview" },
+                ui.as_ref(),
+                ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&label_items).chain(&target_items),
+                &fonts,
+                &compiled,
+                last,
+            );
         }
         // The art of the districts on the map (C3X), for both zooms at once
         // (the zoomed-out view draws the same art at half size: zooming out
@@ -1366,8 +1383,8 @@ fn publish(
         }
         mark(&mut profile, "minimap", &mut t);
         // Replay pixels made by our renderer from terrain and history changes.
-        let all: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).chain(&popup_items).cloned().collect();
-        scene.patches.extend(ui_screen::surface_patches(&all, &replay_surface, &compiled));
+        let all = ui_items.iter().chain(&menu_items).chain(&screen_items).chain(&popup_items);
+        scene.patches.extend(ui_screen::surface_patches(all, &replay_surface, &compiled));
         crate::scene_map::overlay_screen_sprites(&mut scene);
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
@@ -1537,6 +1554,31 @@ fn addition(
         text += &districts.description();
     }
     (!units.is_empty() || !screen.is_empty() || !districts.is_empty() || new_fonts).then_some(text)
+}
+
+/// `CIV3R_TEXT_TRACE=1`: distinguish text missing from the mirror from
+/// text whose font or atlas art is missing. No pixels are read from the game.
+fn trace_text<'a>(screen: &str, frame: Option<&crate::ui::Frame>, items: impl Iterator<Item = &'a ui_screen::Item>, fonts: &text::Fonts, compiled: &Compiled, last: &mut String) {
+    use std::fmt::Write as _;
+    let runs: Vec<_> = items.filter_map(|i| if let ui_screen::Item::Text(run, clip, _) = i { Some((run, clip)) } else { None }).collect();
+    let raw = frame.map_or(0, |f| f.draws.iter().filter(|d| matches!(d, crate::ui::ScreenDraw::Text { .. })).count());
+    let forms: Vec<_> = frame.into_iter().flat_map(|f| f.forms.iter().map(|f| (f.0, f.1))).collect();
+    let mut message = format!("text trace: {screen}, forms {forms:x?}, mirrored runs {raw}, visible runs {}, loaded fonts {}, outline faces {}\n", runs.len(), fonts.len(), compiled.fonts.len());
+    // Keep the end too: title-menu labels follow the title's other text.
+    for (_, (run, clip)) in runs.iter().enumerate().filter(|(i, _)| *i < 64 || i.saturating_add(64) >= runs.len()) {
+        let mut sprites = Vec::new();
+        fonts.run_sprites(run, Some(**clip), compiled, u32::MAX, &mut sprites);
+        let raster = sprites.iter().filter(|s| s.glyph.is_none()).count();
+        let fallback = sprites.len() - raster;
+        sprites.clear();
+        fonts.run_glyphs(run, Some(**clip), compiled, u32::MAX, &mut sprites);
+        let sample: String = run.text.chars().take(80).collect();
+        let _ = writeln!(message, "  {:?}/{} weight {} italic {} color {:?} at ({},{}) clip {:?}: loaded {}, face {}, raster {raster}, fallback {fallback}, zoom glyphs {}, text {sample:?}", run.face, run.height, run.weight, run.italic, run.color, run.x, run.y, clip, fonts.has(run), compiled.font(&run.face).is_some(), sprites.len());
+    }
+    if *last != message {
+        log::debug!("{message}");
+        *last = message;
+    }
 }
 
 /// The head of an art list (`CIV3R_ART_LIST`, `crate::preload::ArtList`).

@@ -404,6 +404,7 @@ mod tests {
                 clip: [0, 0, 1920, 1080],
                 mask: None,
                 palette: None,
+                opacity: 255,
             });
             f.form_draws.push((2, 0..1));
         }

@@ -26,6 +26,7 @@ pub mod prefs;
 pub mod preview;
 pub mod revealed;
 pub mod replay;
+pub mod replay_thread;
 pub mod rings;
 pub mod rules;
 pub mod targeting;

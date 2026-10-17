@@ -546,8 +546,11 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
         for d in &frame.draws {
             let _ = match d {
-                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette } => {
+                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette, opacity } => {
                     let _ = writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8);
+                    if *opacity != 255 {
+                        let _ = writeln!(out, "ui_image_opacity {opacity}");
+                    }
                     if let Some(p) = palette {
                         let _ = writeln!(out, "ui_image_palette {} {} {}", p.first, p.count, p.image);
                     }

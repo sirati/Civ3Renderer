@@ -322,7 +322,7 @@ mod tests {
         // The frame the game draws around it on no canvas, just before it
         // (a title band above it), goes with it; draws further off do not.
         let mut f = frame();
-        let band = ScreenDraw::Image { path: "popupborders.pcx".into(), rect: [251, 1, 60, 35], x: 690, y: 365, keyed: true, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX], mask: None, palette: None };
+        let band = ScreenDraw::Image { path: "popupborders.pcx".into(), rect: [251, 1, 60, 35], x: 690, y: 365, keyed: true, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX], mask: None, palette: None, opacity: 255 };
         f.draws.insert(4, fill(10, 10, 20, 20));
         f.draws.insert(5, band);
         f.form_draws = vec![(0x9F_8934, 0..2), (0xA0_68B4, 2..3), (0xA1_4A68, 3..4), (0x50_0000, 6..7), (0x50_1000, 7..8)];
