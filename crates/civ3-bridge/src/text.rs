@@ -82,28 +82,85 @@ pub struct Fonts {
     /// The fonts the art has (see [`Fonts::addition`]); pruning does not
     /// take them out of it.
     described: BTreeSet<FontKey>,
+    /// Loading on a thread of its own (see [`Fonts::in_background`]): the
+    /// requests, the fonts asked for and not loaded yet, the loaded ones.
+    loader: Option<Loader>,
+}
+
+/// A thread loading fonts (rasterising their glyphs: CPU work no one
+/// waits for).
+struct Loader {
+    requests: std::sync::mpsc::Sender<(Vec<std::path::PathBuf>, FontKey)>,
+    loaded: std::sync::mpsc::Receiver<(FontKey, Result<GlyphFont, String>)>,
+    pending: BTreeSet<FontKey>,
 }
 
 impl Fonts {
-    /// Loads the fonts `runs` use that are not loaded yet; true if any.
+    /// Fonts loaded on a thread of their own: [`Fonts::add`] asks for them,
+    /// [`Fonts::take_loaded`] takes them in; text whose font is not there
+    /// yet is drawn from its face's outlines meanwhile (see
+    /// [`Fonts::run_sprites`]).
+    pub fn in_background() -> std::io::Result<Fonts> {
+        let (requests, rx) = std::sync::mpsc::channel::<(Vec<std::path::PathBuf>, FontKey)>();
+        let (tx, loaded) = std::sync::mpsc::channel();
+        std::thread::Builder::new().name("civ3r-fonts".into()).spawn(move || {
+            for (roots, key) in rx {
+                let font = civ3_assets::fonts::load(&GameFiles::with_roots(roots), &key.0, key.1);
+                if tx.send((key, font)).is_err() {
+                    break;
+                }
+            }
+        })?;
+        Ok(Fonts { loader: Some(Loader { requests, loaded, pending: BTreeSet::new() }), ..Fonts::default() })
+    }
+
+    /// Loads the fonts `runs` use that are not loaded yet (in the
+    /// background: asks for them); true if any was loaded now.
     pub fn add(&mut self, files: &GameFiles, runs: &[TextRun]) -> bool {
         let mut added = false;
         for r in runs {
             let key = key(r);
             self.used.insert(key.clone(), std::time::Instant::now());
-            if !self.fonts.contains_key(&key) {
-                let font = civ3_assets::fonts::load(files, &key.0, key.1)
-                    .inspect_err(|e| {
-                        if self.failed.insert(key.0.clone()) {
-                            log::warn!("font {:?}: {e}", key.0);
-                        }
-                    })
-                    .ok();
-                self.fonts.insert(key, font);
-                added = true;
+            if self.fonts.contains_key(&key) {
+                continue;
             }
+            if let Some(l) = &mut self.loader {
+                if l.pending.insert(key.clone()) && l.requests.send((files.roots().to_vec(), key.clone())).is_err() {
+                    l.pending.remove(&key);
+                }
+                continue;
+            }
+            let font = civ3_assets::fonts::load(files, &key.0, key.1);
+            self.insert(key, font);
+            added = true;
         }
         added
+    }
+
+    /// Takes in the fonts loaded in the background since; true if any.
+    pub fn take_loaded(&mut self) -> bool {
+        let Some(l) = &mut self.loader else { return false };
+        let loaded: Vec<_> = l.loaded.try_iter().collect();
+        for (key, _) in &loaded {
+            l.pending.remove(key);
+        }
+        let any = !loaded.is_empty();
+        for (key, font) in loaded {
+            self.used.entry(key.clone()).or_insert_with(std::time::Instant::now);
+            self.insert(key, font);
+        }
+        any
+    }
+
+    fn insert(&mut self, key: FontKey, font: Result<GlyphFont, String>) {
+        let font = font
+            .inspect_err(|e| {
+                if self.failed.insert(key.0.clone()) {
+                    log::warn!("font {:?}: {e}", key.0);
+                }
+            })
+            .ok();
+        self.fonts.insert(key, font);
     }
 
     /// Loads the font of `style` in `color` (on `backdrop`) if it is not
@@ -279,8 +336,18 @@ impl Fonts {
         out: &mut Vec<scene::FreeSprite>,
     ) {
         let key = key(r);
-        let Some(Some(font)) = self.fonts.get(&key) else { return };
+        let Some(Some(font)) = self.fonts.get(&key) else {
+            // Not loaded yet: from the outlines meanwhile.
+            self.outline_fallback(r, clip, compiled, after_pass, out);
+            return;
+        };
         let tag = Self::tag(&key);
+        // Its glyphs not in the art yet: from the outlines meanwhile.
+        let first = r.text.chars().find(|c| font.glyphs.contains_key(c));
+        if first.is_some_and(|c| compiled.set(&format!("Text@{tag}/{}", c as u32)).is_none()) {
+            self.outline_fallback(r, clip, compiled, after_pass, out);
+            return;
+        }
         let mut pen = r.x;
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
@@ -314,6 +381,41 @@ impl Fonts {
     /// clipped and drawn after a pass as [`Fonts::run_sprites`]. False (and
     /// nothing) if `compiled` has no outlines of the run's face or the run's
     /// 1:1 font is not loaded.
+    /// Run `r` drawn from its face's outlines while its own glyphs are not
+    /// in the art (its font loading, or being added): with the advances of
+    /// its font, or of the loaded font of the face nearest its height
+    /// (scaled); nothing if the art has no outlines of the face.
+    fn outline_fallback(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled, after_pass: u32, out: &mut Vec<scene::FreeSprite>) {
+        let Some((face, _)) = compiled.font(&r.face) else { return };
+        let want = key(r);
+        let metrics = self.fonts.get(&want).and_then(Option::as_ref).map(|f| (f, want.0.height)).or_else(|| {
+            self.fonts
+                .iter()
+                .filter(|((s, _, _), f)| s.face == r.face && f.is_some())
+                .min_by_key(|((s, _, _), _)| (s.height - want.0.height).abs())
+                .and_then(|((s, _, _), f)| f.as_ref().map(|f| (f, s.height)))
+        });
+        let Some((font, height)) = metrics else { return };
+        let scale = |v: i32| v * want.0.height / height.max(1);
+        let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
+        let mut pen = r.x;
+        for c in r.text.chars() {
+            let Some(glyph) = font.glyphs.get(&c) else { continue };
+            let g = scene::Glyph {
+                font: face,
+                ch: c,
+                em64: r.height.unsigned_abs() * 64,
+                advance: scale(glyph.advance),
+                bold: r.weight >= 600,
+                italic: r.italic,
+                key: r.backdrop,
+                bar: None,
+            };
+            out.push(scene::FreeSprite { x: pen, y: r.y, screen: true, after_pass, ticks_per_frame: 1, tint: rgb(r.color), clip, glyph: Some(g), ..Default::default() });
+            pen += scale(glyph.advance);
+        }
+    }
+
     pub fn run_glyphs(
         &self,
         r: &TextRun,
