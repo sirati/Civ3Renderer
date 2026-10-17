@@ -1452,6 +1452,8 @@ The top-left corner's three buttons are menu, Civilopedia and advisors. The unit
 
 **Popups.** An open popup is the modal form (0xCAD384, `civ3_sys::modal`) when it is none of the screens above; its draws are those composited from it on (its children and what the game draws over it afterwards, e.g. the cursor), and, just before it, its frame: the border pieces and title band (`popupborders.pcx`, the caption text) its m80 draws straight onto the back buffer, on no canvas, unclipped (`ui_canvas_draws` gaps in a trace). The bridge hands a popup over the map's own screen to the viewer as a part of its own; one over another screen (an advisor, the Preferences screen with C3X's info box) stays with that screen.
 
+**The city screen's production box** is its largest button of the city screen's own `Button` subclass (vtable 0x665F20; 114×95 at the screen's lower right, 1353,672 at 1920×1080): the bridge names it as the screen's main control (`scene::Interface::focus_control`), where the viewer puts the pointer when the screen opens while the mouse is captured.
+
 **A screen as a part.** A named screen smaller than the window (the advisors and the other 1024×768 screens at higher resolutions; not the city screen) is handed to the viewer the same way, with what is drawn over it (`scene::Interface::screen_view`), so the viewer can move it out from under its zoom strip or box where there is room below.
 ### 16.11 Controls that take the mouse
 

@@ -927,6 +927,14 @@ fn publish(
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
             popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
             screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
+            // Where the pointer goes when the screen opens: the city
+            // screen's production box (its largest own button).
+            focus_control: match (screen_open, ui, civ3_sys::ui_hooks::city_screen_button_vtable(game.build)) {
+                (Some((_, "City")), Some(f), Some(vt)) => {
+                    f.forms.iter().filter(|form| form.0 == vt && form.3.0 > 0 && form.3.1 > 0).max_by_key(|form| form.3.0 * form.3.1).map(|form| [form.2.0, form.2.1, form.3.0, form.3.1])
+                }
+                _ => None,
+            },
             reachable,
         };
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
