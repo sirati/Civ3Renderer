@@ -1,3 +1,845 @@
 # Art the game's interface shows (screen regions, fills, run-time pictures, fonts), made
 # ahead at the start of a game (civ3-bridge preload.rs). Lines as civ3-bridge writes them with
 # CIV3R_ART_LIST=<file>: tab-separated, see menu::screen::ScreenArt::to_lines and preload::font_line.
+# Gathered from "2025 Grece Dec 4.SAV": the map, the advisors F1-F9, a city screen, diplomacy, the Civilopedia, the game's menu.
+region	Art/Advisors/cultureometer.pcx	1,1,72,13	k	-	0,0	-	0,0
+region	Art/CURSOR.PCX	431,2,26,31	k	-	0,0	-	0,0
+region	Art/Cities/airAndHarb.pcx	27,1,24,17	k	-	0,0	-	0,0
+region	Art/Cities/barracks.pcx	1,1,24,17	k	-	0,0	-	0,0
+region	Art/Cities/city icons.pcx	20,1,18,18	k	-	0,0	-	0,0
+region	Art/Cities/city icons.pcx	39,1,18,18	k	-	0,0	-	0,0
+region	Art/Diplomacy/talk_offer.pcx	297,50,438,517	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	2,2,20,20	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	2,25,20,20	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	9,139,20,20	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	14,249,10,20	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	46,139,20,20	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	51,254,10,10	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	117,2,10,10	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	117,15,10,10	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	119,385,20,10	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	156,2,10,10	k	-	0,0	-	0,0
+region	Art/Scroll.PCX	169,2,10,10	k	-	0,0	-	0,0
+region	Art/StackedNormButtons.pcx	96,32,32,32	k	Art/StackedButtonsAlpha.pcx	0,0	-	0,0
+region	Art/X-o_ALLstates-sprite.pcx	1,1,20,19	k	-	0,0	-	0,0
+region	Art/X-o_ALLstates-sprite.pcx	21,1,16,19	k	-	0,0	-	0,0
+region	Art/X-o_ALLstates-sprite.pcx	57,1,16,19	k	-	0,0	-	0,0
+region	Art/X-o_ALLstates-sprite.pcx	93,1,16,19	k	-	0,0	-	0,0
+region	Art/advisors/arrowdot.pcx	0,0,50,13	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,1,60,35	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,1,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,36,3,9	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,46,3,17	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,46,3,40	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,46,3,41	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,46,3,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,46,60,6	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,46,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,91,3,41	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,91,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	251,132,60,3	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,43,46,2	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,46,46,4	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,46,46,8	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,46,46,12	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,46,46,16	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,46,46,22	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,46,46,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,48,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,52,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,56,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,60,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,64,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,68,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,72,46,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,76,46,14	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,80,46,10	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,84,46,6	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	265,88,46,2	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,1,10,35	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,1,42,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,1,56,35	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,1,60,35	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,1,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,43,42,2	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,43,60,2	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,91,42,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,91,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,132,10,3	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,132,56,3	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	313,132,60,3	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,1,60,35	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,1,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,43,16,2	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,16,4	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,16,8	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,16,12	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,16,16	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,16,22	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,16,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,60,6	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,46,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,48,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,52,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,56,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,60,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,64,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,68,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,72,16,18	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,76,16,14	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,80,16,10	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,84,16,6	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,88,16,2	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,91,60,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	375,132,60,3	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	432,36,3,9	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	432,46,3,17	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	432,46,3,40	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	432,46,3,41	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	432,46,3,44	k	-	0,0	-	0,0
+region	Art/popupborders.pcx	432,91,3,41	k	-	0,0	-	0,0
+region	Art/resources.pcx	15,121,26,20	k	-	0,0	-	0,0
+region	Art/resources.pcx	16,12,18,24	k	-	0,0	-	0,0
+region	Art/resources.pcx	62,15,23,21	k	-	0,0	-	0,0
+region	Art/resources.pcx	67,112,20,27	k	-	0,0	-	0,0
+region	Art/resources.pcx	114,16,23,16	k	-	0,0	-	0,0
+region	Art/resources.pcx	117,59,19,27	k	-	0,0	-	0,0
+region	Art/resources.pcx	165,113,21,21	k	-	0,0	-	0,0
+region	Art/resources.pcx	217,61,23,23	k	-	0,0	-	0,0
+region	Art/resources.pcx	261,52,25,38	k	-	0,0	-	0,0
+region	Art/resources.pcx	263,17,26,16	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/00-AdvancedFlight-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/02-AmphibiousWarfare-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/04-AtomicTheory-small-vp.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/11-Combustion-small-vp.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/12-Communism-small-vp.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/20-Electricity-small-vp.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/21-Electronics-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/23-espionage-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/26-Flight-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/32-Industrialization-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/38-Manufacturing-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/42-Medicine-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/48-MotorizedTransport-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/51-Nationalism-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/61-Refining-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/62-ReplaceableParts-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/65-sanitation-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/67-ScientificMethod-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/71-SteamPower-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/72-Steel-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/75-Corporation-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/Fascism-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/tech chooser/Icons/NavalTactics-small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	Art/units/units_32.PCX	34,67,32,32	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	Art/units/units_32.PCX	100,166,32,32	k	-	0,0	Art/Units/Palettes/ntp01.pcx	0,64
+region	Art/units/units_32.PCX	100,166,32,32	k	-	0,0	Art/Units/Palettes/ntp04.pcx	0,64
+region	Art/units/units_32.PCX	100,166,32,32	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	Art/units/units_32.PCX	100,166,32,32	k	-	0,0	Art/Units/Palettes/ntp13.pcx	0,64
+region	Art/units/units_32.PCX	133,34,32,32	k	-	0,0	-	0,0
+region	Art/units/units_32.PCX	133,34,32,32	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	Art/units/units_32.PCX	298,100,32,32	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	Art/units/units_32.PCX	331,34,32,32	k	-	0,0	-	0,0
+region	Art/x_title.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/3checkboxes-USE.pcx	1,1,16,16	k	-	0,0	-	0,0
+region	art/3checkboxes-USE.pcx	33,1,16,16	k	-	0,0	-	0,0
+region	art/Advisors/WondersBox.pcx	0,0,370,200	k	-	0,0	-	0,0
+region	art/Advisors/WondersBoxOverlay.pcx	162,47,190,132	k	-	0,0	-	0,0
+region	art/Advisors/advisor_cityviewICON.pcx	1,1,36,26	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/culture.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/dialogbox.pcx	0,0,206,132	k	-	0,0	-	0,0
+region	art/Advisors/diplowinbox.pcx	0,0,206,102	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	66,156,958,612	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/domestic.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/domesticBUTTON.pcx	0,0,146,26	k	-	0,0	-	0,0
+region	art/Advisors/domestic_icons_aux.pcx	0,0,18,34	k	-	0,0	-	0,0
+region	art/Advisors/domestic_plusminus.pcx	1,2,12,6	k	-	0,0	-	0,0
+region	art/Advisors/domestic_plusminus.pcx	1,9,12,12	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreign.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	1,1,223,236	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,39,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,42,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,72,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,75,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,105,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,108,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,138,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,141,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,171,28,35	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,174,22,16	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,204,28,33	k	-	0,0	-	0,0
+region	art/Advisors/foreignTAB.pcx	10,207,22,16	k	-	0,0	-	0,0
+region	art/Advisors/leader_highlight.pcx	1,1,126,126	k	-	0,0	-	0,0
+region	art/Advisors/leader_highlight.pcx	128,1,126,126	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/Advisors/leader_highlight.pcx	128,1,126,126	k	-	0,0	Art/Units/Palettes/ntp13.pcx	0,64
+region	art/Advisors/military.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	66,156,958,612	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/military.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/non_required.pcx	1,1,26,26	k	-	0,0	-	0,0
+region	art/Advisors/non_required_shadow.pcx	1,1,44,44	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_ancient.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/science_industrial_new.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	1,719,188,77	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	1,798,188,81	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	190,719,188,77	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	379,719,188,77	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	568,719,188,77	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	568,798,188,81	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	568,883,188,103	k	-	0,0	-	0,0
+region	art/Advisors/techboxes.pcx	568,989,188,80	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	0,21,1024,26	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	66,0,958,768	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	66,156,958,612	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	424,728,175,38	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,329,28,35	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,332,22,16	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,362,28,35	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,365,22,16	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,395,28,35	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,398,22,16	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,428,28,35	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,431,22,16	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,461,28,35	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,464,22,16	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,494,28,35	k	-	0,0	-	0,0
+region	art/Advisors/trade.pcx	745,497,22,16	k	-	0,0	-	0,0
+region	art/Advisors/wonders_background.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	39,3,16,28	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	67,5,23,22	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	98,5,23,22	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	133,10,14,16	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	164,10,14,16	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	193,9,18,17	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	223,11,18,15	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	382,9,13,15	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	599,9,13,15	k	-	0,0	-	0,0
+region	art/City Screen/CityIcons.pcx	748,2,24,28	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/cityimpssmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/concepts small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/govtsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/menu_red large.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/menu_red small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/races/menusmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/resourcessmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/swondersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/techsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/terrainsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/unitlarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/unitsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/wonderssmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/Icons/workeractionssmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/Civilopedia/bar-blue.pcx	0,0,496,30	k	-	0,0	-	0,0
+region	art/Civilopedia/bar-red.pcx	0,0,496,30	k	-	0,0	-	0,0
+region	art/PalaceView/American/buttons/regamer.pcx	0,0,64,54	k	-	0,0	-	0,0
+region	art/PalaceView/Asian/buttons/regasian.pcx	0,0,64,54	k	-	0,0	-	0,0
+region	art/PalaceView/European/buttons/regeuro.pcx	0,0,64,54	k	-	0,0	-	0,0
+region	art/PalaceView/MidEast/PALACE01.pcx	12,16,362,176	k	-	0,0	-	0,0
+region	art/PalaceView/MidEast/PALACE02.pcx	0,16,355,176	k	-	0,0	-	0,0
+region	art/PalaceView/MidEast/PALACE04.pcx	42,164,246,225	k	-	0,0	-	0,0
+region	art/PalaceView/MidEast/PALACE16.pcx	51,8,240,172	k	-	0,0	-	0,0
+region	art/PalaceView/Mideast/buttons/regmid.pcx	0,0,64,54	k	-	0,0	-	0,0
+region	art/PalaceView/Roman/buttons/blurom.pcx	0,0,64,54	k	-	0,0	-	0,0
+region	art/PalaceView/bkgr.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE00.pcx	0,9,1024,237	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE03.pcx	111,12,810,96	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE10.pcx	23,8,432,186	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE11.pcx	43,19,375,86	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE13.pcx	43,33,691,478	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE14.pcx	27,124,371,159	k	-	0,0	-	0,0
+region	art/PalaceView/roman/PALACE15.pcx	0,12,1024,343	k	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	0,0,1023,327	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,25,314,182	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,28,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,50,314,52	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,53,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,54,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,79,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,80,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,106,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,132,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,158,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	25,184,314,20	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,0,222,3	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,0,222,31	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,44,222,16	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,44,222,283	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,66,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,90,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,114,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,138,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,162,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,186,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,210,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,234,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,258,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,282,222,18	o	-	0,0	-	0,0
+region	art/PopUpAndMenuBackground.pcx	60,306,222,18	o	-	0,0	-	0,0
+region	art/ProgressBar.pcx	1,1,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	1,8,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	1,15,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	8,1,2,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	8,1,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	8,8,2,6	o	-	0,0	-	0,0
+region	art/ProgressBar.pcx	8,8,6,6	o	-	0,0	-	0,0
+region	art/ProgressBar.pcx	8,15,2,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	8,15,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	15,1,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	15,8,6,6	k	-	0,0	-	0,0
+region	art/ProgressBar.pcx	15,15,6,6	k	-	0,0	-	0,0
+region	art/SmallHeads/popupCulture.pcx	324,344,114,106	k	-	0,0	-	0,0
+region	art/SmallHeads/popupCulture.pcx	324,362,114,26	k	-	0,0	-	0,0
+region	art/SmallHeads/popupDomestic.pcx	18,341,117,109	k	-	0,0	-	0,0
+region	art/SmallHeads/popupDomestic.pcx	18,362,117,26	k	-	0,0	-	0,0
+region	art/SmallHeads/popupForeign.pcx	29,344,106,106	k	-	0,0	-	0,0
+region	art/SmallHeads/popupForeign.pcx	29,362,106,26	k	-	0,0	-	0,0
+region	art/SmallHeads/popupForeign.pcx	322,341,114,109	k	-	0,0	-	0,0
+region	art/SmallHeads/popupForeign.pcx	322,362,114,26	k	-	0,0	-	0,0
+region	art/SmallHeads/popupMilitary.pcx	316,349,123,101	k	-	0,0	-	0,0
+region	art/SmallHeads/popupMilitary.pcx	316,362,123,26	k	-	0,0	-	0,0
+region	art/SmallHeads/popupScience.pcx	8,342,136,108	k	-	0,0	-	0,0
+region	art/SmallHeads/popupScience.pcx	8,362,136,26	k	-	0,0	-	0,0
+region	art/SmallHeads/popupTrade.pcx	16,343,122,107	k	-	0,0	-	0,0
+region	art/SmallHeads/popupTrade.pcx	16,362,122,26	k	-	0,0	-	0,0
+region	art/advisors/AL_all.pcx	231,1,113,113	k	-	0,0	-	0,0
+region	art/advisors/BS_all.pcx	231,231,113,113	k	-	0,0	-	0,0
+region	art/advisors/CE_all.pcx	231,1,113,113	k	-	0,0	-	0,0
+region	art/advisors/CL_all.pcx	231,231,113,113	k	-	0,0	-	0,0
+region	art/advisors/HA_all.pcx	231,231,113,113	k	-	0,0	-	0,0
+region	art/advisors/MN_all.pcx	231,231,113,113	k	-	0,0	-	0,0
+region	art/buttonsFINAL.pcx	1,36,20,20	k	-	0,0	-	0,0
+region	art/buttonsFINAL.pcx	43,36,20,20	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	33,1584,32,29	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	33,1617,32,32	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	99,137,32,26	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	99,199,32,31	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	99,303,32,22	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	99,404,32,21	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	99,440,32,15	k	-	0,0	-	0,0
+region	art/city screen/buildings-small.pcx	105,366,20,29	k	-	0,0	-	0,0
+region	art/city view/city interface/ExitX.pcx	1,1,36,38	k	-	0,0	-	0,0
+region	art/civilopedia/B-cover.pcx	193,515,486,207	k	-	0,0	-	0,0
+region	art/civilopedia/civilo_Up_Next_Back_ARROWS.pcx	1,1,16,24	k	-	0,0	-	0,0
+region	art/civilopedia/civilo_Up_Next_Back_ARROWS.pcx	1,27,24,15	k	-	0,0	-	0,0
+region	art/civilopedia/civilo_Up_Next_Back_ARROWS.pcx	17,1,16,24	k	-	0,0	-	0,0
+region	art/civilopedia/civilopediaB.pcx	172,11,677,734	k	-	0,0	-	0,0
+region	art/civilopedia/civilopediabackground.pcx	172,11,677,734	k	-	0,0	-	0,0
+region	art/civilopedia/civilopediabackground.pcx	226,130,398,570	k	-	0,0	-	0,0
+region	art/civilopedia/civilopediabackground.pcx	226,130,418,570	k	-	0,0	-	0,0
+region	art/civilopedia/fwdbackarrows.pcx	37,1,16,24	k	-	0,0	-	0,0
+region	art/civilopedia/fwdbackarrows.pcx	101,1,16,24	k	-	0,0	-	0,0
+region	art/civilopedia/fwdbackarrows.pcx	117,1,16,24	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/DenOfSpiessmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/airportindsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/civil defense_small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/coalplantsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/colossuslarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/colossussmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/comm dock_small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/factorysmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/greatlibrarylarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/hanginggardenslarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/hanginggardenssmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/hooverdamsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/hospitalindsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/hydroplantsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/intelligencecentersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/knightstemplarsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/lighthouseatalexandrialarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/oraclelarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/policestationindsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/pyramidlarge.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/stock ex_small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/theoryofevolutionsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/buildings/universalsuffragesmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/04marinesmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/07archersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/16riflemansmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/18infantrysmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/19shermantanksmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/24artillerysmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/33ironcladsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/34transportsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/35nimitzsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/36submarinesmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/37destroyersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/38iowabattleshipsmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/39aegiscruisersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/41fightersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/42bombersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/43transporthelicoptersmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/48armysmall.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/50bowman(babylonianarcher)small.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/X2_20mmQuadFlak38_sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/X2_WWIIParatrooper_sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x2_AncientCavalry civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x2_HvCruiser civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Abu Bakr civpedia lg.pcx	0,0,128,128	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Abu Bakr civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Alexander civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Ansar Warrior civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Bismarck civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Brennus civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Caesar civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_Guerilla civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/civilopedia/icons/units/x_berserk civpedia sm.pcx	0,0,32,32	k	-	0,0	-	0,0
+region	art/exitBox-background.pcx	0,0,72,49	k	-	0,0	-	0,0
+region	art/exitBox-backgroundStates.pcx	0,0,70,48	k	-	0,0	-	0,0
+region	art/file.pcx	33,1,16,14	k	-	0,0	-	0,0
+region	art/histograph-win5_final.pcx	0,0,1024,768	k	-	0,0	-	0,0
+region	art/interface/GlobalWarming.pcx	1,1,36,36	k	-	0,0	-	0,0
+region	art/interface/NormButtons.pcx	0,0,32,32	k	art/interface/ButtonAlpha.pcx	0,0	-	0,0
+region	art/interface/NormButtons.pcx	32,0,32,32	k	art/interface/ButtonAlpha.pcx	-32,0	-	0,0
+region	art/interface/NormButtons.pcx	32,128,32,32	k	-	0,0	-	0,0
+region	art/interface/NormButtons.pcx	32,224,32,32	k	art/interface/ButtonAlpha.pcx	-32,-224	-	0,0
+region	art/interface/NormButtons.pcx	64,0,32,32	k	art/interface/ButtonAlpha.pcx	-64,0	-	0,0
+region	art/interface/NormButtons.pcx	64,128,32,32	k	-	0,0	-	0,0
+region	art/interface/NormButtons.pcx	64,160,32,32	k	art/interface/ButtonAlpha.pcx	-64,-160	-	0,0
+region	art/interface/NormButtons.pcx	64,224,32,32	k	art/interface/ButtonAlpha.pcx	-64,-224	-	0,0
+region	art/interface/NormButtons.pcx	96,0,32,32	k	art/interface/ButtonAlpha.pcx	-96,0	-	0,0
+region	art/interface/NormButtons.pcx	96,32,32,32	k	art/interface/ButtonAlpha.pcx	-96,-32	-	0,0
+region	art/interface/NormButtons.pcx	96,160,32,32	k	art/interface/ButtonAlpha.pcx	-96,-160	-	0,0
+region	art/interface/NormButtons.pcx	128,0,32,32	k	art/interface/ButtonAlpha.pcx	-128,0	-	0,0
+region	art/interface/NormButtons.pcx	160,0,32,32	k	art/interface/ButtonAlpha.pcx	-160,0	-	0,0
+region	art/interface/NormButtons.pcx	192,0,32,32	k	art/interface/ButtonAlpha.pcx	-192,0	-	0,0
+region	art/interface/NormButtons.pcx	224,32,32,32	k	art/interface/ButtonAlpha.pcx	-224,-32	-	0,0
+region	art/interface/NormButtons.pcx	224,64,32,32	k	-	0,0	-	0,0
+region	art/interface/box left color.pcx	0,0,280,130	k	art/interface/box left alpha.pcx	0,0	-	0,0
+region	art/interface/box right color.pcx	0,0,294,137	k	art/interface/box right alpha.pcx	0,0	-	0,0
+region	art/interface/consoleButtons.pcx	1,1,14,15	k	-	0,0	-	0,0
+region	art/interface/menuButtons.pcx	1,1,36,30	k	art/interface/menuButtonsAlpha.pcx	0,0	-	0,0
+region	art/interface/menuButtons.pcx	1,61,36,30	k	art/interface/menuButtonsAlpha.pcx	0,-60	-	0,0
+region	art/interface/menuButtons.pcx	1,121,36,30	k	art/interface/menuButtonsAlpha.pcx	0,-120	-	0,0
+region	art/interface/menuButtons.pcx	37,1,36,30	k	art/interface/menuButtonsAlpha.pcx	0,0	-	0,0
+region	art/interface/menuButtons.pcx	37,61,36,30	k	art/interface/menuButtonsAlpha.pcx	0,-60	-	0,0
+region	art/interface/menuButtons.pcx	37,121,36,30	k	art/interface/menuButtonsAlpha.pcx	0,-120	-	0,0
+region	art/interface/menuButtons.pcx	74,1,34,30	k	art/interface/menuButtonsAlpha.pcx	0,0	-	0,0
+region	art/interface/menuButtons.pcx	74,61,34,30	k	art/interface/menuButtonsAlpha.pcx	0,-60	-	0,0
+region	art/interface/menuButtons.pcx	74,121,34,30	k	art/interface/menuButtonsAlpha.pcx	0,-120	-	0,0
+region	art/interface/nextturn states color.pcx	0,0,46,28	k	art/interface/nextturn states alpha.pcx	0,0	-	0,0
+region	art/interface/x_comboButtons.pcx	1,1,18,20	k	-	0,0	-	0,0
+region	art/interface/x_comboTopbar.pcx	1,0,84,24	k	-	0,0	-	0,0
+region	art/interface/x_comboTopbar.pcx	171,0,84,24	k	-	0,0	-	0,0
+region	art/interface/x_cycle button normal.pcx	0,0,28,27	k	-	0,0	-	0,0
+region	art/interface/x_cycle button normal.pcx	0,28,28,27	k	-	0,0	-	0,0
+region	art/interface/x_cycle button normal.pcx	0,56,28,27	k	-	0,0	-	0,0
+region	art/interface/x_cycle button normal.pcx	29,0,28,27	k	-	0,0	-	0,0
+region	art/interface/x_cycle button normal.pcx	58,0,14,27	k	-	0,0	-	0,0
+region	art/interface/x_cycle button normal.pcx	58,29,14,28	k	-	0,0	-	0,0
+region	art/smallHeads/popHeads.pcx	6,453,36,45	k	-	0,0	Art/Units/Palettes/ntp04.pcx	0,64
+region	art/smallHeads/popHeads.pcx	107,453,36,45	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallHeads/popHeads.pcx	107,552,36,46	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallHeads/popHeads.pcx	108,402,34,46	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallHeads/popHeads.pcx	109,858,34,41	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallHeads/popHeads.pcx	257,452,36,46	k	-	0,0	Art/Units/Palettes/ntp04.pcx	0,64
+region	art/smallHeads/popHeads.pcx	356,403,35,43	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallHeads/popHeads.pcx	357,453,35,44	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallHeads/popHeads.pcx	357,553,35,44	k	-	0,0	Art/Units/Palettes/ntp10.pcx	0,64
+region	art/smallheads/advisor_tab.pcx	0,0,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	0,56,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	0,112,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	0,168,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	0,224,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	0,280,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	112,0,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	112,56,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	112,112,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	112,168,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	112,224,56,56	k	-	0,0	-	0,0
+region	art/smallheads/advisor_tab.pcx	112,280,56,56	k	-	0,0	-	0,0
+region	art/tech chooser/scienceNAV.pcx	1,1,128,33	k	-	0,0	-	0,0
+region	art/tech chooser/scienceNAV.pcx	1,103,44,9	k	-	0,0	-	0,0
+region	art/tech chooser/scienceNAV.pcx	46,103,44,9	k	-	0,0	-	0,0
+region	art/x_title buttons.PCX	0,0,38,38	k	art/x_title buttons alpha.PCX	0,0	-	0,0
+region	art/x_title buttons.PCX	38,0,38,38	k	art/x_title buttons alpha.PCX	-38,0	-	0,0
+region	art/x_title buttons.PCX	76,0,38,38	k	art/x_title buttons alpha.PCX	-76,0	-	0,0
+fill	0,0,0,127	74x10
+fill	0,0,0,127	80x10
+fill	0,0,0,127	82x10
+fill	0,0,0,127	84x10
+fill	0,0,0,127	86x10
+fill	0,0,0,127	88x10
+fill	0,0,0,127	90x10
+fill	0,0,0,127	92x10
+fill	0,0,0,127	94x10
+fill	0,0,0,127	96x10
+fill	0,0,0,127	98x10
+fill	0,0,0,127	100x10
+fill	0,0,0,127	102x10
+fill	0,0,0,127	104x10
+fill	0,0,0,127	106x10
+fill	0,0,0,127	108x10
+fill	0,0,0,127	110x10
+fill	0,0,0,127	112x10
+fill	0,0,0,127	114x10
+fill	0,0,0,127	116x10
+fill	0,0,0,127	118x10
+fill	0,0,0,127	120x10
+fill	0,0,0,127	124x10
+fill	0,0,0,127	128x10
+fill	0,0,0,127	130x10
+fill	0,0,0,127	132x10
+fill	0,0,0,127	134x10
+fill	0,0,0,127	136x10
+fill	0,0,0,127	138x10
+fill	0,0,0,255	1x20
+fill	0,0,0,255	1x21
+fill	0,0,0,255	1x128
+fill	0,0,0,255	98x1
+fill	0,0,0,255	104x1
+fill	0,0,0,255	106x1
+fill	0,0,0,255	108x1
+fill	0,0,0,255	110x1
+fill	0,0,0,255	112x1
+fill	0,0,0,255	114x1
+fill	0,0,0,255	116x1
+fill	0,0,0,255	118x1
+fill	0,0,0,255	120x1
+fill	0,0,0,255	122x1
+fill	0,0,0,255	124x1
+fill	0,0,0,255	126x1
+fill	0,0,0,255	128x1
+fill	0,0,0,255	130x1
+fill	0,0,0,255	132x1
+fill	0,0,0,255	134x1
+fill	0,0,0,255	136x1
+fill	0,0,0,255	138x1
+fill	0,0,0,255	140x1
+fill	0,0,0,255	142x1
+fill	0,0,0,255	144x1
+fill	0,0,0,255	146x1
+fill	0,0,0,255	148x1
+fill	0,0,0,255	150x1
+fill	0,0,0,255	152x1
+fill	0,0,0,255	154x1
+fill	0,0,0,255	156x1
+fill	0,0,0,255	158x1
+fill	0,0,0,255	160x1
+fill	0,0,0,255	162x1
+fill	0,0,0,255	180x1
+fill	0,0,0,255	1920x1080
+fill	0,0,255,128	1x3
+fill	0,0,255,128	1x10
+fill	0,0,255,128	3x1
+fill	0,0,255,128	3x3
+fill	0,0,255,128	60x3
+fill	0,0,255,255	36x36
+fill	0,8,189,255	10x10
+fill	0,8,189,255	10x286
+fill	0,8,189,255	10x322
+fill	0,8,189,255	10x352
+fill	0,8,189,255	10x378
+fill	0,8,189,255	20x20
+fill	0,8,189,255	20x288
+fill	0,8,189,255	20x570
+fill	0,8,189,255	20x604
+fill	0,8,189,255	158x10
+fill	0,33,148,191	24x21
+fill	0,33,148,191	98x1
+fill	0,33,148,191	100x1
+fill	0,33,148,191	114x1
+fill	0,33,148,191	132x1
+fill	0,115,0,191	24x21
+fill	0,115,0,191	94x1
+fill	0,132,0,128	1x10
+fill	0,132,0,128	3x3
+fill	0,132,0,128	30x3
+fill	0,132,132,128	1x10
+fill	0,132,132,128	3x3
+fill	0,132,132,128	28x3
+fill	0,255,255,192	1x145
+fill	0,255,255,192	300x1
+fill	49,99,255,127	334x169
+fill	49,99,255,191	24x21
+fill	49,99,255,191	82x1
+fill	49,99,255,191	84x1
+fill	49,99,255,191	86x1
+fill	49,99,255,191	88x1
+fill	49,99,255,191	90x1
+fill	49,99,255,191	92x1
+fill	49,99,255,191	94x1
+fill	49,99,255,191	96x1
+fill	49,99,255,191	98x1
+fill	49,99,255,191	100x1
+fill	49,99,255,191	102x1
+fill	49,99,255,191	104x1
+fill	49,99,255,191	106x1
+fill	49,99,255,191	108x1
+fill	49,99,255,191	110x1
+fill	49,99,255,191	112x1
+fill	49,99,255,191	114x1
+fill	74,41,41,191	74x10
+fill	74,41,41,191	80x10
+fill	74,41,41,191	82x10
+fill	74,41,41,191	84x10
+fill	74,41,41,191	86x10
+fill	74,41,41,191	88x10
+fill	74,41,41,191	90x10
+fill	74,41,41,191	92x10
+fill	74,41,41,191	94x10
+fill	74,41,41,191	96x10
+fill	74,41,41,191	98x10
+fill	74,41,41,191	100x10
+fill	74,41,41,191	102x10
+fill	74,41,41,191	104x10
+fill	74,41,41,191	106x10
+fill	74,41,41,191	108x10
+fill	74,41,41,191	110x10
+fill	74,41,41,191	112x10
+fill	74,41,41,191	114x10
+fill	74,41,41,191	116x10
+fill	74,41,41,191	118x10
+fill	74,41,41,191	120x10
+fill	74,41,41,191	124x10
+fill	74,41,41,191	128x10
+fill	74,41,41,191	130x10
+fill	74,41,41,191	132x10
+fill	74,41,41,191	134x10
+fill	74,41,41,191	136x10
+fill	74,41,41,191	138x10
+fill	107,198,0,191	24x21
+fill	107,198,0,191	92x1
+fill	107,198,0,191	96x1
+fill	107,198,0,191	100x1
+fill	107,198,0,191	102x1
+fill	107,198,0,191	104x1
+fill	107,198,0,191	108x1
+fill	107,198,0,191	110x1
+fill	107,198,0,191	112x1
+fill	107,198,0,191	116x1
+fill	107,198,0,191	118x1
+fill	107,198,0,191	120x1
+fill	107,198,0,191	124x1
+fill	107,198,0,191	128x1
+fill	107,198,0,191	130x1
+fill	107,198,0,191	132x1
+fill	107,198,0,191	134x1
+fill	107,198,0,191	136x1
+fill	107,198,0,191	138x1
+fill	123,222,0,127	334x169
+fill	132,132,132,128	1x10
+fill	132,132,132,128	3x3
+fill	132,132,132,128	33x3
+fill	173,173,148,255	1x19
+fill	173,173,148,255	299x1
+fill	181,206,181,255	14x20
+fill	181,206,181,255	18x20
+fill	181,206,181,255	26x20
+fill	181,206,181,255	34x20
+fill	181,206,181,255	38x20
+fill	181,206,181,255	42x20
+fill	181,206,181,255	74x20
+fill	181,206,181,255	142x20
+fill	206,181,0,191	24x21
+fill	206,181,0,191	84x1
+fill	206,181,0,191	94x1
+fill	206,181,0,191	98x1
+fill	206,181,0,191	106x1
+fill	206,181,0,191	110x1
+fill	206,181,0,191	112x1
+fill	206,181,0,191	116x1
+fill	206,181,0,191	120x1
+fill	222,140,140,255	1x15
+fill	222,140,140,255	1x17
+fill	222,140,140,255	282x1
+fill	222,140,140,255	283x1
+fill	222,140,140,255	284x1
+fill	222,198,82,255	6x11
+fill	222,198,82,255	8x11
+fill	222,198,82,255	9x11
+fill	222,198,82,255	12x11
+fill	222,198,82,255	21x11
+fill	222,198,82,255	26x11
+fill	222,198,82,255	43x11
+fill	222,198,82,255	48x11
+fill	231,8,8,191	24x21
+fill	231,8,8,191	74x1
+fill	231,8,8,191	80x1
+fill	231,8,8,191	82x1
+fill	231,8,8,191	88x1
+fill	231,8,8,191	90x1
+fill	231,8,8,191	92x1
+fill	231,8,8,191	94x1
+fill	231,8,8,191	96x1
+fill	231,8,8,191	104x1
+fill	231,8,8,191	106x1
+fill	231,8,8,191	110x1
+fill	231,231,0,127	334x169
+fill	247,99,33,128	1x10
+fill	247,99,33,128	3x3
+fill	247,99,33,128	33x3
+fill	255,0,0,128	1x10
+fill	255,0,0,128	3x1
+fill	255,0,0,128	3x3
+fill	255,0,0,128	66x3
+fill	255,0,0,255	1x1
+fill	255,0,0,255	36x36
+fill	255,247,222,255	300x20
+fill	255,255,255,255	1x22
+fill	255,255,255,255	1x47
+fill	255,255,255,255	6x1
+fill	255,255,255,255	24x1
+fill	255,255,255,255	86x1
+fill	255,255,255,255	91x1
+dynamic	minimap	230x108
+dynamic	minimap-advisor	300x145
+font	Lucida Sans	8	0	0	40,48,144	-
+font	Lucida Sans	10	0	0	0,0,0	-
+font	Lucida Sans	10	0	0	40,48,144	-
+font	Lucida Sans	10	0	0	48,40,40	-
+font	Lucida Sans	10	0	0	128,120,0	-
+font	Lucida Sans	10	0	0	128,128,128	-
+font	Lucida Sans	10	0	0	240,96,32	-
+font	Lucida Sans	10	0	0	248,248,248	-
+font	Lucida Sans	10	0	1	40,48,144	-
+font	Lucida Sans	10	0	1	48,40,40	-
+font	Lucida Sans	10	0	1	128,120,0	-
+font	Lucida Sans	10	700	0	0,112,184	-
+font	Lucida Sans	12	0	0	0,0,0	-
+font	Lucida Sans	12	0	0	0,0,248	-
+font	Lucida Sans	12	0	0	0,112,184	-
+font	Lucida Sans	12	0	0	24,120,40	-
+font	Lucida Sans	12	0	0	40,48,144	-
+font	Lucida Sans	12	0	0	48,48,48	-
+font	Lucida Sans	12	0	0	64,136,200	-
+font	Lucida Sans	12	0	0	96,96,96	-
+font	Lucida Sans	12	0	0	112,72,32	-
+font	Lucida Sans	12	0	0	128,120,0	-
+font	Lucida Sans	12	0	0	144,32,136	-
+font	Lucida Sans	12	0	0	152,152,152	-
+font	Lucida Sans	12	0	0	200,200,200	-
+font	Lucida Sans	12	0	0	232,24,32	-
+font	Lucida Sans	12	0	0	240,96,32	-
+font	Lucida Sans	12	0	0	248,248,248	-
+font	Lucida Sans	12	0	1	0,0,0	-
+font	Lucida Sans	12	0	1	48,48,48	-
+font	Lucida Sans	12	0	1	96,96,96	-
+font	Lucida Sans	12	0	1	152,152,152	-
+font	Lucida Sans	12	0	1	200,200,200	-
+font	Lucida Sans	12	0	1	248,0,0	-
+font	Lucida Sans	12	700	0	56,112,0	-
+font	Lucida Sans	12	700	0	96,120,208	-
+font	Lucida Sans	12	700	0	96,208,96	-
+font	Lucida Sans	12	700	0	104,0,0	-
+font	Lucida Sans	12	700	0	112,96,16	-
+font	Lucida Sans	12	700	0	120,192,224	-
+font	Lucida Sans	12	700	0	176,200,176	-
+font	Lucida Sans	12	700	0	248,248,248	-
+font	Lucida Sans	14	0	0	0,0,0	-
+font	Lucida Sans	14	0	0	0,0,248	-
+font	Lucida Sans	14	0	0	0,16,72	-
+font	Lucida Sans	14	0	0	0,112,184	-
+font	Lucida Sans	14	0	0	0,128,0	-
+font	Lucida Sans	14	0	0	0,128,128	-
+font	Lucida Sans	14	0	0	24,120,40	-
+font	Lucida Sans	14	0	0	40,48,144	-
+font	Lucida Sans	14	0	0	104,104,160	-
+font	Lucida Sans	14	0	0	176,88,0	-
+font	Lucida Sans	14	0	0	232,24,32	-
+font	Lucida Sans	14	0	0	240,96,32	-
+font	Lucida Sans	14	0	0	248,0,0	-
+font	Lucida Sans	14	0	1	248,0,0	-
+font	Lucida Sans	14	700	0	0,0,0	-
+font	Lucida Sans	16	0	0	0,0,0	-
+font	Lucida Sans	16	0	0	0,112,184	-
+font	Lucida Sans	16	0	0	248,0,0	-
+font	Lucida Sans	16	0	0	248,248,0	-
+font	Lucida Sans	16	0	0	248,248,248	-
+font	Lucida Sans	16	0	1	0,0,0	-
+font	Lucida Sans	16	700	0	0,0,0	-
+font	Lucida Sans	18	0	0	0,0,0	-
+font	Lucida Sans	18	0	0	0,0,128	-
+font	Lucida Sans	18	0	0	24,224,240	-
+font	Lucida Sans	18	0	0	128,0,0	-
+font	Lucida Sans	18	0	0	240,208,0	-
+font	Lucida Sans	18	0	0	248,248,248	-
+font	Lucida Sans	24	0	0	0,0,0	-
