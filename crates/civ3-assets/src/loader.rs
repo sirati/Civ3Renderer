@@ -117,6 +117,14 @@ fn alpha_table(options: &toml::Table) -> Result<[u8; 256], String> {
             alpha[i.min(255)] = int(v)?.min(255) as u8;
         }
     }
+    // `opacity = 0..255`: every index that much more transparent (e.g. a
+    // ghost of a sprite).
+    if let Some(v) = options.get("opacity") {
+        let o = int(v)?.min(255) as u32;
+        for a in &mut alpha {
+            *a = (*a as u32 * o / 255) as u8;
+        }
+    }
     Ok(alpha)
 }
 
@@ -397,6 +405,14 @@ impl ImageLoader for Civ3Loader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opacity_scales_every_index_s_alpha() {
+        let options: toml::Table = toml::from_str("opacity = 128\nalpha = { 7 = 100 }").unwrap();
+        let alpha = alpha_table(&options).unwrap();
+        assert_eq!((alpha[0], alpha[7], alpha[254], alpha[255]), (128, 50, 0, 0));
+        assert_eq!(alpha_table(&toml::Table::new()).unwrap()[0], 255);
+    }
 
     /// The sizes told without pixels are those of the loaded frames, for the
     /// game's own art (`CIV3_INSTALL`; skipped without an installation) and

@@ -132,6 +132,7 @@ const TAG_LINK: u32 = 0x1000_0000;
 const TAG_MENU: u32 = 0x2000_0000;
 const TAG_CHECK: u32 = 0x4000_0000;
 const TAG_TAB: u32 = 0x8000_0000;
+const TAG_CHOICE: u32 = 0x0800_0000;
 
 fn rect_at(mem: &dyn Mem, at: u32) -> Option<[i32; 4]> {
     Some([mem.i32(at)?, mem.i32(at + 4)?, mem.i32(at + 8)?, mem.i32(at + 12)?])
@@ -232,6 +233,69 @@ pub fn controls(mem: &dyn Mem, sites: &Sites) -> Vec<Control> {
     out
 }
 
+/// One form of the tree the mouse sees, for tracing ([`form_tree`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormLine {
+    pub depth: u32,
+    pub addr: u32,
+    pub vtable: u32,
+    pub status1: u32,
+    pub visible: bool,
+    /// x, y, w, h on the screen (within its clip).
+    pub shown: [i32; 4],
+    pub children: u32,
+    /// As a list box: its parts, entry count, first shown, shown, and
+    /// whether its layout reads sanely.
+    pub list: Option<(ListParts, i32, i32, i32, bool)>,
+    /// As a control of a kind by a type field: where its draw goes.
+    pub typed: Option<u32>,
+}
+
+/// Every form the walk of [`controls`] visits (hidden ones too, not their
+/// children), depth first: what a trace shows to find controls it misses.
+pub fn form_tree(mem: &dyn Mem, sites: &Sites) -> Vec<FormLine> {
+    let modal = mem.u32(sites.modal).unwrap_or(0);
+    let roots: Vec<u32> = if modal != 0 {
+        [modal, mem.u32(sites.companion).unwrap_or(0)].into_iter().filter(|&f| f != 0).collect()
+    } else {
+        let n = mem.u32(sites.root_count).unwrap_or(0).min(MAX_CHILDREN);
+        (0..n).filter_map(|i| mem.u32(sites.roots + 4 * i)).filter(|&f| f != 0).collect()
+    };
+    fn visit(mem: &dyn Mem, addr: u32, depth: u32, out: &mut Vec<FormLine>) {
+        if depth > MAX_DEPTH || out.len() > 4096 {
+            return;
+        }
+        let Some(form) = Form::read(mem, addr) else { return };
+        let visible = visible(mem, addr);
+        let n = mem.u32(addr + CHILD_COUNT).unwrap_or(0).min(MAX_CHILDREN);
+        let list = list_parts(mem, &form).map(|p| {
+            let count = mem.i32(p.items + L_COUNT).unwrap_or(-1);
+            let first = mem.i32(p.list + G_FIRST).unwrap_or(-1);
+            let shown = mem.i32(p.list + G_SHOWN).unwrap_or(-1);
+            let sane = ItemLayout::read(mem, p.items).is_some_and(|l| l.sane());
+            (p, count, first, shown, sane)
+        });
+        let typed = typed_draw(mem, &form).map(|(_, target)| target);
+        out.push(FormLine { depth, addr, vtable: form.vtable, status1: form.status1, visible, shown: form.shown, children: n, list, typed });
+        if !visible {
+            return;
+        }
+        let children = mem.u32(addr + CHILDREN).unwrap_or(0);
+        if children != 0 {
+            for i in 0..n {
+                if let Some(c) = mem.u32(children + 4 * i).filter(|&c| c != 0 && c != addr) {
+                    visit(mem, c, depth + 1, out);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for root in roots {
+        visit(mem, root, 0, &mut out);
+    }
+    out
+}
+
 /// The interface panel's buttons by place: Advisors, Menu, Geography,
 /// Civilopedia, the 8 map navigator buttons, the 7 right panel buttons, the
 /// 42 unit command buttons (`Button` 0x6D4 bytes, `Command_Button` 0x6DC).
@@ -277,6 +341,8 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
         check_boxes(mem, &form, out);
     } else if let Some(list) = list_parts(mem, &form) {
         list_box(mem, &form, list, out);
+    } else {
+        choice_group(mem, &form, out);
     }
 }
 
@@ -421,6 +487,10 @@ pub struct ListParts {
 /// maybe `sub ecx,k`, `jmp 0x6181E0`; then G = F − [F−4] − k − 0x64,
 /// checked against G's virtual base table (F = G + 4 + vb[1]).
 fn list_parts(mem: &dyn Mem, form: &Form) -> Option<ListParts> {
+    if let Some((ecx, LIST_DRAW)) = typed_draw(mem, form) {
+        // (A typed control that is a list box.)
+        return list_at(mem, form, ecx.wrapping_sub(0x64));
+    }
     let thunk = mem.u32(form.vtable + 0x58)?;
     let code: Vec<u8> = (0..11).map(|i| mem.u8(thunk + i)).collect::<Option<_>>()?;
     if code[..3] != [0x2B, 0x49, 0xFC] {
@@ -435,10 +505,119 @@ fn list_parts(mem: &dyn Mem, form: &Form) -> Option<ListParts> {
         return None;
     }
     let f = form.addr;
-    let g = f.wrapping_sub(mem.u32(f.wrapping_sub(4))?).wrapping_sub(k).wrapping_sub(0x64);
-    let vb = mem.u32(g + 4)?;
+    list_at(mem, form, f.wrapping_sub(mem.u32(f.wrapping_sub(4))?).wrapping_sub(k).wrapping_sub(0x64))
+}
+
+/// The list object G of a list box's form part, if G's virtual base table
+/// points back at it (F = G + 4 + vb[1]); its item list at G + 4 + vb[2].
+fn list_at(mem: &dyn Mem, form: &Form, g: u32) -> Option<ListParts> {
+    let vb = mem.u32(g.wrapping_add(4))?;
     let (to_form, to_items) = (mem.u32(vb + 4)?, mem.u32(vb + 8)?);
-    (g.wrapping_add(4).wrapping_add(to_form) == f).then(|| ListParts { list: g, items: g.wrapping_add(4).wrapping_add(to_items) })
+    (g.wrapping_add(4).wrapping_add(to_form) == form.addr).then(|| ListParts { list: g, items: g.wrapping_add(4).wrapping_add(to_items) })
+}
+
+/// The draws of a choice group: a grid of items (0x615080 each), or rows
+/// of text (0x61CC20 each; a popup's choices).
+const CHOICE_DRAW: u32 = 0x61_56F0;
+const LINES_DRAW: u32 = 0x61_D7C0;
+
+/// A control of one of several kinds by a type field (class 0x666908, e.g.
+/// a popup's choices): its draw thunk `sub ecx,[ecx-4]`, `jmp D`, where D
+/// dispatches on the type at `[ecx-8]` through a jump table to
+/// `add ecx,imm`, `jmp T` (0x619570: type 2 a list box, 8 a choice group).
+/// Where `ecx` ends up and the draw it jumps to.
+fn typed_draw(mem: &dyn Mem, form: &Form) -> Option<(u32, u32)> {
+    let thunk = mem.u32(form.vtable + 0x58)?;
+    let code: Vec<u8> = (0..8).map(|i| mem.u8(thunk + i)).collect::<Option<_>>()?;
+    if code[..4] != [0x2B, 0x49, 0xFC, 0xE9] {
+        return None;
+    }
+    let d = thunk.wrapping_add(8).wrapping_add(u32::from_le_bytes(code[4..8].try_into().ok()?));
+    // mov eax,[ecx-8]; dec eax; cmp eax,n; ja; xor edx,edx; mov dl,[eax+idx]; jmp [edx*4+table]
+    let head: Vec<u8> = (0..24).map(|i| mem.u8(d + i)).collect::<Option<_>>()?;
+    if head[..5] != [0x8B, 0x41, 0xF8, 0x48, 0x83] || head[5] != 0xF8 || head[7] != 0x77 || head[9..13] != [0x33, 0xD2, 0x8A, 0x90] || head[17..20] != [0xFF, 0x24, 0x95] {
+        return None;
+    }
+    let types = head[6] as u32 + 1;
+    let idx = u32::from_le_bytes(head[13..17].try_into().ok()?);
+    let table = u32::from_le_bytes(head[20..24].try_into().ok()?);
+    let ecx = form.addr.wrapping_sub(mem.u32(form.addr.wrapping_sub(4))?);
+    let t = mem.u32(ecx.wrapping_sub(8))?;
+    if t == 0 || t > types {
+        return None;
+    }
+    let entry = mem.u32(table + 4 * mem.u8(idx + t - 1)? as u32)?;
+    let at: Vec<u8> = (0..11).map(|i| mem.u8(entry + i)).collect::<Option<_>>()?;
+    let (add, jmp) = match at[..2] {
+        [0x81, 0xC1] => (u32::from_le_bytes(at[2..6].try_into().ok()?), 6),
+        [0x83, 0xC1] => (at[2] as i8 as i32 as u32, 3),
+        _ => return None,
+    };
+    if at[jmp] != 0xE9 {
+        return None;
+    }
+    let target = entry.wrapping_add(jmp as u32 + 5).wrapping_add(u32::from_le_bytes(at[jmp + 1..jmp + 5].try_into().ok()?));
+    Some((ecx.wrapping_add(add), target))
+}
+
+/// A choice group (a typed control): a grid of items drawn with 0x615080
+/// (type 8: object B = `ecx` − 0xE0; item `k` at column `k / rows`: x
+/// `col·(W+gap)`, y `row·H + gap/2`, W×H), or rows of text drawn with
+/// 0x61CC20 (type 16, a popup's choices: B = `ecx` − 0x28; each row as high
+/// as its lines, at least H: the form's height shared among the rows by
+/// their lines). Its form part at B + vb[1], its item list at B + vb[2]
+/// (vb = [B]).
+fn choice_group(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) -> bool {
+    let (b, rows_of_text) = match typed_draw(mem, form) {
+        Some((ecx, CHOICE_DRAW)) => (ecx.wrapping_sub(0xE0), false),
+        Some((ecx, LINES_DRAW)) => (ecx.wrapping_sub(0x28), true),
+        _ => return false,
+    };
+    let Some(vb) = mem.u32(b) else { return false };
+    let (Some(to_form), Some(to_items)) = (mem.u32(vb + 4), mem.u32(vb + 8)) else { return false };
+    if b.wrapping_add(to_form) != form.addr {
+        return false;
+    }
+    let items = b.wrapping_add(to_items);
+    let Some(l) = ItemLayout::read(mem, items).filter(ItemLayout::sane) else { return false };
+    let count = mem.i32(items + L_COUNT).unwrap_or(0).clamp(0, 64);
+    let rects: Vec<[i32; 4]> = if rows_of_text {
+        // Lines per row: the item nodes (+8 data, whose +8 is its lines; +0xC
+        // the next node).
+        let mut node = mem.u32(items + L_FIRST_NODE).unwrap_or(0);
+        let mut lines = Vec::new();
+        for _ in 0..count {
+            let n = if node == 0 { 1 } else { mem.u32(node + 8).and_then(|d| mem.i32(d + 8)).unwrap_or(1) };
+            lines.push(n.clamp(1, 16));
+            node = if node == 0 { 0 } else { mem.u32(node + 0xC).unwrap_or(0) };
+        }
+        let total: i32 = lines.iter().sum::<i32>().max(1);
+        let mut before = 0;
+        lines
+            .iter()
+            .map(|n| {
+                let (top, bottom) = (form.size.1 * before / total, form.size.1 * (before + n) / total);
+                before += n;
+                [0, top, form.size.0, bottom - top]
+            })
+            .collect()
+    } else {
+        let rows = l.rows.max(1);
+        (0..count)
+            .map(|k| {
+                let (col, row) = (k / rows, k % rows);
+                [col * (l.width + l.gap), row * l.height + l.gap / 2, l.width, l.height]
+            })
+            .filter(|r| r[0] + r[2] <= form.size.0 + 1 && r[1] + r[3] <= form.size.1 + 1)
+            .collect()
+    };
+    for (k, r) in rects.into_iter().enumerate() {
+        let rect = form.on_screen(r);
+        if !empty(rect) {
+            out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_CHOICE, k as u32) });
+        }
+    }
+    true
 }
 
 fn list_box(mem: &dyn Mem, form: &Form, parts: ListParts, out: &mut Vec<Control>) {
