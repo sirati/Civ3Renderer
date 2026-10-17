@@ -87,6 +87,36 @@ pub fn screen_area(frame: &Frame, form: &PreferencesForm, panel_size: (u32, u32)
     Some([x, y, pw, ph])
 }
 
+/// Whether `frame` draws the game's Preferences screen (its form's canvas
+/// has draws in it).
+fn shows_screen(frame: &Frame, form: &PreferencesForm) -> Option<usize> {
+    let &(_, canvas, ..) = frame.forms.iter().rev().find(|f| f.0 == form.vtable)?;
+    frame.form_draws.iter().filter(|(c, r)| *c == canvas && !r.is_empty()).map(|(_, r)| r.end).max()
+}
+
+/// Where our tabs go among `frame`'s draws (the index of the first draw
+/// over them), if `frame` draws the game's Preferences screen: over the
+/// screen and its controls, under what the game draws over them afterwards —
+/// a popup over the screen (its canvas `popup`, e.g. C3X's info box) with
+/// the frame the game draws onto the screen just before compositing it (on
+/// no form's canvas), the tooltip, the cursor.
+pub fn tabs_slot(frame: &Frame, form: &PreferencesForm, popup: Option<u32>) -> Option<usize> {
+    let screen_end = shows_screen(frame, form)?;
+    let owned = |i: usize| frame.form_draws.iter().map(|(_, r)| r).chain(&frame.underlay_draws).any(|r| r.contains(&i));
+    let popup_start = popup.and_then(|p| frame.form_draws.iter().find(|(c, _)| *c == p).map(|(_, r)| r.start));
+    let mut at = popup_start.unwrap_or(frame.draws.len()).max(screen_end);
+    while at > screen_end && !owned(at - 1) {
+        at -= 1;
+    }
+    Some(at)
+}
+
+/// Whether the game's modal form `modal` is a popup over its Preferences
+/// screen (e.g. C3X's info box): modal, and not the screen itself.
+fn popup_over(modal: Option<u32>, form: &PreferencesForm) -> bool {
+    modal.is_some_and(|m| m != 0 && m != form.form)
+}
+
 /// The renderer's preferences: the settings, and the tabs over the game's
 /// Preferences screen while it is open.
 pub struct Prefs {
@@ -101,6 +131,10 @@ pub struct Prefs {
     open: Option<[i32; 4]>,
     /// The window's size (the rendered size depends on it).
     window: (u32, u32),
+    /// A popup of the game is open over the screen (e.g. C3X's info box):
+    /// the input is all the game's, the popup's buttons may lie over our
+    /// tabs and panels.
+    covered: bool,
 }
 
 impl Prefs {
@@ -113,7 +147,7 @@ impl Prefs {
         });
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), settings, path, tab: TAB_GAME.into(), open: None, window: (0, 0) }
+        Prefs { panels, state: PanelState::default(), settings, path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false }
     }
 
     /// The settings (sent to the viewer with every scene).
@@ -140,6 +174,9 @@ impl Prefs {
         }
         let (Some(area), Some(panels)) = (self.open, self.panels.as_ref()) else { return inputs };
         let Some(panel) = panels.panel(PANEL) else { return inputs };
+        if self.covered {
+            return inputs;
+        }
         let mut changed = false;
         let mut out = Vec::new();
         for input in inputs {
@@ -171,9 +208,10 @@ impl Prefs {
     }
 
     /// Follows the game's screens: whether its Preferences screen is shown
-    /// in `frame`, and where. It opens on the game's own tab, with nothing
+    /// in `frame`, and where, and whether a popup is over it (`modal`: the
+    /// game's modal form). It opens on the game's own tab, with nothing
     /// pressed.
-    pub fn update(&mut self, frame: Option<&Frame>, form: Option<PreferencesForm>, window: (u32, u32)) {
+    pub fn update(&mut self, frame: Option<&Frame>, form: Option<PreferencesForm>, window: (u32, u32), modal: Option<u32>) {
         if window != (0, 0) {
             self.window = window;
         }
@@ -185,6 +223,12 @@ impl Prefs {
             self.tab = TAB_GAME.into();
         }
         self.open = open;
+        let covered = open.is_some() && form.is_some_and(|f| popup_over(modal, &f));
+        if covered != self.covered {
+            log::info!("preferences screen: {}", if covered { "a popup over it, the input is the game's" } else { "no popup over it" });
+            self.state = PanelState { values: std::mem::take(&mut self.state.values), ..PanelState::default() };
+        }
+        self.covered = covered;
         self.state.values = values(&self.settings, &self.tab, self.window);
     }
 
@@ -367,7 +411,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut p = Prefs::load(path.clone());
         let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
-        p.update(Some(&f), Some(FORM), (1024, 768));
+        p.update(Some(&f), Some(FORM), (1024, 768), None);
         (p, path)
     }
 
@@ -409,13 +453,61 @@ mod tests {
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         assert!(texts.contains(&"Rendered at 341×256".to_string()), "{texts:?}");
         // Closed and opened again: the game's tab.
-        p.update(Some(&Frame::default()), Some(FORM), (1024, 768));
+        p.update(Some(&Frame::default()), Some(FORM), (1024, 768), None);
         assert!(!p.is_open());
         assert_eq!(click(&mut p, 330, 55).len(), 3);
         let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
-        p.update(Some(&f), Some(FORM), (1024, 768));
+        p.update(Some(&f), Some(FORM), (1024, 768), None);
         assert_eq!(p.tab, TAB_GAME);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// A popup over the screen (C3X's info box, its OK button over our
+    /// Layout tab's panels): every click is the game's until it is gone.
+    #[test]
+    fn a_popup_over_the_screen_takes_the_input() {
+        let (mut p, path) = open_prefs("popup");
+        assert!(click(&mut p, 330, 55).is_empty());
+        assert_eq!(p.tab, TAB_LAYOUT);
+        let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+        // The screen itself modal: our panel's.
+        p.update(Some(&f), Some(FORM), (1024, 768), Some(FORM.form));
+        assert!(click(&mut p, 340, 140).is_empty());
+        // C3X's popup modal over it: the game's, on our panels and tabs.
+        p.update(Some(&f), Some(FORM), (1024, 768), Some(0x0123_4560));
+        assert_eq!(click(&mut p, 787, 172).len(), 3);
+        assert_eq!(click(&mut p, 220, 55).len(), 3);
+        assert_eq!(p.tab, TAB_LAYOUT);
+        // Gone: ours again.
+        p.update(Some(&f), Some(FORM), (1024, 768), None);
+        assert!(click(&mut p, 220, 55).is_empty());
+        assert_eq!(p.tab, TAB_RESOLUTION);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// Our tabs go over the screen and its controls, under a popup over it
+    /// and the frame the game draws around that popup on no canvas.
+    #[test]
+    fn the_tabs_lie_under_a_popup_over_the_screen() {
+        let fill = |x: i32| ScreenDraw::Fill { rect: [x, 0, 1, 1], rgb: [0, 0, 0], alpha: 255, clip: [0, 0, 1920, 1080] };
+        let mut f = frame_with_screen((0, 0), (1920, 1080), Some((448, 156)));
+        // The screen's checkbox (a child form), the popup's frame (no
+        // canvas), the popup, the tooltip (no canvas).
+        f.forms.push((0x671C70, 3, (500, 300), (20, 20)));
+        f.forms.push((0x666408, 4, (635, 135), (650, 230)));
+        f.draws.extend([fill(1), fill(2), fill(3), fill(4), fill(5)]);
+        f.form_draws.extend([(3, 1..2), (4, 4..5)]);
+        assert_eq!(tabs_slot(&f, &FORM, Some(4)), Some(2));
+        // No popup: over everything but what is drawn onto the screen last.
+        assert_eq!(tabs_slot(&f, &FORM, None), Some(5));
+        // A popup split off: before its frame, at the end of what is left.
+        let (below, above) = crate::interface_parts::split_at(&f, 4);
+        assert_eq!(tabs_slot(&below, &FORM, Some(4)), Some(2));
+        assert_eq!(tabs_slot(&above, &FORM, Some(4)), None);
+        // The screen itself split off (it is modal): in that part.
+        let (below, above) = crate::interface_parts::split_at(&f, 0);
+        assert_eq!((tabs_slot(&below, &FORM, None), tabs_slot(&above, &FORM, None)), (None, Some(5)));
+        assert_eq!(tabs_slot(&frame_with_screen((0, 0), (1920, 1080), None), &FORM, None), None);
     }
 
     /// The zoom placement is greyed out (and takes no clicks) unless the
