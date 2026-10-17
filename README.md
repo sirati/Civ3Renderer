@@ -410,8 +410,12 @@ Frame rate: the viewer's `[display]` settings `present` (`Vsync`, the
 default: frames at the display's refresh rate; `Mailbox`, `Immediate`: as
 fast as they are drawn, three in flight) and `max_fps` (0: no cap), or
 `TILE_VIEWER_PRESENT=vsync|mailbox|immediate`, `TILE_VIEWER_MAX_FPS=N`; the
-frame counter is `show_fps`. The viewer paces its own frames; the driver's
-scenes are taken as they come.
+frame counter is `show_fps`. A positive `max_fps` limits every presented
+frame, including scene updates and pointer redraws. The event loop keeps
+receiving input and scenes while waiting for the next frame. With no cap,
+vsync uses the display's refresh for animation and requests input frames
+immediately; mailbox and immediate draw without waiting for compositor
+redraw callbacks.
 
 Profiling: `TILE_VIEWER_PROFILE=1` logs every 5 s where the viewer's frames
 go (CPU per step, GPU per view from timestamp queries, read back without
