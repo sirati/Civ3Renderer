@@ -455,6 +455,13 @@ pub struct Placed {
 /// texel `(box_x + n·i, box_y + n·j)` and lies at
 /// `anchor' + (box_x / n + i, box_y / n + j)`, `anchor'` being the anchor
 /// divided by `n` (rounded toward zero) or kept, as `scaling` says.
+///
+/// That is the rule of a game's own half-size view. Smaller still, a
+/// shrunk sprite (not one keeping its anchor) samples the texels of its box
+/// a multiple of `n` from the anchor point instead, each drawn at its
+/// distance divided by `n`: the samples of neighbouring cells line up (from
+/// each box's own corner, tiles cropped to different boxes leave pixels
+/// between them that none of them covers).
 pub fn placed(sprite: &SpriteDesc, n: u32) -> Placed {
     if n <= 1 || sprite.scaling == KEEP_SIZE {
         return Placed {
@@ -470,6 +477,20 @@ pub fn placed(sprite: &SpriteDesc, n: u32) -> Placed {
         };
     }
     let keep = sprite.scaling == SHRINK_KEEP_ANCHOR;
+    if n > 2 && !keep {
+        let (tx, ty) = (on_grid(sprite.anchor_x, sprite.box_x, n), on_grid(sprite.anchor_y, sprite.box_y, n));
+        return Placed {
+            corner_x: (sprite.anchor_x + tx as i32) / n as i32,
+            corner_y: (sprite.anchor_y + ty as i32) / n as i32,
+            inset_x: 0,
+            inset_y: 0,
+            width: samples(tx, sprite.box_x + sprite.box_w, n),
+            height: samples(ty, sprite.box_y + sprite.box_h, n),
+            texel_x: tx,
+            texel_y: ty,
+            step: n,
+        };
+    }
     Placed {
         corner_x: if keep { sprite.anchor_x } else { shrunk(sprite.anchor_x, n) },
         corner_y: if keep { sprite.anchor_y } else { shrunk(sprite.anchor_y, n) },
@@ -481,6 +502,19 @@ pub fn placed(sprite: &SpriteDesc, n: u32) -> Placed {
         texel_y: sprite.box_y,
         step: n,
     }
+}
+
+/// The first texel from `from` on a multiple of `n` from the anchor point
+/// (the sprite's top-left `anchor` from it).
+fn on_grid(anchor: i32, from: u32, n: u32) -> u32 {
+    let n = n as i32;
+    let r = ((anchor + from as i32) % n + n) % n;
+    from + ((n - r) % n) as u32
+}
+
+/// How many texels every `n`-th from `first` on lie before `end`.
+fn samples(first: u32, end: u32, n: u32) -> u32 {
+    if first >= end { 0 } else { (end - first + n - 1) / n }
 }
 
 /// The sprite drawn for sprite `id` in a view showing the world `n` times
@@ -688,6 +722,19 @@ mod tests {
         let keep = placed(&SpriteDesc { scaling: SHRINK_KEEP_ANCHOR, ..s }, 2);
         assert_eq!((keep.corner_x, keep.corner_y), (-19, -15));
         assert_eq!(placed(&SpriteDesc { scaling: KEEP_SIZE, ..s }, 2), placed(&s, 1));
+        // A quarter size and smaller: on the cells' grid. Texel 3 is 16 from
+        // the anchor point (-19 + 3 = -16), drawn at -4; to texel 123, 31
+        // of them; rows from 3 (-15 + 3 = -12, at -3), 16 of them.
+        let p = placed(&s, 4);
+        assert_eq!((p.corner_x, p.corner_y, p.inset_x, p.inset_y, p.width, p.height, p.texel_x, p.texel_y, p.step), (-4, -3, 0, 0, 31, 16, 3, 3, 4));
+        // Two tiles a cell apart cropped to different boxes: their samples
+        // lie on one grid, the world pixels a multiple of 8 apart.
+        let other = SpriteDesc { box_x: 6, box_y: 0, box_w: 120, box_h: 64, ..s };
+        for t in [s, other] {
+            let p = placed(&t, 8);
+            assert_eq!((t.anchor_x + p.texel_x as i32).rem_euclid(8), 0);
+            assert_eq!(p.corner_x * 8, t.anchor_x + p.texel_x as i32);
+        }
         assert_eq!((shrunk(-13, 2), shrunk(13, 2), shrunk(-13, 1)), (-6, 6, -13));
         let sprites = [s, SpriteDesc { downscaled: 1, ..s }];
         assert_eq!((drawn_sprite(&sprites, 1, 1), drawn_sprite(&sprites, 1, 2), drawn_sprite(&sprites, 0, 2)), (1, 0, 0));
