@@ -516,8 +516,10 @@ fn list_at(mem: &dyn Mem, form: &Form, g: u32) -> Option<ListParts> {
     (g.wrapping_add(4).wrapping_add(to_form) == form.addr).then(|| ListParts { list: g, items: g.wrapping_add(4).wrapping_add(to_items) })
 }
 
-/// The draw of a choice group's items (a popup's choices; 0x615080 each).
+/// The draws of a choice group: a grid of items (0x615080 each), or rows
+/// of text (0x61CC20 each; a popup's choices).
 const CHOICE_DRAW: u32 = 0x61_56F0;
+const LINES_DRAW: u32 = 0x61_D7C0;
 
 /// A control of one of several kinds by a type field (class 0x666908, e.g.
 /// a popup's choices): its draw thunk `sub ecx,[ecx-4]`, `jmp D`, where D
@@ -558,13 +560,19 @@ fn typed_draw(mem: &dyn Mem, form: &Form) -> Option<(u32, u32)> {
     Some((ecx.wrapping_add(add), target))
 }
 
-/// A choice group (a typed control drawing its items with 0x615080, e.g.
-/// a popup's choices): object B = `ecx` − 0xE0, its form part at
-/// B + vb[1], its item list at B + vb[2] (vb = [B]); item `k` at column
-/// `k / rows`: x `col·(W+gap)`, y `row·H + gap/2`, W×H.
+/// A choice group (a typed control): a grid of items drawn with 0x615080
+/// (type 8: object B = `ecx` − 0xE0; item `k` at column `k / rows`: x
+/// `col·(W+gap)`, y `row·H + gap/2`, W×H), or rows of text drawn with
+/// 0x61CC20 (type 16, a popup's choices: B = `ecx` − 0x28; each row as high
+/// as its lines, at least H: the form's height shared among the rows by
+/// their lines). Its form part at B + vb[1], its item list at B + vb[2]
+/// (vb = [B]).
 fn choice_group(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) -> bool {
-    let Some((ecx, CHOICE_DRAW)) = typed_draw(mem, form) else { return false };
-    let b = ecx.wrapping_sub(0xE0);
+    let (b, rows_of_text) = match typed_draw(mem, form) {
+        Some((ecx, CHOICE_DRAW)) => (ecx.wrapping_sub(0xE0), false),
+        Some((ecx, LINES_DRAW)) => (ecx.wrapping_sub(0x28), true),
+        _ => return false,
+    };
     let Some(vb) = mem.u32(b) else { return false };
     let (Some(to_form), Some(to_items)) = (mem.u32(vb + 4), mem.u32(vb + 8)) else { return false };
     if b.wrapping_add(to_form) != form.addr {
@@ -573,13 +581,37 @@ fn choice_group(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) -> bool {
     let items = b.wrapping_add(to_items);
     let Some(l) = ItemLayout::read(mem, items).filter(ItemLayout::sane) else { return false };
     let count = mem.i32(items + L_COUNT).unwrap_or(0).clamp(0, 64);
-    let rows = l.rows.max(1);
-    for k in 0..count {
-        let (col, row) = (k / rows, k % rows);
-        let r = [col * (l.width + l.gap), row * l.height + l.gap / 2, l.width, l.height];
-        if r[0] + r[2] > form.size.0 + 1 || r[1] + r[3] > form.size.1 + 1 {
-            continue;
+    let rects: Vec<[i32; 4]> = if rows_of_text {
+        // Lines per row: the item nodes (+8 data, whose +8 is its lines; +0xC
+        // the next node).
+        let mut node = mem.u32(items + L_FIRST_NODE).unwrap_or(0);
+        let mut lines = Vec::new();
+        for _ in 0..count {
+            let n = if node == 0 { 1 } else { mem.u32(node + 8).and_then(|d| mem.i32(d + 8)).unwrap_or(1) };
+            lines.push(n.clamp(1, 16));
+            node = if node == 0 { 0 } else { mem.u32(node + 0xC).unwrap_or(0) };
         }
+        let total: i32 = lines.iter().sum::<i32>().max(1);
+        let mut before = 0;
+        lines
+            .iter()
+            .map(|n| {
+                let (top, bottom) = (form.size.1 * before / total, form.size.1 * (before + n) / total);
+                before += n;
+                [0, top, form.size.0, bottom - top]
+            })
+            .collect()
+    } else {
+        let rows = l.rows.max(1);
+        (0..count)
+            .map(|k| {
+                let (col, row) = (k / rows, k % rows);
+                [col * (l.width + l.gap), row * l.height + l.gap / 2, l.width, l.height]
+            })
+            .filter(|r| r[0] + r[2] <= form.size.0 + 1 && r[1] + r[3] <= form.size.1 + 1)
+            .collect()
+    };
+    for (k, r) in rects.into_iter().enumerate() {
         let rect = form.on_screen(r);
         if !empty(rect) {
             out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_CHOICE, k as u32) });
