@@ -32,11 +32,8 @@ const ANIMATION_NAMES: [&str; 19] = [
 /// in a file are SW, S, SE, E, NE, N, NW, W.
 const DIRECTION_BLOCK: [u32; 9] = [0, 4, 3, 2, 1, 0, 7, 6, 5];
 
-/// Shadow palette indices of unit art and their darkening (`c·(i − 239)/16`).
-const SHADOWS: std::ops::RangeInclusive<u32> = 248..=254;
-
 /// The blit's shade levels 0..14 (jgl.dll, docs §10.5, §10.14): indices
-/// 240..254 darken to `c·(i − 239)/16`.
+/// 240..254 darken to `c·(i − 239)/16`, in unit and effect art alike.
 const SHADES: std::ops::RangeInclusive<u32> = 240..=254;
 
 /// Palette indices the blit draws as translucent smoke (docs §10.14): index
@@ -527,8 +524,7 @@ impl Needed {
             let rgba: Vec<String> = shades.map(|i| format!("{i} = [{}, 0, 0, 255]", i - 239)).collect();
             format!("transparent = [{}]\nrgba = {{ {} }}", transparent.join(", "), rgba.join(", "))
         };
-        let unit_shadow = shadow_options(SHADOWS);
-        let effect_shadow = shadow_options(SHADES);
+        let shade_options = shadow_options(SHADES);
         // The smoke indices: translucent (§10.14).
         let smoke = if self.smoke.is_empty() { String::new() } else { format!("rgba = {{ {} }}\n", smoke_rgba(&self.smoke)) };
         // Armies' own art (§10.11): entries 64..127 repeat the first 16
@@ -588,14 +584,14 @@ impl Needed {
             let shadow = format!("unitshadow{n}");
             // (Of a file drawn still, only its frames shown are made.)
             let only = self.stills.get(path).map_or(String::new(), |s| format!("frames = [{}]\n", s.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")));
-            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{only}{unit_shadow}\n");
+            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{only}{shade_options}\n");
             sheets(&mut out, &shadow, &format!("UnitShadow@{path}"));
             blocks(&mut out, &format!("UnitShadowAnim@{path}"), &format!("UnitShadow@{path}"));
             let kinds: BTreeSet<bool> = colors.iter().map(Recolor::army_art).collect();
             for army in kinds {
                 let image = format!("unit{n}{}", if army { "a" } else { "" });
                 let remap = if army { 128 } else { 64 };
-                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{only}remap = [0, {remap}]\ntransparent = {body_transparent}\n");
+                let _ = writeln!(out, "[images.{image}]\nsource = {source}\n{only}remap = [0, {remap}]\ntransparent = {body_transparent}\n{smoke}");
                 let kind = art_kind(army);
                 sheets(&mut out, &image, &format!("UnitArt@{path}{kind}"));
                 blocks(&mut out, &format!("UnitAnim@{path}{kind}"), &format!("UnitArt@{path}{kind}"));
@@ -634,7 +630,7 @@ impl Needed {
             let _ = writeln!(out, "[images.{image}]\nsource = {source}\ntransparent = {body_transparent}\n{smoke}");
             sheet(&mut out, &image, &format!("EffectArt@{path}"));
             let shadow = format!("effectshadow{n}");
-            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{effect_shadow}\n");
+            let _ = writeln!(out, "[images.{shadow}]\nsource = {source}\n{shade_options}\n");
             sheet(&mut out, &shadow, &format!("EffectShadow@{path}"));
         }
         let sites: Vec<(i32, [u8; 3])> = self.site_colors.iter().map(|(k, v)| (*k, *v)).collect();
