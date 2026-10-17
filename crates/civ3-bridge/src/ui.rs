@@ -807,6 +807,58 @@ pub fn line_rects((x1, y1): (i32, i32), (x2, y2): (i32, i32), width: i32) -> Vec
     out
 }
 
+/// The pixels of a line of the game's line drawer as rectangles (x, y, w,
+/// h) with how much of each the line covers (of 256). With `smooth`, as
+/// Windows' OpenGL draws it (the renderer turns on `GL_LINE_SMOOTH` with
+/// blending, 0x627710): a line along a row or column is a band `width`
+/// wide centred on the pixel edge at its coordinate, so a 1-pixel line at y
+/// covers half of rows y - 1 and y (measured on the Windows VM: the city
+/// label frames, black at full opacity, halve what is under them on two rows
+/// and columns each). Otherwise, and for slanted lines, [`line_rects`]
+/// (under Wine C3X draws the lines with GDI+, measured to match it).
+pub fn line_fills(from: (i32, i32), to: (i32, i32), width: i32, smooth: bool) -> Vec<([i32; 4], u32)> {
+    let ((x1, y1), (x2, y2)) = (from, to);
+    let straight = (x1 == x2) != (y1 == y2);
+    if !smooth || !straight {
+        return line_rects(from, to, width).into_iter().map(|r| (r, 256)).collect();
+    }
+    // The band across the line, in half pixels: [c - w, c + w) around the
+    // edge at 2·c.
+    let w = width.max(1);
+    let band = |c: i32| -> Vec<(i32, i32, u32)> {
+        let (lo, hi) = (2 * c - w, 2 * c + w);
+        let mut out: Vec<(i32, i32, u32)> = Vec::new();
+        for j in lo.div_euclid(2)..(hi + 1).div_euclid(2) {
+            let covered = (hi.min(2 * j + 2) - lo.max(2 * j)) as u32 * 128;
+            // Rows (or columns) covered alike go into one rectangle.
+            match out.last_mut() {
+                Some((_, n, c)) if *c == covered => *n += 1,
+                _ => out.push((j, 1, covered)),
+            }
+        }
+        out
+    };
+    if y1 == y2 {
+        let (l, len) = (x1.min(x2), (x2 - x1).abs());
+        band(y1).into_iter().map(|(y, n, c)| ([l, y, len, n], c)).collect()
+    } else {
+        let (t, len) = (y1.min(y2), (y2 - y1).abs());
+        band(x1).into_iter().map(|(x, n, c)| ([x, t, n, len], c)).collect()
+    }
+}
+
+/// Whether the game's line drawer draws smooth lines (see [`line_fills`]):
+/// on Windows, not in Wine (where C3X, as installed, draws them with GDI+).
+pub fn smooth_lines() -> bool {
+    static SMOOTH: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SMOOTH.get_or_init(|| cfg!(windows) && !gdi_text::under_wine())
+}
+
+/// `alpha` (of 255) of which `coverage` (of 256) is drawn.
+pub fn covered_alpha(alpha: u8, coverage: u32) -> u8 {
+    (alpha as u32 * coverage.min(256) / 256) as u8
+}
+
 /// Where an operation draws (left, top, right, bottom); text by its start
 /// point only.
 fn op_bounds(op: &Op) -> [i32; 4] {
@@ -996,6 +1048,24 @@ mod tests {
         assert_eq!(line_rects((0, 0), (64, -32), 2)[2], [2, -2, 1, 2]);
         assert_eq!(line_rects((5, 7), (9, 7), 1), vec![[5, 7, 4, 1]]);
         assert_eq!(line_rects((5, 9), (5, 7), 1), vec![[5, 7, 1, 2]]);
+    }
+
+    #[test]
+    fn smooth_lines_straddle_the_pixel_edge() {
+        // A city label's frame on Windows (1 wide): the top edge at y 642
+        // from x 367 to 505 halves rows 641 and 642, x 367..505; the left
+        // edge columns 366 and 367 (measured).
+        assert_eq!(line_fills((367, 642), (505, 642), 1, true), vec![([367, 641, 138, 2], 128)]);
+        assert_eq!(line_fills((367, 642), (367, 663), 1, true), vec![([366, 642, 2, 21], 128)]);
+        // Two wide: the two rows around the edge, whole; three: half rows on
+        // both sides of a whole one.
+        assert_eq!(line_fills((0, 5), (4, 5), 2, true), vec![([0, 4, 4, 2], 256)]);
+        assert_eq!(line_fills((0, 5), (4, 5), 3, true), vec![([0, 3, 4, 1], 128), ([0, 4, 4, 2], 256), ([0, 6, 4, 1], 128)]);
+        // Slanted lines, and every line without smoothing: the measured rule.
+        assert_eq!(line_fills((64, 0), (0, 32), 2, true).len(), 64);
+        assert_eq!(line_fills((5, 7), (9, 7), 1, false), vec![([5, 7, 4, 1], 256)]);
+        assert_eq!(covered_alpha(255, 128), 127);
+        assert_eq!(covered_alpha(128, 256), 128);
     }
 
     #[test]
