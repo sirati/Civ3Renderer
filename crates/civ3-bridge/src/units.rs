@@ -357,12 +357,24 @@ impl Needed {
     pub fn minus(&self, other: &Needed) -> Needed {
         let mut out = Needed::default();
         for (p, (f, c)) in &self.files {
+            // (Frames `other` lacks: a file it has in part, wanted whole or
+            // with other frames, goes again, in all its colours.)
+            let frames_lacking = other.files.contains_key(p)
+                && match (self.stills.get(p), other.stills.get(p)) {
+                    (_, None) => false,
+                    (None, Some(_)) => true,
+                    (Some(mine), Some(theirs)) => !mine.is_subset(theirs),
+                };
             let new: BTreeSet<Recolor> = match other.files.get(p) {
+                _ if frames_lacking => c.clone(),
                 Some((_, theirs)) => c.difference(theirs).copied().collect(),
                 None => c.clone(),
             };
             if !new.is_empty() {
                 out.files.insert(p.clone(), (f.clone(), new));
+                if let Some(s) = self.stills.get(p) {
+                    out.stills.insert(p.clone(), s.clone());
+                }
             }
         }
         out.site_colors = self.site_colors.iter().filter(|(k, _)| !other.site_colors.contains_key(k)).map(|(k, v)| (*k, *v)).collect();
@@ -1095,6 +1107,11 @@ mod tests {
         let mut kept = whole.clone();
         kept.merge(&one);
         assert!(kept.stills.is_empty());
+        // What the art lacks of a file it has in part: the file again, whole
+        // or with the frames wanted; of a file it has whole, nothing.
+        assert!(whole.minus(&one).stills.is_empty() && whole.minus(&one).files.contains_key("a.flc"));
+        assert_eq!(two.minus(&one).stills["a.flc"], BTreeSet::from([9, 12]));
+        assert!(one.minus(&two).is_empty() && one.minus(&whole).is_empty() && whole.minus(&whole).is_empty());
     }
 
     /// One unit type (attack 1, defence 1, one move) and one experience level
