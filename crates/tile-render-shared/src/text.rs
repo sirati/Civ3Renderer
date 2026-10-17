@@ -77,9 +77,14 @@ pub const TEXT_BAR: u32 = 1 << 11;
 
 /// The contrast boost of black text and of white text (others in between
 /// per channel), in 256ths: coverage `c` (of 255) becomes
-/// `c + c·(255 − c)·boost / (255·256)`.
-pub const BOOST_DARK: u32 = 64;
-pub const BOOST_LIGHT: u32 = 160;
+/// `c + c·(255 − c)·boost / (255·256)`. Measured against the glyph sheets
+/// Windows draws (Lucida Sans, letters and digits, `tools/gen-civ3-fonts`):
+/// the boosts at which the outlines put down as much ink per glyph as
+/// ClearType does, black text on white and white on black, at 24 pixels
+/// (16 and 120; at 10..16 pixels, where hinting thins stems, 0..56 and
+/// 8..160).
+pub const BOOST_DARK: u32 = 16;
+pub const BOOST_LIGHT: u32 = 120;
 
 /// One glyph of text drawn from its outline: zoomed art for every zoom,
 /// drawn only where a view is drawn at its zoom showing zoomed art
@@ -383,15 +388,21 @@ fn tap(k: usize) -> i32 {
     }
 }
 
-/// Coverage `c` (of 255) boosted by `boost` 256ths (see [`BOOST_DARK`]).
-fn boosted(c: u32, boost: u32) -> u32 {
+/// Coverage `c` (of 255) boosted by `boost` 256ths (at most 256, see
+/// [`BOOST_DARK`]).
+pub fn boosted(c: u32, boost: u32) -> u32 {
     let v = c + c * (255 - c) * boost / (255 * 256);
     if v > 255 { 255 } else { v }
 }
 
+/// The boost of a channel of text whose colour has value `c8` there.
+pub fn boost_of(c8: u32) -> u32 {
+    (BOOST_DARK * (255 - c8) + BOOST_LIGHT * c8) / 255
+}
+
 /// The coverage of viewport pixel (`px`, `py`) per channel (red, green,
-/// blue), 0..=255, for text in `color` (0xRRGGBB).
-pub fn coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32, color: u32) -> [u32; 3] {
+/// blue), 0..=255, before the contrast boost.
+pub fn linear_coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [u32; 3] {
     let s = subpixels(words, p, px, py);
     let mut out = [0u32; 3];
     let full = 96 * TEXT_ROWS * SUB;
@@ -403,10 +414,20 @@ pub fn coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32, color: u32) -> 
             v += tap(k) * s[c + k];
             k += 1;
         }
-        let linear = ((v * 255 + full / 2) / full) as u32;
-        let c8 = (color >> (16 - 8 * c as u32)) & 0xFF;
-        let boost = (BOOST_DARK * (255 - c8) + BOOST_LIGHT * c8) / 255;
-        out[c] = boosted(linear, boost);
+        out[c] = ((v * 255 + full / 2) / full) as u32;
+        c += 1;
+    }
+    out
+}
+
+/// The coverage of viewport pixel (`px`, `py`) per channel (red, green,
+/// blue), 0..=255, for text in `color` (0xRRGGBB).
+pub fn coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32, color: u32) -> [u32; 3] {
+    let linear = linear_coverage(words, p, px, py);
+    let mut out = [0u32; 3];
+    let mut c = 0;
+    while c < 3 {
+        out[c] = boosted(linear[c], boost_of((color >> (16 - 8 * c as u32)) & 0xFF));
         c += 1;
     }
     out
