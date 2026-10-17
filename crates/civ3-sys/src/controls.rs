@@ -132,7 +132,7 @@ const TAG_LINK: u32 = 0x1000_0000;
 const TAG_MENU: u32 = 0x2000_0000;
 pub(crate) const TAG_CHECK: u32 = 0x4000_0000;
 pub(crate) const TAG_TAB: u32 = 0x8000_0000;
-const TAG_CHOICE: u32 = 0x0800_0000;
+pub(crate) const TAG_CHOICE: u32 = 0x0800_0000;
 
 fn rect_at(mem: &dyn Mem, at: u32) -> Option<[i32; 4]> {
     Some([mem.i32(at)?, mem.i32(at + 4)?, mem.i32(at + 8)?, mem.i32(at + 12)?])
@@ -696,3 +696,25 @@ fn check_boxes(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
 
 #[cfg(test)]
 mod tests;
+
+/// A popup's choice rows (a choice group of rows of text, type 16): `c`,
+/// its own part B (the bullet sprites, the hover and selected text
+/// colours), `items` its item list.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct BulletList {
+    pub c: u32,
+    pub items: u32,
+}
+
+/// The rows of text of the choice group whose form part is at `f`, if it
+/// is one (see [`choice_group`]).
+pub fn bullet_list(mem: &dyn Mem, f: u32) -> Option<BulletList> {
+    let form = Form::read(mem, f)?;
+    let (ecx, draw) = typed_draw(mem, &form)?;
+    if draw != LINES_DRAW {
+        return None;
+    }
+    let b = ecx.wrapping_sub(0x28);
+    let vb = mem.u32(b)?;
+    (b.wrapping_add(mem.u32(vb + 4)?) == f).then(|| BulletList { c: b, items: b.wrapping_add(mem.u32(vb + 8).unwrap_or(0)) })
+}
