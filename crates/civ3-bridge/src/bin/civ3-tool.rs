@@ -6,6 +6,8 @@
 //!       description covers
 //!   civ3-tool render TRACE OUT.png [--viewport WxH]
 //!       renders the trace's world on the GPU
+//!   civ3-tool stats TRACE
+//!       how big the atlas compiled for the trace is
 //!   civ3-tool pixeldiff TRACE GAME.png [DIFF.png]
 //!       renders the trace's world and compares it with a screenshot of the
 //!       game taken at the same moment, ignoring the screen rectangles of
@@ -178,6 +180,27 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8)
                 .map_err(|e| e.to_string())?;
             println!("{out}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Some("stats") => {
+            let trace = load_trace(args.get(1).ok_or("stats TRACE")?)?;
+            let (compiled, _) = compile(Some(&trace))?;
+            let a = &compiled.atlas;
+            let (rgba, index) = a.page_bytes();
+            let indexed = a.sprites.iter().filter(|s| s.palette != 0).count();
+            let rows = a.palettes.len() / tile_render::PALETTE_SIZE as usize;
+            println!(
+                "atlas: {} sprites ({indexed} indexed), {} colour pages ({} MiB), {} index pages ({} MiB), {} palette rows ({} own, {} named; {} KiB)",
+                a.sprites.len(),
+                a.pages.len(),
+                rgba >> 20,
+                a.index_pages.len(),
+                index >> 20,
+                rows,
+                a.named_palettes - 1,
+                rows as u32 - a.named_palettes,
+                a.palettes.len() * 4 >> 10
+            );
             Ok(ExitCode::SUCCESS)
         }
         Some("pixeldiff") => {
