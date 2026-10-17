@@ -16,8 +16,8 @@
 //! had every player's start: the tiles any player has explored, those any
 //! player's cities or units see now not fogged. A scenario whose players
 //! have nothing yet (their places are the game's choice when it starts)
-//! reveals nothing that way; its map is shown explored, all of it under the
-//! fog of war.
+//! reveals nothing that way. Its unexplored tiles stay black until the game
+//! generates the starting positions.
 
 use civ3_assets::biq::{Map, Owner, Player};
 
@@ -97,10 +97,6 @@ pub fn revealed(map: &Map, players: &[Player], map_visible: bool) -> Revealed {
             explored[i] = true;
             in_sight[i] = true;
         });
-    }
-    if !explored.contains(&true) {
-        // Nothing known yet: the map, under the fog.
-        return Revealed { explored: vec![true; n], in_sight: vec![false; n] };
     }
     Revealed { explored, in_sight }
 }
@@ -197,12 +193,12 @@ mod tests {
         m.cities[0].border_level = 2;
         assert_eq!(count(&revealed(&m, &[player(3)], false).explored), 45);
         // The barbarians' and nobody's reveal nothing; a map without
-        // anyone's is all under the fog; one the scenario reveals, all seen.
+        // anyone's reveals nothing; one the scenario reveals, all seen.
         let mut m = map(40, 40, 0);
         m.units.push(unit(Owner::Barbarians, 10, 10));
         m.units.push(unit(Owner::Race(7), 20, 10));
         let r = revealed(&m, &[player(3)], false);
-        assert!(r.explored.iter().all(|&e| e) && !r.in_sight.contains(&true));
+        assert!(!r.explored.contains(&true) && !r.in_sight.contains(&true));
         let r = revealed(&m, &[player(3)], true);
         assert!(r.explored.iter().chain(&r.in_sight).all(|&e| e));
     }
@@ -282,10 +278,11 @@ mod tests {
         let r = revealed(&map, &pacific.players(), pacific.map_visible());
         assert!(r.explored.iter().all(|&e| e));
         assert_eq!(revealed_box(&map, &r.explored), Some(TileBox { x: 0, y: 0, w: map.width, h: map.height }));
-        // Sengoku has nobody on its map yet: under the fog, all of it.
+        // Sengoku has nobody on its map yet. No tile is known before the
+        // game generates its starting positions.
         let Some(sengoku) = scenario("7 Sengoku - Sword of the Shogun.biq") else { return };
         let map = sengoku.map().unwrap();
         let r = revealed(&map, &sengoku.players(), sengoku.map_visible());
-        assert!(r.explored.iter().all(|&e| e) && !r.in_sight.contains(&true));
+        assert!(!r.explored.contains(&true) && !r.in_sight.contains(&true));
     }
 }
