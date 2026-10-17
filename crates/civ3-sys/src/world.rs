@@ -628,8 +628,9 @@ impl Civ3 {
     }
 
     /// Every unit type's numbers the map shows: attack, defence, movement
-    /// (whole tiles), hit point bonus, class, worker actions.
-    pub fn unit_type_stats(&self) -> Result<Vec<[i32; 6]>, Civ3Error> {
+    /// (whole tiles), hit point bonus, class, worker actions, abilities (bit
+    /// `n`: ability `n`, `UnitTypeAbilities`).
+    pub fn unit_type_stats(&self) -> Result<Vec<[i32; 7]>, Civ3Error> {
         let base: Ptr32<u8> = self.bic(L::BIC_UNITTYPES)?;
         let n: i32 = self.bic(L::BIC_UNITTYPECOUNT)?;
         (0..n.clamp(0, 4096) as u32)
@@ -642,6 +643,7 @@ impl Civ3 {
                     f(L::UNITTYPE_HIT_POINT_BONUS)?,
                     f(L::UNITTYPE_UNIT_CLASS)?,
                     f(L::UNITTYPE_WORKER_ACTIONS)?,
+                    f(L::UNITTYPE_UNITABILITIES)?,
                 ])
             })
             .collect()

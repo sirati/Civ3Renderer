@@ -254,6 +254,8 @@ UnitType Movement
 UnitType Hit_Point_Bonus
 UnitType Unit_Class
 UnitType Worker_Actions
+UnitType UnitAbilities
+value UTA_HIDDEN_NATIONALITY UTA_Hidden_Nationality
 Unit_Body Combat_Experience
 Combat_Experience
 Combat_Experience Base_Hit_Points
