@@ -10,6 +10,8 @@ uninstall=0
 if [ "${1:-}" = --uninstall ]; then uninstall=1; shift; fi
 dir=${1:-"/mnt/datasets/winvm/wine-civ3/drive_c/Games/Civilization III Complete/Conquests"}
 profile=${2:-debug}
+# Cargo's output directory (CARGO_TARGET_DIR, else the repository's target/).
+target=${CARGO_TARGET_DIR:-$repo/target}
 
 orig=$(find "$dir" -maxdepth 1 -iname 'ifc23_orig.dll' | head -1)
 cur=$(find "$dir" -maxdepth 1 -iname 'ifc23.dll' | head -1)
@@ -24,5 +26,5 @@ if [ -z "$orig" ]; then
   mv "$cur" "$dir/ifc23_orig.dll"
   cur=$dir/IFC23.dll
 fi
-cp -f "$repo/target/i686-pc-windows-gnu/$profile/ifc23.dll" "${cur:-$dir/IFC23.dll}"
+cp -f "$target/i686-pc-windows-gnu/$profile/ifc23.dll" "${cur:-$dir/IFC23.dll}"
 echo "installed $profile civ3-bridge into $dir"

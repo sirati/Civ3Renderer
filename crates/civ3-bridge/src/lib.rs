@@ -3,12 +3,14 @@
 // that `inproc::entry!` generates (an unsafe *attribute*, `no_mangle`).
 #![deny(unsafe_code)]
 
+pub mod art_schedule;
 pub mod assets;
 pub mod city_hud;
 pub mod city_labels;
 pub mod city_site;
 pub mod district_art;
 pub mod districts;
+pub mod edge;
 pub mod label_check;
 pub mod minimap;
 pub mod modal;

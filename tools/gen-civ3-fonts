@@ -19,7 +19,12 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 install=${CIV3_INSTALL:-/mnt/datasets/winvm/civ3-src/Civilization III Complete}
 out=${CIV3R_FONT_CACHE:-$HOME/.cache/civ3r/fonts}
 target=${CARGO_TARGET_DIR:-$repo/target}
-vm=fontsheets
+vm=${CIV3R_FONT_VM:-fontsheets}
+# The sizes made: every height from 5 to 48 pixels, then the larger ones the viewer's zooms
+# make of the game's fonts (8..24 pixels times 1/4 .. 8, tile_viewer::layout::ZOOMS) up to
+# 96, the largest text is made at (civ3_assets::fonts::MAX_HEIGHT; larger requests and
+# sizes in between take the nearest, civ3_assets::fonts::nearest_height).
+default_sizes="$(seq -s ' ' 5 48) 54 56 60 64 72 80 84 96"
 wine=0
 if [ "${1:-}" = --wine ]; then wine=1; shift; fi
 mkdir -p "$out"
@@ -27,7 +32,7 @@ cargo build -q --release -p gdi-text --target x86_64-pc-windows-gnu --bin font-s
 if [ $wine = 1 ]; then
   # Z: is the host's root in a Wine prefix.
   winpath() { printf 'Z:%s' "${1//\//\\}"; }
-  for size in ${@:-8 9 10 11 12 13 14 15 16 18 20 21 22 24 26 27 28 30 32 36 42 48}; do
+  for size in ${@:-$default_sizes}; do
     for style in "0 0 -" "700 0 -w700" "0 1 -i" "700 1 -w700-i"; do
       read -r weight italic suffix <<<"$style"
       [ "$suffix" = - ] && suffix=
@@ -46,7 +51,7 @@ mkdir "$stage/out"
 # `cache_stem`: -w<weight> for bold, -i for italic).
 {
   echo '@echo off'
-  for size in ${@:-8 9 10 11 12 13 14 15 16 18 20 21 22 24 26 27 28 30 32 36 42 48}; do
+  for size in ${@:-$default_sizes}; do
     for style in "0 0 -" "700 0 -w700" "0 1 -i" "700 1 -w700-i"; do
       read -r weight italic suffix <<<"$style"
       [ "$suffix" = - ] && suffix=
@@ -55,13 +60,14 @@ mkdir "$stage/out"
   done
   echo 'echo done> Z:\out\done.txt'
 } | sed 's/$/\r/' > "$stage/run.cmd"
-~/winvm/bin/winvm up "$vm" --share "$stage" --mem 2G --res 1024x768
+# (No program window: the smallest screen the VM takes.)
+~/winvm/bin/winvm up "$vm" --share "$stage" --mem 4G --res 800x600
 # In the interactive session (the desktop's font smoothing settings apply),
 # then wait for it to finish.
 ~/winvm/bin/winvm ps "$vm" - <<'EOF'
 schtasks /Create /TN fontsheets /TR "cmd /c Z:\run.cmd > Z:\out\log.txt 2>&1" /SC ONCE /ST 23:59 /IT /F | Out-Null
 schtasks /Run /TN fontsheets | Out-Null
-for ($i = 0; $i -lt 600 -and -not (Test-Path Z:\out\done.txt); $i++) { Start-Sleep 1 }
+for ($i = 0; $i -lt 1800 -and -not (Test-Path Z:\out\done.txt); $i++) { Start-Sleep 1 }
 EOF
 [ -f "$stage/out/done.txt" ] || { echo "font sheets: not finished, see $stage/out/log.txt" >&2; cat "$stage/out/log.txt" >&2 || true; exit 1; }
 cp "$stage"/out/*.png "$stage"/out/*.toml "$out/"
