@@ -35,6 +35,40 @@ pub fn corner_region([x, y, w, h]: [i32; 4]) -> [i32; 4] {
     [0, 0, x + w + mx, y + h + my]
 }
 
+/// The corner's buttons (forms of the `canvases`) as a part of their own:
+/// the corner region ([`corner_region`]), grown to the tooltip shown by
+/// them (drawn straight onto the screen, on no canvas, next to them), and
+/// the draws that are the part's (the buttons' and the tooltip's), which the
+/// rest of the interface leaves out: the part shows in one view only.
+pub fn corner_part(frame: &Frame, canvases: &[u32]) -> Option<([i32; 4], Vec<usize>)> {
+    let [x, y, w, h] = corner_region(forms_rect(frame, |c| canvases.contains(&c))?);
+    let mut draws: Vec<usize> = frame.form_draws.iter().filter(|(c, _)| canvases.contains(c)).flat_map(|(_, r)| r.clone()).collect();
+    let owned = |i: usize| frame.form_draws.iter().map(|(_, r)| r).chain(&frame.underlay_draws).any(|r| r.contains(&i));
+    let mut bounds = [x, y, x + w, y + h];
+    let near = [x - POPUP_FRAME, y - POPUP_FRAME, x + w + POPUP_FRAME, y + h + POPUP_FRAME];
+    for (i, d) in frame.draws.iter().enumerate().filter(|&(i, _)| !owned(i)) {
+        let Some(r) = reach(d) else { continue };
+        let c = intersect(r, near);
+        if c[2] > c[0] && c[3] > c[1] {
+            bounds = [bounds[0].min(r[0]), bounds[1].min(r[1]), bounds[2].max(r[2]), bounds[3].max(r[3])];
+            draws.push(i);
+        }
+    }
+    let [l, t, r, b] = bounds;
+    Some(([l.max(0), t.max(0), r - l.max(0), b - t.max(0)], draws))
+}
+
+/// `frame` with `draws` left out (clipped to nothing: the indices stay).
+pub fn without(frame: &Frame, draws: &[usize]) -> Frame {
+    let mut out = frame.clone();
+    for &i in draws {
+        if let Some(d) = out.draws.get_mut(i) {
+            *clip_mut(d) = [0, 0, 0, 0];
+        }
+    }
+    out
+}
+
 fn intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
     [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])]
 }
@@ -200,6 +234,27 @@ mod tests {
         assert_eq!(forms_rect(&f, |c| hud.is_unit_order(c)), Some([836, 1030, 64, 32]));
         assert!(!hud.is_unit_order(0xA1_4A68 + 1) && !hud.is_unit_order(0xA1_4A68 + 42 * 0x6DC) && hud.is_unit_order(0xA1_4A68 + 41 * 0x6DC));
         assert_eq!(forms_rect(&f, |_| false), None);
+    }
+
+    #[test]
+    fn the_corner_part_takes_its_buttons_and_their_tooltip_from_the_interface() {
+        let mut f = frame();
+        let hud = civ3_sys::ui_hooks::hud_buttons(civ3_sys::Build::PcGames);
+        // A tooltip under the Civilopedia button, on no canvas.
+        f.draws.push(ScreenDraw::Fill { rect: [60, 44, 90, 16], rgb: [255, 255, 255], alpha: 255, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX] });
+        let (rect, draws) = corner_part(&f, &hud.corner).unwrap();
+        assert_eq!(rect, [0, 0, 150, 60]);
+        assert_eq!(draws, [2, 6]);
+        let rest = without(&f, &draws);
+        assert!(rest.draws.iter().enumerate().all(|(i, d)| reaches_clip_of(d) != draws.contains(&i)));
+        // Far from the buttons a tooltip is not theirs.
+        let mut f = frame();
+        f.draws.push(ScreenDraw::Fill { rect: [900, 990, 90, 16], rgb: [255, 255, 255], alpha: 255, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX] });
+        assert_eq!(corner_part(&f, &hud.corner).unwrap(), ([0, 0, 149, 54], vec![2]));
+    }
+
+    fn reaches_clip_of(d: &ScreenDraw) -> bool {
+        crate::ui::reaches_clip(d)
     }
 
     #[test]

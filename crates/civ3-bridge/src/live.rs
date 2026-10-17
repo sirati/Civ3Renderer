@@ -662,6 +662,24 @@ fn publish(
             }
             (v, _) => (v, None),
         };
+        // On the map's own screen: the corner's buttons and their tooltip
+        // (drawn in the view the pointer is in only: the rest of the
+        // interface leaves them out) and the unit's orders (reachable from
+        // every view).
+        let hud = civ3_sys::ui_hooks::hud_buttons(game.build);
+        let on_map = matches!(shown, Shown::Map(..)) && screen_open.is_none();
+        let hud_ui = visible_ui.as_ref().filter(|_| on_map);
+        let corner_part = hud_ui.and_then(|f| crate::interface_parts::corner_part(f, &hud.corner));
+        let corner = corner_part.as_ref().map(|(r, _)| *r);
+        let reachable = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
+        let corner_items = match (corner, hud_ui) {
+            (Some(r), Some(f)) => ui_screen::items(&crate::interface_parts::region(f, r), files.roots(), generated, unit_colors),
+            _ => Vec::new(),
+        };
+        let visible_ui = match (visible_ui, &corner_part) {
+            (Some(f), Some((_, draws))) => Some(crate::interface_parts::without(&f, draws)),
+            (v, _) => v,
+        };
         // Our tabs on top of the game's Preferences screen, in the part of
         // the interface that draws it (the screen may be the popup split
         // off), under what the game draws over it (a popup over it, e.g.
@@ -675,18 +693,6 @@ fn publish(
         let mut ui_items = visible_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
         let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
         let mut screen_items = ui_screen_part.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
-        // On the map's own screen: the corner's buttons (drawn in the view
-        // the pointer is in) and the unit's orders (reachable from every
-        // view).
-        let hud = civ3_sys::ui_hooks::hud_buttons(game.build);
-        let on_map = matches!(shown, Shown::Map(..)) && screen_open.is_none();
-        let hud_ui = visible_ui.as_ref().filter(|_| on_map);
-        let corner = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.corner.contains(&c))).map(crate::interface_parts::corner_region);
-        let reachable = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
-        let corner_items = match (corner, hud_ui) {
-            (Some(r), Some(f)) => ui_screen::items(&crate::interface_parts::region(f, r), files.roots(), generated, unit_colors),
-            _ => Vec::new(),
-        };
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -766,6 +772,7 @@ fn publish(
         if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&screen_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&corner_items, &mut screen_art, &mut fonts, &files)
         {
             screen_recompile = true;
             wanted_for.push("interface");
