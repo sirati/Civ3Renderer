@@ -1466,13 +1466,7 @@ fn control_art(sites: &civ3_sys::controls::Sites, control: &civ3_sys::controls::
             civ3_sys::control_art::Part::LastArt => crate::looks::Part::LastArt(control.rect),
             civ3_sys::control_art::Part::Within => crate::looks::Part::Within(control.rect),
         },
-        // (A packed colour: bit 31 and RGB555, as SetTextColor gets it; else a
-        // palette index, black on the game's 16-bit canvases, docs §16.10.)
-        text_colors: art
-            .text_colors
-            .iter()
-            .map(|(l, c)| (look_state(*l), if c & 0x8000_0000 != 0 { [((c >> 7) & 0xF8) as u8, ((c >> 2) & 0xF8) as u8, ((c & 0x1F) << 3) as u8] } else { [0, 0, 0] }))
-            .collect(),
+        colors: art.colors.iter().map(|(l, c)| (look_state(*l), c.iter().map(|&c| color_rgb(c)).collect())).collect(),
         state: look_state(art.state),
         pieces,
         text_offsets: art.text_offsets.iter().map(|(l, o)| (look_state(*l), *o)).collect(),
@@ -1821,4 +1815,17 @@ fn hook_game_window(hidden_window: bool) {
             );
         }
     });
+}
+
+/// A colour of the game's controls as the mirror has it: text as
+/// `SetTextColor` gets it (a packed colour: bit 31 and RGB555, each channel
+/// shifted up; else a palette index, black on the game's 16-bit canvases,
+/// docs §16.10), fills as RGB555 expanded.
+fn color_rgb(c: civ3_sys::control_art::Color) -> [u8; 3] {
+    use civ3_sys::control_art::Color;
+    match c {
+        Color::Text(c) if c & 0x8000_0000 != 0 => [((c >> 7) & 0xF8) as u8, ((c >> 2) & 0xF8) as u8, ((c & 0x1F) << 3) as u8],
+        Color::Text(_) => [0, 0, 0],
+        Color::Fill(c) => crate::ui::rgb555(c),
+    }
 }
