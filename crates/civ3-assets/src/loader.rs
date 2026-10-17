@@ -28,6 +28,10 @@
 //!   index), as the game's button masks are; `alpha_offset = [dx, dy]`: image
 //!   pixel (x, y) takes the mask's (x + dx, y + dy).
 //!
+//! * `frames = [3, 25]` (FLC) only these frames are made; the others are
+//!   1×1 and transparent, so that the frames keep their numbers (an
+//!   animation of which only some frames are drawn).
+//!
 //! PCX sources yield one image, FLC sources one image per frame.
 //!
 //! Font files (`render_desc::Description::fonts`, e.g. `LSANS.TTF`) are found in the game's
@@ -88,6 +92,13 @@ fn signed(v: &toml::Value) -> Result<i64, String> {
 
 fn int(v: &toml::Value) -> Result<usize, String> {
     v.as_integer().and_then(|i| usize::try_from(i).ok()).ok_or_else(|| format!("expected an index, got {v}"))
+}
+
+/// The frames an FLC source makes (`frames`), if not all.
+fn only_frames(options: &toml::Table) -> Result<Option<Vec<usize>>, String> {
+    let Some(list) = options.get("frames") else { return Ok(None) };
+    let list = list.as_array().ok_or("frames: expected a list")?;
+    Ok(Some(list.iter().map(int).collect::<Result<_, _>>()?))
 }
 
 /// Alpha per palette index from the options.
@@ -236,7 +247,7 @@ fn font_spec(spec: &str) -> Result<(crate::fonts::FontStyle, [u8; 3], Option<[u8
 impl ImageLoader for Civ3Loader {
     /// From the files' headers (FLC: and their chunks'), and font sheets'
     /// metrics: no pixels are made.
-    fn sizes(&self, source: &str, _options: &toml::Table) -> Result<Vec<(u32, u32)>, String> {
+    fn sizes(&self, source: &str, options: &toml::Table) -> Result<Vec<(u32, u32)>, String> {
         if let Some(spec) = source.strip_prefix("font:") {
             let sizes = crate::fonts::glyph_sizes(&self.files, &font_spec(spec)?.0)?;
             return Ok(crate::fonts::charset().map(|c| sizes.get(&c).copied().unwrap_or((1, 1))).collect());
@@ -250,7 +261,8 @@ impl ImageLoader for Civ3Loader {
             Ok(vec![pcx::dimensions(&header).map_err(|e| format!("{source}: {e}"))?])
         } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
             let (w, h, n) = flc::dimensions(&mut file).map_err(|e| format!("{source}: {e}"))?;
-            Ok(vec![(w, h); n])
+            let only = only_frames(options)?;
+            Ok((0..n).map(|i| if only.as_ref().is_some_and(|o| !o.contains(&i)) { (1, 1) } else { (w, h) }).collect())
         } else {
             Err(format!("{source}: unknown image format"))
         }
@@ -276,6 +288,10 @@ impl ImageLoader for Civ3Loader {
                 out.push_str(&resolved(path));
             }
         }
+        // (Other frames made, other sheets.)
+        if let Some(frames) = options.get("frames") {
+            out.push_str(&format!("|frames={frames}"));
+        }
         out
     }
 
@@ -298,7 +314,15 @@ impl ImageLoader for Civ3Loader {
         };
         if flc {
             let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
-            anim.frames.iter().map(|f| frame(anim.width, anim.height, &f.pixels, &f.palette)).collect::<Result<_, _>>().map(Some)
+            let only = only_frames(options)?;
+            // (A frame not made: one transparent pixel.)
+            let none = || render_desc::IndexedFrame { pixels: tile_render::IndexImage { width: 1, height: 1, pixels: vec![0] }, palette: vec![[0; 4]; 256] };
+            anim.frames
+                .iter()
+                .enumerate()
+                .map(|(i, f)| if only.as_ref().is_some_and(|o| !o.contains(&i)) { Ok(none()) } else { frame(anim.width, anim.height, &f.pixels, &f.palette) })
+                .collect::<Result<_, _>>()
+                .map(Some)
         } else {
             let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
             Ok(Some(vec![frame(img.width, img.height, &img.pixels, &img.palette)?]))
@@ -353,9 +377,16 @@ impl ImageLoader for Civ3Loader {
             Ok(vec![out])
         } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
             let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            let only = only_frames(options)?;
             anim.frames
                 .iter()
-                .map(|f| Ok(to_rgba_with(anim.width, anim.height, &f.pixels, &self.options_palette(options, &f.palette)?, &alpha, &explicit, q)))
+                .enumerate()
+                .map(|(i, f)| {
+                    if only.as_ref().is_some_and(|o| !o.contains(&i)) {
+                        return Ok(RgbaImage::from_fn(1, 1, |_, _| [0; 4]));
+                    }
+                    Ok(to_rgba_with(anim.width, anim.height, &f.pixels, &self.options_palette(options, &f.palette)?, &alpha, &explicit, q))
+                })
                 .collect()
         } else {
             Err(format!("{source}: unknown image format"))
@@ -389,6 +420,13 @@ mod tests {
             assert_eq!(loader.sizes(source, &none).unwrap(), loaded, "{source}");
         }
         assert!(loader.sizes("Art/none.pcx", &none).is_err());
+        // Only some frames of an animation: the others 1×1, in both.
+        let source = "Art/Units/Aegis Cruiser/AegisCruiserDefault.flc";
+        let only: toml::Table = toml::from_str("frames = [2]").unwrap();
+        let frames = loader.load(source, &only).unwrap();
+        let sizes: Vec<(u32, u32)> = frames.iter().map(|f| (f.width, f.height)).collect();
+        assert_eq!(loader.sizes(source, &only).unwrap(), sizes);
+        assert!(sizes[2].0 > 1 && sizes.iter().enumerate().all(|(i, &s)| i == 2 || s == (1, 1)));
     }
 
     #[test]
