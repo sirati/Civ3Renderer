@@ -362,6 +362,8 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     // Rings around foreign units, if asked for (`crate::rings`).
     let rings = crate::rings::Rings::from_env();
     text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
+    // The generated pictures of our preferences tabs (`crate::prefs`).
+    text += &crate::prefs::Prefs::description();
     let compiler = Compiler { install: install_root()?, name, text, rings };
     let folders = ArtFolders::of(&game);
     // Mirror the game's interface (`CIV3R_UI=off`: only its text).
@@ -466,6 +468,10 @@ fn publish(
     let mut new_art = false;
     let mut city_bands = std::collections::HashMap::new();
     let mut last_stats = std::time::Instant::now();
+    // The renderer's own settings, and our tabs over the game's Preferences
+    // screen (`crate::prefs`); what they drew and the settings last published.
+    let mut prefs = crate::prefs::Prefs::load(viewer_settings::Settings::default_path());
+    let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
     loop {
         std::thread::sleep(POLL);
         // Now and then, how much everything holds (memory diagnostics).
@@ -529,6 +535,8 @@ fn publish(
             wanted_for.push("art folders");
         }
         let inputs = presenter.take_input();
+        // What our preferences tabs take does not reach the game.
+        let inputs = prefs.route(inputs, input.viewport);
         presenter.forward_log();
         let shown = match snapshot(&game) {
             Ok((world, view)) => Shown::Map(world, view),
@@ -554,9 +562,13 @@ fn publish(
         }
         // The game's interface, mirrored (else its text only).
         let ui = ui_trace::frame();
+        // Our tabs over the game's Preferences screen, while it is shown.
+        prefs.update(ui.as_ref(), civ3_sys::ui_hooks::preferences_form(game.build), input.viewport);
+        let prefs_draws = prefs.draws(&fonts);
+        let prefs_changed = published_prefs.0 != prefs_draws || published_prefs.1.as_ref() != Some(prefs.settings());
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
         let state = (shown, texts, ui);
-        if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() {
+        if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             continue;
         }
         let (shown, texts, ui) = &state;
@@ -604,6 +616,8 @@ fn publish(
         if let Shown::Map(world, view) = shown {
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
         }
+        // Our tabs on top of the game's Preferences screen.
+        ui_items.extend(crate::prefs::items(&prefs_draws));
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         // Not while a menu is open: the click would go to the menu.
@@ -768,9 +782,15 @@ fn publish(
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
             crate::scene_map::city_view(&mut scene, (view.camera_x, view.camera_y), [x, y, w, h]);
         }
+        // The renderer's settings go with every scene (sent when they change).
+        scene.settings = Some(prefs.settings().clone());
         scene.seq = seq;
         // Held back while the renderer is busy: publish again next time.
-        last = presenter.publish(scene).then_some(state);
+        let published = presenter.publish(scene);
+        if published {
+            published_prefs = (prefs_draws, Some(prefs.settings().clone()));
+        }
+        last = published.then_some(state);
     }
 }
 

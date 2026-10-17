@@ -1,0 +1,797 @@
+# The renderer's own preferences as tabs of Civilization III's Preferences
+# screen (menu crate panel format, `menu::panel`; drawn by
+# `civ3_bridge::prefs`). Coordinates are those of the screen's background
+# (`x_pref background.pcx`, 1024x768): the panel is laid over it.
+#
+# Values (`civ3_bridge::prefs` fills them in): `tab` ("civ3", "resolution",
+# "layout"), every control of `viewer_settings::controls` by its key
+# (`layout.split`, `resolution.menu_scale`, `layout.screens.F1`, ...,
+# `layout.orientation` "vertical" or "horizontal"), and
+# `resolution.realised` / `resolution.window`, the rendered and the window
+# size as "W×H".
+#
+# Art: the game's own where it has pieces (parchment buttons in three
+# states from the player setup screen, the checkboxes, the Preferences
+# screen's own slider bar, the scroll bar's thumb, the menu parchment);
+# the split pictures are generated (`panes:` sources of the render
+# description), their letters drawn as text.
+
+# ---------------------------------------------------------------- text
+
+[styles.tab]
+face = "Lucida Sans"
+height = 14
+weight = 700
+color = [56, 40, 16]
+selected_color = [0, 0, 0]
+
+[styles.heading]
+face = "Lucida Sans"
+height = 16
+weight = 700
+color = [40, 28, 8]
+
+[styles.label]
+face = "Lucida Sans"
+height = 13
+color = [32, 24, 8]
+disabled_color = [150, 140, 116]
+
+[styles.button]
+face = "Lucida Sans"
+height = 12
+color = [40, 30, 12]
+selected_color = [0, 0, 0]
+disabled_color = [150, 140, 116]
+
+[styles.caption]
+face = "Lucida Sans"
+height = 11
+color = [72, 60, 36]
+
+[styles.icon]
+face = "Lucida Sans"
+height = 14
+weight = 700
+color = [60, 48, 24]
+
+[styles.icon_small]
+face = "Lucida Sans"
+height = 11
+weight = 700
+color = [60, 48, 24]
+
+# ---------------------------------------------------------------- art
+
+# The parchment of the game's menus, over the Preferences screen's panels.
+[art.cover]
+image = "Art/PopUpandMenuBackground.pcx"
+rect = [0, 0, 1023, 327]
+keyed = false
+border = [99, 98, 79]
+
+# A darker band behind each section.
+[art.section]
+fill = [120, 104, 72]
+alpha = 40
+border = [176, 160, 124]
+
+# Buttons: the custom leader buttons of the player setup screen (cream,
+# orange under the pointer, blue chosen), cut to size.
+[art.button]
+image = "Art/PlayerSetup/CustomLeadButton.pcx"
+rect = [1, 1, 196, 90]
+keyed = false
+border = [104, 88, 60]
+
+[art.button_hover]
+image = "Art/PlayerSetup/CustomLeadButton.pcx"
+rect = [198, 1, 196, 90]
+keyed = false
+border = [104, 88, 60]
+
+[art.button_selected]
+image = "Art/PlayerSetup/CustomLeadButton.pcx"
+rect = [395, 1, 196, 90]
+keyed = false
+border = [40, 32, 16]
+
+[art.button_disabled]
+image = "Art/PlayerSetup/CustomLeadButton.pcx"
+rect = [1, 1, 196, 90]
+keyed = false
+tint = [120, 116, 104, 150]
+border = [150, 140, 116]
+
+# Checkboxes (3checkboxes-USE.pcx: grey, yellow, cyan).
+[art.check_off]
+image = "Art/3checkboxes-USE.pcx"
+rect = [1, 1, 15, 15]
+
+[art.check_hover]
+image = "Art/3checkboxes-USE.pcx"
+rect = [17, 1, 15, 15]
+
+[art.check_on]
+image = "Art/3checkboxes-USE.pcx"
+rect = [33, 1, 15, 15]
+
+# Sliders: the Preferences screen's own bar (its ends kept), the scroll
+# bar's thumb.
+[art.track]
+image = "Art/interface/x_pref background.pcx"
+rect = [259, 551, 408, 23]
+keyed = false
+slice = [3, 3]
+
+[art.knob]
+image = "Art/SCROLL.PCX"
+rect = [46, 139, 20, 20]
+
+[art.knob_hover]
+image = "Art/SCROLL.PCX"
+rect = [46, 139, 20, 20]
+tint = [255, 255, 255, 64]
+
+# The splits (100x60 pictures; labels at the middle of each pane, see
+# `render_desc::panes_centres`).
+[art.panes_Standard]
+generated = "panes:60,48,24,255:100x60:standard"
+size = [100, 60]
+labels = [{ text = "A", at = [50, 30], style = "icon" }]
+
+[art.panes_Vertical1To1]
+generated = "panes:60,48,24,255:100x60:vertical11"
+size = [100, 60]
+labels = [{ text = "A", at = [25, 30], style = "icon" }, { text = "B", at = [75, 30], style = "icon" }]
+
+[art.panes_Vertical2To1]
+generated = "panes:60,48,24,255:100x60:vertical21"
+size = [100, 60]
+labels = [{ text = "A", at = [33, 30], style = "icon" }, { text = "B", at = [83, 30], style = "icon" }]
+
+[art.panes_Horizontal1To1]
+generated = "panes:60,48,24,255:100x60:horizontal11"
+size = [100, 60]
+labels = [{ text = "A", at = [50, 15], style = "icon" }, { text = "B", at = [50, 45], style = "icon" }]
+
+# Roles of the current split: both moved freely (arrows, the divider's
+# middle third open) ...
+[art.roles_free_Standard]
+generated = "panes:60,48,24,255:100x60:standard:free"
+size = [100, 60]
+labels = [{ text = "A", at = [50, 30], style = "icon" }]
+
+[art.roles_free_Vertical1To1]
+generated = "panes:60,48,24,255:100x60:vertical11:free"
+size = [100, 60]
+labels = [{ text = "A", at = [25, 30], style = "icon" }, { text = "B", at = [75, 30], style = "icon" }]
+
+[art.roles_free_Vertical2To1]
+generated = "panes:60,48,24,255:100x60:vertical21:free"
+size = [100, 60]
+labels = [{ text = "A", at = [33, 30], style = "icon" }, { text = "B", at = [83, 30], style = "icon" }]
+
+[art.roles_free_Horizontal1To1]
+generated = "panes:60,48,24,255:100x60:horizontal11:free"
+size = [100, 60]
+labels = [{ text = "A", at = [50, 15], style = "icon" }, { text = "B", at = [50, 45], style = "icon" }]
+
+# ... or A following the unit, B the mouse (one pane: the unit only).
+[art.roles_unit_Standard]
+generated = "panes:60,48,24,255:100x60:standard"
+size = [100, 60]
+labels = [{ text = "Unit", at = [50, 30], style = "icon_small" }]
+
+[art.roles_unit_Vertical1To1]
+generated = "panes:60,48,24,255:100x60:vertical11"
+size = [100, 60]
+labels = [{ text = "Unit", at = [25, 30], style = "icon_small" }, { text = "Mouse", at = [75, 30], style = "icon_small" }]
+
+[art.roles_unit_Vertical2To1]
+generated = "panes:60,48,24,255:100x60:vertical21"
+size = [100, 60]
+labels = [{ text = "Unit", at = [33, 30], style = "icon_small" }, { text = "Mouse", at = [83, 30], style = "icon_small" }]
+
+[art.roles_unit_Horizontal1To1]
+generated = "panes:60,48,24,255:100x60:horizontal11"
+size = [100, 60]
+labels = [{ text = "Unit", at = [50, 15], style = "icon_small" }, { text = "Mouse", at = [50, 45], style = "icon_small" }]
+
+# ---------------------------------------------------------------- panel
+
+[panels.preferences]
+size = [1024, 768]
+anchor = "top-left"
+
+# The tabs, in the band above the screen's panels (the game's title is
+# centred at x 512).
+
+[[panels.preferences.items]]
+choice = "tab"
+value = "civ3"
+at = [60, 40]
+size = [105, 32]
+text = "CivIII"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+
+[[panels.preferences.items]]
+choice = "tab"
+value = "resolution"
+at = [170, 40]
+size = [105, 32]
+text = "Resolution"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+
+[[panels.preferences.items]]
+choice = "tab"
+value = "layout"
+at = [280, 40]
+size = [105, 32]
+text = "Layout"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+
+# Our tabs cover the game's panels (its OK button stays).
+[[panels.preferences.items]]
+image = "cover"
+at = [49, 79]
+size = [924, 611]
+show_if = "tab=resolution|layout"
+
+# ------------------------------------------------ Resolution
+
+[[panels.preferences.items]]
+image = "section"
+at = [70, 95]
+size = [882, 120]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Pixel scale"
+style = "heading"
+at = [90, 105]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Render at a lower resolution and show each rendered pixel as an n×n box."
+style = "label"
+at = [90, 130]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+repeat = ["1", "2", "3", "4", "5", "6"]
+spacing = [66, 0]
+choice = "resolution.pixel_scale"
+value = "{item}"
+at = [90, 160]
+size = [58, 32]
+text = "×{item}"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Rendered at {resolution.realised}"
+style = "heading"
+at = [500, 168]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "(window {resolution.window})"
+style = "label"
+at = [740, 170]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+image = "section"
+at = [70, 235]
+size = [882, 190]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Scale"
+style = "heading"
+at = [90, 245]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Fractional scales of each part, on top of the pixel scale."
+style = "label"
+at = [90, 270]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Menus"
+style = "label"
+at = [90, 310]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+slider = "resolution.menu_scale"
+at = [260, 305]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.5
+max = 3.0
+step = 0.05
+decimals = 2
+text = "{value}×"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Game frame"
+style = "label"
+at = [90, 350]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+slider = "resolution.frame_scale"
+at = [260, 345]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.5
+max = 3.0
+step = 0.05
+decimals = 2
+text = "{value}×"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "World map"
+style = "label"
+at = [90, 390]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+slider = "resolution.world_scale"
+at = [260, 385]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.5
+max = 3.0
+step = 0.05
+decimals = 2
+text = "{value}×"
+style = "label"
+show_if = "tab=resolution"
+
+# ------------------------------------------------ Layout, left column
+
+[[panels.preferences.items]]
+image = "section"
+at = [60, 86]
+size = [470, 596]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Split"
+style = "heading"
+at = [72, 93]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.split"
+value = "Standard"
+at = [72, 115]
+size = [104, 64]
+icon = "panes_Standard"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.split"
+value = "Vertical1To1"
+at = [184, 115]
+size = [104, 64]
+icon = "panes_Vertical1To1"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.split"
+value = "Vertical2To1"
+at = [296, 115]
+size = [104, 64]
+icon = "panes_Vertical2To1"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.split"
+value = "Horizontal1To1"
+at = [408, 115]
+size = [104, 64]
+icon = "panes_Horizontal1To1"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+repeat = ["Standard", "Vertical 1:1", "Vertical 2:1", "Horizontal 1:1"]
+spacing = [112, 0]
+text = "{item}"
+style = "caption"
+at = [72, 182]
+size = [104, 14]
+align = "center"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Zoom placement"
+style = "heading"
+at = [72, 205]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "(vertical splits)"
+style = "caption"
+at = [210, 208]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_place"
+value = "Floating"
+at = [72, 227]
+size = [104, 26]
+text = "Floating"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_place"
+value = "LeftOrBottom"
+at = [184, 227]
+size = [104, 26]
+text = "Left"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_place"
+value = "RightOrTop"
+at = [296, 227]
+size = [104, 26]
+text = "Right"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Zoom box"
+style = "heading"
+at = [72, 265]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Off"
+at = [72, 287]
+size = [140, 26]
+text = "Off"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Floating131"
+at = [220, 287]
+size = [140, 26]
+text = "Box on top 1:3:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Floating171"
+at = [368, 287]
+size = [140, 26]
+text = "Box on top 1:7:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Mouse111"
+at = [72, 318]
+size = [140, 26]
+text = "At the mouse 1:1:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Mouse131"
+at = [220, 318]
+size = [140, 26]
+text = "At the mouse 1:3:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "TopStrip"
+at = [368, 318]
+size = [140, 26]
+text = "Strip at the top"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Strip height"
+style = "label"
+at = [72, 357]
+show_if = "tab=layout & layout.zoom=TopStrip"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_strip"
+at = [180, 352]
+size = [240, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.1
+max = 0.5
+step = 0.05
+decimals = 0
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=layout & layout.zoom=TopStrip"
+
+[[panels.preferences.items]]
+text = "Roles"
+style = "heading"
+at = [72, 387]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.roles"
+value = "Free"
+at = [72, 409]
+size = [104, 64]
+icon = "roles_free_{layout.split}"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.roles"
+value = "UnitMouse"
+at = [184, 409]
+size = [104, 64]
+icon = "roles_unit_{layout.split}"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+repeat = ["Both moved freely", "Unit and mouse"]
+spacing = [112, 0]
+text = "{item}"
+style = "caption"
+at = [72, 476]
+size = [104, 14]
+align = "center"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "A follows the active unit;"
+style = "caption"
+at = [300, 420]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "B holds the mouse and follows it."
+style = "caption"
+at = [300, 436]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+checkbox = "layout.smooth_world_movement"
+at = [72, 508]
+size = [440, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Smooth world movement (not snapping to tiles)"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Input"
+style = "heading"
+at = [72, 545]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Snap updates per second"
+style = "label"
+at = [72, 577]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+slider = "input.snap_updates_per_second"
+at = [250, 572]
+size = [200, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 1.0
+max = 30.0
+step = 1.0
+decimals = 0
+text = "{value}"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "(Alt: the cursor snaps to buttons)"
+style = "caption"
+at = [72, 600]
+show_if = "tab=layout"
+
+# ------------------------------------------------ Layout, screen locations
+
+[[panels.preferences.items]]
+image = "section"
+at = [540, 86]
+size = [424, 596]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Screen locations"
+style = "heading"
+at = [552, 93]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "(for vertical splits)"
+style = "caption"
+at = [730, 96]
+show_if = "tab=layout & layout.orientation=vertical"
+
+[[panels.preferences.items]]
+text = "(for horizontal splits)"
+style = "caption"
+at = [730, 96]
+show_if = "tab=layout & layout.orientation=horizontal"
+
+[[panels.preferences.items]]
+repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
+spacing = [0, 31]
+text = "{item}"
+style = "label"
+at = [552, 120]
+size = [60, 26]
+valign = "middle"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
+spacing = [0, 31]
+choice = "layout.screens.{item}"
+value = "Floating"
+at = [616, 120]
+size = [110, 26]
+text = "Floating"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
+spacing = [0, 31]
+choice = "layout.screens.{item}"
+value = "LeftOrBottom"
+at = [732, 120]
+size = [110, 26]
+text = "Left"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout & layout.orientation=vertical"
+
+[[panels.preferences.items]]
+repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
+spacing = [0, 31]
+choice = "layout.screens.{item}"
+value = "RightOrTop"
+at = [848, 120]
+size = [110, 26]
+text = "Right"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout & layout.orientation=vertical"
+
+[[panels.preferences.items]]
+repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
+spacing = [0, 31]
+choice = "layout.screens.{item}"
+value = "LeftOrBottom"
+at = [732, 120]
+size = [110, 26]
+text = "Bottom"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout & layout.orientation=horizontal"
+
+[[panels.preferences.items]]
+repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
+spacing = [0, 31]
+choice = "layout.screens.{item}"
+value = "RightOrTop"
+at = [848, 120]
+size = [110, 26]
+text = "Top"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=layout & layout.orientation=horizontal"

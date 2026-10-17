@@ -129,6 +129,15 @@ impl Fonts {
         self.fonts.get(&key(run)).is_some_and(Option::is_some)
     }
 
+    /// How wide `run` is (its glyph advances) and how far its glyphs reach
+    /// above and below the baseline, once its font is loaded.
+    pub fn metrics(&self, run: &TextRun) -> Option<(i32, i32, i32)> {
+        let Some(Some(font)) = self.fonts.get(&key(run)) else { return None };
+        let width = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|g| g.advance).sum();
+        let cell = font.glyphs.values().map(|g| g.image.height as i32).max().unwrap_or(font.ascent);
+        Some((width, font.ascent, (cell - font.ascent).max(0)))
+    }
+
     /// The name of `key`'s glyph sets: the font itself, not its place among
     /// the fonts (which moves as fonts are added, before the art is rebuilt).
     fn tag((style, [r, g, b], backdrop): &FontKey) -> String {

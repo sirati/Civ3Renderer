@@ -18,7 +18,8 @@ game could drive the same renderer, with or without Civ III's art.
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
 | `scene` | no | world snapshots and input events between driver and renderer |
-| `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; run-time screens (image regions, fills, clipped) |
+| `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; panels of controls (choices, tabs, checkboxes, sliders) bound to named values, drawn as run-time screen elements and text; run-time screens (image regions, fills, clipped) |
+| `viewer-settings` | no | the viewer's own settings (resolution, layout, input) saved as TOML, and as named controls for a preferences screen |
 | `tile-viewer` | no | window that draws scenes and reports input |
 | `civ3-assets` | format reader | PCX, FLC, INI readers; game file lookup; `render-desc` image loader |
 | `inproc` | no | safe abstractions for injected code: guarded memory reads, hooks, DLL entry |
@@ -146,6 +147,33 @@ text drawn at their zoom from the font's outlines (`text=sharp`, Ctrl+Shift+T;
 `pixel`: the 1:1 text's pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
 second ring around foreign units by diplomacy: war, mutual defence,
 peace.
+
+The renderer's own settings (`viewer-settings`: pixel scale and
+fractional scales; split, zoom box, where each screen goes, roles, smooth
+movement; the snapping cursor's update rate) are edited on tabs of the
+game's Preferences screen (`civ3_bridge::prefs`, docs §16.11): "CivIII" is
+the game's own screen, mirrored as before; "Resolution" and "Layout" are a
+panel of the `menu` crate (`assets/civ3/preferences.toml`) laid over it,
+drawn from the game's art (its parchment buttons, checkboxes, slider bar
+and thumb) with the split pictures generated (`panes:` sources of the
+render description) and the game's font. Pointer input the panel takes
+never reaches the game; the game's OK button stays usable. A change is
+saved at once (`Settings::default_path()`: `$CIV3R_SETTINGS`, else
+`civ3r/settings.toml` under `$XDG_CONFIG_HOME`, `%APPDATA%` or
+`~/.config`) and sent to the viewer (`scene::Update::Settings`, the wire
+carries them as TOML); the bridge sends its settings with the first scene,
+so the viewer follows the bridge's file even where it would find another.
+
+The `menu` crate's panels (`menu::panel`) are game agnostic: TOML styles
+(face, size, colours), art (regions of image files cut or repeated to
+size, ends kept with `slice`, fills, tints and borders, sprites, pictures
+the render description generates, with text labels), and items — images,
+text with `{value}` substitution, choices (button groups and tabs: a value
+set to an option), checkboxes, sliders (range, step, drag and wheel) —
+shown and enabled by conditions on the values (`tab=layout & !locked`),
+repeated over lists (`repeat`, `{item}`). The driver supplies the values
+and draws the text with its own fonts; the panel reports what changed and
+which pointer input was its own.
 
 Verification tools (`tools/civ3-session`, `civ3-tool`): the tracer hooks the
 game's sprite blits and records one redraw — every sprite, position and

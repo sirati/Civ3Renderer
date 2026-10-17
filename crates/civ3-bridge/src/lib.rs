@@ -14,6 +14,7 @@ pub mod edge;
 pub mod label_check;
 pub mod minimap;
 pub mod modal;
+pub mod prefs;
 pub mod rings;
 pub mod rules;
 pub mod scene_map;
