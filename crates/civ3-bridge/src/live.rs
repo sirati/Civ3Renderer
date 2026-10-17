@@ -290,7 +290,7 @@ impl Compiler {
     /// A job for the art thread (`generation`: `Presenter::prepare_assets`).
     #[allow(clippy::too_many_arguments)]
     fn job(&self, folders: &ArtFolders, work: Work, pixels: bool, generation: u64, token: Option<u64>, reason: String, wanted: std::time::Instant) -> ArtJob {
-        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted }
+        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted, stop: None }
     }
 }
 
@@ -381,7 +381,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let first = compiler.whole_text(&units::Needed::default(), &mut text::Fonts::default(), &Default::default(), &Default::default());
     let wire = compiler.wire(&folders, &first, false);
     let started = std::time::Instant::now();
-    let (compiled, growing) = assets::compile_growing(&first, compiler.files(&folders), pixels, compiler.max_page)
+    let (compiled, growing) = assets::compile_growing(&first, compiler.files(&folders), pixels, compiler.max_page, &|| false)
         .map_err(|e| LiveError::Desc(compiler.name.clone(), e.to_string()))?;
     log::info!("live renderer: {} in {} ms ({folders:?})", art_summary(&compiled, pixels), started.elapsed().as_millis());
     let compiled = Arc::new(compiled);
@@ -527,6 +527,9 @@ fn publish(
     let mut scene_size = (0, 0, 0);
     // The scenario the Load Scenario screen previews.
     let mut previews = crate::preview::Previews::default();
+    // How often the art folders changed (whole descriptions for folders
+    // before stop, `crate::art::ArtStop`).
+    let folders_changed = Arc::new(std::sync::atomic::AtomicU64::new(0));
     // The map screen's interface: while it is composed, a game runs.
     let main_gui = civ3_sys::ui_hooks::main_gui_canvas(game.build);
     // (Measuring: when this round of the publisher began, and since when a
@@ -622,7 +625,11 @@ fn publish(
                     }
                 }
                 Err(e) => {
-                    log::error!("art for {}: {e}", done.reason);
+                    if e.contains(crate::assets::STOPPED) {
+                        log::info!("art: a whole description for art folders no longer shown stopped after {} ms", done.took.as_millis());
+                    } else {
+                        log::error!("art for {}: {e}", done.reason);
+                    }
                     if let Some(token) = done.token {
                         schedule.done(now, token);
                     }
@@ -687,6 +694,7 @@ fn publish(
         let mut wanted_for: Vec<&str> = Vec::new();
         if now != folders {
             folders = now;
+            folders_changed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             art = resolved_art.unwrap_or_else(|| units::UnitArt::new(compiler.files(&folders)));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
             have = units::Needed::default();
@@ -1069,7 +1077,8 @@ fn publish(
                     };
                     // A renderer that compiles its own copy starts at once.
                     let generation = presenter.prepare_assets(&compiler.wire(&folders, text, append));
-                    if !art_thread.send(compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted)) {
+                    let stop = matches!(work, Work::Whole(_)).then(|| crate::art::ArtStop { started: folders_changed.load(std::sync::atomic::Ordering::Acquire), now: folders_changed.clone() });
+                    if !art_thread.send(crate::art::ArtJob { stop, ..compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted) }) {
                         log::error!("the art thread is gone");
                         schedule.done(now, token);
                     }
