@@ -67,6 +67,75 @@ pub fn measure(font: &FontStyle, text: &str) -> Option<i32> {
     gdi_text::text_extent(&spec, &bytes).ok()
 }
 
+/// The smallest and the largest text height glyphs are made for: sheets
+/// exist for these and the sizes between (`tools/gen-civ3-fonts`), larger
+/// requests (text zoomed far in) take the largest.
+pub const MIN_HEIGHT: i32 = 5;
+pub const MAX_HEIGHT: i32 = 96;
+
+/// Of `available` heights, the one nearest `height` (of two as near, the
+/// larger); `None` if there is none.
+pub fn nearest_height(available: &[i32], height: i32) -> Option<i32> {
+    available.iter().copied().min_by_key(|&h| ((h - height).abs(), -h))
+}
+
+/// Whether glyphs come from sheets (see [`load`]) rather than this
+/// system's GDI.
+fn from_sheets() -> bool {
+    #[cfg(windows)]
+    return std::env::var_os("CIV3R_FONT_CACHE").is_some() || gdi_text::under_wine();
+    #[cfg(not(windows))]
+    true
+}
+
+/// The heights there are sheets for in the font cache `dir` of `font`'s
+/// face and style (any height), ascending.
+fn sheet_heights(dir: Option<std::path::PathBuf>, font: &FontStyle) -> Vec<i32> {
+    let probe = FontStyle { height: 0, ..font.clone() };
+    let stem = cache_stem(&probe);
+    let (head, tail) = stem.split_once("-0").unwrap_or((&stem, ""));
+    let (head, tail) = (format!("{head}-"), format!("{tail}.toml"));
+    let mut out: Vec<i32> = dir
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter_map(|n| n.strip_prefix(&head)?.strip_suffix(&tail)?.parse().ok())
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// The height `font` is made at when asked for `font.height`: with
+/// sheets, the nearest height there is a sheet for (each size the cache
+/// lacks noted once), with GDI any height up to [`MAX_HEIGHT`], at least
+/// [`MIN_HEIGHT`].
+pub fn available_height(font: &FontStyle) -> i32 {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    let wanted = font.height.abs().clamp(MIN_HEIGHT, MAX_HEIGHT);
+    if !from_sheets() {
+        return wanted;
+    }
+    // The sheets per face and style, listed once; the sizes reported.
+    static SHEETS: Mutex<Option<HashMap<String, Vec<i32>>>> = Mutex::new(None);
+    static NOTED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+    let style = cache_stem(&FontStyle { height: 0, ..font.clone() });
+    let resolved = {
+        let mut sheets = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
+        let heights = sheets.get_or_insert_with(HashMap::new).entry(style).or_insert_with(|| sheet_heights(cache_dir(), font));
+        nearest_height(heights, wanted)
+    };
+    let asked = cache_stem(&FontStyle { height: font.height.abs(), ..font.clone() });
+    if resolved != Some(font.height.abs()) && NOTED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(asked.clone()) {
+        match resolved {
+            Some(h) => log::info!("font {asked}: no glyph sheet of that size, drawn at the nearest, {h} pixels"),
+            None => log::warn!("font {asked}: no glyph sheets of this face and style (run tools/gen-civ3-fonts)"),
+        }
+    }
+    resolved.unwrap_or(wanted)
+}
+
 /// Loads `font` in `color`.
 pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     #[cfg(windows)]
@@ -100,6 +169,7 @@ pub fn load(files: &GameFiles, font: &FontStyle, color: [u8; 3]) -> Result<Glyph
 /// The cache file stem for a font (`font-sheet` output name): face and
 /// height, then `-w<weight>` if bold, `-i` if italic.
 pub fn cache_stem(font: &FontStyle) -> String {
+    // (`sheet_heights` relies on the height following the face as `-<height>`.)
     let mut s = format!("{}-{}", font.face.replace(' ', "_"), font.height);
     if font.weight > 400 {
         s += &format!("-w{}", font.weight);
@@ -111,6 +181,8 @@ pub fn cache_stem(font: &FontStyle) -> String {
 }
 
 fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
+    // A size without a sheet: the nearest there is.
+    let font = &FontStyle { height: available_height(font), ..font.clone() };
     let dir = cache_dir().ok_or("no font cache directory")?;
     let stem = dir.join(cache_stem(font));
     let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
@@ -175,4 +247,37 @@ fn cache_dir() -> Option<std::path::PathBuf> {
         }
     }
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/civ3r/fonts"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_nearest_height_is_taken_larger_on_a_tie() {
+        let have = [5, 6, 8, 12, 48, 96];
+        assert_eq!(nearest_height(&have, 8), Some(8));
+        assert_eq!(nearest_height(&have, 7), Some(8));
+        assert_eq!(nearest_height(&have, 10), Some(12));
+        assert_eq!(nearest_height(&have, 9), Some(8));
+        assert_eq!(nearest_height(&have, 2), Some(5));
+        assert_eq!(nearest_height(&have, 192), Some(96));
+        assert_eq!(nearest_height(&[], 12), None);
+    }
+
+    #[test]
+    fn sheet_names_parse_back_to_their_height() {
+        let dir = std::env::temp_dir().join(format!("civ3r-font-heights-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["Lucida_Sans-8.toml", "Lucida_Sans-12.toml", "Lucida_Sans-12-w700.toml", "Lucida_Sans-14-i.toml", "Lucida_Sans-9.png", "Lucida_Sans-10-light.png"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let style = |weight, italic| FontStyle { face: "Lucida Sans".into(), height: 11, weight, italic };
+        let heights = |weight, italic| sheet_heights(Some(dir.clone()), &style(weight, italic));
+        assert_eq!(heights(0, false), vec![8, 12]);
+        assert_eq!(heights(700, false), vec![12]);
+        assert_eq!(heights(0, true), vec![14]);
+        assert_eq!(heights(700, true), Vec::<i32>::new());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
