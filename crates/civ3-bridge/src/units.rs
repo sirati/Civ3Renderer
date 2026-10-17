@@ -4,9 +4,9 @@
 //! offsets where they are not at their tile's centre), or free sprites
 //! where those cannot keep the game's order.
 //!
-//! Unit art is too large to load for every type and colour up front, so the
-//! description entries are generated for the (animation file, colour) pairs
-//! the world currently needs; a new pair means recompiling the description.
+//! The description entries are generated for the (animation file, colour)
+//! pairs wanted: those the world shows (a new pair is an addition to the art,
+//! `crate::art`), and those made ahead (`crate::preload`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -262,8 +262,8 @@ pub fn member_of<'w>(world: &'w Civ3World, u: &Civ3Unit) -> Option<&'w Civ3Unit>
 impl Needed {
     /// The animations the world's units show now, plus each type's DEFAULT
     /// (what idle units return to), in the colours of the civs showing
-    /// them. Other animations are added when a unit starts them: loading
-    /// all of them up front does not fit a 32-bit process.
+    /// them. Other animations are made ahead (`crate::preload`), or added
+    /// when a unit starts them.
     pub fn of(world: &Civ3World, art: &mut UnitArt) -> Needed {
         let mut out = Needed::default();
         if let Some(cursor) = art.cursor() {
