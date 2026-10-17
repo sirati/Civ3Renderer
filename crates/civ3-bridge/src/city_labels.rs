@@ -307,6 +307,7 @@ impl Painter<'_> {
             italic: false,
             underline: false,
             text: text.to_owned(),
+            backdrop: None,
         }));
     }
 

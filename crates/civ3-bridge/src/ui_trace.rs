@@ -150,7 +150,8 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
             UiModel::new(Vec::new(), skip_canvases)
                 .with_screen(h::back_buffer(game.build).unwrap_or(0))
                 .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
-                .with_underlays(underlays, underlay_art),
+                .with_underlays(underlays, underlay_art)
+                .with_text_backdrops(!gdi_text::under_wine()),
         );
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     macro_rules! hook {

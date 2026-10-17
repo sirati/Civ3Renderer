@@ -112,7 +112,7 @@ fn record_text(call: &hooks::text_out::Call) {
         seen.push(font.clone());
     }
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
-    let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text };
+    let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text, backdrop: None };
     crate::ui_trace::on_text(&run);
     if let Ok(mut recent) = RECENT_TEXT.lock() {
         let now = std::time::Instant::now();

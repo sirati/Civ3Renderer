@@ -230,6 +230,13 @@ pub struct UiModel {
     /// Surfaces the game fills itself (pixel by pixel): not followed,
     /// passed on as [`ScreenDraw::Surface`].
     generated: Vec<u32>,
+    /// Canvases cleared to the colour key as a whole (nothing opaque has
+    /// covered them since): text drawn on them where nothing is drawn yet
+    /// has the key as its backdrop ([`TextRun::backdrop`]).
+    keyed_clear: Vec<u32>,
+    /// Whether text gets backdrops (Windows blends text edges with what is
+    /// under them; Wine's GDI draws the game's text without smoothing).
+    text_backdrops: bool,
 }
 
 impl UiModel {
@@ -268,6 +275,13 @@ impl UiModel {
     /// `generated`: surfaces passed on as they are.
     pub fn with_generated(mut self, generated: Vec<u32>) -> Self {
         self.generated = generated;
+        self
+    }
+
+    /// Whether text drawn on a canvas cleared to the colour key has the key
+    /// as its backdrop (see `keyed_clear`).
+    pub fn with_text_backdrops(mut self, on: bool) -> Self {
+        self.text_backdrops = on;
         self
     }
 
@@ -400,11 +414,13 @@ impl UiModel {
                 self.files.insert(image, path);
                 self.sizes.insert(image, size);
                 self.canvases.remove(&image);
+                self.keyed_clear.retain(|&c| c != image);
             }
             Event::Cleared { image } => {
                 self.files.remove(&image);
                 self.sizes.remove(&image);
                 self.canvases.remove(&image);
+                self.keyed_clear.retain(|&c| c != image);
             }
             Event::Size { image, size } => {
                 self.sizes.insert(image, size);
@@ -503,6 +519,9 @@ impl UiModel {
                 if rgb == KEY_RGB && alpha == 255 {
                     if self.covers(canvas, rect) {
                         self.canvases.remove(&canvas);
+                        if !self.keyed_clear.contains(&canvas) {
+                            self.keyed_clear.push(canvas);
+                        }
                     } else if let Some(ops) = self.canvases.get_mut(&canvas) {
                         // Clearing part of an overlay (the game redraws e.g. the unit
                         // selection every frame): drop what lies inside.
@@ -522,7 +541,13 @@ impl UiModel {
                 }
                 self.push(canvas, Op::Fill { rect, rgb, alpha });
             }
-            Event::Text { canvas, run } => self.push(canvas, Op::Text(run)),
+            Event::Text { canvas, mut run } => {
+                // On the bare key: Windows blends the text's edges with it.
+                if self.text_backdrops && self.keyed_clear.contains(&canvas) && !self.drawn_under(canvas, &run) {
+                    run.backdrop = Some(KEY_RGB);
+                }
+                self.push(canvas, Op::Text(run))
+            }
             Event::FlcLoaded { flic, path } => {
                 self.flcs.insert(flic, path);
             }
@@ -572,6 +597,7 @@ impl UiModel {
     fn occlude(&mut self, canvas: u32, rect: [i32; 4]) {
         if self.covers(canvas, rect) {
             self.canvases.remove(&canvas);
+            self.keyed_clear.retain(|&c| c != canvas);
             return;
         }
         let [x, y, w, h] = rect;
@@ -579,6 +605,20 @@ impl UiModel {
         if let Some(ops) = self.canvases.get_mut(&canvas) {
             ops.retain(|op| !inside(op_bounds(op)));
         }
+    }
+
+    /// Whether `canvas` has something drawn where `run` goes (by a guess of
+    /// its size), under it.
+    fn drawn_under(&self, canvas: u32, run: &TextRun) -> bool {
+        let h = run.height.abs().max(1);
+        let w = h * 2 / 3 * run.text.chars().count() as i32;
+        let [l, t, r, b] = [run.x, run.y - h, run.x + w, run.y + h / 3 + 1];
+        self.canvases.get(&canvas).is_some_and(|ops| {
+            ops.iter().filter(|op| !matches!(op, Op::Text(_))).any(|op| {
+                let [ol, ot, or, ob] = op_bounds(op);
+                ol < r && ot < b && or > l && ob > t
+            })
+        })
     }
 
     /// Whether an underlay shows `op` over our own rendering.
@@ -1105,7 +1145,7 @@ mod tests {
     }
 
     fn text(x: i32, y: i32, s: &str) -> TextRun {
-        TextRun { x, y, color: [0, 0, 0], face: "Times".into(), height: -12, weight: 400, italic: false, underline: false, text: s.into() }
+        TextRun { x, y, color: [0, 0, 0], face: "Times".into(), height: -12, weight: 400, italic: false, underline: false, text: s.into(), backdrop: None }
     }
 
     /// The cultural advisor (measured): every few seconds it clears its
@@ -1256,6 +1296,38 @@ mod tests {
         let paths: Vec<_> = many.iter().filter_map(|d| if let ScreenDraw::Image { path, .. } = d { Some(path.as_str()) } else { None }).collect();
         assert_eq!(paths, ["Art/Advisors/culture.pcx", "Art/SmallHeads/popupCULTURE.pcx"]);
         assert_eq!(many.iter().filter(|d| matches!(d, ScreenDraw::Text { .. })).count(), 1);
+    }
+
+    #[test]
+    fn text_on_a_canvas_cleared_to_the_key_has_the_key_as_its_backdrop() {
+        // The domestic advisor (F1): its canvas is cleared to the colour
+        // key, its panels lie on the form below; its text goes on the key,
+        // the speech bubble's on the bubble's picture.
+        let mut m = UiModel::new(vec![], vec![]).with_text_backdrops(true);
+        m.apply(Event::Size { image: 300, size: (200, 100) });
+        m.apply(Event::Loaded { image: 10, path: "Art/Advisors/dialogbox.pcx".into(), size: (50, 30) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0, 0, 50, 30] });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 200, 100], rgb: KEY_RGB, alpha: 255, clip: None });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 140, y: 10, clip: None, palette: None });
+        m.apply(Event::Text { canvas: 300, run: text(10, 20, "Expenses: 2") });
+        m.apply(Event::Text { canvas: 300, run: text(145, 25, "Build") });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (200, 100)));
+        m.apply(Event::PaintEnd);
+        let backdrops: Vec<_> = m.frame().draws.iter().filter_map(|d| if let ScreenDraw::Text { run, .. } = d { Some((run.text.clone(), run.backdrop)) } else { None }).collect();
+        assert_eq!(backdrops, [("Expenses: 2".to_string(), Some(KEY_RGB)), ("Build".to_string(), None)]);
+        // Once something opaque covers the canvas, text is on that.
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 200, 100], rgb: [9, 9, 9], alpha: 255, clip: None });
+        m.apply(Event::Text { canvas: 300, run: text(10, 60, "Treasury") });
+        m.apply(composite(300, (0, 0), (200, 100)));
+        assert!(m.frame().draws.iter().all(|d| !matches!(d, ScreenDraw::Text { run, .. } if run.backdrop.is_some())));
+        // Without backdrops (Wine): never.
+        let mut w = UiModel::new(vec![], vec![]);
+        w.apply(Event::Size { image: 300, size: (200, 100) });
+        w.apply(Event::Fill { canvas: 300, rect: [0, 0, 200, 100], rgb: KEY_RGB, alpha: 255, clip: None });
+        w.apply(Event::Text { canvas: 300, run: text(10, 20, "Expenses: 2") });
+        w.apply(composite(300, (0, 0), (200, 100)));
+        assert!(w.frame().draws.iter().all(|d| !matches!(d, ScreenDraw::Text { run, .. } if run.backdrop.is_some())));
     }
 
     #[test]
