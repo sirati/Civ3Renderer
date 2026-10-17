@@ -181,7 +181,11 @@ pointer is moved back where the platform allows) and scrolls that view
 instead: the game's own view as at its screen edge (`scene::Input::Edge`;
 the game polls the pointer, `inproc::pointer`), the viewer's views by
 itself. Through the gaps it passes freely. The game's top-left menu,
-Civilopedia and advisor buttons are drawn in the view the pointer is in.
+Civilopedia and advisor buttons (and their tooltips) are drawn in the view
+the pointer is in, only there. While the mouse is captured they cannot be
+used: in their place the view following the world cursor shows a small
+parchment box saying "Press CTRL"; while button snapping is on the buttons
+show instead, to be snapped to.
 While the mouse is captured the world cursor sits in the middle of B (off
 the middle only at the edge of a map that does not wrap), is drawn in every
 view that shows its pixel, and the whole divider is a wall. Ctrl tapped on

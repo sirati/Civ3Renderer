@@ -678,6 +678,7 @@ fn publish(
         let corner_part = hud_ui.and_then(|f| crate::interface_parts::corner_part(f, &hud.corner));
         let corner = corner_part.as_ref().map(|(r, _)| *r);
         let reachable = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
+        let hint = crate::interface_parts::capture_hint(corner.unwrap_or([0, 0, 149, 54]));
         let corner_items = match (corner, hud_ui) {
             (Some(r), Some(f)) => ui_screen::items(&crate::interface_parts::region(f, r), files.roots(), generated, unit_colors),
             _ => Vec::new(),
@@ -783,6 +784,7 @@ fn publish(
             | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&screen_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&corner_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&hint.1, &mut screen_art, &mut fonts, &files)
         {
             screen_recompile = true;
             wanted_for.push("interface");
@@ -909,6 +911,8 @@ fn publish(
         let part_sprites = |items: &[ui_screen::Item]| ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
         if let Some(r) = corner {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(&corner_items));
+            // (In its place while the mouse is captured.)
+            crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(&hint.1));
         }
         if let Some((_, r)) = screen_part {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(&screen_items));
@@ -925,6 +929,7 @@ fn publish(
         scene.interface = scene::Interface {
             screen: screen_open.map(|s| s.1.to_owned()),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
+            capture_hint: corner.map(|_| crate::interface_parts::HINT_VIEW),
             popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
             screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
             // Where the pointer goes when the screen opens: the city

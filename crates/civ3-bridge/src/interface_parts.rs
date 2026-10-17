@@ -12,6 +12,37 @@ use crate::ui::{Frame, ScreenDraw};
 pub const CORNER_VIEW: u32 = 256;
 pub const POPUP_VIEW: u32 = 257;
 pub const SCREEN_VIEW: u32 = 258;
+pub const HINT_VIEW: u32 = 259;
+
+/// What shows in the corner's place while its buttons cannot be used (the
+/// mouse captured): a piece of the game's popup parchment, framed, and
+/// "Press CTRL" in the game's font; its rectangle (x, y, w, h) and items.
+pub fn capture_hint([x, y, w, h]: [i32; 4]) -> ([i32; 4], Vec<crate::ui_screen::Item>) {
+    use crate::ui_screen::Item;
+    use menu::screen::{Element, Region};
+    let rect = [x + 8, y + 8, (w - 16).max(112), (h - 16).max(30)];
+    let [rx, ry, rw, rh] = rect;
+    let clip = [rx, ry, rx + rw, ry + rh];
+    let parchment = Region { source: "Art/PopUpandMenuBackground.pcx".into(), rect: [0, 0, rw, rh], keyed: false, mask: None, palette: None };
+    let mut items = vec![Item::Element(Element::Image { region: parchment, at: (rx, ry), clip }, false)];
+    for edge in [[rx, ry, rw, 1], [rx, ry + rh - 1, rw, 1], [rx, ry, 1, rh], [rx + rw - 1, ry, 1, rh]] {
+        items.push(Item::Element(Element::Fill { rect: edge, rgb: [72, 52, 24], alpha: 255, clip }, false));
+    }
+    let run = crate::text::TextRun {
+        x: rx + 12,
+        y: ry + rh / 2 + 5,
+        color: [0, 0, 0],
+        face: "Lucida Sans".into(),
+        height: -14,
+        weight: 700,
+        italic: false,
+        underline: false,
+        text: "Press CTRL".into(),
+        backdrop: None,
+    };
+    items.push(Item::Text(run, clip, false));
+    (rect, items)
+}
 
 /// The screen `frame` shows that the viewer may place: the topmost form of
 /// a class in `screens` (vtable, name); with its index in `frame.forms`.
