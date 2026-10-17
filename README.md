@@ -164,7 +164,12 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   the game opens at a click (a context menu) opens where that click was
   made, e.g. at the world cursor in B. While a popup is open the mouse is
   let go, so the pointer can reach it; it is captured again when the
-  popup closes.
+  popup closes. A screen (an advisor, the city screen, the menu, the
+  Civilopedia) opening lets go of the mouse the same way, the pointer put
+  on its main control where the screen shows (the city screen's production
+  box; else the screen's middle; where the system pointer cannot be moved,
+  as on Wayland, it stays where it is), and the mouse is captured again,
+  the world cursor where it was, when the screen closes.
 - **Smooth world movement**: a view following the game's view or the focus
   glides there by pixels (a critically damped spring that keeps its
   velocity when the target moves) instead of jumping a tile at a time.
