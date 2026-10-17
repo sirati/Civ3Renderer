@@ -31,6 +31,9 @@ const PRELOAD_CHUNK: u64 = 3 << 20;
 /// and in a native renderer (an integrated GPU's memory is the system's).
 const PRELOAD_MIB_IN_PROCESS: u64 = 640;
 const PRELOAD_MIB_NATIVE: u64 = 1536;
+/// How long after a game is first shown its units' art is waited for (the
+/// scene held back, see `crate::art_schedule`).
+const UNITS_HELD: Duration = Duration::from_secs(5);
 
 fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
     Civ3Unit {
@@ -459,6 +462,8 @@ fn publish(
     // `CIV3R_ART_LIST`: where to write the art the game showed (for the
     // built-in list of `crate::preload`).
     let art_list_out = std::env::var_os("CIV3R_ART_LIST").map(PathBuf::from);
+    // When the game shown (its units) was first seen.
+    let mut game_shown: Option<std::time::Instant> = None;
     // Why art is wanted, since the last addition started (for the log).
     let mut reasons: std::collections::BTreeSet<&'static str> = Default::default();
     let mut city_bands = std::collections::HashMap::new();
@@ -857,7 +862,13 @@ fn publish(
             let needed = if matches!(shown, Shown::Preview(..)) { units::Needed::still(world, &mut art) } else { units::Needed::of(world, &mut art) };
             if !have.covers(&needed) {
                 have.merge(&needed);
-                recompile = true;
+                // (A game just shown waits for its units' art, as for a
+                // screen's: the map comes up with them.)
+                if game_shown.is_some_and(|t| t.elapsed() < UNITS_HELD) {
+                    screen_recompile = true;
+                } else {
+                    recompile = true;
+                }
                 wanted_for.push("units");
             }
         }
@@ -885,10 +896,11 @@ fn publish(
             art_wanted.get_or_insert(now);
             reasons.extend(wanted_for.iter().copied());
         }
-        // A new game: plan the art to make ahead for it.
+        // A new game: plan the art to make ahead for it (once its units are
+        // there).
         if let Shown::Map(world, view) = shown {
             let key = Some((folders.clone(), crate::preload::game_key(world)));
-            if preload_for != key {
+            if preload_for != key && !world.units.is_empty() && !world.unit_type_keys.is_empty() {
                 preload = crate::preload::Preload::plan(world, view, &mut art, &art_list, budget);
                 preload_for = key;
             }

@@ -525,7 +525,7 @@ pub fn scene(
 ) -> scene::Scene {
     let view = view(world);
     let mut scene = mapper.scene(world, &view, (0, 0), 0);
-    crate::units::place(world, &view, art, compiled, None, &mut scene);
+    crate::units::place(world, &view, art, compiled, None, &mut crate::units::UnitMemory::default(), &mut scene);
     let game_view = &mut scene.view_mut(crate::scene_map::GAME_VIEW).view;
     (game_view.downscale, game_view.cull) = (n.max(1), None);
     // (Their text drawn from outlines at the zoom the viewer shows it at.)
