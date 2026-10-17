@@ -222,19 +222,28 @@ pub enum Readiness {
 pub fn readiness<'a>(items: impl Iterator<Item = &'a Item>, fonts: &Fonts, compiled: &Compiled, building: bool) -> Readiness {
     let mut missing = false;
     let mut loading = false;
-    for item in items {
-        match item {
-            Item::Element(element, _) => missing |= !element.ready(compiled),
-            Item::Text(run, clip, _) if clip[0] < clip[2] && clip[1] < clip[3] => {
-                if !fonts.run_ready(run, compiled) {
-                    missing = true;
-                    loading |= fonts.run_loading(run);
-                }
-            }
-            Item::Text(..) => {}
-        }
+    for item in items.filter(|item| !item_ready(item, fonts, compiled)) {
+        missing = true;
+        if let Item::Text(run, _, _) = item { loading |= fonts.run_loading(run); }
     }
     if !missing { Readiness::Ready } else if building || loading { Readiness::Pending } else { Readiness::Unavailable }
+}
+
+fn item_ready(item: &Item, fonts: &Fonts, compiled: &Compiled) -> bool {
+    match item {
+        Item::Element(element, _) => element.ready(compiled),
+        Item::Text(run, clip, _) => clip[0] >= clip[2] || clip[1] >= clip[3] || fonts.run_ready(run, compiled),
+    }
+}
+
+/// Bounded diagnostics for the same unresolved items that hold publication.
+/// A terminal failure should identify its art or text instead of requiring
+/// a second live reproduction merely to discover the missing resource.
+pub fn missing_art<'a>(items: impl Iterator<Item = &'a Item>, fonts: &Fonts, compiled: &Compiled) -> Vec<String> {
+    items.filter(|item| !item_ready(item, fonts, compiled)).take(8).map(|item| match item {
+        Item::Element(element, _) => format!("screen element {element:?}"),
+        Item::Text(run, _, _) => format!("text {:?}/{} weight {} italic {} underline {}, font loading {}: {:?}", run.face, run.height, run.weight, run.italic, run.underline, fonts.run_loading(run), run.text.chars().take(100).collect::<String>()),
+    }).collect()
 }
 
 /// The publication decision includes the complete terminal diagnostic,
