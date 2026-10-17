@@ -149,23 +149,53 @@ fn to_rgba_with(
     })
 }
 
-/// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>[/<weight>/<italic 0|1>]`.
+/// The font of a `font:` source: `<face>/<height>/<r>,<g>,<b>[/<weight>/<italic 0|1>[/on=<r>,<g>,<b>]]`.
+/// With `on=`, the glyphs drawn onto that colour, opaque where the result
+/// (in 15 bits) differs from it, transparent where not (see
+/// [`on_backdrop`]).
 pub fn font_of(files: &GameFiles, spec: &str) -> Result<crate::fonts::GlyphFont, String> {
-    let (style, rgb) = font_spec(spec)?;
-    crate::fonts::load(files, &style, rgb)
+    let (style, rgb, backdrop) = font_spec(spec)?;
+    let mut font = crate::fonts::load(files, &style, rgb)?;
+    if let Some(key) = backdrop {
+        for g in font.glyphs.values_mut() {
+            g.image = on_backdrop(&g.image, rgb, key);
+        }
+    }
+    Ok(font)
 }
 
-/// The style and colour a `font:` source names.
-fn font_spec(spec: &str) -> Result<(crate::fonts::FontStyle, [u8; 3]), String> {
-    let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>[/<weight>/<italic>]");
+/// Glyph coverage `image` (per colour channel, see `gdi_text::paint`) of
+/// text in `color` blended onto `key` as the game's 15-bit canvases keep it,
+/// opaque where that differs from `key`: what a canvas cleared to its colour
+/// key shows of text drawn on it, put on the screen keyed.
+pub fn on_backdrop(image: &RgbaImage, color: [u8; 3], key: [u8; 3]) -> RgbaImage {
+    let five = |v: u32| (v >> 3) as u8;
+    RgbaImage::from_fn(image.width, image.height, |x, y| {
+        let p = image.get(x, y);
+        let mixed: [u8; 3] = std::array::from_fn(|i| five((key[i] as u32 * (255 - p[i] as u32) + color[i] as u32 * p[i] as u32) / 255));
+        if mixed == key.map(|k| five(k as u32)) {
+            [0; 4]
+        } else {
+            let [r, g, b] = mixed.map(|v| (v << 3) | (v >> 2));
+            [r, g, b, 255]
+        }
+    })
+}
+
+/// The style, colour and backdrop a `font:` source names.
+fn font_spec(spec: &str) -> Result<(crate::fonts::FontStyle, [u8; 3], Option<[u8; 3]>), String> {
+    let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>[/<weight>/<italic>[/on=<r>,<g>,<b>]]");
+    let rgb_of = |s: &str| -> Result<[u8; 3], String> {
+        let rgb: Vec<u8> = s.split(',').map(|v| v.trim().parse().map_err(|_| err())).collect::<Result<_, _>>()?;
+        <[u8; 3]>::try_from(rgb).map_err(|_| err())
+    };
     let mut parts = spec.split('/');
     let (face, height, color) = (parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?, parts.next().ok_or_else(err)?);
     let height: i32 = height.parse().map_err(|_| err())?;
     let weight: i32 = parts.next().map_or(Ok(0), |w| w.parse().map_err(|_| err()))?;
     let italic = parts.next().is_some_and(|i| i == "1");
-    let rgb: Vec<u8> = color.split(',').map(|v| v.trim().parse().map_err(|_| err())).collect::<Result<_, _>>()?;
-    let rgb = <[u8; 3]>::try_from(rgb).map_err(|_| err())?;
-    Ok((crate::fonts::FontStyle { face: face.to_owned(), height, weight, italic }, rgb))
+    let backdrop = parts.next().map(|p| p.strip_prefix("on=").ok_or_else(err).and_then(rgb_of)).transpose()?;
+    Ok((crate::fonts::FontStyle { face: face.to_owned(), height, weight, italic }, rgb_of(color)?, backdrop))
 }
 
 impl ImageLoader for Civ3Loader {
@@ -265,5 +295,25 @@ mod tests {
             assert_eq!(loader.sizes(source, &none).unwrap(), loaded, "{source}");
         }
         assert!(loader.sizes("Art/none.pcx", &none).is_err());
+    }
+
+    #[test]
+    fn glyphs_on_the_key_keep_their_blended_edges_and_lose_the_rest() {
+        // Black text on magenta (the colour key): full coverage black, a
+        // half-covered edge pixel half magenta (green stays 0), a barely
+        // covered one still the key in 15 bits, so transparent.
+        let coverage = RgbaImage::from_fn(4, 1, |x, _| match x {
+            0 => [255, 255, 255, 255],
+            1 => [128, 128, 128, 128],
+            2 => [3, 3, 3, 3],
+            _ => [0; 4],
+        });
+        let out = on_backdrop(&coverage, [0, 0, 0], [255, 0, 255]);
+        assert_eq!(out.get(0, 0), [0, 0, 0, 255]);
+        assert_eq!(out.get(1, 0), [123, 0, 123, 255]);
+        assert_eq!(out.get(2, 0), [0; 4]);
+        assert_eq!(out.get(3, 0), [0; 4]);
+        assert_eq!(font_spec("Lucida Sans/12/0,0,0/0/0/on=255,0,255").unwrap().2, Some([255, 0, 255]));
+        assert_eq!(font_spec("Lucida Sans/12/0,0,0/0/0").unwrap().2, None);
     }
 }

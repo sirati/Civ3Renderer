@@ -24,6 +24,11 @@ pub struct TextRun {
     pub italic: bool,
     pub underline: bool,
     pub text: String,
+    /// Drawn onto this colour, then put where it differs from it only: text
+    /// the game draws on a canvas cleared to its colour key (F1's panel),
+    /// whose edges Windows blends with the key, and the canvas, put on the
+    /// screen keyed, shows them so (magenta fringes, measured).
+    pub backdrop: Option<[u8; 3]>,
 }
 
 impl TextRun {
@@ -50,18 +55,19 @@ impl TextRun {
             italic,
             underline,
             text: text.to_owned(),
+            backdrop: None,
         })
     }
 }
 
-type FontKey = (FontStyle, [u8; 3]);
+type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 
 /// The font `r` is drawn with: its style at the nearest size there are
 /// glyphs for (zoomed text asks for sizes the game never uses, see
 /// [`zoomed`] and `civ3_assets::fonts::available_height`).
 fn key(r: &TextRun) -> FontKey {
     let style = FontStyle { face: r.face.clone(), height: r.height.abs(), weight: r.weight, italic: r.italic };
-    (FontStyle { height: civ3_assets::fonts::available_height(&style), ..style }, r.color)
+    (FontStyle { height: civ3_assets::fonts::available_height(&style), ..style }, r.color, r.backdrop)
 }
 
 /// The fonts (face, size, colour) text runs need, loaded.
@@ -117,19 +123,21 @@ impl Fonts {
 
     /// The name of `key`'s glyph sets: the font itself, not its place among
     /// the fonts (which moves as fonts are added, before the art is rebuilt).
-    fn tag((style, [r, g, b]): &FontKey) -> String {
-        format!("{}#{r:02x}{g:02x}{b:02x}", civ3_assets::fonts::cache_stem(style))
+    fn tag((style, [r, g, b], backdrop): &FontKey) -> String {
+        let on = backdrop.map_or(String::new(), |[r, g, b]| format!("~{r:02x}{g:02x}{b:02x}"));
+        format!("{}#{r:02x}{g:02x}{b:02x}{on}", civ3_assets::fonts::cache_stem(style))
     }
 
     /// Render description entries: glyph sprites `Text@<font>/<code>`
     /// anchored at the pen on the baseline.
     pub fn description(&self) -> String {
         let mut out = String::from("\n# Text glyphs (generated).\n");
-        for (n, ((style, [r, g, b]), font)) in self.fonts.iter().enumerate() {
+        for (n, ((style, [r, g, b], backdrop), font)) in self.fonts.iter().enumerate() {
             let Some(font) = font else { continue };
-            let tag = Self::tag(&(style.clone(), [*r, *g, *b]));
+            let tag = Self::tag(&(style.clone(), [*r, *g, *b], *backdrop));
             let FontStyle { face, height, weight, italic } = style;
-            let _ = writeln!(out, "[images.text{n}]\nsource = \"font:{face}/{height}/{r},{g},{b}/{weight}/{}\"\n", *italic as u8);
+            let on = backdrop.map_or(String::new(), |[r, g, b]| format!("/on={r},{g},{b}"));
+            let _ = writeln!(out, "[images.text{n}]\nsource = \"font:{face}/{height}/{r},{g},{b}/{weight}/{}{on}\"\n", *italic as u8);
             for (k, c) in charset().enumerate() {
                 let Some(glyph) = font.glyphs.get(&c) else { continue };
                 let _ = writeln!(
@@ -203,7 +211,8 @@ impl Fonts {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
             // Glyphs hold coverage per colour channel (ClearType); the
             // underline is a plain bar.
-            let glyph_blend = tile_render::Blend::Subpixel { color: r.color };
+            // Over a backdrop the glyphs are the finished pixels.
+            let glyph_blend = if r.backdrop.is_some() { tile_render::Blend::Alpha } else { tile_render::Blend::Subpixel { color: r.color } };
             let line = r.underline.then(|| (format!("TextLine@{tag}/{}", glyph.advance), tile_render::Blend::Alpha));
             for (name, blend) in [Some((format!("Text@{tag}/{}", c as u32), glyph_blend)), line].into_iter().flatten() {
                 let Some((set, _)) = compiled.set(&name) else { continue };
@@ -263,7 +272,7 @@ mod tests {
         use civ3_assets::fonts::{MAX_HEIGHT, MIN_HEIGHT};
         let have = generated_heights();
         assert_eq!((have.iter().min(), have.iter().max()), (Some(&MIN_HEIGHT), Some(&MAX_HEIGHT)));
-        let run = |height| TextRun { x: 0, y: 0, color: [0; 3], face: "Lucida Sans".into(), height, weight: 0, italic: false, underline: false, text: String::new() };
+        let run = |height| TextRun { x: 0, y: 0, color: [0; 3], face: "Lucida Sans".into(), height, weight: 0, italic: false, underline: false, text: String::new(), backdrop: None };
         for base in [8, 10, 12, 14, 16, 18, 24] {
             for &zoom in &tile_viewer::layout::ZOOMS {
                 let h = zoomed(&run(-base), zoom).height.abs().clamp(MIN_HEIGHT, MAX_HEIGHT);

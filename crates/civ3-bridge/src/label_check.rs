@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn opaque_fills_hide_what_lies_within_and_the_image_cuts() {
-        let text = |x, y| Op::Text(TextRun { x, y, color: [0; 3], face: "f".into(), height: -10, weight: 0, italic: false, underline: false, text: "t".into() });
+        let text = |x, y| Op::Text(TextRun { x, y, color: [0; 3], face: "f".into(), height: -10, weight: 0, italic: false, underline: false, text: "t".into(), backdrop: None });
         let ops = vec![
             (1, text(5, 5)),
             (1, Op::Fill { rect: [4, 4, 10, 10], rgb: [1, 2, 3], alpha: 128 }),
