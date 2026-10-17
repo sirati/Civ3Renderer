@@ -723,6 +723,10 @@ fn publish(
         };
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
+            // (The game's own view as the viewer shows it.)
+            if let Some(main) = input.main_view {
+                ui_screen::replace_game_view_mark(&mut ui_items, world, (view.tile_x.0, view.tile_y.0, view.tile_x.1, view.tile_y.1), main, view.zoomed_out);
+            }
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
         }
         // (Our tabs where no part draws the screen: on top.)
@@ -971,6 +975,9 @@ struct InputForwarder {
     clicks: inproc::window::DoubleClicks,
     /// A world pixel the viewer asked to see (`Input::Look`), not yet acted on.
     look: Option<(i32, i32)>,
+    /// What the viewer shows of the game's view where that is not all of
+    /// it (`Input::MainView`).
+    main_view: Option<(i32, i32, i32, i32)>,
     /// World rectangles of the viewer's own views (`Input::Views`).
     views: Vec<(i32, i32, i32, i32)>,
     /// The viewer's size, as it last reported.
@@ -1092,6 +1099,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::Edge { x, y } => forwarder.edge = (x, y),
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
+            Input::MainView { x, y, w, h } => forwarder.main_view = (w > 0 && h > 0).then_some((x, y, w, h)),
             // (Text is drawn from outlines at every zoom: no art per zoom.)
             Input::Zooms(_) => {}
         }
