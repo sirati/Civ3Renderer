@@ -672,7 +672,9 @@ fn publish(
         let mut labels_not_in_game_view = false;
         let label_items = match shown {
             Shown::Map(world, view) if ui.is_some() && world_labels() => {
-                labels_not_in_game_view = !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
+                // (Only under a screen or modal form: on the plain map the game
+                // may have drawn none itself, e.g. with its map rendering off.)
+                labels_not_in_game_view = (screen_open.is_some() || modal.is_some()) && !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 let labels = crate::city_labels::labels(world, view.zoomed_out, &mut label_env);
                 let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
