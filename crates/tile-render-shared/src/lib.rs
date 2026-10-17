@@ -46,6 +46,9 @@ pub const LAYER_HIDDEN: u32 = 1 << 0;
 
 /// Vertices per sprite quad (two triangles, no index buffer).
 pub const QUAD_VERTICES: u32 = 6;
+/// Vertices per cell of a pass drawn as octagons
+/// ([`FrameParams::corner_cuts`]): six triangles fanned from one corner.
+pub const OCTAGON_VERTICES: u32 = 18;
 
 /// One copy of the output pass: the rectangle of the source texture at
 /// (src_x, src_y) into the target at (dst_x, dst_y) (the pass's scissor
@@ -156,7 +159,10 @@ pub struct FrameParams {
     pub descending: u32,
     /// The row of named palette 1 (see [`PALETTE_SIZE`]).
     pub named_palettes: u32,
-    pub _pad2: u32,
+    /// 1: cells are drawn as octagons, their rectangles less the corners
+    /// their sprites leave blank ([`SpriteDesc::cuts`]), with
+    /// [`OCTAGON_VERTICES`] vertices each (where pixels map 1:1 to texels).
+    pub corner_cuts: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -403,6 +409,25 @@ pub struct SpriteDesc {
     /// discarded. 0: none known. The top bits of the low bytes say more of
     /// its texels: [`BLANK_BINARY`], [`BLANK_OPAQUE`].
     pub blank: u32,
+    /// The corners it leaves blank, as cuts along isometric diagonals (a
+    /// pixel down for two across), a byte each from the low one: top left
+    /// `c0` (texel centres with `u + 2v < c0` are blank), top right `c1`
+    /// (`(w − u) + 2v`), bottom right `c2` (`(w − u) + 2(h − v)`), bottom
+    /// left `c3` (`u + 2(h − v)`), each at most `min(w / 2, h)` so that
+    /// they do not cross ([`corner_cuts`]). A diamond on a 2:1 grid leaves
+    /// half its rectangle out. 0: none.
+    pub cuts: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+}
+
+/// [`SpriteDesc::cuts`] of the four corner cuts (top left, top right,
+/// bottom right, bottom left) of a `w × h` sprite: each kept to
+/// `min(w / 2, h, 255)`.
+pub fn corner_cuts(c: [u32; 4], w: u32, h: u32) -> u32 {
+    let most = (w / 2).min(h).min(255);
+    c[0].min(most) | c[1].min(most) << 8 | c[2].min(most) << 16 | c[3].min(most) << 24
 }
 
 /// [`SpriteDesc::blank`]: every texel has alpha 0 or 255 (drawn over

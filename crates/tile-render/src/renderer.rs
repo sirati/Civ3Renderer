@@ -185,6 +185,8 @@ struct WorldBuffers {
     /// all passes (the markers' runs follow).
     scene_free: Vec<FreeSprite>,
     last_runs: FreeRuns,
+    /// Per pass, whether its cells are drawn as octagons (`corner_cuts`).
+    octagons: Vec<bool>,
     /// Text drawn from outlines (`tile_render_shared::text::TextGlyph`), in
     /// drawing order (`free_after`'s text runs index it).
     text: wgpu::Buffer,
@@ -435,9 +437,10 @@ impl TileRenderer {
             return false;
         }
         a.rgba.write(queue, s.page, s.atlas_x, s.atlas_y, (image.width, image.height), image.as_bytes());
-        // Its blank margins were those of the pixels before: drawn whole.
-        if s.blank != 0 {
-            s.blank = 0;
+        // Its blank margins and corners were those of the pixels before:
+        // drawn whole.
+        if s.blank != 0 || s.cuts != 0 {
+            (s.blank, s.cuts) = (0, 0);
             if let Some(buffer) = &self.sprites {
                 queue.write_buffer(buffer, sprite.0 as u64 * size_of::<SpriteDesc>() as u64, bytemuck::bytes_of(&*s));
             }
@@ -598,7 +601,10 @@ impl TileRenderer {
         }
         let mut all = free.clone();
         all.extend_from_slice(&self.markers);
+        let sprite_table = self.atlas.as_ref().map_or(&[][..], |a| &a.sprites[..]);
+        let octagons = world.passes().iter().map(|p| octagon_pass(world, p, sprite_table)).collect();
         self.world = Some(WorldBuffers {
+            octagons,
             grid: world.grid,
             color: world.color,
             passes: world.passes(),
@@ -1251,7 +1257,9 @@ impl Steps<'_> {
                 continue;
             }
             let pass = world.passes.get(i).copied().filter(|_| i < passes).unwrap_or_default();
-            let params = FrameParams { named_palettes: self.named_palettes, ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach) };
+            let octagons = i < passes && world.octagons.get(i).copied().unwrap_or(false);
+            let corner_cuts = octagons as u32;
+            let params = FrameParams { named_palettes: self.named_palettes, corner_cuts, ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach) };
             // Each (view, step) has its own parameter slot: buffer writes all
             // land before the commands run.
             let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;
@@ -1276,7 +1284,8 @@ impl Steps<'_> {
             };
             if cells {
                 render.set_pipeline(tiles);
-                render.draw(0..QUAD_VERTICES, 0..params.cols * params.rows * pass.count);
+                let vertices = if octagons { tile_render_shared::OCTAGON_VERTICES } else { QUAD_VERTICES };
+                render.draw(0..vertices, 0..params.cols * params.rows * pass.count);
             }
             if sprites {
                 draw_free(render, world, i, free);
@@ -1346,6 +1355,25 @@ fn free_sprites(world: &TileWorld, bases: &[u32], sprites: &[SpriteDesc]) -> (Ve
         text.push(Default::default());
     }
     (gpu, text, runs)
+}
+
+/// Whether `pass`'s cells are better drawn as octagons
+/// (`FrameParams::corner_cuts`): it has few layers (each cell costs three
+/// times the vertices) whose sprites leave much of their corners blank
+/// (a fifth of their rectangles or more).
+fn octagon_pass(world: &TileWorld, pass: &crate::Pass, sprites: &[SpriteDesc]) -> bool {
+    if pass.count > 4 {
+        return false;
+    }
+    let (mut cut, mut all) = (0u64, 0u64);
+    let layers = &world.layers()[pass.first as usize..(pass.first + pass.count) as usize];
+    for set in layers.iter().flat_map(|l| l.lut.iter()) {
+        let Some(id) = world.sets.frame(*set, 0) else { continue };
+        let Some(s) = sprites.get(id.0 as usize) else { continue };
+        all += (s.width * s.height) as u64;
+        cut += (0..4).map(|k| ((s.cuts >> (8 * k)) & 0xFF) as u64).map(|c| c * c / 4).sum::<u64>();
+    }
+    all > 0 && cut * 5 >= all
 }
 
 /// Of free sprites in drawing order, those that show anything: not one

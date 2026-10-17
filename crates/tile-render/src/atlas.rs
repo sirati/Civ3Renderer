@@ -394,7 +394,7 @@ impl Atlas {
         }
         page.blit(image, 0, 0, image.width, image.height, s.atlas_x, s.atlas_y);
         // (Its blank margins are not known any more.)
-        self.sprites[sprite.0 as usize].blank = 0;
+        (self.sprites[sprite.0 as usize].blank, self.sprites[sprite.0 as usize].cuts) = (0, 0);
         true
     }
 
@@ -417,11 +417,11 @@ impl Atlas {
                 named_alpha[i].1 &= a == 255;
             }
         }
-        let mut found: std::collections::HashMap<[u32; 7], u32> = std::collections::HashMap::new();
+        let mut found: std::collections::HashMap<[u32; 7], (u32, u32)> = std::collections::HashMap::new();
         for i in 0..self.sprites.len() {
             let s = self.sprites[i];
             let key = [s.page, s.atlas_x, s.atlas_y, s.width, s.height, s.palette, s.remap];
-            let blank = match found.get(&key) {
+            let (blank, cuts) = match found.get(&key) {
                 Some(&b) => b,
                 None => {
                     let b = self.margins(&s, &named_alpha);
@@ -429,28 +429,28 @@ impl Atlas {
                     b
                 }
             };
-            self.sprites[i].blank = blank;
+            (self.sprites[i].blank, self.sprites[i].cuts) = (blank, cuts);
         }
     }
 
-    /// The blank margins of `s` and its alpha flags (0 where its pixels are
-    /// not here).
-    fn margins(&self, s: &SpriteDesc, named: &[(bool, bool); 256]) -> u32 {
+    /// The blank margins of `s` and its alpha flags, and its corner cuts
+    /// (`SpriteDesc::cuts`; 0 where its pixels are not here).
+    fn margins(&self, s: &SpriteDesc, named: &[(bool, bool); 256]) -> (u32, u32) {
         let (w, h) = (s.width, s.height);
         if w == 0 || h == 0 {
-            return 0;
+            return (0, 0);
         }
         // Per texel: alpha 0 (blank), alpha 0 or 255, alpha 255.
         let alpha: Box<dyn Fn(u32, u32) -> (bool, bool, bool) + '_> = if s.palette == 0 {
-            let Some(page) = self.pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return 0 };
+            let Some(page) = self.pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return (0, 0) };
             Box::new(move |x, y| {
                 let a = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize][3];
                 (a == 0, a == 0 || a == 255, a == 255)
             })
         } else {
-            let Some(page) = self.index_pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return 0 };
+            let Some(page) = self.index_pages.get(s.page as usize).filter(|p| s.atlas_x + w <= p.width && s.atlas_y + h <= p.height) else { return (0, 0) };
             let row = s.palette as usize * tile_render_shared::PALETTE_SIZE as usize;
-            let Some(entries) = self.palettes.get(row..row + tile_render_shared::PALETTE_SIZE as usize) else { return 0 };
+            let Some(entries) = self.palettes.get(row..row + tile_render_shared::PALETTE_SIZE as usize) else { return (0, 0) };
             let (lo, hi) = (s.remap & 0xFFFF, s.remap >> 16);
             Box::new(move |x, y| {
                 let i = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize] as u32;
@@ -462,25 +462,36 @@ impl Atlas {
             })
         };
         let (mut binary, mut opaque) = (true, true);
+        // The corner cuts: per corner the least of its diagonal measure
+        // over the texels that are not blank, less half a pixel (texel
+        // centres are at +0.5), so that they all lie strictly inside.
+        let (mut c, (wi, hi)) = ([u32::MAX; 4], (w as i64, h as i64));
         for y in 0..h {
             for x in 0..w {
-                let (_, b, o) = alpha(x, y);
+                let (clear, b, o) = alpha(x, y);
                 binary &= b;
                 opaque &= o;
+                if !clear {
+                    let (x, y) = (x as i64, y as i64);
+                    for (k, d) in [x + 2 * y + 1, wi - x + 2 * y, wi - x + 2 * hi - 2 * y - 2, x + 2 * hi - 2 * y - 1].into_iter().enumerate() {
+                        c[k] = c[k].min(d.max(0) as u32);
+                    }
+                }
             }
         }
+        let cuts = if c[0] == u32::MAX { 0 } else { tile_render_shared::corner_cuts(c, w, h) };
         let flags = if binary { tile_render_shared::BLANK_BINARY } else { 0 } | if opaque { tile_render_shared::BLANK_OPAQUE } else { 0 };
         let blank = |x: u32, y: u32| alpha(x, y).0;
         let row_blank = |y: u32| (0..w).all(|x| blank(x, y));
         let top = (0..h).take_while(|&y| row_blank(y)).count() as u32;
         if top == h {
-            return tile_render_shared::blank_margins(w, h, w, h) | flags;
+            return (tile_render_shared::blank_margins(w, h, w, h) | flags, 0);
         }
         let bottom = (top..h).rev().take_while(|&y| row_blank(y)).count() as u32;
         let column_blank = |x: u32| (top..h - bottom).all(|y| blank(x, y));
         let left = (0..w).take_while(|&x| column_blank(x)).count() as u32;
         let right = (left..w).rev().take_while(|&x| column_blank(x)).count() as u32;
-        tile_render_shared::blank_margins(left, top, right, bottom) | flags
+        (tile_render_shared::blank_margins(left, top, right, bottom) | flags, cuts)
     }
 
     /// Bytes its pages take: colour pages, index pages.
@@ -543,5 +554,33 @@ mod tests {
         assert_eq!(tile_render_shared::drawn_part(&s, &half), (1, 1, 3, 5));
         assert!(atlas.patch(a, &RgbaImage::new(12, 10)));
         assert_eq!(atlas.sprites[a.0 as usize].blank, 0);
+    }
+
+    #[test]
+    fn corner_cuts_keep_every_texel_that_is_not_blank_inside() {
+        // A 2:1 diamond, as isometric tiles are, and a full rectangle.
+        let (w, h) = (64u32, 32u32);
+        let inside = |x: u32, y: u32| {
+            let (dx, dy) = ((2.0 * x as f32 + 1.0 - w as f32).abs() / w as f32, (2.0 * y as f32 + 1.0 - h as f32).abs() / h as f32);
+            dx + dy <= 1.0
+        };
+        let mut b = AtlasBuilder::new(128);
+        let d = b.add(&RgbaImage::from_fn(w, h, |x, y| if inside(x, y) { [5, 5, 5, 255] } else { [0; 4] }), (0, 0)).unwrap();
+        let full = b.add(&RgbaImage::from_fn(w, h, |_, _| [5, 5, 5, 255]), (0, 0)).unwrap();
+        let mut atlas = b.finish();
+        atlas.trim_blank();
+        // (A cut of 1 leaves every texel centre in.)
+        assert_eq!(atlas.sprites[full.0 as usize].cuts, 0x0101_0101);
+        let cuts = atlas.sprites[d.0 as usize].cuts;
+        let c = |k: u32| ((cuts >> (8 * k)) & 0xFF) as f32;
+        assert!((0..4).all(|k| c(k) >= 24.0), "the corners are cut: {cuts:#x}");
+        let (wf, hf) = (w as f32, h as f32);
+        for y in 0..h {
+            for x in 0..w {
+                let (u, v) = (x as f32 + 0.5, y as f32 + 0.5);
+                let kept = u + 2.0 * v > c(0) && wf - u + 2.0 * v > c(1) && wf - u + 2.0 * (hf - v) > c(2) && u + 2.0 * (hf - v) > c(3);
+                assert!(kept || !inside(x, y), "texel ({x}, {y}) is cut off");
+            }
+        }
     }
 }

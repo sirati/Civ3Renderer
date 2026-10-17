@@ -150,7 +150,13 @@ pub fn tile_vs(
         *out_pos = CULLED;
         return;
     };
-    let (sx, sy) = (l as f32 + u * (r - l) as f32, t as f32 + v * (b - t) as f32);
+    let (sx, sy) = if params.corner_cuts != 0 {
+        // (The cuts are in texels: where pixels are texels, 1:1.)
+        let cuts = if params.scaled == 0 && p.step == 1 { sprite.cuts } else { 0 };
+        octagon_corner(vertex, (l, t, r, b), (x0, y0), (sprite.width, sprite.height), cuts)
+    } else {
+        (l as f32 + u * (r - l) as f32, t as f32 + v * (b - t) as f32)
+    };
     *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
     // Texel = flat atlas origin + interpolated offset inside the sprite. Small
     // interpolated values keep float precision exact for big atlases, and the
@@ -171,6 +177,46 @@ pub fn tile_vs(
 /// sprites keep a pixel of their rectangle however small it is shown.
 fn trimmed(sprite: &SpriteDesc, p: &tile_render_shared::Placed, params: &FrameParams) -> (u32, u32, u32, u32) {
     if params.hairline != 0 { (0, 0, p.width, p.height) } else { drawn_part(sprite, p) }
+}
+
+/// Vertex `vertex` (of [`tile_render_shared::OCTAGON_VERTICES`]) of the
+/// octagon a sprite of `size` texels whose texel (0, 0) is at pixel
+/// `origin` covers in rectangle (l, t, r, b): the rectangle less its
+/// corners `cuts` leaves blank (`SpriteDesc::cuts`, which keeps every
+/// texel centre that is not blank strictly inside), as six triangles
+/// fanned from its first corner (`cuts` 0: the rectangle).
+fn octagon_corner(vertex: u32, (l, t, r, b): (i32, i32, i32, i32), (x0, y0): (i32, i32), (w, h): (u32, u32), cuts: u32) -> (f32, f32) {
+    let c = |k: u32| ((cuts >> (8 * k)) & 0xFF) as f32;
+    let (w, h) = (w as f32, h as f32);
+    // The rectangle in the sprite's texels.
+    let (ul, ur, vt, vb) = ((l - x0) as f32, (r - x0) as f32, (t - y0) as f32, (b - y0) as f32);
+    let cu = |u: f32| if u < ul { ul } else if u > ur { ur } else { u };
+    let cv = |v: f32| if v < vt { vt } else if v > vb { vb } else { v };
+    // The fan's triangles (0, k, k + 1), k = 1..=6, of corners 0..8
+    // clockwise from the top edge's left end.
+    let corner = (vertex % 18) / 3 + if vertex % 3 == 0 { 0 } else { vertex % 3 };
+    let corner = if vertex % 3 == 0 { 0 } else { corner };
+    if cuts == 0 {
+        // (The rectangle, as it is: also where it is not in texels.)
+        let (x, y) = match corner {
+            0 | 7 => (l, t),
+            1 | 2 => (r, t),
+            3 | 4 => (r, b),
+            _ => (l, b),
+        };
+        return (x as f32, y as f32);
+    }
+    let (u, v) = match corner {
+        0 => (cu(c(0) - 2.0 * vt), vt),
+        1 => (cu(w - c(1) + 2.0 * vt), vt),
+        2 => (ur, cv((c(1) - (w - ur)) * 0.5)),
+        3 => (ur, cv(h - (c(2) - (w - ur)) * 0.5)),
+        4 => (cu(w - c(2) + 2.0 * (h - vb)), vb),
+        5 => (cu(c(3) - 2.0 * (h - vb)), vb),
+        6 => (ul, cv(h - (c(3) - ul) * 0.5)),
+        _ => (ul, cv((c(0) - ul) * 0.5)),
+    };
+    (x0 as f32 + u, y0 as f32 + v)
 }
 
 /// Where a sprite whose (clipped) rectangle at zoom 1 is (left, top, right,
