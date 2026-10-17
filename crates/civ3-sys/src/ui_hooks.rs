@@ -318,6 +318,17 @@ pub fn sprite_own_colors(sprite: u32) -> Option<Vec<u32>> {
     first_colors(read(table.checked_add(4)?)?)
 }
 
+/// The first 64 colours of the palette `sprite`'s pixels were cut with (its
+/// `JGLSprite`'s, at +0x10, a `JGL_Color_Table*`): sprites cut from an image
+/// recoloured with a civ's colours keep them (the citizens' heads,
+/// `popHeads.pcx`, and the units' icons, `units_32.pcx`, in the player's
+/// colours, measured).
+pub fn sprite_cut_colors(sprite: u32) -> Option<Vec<u32>> {
+    let read = |a: u32| Ptr32::<u32>::new(a).read().ok().filter(|&p| p != 0);
+    let jgl = read(sprite.checked_add(4)?)?;
+    first_colors(read(jgl.checked_add(0x10)?)?)
+}
+
 /// Fields of the game's image, sprite and form objects (docs §16.2-16.5).
 pub mod obj {
     use super::*;
