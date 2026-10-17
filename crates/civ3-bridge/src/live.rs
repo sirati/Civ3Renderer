@@ -255,6 +255,11 @@ struct Compiler {
     text: String,
     /// Rings around foreign units (their art is in `text`).
     rings: Option<crate::rings::Rings>,
+    /// The largest atlas page the renderer takes (`assets::compile_as`).
+    max_page: u32,
+    /// The largest sprite the art may grow by: a picture of the game's
+    /// whole screen (the pages are made for it from the start).
+    largest: u32,
 }
 
 impl Compiler {
@@ -265,7 +270,7 @@ impl Compiler {
     /// The whole description: everything the game showed so far (also
     /// what a renderer compiling its own copy needs: the art roots).
     fn whole_text(&self, units: &units::Needed, fonts: &mut text::Fonts, screen: &menu::screen::ScreenArt, districts: &crate::district_art::DistrictArt) -> String {
-        format!("{}{}{}{}{}", self.text, units.description(), fonts.description(), ui_screen::description(screen), districts.description())
+        format!("largest = {}\n{}{}{}{}{}", self.largest, self.text, units.description(), fonts.description(), ui_screen::description(screen), districts.description())
     }
 
     /// What a renderer compiling its own copy of the art needs: `text` (a
@@ -285,7 +290,7 @@ impl Compiler {
     /// A job for the art thread (`generation`: `Presenter::prepare_assets`).
     #[allow(clippy::too_many_arguments)]
     fn job(&self, folders: &ArtFolders, work: Work, pixels: bool, generation: u64, token: Option<u64>, reason: String, wanted: std::time::Instant) -> ArtJob {
-        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, generation, token, reason, wanted }
+        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted }
     }
 }
 
@@ -320,7 +325,23 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
     // The generated pictures of our preferences tabs (`crate::prefs`).
     text += &crate::prefs::Prefs::description();
-    let compiler = Compiler { install: install_root()?, name, text, rings };
+    let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
+    // The native viewer: loaded first, its GPU's limits size the atlas pages.
+    let native = match mode.starts_with("native") {
+        true => Some(presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?),
+        false => None,
+    };
+    let max_page = match &native {
+        Some(n) => n.max_texture(),
+        None => tile_render::gpu::max_texture_dimension(),
+    };
+    let max_page = max_page.unwrap_or_else(|| {
+        log::warn!("the renderer's texture limit is unknown: atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE);
+        render_desc::ANY_DEVICE_PAGE
+    });
+    // (Screen pictures are at most the game's screen.)
+    let largest = crate::game_window::game_screen().map_or(0, |(w, h)| w.max(h));
+    let compiler = Compiler { install: install_root()?, name, text, rings, max_page, largest };
     let folders = ArtFolders::of(&game);
     // Mirror the game's interface (`CIV3R_UI=off`: only its text).
     if std::env::var("CIV3R_UI").as_deref() != Ok("off") {
@@ -347,7 +368,6 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("no map input while menus are open: {e}"),
         }
     }
-    hook_edge_scroll();
     // Which system pointer the game sets (busy, resizing).
     match inproc::pointer::hook_set_cursor(inproc::pe::main_module()) {
         Ok(Some(hook)) => std::mem::forget(hook),
@@ -355,18 +375,17 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         Err(e) => log::warn!("cursor: hooking SetCursor: {e}"),
     }
     crate::preview::install(&game);
-    let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     // The native viewer makes its own atlas: this side needs the tables only.
-    let pixels = !mode.starts_with("native");
+    let pixels = native.is_none();
+    hook_game_window(crate::game_window::hidden());
     let first = compiler.whole_text(&units::Needed::default(), &mut text::Fonts::default(), &Default::default(), &Default::default());
     let wire = compiler.wire(&folders, &first, false);
     let started = std::time::Instant::now();
-    let (compiled, growing) =
-        assets::compile_growing(&first, compiler.files(&folders), pixels).map_err(|e| LiveError::Desc(compiler.name.clone(), e.to_string()))?;
+    let (compiled, growing) = assets::compile_growing(&first, compiler.files(&folders), pixels, compiler.max_page)
+        .map_err(|e| LiveError::Desc(compiler.name.clone(), e.to_string()))?;
     log::info!("live renderer: {} in {} ms ({folders:?})", art_summary(&compiled, pixels), started.elapsed().as_millis());
     let compiled = Arc::new(compiled);
-    let mut presenter = if mode.starts_with("native") {
-        let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
+    let mut presenter = if let Some(native) = native {
         Presenter::native(native)
     } else {
         let config = tile_viewer::ViewerConfig {
@@ -420,6 +439,11 @@ fn publish(
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
     let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor)> = None;
+    // The viewer is the only window the player sees: the game's own is
+    // hidden (`CIV3R_GAME_WINDOW=show` keeps it shown, e.g. for looking at
+    // it next to the viewer).
+    let hide_game_window = crate::game_window::hidden();
+    let mut hiding = Hiding::default();
     let mut seq = 0;
     let mut input = InputForwarder::default();
     let mut title = menu::MenuState::default();
@@ -472,7 +496,7 @@ fn publish(
     let mut last_stats = std::time::Instant::now();
     // The renderer's own settings, and our tabs over the game's Preferences
     // screen (`crate::prefs`); what they drew and the settings last published.
-    let mut prefs = crate::prefs::Prefs::load(viewer_settings::Settings::default_path());
+    let mut prefs = crate::prefs::Prefs::load(crate::prefs::settings_path());
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
     // The last scene's size: bytes of cells, world sprites, overlay sprites.
     let mut scene_size = (0, 0, 0);
@@ -633,6 +657,10 @@ fn publish(
             recompile = true;
             wanted_for.push("art folders");
         }
+        // (Until the viewer is gone, see `forward_input`.)
+        if hide_game_window && inproc::hidden::hiding() {
+            hide_window(&mut input, &mut hiding);
+        }
         let inputs = presenter.take_input();
         // What our preferences tabs take does not reach the game.
         let inputs = prefs.route(inputs, input.viewport);
@@ -770,19 +798,32 @@ fn publish(
             (Some(f), Some((_, draws))) => Some(crate::interface_parts::without(&f, draws)),
             (v, _) => v,
         };
-        // Our tabs on top of the game's Preferences screen, in the part of
-        // the interface that draws it (the screen may be the popup split
-        // off), under what the game draws over it (a popup over it, e.g.
-        // C3X's info box, and that popup's frame).
+        // The game's frame (its main screen's panels and buttons) and the
+        // menus over it (screens and popups), which a viewer may scale
+        // differently: between games (and over a previewed scenario) all of
+        // it is menus.
+        let (frame_ui, menu_ui) = match (&visible_ui, shown) {
+            (Some(f), Shown::Map(..)) => {
+                let (frame, menus) = ui_screen::split(f, ui_screen::menus_from(f));
+                (Some(frame), Some(menus))
+            }
+            (Some(f), Shown::Title(_) | Shown::Preview(..)) => (None, Some(f.clone())),
+            (None, _) => (None, None),
+        };
+        // Our tabs on top of the game's Preferences screen (a menu), in the
+        // part of the interface that draws it (the screen may be the popup
+        // split off), under what the game draws over it (a popup over it,
+        // e.g. C3X's info box, and that popup's frame).
         let mut prefs_items = Some(crate::prefs::items(&prefs_draws)).filter(|i| !i.is_empty());
         let popup_canvas = modal.filter(|&m| prefs_form.is_none_or(|f| f.form != m)).map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4);
         let mut with_tabs = |f: &crate::ui::Frame| {
             let at = prefs_form.as_ref().and_then(|form| crate::prefs::tabs_slot(f, form, popup_canvas));
             ui_screen::items_with(f, files.roots(), generated, unit_colors, at.and_then(|at| prefs_items.take().map(|items| (at, items))))
         };
-        let mut ui_items = visible_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
+        let mut ui_items = frame_ui.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        let mut menu_items = menu_ui.as_ref().map(&mut with_tabs).unwrap_or_default();
         let mut popup_items = ui_popup.as_ref().map(&mut with_tabs).unwrap_or_default();
-        let mut screen_items = ui_screen_part.as_ref().map(|f| ui_screen::items(f, files.roots(), generated, unit_colors)).unwrap_or_default();
+        let mut screen_items = ui_screen_part.as_ref().map(&mut with_tabs).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -820,13 +861,13 @@ fn publish(
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
         }
         // (Our tabs where no part draws the screen: on top.)
-        ui_items.extend(prefs_items.take().unwrap_or_default());
+        menu_items.extend(prefs_items.take().unwrap_or_default());
         // Only a popup over the map's own screen is the viewer's to place;
         // one over another screen (the Preferences screen, an advisor) stays
-        // with it, in the interface.
+        // with it, with the menus.
         let popup = popup.filter(|_| on_map && !prefs.is_open());
         if popup.is_none() {
-            if screen_part.is_some() { &mut screen_items } else { &mut ui_items }.append(&mut popup_items);
+            if screen_part.is_some() { &mut screen_items } else { &mut menu_items }.append(&mut popup_items);
         }
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
@@ -870,6 +911,7 @@ fn publish(
             }
         }
         if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files)
+            | ui_screen::add_art(&menu_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&screen_items, &mut screen_art, &mut fonts, &files)
             | ui_screen::add_art(&corner_items, &mut screen_art, &mut fonts, &files)
@@ -1036,6 +1078,8 @@ fn publish(
             Shown::Preview(rect, Some(world)) => crate::preview::downscale(world, (input.viewport.0 as i32 - rect[2], input.viewport.1 as i32)),
             _ => 1,
         };
+        // Our own title menu (when the game's is not mirrored).
+        let mut title_menu = Vec::new();
         let mut scene = match shown {
             Shown::Map(world, view) => {
                 let mut scene = mapper.scene(world, view, (0, 0), 0);
@@ -1060,12 +1104,11 @@ fn publish(
             Shown::Preview(_, Some(world)) => crate::preview::scene(world, preview_scale, &mapper, &mut art, &compiled, &preview_labels, &fonts),
             Shown::Preview(_, None) => scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len()),
             Shown::Title(state) => {
-                let mut scene = scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len());
                 // Our own title menu, unless the game's is mirrored.
                 if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| ui.is_none()) {
-                    scene.sprites = m.0.sprites(m.1, state, input.viewport, u32::MAX);
+                    title_menu = m.0.sprites(m.1, state, input.viewport, u32::MAX);
                 }
-                scene
+                scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len())
             }
         };
         scene.sprites.extend(fonts.sprites(texts, &compiled));
@@ -1074,6 +1117,8 @@ fn publish(
         scene.zooms = ui_screen::outline_zooms(&compiled);
         let outlines = !scene.zooms.is_empty();
         scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
+        let mut menu_sprites = title_menu;
+        menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
         // The city labels go with the world (laid out in the game view's
         // pixels: zoomed out at full size, which the renderer halves).
         // (A preview's are in its scene already.)
@@ -1099,6 +1144,7 @@ fn publish(
             });
         }
         crate::scene_map::overlay_screen_sprites(&mut scene);
+        crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
         // own (the corner's buttons a copy, the popup not in the interface).
         let part_sprites = |items: &[ui_screen::Item]| ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
@@ -1148,6 +1194,9 @@ fn publish(
         scene.settings = Some(prefs.settings().clone());
         scene.interactables = interactables.clone();
         scene.cursor = *cursor;
+        // The game's screen: a viewer with a larger window shows it scaled
+        // up (e.g. the game at the desktop's logical size, `CIV3R_SCALE`).
+        scene.screen_size = input.game_window().and_then(|w| w.client_size()).unwrap_or_default();
         scene.seq = seq;
         scene_size = (scene.cell_bytes(), scene.sprites.len(), scene.views.iter().map(|v| v.overlay.len()).sum::<usize>());
         // Held back while the renderer is busy: publish again next time.
@@ -1243,6 +1292,8 @@ struct InputForwarder {
     /// (`crate::edge`).
     edge: (i32, i32),
     edge_point: Option<(i32, i32)>,
+    /// Where the viewer last moved the game's pointer (client pixels).
+    pointer: Option<(i32, i32)>,
 }
 
 impl InputForwarder {
@@ -1257,12 +1308,13 @@ impl InputForwarder {
 
     fn game_window(&mut self) -> Option<inproc::window::Window> {
         if self.window.is_none() {
-            self.window = inproc::window::Window::of_this_process()
+            self.window = inproc::window::Window::all_of_this_process()
                 .into_iter()
                 // Not ours, and a real window (titled, with an area).
+                // (Hidden ones too: it is kept hidden, `crate::game_window`.)
                 .filter(|w| {
                     let t = w.title();
-                    !t.is_empty() && t != VIEWER_TITLE && w.client_size().is_some_and(|(w, h)| w > 0 && h > 0)
+                    !t.is_empty() && t != VIEWER_TITLE && w.client_size().is_some_and(|(w, h)| w >= 320 && h >= 200)
                 })
                 .max_by_key(|w| w.client_size().map_or(0, |(w, h)| w as u64 * h as u64));
             if let Some(w) = self.window {
@@ -1273,6 +1325,45 @@ impl InputForwarder {
             }
         }
         self.window
+    }
+}
+
+/// Hiding the game's window (see `publish`).
+#[derive(Default)]
+struct Hiding {
+    /// How often it was found shown and hidden again.
+    times: u32,
+    /// Hidden but not painted whole since: once it is, all of it is
+    /// painted (hidden, the game paints only what it invalidates, see
+    /// `inproc::paint`; at first, never shown, it was never painted).
+    repaint: bool,
+    /// Whether it was seen at all.
+    seen: bool,
+}
+
+/// Keeps the game's window hidden (`crate::game_window` keeps it from being
+/// shown; this hides it should anything show it all the same) and painted.
+fn hide_window(input: &mut InputForwarder, hiding: &mut Hiding) {
+    let Some(window) = input.game_window() else { return };
+    if !std::mem::replace(&mut hiding.seen, true) {
+        hiding.repaint = true;
+        // (Its keyboard input goes on: the game asks whether it has the focus.)
+        inproc::pointer::keep_focus(Some(window));
+        // (Its pointer away from the edges until the viewer moves it.)
+        update_game_pointer(input, window);
+    }
+    if !window.is_visible() {
+        if std::mem::take(&mut hiding.repaint) {
+            inproc::paint::repaint(window);
+        }
+        return;
+    }
+    window.hide();
+    hiding.repaint = true;
+    hiding.times += 1;
+    match hiding.times {
+        1 => log::info!("the game's window was shown, hidden again (CIV3R_GAME_WINDOW=show keeps it)"),
+        n => log::debug!("the game's window was shown again, hidden ({n} times)"),
     }
 }
 
@@ -1296,7 +1387,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
     for input in inputs {
         log::trace!("input {input:?}");
         match input {
-            Input::MouseMove { x, y } => window.mouse_move(x, y, forwarder.held),
+            Input::MouseMove { x, y } => {
+                forwarder.pointer = Some((x, y));
+                window.mouse_move(x, y, forwarder.held);
+            }
             Input::MouseButton { button, down, x, y } => {
                 let button = match button {
                     Button::Left => {
@@ -1345,7 +1439,19 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::WorldButton { button, down: true, x, y } => forwarder.world_buttons.push((button, (x, y))),
             Input::WorldButton { .. } => {}
             Input::Resized { width, height } => forwarder.viewport = (width, height),
-            Input::Quit => forwarder.edge = (0, 0),
+            // (For the preferences' readout, `crate::prefs`.)
+            Input::Window { .. } => {}
+            // The viewer is gone (closed, or it failed to start): the
+            // game's own window is shown, rather than nothing at all.
+            Input::Quit => {
+                forwarder.edge = (0, 0);
+                if crate::game_window::hidden() && inproc::hidden::hiding() {
+                    inproc::hidden::set_hiding(false);
+                    inproc::pointer::keep_focus(None);
+                    window.show();
+                    log::warn!("the viewer is gone: the game's own window is shown");
+                }
+            }
             Input::Edge { x, y } => forwarder.edge = (x, y),
             Input::Look { x, y } => forwarder.look = Some((x, y)),
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
@@ -1354,42 +1460,112 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::Zooms(_) => {}
         }
     }
-    // The viewer's pointer at its edge: the game's at its own, to scroll.
-    let point = window.client_size().and_then(|size| crate::edge::game_point(forwarder.edge, size));
-    if point != forwarder.edge_point {
-        match point {
+    update_game_pointer(forwarder, window);
+}
+
+/// What the game learns of its pointer when it asks the system
+/// (`inproc::pointer`): with the viewer's pointer at its edge, the game's at
+/// its own, to scroll; with the game's window hidden, where the viewer last
+/// moved it but clear of the edges (the system's pointer is over another
+/// window: the game would take it as resting at an edge and scroll on its
+/// own); else the system's.
+fn update_game_pointer(forwarder: &mut InputForwarder, window: inproc::window::Window) {
+    let Some(size) = window.client_size() else { return };
+    let edge = crate::edge::game_point(forwarder.edge, size);
+    let rest = || {
+        let zone = civ3_sys::hooks::EDGE_SCROLL_ZONE;
+        let (w, h) = (size.0 as i32, size.1 as i32);
+        let (x, y) = forwarder.pointer.unwrap_or((w / 2, h / 2));
+        (x.clamp(zone.min(w / 2), (w - 1 - zone).max(w / 2)), y.clamp(zone.min(h / 2), (h - 1 - zone).max(h / 2)))
+    };
+    let point = edge.or_else(|| (crate::game_window::hidden() && inproc::hidden::hiding()).then(rest));
+    if edge != forwarder.edge_point {
+        match edge {
             Some((x, y)) => log::debug!("edge scroll: the viewer's pointer at {:?}, the game's at ({x}, {y})", forwarder.edge),
             None => log::debug!("edge scroll: ends"),
         }
-        forwarder.edge_point = point;
-        inproc::pointer::set(point.map(|(x, y)| inproc::pointer::Override { window, x, y }));
+        forwarder.edge_point = edge;
     }
+    inproc::pointer::set(point.map(|(x, y)| inproc::pointer::Override { window, x, y }));
 }
 
 /// Lets the game scroll at the viewer's edge (`crate::edge`): its
 /// executable's `GetFocus` and `jgl.dll`'s `GetCursorPos` (loaded later)
-/// answer with `inproc::pointer`'s override while there is one. The hooks
-/// stay for the life of the process.
-fn hook_edge_scroll() {
+/// answer with `inproc::pointer`'s override while there is one. With
+/// `hidden_window`, `jgl.dll`'s window also goes on painting while hidden
+/// (`inproc::paint`: it paints the screen on `WM_PAINT`, which hidden
+/// windows do not get). The hooks stay for the life of the process.
+fn hook_game_window(hidden_window: bool) {
     match inproc::pointer::hook_focus(inproc::pe::main_module()) {
         Ok(Some(hook)) => std::mem::forget(hook),
-        Ok(None) => return log::warn!("edge scroll: the game does not import GetFocus"),
-        Err(e) => return log::warn!("edge scroll: hooking GetFocus: {e}"),
+        Ok(None) => log::warn!("edge scroll: the game does not import GetFocus"),
+        Err(e) => log::warn!("edge scroll: hooking GetFocus: {e}"),
     }
-    std::thread::spawn(|| {
-        for _ in 0..600 {
-            if let Some(module) = inproc::pe::module_base("jgl.dll") {
-                match inproc::pointer::hook_cursor_pos(module) {
-                    Ok(Some(hook)) => {
-                        log::info!("edge scroll: following the viewer's pointer at its edge");
-                        std::mem::forget(hook);
-                    }
-                    Ok(None) => log::warn!("edge scroll: jgl.dll does not import GetCursorPos"),
-                    Err(e) => log::warn!("edge scroll: hooking GetCursorPos: {e}"),
-                }
-                return;
-            }
+    std::thread::spawn(move || {
+        let Some(jgl) = (0..600).find_map(|_| inproc::pe::module_base("jgl.dll").or_else(|| {
             std::thread::sleep(Duration::from_millis(200));
+            None
+        })) else {
+            return log::warn!("jgl.dll was not loaded within 2 minutes: no edge scroll");
+        };
+        // Redirected as it loaded (`crate::game_window`): what that did.
+        if crate::game_window::jgl_hooked() {
+            for note in crate::game_window::take_notes() {
+                log::info!("{note}");
+            }
+            return;
+        }
+        log::info!("jgl.dll was loaded otherwise than by the game: redirected now");
+        // jgl.dll can be in the module list a moment before its headers and
+        // import table are readable (seen under Wine: "cannot read 4
+        // bytes"): it is tried again for a while then.
+        let retried = |what: &str, mut hook: Box<dyn FnMut() -> Result<bool, inproc::hook::HookError>>| {
+            let mut failed = None;
+            for tries in 1..=50 {
+                match hook() {
+                    Ok(true) => {
+                        if let Some(e) = &failed {
+                            log::info!("{what}: hooked after {tries} tries (at first: {e})");
+                        }
+                        return;
+                    }
+                    Ok(false) => return log::warn!("{what}: jgl.dll does not import the function"),
+                    Err(e) => {
+                        if failed.is_none() {
+                            log::debug!("{what}: {e}; trying again");
+                        }
+                        failed = Some(e);
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            log::warn!("{what}: {} (tried for 10 s)", failed.map(|e| e.to_string()).unwrap_or_default());
+        };
+        retried(
+            "edge scroll: hooking GetCursorPos",
+            Box::new(move || {
+                let hook = inproc::pointer::hook_cursor_pos(jgl)?;
+                let found = hook.is_some();
+                if let Some(hook) = hook {
+                    log::info!("edge scroll: following the viewer's pointer at its edge");
+                    std::mem::forget(hook);
+                }
+                Ok(found)
+            }),
+        );
+        if hidden_window {
+            retried(
+                "hidden game window: hooking its painting",
+                Box::new(move || {
+                    let hooks = inproc::paint::hook_hidden_painting(jgl)?;
+                    let found = hooks.is_some();
+                    if let Some(hooks) = hooks {
+                        log::info!("the game's window paints while hidden");
+                        std::mem::forget(hooks);
+                    }
+                    Ok(found)
+                }),
+            );
         }
     });
 }

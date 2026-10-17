@@ -4,10 +4,13 @@
 # through tools/civ3-session's private Wayland session, so the usual
 # session commands (newgame, trace, shot, stop) work afterwards.
 #
-#   tools/civ3-native start [--map-off] [--fullscreen] [--game-render]
+#   tools/civ3-native start [--map-off] [--fullscreen] [--game-render] [--hide-game-window]
 #
 # The game skips its own pixel work (CIV3R_GAME_RENDER=off: it decides what
 # to show, the renderer draws it); --game-render has it draw as before.
+# The game's own window stays shown here (CIV3R_GAME_WINDOW=show), for
+# tests that look at it next to the viewer; --hide-game-window hides it as
+# tools/civ3-play does, leaving the viewer the only window.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 export WINE=${WINE:-$(readlink -f "$HOME/.cache/winvm/wine-wow64")}
@@ -17,6 +20,7 @@ export WINEDLLPATH=${CIV3R_NATIVE_DIR:-/mnt/datasets/winvm/civ3r-native}
 export WINEDLLOVERRIDES="civ3r_native=b;${WINEDLLOVERRIDES:-}"
 export CIV3R_VIEWER=native
 export CIV3R_GAME_RENDER=${CIV3R_GAME_RENDER:-off}
+export CIV3R_GAME_WINDOW=show
 # The unixlib loads Vulkan and Wayland at run time; the dev shell's
 # LD_LIBRARY_PATH has them (vulkan-loader, wayland, libxkbcommon).
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH:?run inside nix develop}
@@ -25,5 +29,6 @@ for a in "$@"; do case $a in
   --map-off) export CIV3R_GAME_MAP=off ;;
   --fullscreen) export CIV3R_VIEWER=native-fullscreen ;;
   --game-render) export CIV3R_GAME_RENDER=on ;;
+  --hide-game-window) export CIV3R_GAME_WINDOW=hide ;;
 esac; done
 exec "$repo/tools/civ3-session" start

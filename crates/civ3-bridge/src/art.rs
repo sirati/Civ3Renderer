@@ -27,6 +27,8 @@ pub struct ArtJob {
     pub work: Work,
     /// With the atlas pixels (for a renderer given them), else the tables.
     pub pixels: bool,
+    /// The largest atlas page the renderer takes (`render_desc::page_size`).
+    pub max_page: u32,
     /// The generation scenes refer to once it is adopted
     /// (`Presenter::prepare_assets`).
     pub generation: u64,
@@ -68,7 +70,7 @@ impl ArtJob {
     fn run(self, state: &mut State) -> ArtDone {
         let started = Instant::now();
         let built = match &self.work {
-            Work::Whole(text) => crate::assets::compile_growing(text, self.files, self.pixels).map(|(c, growing)| {
+            Work::Whole(text) => crate::assets::compile_growing(text, self.files, self.pixels, self.max_page).map(|(c, growing)| {
                 *state = Some((c.without_pixels(), growing));
                 Built::Whole(c)
             }),
@@ -143,6 +145,7 @@ mod tests {
             files: civ3_assets::GameFiles::with_roots(Vec::new()),
             work,
             pixels: true,
+            max_page: render_desc::ANY_DEVICE_PAGE,
             generation,
             token: None,
             reason: "test".into(),

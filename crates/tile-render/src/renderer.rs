@@ -660,6 +660,26 @@ impl TileRenderer {
         frame: u32,
         clear: [u8; 4],
     ) {
+        let present = Present::unscaled((target.width(), target.height()));
+        self.render_presented(device, queue, encoder, target, cameras, copies, frame, clear, present);
+    }
+
+    /// [`TileRenderer::render_composed`] into a picture of `present.canvas`
+    /// (cameras and copies in its pixels), shown on `target` as `present`
+    /// says: `zoom` times larger, by nearest pixel.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_presented(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::Texture,
+        cameras: &[Camera],
+        copies: &[ScreenCopy],
+        frame: u32,
+        clear: [u8; 4],
+        present: Present,
+    ) {
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear))));
@@ -671,7 +691,11 @@ impl TileRenderer {
         self.too_many_views |= cameras.len() > MAX_VIEWS;
         let cameras = &cameras[..cameras.len().min(MAX_VIEWS)];
         let bits = world.color.bits();
-        let size = target.size();
+        let target_size = (target.width(), target.height());
+        let unscaled = present == Present::unscaled(target_size);
+        // What is drawn: the canvas, shown on the target afterwards.
+        let (canvas_w, canvas_h) = (present.canvas.0.max(1), present.canvas.1.max(1));
+        let size = wgpu::Extent3d { width: canvas_w, height: canvas_h, depth_or_array_layers: 1 };
         // Background in the canvas's values.
         let background = if bits == 0 {
             crate::gpu::color(clear)
@@ -692,8 +716,9 @@ impl TileRenderer {
             drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background)));
         }
         let copies = &copies[..copies.len().min(MAX_COPIES)];
-        // Copies read the finished picture: then it is composed internally.
-        let direct = bits == 0 && copies.is_empty();
+        // Copies read the finished picture, and a scaled one is shown from
+        // it: then it is composed internally.
+        let direct = bits == 0 && copies.is_empty() && unscaled;
         let canvas = if direct {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background)));
             view.clone()
@@ -776,22 +801,80 @@ impl TileRenderer {
             return;
         }
         let scratch = self.scratch.as_ref().expect("created above");
-        let params = OutputParams { zoom_num: 1, zoom_den: 1, bits, ..Default::default() };
+        let (n, d) = (present.zoom.0.max(1), present.zoom.1.max(1));
+        let (ax, ay) = present.at;
+        let params = OutputParams { dst_x: ax, dst_y: ay, zoom_num: n, zoom_den: d, bits, ..Default::default() };
         let offset = write_output(MAX_VIEWS, params);
-        let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load);
+        // Around a scaled picture: clear.
+        let load = if unscaled { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(crate::gpu::color(clear)) };
+        let mut pass = begin_pass(encoder, &view, load);
+        // Canvas pixels as target pixels: the first target pixel showing
+        // canvas pixel `v` (target pixel p shows canvas pixel ⌊(p − at)·d/n⌋).
+        let to_target = |v: u32| (v as u64 * n as u64).div_ceil(d as u64) as i32;
+        // A canvas rectangle (x, y, w, h) as shown on the target, clipped to it.
+        let shown = |[x, y, w, h]: [u32; 4]| {
+            let (x0, y0) = (ax + to_target(x), ay + to_target(y));
+            let r = [x0, y0, ax + to_target(x + w) - x0, ay + to_target(y + h) - y0];
+            clipped(r, [0, 0, target_size.0 as i32, target_size.1 as i32])
+        };
+        let Some(picture) = shown([0, 0, canvas_w, canvas_h]) else { return };
         pass.set_pipeline(self.pipeline(device, P::Output));
+        pass.set_scissor_rect(picture[0], picture[1], picture[2], picture[3]);
         pass.set_bind_group(0, &scratch.output, &[offset]);
         pass.draw(0..3, 0..1);
         for (i, c) in copies.iter().enumerate() {
-            let Some(on_target) = c.scissor((size.width, size.height)) else { continue };
-            let (zoom_num, zoom_den) = (c.zoom.0.max(1), c.zoom.1.max(1));
+            // (A copy of a scaled picture samples it at the target's pixels,
+            // not the canvas's.)
+            let Some(on_target) = c.scissor((size.width, size.height)).and_then(shown) else { continue };
+            let (zoom_num, zoom_den) = (c.zoom.0.max(1) * n, c.zoom.1.max(1) * d);
             let [src_x, src_y, _, _] = c.source;
-            let params = OutputParams { src_x, src_y, dst_x: c.at.0, dst_y: c.at.1, zoom_num, zoom_den, bits, _pad: 0 };
+            let at = |v: i32, a: i32| a + (v as i64 * n as i64).div_euclid(d as i64) as i32;
+            let (dst_x, dst_y) = (at(c.at.0, ax), at(c.at.1, ay));
+            let params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, _pad: 0 };
             let offset = write_output(MAX_VIEWS + 1 + i, params);
             pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
             pass.set_bind_group(0, &scratch.output, &[offset]);
             pass.draw(0..3, 0..1);
         }
+    }
+}
+
+/// How a finished picture goes onto its target
+/// ([`TileRenderer::render_presented`]): drawn at `canvas` size, shown
+/// `zoom` (num, den) times larger by nearest pixel (no smoothing: at a whole
+/// number each pixel is a crisp block), its top-left at target pixel `at`;
+/// the rest of the target cleared. `target` is the target's size.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Present {
+    pub canvas: (u32, u32),
+    pub zoom: (u32, u32),
+    pub at: (i32, i32),
+    pub target: (u32, u32),
+}
+
+impl Present {
+    /// 1:1 onto a target of `size`, filling it.
+    pub fn unscaled(size: (u32, u32)) -> Self {
+        Present { canvas: size, zoom: (1, 1), at: (0, 0), target: size }
+    }
+
+    /// Target pixels per canvas pixel.
+    pub fn factor(&self) -> f64 {
+        self.zoom.0.max(1) as f64 / self.zoom.1.max(1) as f64
+    }
+
+    /// The canvas pixel under target point `p` (e.g. the pointer). Points
+    /// on the target beside the picture count as on its nearest edge pixel
+    /// (the target's edge is the picture's); points off the target are
+    /// mapped as they are.
+    pub fn to_canvas(&self, (x, y): (f64, f64)) -> (i32, i32) {
+        let s = self.factor();
+        let axis = |v: f64, at: i32, len: u32, t: u32| {
+            let c = ((v - at as f64) / s).floor() as i64;
+            let on_target = v >= 0.0 && v < t as f64;
+            (if on_target { c.clamp(0, len.max(1) as i64 - 1) } else { c }) as i32
+        };
+        (axis(x, self.at.0, self.canvas.0, self.target.0), axis(y, self.at.1, self.canvas.1, self.target.1))
     }
 }
 
