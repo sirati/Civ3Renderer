@@ -207,6 +207,36 @@ pub fn outline_zooms(compiled: &Compiled) -> Vec<(u32, u32)> {
     if compiled.fonts.is_empty() { Vec::new() } else { vec![(0, 0)] }
 }
 
+/// Whether a screen is complete, still building, or has settled with art
+/// that cannot be rendered. The last case is a terminal diagnostic/fallback,
+/// never a timeout releasing a valid screen before its art is available.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    Ready,
+    Pending,
+    Unavailable,
+}
+
+/// Resolves currently visible mandatory items against adopted metadata.
+/// Alternate control states, hints and world labels are not supplied here.
+pub fn readiness<'a>(items: impl Iterator<Item = &'a Item>, fonts: &Fonts, compiled: &Compiled, building: bool) -> Readiness {
+    let mut missing = false;
+    let mut loading = false;
+    for item in items {
+        match item {
+            Item::Element(element, _) => missing |= !element.ready(compiled),
+            Item::Text(run, clip, _) if clip[0] < clip[2] && clip[1] < clip[3] => {
+                if !fonts.run_ready(run, compiled) {
+                    missing = true;
+                    loading |= fonts.run_loading(run);
+                }
+            }
+            Item::Text(..) => {}
+        }
+    }
+    if !missing { Readiness::Ready } else if building || loading { Readiness::Pending } else { Readiness::Unavailable }
+}
+
 /// The free sprites of `items`, in order: underlay items after render pass
 /// `under_pass` (the one before the fog of war, which the game draws over
 /// them), the rest on top. With `outlines`, text comes 1:1 (`zoom_art` 1)
@@ -599,5 +629,64 @@ mod interactable_tests {
             Interactable { rect: [0, 0, 100, 200], kind: InteractableKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
             Interactable { rect: [0, 0, 100, 20], kind: InteractableKind::ListItem, id: 9 },
         ]);
+    }
+}
+
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    struct Images;
+    impl render_desc::ImageLoader for Images {
+        fn load(&self, name: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+            if name == "missing.pcx" { return Err("source does not exist".into()) }
+            Ok(vec![tile_render::RgbaImage::new(128, 128)])
+        }
+    }
+
+    fn image(source: &str, size: i32) -> Item {
+        Item::Element(Element::Image {
+            region: Region { source: source.into(), rect: [0, 0, size, size], keyed: false, mask: None, palette: None },
+            at: (0, 0), clip: [0, 0, 1920, 1080],
+        }, false)
+    }
+
+    fn art(items: &[Item]) -> String {
+        let mut art = ScreenArt::default();
+        art.add(&items.iter().filter_map(|i| if let Item::Element(e, _) = i { Some(e.clone()) } else { None }).collect::<Vec<_>>());
+        description(&art)
+    }
+
+    #[test]
+    fn valid_screen_waits_for_metadata_then_becomes_complete() {
+        let (mut compiled, mut growing) = render_desc::Description::parse("grid = { layout = \"orthogonal\", step = [1, 1] }").unwrap().compile_growing(&Images, 64, false).unwrap();
+        let fonts = Fonts::default();
+        let items = [image("player-setup.pcx", 32)];
+        assert_eq!(readiness(items.iter(), &fonts, &compiled, true), Readiness::Pending);
+        assert!(sprites(&items, &fonts, &compiled, u32::MAX, false).is_empty());
+        let growth = growing.grow(&compiled, &art(&items), &Images).unwrap();
+        compiled.apply(&growth);
+        assert_eq!(readiness(items.iter(), &fonts, &compiled, false), Readiness::Ready);
+        assert_eq!(sprites(&items, &fonts, &compiled, u32::MAX, false).len(), 1);
+    }
+
+    #[test]
+    fn failed_and_oversized_images_settle_without_retaining_an_unrelated_screen() {
+        for (source, size) in [("missing.pcx", 32), ("oversized.pcx", 128)] {
+            let (mut compiled, mut growing) = render_desc::Description::parse("grid = { layout = \"orthogonal\", step = [1, 1] }").unwrap().compile_growing(&Images, 64, false).unwrap();
+            let fonts = Fonts::default();
+            let items = [image(source, size)];
+            assert_eq!(readiness(items.iter(), &fonts, &compiled, true), Readiness::Pending);
+            if let Ok(growth) = growing.grow(&compiled, &art(&items), &Images) { compiled.apply(&growth); }
+            if source == "missing.pcx" {
+                assert_eq!(readiness(items.iter(), &fonts, &compiled, false), Readiness::Unavailable);
+            } else {
+                // The compiler preserves oversized sprite IDs as its
+                // logged transparent 1x1 terminal fallback.
+                assert_eq!(readiness(items.iter(), &fonts, &compiled, false), Readiness::Ready);
+                assert_eq!((compiled.atlas.sprites[0].width, compiled.atlas.sprites[0].height), (1, 1));
+            }
+        }
     }
 }

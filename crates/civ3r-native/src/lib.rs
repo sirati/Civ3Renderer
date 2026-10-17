@@ -13,6 +13,7 @@
 //! 4. status: the latest art generation the viewer has been given
 //! 5. limits: the renderer's limits ([`Limits`]), e.g. for the driver's
 //!    compile of the same description
+//! 6. uploaded: the latest generation committed to the drawable GPU atlas
 
 use wine_unixlib::Buffer32;
 
@@ -53,7 +54,8 @@ pub type TakeLog = TakeInput;
 
 /// Call 4. `generation`: the latest art generation compiled and given to
 /// the viewer (whole or grown, `scene::wire::Assets::generation`), or that
-/// failed to compile: scenes referring to it are drawn without waiting.
+/// failed to compile. This is CPU completion only; [`CALL_UPLOADED`]
+/// separately reports generations committed to the drawable GPU atlas.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ArtStatus {
@@ -68,6 +70,7 @@ pub struct Limits {
     /// The largest texture side: the atlas pages' limit
     /// (`render_desc::page_size`).
     pub max_texture: u32,
+    /// Optional protocol capabilities. Older libraries leave this zero.
     pub _pad: u32,
 }
 
@@ -78,6 +81,12 @@ pub const CALL_INPUT: u32 = 2;
 pub const CALL_LOG: u32 = 3;
 pub const CALL_STATUS: u32 = 4;
 pub const CALL_LIMITS: u32 = 5;
+/// Call 6. Returns [`ArtStatus`] for drawable GPU art, rather than CPU
+/// compilation. Optional preloading waits for this acknowledgment.
+pub const CALL_UPLOADED: u32 = 6;
+/// [`Limits::_pad`] advertises that [`CALL_UPLOADED`] exists. Check this
+/// before dispatching the extra call against an older native library.
+pub const LIMIT_UPLOADED: u32 = 1;
 
 #[cfg(target_os = "linux")]
 mod unix_side {
@@ -232,7 +241,7 @@ mod unix_side {
 
     pub fn limits(args: &mut Limits) -> Status {
         log_init();
-        *args = Limits { max_texture: max_page(), _pad: 0 };
+        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED };
         STATUS_SUCCESS
     }
 
@@ -299,6 +308,12 @@ mod unix_side {
     pub fn status(args: &mut ArtStatus) -> Status {
         let given = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.latest());
         let generation = given.max(PROCESSED.load(std::sync::atomic::Ordering::Acquire));
+        (args.generation_lo, args.generation_hi) = (generation as u32, (generation >> 32) as u32);
+        STATUS_SUCCESS
+    }
+
+    pub fn uploaded(args: &mut ArtStatus) -> Status {
+        let generation = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.uploaded_generation());
         (args.generation_lo, args.generation_hi) = (generation as u32, (generation >> 32) as u32);
         STATUS_SUCCESS
     }
@@ -448,7 +463,7 @@ mod unix_side {
 }
 
 #[cfg(target_os = "linux")]
-use unix_side::{assets, input, limits, publish, status, take_log};
+use unix_side::{assets, input, limits, publish, status, take_log, uploaded};
 
 #[cfg(target_os = "linux")]
-wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits];
+wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded];
