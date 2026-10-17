@@ -1510,6 +1510,29 @@ only = [9]
 anchor_marks = [228, 152, 24]
 group = "Viewer@capture"
 
+# The divider between the viewer's views (tile-viewer `Viewer@divider_v`,
+# `_h`): a light line drawn in the middle of the dark gap, seen over black
+# (unexplored) and bright terrain alike.
+[images.viewer_divider_v]
+source = "solid:214,200,160,255:2x64"
+
+[sheets.viewer_divider_v]
+image = "viewer_divider_v"
+cell = [2, 64]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@divider_v"
+
+[images.viewer_divider_h]
+source = "solid:214,200,160,255:64x2"
+
+[sheets.viewer_divider_h]
+image = "viewer_divider_h"
+cell = [64, 2]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@divider_h"
+
 # The button-snapping pointer (Alt while the mouse is captured) and its
 # half-transparent ghost at the next target (tile-viewer `snap`); tip at
 # the anchor.
