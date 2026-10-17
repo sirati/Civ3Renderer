@@ -110,6 +110,16 @@ mod tests {
         let index = compiled.atlas.index_pages[s.page as usize].get(s.atlas_x + 63, s.atlas_y) as u32;
         let color = compiled.atlas.palettes[(s.palette * tile_render::PALETTE_SIZE + index) as usize].to_le_bytes();
         assert_eq!(small.get(31, 0), color);
+        // The mouse cursors (§16.11), their hot spots from the marks beside
+        // their cells (the tables alone have them too, see above).
+        let anchor = |name: &str| {
+            let s = compiled.atlas.sprites[compiled.sets.frame(compiled.set(name).unwrap().0, 0).unwrap().0 as usize];
+            (s.width, s.height, s.anchor_x, s.anchor_y)
+        };
+        assert_eq!(anchor("Viewer@cursors/0"), (32, 32, -1, -1));
+        assert_eq!(anchor("Viewer@cursors/9"), (32, 32, -16, -16));
+        assert_eq!(anchor("Viewer@cursors/14"), (32, 32, -15, -16));
+        assert_eq!(compiled.sets_with_prefix("Viewer@capture/").map(|(n, _)| n).collect::<Vec<_>>(), ["Viewer@capture/9"]);
     }
 
     /// The colours a sprite of `c` is drawn in, texel by texel.

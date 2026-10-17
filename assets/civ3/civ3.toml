@@ -1480,6 +1480,36 @@ grid = [1, 1]
 anchor = [-12, -12]
 group = "Viewer@cursor"
 
+# The game's mouse cursors (docs §16.11): `Art/cursor.pcx`, 23 cells of
+# 32x32 at (1 + 33k, 1), each hot spot marked by palette index 251
+# (228, 152, 24) in the row above and the column left of its cell. The
+# viewer shows them as the system pointer, and draws them itself where it
+# shows the pointer (the mouse captured, button snapping, the other views):
+# the bridge names the one the game shows (`scene::Cursor`). Cell 9 (the
+# yellow crosshair) is the pointer over a view that a click captures the
+# mouse in.
+[images.cursors]
+source = "Art/cursor.pcx"
+
+[sheets.cursors]
+image = "cursors"
+cell = [32, 32]
+grid = [23, 1]
+origin = [1, 1]
+spacing = [1, 0]
+anchor_marks = [228, 152, 24]
+group = "Viewer@cursors"
+
+[sheets.capture_cursor]
+image = "cursors"
+cell = [32, 32]
+grid = [23, 1]
+origin = [1, 1]
+spacing = [1, 0]
+only = [9]
+anchor_marks = [228, 152, 24]
+group = "Viewer@capture"
+
 # The button-snapping pointer (Alt while the mouse is captured) and its
 # half-transparent ghost at the next target (tile-viewer `snap`); tip at
 # the anchor.
