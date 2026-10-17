@@ -44,7 +44,7 @@ pub fn overlay_screen_sprites(scene: &mut Scene) {
 /// Resolves (layer, sprite) names to cell values, caching the lookups.
 pub struct Mapper<'a> {
     compiled: &'a Compiled,
-    cache: RefCell<HashMap<(usize, String), u32>>,
+    cache: RefCell<HashMap<(usize, String, u32), u32>>,
 }
 
 impl<'a> Mapper<'a> {
@@ -53,10 +53,15 @@ impl<'a> Mapper<'a> {
     }
 
     fn put(&self, scene: &mut Scene, layer: &str, col: u32, row: u32, sprite: Option<String>) {
+        self.put_in(scene, layer, col, row, sprite, 0);
+    }
+
+    /// [`Mapper::put`], the layer's indexed sprites through named palette `palette`.
+    fn put_in(&self, scene: &mut Scene, layer: &str, col: u32, row: u32, sprite: Option<String>, palette: u32) {
         let (Some(index), Some(sprite)) = (self.compiled.layer_index(layer), sprite) else { return };
         let mut cache = self.cache.borrow_mut();
-        let value = *cache.entry((index, sprite)).or_insert_with_key(|(_, s)| {
-            self.compiled.value(layer, s).unwrap_or_else(|| {
+        let value = *cache.entry((index, sprite, palette)).or_insert_with_key(|(_, s, p)| {
+            self.compiled.value_in(layer, s, *p).unwrap_or_else(|| {
                 log::warn!("layer {layer} has no sprite {s}");
                 0
             })
@@ -142,7 +147,8 @@ impl<'a> Mapper<'a> {
                 for (dir, border) in ["nw", "ne", "sw", "se"].into_iter().zip(rules::borders(world, x, y)) {
                     let Some((colors, index)) = border else { continue };
                     self.put(&mut scene, &format!("border_{dir}_shade"), col, row, Some(format!("Territory_Shade/{index}")));
-                    self.put(&mut scene, &format!("border_{dir}"), col, row, Some(format!("Territory_Images@{colors}/{index}")));
+                    let palette = self.compiled.palette(&format!("ntp@{colors}")).unwrap_or(0);
+                    self.put_in(&mut scene, &format!("border_{dir}"), col, row, Some(format!("Territory_Images/{index}")), palette);
                 }
                 self.put(&mut scene, "road", col, row, road);
                 self.put(&mut scene, "forest_over_road", col, row, forest.clone().filter(|_| over_roads));

@@ -316,13 +316,24 @@ impl ArtJob {
         let compiled = assets::compile_as(&self.wire.description, self.files, pixels)
             .map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()));
         if let Ok(c) = &compiled {
-            let pages = &c.atlas.pages;
-            let mb = pages.iter().map(|p| p.width as u64 * p.height as u64 * 4).sum::<u64>() >> 20;
+            let (rgba, index) = c.atlas.page_bytes();
+            let indexed = c.atlas.sprites.iter().filter(|s| s.palette != 0).count();
             log::info!(
-                "live renderer: {} layers, {} sprites, {} ({:?})",
+                "live renderer: {} layers, {} sprites ({indexed} indexed), {} ({:?})",
                 c.layers.len(),
                 c.sprite_names.len(),
-                if self.pixels { format!("{} atlas pages ({mb} MiB)", pages.len()) } else { "the tables only (the renderer makes the atlas)".into() },
+                if self.pixels {
+                    format!(
+                        "atlas {} colour pages ({} MiB), {} index pages ({} MiB), {} palette rows",
+                        c.atlas.pages.len(),
+                        rgba >> 20,
+                        c.atlas.index_pages.len(),
+                        index >> 20,
+                        c.atlas.palettes.len() / tile_render::PALETTE_SIZE as usize
+                    )
+                } else {
+                    "the tables only (the renderer makes the atlas)".into()
+                },
                 self.folders
             );
         }

@@ -89,6 +89,21 @@ Civ III does). The target then stores `q + bias` per channel in 8 bits, and
 the 8-bit rounding land exactly on the floor, after every sprite, in drawing
 order. A final pass expands the channels to 8 bits.
 
+Sprites come in two kinds, drawn side by side in the same passes and
+blends: colour sprites (RGBA texels) and *indexed* ones (one byte, a
+palette index, per texel, on index pages of their own), drawn through
+palette rows: the sprite's own row (an 8-bit art file's palette with its
+transparent, translucent and shadow entries) and, for the indices in its
+`remap` range, a *named* palette the cell (by bits of its value, layers
+with `palettes = true`) or the free sprite picks — a nation's colours, say.
+So a unit's frames are in the atlas once for every nation, its body and
+its shadow share them, and 8-bit art takes a quarter of the memory. A
+render description's images are indexed wherever the loader can load them
+so (`ImageLoader::indexed`; `indexed = false` says otherwise); generated
+pictures, glyph sheets and pixels computed per pixel (alpha masks) stay
+in colour. `[palettes]` names the rows draws pick (from the loader's
+palette files, or another palette with entries copied over).
+
 `tile_render::reference` renders the same thing on the CPU; the GPU output is
 tested byte for byte against it (`cargo test -p tile-render`), including an
 exhaustive test of the rounding.

@@ -336,7 +336,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     }
     if let Ok(stats) = game.unit_type_stats() {
         for (i, s) in stats.iter().enumerate() {
-            let _ = writeln!(out, "unit_type_stats {i} {} {} {} {} {} {}", s[0], s[1], s[2], s[3], s[4], s[5]);
+            let _ = writeln!(out, "unit_type_stats {i} {} {} {} {} {} {} {}", s[0], s[1], s[2], s[3], s[4], s[5], s[6]);
         }
     }
     if let Ok(hp) = game.experience_hit_points() {
