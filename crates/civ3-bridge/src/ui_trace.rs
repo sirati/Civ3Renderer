@@ -16,10 +16,38 @@ static MODEL: Mutex<Option<UiModel>> = Mutex::new(None);
 /// The game's build, once the hooks are installed.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
+/// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
+static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
 thread_local! {
     /// The canvas the game's text functions are drawing on (their `this`),
     /// for attributing `TextOutA` calls.
     static TEXT_CANVAS: Cell<u32> = const { Cell::new(0) };
+    /// The rectangle of the screen being painted or presented (left, top,
+    /// right, bottom), while it is.
+    static DIRTY: Cell<Option<[i32; 4]>> = const { Cell::new(None) };
+}
+
+/// The clip rectangle of a draw onto `canvas` (see `h::canvas_clip`). On
+/// the back buffer, the rectangle a paint or present is updating is no
+/// clip of the content: the game clips the frames of framed forms (m80) and
+/// the tooltip to it, but what it draws there is all of them, and which
+/// part of the back buffer reaches the window is the model's to follow
+/// (`UiModel::present`). Kept clipped, a paint of one button's rectangle
+/// would leave a popup without its frame and a tooltip without its box.
+fn clip_of(canvas: u32) -> Option<[i32; 4]> {
+    let dirty = if BACK_BUFFER.get() == Some(&canvas) { DIRTY.with(Cell::get) } else { None };
+    crate::ui::content_clip(h::canvas_clip(canvas), dirty)
+}
+
+/// Runs `f` with `rect` (a `RECT*`, 0 for all of it) as the rectangle being
+/// updated.
+fn updating<R>(rect: u32, f: impl FnOnce() -> R) -> R {
+    let r = if rect == 0 { None } else { obj::rect(rect) };
+    let outer = DIRTY.with(|d| d.replace(r));
+    let out = f();
+    DIRTY.with(|d| d.set(outer));
+    out
 }
 
 fn emit(e: Event) {
@@ -73,7 +101,7 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
     // A frame of an FLC animation in its own colours (a leader head).
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), plain: true });
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), plain: true });
         return;
     }
     // Through a civ colour table: that table's palette.
@@ -92,7 +120,7 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
     // Else a sprite of its own colour table, recoloured by copying a civ's
     // first 64 colours into it.
     let palette = table.map(|n| ntp(n, 256)).or_else(|| own_civ_colors(sprite).map(|n| ntp(n, 64)));
-    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), palette });
+    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette });
 }
 
 /// Which civ's colours `sprite`'s own colour table holds (its first 64), if
@@ -117,7 +145,7 @@ fn own_civ_colors(sprite: u32) -> Option<u32> {
 /// box redrawing one row through tiles of its background).
 fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
     let (mut src, mut x, mut y) = (src, x, y);
-    if let Some([l, t, r, b]) = h::canvas_clip(canvas) {
+    if let Some([l, t, r, b]) = clip_of(canvas) {
         let (dl, dt) = ((l - x).max(0), (t - y).max(0));
         let (w, hh) = ((src[2] - dl).min(r - x - dl), (src[3] - dt).min(b - y - dt));
         if w <= 0 || hh <= 0 {
@@ -131,7 +159,7 @@ fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
 
 fn fill(canvas: u32, rect: [i32; 4], color: u32) {
     size_of(canvas);
-    emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: h::canvas_clip(canvas) });
+    emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: clip_of(canvas) });
 }
 
 /// The hooks; they stay installed while this lives.
@@ -145,6 +173,7 @@ pub struct UiTracer {
 pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underlay_art: Vec<String>) -> Result<UiTracer, HookError> {
     let sites = h::ui_sites(game.build).ok_or(HookError::Unsupported)?;
     let _ = BUILD.set(game.build);
+    let _ = BACK_BUFFER.set(h::back_buffer(game.build).unwrap_or(0));
     *MODEL.lock().unwrap_or_else(|e| e.into_inner()) =
         Some(
             UiModel::new(Vec::new(), skip_canvases)
@@ -221,7 +250,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
         // No crop offset: the stored pixels go to (x, y).
-        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: h::canvas_clip(c.dest) });
+        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
         c.original()
     });
     hook!(pcx_draw_onto, sites.pcx_draw_onto, |c| {
@@ -297,13 +326,13 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     });
     hook!(paint, sites.paint, |c| {
         emit(Event::PaintBegin);
-        c.original();
+        updating(c.rect, || c.original());
         emit(Event::PaintEnd);
     });
     let back_buffer = h::back_buffer(game.build).unwrap_or(0);
     hook!(present, sites.present, move |c| {
         // (It draws the tooltip and the cursor onto the back buffer first.)
-        c.original();
+        updating(c.rect, || c.original());
         size_of(back_buffer);
         emit(Event::Present { rect: if c.rect == 0 { None } else { obj::rect(c.rect) } });
     });
@@ -312,7 +341,7 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     hook!(text_draw_centered, sites.text_draw_centered, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
     hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
-        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: h::canvas_clip(c.dest) });
+        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
         c.original()
     });
     if let Some(site) = h::flc_load_site(game.build) {
@@ -369,7 +398,7 @@ fn shade(c: &h::jgl_shade::Call) {
     if alpha == 0 {
         return;
     }
-    emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: h::canvas_clip(canvas) });
+    emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: clip_of(canvas) });
 }
 
 /// What a line drawer is set to: canvas, colour, opacity, width.
@@ -426,7 +455,7 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
             let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
             for (rect, coverage) in crate::ui::line_fills((x1, y1), (x2, y2), p.width, crate::ui::smooth_lines()) {
                 let alpha = crate::ui::covered_alpha(p.alpha, coverage);
-                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha, clip: h::canvas_clip(p.canvas) });
+                emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha, clip: clip_of(p.canvas) });
             }
         }
         c.original()
@@ -492,6 +521,6 @@ pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32) {
         // The frame's image lies at its offset from (x, y), as for map
         // units (§10.3).
         let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: h::canvas_clip(canvas), plain: false });
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), plain: false });
     }
 }
