@@ -903,6 +903,15 @@ fn publish(
             if preload_for != key && !world.units.is_empty() && !world.unit_type_keys.is_empty() {
                 preload = crate::preload::Preload::plan(world, view, &mut art, &art_list, budget);
                 preload_for = key;
+                // Room in the atlas for what will be made (as far as the
+                // budget goes), at once: not moved again and again.
+                if pixels {
+                    let page = 2048 * 2048;
+                    let ahead = preload.left().min(budget.saturating_sub(atlas_used));
+                    // (Mostly indexed art; the shelves leave some room unused.)
+                    let index_pages = ((atlas_used + ahead * 5 / 4).min(budget.max(atlas_used)) / page) as u32 + 1;
+                    presenter.reserve(0, index_pages);
+                }
             }
         }
         if let Some(token) = schedule.start(now) {

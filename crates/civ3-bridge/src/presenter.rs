@@ -85,6 +85,15 @@ impl Presenter {
         }
     }
 
+    /// Asks a renderer given the art to make room in its atlas for this many
+    /// colour and index pages (art expected soon); one compiling its own
+    /// grows as its art comes.
+    pub fn reserve(&mut self, pages: u32, index_pages: u32) {
+        if let Sink::InProcess { assets, .. } = &self.sink {
+            assets.reserve(pages, index_pages);
+        }
+    }
+
     /// The latest art generation a renderer that compiles its own art has
     /// (scenes referring to it are drawn at once); `None` for one given
     /// the art.
