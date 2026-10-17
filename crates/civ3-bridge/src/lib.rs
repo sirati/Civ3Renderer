@@ -14,6 +14,7 @@ pub mod district_art;
 pub mod districts;
 pub mod edge;
 pub mod game_render;
+pub mod game_size;
 pub mod interface_parts;
 pub mod label_check;
 pub mod minimap;
@@ -32,6 +33,8 @@ pub mod ui_trace;
 pub mod units;
 pub mod world;
 #[cfg(windows)]
+pub mod game_window;
+#[cfg(windows)]
 pub mod live;
 pub mod presenter;
 #[cfg(windows)]
@@ -40,7 +43,13 @@ pub mod trace;
 #[cfg(windows)]
 use civ3_sys::Civ3;
 
-inproc::entry!(init);
+inproc::entry!(init, early = early);
+
+/// In `DllMain`, before the game's own code runs (`game_window`).
+#[cfg(windows)]
+fn early() {
+    game_window::early();
+}
 
 #[cfg(windows)]
 fn init() {
@@ -49,6 +58,9 @@ fn init() {
     // matched with outside measurements.)
     let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     log::info!("civ3-bridge loaded (unix time {:.3})", unix.as_secs_f64());
+    for note in game_window::take_notes() {
+        log::info!("{note}");
+    }
     let game = match Civ3::attach() {
         Ok(g) => g,
         Err(e) => return log::error!("not attaching: {e}"),
@@ -72,6 +84,14 @@ fn init() {
     if std::env::var_os("CIV3R_VIEWER").is_some() {
         if let Err(e) = live::start(game) {
             log::error!("starting the renderer: {e}");
+            // Without it, the game's own window is the only one.
+            if game_window::hidden() {
+                inproc::hidden::set_hiding(false);
+                for w in inproc::window::Window::all_of_this_process() {
+                    w.show();
+                }
+                log::warn!("the game's window is shown: there is no viewer");
+            }
         }
     }
     for _ in 0..30 {

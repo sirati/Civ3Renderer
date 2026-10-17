@@ -32,11 +32,11 @@ pub fn game_files(install: &Path, scenario_folder: Option<&str>, search_roots: &
     files
 }
 
-/// Compiles a description (TOML text) against the game's art.
+/// Compiles a description (TOML text) against the game's art, for any
+/// device (pages of `render_desc::page_size`, at most
+/// `render_desc::ANY_DEVICE_PAGE`).
 pub fn compile(text: &str, files: GameFiles) -> Result<Compiled, DescError> {
-    // 2048² pages: the atlas texture is sized to the pages in use, and stays
-    // small enough for 32-bit processes and software renderers.
-    Description::parse(text)?.compile(&Civ3Loader::new(files), 2048)
+    compile_as(text, files, Pixels::Made(None), render_desc::ANY_DEVICE_PAGE)
 }
 
 /// What a compile makes of the art (see [`compile_as`]).
@@ -50,21 +50,26 @@ pub enum Pixels<'a> {
     TablesOnly,
 }
 
-/// [`compile`], with or without the pixels.
-pub fn compile_as(text: &str, files: GameFiles, pixels: Pixels) -> Result<Compiled, DescError> {
+/// [`compile`], with or without the pixels, for a renderer whose atlas
+/// pages may be at most `max_page` wide and high (its device's limit): the
+/// pages are as large as the largest sprite needs, else 2048² (small enough
+/// for 32-bit processes and software renderers; see
+/// `render_desc::page_size`). A renderer making its own atlas from the same
+/// text must use the same limit.
+pub fn compile_as(text: &str, files: GameFiles, pixels: Pixels, max_page: u32) -> Result<Compiled, DescError> {
     let desc = Description::parse(text)?;
     let loader = Civ3Loader::new(files);
     match pixels {
-        Pixels::Made(Some(cache)) => desc.compile_cached(&loader, 2048, cache),
-        Pixels::Made(None) => desc.compile(&loader, 2048),
-        Pixels::TablesOnly => desc.compile_layout(&loader, 2048),
+        Pixels::Made(Some(cache)) => desc.compile_cached(&loader, max_page, cache),
+        Pixels::Made(None) => desc.compile(&loader, max_page),
+        Pixels::TablesOnly => desc.compile_layout(&loader, max_page),
     }
 }
 
 /// [`compile_as`], to be grown (`render_desc::Growing`): with the pixels
 /// (`pixels`), else the tables only.
-pub fn compile_growing(text: &str, files: GameFiles, pixels: bool) -> Result<(Compiled, render_desc::Growing), DescError> {
-    Description::parse(text)?.compile_growing(&Civ3Loader::new(files), 2048, pixels)
+pub fn compile_growing(text: &str, files: GameFiles, pixels: bool, max_page: u32) -> Result<(Compiled, render_desc::Growing), DescError> {
+    Description::parse(text)?.compile_growing(&Civ3Loader::new(files), max_page, pixels)
 }
 
 /// The growth of `compiled` (grown by `growing`) by `addition`.
@@ -94,7 +99,7 @@ mod tests {
         assert_eq!((s.width, s.height), (128, 64));
         assert_eq!((s.box_x, s.box_y, s.box_w, s.box_h), (1, 0, 126, 64));
         // The tables alone agree with the full compile.
-        let layout = compile_as(BUILTIN_DESC, GameFiles::complete(&install), Pixels::TablesOnly).unwrap();
+        let layout = compile_as(BUILTIN_DESC, GameFiles::complete(&install), Pixels::TablesOnly, render_desc::ANY_DEVICE_PAGE).unwrap();
         assert_eq!(layout.sprite_names, compiled.sprite_names);
         let sizes = |c: &Compiled| c.atlas.sprites.iter().map(|s| (s.width, s.height, s.anchor_x, s.anchor_y, s.downscaled)).collect::<Vec<_>>();
         assert_eq!(sizes(&layout), sizes(&compiled));

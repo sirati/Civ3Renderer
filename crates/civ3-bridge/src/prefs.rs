@@ -35,15 +35,22 @@ pub const TAB_RESOLUTION: &str = "resolution";
 pub const TAB_LAYOUT: &str = "layout";
 
 /// The values the panel shows: the tab, every control of the settings
-/// (`viewer_settings::controls`) by its key, and the rendered and window
+/// (`viewer_settings::controls`) by its key, the rendered and the window
 /// size (`resolution.realised`, `resolution.window`, as "W×H") for a window
-/// of `window` pixels.
-pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<String, Value> {
+/// of `window` physical pixels on a desktop scaled `desktop` times, and the
+/// pixel scale in effect (`resolution.effective`, e.g. "Auto (×2)").
+pub fn values(settings: &Settings, tab: &str, window: (u32, u32), desktop: f64) -> BTreeMap<String, Value> {
     let mut out: BTreeMap<String, Value> = settings.controls().into_iter().map(|(k, v)| (k, to_value(v))).collect();
     out.insert(TAB.into(), Value::Text(tab.into()));
-    let (w, h) = settings.resolution.realised(window);
+    let (w, h) = settings.resolution.realised(window, desktop);
     out.insert("resolution.realised".into(), Value::Text(format!("{w}×{h}")));
     out.insert("resolution.window".into(), Value::Text(format!("{}×{}", window.0, window.1)));
+    let r = &settings.resolution;
+    let mut effective = r.describe_pixel_scale(desktop);
+    if r.pixel_scale_in(window, desktop) < r.effective_pixel_scale(desktop) {
+        effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window, desktop));
+    }
+    out.insert("resolution.effective".into(), Value::Text(effective));
     out
 }
 
@@ -129,7 +136,9 @@ pub struct Prefs {
     /// Where the game's Preferences screen is while it is open (see
     /// [`screen_area`]).
     open: Option<[i32; 4]>,
-    /// The window's size (the rendered size depends on it).
+    /// The viewer's window in physical pixels and the desktop's scale
+    /// (`Input::Window`; the rendered size depends on them), or before it
+    /// told them, the size it arranges the game's screen in.
     window: (u32, u32),
     /// A popup of the game is open over the screen (e.g. C3X's info box):
     /// the input is all the game's, the popup's buttons may lie over our
@@ -138,6 +147,36 @@ pub struct Prefs {
     /// Whether Ctrl and Shift are held (for the reset, [`RESET_KEY`]).
     ctrl: bool,
     shift: bool,
+    /// The desktop's scale at the renderer's window, and whether the
+    /// renderer told its window (`Input::Window`) rather than the driver's
+    /// screen only.
+    desktop: f64,
+    native: bool,
+}
+
+/// Where the renderer's settings are kept: `CIV3R_SETTINGS` (a Windows path,
+/// or under Wine a Unix one too), else under Wine the Linux user's (as
+/// `viewer_settings::Settings::default_path` finds them there, e.g.
+/// `~/.config/civ3r/settings.toml`: a native viewer reads the same file),
+/// else Windows' (`%APPDATA%\civ3r`).
+#[cfg(windows)]
+pub fn settings_path() -> PathBuf {
+    let unix = |p: &str| p.starts_with('/').then(|| inproc::wine::dos_path(std::path::Path::new(p))).flatten();
+    if let Ok(p) = std::env::var("CIV3R_SETTINGS") {
+        return unix(&p).unwrap_or_else(|| PathBuf::from(p));
+    }
+    if inproc::wine::is_wine() {
+        let base = std::env::var("XDG_CONFIG_HOME").ok().filter(|p| p.starts_with('/')).or_else(|| std::env::var("HOME").ok().filter(|h| h.starts_with('/')).map(|h| format!("{h}/.config")));
+        if let Some(path) = base.and_then(|b| unix(&format!("{b}/civ3r/settings.toml"))) {
+            return path;
+        }
+        // (Wine keeps the Unix HOME from Windows programs: it gives it as
+        // WINEHOMEDIR, `\??\Z:\home\me`.)
+        if let Some(home) = std::env::var("WINEHOMEDIR").ok().map(|h| h.trim_start_matches(r"\??\").to_owned()).filter(|h| h.as_bytes().get(1) == Some(&b':')) {
+            return PathBuf::from(format!(r"{home}\.config\civ3r\settings.toml"));
+        }
+    }
+    Settings::default_path()
 }
 
 const VK_BACK: u32 = 0x08;
@@ -157,7 +196,7 @@ impl Prefs {
         });
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), settings, path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, ctrl: false, shift: false }
+        Prefs { panels, state: PanelState::default(), settings, path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, ctrl: false, shift: false, desktop: 1.0, native: false }
     }
 
     /// The settings (sent to the viewer with every scene).
@@ -179,8 +218,15 @@ impl Prefs {
     /// acts on it — a changed setting is saved at once — and gives back the
     /// rest, for the game. `window`: the window's size as last reported.
     pub fn route(&mut self, inputs: Vec<Input>, window: (u32, u32)) -> Vec<Input> {
-        if window != (0, 0) {
-            self.window = window;
+        self.follow_window(window);
+        for input in &inputs {
+            match *input {
+                Input::Window { width, height, scale_milli } => {
+                    (self.window, self.desktop, self.native) = ((width, height), scale_milli.max(1) as f64 / 1000.0, true);
+                }
+                Input::Resized { width, height } => self.follow_window((width, height)),
+                _ => {}
+            }
         }
         let mut changed = false;
         let mut out = Vec::new();
@@ -201,9 +247,6 @@ impl Prefs {
                     _ => {}
                 }
             }
-            if let Input::Resized { width, height } = input {
-                self.window = (width, height);
-            }
             // (While a popup of the game is over the screen, the input is
             // all the game's.)
             let (Some(area), Some(panels), false) = (self.open, self.panels.as_ref(), self.covered) else {
@@ -214,7 +257,7 @@ impl Prefs {
                 out.push(input);
                 continue;
             };
-            self.state.values = values(&self.settings, &self.tab, self.window);
+            self.state.values = self.values();
             let routed = panels.input(panel, &mut self.state, area, &input);
             for event in &routed.events {
                 let (settings, tab) = apply(&mut self.settings, event);
@@ -228,7 +271,7 @@ impl Prefs {
                 out.push(input);
             }
         }
-        self.state.values = values(&self.settings, &self.tab, self.window);
+        self.state.values = self.values();
         if changed {
             match self.settings.save(&self.path) {
                 Ok(()) => log::info!("settings saved: {:?}", self.settings),
@@ -253,9 +296,7 @@ impl Prefs {
     /// game's modal form). It opens on the game's own tab, with nothing
     /// pressed.
     pub fn update(&mut self, frame: Option<&Frame>, form: Option<PreferencesForm>, window: (u32, u32), modal: Option<u32>) {
-        if window != (0, 0) {
-            self.window = window;
-        }
+        self.follow_window(window);
         let size = self.panels.as_ref().and_then(|p| p.panel(PANEL)).map(|p| p.size()).unwrap_or((1024, 768));
         let open = frame.zip(form).and_then(|(f, form)| screen_area(f, &form, size));
         if open.is_some() != self.open.is_some() {
@@ -270,7 +311,20 @@ impl Prefs {
             self.state = PanelState { values: std::mem::take(&mut self.state.values), ..PanelState::default() };
         }
         self.covered = covered;
-        self.state.values = values(&self.settings, &self.tab, self.window);
+
+        self.state.values = self.values();
+    }
+
+    /// The size the viewer arranges the game's screen in (`Input::Resized`),
+    /// for the readout until it tells its window's (`Input::Window`).
+    fn follow_window(&mut self, window: (u32, u32)) {
+        if window != (0, 0) && !self.native {
+            self.window = window;
+        }
+    }
+
+    fn values(&self) -> BTreeMap<String, Value> {
+        values(&self.settings, &self.tab, self.window, self.desktop)
     }
 
     /// What the panel draws now (nothing while the screen is closed), text
@@ -362,11 +416,23 @@ mod tests {
         let mut s = Settings::default();
         s.resolution.pixel_scale = 3;
         s.layout.split = Split::Vertical1To1;
-        let v = values(&s, TAB_LAYOUT, (3840, 2160));
+        let v = values(&s, TAB_LAYOUT, (3840, 2160), 2.0);
         assert_eq!(v[TAB], Value::Text("layout".into()));
         assert_eq!(v["resolution.pixel_scale"], Value::Text("3".into()));
         assert_eq!(v["resolution.realised"], Value::Text("1280×720".into()));
         assert_eq!(v["resolution.window"], Value::Text("3840×2160".into()));
+        assert_eq!(v["resolution.effective"], Value::Text("×3".into()));
+        // Auto on a desktop at 200 %: rendered at half the window.
+        s.resolution.pixel_scale = viewer_settings::Resolution::AUTO;
+        let v = values(&s, TAB_RESOLUTION, (3840, 2160), 2.0);
+        assert_eq!(v["resolution.pixel_scale"], Value::Text("auto".into()));
+        assert_eq!(v["resolution.realised"], Value::Text("1920×1080".into()));
+        assert_eq!(v["resolution.effective"], Value::Text("Auto (×2)".into()));
+        // ×1 at 200 %: rendered at the window's size, at once.
+        s.resolution.pixel_scale = 1;
+        let v = values(&s, TAB_RESOLUTION, (3840, 2160), 2.0);
+        assert_eq!(v["resolution.realised"], Value::Text("3840×2160".into()));
+        assert_eq!(v["resolution.effective"], Value::Text("×1".into()));
         assert_eq!(v["layout.split"], Value::Text("Vertical1To1".into()));
         assert_eq!(v["layout.smooth_world_movement"], Value::On(false));
         assert_eq!(v["layout.screens.Palace"], Value::Text("Floating".into()));
@@ -501,7 +567,7 @@ mod tests {
         assert_eq!(click(&mut p, 985, 735).len(), 3);
         // The pixel scale on the Resolution tab.
         assert!(click(&mut p, 220, 55).is_empty());
-        assert!(click(&mut p, 90 + 2 * 66 + 10, 170).is_empty());
+        assert!(click(&mut p, 156 + 2 * 66 + 10, 170).is_empty());
         assert_eq!(Settings::load(&path).unwrap().resolution.pixel_scale, 3);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         assert!(texts.contains(&"Rendered at 341×256".to_string()), "{texts:?}");
@@ -510,6 +576,9 @@ mod tests {
         assert!(Settings::load(&path).unwrap().display.show_fps);
         assert!(click(&mut p, 160, 495).is_empty());
         assert!(!Settings::load(&path).unwrap().display.show_fps);
+        // Auto, the first.
+        assert!(click(&mut p, 90 + 10, 170).is_empty());
+        assert_eq!(Settings::load(&path).unwrap().resolution.pixel_scale, viewer_settings::Resolution::AUTO);
         // Closed and opened again: the game's tab.
         p.update(Some(&Frame::default()), Some(FORM), (1024, 768), None);
         assert!(!p.is_open());
