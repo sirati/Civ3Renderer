@@ -238,9 +238,10 @@ pub struct UiModel {
     /// Whether `skip_canvases` are left out now.
     skipping: bool,
     /// Canvases under the interface whose own content we render (the map):
-    /// while skipping, mirrored without full-canvas fills and without
-    /// images from files containing one of `underlay_art` (lowercase).
+    /// while skipping, mirrored without full-canvas fills.
     underlays: Vec<u32>,
+    /// File images on those canvases owned by our renderer, in every mode
+    /// and through copies. Names contain one of these lowercase strings.
     underlay_art: Vec<String>,
     /// Surfaces the game fills itself (pixel by pixel): not followed,
     /// passed on as [`ScreenDraw::Surface`].
@@ -399,7 +400,8 @@ impl UiModel {
         if parts.is_empty() {
             return;
         }
-        let underlay = self.skipping && self.underlays.contains(&canvas);
+        let renderer_owned_canvas = self.underlays.contains(&canvas);
+        let underlay = self.skipping && renderer_owned_canvas;
         let start = frame.draws.len();
         // In pieces, each has what reaches into it.
         let split = parts.len() > 1;
@@ -408,7 +410,10 @@ impl UiModel {
             // city screen clears to black and the map shows through its art).
             let black = |op: &&Op| keyed && matches!(op, Op::Fill { rgb: [0, 0, 0], alpha: 255, .. });
             let keep = |op: &&Op| (!underlay || self.underlay_keeps(canvas, op)) && !black(op);
-            let draws = ops.iter().filter(|(op, _)| keep(&op)).flat_map(|(_, resolved)| resolved.iter().cloned()).filter_map(|op| screen_draw(op, origin, clip));
+            let draws = ops.iter().filter(|(op, _)| keep(&op))
+                .flat_map(|(_, resolved)| resolved.iter())
+                .filter(|op| !renderer_owned_canvas || !self.renderer_owned_art(op))
+                .cloned().filter_map(|op| screen_draw(op, origin, clip));
             frame.draws.extend(draws.filter(|d| !split || reaches_clip(d)).map(|mut d| {
                 // Generated surfaces: their whole size, as far as known.
                 if let ScreenDraw::Surface { image, size, .. } = &mut d {
@@ -689,14 +694,16 @@ impl UiModel {
 
     /// Whether an underlay shows `op` over our own rendering.
     fn underlay_keeps(&self, canvas: u32, op: &Op) -> bool {
-        match op {
-            Op::Fill { rect, .. } => !self.covers(canvas, *rect),
-            Op::Image { source: Source::File { path, .. }, .. } => {
-                let p = path.to_ascii_lowercase();
-                !self.underlay_art.iter().any(|a| p.contains(a.as_str()))
-            }
-            _ => true,
-        }
+        !matches!(op, Op::Fill { rect, .. } if self.covers(canvas, *rect))
+    }
+
+    /// Map-only artwork has rendering semantics of its own, for example
+    /// fog palette indices are blend weights rather than gray UI pixels.
+    /// Its ownership survives a shared canvas changing to title/form UI.
+    fn renderer_owned_art(&self, op: &Op) -> bool {
+        let Op::Image { source: Source::File { path, .. }, .. } = op else { return false };
+        let path = path.to_ascii_lowercase();
+        self.underlay_art.iter().any(|art| path.contains(art.as_str()))
     }
 
     fn push(&mut self, canvas: u32, op: Op) {
@@ -764,9 +771,15 @@ impl UiModel {
         let Some(ops) = self.canvases.get(image) else { return Vec::new() };
         let (dx, dy) = (x - sx, y - sy);
         let window = [*sx, *sy, sx + sw, sy + sh];
+        let renderer_owned_canvas = self.underlays.contains(image);
         let mut out = Vec::new();
         for inner in ops {
             for inner in self.resolve(inner, depth + 1) {
+                // A copy must not turn a map renderer's mask into a UI
+                // image, even after this shared canvas holds title UI.
+                if renderer_owned_canvas && self.renderer_owned_art(&inner) {
+                    continue;
+                }
                 if let Some(moved) = crop_move(inner, window, (dx, dy), *keyed) {
                     out.push(moved);
                 }
@@ -1234,6 +1247,45 @@ mod tests {
                 ScreenDraw::Image { path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip, mask: None, palette: None, opacity: 255 },
             ]
         );
+    }
+
+    #[test]
+    fn map_owned_masks_stay_out_of_shared_canvas_ui_after_world_handover() {
+        let mut m = UiModel::new(vec![], vec![]).with_underlays(vec![300], vec!["fogofwar.pcx".into()]);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        m.apply(Event::Loaded { image: 10, path: "Art/Terrain/FogOfWar.pcx".into(), size: (128, 64) });
+        m.apply(Event::Loaded { image: 11, path: "Art/title.pcx".into(), size: (20, 20) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0, 0, 8, 8] });
+        m.apply(Event::Sliced { sprite: 21, image: 11, rect: [0, 0, 20, 20] });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 3, y: 4, clip: None, palette: None });
+        m.apply(Event::Blit { sprite: 21, canvas: 300, x: 20, y: 20, clip: None, palette: None });
+        m.apply(Event::Text { canvas: 300, run: text(20, 50, "Title") });
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (100, 100)));
+        m.apply(Event::PaintEnd);
+        // The same canvas remains composed after the world ends. Its
+        // title/UI content becomes ordinary UI, but fog masks stay owned
+        // by the map renderer, including through an opaque canvas copy.
+        m.set_skipping(false);
+        m.apply(Event::Copy { from: 300, src: [0, 0, 100, 100], canvas: 400, x: 0, y: 0, keyed: false });
+        // An ordinary form can still draw the same image. Ownership is
+        // scoped to the declared map canvas.
+        m.apply(Event::Blit { sprite: 20, canvas: 500, x: 3, y: 4, clip: None, palette: None });
+        m.apply(Event::PaintBegin);
+        for (canvas, x) in [(300, 0), (400, 100), (500, 200)] {
+            m.apply(composite(canvas, (x, 0), (100, 100)));
+        }
+        m.apply(Event::PaintEnd);
+        let frame = m.frame();
+        let images: Vec<_> = frame.draws.iter().filter_map(|d| match d {
+            ScreenDraw::Image { path, x, y, .. } => Some((path.as_str(), *x, *y)),
+            _ => None,
+        }).collect();
+        assert_eq!(images, vec![("Art/title.pcx", 20, 20), ("Art/title.pcx", 120, 20), ("Art/Terrain/FogOfWar.pcx", 203, 4)]);
+        assert_eq!(frame.draws.iter().filter(|d| matches!(d, ScreenDraw::Fill { rgb: [0, 0, 0], alpha: 255, .. })).count(), 2);
+        assert_eq!(frame.draws.iter().filter(|d| matches!(d, ScreenDraw::Text { run, .. } if run.text == "Title")).count(), 2);
+        assert!(frame.underlay_draws.is_empty());
     }
 
     #[test]
