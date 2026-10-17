@@ -130,8 +130,8 @@ fn part_id(object: u32, tag: u32, index: u32) -> u64 {
 const TAG_ITEM: u32 = 0;
 const TAG_LINK: u32 = 0x1000_0000;
 const TAG_MENU: u32 = 0x2000_0000;
-const TAG_CHECK: u32 = 0x4000_0000;
-const TAG_TAB: u32 = 0x8000_0000;
+pub(crate) const TAG_CHECK: u32 = 0x4000_0000;
+pub(crate) const TAG_TAB: u32 = 0x8000_0000;
 const TAG_CHOICE: u32 = 0x0800_0000;
 
 fn rect_at(mem: &dyn Mem, at: u32) -> Option<[i32; 4]> {
