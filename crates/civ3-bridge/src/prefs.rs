@@ -330,6 +330,7 @@ mod tests {
         assert_eq!(v["layout.smooth_world_movement"], Value::On(false));
         assert_eq!(v["layout.screens.Palace"], Value::Text("Floating".into()));
         assert_eq!(v["input.snap_updates_per_second"], Value::Number(3.0));
+        assert_eq!(v["display.show_fps"], Value::On(false));
     }
 
     #[test]
@@ -452,6 +453,11 @@ mod tests {
         assert_eq!(Settings::load(&path).unwrap().resolution.pixel_scale, 3);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         assert!(texts.contains(&"Rendered at 341×256".to_string()), "{texts:?}");
+        // The frame counter, on and off again by its checkbox (or its label).
+        assert!(click(&mut p, 97, 495).is_empty());
+        assert!(Settings::load(&path).unwrap().display.show_fps);
+        assert!(click(&mut p, 160, 495).is_empty());
+        assert!(!Settings::load(&path).unwrap().display.show_fps);
         // Closed and opened again: the game's tab.
         p.update(Some(&Frame::default()), Some(FORM), (1024, 768), None);
         assert!(!p.is_open());
