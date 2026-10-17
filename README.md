@@ -234,7 +234,12 @@ draws it itself, as sprites in a camera on top that change without the
 world being rebuilt, only where the system cannot: while the mouse is
 captured or snapping (the system pointer hidden, never seen jumping), and
 in the other views showing the world pixel under the pointer (the other
-pane, insets, a world zoom box). Each pointer event redraws at once
+pane, insets, a world zoom box). While the view following the world
+cursor is held at the edge of a map that does not wrap (the cursor off
+its middle), the system pointer shows at the world cursor and moves it
+until the view can centre it again. The cursor shows once per place at
+any moment (`tile_viewer::cursor::Machine`); no world cursor is drawn
+once the mouse is free. Each pointer event redraws at once
 (`TILE_VIEWER_LATENCY=1` logs the latency from motion to the drawn
 cursor). `vendor/winit` carries a fix for custom cursors on a 16-bit
 Windows desktop (the game's mode).
