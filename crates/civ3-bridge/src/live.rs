@@ -264,7 +264,6 @@ impl Compiler {
         fonts: &text::Fonts,
         screen: &menu::screen::ScreenArt,
         districts: &crate::district_art::DistrictArt,
-        zoomed_out: bool,
         pixels: bool,
     ) -> ArtJob {
         let text = format!(
@@ -279,7 +278,6 @@ impl Compiler {
         let wire = scene::wire::Assets {
             description: text,
             roots: files.roots().iter().map(|r| r.to_string_lossy().into_owned()).collect(),
-            scale_down: if zoomed_out { 2 } else { 1 },
             // (The presenter numbers them.)
             generation: 0,
         };
@@ -315,7 +313,7 @@ impl ArtJob {
     fn run(self, cache: &mut render_desc::SheetCache) -> ArtDone {
         let started = std::time::Instant::now();
         let pixels = if self.pixels { assets::Pixels::Made(Some(cache)) } else { assets::Pixels::TablesOnly };
-        let compiled = assets::compile_as(&self.wire.description, self.files, self.wire.scale_down, pixels)
+        let compiled = assets::compile_as(&self.wire.description, self.files, pixels)
             .map_err(|e| LiveError::Desc(self.name.clone(), e.to_string()));
         if let Ok(c) = &compiled {
             let pages = &c.atlas.pages;
@@ -395,7 +393,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
     // The native viewer makes its own atlas: this side needs the tables only.
     let pixels = !mode.starts_with("native");
-    let first = compiler.job(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), false, pixels);
+    let first = compiler.job(&folders, &units::Needed::default(), &text::Fonts::default(), &Default::default(), &Default::default(), pixels);
     let wire = first.wire.clone();
     let mut cache = render_desc::SheetCache::new();
     let compiled = Arc::new(first.run(&mut cache).compiled?);
@@ -460,7 +458,6 @@ fn publish(
     let mut screen_art = menu::screen::ScreenArt::default();
     let mut district_art = crate::district_art::DistrictArt::default();
     let mut label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
-    let mut zoomed_out = false;
     let mut table_colors = std::collections::HashMap::new();
     let mut schedule = crate::art_schedule::ArtSchedule::new(timing);
     // When the art being built was first wanted, and whether new art came
@@ -646,13 +643,6 @@ fn publish(
         }
         screen_recompile |= ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files, &input.zooms);
         recompile |= ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files, &input.zooms);
-        // The zoomed-out view has its own (half-size) art.
-        if let Shown::Map(_, view) = shown {
-            if view.zoomed_out != zoomed_out {
-                zoomed_out = view.zoomed_out;
-                recompile = true;
-            }
-        }
         // Art the description does not have yet: units, text fonts.
         if let Shown::Map(world, _) = shown {
             let needed = units::Needed::of(world, &mut art);
@@ -662,13 +652,11 @@ fn publish(
             }
         }
         recompile |= fonts.add(&compiler.files(&folders), texts);
-        // The art of the districts on the map (C3X).
-        if let Shown::Map(world, view) = shown {
-            for d in &world.districts {
-                let stages = crate::districts::stages(world, d.x, d.y, view.zoomed_out);
-                let slices: Vec<_> = stages.buildings.iter().chain(&stages.resources).map(|s| crate::district_art::Slice::of(s, view.zoomed_out)).collect();
-                recompile |= district_art.add(&slices);
-            }
+        // The art of the districts on the map (C3X), for both zooms at once
+        // (the zoomed-out view draws the same art at half size: zooming out
+        // needs no new art).
+        if let Shown::Map(world, _) = shown {
+            recompile |= district_art.add(&crate::district_art::slices(world));
         }
         // Rebuild the art once the requests settle (a new screen asks for
         // new art several times in a row), one rebuild at a time, on the art
@@ -686,7 +674,7 @@ fn publish(
             if dropped > 0 {
                 log::debug!("art: {dropped} fonts not used for {FONT_KEPT:?} left out");
             }
-            let job =compiler.job(&folders, &have, &fonts, &screen_art, &district_art, zoomed_out, pixels);
+            let job = compiler.job(&folders, &have, &fonts, &screen_art, &district_art, pixels);
             // A renderer that compiles its own copy starts at once.
             let generation = presenter.prepare_assets(&job.wire);
             if art_thread.jobs.send(ArtJob { token, generation, ..job }).is_err() {
@@ -714,9 +702,10 @@ fn publish(
                     scene.sprites.extend(city_hud::sprites(world, &compiled));
                 }
                 // The point of interest: the active unit.
+                // (In the game view's pixels: halved zoomed out; the sprites
+                // stay at full size, the renderer halves them.)
                 scene.focus = units::focus(world);
                 if view.zoomed_out {
-                    crate::scene_map::zoom_out(&mut scene.sprites);
                     scene.focus = scene.focus.map(|(x, y)| (x / 2, y / 2));
                 }
                 scene
@@ -735,11 +724,21 @@ fn publish(
         // their fonts are there).
         scene.zooms = ui_screen::label_zooms(&[ui_items.as_slice(), &label_items].concat(), &fonts, &compiled, &input.zooms);
         scene.sprites.extend(ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms));
-        // The city labels go with the world.
-        scene.sprites.extend(ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms).into_iter().map(|s| {
-            let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
-            scene::FreeSprite { screen: false, clip: None, not_in_view, ..s }
-        }));
+        // The city labels go with the world (laid out in the game view's
+        // pixels: zoomed out at full size, which the renderer halves).
+        let mut labels: Vec<_> = ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), &scene.zooms)
+            .into_iter()
+            .map(|s| {
+                let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
+                scene::FreeSprite { screen: false, clip: None, not_in_view, ..s }
+            })
+            .collect();
+        if let Shown::Map(_, view) = shown {
+            if view.zoomed_out {
+                crate::scene_map::from_zoomed_out(&mut labels);
+            }
+        }
+        scene.sprites.extend(labels);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             scene.patches = ui_screen::minimap_patches(&ui_items, world, &compiled, |table| {

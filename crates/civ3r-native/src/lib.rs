@@ -133,7 +133,6 @@ mod unix_side {
         let a = scene::wire::decode_assets(bytes).map_err(|e| e.to_string())?;
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
         let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
-        let desc = if a.scale_down > 1 { desc.scaled_down(a.scale_down) } else { desc };
         // Same page size as the driver, so both sides agree on nothing but
         // names and values (the atlas itself never crosses). The sheets of
         // the last compile are kept: art grows a little at a time, and only
