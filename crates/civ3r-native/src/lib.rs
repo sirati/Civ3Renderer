@@ -47,8 +47,8 @@ pub struct TakeInput {
 pub type TakeLog = TakeInput;
 
 /// Call 4. `generation`: the latest art generation compiled and given to
-/// the viewer (whole or grown, `scene::wire::Assets::generation`): scenes
-/// referring to it are drawn without waiting for art.
+/// the viewer (whole or grown, `scene::wire::Assets::generation`), or that
+/// failed to compile: scenes referring to it are drawn without waiting.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ArtStatus {
@@ -210,6 +210,11 @@ mod unix_side {
                     }
                 };
                 let viewer = || VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|v| v.assets.clone());
+                if a.reserve > 0 {
+                    if let Some(assets) = viewer() {
+                        assets.reserve(0, a.reserve);
+                    }
+                }
                 if a.append {
                     match grow(&a) {
                         Ok(g) => {
@@ -229,6 +234,8 @@ mod unix_side {
                         Err(e) => log::error!("civ3r-native: assets: {e}"),
                     }
                 }
+                // (Done with it, compiled or not: the bridge waits for no more.)
+                PROCESSED.fetch_max(a.generation, std::sync::atomic::Ordering::Release);
             })
             .map(drop);
         });
@@ -242,8 +249,12 @@ mod unix_side {
         Ok(())
     }
 
+    /// The latest art generation the art thread is done with (see `status`).
+    static PROCESSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     pub fn status(args: &mut ArtStatus) -> Status {
-        let generation = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.latest());
+        let given = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.latest());
+        let generation = given.max(PROCESSED.load(std::sync::atomic::Ordering::Acquire));
         (args.generation_lo, args.generation_hi) = (generation as u32, (generation >> 32) as u32);
         STATUS_SUCCESS
     }

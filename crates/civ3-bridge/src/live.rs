@@ -281,6 +281,7 @@ impl Compiler {
             // (The presenter numbers them.)
             generation: 0,
             append,
+            reserve: 0,
         }
     }
 
@@ -446,7 +447,8 @@ fn publish(
     let mut whole_wanted = false;
     // Growths a renderer compiling its own art may not have yet (scenes
     // use them once it has).
-    let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>)> = Default::default();
+    // (With the request they cover, `ArtSchedule::done` once they are used.)
+    let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>, Option<u64>)> = Default::default();
     // What units drew last (shown while their new animation's art is built).
     let mut unit_memory = units::UnitMemory::default();
     // Art made ahead (`crate::preload`): the plan for the game shown (and
@@ -528,7 +530,14 @@ fn publish(
                     compiled = c.without_pixels();
                     mapper = Mapper::new(&compiled);
                     menus = menus_of(&compiled);
-                    pending_growths.clear();
+                    for (_, _, token) in pending_growths.drain(..) {
+                        if let Some(token) = token {
+                            schedule.done(now, token);
+                        }
+                    }
+                    if let Some(token) = done.token {
+                        schedule.done(now, token);
+                    }
                 }
                 Ok(Built::Growth(g)) => {
                     log::info!(
@@ -542,36 +551,47 @@ fn publish(
                         done.pages.1,
                         now.duration_since(done.wanted).as_millis()
                     );
-                    if !g.is_empty() {
-                        pending_growths.push_back((done.generation, g));
+                    if g.is_empty() {
+                        if let Some(token) = done.token {
+                            schedule.done(now, token);
+                        }
+                    } else {
+                        pending_growths.push_back((done.generation, g, done.token));
                     }
                 }
-                Err(e) => log::error!("art for {}: {e}", done.reason),
+                Err(e) => {
+                    log::error!("art for {}: {e}", done.reason);
+                    if let Some(token) = done.token {
+                        schedule.done(now, token);
+                    }
+                }
             }
             if pixels {
                 let page = 2048u64 * 2048;
                 atlas_used = done.pages.0 as u64 * 4 * page + done.pages.1 as u64 * page;
-            }
-            if let Some(token) = done.token {
-                schedule.done(now, token);
-            }
-            if !schedule.pending() {
-                art_wanted = None;
             }
             new_art = true;
         }
         // Growths the renderer has: a renderer given the art gets them now,
         // one compiling its own has compiled them (`Presenter::art_status`).
         let ready = presenter.art_status().unwrap_or(u64::MAX);
-        if pending_growths.front().is_some_and(|(generation, _)| *generation <= ready) {
-            while pending_growths.front().is_some_and(|(generation, _)| *generation <= ready) {
-                let Some((generation, g)) = pending_growths.pop_front() else { break };
+        if pending_growths.front().is_some_and(|(generation, _, _)| *generation <= ready) {
+            let now = std::time::Instant::now();
+            while pending_growths.front().is_some_and(|(generation, _, _)| *generation <= ready) {
+                let Some((generation, g, token)) = pending_growths.pop_front() else { break };
                 presenter.adopt_growth(&g, generation);
                 compiled.apply(&g);
+                // (Art the screen waited for is there now.)
+                if let Some(token) = token {
+                    schedule.done(now, token);
+                }
             }
             mapper = Mapper::new(&compiled);
             menus = menus_of(&compiled);
             new_art = true;
+        }
+        if !schedule.pending() && !schedule.running() {
+            art_wanted = None;
         }
         // The game's interface, mirrored (else its text only).
         let ui = ui_trace::frame();
@@ -905,13 +925,12 @@ fn publish(
                 preload_for = key;
                 // Room in the atlas for what will be made (as far as the
                 // budget goes), at once: not moved again and again.
-                if pixels {
-                    let page = 2048 * 2048;
-                    let ahead = preload.left().min(budget.saturating_sub(atlas_used));
-                    // (Mostly indexed art; the shelves leave some room unused.)
-                    let index_pages = ((atlas_used + ahead * 5 / 4).min(budget.max(atlas_used)) / page) as u32 + 1;
-                    presenter.reserve(0, index_pages);
-                }
+                let page = 2048 * 2048;
+                let used = atlas_used.max(sent_bytes);
+                let ahead = preload.left().min(budget.saturating_sub(used));
+                // (Mostly indexed art; the shelves leave some room unused.)
+                let index_pages = ((used + ahead * 5 / 4).min(budget.max(used)) / page) as u32 + 1;
+                presenter.reserve(0, index_pages);
             }
         }
         if let Some(token) = schedule.start(now) {
@@ -950,7 +969,9 @@ fn publish(
         }
         // Art made ahead, while the art thread has nothing else to do (art
         // wanted now goes first).
-        if art_thread.idle() && !schedule.pending() && !whole_wanted {
+        // (A renderer compiling its own art has the last addition first:
+        // what it is sent queues behind what it has not compiled yet.)
+        if art_thread.idle() && pending_growths.is_empty() && !schedule.pending() && !whole_wanted {
             let have_ref = &have;
             let wanted = |item: &crate::preload::Item| match item {
                 crate::preload::Item::Unit(f, colors) => have_ref.files.get(&f.path).is_some_and(|(_, c)| colors.is_subset(c)),
