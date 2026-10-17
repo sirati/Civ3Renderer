@@ -259,6 +259,50 @@ impl Fonts {
         self.fonts.get(&key(run)).is_some_and(Option::is_some)
     }
 
+    /// Whether this run still has an outstanding background metrics load.
+    /// A failed font is terminal and is not reported as loading.
+    pub fn run_loading(&self, run: &TextRun) -> bool {
+        self.loader.as_ref().is_some_and(|loader| loader.pending.contains(&key(run)))
+    }
+
+    /// Whether every visible character can be drawn with the current art.
+    /// Follows `run_sprites`: its first mapped glyph selects either the
+    /// atlas path or the outline fallback for the entire run. Fonts with
+    /// no usable draw path return false; `run_loading` distinguishes a
+    /// metrics load that can still complete from a terminal failure.
+    pub fn run_ready(&self, run: &TextRun, compiled: &Compiled) -> bool {
+        if run.text.is_empty() || (!run.underline && run.text.chars().all(char::is_whitespace)) { return true; }
+        let want = key(run);
+        let exact = self.fonts.get(&want).and_then(Option::as_ref);
+        let tag = Self::tag(&want);
+        let first = exact.and_then(|font| run.text.chars().find(|c| font.glyphs.contains_key(c)));
+        let atlas = exact.is_some() && first.is_none_or(|c| compiled.set(&format!("Text@{tag}/{}", c as u32)).is_some());
+        let present = |name: &str| compiled.set(name).and_then(|(set, _)| compiled.sets.frame(set, 0)).and_then(|id| compiled.atlas.sprites.get(id.0 as usize)).is_some();
+        if atlas {
+            let font = exact.unwrap();
+            let face = compiled.font(&run.face).map(|(_, face)| face);
+            return run.text.chars().all(|c| {
+                let Some(glyph) = font.glyphs.get(&c) else { return c.is_whitespace() && !run.underline };
+                // A loaded outline face makes ui_screen draw this path at
+                // scaled zooms too. Missing cmap entries would draw glyph 0.
+                let visible = !c.is_whitespace();
+                (!visible || present(&format!("Text@{tag}/{}", c as u32)))
+                    && (!visible || face.is_none_or(|f| f.glyph(c).is_some()))
+                    && (!run.underline || glyph.advance <= 0 || font.underline.1 <= 0 || present(&format!("TextLine@{tag}/{}", glyph.advance)))
+            });
+        }
+        // The fallback has no underline bars, so underlined runs must
+        // wait for their atlas art even when their face has outlines.
+        if run.underline { return false; }
+        let Some((_, face)) = compiled.font(&run.face) else { return false };
+        let metrics = exact.or_else(|| {
+            self.fonts.iter().filter(|((style, _, _), font)| style.face == run.face && font.is_some())
+                .min_by_key(|((style, _, _), _)| (style.height - want.0.height).abs()).and_then(|(_, font)| font.as_ref())
+        });
+        let Some(font) = metrics else { return false };
+        run.text.chars().all(|c| c.is_whitespace() || (font.glyphs.contains_key(&c) && face.glyph(c).is_some()))
+    }
+
     /// How wide `run` is (its glyph advances) and how far its glyphs reach
     /// above and below the baseline, once its font is loaded.
     pub fn metrics(&self, run: &TextRun) -> Option<(i32, i32, i32)> {
@@ -555,5 +599,119 @@ mod prune_tests {
         let g = out[2].glyph.unwrap();
         assert_eq!((g.em64, g.advance, g.bold, out[2].tint, out[2].zoom_art, out[2].after_pass), (12 * 64, 7, true, 0x010203, 2, 3));
         assert!(!fonts.run_glyphs(&run, None, &desc(""), 3, &mut out));
+    }
+}
+
+#[cfg(test)]
+mod readiness_tests {
+    use super::*;
+
+    struct Plain;
+    impl render_desc::ImageLoader for Plain {
+        fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+            Err("readiness fixtures use generated pixels".into())
+        }
+    }
+
+    fn text_run(text: &str) -> TextRun {
+        TextRun { x: 10, y: 20, color: [1, 2, 3], face: "Readiness fixture".into(), height: -12, weight: 400, italic: false, underline: false, text: text.into(), backdrop: None }
+    }
+
+    fn font(chars: &str) -> GlyphFont {
+        let glyphs = chars.chars().map(|c| {
+            let image = tile_render::RgbaImage::from_fn(1, 1, |_, _| if c.is_whitespace() { [0; 4] } else { [255; 4] });
+            (c, civ3_assets::fonts::Glyph { left: 0, advance: 6, extent: 6, image })
+        }).collect();
+        GlyphFont { ascent: 10, underline: (1, 1), glyphs }
+    }
+
+    fn fixture_art(names: &[String], outlines: &str) -> Compiled {
+        let mut description = String::from("grid = { layout = \"orthogonal\", step = [1, 1] }\n[images.pixel]\nsource = \"solid:255,255,255,255:1x1\"\n[sheets.pixel]\nimage = \"pixel\"\ncell = [1, 1]\ngrid = [1, 1]\ngroup = \"pixel\"\n");
+        for name in names {
+            writeln!(description, "[sets.\"{name}\"]\nframes = [\"pixel/0\"]\n").unwrap();
+        }
+        let mut compiled = render_desc::Description::parse(&description).unwrap().compile(&Plain, 64).unwrap();
+        if !outlines.is_empty() {
+            let curves = vec![[(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)], [(1.0, 0.0), (1.0, 0.5), (1.0, 1.0)], [(1.0, 1.0), (0.5, 0.5), (0.0, 0.0)]];
+            let glyphs: Vec<_> = outlines.chars().map(|c| (c, curves.clone(), 6)).collect();
+            let face = tile_render::gpu_text::Face::from_curves(12, &glyphs);
+            compiled.fonts.push(("Readiness fixture".into(), std::sync::Arc::new(face)));
+        }
+        compiled
+    }
+
+    fn glyph_names(run: &TextRun) -> Vec<String> {
+        let tag = Fonts::tag(&key(run));
+        run.text.chars().map(|c| format!("Text@{tag}/{}", c as u32)).collect()
+    }
+
+    #[test]
+    fn a_partial_atlas_is_not_a_complete_run() {
+        let run = text_run("AB");
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(font("AB")));
+        let names = glyph_names(&run);
+        let partial = fixture_art(&names[..1], "AB");
+        let mut drawn = Vec::new();
+        fonts.run_sprites(&run, None, &partial, u32::MAX, &mut drawn);
+        assert_eq!(drawn.len(), 1, "the first atlas glyph prevents fallback of the whole run");
+        assert!(!fonts.run_ready(&run, &partial), "one emitted glyph is not proof that the text is complete");
+        let complete = fixture_art(&names, "AB");
+        assert!(fonts.run_ready(&run, &complete));
+        assert!(fonts.run_ready(&run, &complete.without_pixels()));
+        assert!(!fonts.run_ready(&run, &fixture_art(&names, "A")), "scaled text must have every visible outline glyph");
+        assert!(!fonts.run_ready(&text_run("AC"), &complete), "unsupported characters must not make a run appear complete");
+    }
+
+    #[test]
+    fn underlines_wait_for_their_bars_instead_of_incomplete_fallback() {
+        let mut run = text_run("A");
+        run.underline = true;
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(font("A")));
+        let mut names = glyph_names(&run);
+        assert!(!fonts.run_ready(&run, &fixture_art(&[], "A")), "outline_fallback does not draw underlines");
+        assert!(!fonts.run_ready(&run, &fixture_art(&names, "A")));
+        names.push(format!("TextLine@{}/6", Fonts::tag(&key(&run))));
+        assert!(fonts.run_ready(&run, &fixture_art(&names, "A")));
+        let spaces = TextRun { text: " ".into(), ..run.clone() };
+        fonts.fonts.insert(key(&spaces), Some(font(" A")));
+        assert!(!fonts.run_ready(&spaces, &fixture_art(&glyph_names(&spaces), " A")), "underlined spaces still need visible bars");
+    }
+
+    #[test]
+    fn pending_metrics_and_failed_fonts_are_distinct_terminal_states() {
+        let run = text_run("AB");
+        let mut fonts = Fonts::default();
+        let (requests, _requests_rx) = std::sync::mpsc::channel();
+        let (completed, loaded) = std::sync::mpsc::channel();
+        fonts.loader = Some(Loader { requests, loaded, pending: [key(&run)].into_iter().collect() });
+        let compiled = fixture_art(&[], "AB");
+        assert!(fonts.run_loading(&run));
+        assert!(!fonts.run_ready(&run, &compiled), "outlines without any metrics cannot lay out the run");
+        let old = TextRun { height: -10, color: [4, 5, 6], ..run.clone() };
+        fonts.fonts.insert(key(&old), Some(font("AB")));
+        assert!(fonts.run_ready(&run, &compiled), "supported fallback can draw while exact metrics load");
+        assert!(fonts.run_loading(&run));
+        fonts.fonts.remove(&key(&old));
+        completed.send((key(&run), Err("unsupported font".into()))).unwrap();
+        assert!(fonts.take_loaded());
+        assert!(!fonts.run_loading(&run));
+        assert!(!fonts.run_ready(&run, &compiled));
+        fonts.fonts.insert(key(&old), Some(font("AB")));
+        assert!(fonts.run_ready(&run, &compiled), "a failed exact load can use supported nearest-height metrics");
+        assert!(!fonts.run_ready(&run, &fixture_art(&[], "A")), "outline fallback must support the whole run");
+    }
+
+    #[test]
+    fn exact_metrics_can_use_outlines_until_the_atlas_arrives() {
+        let run = text_run("AB");
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(font("AB")));
+        assert!(fonts.run_ready(&run, &fixture_art(&[], "AB")));
+        assert!(!fonts.run_ready(&run, &fixture_art(&[], "A")));
+        assert!(!fonts.run_ready(&run, &fixture_art(&[], "")));
+        assert!(Fonts::default().run_ready(&text_run(""), &fixture_art(&[], "")));
+        assert!(Fonts::default().run_ready(&text_run(" \t\n"), &fixture_art(&[], "")));
     }
 }
