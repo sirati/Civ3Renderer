@@ -143,6 +143,14 @@ pub fn frame() -> Option<Frame> {
     MODEL.lock().ok()?.as_ref().map(|m| m.shown_frame())
 }
 
+/// Where the pixels of each of `sprites` (game `Sprite*`) come from, as the
+/// mirror knows them (`None` for 0 and unknown ones).
+pub fn sprite_sources(sprites: &[u32]) -> Vec<Option<crate::ui::Source>> {
+    let model = MODEL.lock().ok();
+    let model = model.as_ref().and_then(|m| m.as_ref());
+    sprites.iter().map(|&s| model.filter(|_| s != 0).and_then(|m| m.sprite_source(s)).cloned()).collect()
+}
+
 /// Text drawn with `TextOutA` (canvas coordinates): part of the canvas the
 /// text functions are drawing on, if any.
 pub fn on_text(run: &TextRun) {
