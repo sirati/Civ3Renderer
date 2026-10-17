@@ -1470,6 +1470,29 @@ grid = [1, 1]
 anchor = [-12, -12]
 group = "Viewer@cursor"
 
+# The button-snapping pointer (Alt while the mouse is captured) and its
+# half-transparent ghost at the next target (tile-viewer `snap`); tip at
+# the anchor.
+[images.viewer_pointer]
+source = "pointer:255,255,255,255:14x22"
+
+[sheets.viewer_pointer]
+image = "viewer_pointer"
+cell = [14, 22]
+grid = [1, 1]
+anchor = [-1, -1]
+group = "Viewer@pointer"
+
+[images.viewer_pointer_ghost]
+source = "pointer:255,255,255,128:14x22"
+
+[sheets.viewer_pointer_ghost]
+image = "viewer_pointer_ghost"
+cell = [14, 22]
+grid = [1, 1]
+anchor = [-1, -1]
+group = "Viewer@pointer_ghost"
+
 [images.viewer_arrow]
 source = "arrow:255,220,0,255:33x48"
 
