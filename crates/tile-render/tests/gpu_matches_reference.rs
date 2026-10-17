@@ -1183,3 +1183,32 @@ fn a_grown_atlas_draws_what_the_whole_one_does() {
         assert_same(&got, &reference::render(&world, &atlas, &camera, frame, CLEAR), &format!("frame {frame}, against the grown atlas"));
     }
 }
+
+/// An atlas uploaded a page at a time while the one before is drawn draws
+/// as one set at once, once taken.
+#[test]
+fn a_staged_atlas_draws_as_one_set_at_once() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (world, atlas) = scene(grid);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    // First an atlas of nothing but the shade, then the scene's, staged.
+    let mut first = AtlasBuilder::new(512);
+    first.add(&shade(), (0, 0)).unwrap();
+    renderer.set_atlas(&gpu.device, &gpu.queue, &first.finish());
+    renderer.set_world(&gpu.device, &world);
+    let mut camera = Camera::new((640, 360));
+    camera.overhang = (0, 40, 0, 0);
+    let before = gpu.render(&mut renderer, &camera, 0, CLEAR);
+    let mut staged = renderer.stage_atlas(&gpu.device, &atlas);
+    let mut parts = 0;
+    while !renderer.upload_staged(&gpu.queue, &mut staged, &atlas, 1) {
+        parts += 1;
+        // Frames meanwhile: drawn with the atlas before.
+        assert_same(&gpu.render(&mut renderer, &camera, 0, CLEAR), &before, "while staging");
+    }
+    assert!(parts + 1 >= atlas.pages.len() + atlas.index_pages.len() - 1, "a page at a time: {parts}");
+    renderer.adopt_atlas(&gpu.device, staged, &atlas);
+    let got = gpu.render(&mut renderer, &camera, 0, CLEAR);
+    assert_same(&got, &reference::render(&world, &atlas, &camera, 0, CLEAR), "staged");
+}

@@ -56,6 +56,13 @@ pub struct TileRenderer {
     too_many_views: bool,
 }
 
+/// An atlas being uploaded a page at a time ([`TileRenderer::stage_atlas`]).
+pub struct StagedAtlas {
+    textures: AtlasTextures,
+    /// The pages still to write, the next last: (colour page, index).
+    pending: Vec<(bool, u32)>,
+}
+
 /// The atlas on the GPU: its colour and index pages, its sprites and
 /// palette rows.
 struct AtlasTextures {
@@ -480,6 +487,62 @@ impl TileRenderer {
     /// Pages the atlas has room for: colour pages, index pages.
     pub fn atlas_room(&self) -> (u32, u32) {
         self.atlas.as_ref().map_or((0, 0), |a| (a.rgba.capacity, a.index.capacity))
+    }
+
+    /// Starts uploading `atlas` to replace the one drawn, a part at a time
+    /// ([`TileRenderer::upload_staged`]) while frames go on being drawn with
+    /// the old one; [`TileRenderer::adopt_atlas`] swaps it in. Unlike
+    /// [`TileRenderer::set_atlas`] nothing waits for the GPU: the old atlas
+    /// goes once the GPU is done with it, so both take memory meanwhile.
+    pub fn stage_atlas(&self, device: &wgpu::Device, atlas: &Atlas) -> StagedAtlas {
+        let rgba_pages: Vec<u32> = atlas.pages.iter().enumerate().filter(|(_, p)| p.width == atlas.page_size).map(|(i, _)| i as u32).collect();
+        let index_pages = atlas.index_pages.len() as u32;
+        let textures = AtlasTextures {
+            rgba: PageArray::new(device, wgpu::TextureFormat::Rgba8Unorm, atlas.page_size, rgba_pages.len() as u32),
+            index: PageArray::new(device, wgpu::TextureFormat::R8Unorm, atlas.page_size, index_pages),
+            sprites: atlas.sprites.clone(),
+            palettes: atlas.palettes.clone(),
+        };
+        let mut pending: Vec<(bool, u32)> = rgba_pages.into_iter().map(|i| (true, i)).collect();
+        pending.extend((0..index_pages).map(|i| (false, i)));
+        pending.reverse();
+        StagedAtlas { textures, pending }
+    }
+
+    /// Writes pages of `staged` (made by [`TileRenderer::stage_atlas`] from
+    /// `atlas`) until about `budget` bytes were written this time (at least
+    /// one page); whether every page is there now.
+    pub fn upload_staged(&self, queue: &wgpu::Queue, staged: &mut StagedAtlas, atlas: &Atlas, budget: u64) -> bool {
+        let mut written = 0u64;
+        while let Some(&(rgba, i)) = staged.pending.last() {
+            if written > 0 && written >= budget {
+                break;
+            }
+            staged.pending.pop();
+            if rgba {
+                let page = &atlas.pages[i as usize];
+                staged.textures.rgba.write(queue, i, 0, 0, (page.width, page.height), page.as_bytes());
+                written += page.as_bytes().len() as u64;
+            } else {
+                let page = &atlas.index_pages[i as usize];
+                staged.textures.index.write(queue, i, 0, 0, (page.width, page.height), &page.pixels);
+                written += page.pixels.len() as u64;
+            }
+        }
+        staged.pending.is_empty()
+    }
+
+    /// Draws with the atlas `staged` from now on (all of it uploaded, see
+    /// [`TileRenderer::upload_staged`]; `atlas` the one it was made from).
+    pub fn adopt_atlas(&mut self, device: &wgpu::Device, staged: StagedAtlas, atlas: &Atlas) {
+        self.bind_group = None;
+        self.atlas = Some(staged.textures);
+        self.named_palettes = atlas.named_palettes;
+        let empty = [SpriteDesc::default()];
+        let sprites: &[SpriteDesc] = if atlas.sprites.is_empty() { &empty } else { &atlas.sprites };
+        self.sprites = Some(storage(device, "tile-render sprites", bytemuck::cast_slice(sprites)));
+        self.palettes = Some(storage(device, "tile-render palettes", bytemuck::cast_slice(&palette_words(&atlas.palettes))));
+        self.rebuild_bind_group(device);
     }
 
     /// Bytes the atlas takes on the GPU: colour pages, index pages (as
