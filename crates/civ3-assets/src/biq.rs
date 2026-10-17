@@ -159,6 +159,9 @@ pub struct City {
     pub has_walls: bool,
     pub has_palace: bool,
     pub culture: i32,
+    /// How far its culture reaches (1: the tiles around it; the game's
+    /// borders and what it has explored at the start follow it, docs §19.4).
+    pub border_level: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -367,6 +370,21 @@ impl Biq {
         text.split(';').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()
     }
 
+    /// Whether every player knows the whole map from the start (`GAME`:
+    /// *Reveal entire map*, a byte after the plague and flag settings that
+    /// follow the search folders).
+    pub fn map_visible(&self) -> bool {
+        let Some(game) = self.recs("GAME").into_iter().next() else { return false };
+        let playable = game.i32(8).clamp(0, 256) as usize;
+        // Search folders (5200), the alliance of every playable civ, 13
+        // victory settings, a byte, 5 alliance names (256), the wars between
+        // them (5 × 5), the alliance victory type, the plague (a name of 260,
+        // a byte, 7 numbers), 260 bytes of text, flag units, a byte, the gold
+        // for capture.
+        let at = 116 + 4 * playable + 5200 + 4 * playable + 52 + 1 + 1280 + 100 + 4 + 260 + 1 + 28 + 260 + 4 + 1 + 4;
+        game.u8(at) != 0
+    }
+
     /// The scenario's map, if it brings one.
     pub fn map(&self) -> Option<Map> {
         let wmap = self.recs("WMAP").into_iter().next()?;
@@ -394,6 +412,7 @@ impl Biq {
                     has_walls: c.u8(0) != 0,
                     has_palace: c.u8(1) != 0,
                     culture: c.i32(at),
+                    border_level: c.i32(at + 24),
                 }
             })
             .collect();
