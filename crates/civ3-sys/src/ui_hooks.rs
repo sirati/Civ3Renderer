@@ -669,6 +669,19 @@ fn main_gui(build: Build) -> u32 {
     }
 }
 
+/// The screens shown once a game has ended (won, lost or retired), by the
+/// class (vtable) of their forms: the victory screen, the summary replay,
+/// the top five cities, the historical ranking and the hall of fame (the
+/// end-of-game sequence at 0x4F1572, PCGames). `Main_GUI` is still
+/// composed under them, but there is no game to show any more: the game
+/// leaves its map black there.
+pub fn end_of_game_forms(build: Build) -> &'static [u32] {
+    match build {
+        Build::PcGames => &[0x66_B888, 0x66_E838, 0x66_BF10, 0x66_B700, 0x66_D1F0],
+        Build::Gog | Build::Steam => &[],
+    }
+}
+
 /// The canvas of `Main_GUI` (a form, its canvas at +0x274): composed while
 /// a game runs, under any screen open over the map. (The title menus are
 /// drawn over the main screen form as well, but without it.)
