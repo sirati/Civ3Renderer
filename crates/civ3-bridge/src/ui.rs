@@ -735,7 +735,10 @@ impl UiModel {
             }
         }
         if ops.len() >= MAX_OPS {
-            ops.drain(..MAX_OPS / 2);
+            // The initial opaque fill still supplies pixels where later
+            // redraws never draw. Keep that backdrop within the same cap.
+            let backdrop = usize::from(matches!(ops.first(), Some(Op::Fill { alpha: 255, .. })));
+            ops.drain(backdrop..MAX_OPS / 2);
         }
         ops.push(op);
     }
@@ -1173,6 +1176,24 @@ mod tests {
                 ScreenDraw::Fill { rect: [4, 5, 4, 4], rgb: [1, 2, 3], alpha: 255, clip },
             ]
         );
+    }
+
+    #[test]
+    fn a_canvas_keeps_its_opaque_backdrop_when_redraw_history_is_pruned() {
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 300, size: (100, 100) });
+        // A new opaque canvas is black even where the form never draws.
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: None });
+        for _ in 0..MAX_OPS * 3 {
+            m.apply(Event::Text { canvas: 300, run: text(20, 30, "Redrawn") });
+        }
+        assert!(m.stats().1 <= MAX_OPS);
+        m.apply(Event::PaintBegin);
+        m.apply(composite(300, (0, 0), (100, 100)));
+        m.apply(Event::PaintEnd);
+        assert_eq!(m.frame().draws.first(), Some(&ScreenDraw::Fill {
+            rect: [0, 0, 100, 100], rgb: [0, 0, 0], alpha: 255, clip: [0, 0, 100, 100],
+        }));
     }
 
     #[test]
