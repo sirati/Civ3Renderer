@@ -408,6 +408,15 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
         Err(e) => log::warn!("reading units: {e}"),
     }
+    // The animations drawn besides units (docs §10.14).
+    match game.effects() {
+        Ok(effects) => {
+            for e in &effects {
+                let _ = writeln!(out, "{}", crate::effects::trace_line(&crate::live::effect(e)));
+            }
+        }
+        Err(e) => log::warn!("reading effects: {e}"),
+    }
     match game.cities() {
         Ok(cities) => {
             for c in cities {

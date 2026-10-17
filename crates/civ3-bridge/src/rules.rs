@@ -127,6 +127,19 @@ fn is_hilly(t: &Civ3Tile) -> bool {
     matches!(t.terrain(), HILLS | MOUNTAINS | VOLCANO)
 }
 
+/// §6.1: which diagonal neighbours of (x, y) a hill, mountain or volcano
+/// links to (bit `n`: [`DIAGONALS`]`[n]`). The volcano drawer keeps it in
+/// `Tile.field_38`, where the smoke over a volcano is shifted by (§10.14).
+pub fn hill_mask(world: &Civ3World, x: i32, y: i32) -> u32 {
+    let mut mask = 0;
+    for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
+        if world.tile(x + dx, y + dy).is_some_and(is_hilly) && edge_keep(world, x, y, n) {
+            mask |= 1 << n;
+        }
+    }
+    mask
+}
+
 /// §6.1: mountains, volcanoes and hills.
 pub fn mountain(world: &Civ3World, x: i32, y: i32) -> Option<String> {
     let tile = world.tile(x, y)?;
@@ -136,12 +149,7 @@ pub fn mountain(world: &Civ3World, x: i32, y: i32) -> Option<String> {
         HILLS => ("Hills_Images", false),
         _ => return None,
     };
-    let mut mask = 0;
-    for (n, (dx, dy)) in DIAGONALS.iter().enumerate() {
-        if world.tile(x + dx, y + dy).is_some_and(is_hilly) && edge_keep(world, x, y, n) {
-            mask |= 1 << n;
-        }
-    }
+    let mask = hill_mask(world, x, y);
     // Landmark mountains and hills: one sheet, by the mask only (§7).
     if tile.terrain_overlays & terrain_overlay::LANDMARK != 0 {
         match tile.terrain() {
