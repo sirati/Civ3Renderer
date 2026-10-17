@@ -22,6 +22,24 @@ pub struct Presenter {
     /// Index pages to ask a renderer compiling its own art to make room
     /// for, with the next art sent (see [`Presenter::reserve`]).
     reserve: u32,
+    /// What the last [`Presenter::publish`] took (for profiling).
+    pub stats: PublishStats,
+}
+
+/// The cost of one [`Presenter::publish`].
+#[derive(Copy, Clone, Debug, Default)]
+pub struct PublishStats {
+    /// Finding what changed.
+    pub diff: std::time::Duration,
+    /// Encoding and handing it over.
+    pub send: std::time::Duration,
+    /// Keeping the scene as sent.
+    pub keep: std::time::Duration,
+    pub updates: usize,
+    /// Cell changes (values, phases, offsets) among them.
+    pub cells: usize,
+    /// Encoded size (the native viewer's wire), else 0.
+    pub bytes: usize,
 }
 
 enum Sink {
@@ -49,13 +67,13 @@ impl Presenter {
                 log::error!("viewer: {e}");
             }
         })?;
-        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, prepared: 1, sent_patches: Default::default(), reserve: 0 })
+        Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, prepared: 1, sent_patches: Default::default(), reserve: 0, stats: PublishStats::default() })
     }
 
     /// The native Linux viewer (only in a Wine process with
     /// `civ3r_native.dll`).
     pub fn native(native: Native) -> Presenter {
-        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, prepared: 0, sent_patches: Default::default(), reserve: 0 }
+        Presenter { sink: Sink::Native(native), sent: Scene::default(), generation: 0, prepared: 0, sent_patches: Default::default(), reserve: 0, stats: PublishStats::default() }
     }
 
     /// New render assets: `compiled` for this side, `wire` for a renderer
@@ -122,25 +140,46 @@ impl Presenter {
     /// changed goes with a later one (a slow renderer does not queue up
     /// batches). Whether the renderer has everything (else publish again).
     pub fn publish(&mut self, mut scene: Scene) -> bool {
+        self.stats = PublishStats::default();
         if let Sink::InProcess { driver, .. } = &self.sink && driver.busy() {
             return false;
         }
+        let t = std::time::Instant::now();
         scene.assets = self.generation;
         scene.patches.retain(|p| self.sent_patches.get(&p.sprite) != Some(&p.rgba));
         let updates = scene.updates_since(&self.sent);
+        self.stats.diff = t.elapsed();
         if updates.is_empty() {
             return true;
         }
+        self.stats.updates = updates.len();
+        self.stats.cells = updates
+            .iter()
+            .map(|u| match u {
+                Update::Cells(c) => c.len(),
+                Update::Phases(c) => c.len(),
+                Update::Offsets(c) => c.len(),
+                _ => 0,
+            })
+            .sum();
+        let t = std::time::Instant::now();
         let taken = match &mut self.sink {
             Sink::InProcess { driver, .. } => driver.send(updates),
-            Sink::Native(n) => n.publish(&updates),
+            Sink::Native(n) => {
+                let (taken, bytes) = n.publish(&updates);
+                self.stats.bytes = bytes;
+                taken
+            }
         };
+        self.stats.send = t.elapsed();
+        let t = std::time::Instant::now();
         if taken {
             for p in scene.patches.drain(..) {
                 self.sent_patches.insert(p.sprite, p.rgba);
             }
             self.sent = scene;
         }
+        self.stats.keep = t.elapsed();
         taken
     }
 
@@ -237,8 +276,9 @@ impl Native {
         0
     }
 
-    /// Whether the native viewer took `updates` (not when busy).
-    fn publish(&mut self, updates: &[Update]) -> bool {
+    /// Whether the native viewer took `updates` (not when busy), and their
+    /// size on the wire.
+    fn publish(&mut self, updates: &[Update]) -> (bool, usize) {
         #[cfg(all(windows, target_arch = "x86"))]
         {
             let bytes = scene::wire::encode_updates(updates);
@@ -247,12 +287,12 @@ impl Native {
             if status != 0 && status != wine_unixlib::STATUS_DEVICE_BUSY {
                 log::debug!("native viewer: publish: status {status:#x}");
             }
-            status == 0
+            (status == 0, bytes.len())
         }
         #[cfg(not(all(windows, target_arch = "x86")))]
         {
             let _ = updates;
-            false
+            (false, 0)
         }
     }
 

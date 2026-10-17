@@ -508,6 +508,10 @@ fn publish(
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
     let mut held_since: Option<std::time::Instant> = None;
+    // Where the publisher's time goes (`CIV3R_PROFILE=1`, or the viewer's
+    // `TILE_VIEWER_PROFILE=1`), logged every 5 s.
+    let mut profile = (tile_viewer::profile::env_on("CIV3R_PROFILE") || tile_viewer::profile::env_on("TILE_VIEWER_PROFILE"))
+        .then(|| tile_viewer::profile::Profile::new("publisher", Duration::from_secs(5)));
     loop {
         if let Some(t) = round_began.take() {
             let took = t.elapsed();
@@ -515,8 +519,18 @@ fn publish(
                 log::info!("publish: a round took {} ms", took.as_millis());
             }
         }
+        if let Some(p) = &mut profile {
+            p.round_end();
+            if let Some(report) = p.report() {
+                log::info!("{report}");
+            }
+        }
         std::thread::sleep(POLL);
         round_began = Some(std::time::Instant::now());
+        if let Some(p) = &mut profile {
+            p.round_start();
+        }
+        let mut t = std::time::Instant::now();
         // Now and then, how much everything holds (memory diagnostics).
         if last_stats.elapsed() >= Duration::from_secs(30) {
             last_stats = std::time::Instant::now();
@@ -628,8 +642,10 @@ fn publish(
         if !schedule.pending() && !schedule.running() {
             art_wanted = None;
         }
+        mark(&mut profile, "art handover", &mut t);
         // The game's interface, mirrored (else its text only).
         let ui = ui_trace::frame();
+        mark(&mut profile, "ui frame", &mut t);
         // The world shows while the map screen's interface is composed (under
         // whatever screens are open over it). Between games the game's tables
         // may still hold one (the last game's, or the scenario the Load
@@ -665,7 +681,9 @@ fn publish(
         // What our preferences tabs take does not reach the game.
         let inputs = prefs.route(inputs, input.viewport);
         presenter.forward_log();
+        mark(&mut profile, "preview+input", &mut t);
         let snapshot = if in_game { snapshot(&game) } else { Err(Civ3Error::NoGame) };
+        mark(&mut profile, "snapshot", &mut t);
         let shown = match (snapshot, load_screen) {
             (_, Some(rect)) => Shown::Preview(rect, preview.map(|p| p.world.clone())),
             (Ok((world, view)), None) => Shown::Map(world, view),
@@ -718,8 +736,14 @@ fn publish(
         if last.as_ref().is_none_or(|l| l.4 != cursor) {
             log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
         }
+        mark(&mut profile, "controls+prefs", &mut t);
         let state = (shown, texts, ui, interactables, cursor);
-        if last.as_ref() == Some(&state) && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+        let unchanged = last.as_ref() == Some(&state);
+        mark(&mut profile, "compare", &mut t);
+        if unchanged && !recompile && !new_art && !schedule.pending() && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+            if let Some(p) = &mut profile {
+                p.event("unchanged", 1);
+            }
             continue;
         }
         let (shown, texts, ui, interactables, cursor) = &state;
@@ -924,6 +948,7 @@ fn publish(
             recompile = true;
             wanted_for.push("city labels");
         }
+        mark(&mut profile, "ui items+labels", &mut t);
         // Art the description does not have yet: units, text fonts.
         let units_world = match shown {
             Shown::Map(world, _) => Some(world),
@@ -1030,6 +1055,7 @@ fn publish(
                 }
             }
         }
+        mark(&mut profile, "art needs", &mut t);
         // Art made ahead, while the art thread has nothing else to do (art
         // wanted now goes first).
         // (A renderer compiling its own art has the last addition first:
@@ -1111,6 +1137,7 @@ fn publish(
                 scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len())
             }
         };
+        mark(&mut profile, "scene map+units", &mut t);
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         // Labels and the interface's text also drawn from outlines at
         // every zoom (where the art has the face).
@@ -1136,6 +1163,7 @@ fn publish(
             }
         }
         scene.sprites.extend(labels);
+        mark(&mut profile, "ui+label sprites", &mut t);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
@@ -1143,6 +1171,7 @@ fn publish(
                 *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default())
             });
         }
+        mark(&mut profile, "minimap", &mut t);
         crate::scene_map::overlay_screen_sprites(&mut scene);
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
@@ -1199,8 +1228,26 @@ fn publish(
         scene.screen_size = input.game_window().and_then(|w| w.client_size()).unwrap_or_default();
         scene.seq = seq;
         scene_size = (scene.cell_bytes(), scene.sprites.len(), scene.views.iter().map(|v| v.overlay.len()).sum::<usize>());
+        mark(&mut profile, "interface parts", &mut t);
+        if let Some(p) = &mut profile {
+            p.count("scene sprites", scene_size.1);
+            p.count("scene overlay sprites", scene_size.2);
+        }
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
+        if let Some(p) = &mut profile {
+            let s = presenter.stats;
+            p.add("publish: diff", s.diff);
+            p.add("publish: encode+send", s.send);
+            p.add("publish: keep sent", s.keep);
+            if s.updates > 0 {
+                p.count("published bytes", s.bytes);
+                p.count("published updates", s.updates);
+                p.count("published cell changes", s.cells);
+            }
+            p.event(if published { if s.updates > 0 { "published" } else { "nothing new" } } else { "renderer busy" }, 1);
+        }
+        mark(&mut profile, "publish (other)", &mut t);
         if published {
             published_prefs = (prefs_draws, Some(prefs.settings().clone()));
         }
@@ -1244,6 +1291,16 @@ fn addition(
 /// The head of an art list (`CIV3R_ART_LIST`, `crate::preload::ArtList`).
 fn art_list_header() -> &'static str {
     "# Art the game's interface showed (civ3-bridge, CIV3R_ART_LIST): screen regions, fills,\n# run-time pictures, fonts; tab-separated (menu::screen::ScreenArt::to_lines, preload::font_line).\n"
+}
+
+/// Adds the time since `t` to span `name` of the profile, if one is kept,
+/// and restarts `t`.
+fn mark(profile: &mut Option<tile_viewer::profile::Profile>, name: &str, t: &mut std::time::Instant) {
+    let now = std::time::Instant::now();
+    if let Some(p) = profile {
+        p.add(name, now - *t);
+    }
+    *t = now;
 }
 
 /// Whether city labels are made from the world (see `publish`), unless
