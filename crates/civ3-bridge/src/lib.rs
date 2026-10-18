@@ -33,6 +33,8 @@ pub mod targeting;
 pub mod scene_map;
 pub mod text;
 pub mod ui;
+#[cfg(any(windows, test))]
+mod ui_capture;
 pub mod ui_screen;
 #[cfg(windows)]
 pub mod ui_trace;
@@ -54,6 +56,9 @@ inproc::entry!(init, early = early);
 /// In `DllMain`, before the game's own code runs (`game_window`).
 #[cfg(windows)]
 fn early() {
+    // Set the explicit map-only override before any load callback can
+    // activate full capture and drawing suppression.
+    ui_trace::configure_map_policy();
     game_window::early();
 }
 
@@ -72,16 +77,6 @@ fn init() {
         Err(e) => return log::error!("not attaching: {e}"),
     };
     log::info!("detected build {:?}", game.build);
-    // `CIV3R_GAME_RENDER=off` (the default with the native viewer, its
-    // window not shown): the game skips its pixel work, the map's
-    // included (`game_render`).
-    let var = |name: &str| std::env::var(name).ok();
-    let game_draws = game_render::game_draws(var("CIV3R_GAME_RENDER").as_deref(), var("CIV3R_VIEWER").as_deref(), var("CIV3R_GAME_WINDOW").as_deref());
-    ui_trace::set_game_draws(game_draws);
-    if std::env::var("CIV3R_GAME_MAP").is_ok_and(|v| v == "off") || !game_draws {
-        log::info!("the game's map rendering is off");
-        trace::GAME_MAP_OFF.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
     match trace::install(game) {
         // Hooks stay installed for the life of the process.
         Ok(tracer) => std::mem::forget(tracer),
@@ -90,6 +85,7 @@ fn init() {
     if std::env::var_os("CIV3R_VIEWER").is_some() {
         if let Err(e) = live::start(game) {
             log::error!("starting the renderer: {e}");
+            ui_trace::restore_original_drawing();
             // Without it, the game's own window is the only one.
             if game_window::hidden() {
                 inproc::hidden::set_hiding(false);

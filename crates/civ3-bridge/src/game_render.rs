@@ -31,6 +31,22 @@ pub fn game_draws(setting: Option<&str>, viewer: Option<&str>, window: Option<&s
     }
 }
 
+/// Startup policy before capture can enable full drawing suppression.
+/// Explicit map-only rendering and UI-off/no-viewer diagnostics retain
+/// their historical map policy independently of full UI capture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartupPolicy {
+    pub capture: bool,
+    pub game_draws: bool,
+    pub initial_map_off: bool,
+}
+
+pub fn startup_policy(setting: Option<&str>, viewer: Option<&str>, window: Option<&str>, ui: Option<&str>, map: Option<&str>) -> StartupPolicy {
+    let game_draws = game_draws(setting, viewer, window);
+    let capture = viewer.is_some() && ui != Some("off");
+    StartupPolicy { capture, game_draws, initial_map_off: map == Some("off") || (!capture && !game_draws) }
+}
+
 /// Which drawing is skipped.
 #[derive(Debug, Default)]
 pub struct Skipper {
@@ -96,6 +112,25 @@ impl Skipper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_capture_preserves_ui_off_and_no_viewer_map_policy() {
+        for (setting, viewer, window, ui, map, capture, draws, map_off) in [
+            (None, Some("native"), None, None, None, true, false, false),
+            (Some("off"), Some("1"), None, None, None, true, false, false),
+            (Some("on"), Some("native"), None, None, None, true, true, false),
+            (None, Some("native"), Some("show"), None, None, true, true, false),
+            (None, Some("native"), None, Some("off"), None, false, false, true),
+            (Some("off"), Some("1"), None, Some("off"), None, false, false, true),
+            (Some("on"), Some("native"), None, Some("off"), None, false, true, false),
+            (Some("off"), None, None, None, None, false, false, true),
+            (None, None, None, None, None, false, true, false),
+            (Some("on"), None, None, Some("off"), Some("off"), false, true, true),
+            (None, Some("native"), None, None, Some("off"), true, false, true),
+        ] {
+            assert_eq!(startup_policy(setting, viewer, window, ui, map), StartupPolicy { capture, game_draws: draws, initial_map_off: map_off }, "policy for setting={setting:?} viewer={viewer:?} window={window:?} ui={ui:?} map={map:?}");
+        }
+    }
 
     #[test]
     fn the_native_viewer_skips_by_default_the_in_process_one_does_not() {

@@ -348,6 +348,17 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
     }
 }
 
+/// Whether WinMain has received the jgl graphics object. PCGames stores
+/// the factory result in this global at 0x62025A, after its LoadLibraryA
+/// callback and CRT/C3X initialization have completed. Used only for late
+/// injection, outside DllMain; a merely mapped jgl.dll is insufficient.
+pub fn graphics_initialized(build: Build) -> bool {
+    match build {
+        Build::PcGames => Ptr32::<u32>::new(0xCA_B28C).read().is_ok_and(|p| p != 0),
+        Build::Gog | Build::Steam => false,
+    }
+}
+
 /// The back buffer (`PCX_Image` at 0xCACFF0): its pixels are the window's.
 pub fn back_buffer(build: Build) -> Option<u32> {
     match build {

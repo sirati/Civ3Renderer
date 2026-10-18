@@ -12,6 +12,8 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::ui_capture::CapturePoint;
+
 /// What was done, for the log (most of it happens before there is one).
 static NOTES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -98,29 +100,36 @@ pub fn early() {
     let loaded_scale = scale.clone();
     let loaded = inproc::loader::hook_load_library(exe, move |name, base| {
         if name == "jgl.dll" {
-            hook_jgl(base, loaded_scale.clone(), hidden);
+            hook_jgl(base, loaded_scale.clone(), hidden, CapturePoint::LoadCallback);
         }
     });
     install("jgl.dll as it loads: the game's LoadLibraryA", loaded, "");
     // A library already mapped before this DLL's early setup needs the
-    // same synchronous hooks. Register load interception first so neither
-    // an existing module nor a later load can fall between the two paths.
+    // text/window hooks only. Full capture must wait for the actual game
+    // load callback, or the post-CRT worker fallback, outside DllMain.
+    // Register interception before the already-loaded check so neither
+    // path can miss a module load.
     if let Some(base) = inproc::pe::module_base("jgl.dll") {
-        hook_jgl(base, scale, hidden);
+        hook_jgl(base, scale, hidden, CapturePoint::DllMain);
     }
 }
 
 /// `jgl.dll` just loaded (at `base`), before it runs: what it learns of the
 /// screen, its window kept hidden and painting, its pointer.
-fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool) {
-    // Every load caller enters serialized text installation before it
-    // can return. Claiming the remaining setup first would let a second
-    // caller return while the first had not installed text capture yet.
+fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, point: CapturePoint) {
+    // Every load caller finishes serialized text and UI capture before
+    // returning. Claiming the remaining window setup first would let a
+    // concurrent caller bypass capture still being installed.
     if !inproc::loader::prepare_before_claim(base, &JGL, || {
         match crate::trace::hook_jgl_text(base) {
             Ok(true) => note("text capture installed before the game's jgl calls".into()),
             Ok(false) => note("text capture: jgl.dll does not import TextOutA".into()),
             Err(e) => note(format!("text capture: hooking jgl.dll TextOutA: {e}")),
+        }
+        match crate::ui_trace::prepare_at(base, point) {
+            Ok(true) => note("UI capture installed before the game's first jgl use".into()),
+            Ok(false) => {},
+            Err(e) => note(format!("early UI capture: {e}")),
         }
     }) { return; }
     if let Some(size) = scale {
