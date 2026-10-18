@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use civ3_assets::GameFiles;
-use civ3_assets::fonts::{FontStyle, GlyphFont, charset};
+use civ3_assets::fonts::{FontStyle, Glyph, GlyphFont, charset, outline_char};
 use render_desc::Compiled;
 
 /// One `TextOutA` call: `text` with its pen at (x, baseline y).
@@ -68,6 +68,26 @@ type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 fn key(r: &TextRun) -> FontKey {
     let style = FontStyle { face: r.face.clone(), height: r.height.abs(), weight: r.weight, italic: r.italic };
     (FontStyle { height: civ3_assets::fonts::available_height(&style), ..style }, r.color, r.backdrop)
+}
+
+/// Older sheets rasterised raw C1 controls through TextOutW instead of
+/// their Windows-1252 characters. Their empty glyphs cannot draw the game
+/// byte. Keep their keys, but use supported outlines for the entire run.
+fn legacy_c1(c: char, glyph: &Glyph) -> bool {
+    outline_char(c) != c && glyph.advance <= 0 && glyph.image.pixels.iter().all(|pixel| pixel[3] == 0)
+}
+
+fn legacy_run(run: &TextRun, font: &GlyphFont) -> bool {
+    run.text.chars().any(|c| font.glyphs.get(&c).is_some_and(|glyph| legacy_c1(c, glyph)))
+}
+
+/// Only a legacy empty glyph needs a replacement advance. Adjacent glyphs
+/// keep their measured Windows advances; this one uses its source face.
+fn legacy_advance(c: char, face: &tile_render::gpu_text::Face, height: i32) -> Option<i32> {
+    let units = i64::from(face.advance(outline_char(c))?);
+    let em = i64::from(face.units_per_em());
+    if em == 0 { return None; }
+    i32::try_from((units * i64::from(height) + em / 2) / em).ok().filter(|&advance| advance > 0)
 }
 
 /// The fonts (face, size, colour) text runs need, loaded.
@@ -266,41 +286,42 @@ impl Fonts {
     }
 
     /// Whether every visible character can be drawn with the current art.
-    /// Follows `run_sprites`: its first mapped glyph selects either the
-    /// atlas path or the outline fallback for the entire run. Fonts with
+    /// Follows `run_sprites`: the first mapped glyph or an empty legacy
+    /// C1 glyph selects the atlas path or whole-run outline fallback. Fonts with
     /// no usable draw path return false; `run_loading` distinguishes a
     /// metrics load that can still complete from a terminal failure.
     pub fn run_ready(&self, run: &TextRun, compiled: &Compiled) -> bool {
-        if run.text.is_empty() || (!run.underline && run.text.chars().all(char::is_whitespace)) { return true; }
+        if run.text.is_empty() || (!run.underline && run.text.chars().all(|c| outline_char(c).is_whitespace())) { return true; }
         let want = key(run);
         let exact = self.fonts.get(&want).and_then(Option::as_ref);
         let tag = Self::tag(&want);
         let first = exact.and_then(|font| run.text.chars().find(|c| font.glyphs.contains_key(c)));
-        let atlas = exact.is_some() && first.is_none_or(|c| compiled.set(&format!("Text@{tag}/{}", c as u32)).is_some());
+        let atlas = exact.is_some_and(|font| !legacy_run(run, font)) && first.is_none_or(|c| compiled.set(&format!("Text@{tag}/{}", c as u32)).is_some());
         let present = |name: &str| compiled.set_available(name);
         if atlas {
             let font = exact.unwrap();
             let face = compiled.font(&run.face).map(|(_, face)| face);
             return run.text.chars().all(|c| {
-                let Some(glyph) = font.glyphs.get(&c) else { return c.is_whitespace() && !run.underline };
+                let Some(glyph) = font.glyphs.get(&c) else { return outline_char(c).is_whitespace() && !run.underline };
                 // A loaded outline face makes ui_screen draw this path at
                 // scaled zooms too. Missing cmap entries would draw glyph 0.
-                let visible = !c.is_whitespace();
+                let visible = !outline_char(c).is_whitespace();
                 (!visible || present(&format!("Text@{tag}/{}", c as u32)))
-                    && (!visible || face.is_none_or(|f| f.glyph(c).is_some()))
+                    && (!visible || face.is_none_or(|f| f.glyph(outline_char(c)).is_some()))
                     && (!run.underline || glyph.advance <= 0 || font.underline.1 <= 0 || present(&format!("TextLine@{tag}/{}", glyph.advance)))
             });
         }
-        // The fallback has no underline bars, so underlined runs must
-        // wait for their atlas art even when their face has outlines.
-        if run.underline { return false; }
         let Some((_, face)) = compiled.font(&run.face) else { return false };
         let metrics = exact.or_else(|| {
             self.fonts.iter().filter(|((style, _, _), font)| style.face == run.face && font.is_some())
                 .min_by_key(|((style, _, _), _)| (style.height - want.0.height).abs()).and_then(|(_, font)| font.as_ref())
         });
         let Some(font) = metrics else { return false };
-        run.text.chars().all(|c| c.is_whitespace() || (font.glyphs.contains_key(&c) && face.glyph(c).is_some()))
+        run.text.chars().all(|c| {
+            let Some(glyph) = font.glyphs.get(&c) else { return outline_char(c).is_whitespace() && !run.underline };
+            (outline_char(c).is_whitespace() || face.glyph(outline_char(c)).is_some())
+                && (!legacy_c1(c, glyph) || legacy_advance(c, face, want.0.height).is_some())
+        })
     }
 
     /// How wide `run` is (its glyph advances) and how far its glyphs reach
@@ -394,6 +415,10 @@ impl Fonts {
             self.outline_fallback(r, clip, compiled, after_pass, out);
             return;
         };
+        if legacy_run(r, font) {
+            self.outline_fallback(r, clip, compiled, after_pass, out);
+            return;
+        }
         let tag = Self::tag(&key);
         // Its glyphs not in the art yet: from the outlines meanwhile.
         let first = r.text.chars().find(|c| font.glyphs.contains_key(c));
@@ -439,7 +464,7 @@ impl Fonts {
     /// its font, or of the loaded font of the face nearest its height
     /// (scaled); nothing if the art has no outlines of the face.
     fn outline_fallback(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled, after_pass: u32, out: &mut Vec<scene::FreeSprite>) {
-        let Some((face, _)) = compiled.font(&r.face) else { return };
+        let Some((face, outline)) = compiled.font(&r.face) else { return };
         let want = key(r);
         let metrics = self.fonts.get(&want).and_then(Option::as_ref).map(|f| (f, want.0.height)).or_else(|| {
             self.fonts
@@ -454,18 +479,24 @@ impl Fonts {
         let mut pen = r.x;
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
+            let advance = if legacy_c1(c, glyph) { legacy_advance(c, outline, want.0.height).unwrap_or(0) } else { scale(glyph.advance) };
             let g = scene::Glyph {
                 font: face,
-                ch: c,
+                ch: outline_char(c),
                 em64: r.height.unsigned_abs() * 64,
-                advance: scale(glyph.advance),
+                advance,
                 bold: r.weight >= 600,
                 italic: r.italic,
                 key: r.backdrop,
                 bar: None,
             };
             out.push(scene::FreeSprite { x: pen, y: r.y, screen: true, after_pass, ticks_per_frame: 1, tint: rgb(r.color), clip, glyph: Some(g), ..Default::default() });
-            pen += scale(glyph.advance);
+            if r.underline {
+                let thickness = if font.underline.1 > 0 { scale(font.underline.1).max(1) } else { scale(font.underline.1) };
+                let bar = scene::Glyph { bar: Some((scale(font.underline.0), thickness)), key: None, ..g };
+                out.push(scene::FreeSprite { x: pen, y: r.y, screen: true, after_pass, ticks_per_frame: 1, tint: rgb(r.color), clip, glyph: Some(bar), ..Default::default() });
+            }
+            pen += advance;
         }
     }
 
@@ -477,7 +508,8 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) -> bool {
-        let (Some(Some(font)), Some((face, _))) = (self.fonts.get(&key(r)), compiled.font(&r.face)) else { return false };
+        let want = key(r);
+        let (Some(Some(font)), Some((face, outline))) = (self.fonts.get(&want), compiled.font(&r.face)) else { return false };
         let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
         // Windows makes bold of a regular face from weight 600 on.
         let style = scene::Glyph {
@@ -493,7 +525,8 @@ impl Fonts {
         let mut pen = r.x;
         for c in r.text.chars() {
             let Some(glyph) = font.glyphs.get(&c) else { continue };
-            let g = scene::Glyph { ch: c, advance: glyph.advance, ..style };
+            let advance = if legacy_c1(c, glyph) { legacy_advance(c, outline, want.0.height).unwrap_or(0) } else { glyph.advance };
+            let g = scene::Glyph { ch: outline_char(c), advance, ..style };
             let bar = r.underline.then_some(scene::Glyph { bar: Some(font.underline), key: None, ..g });
             for (g, color) in [Some((g, r.color)), bar.map(|b| (b, r.color))].into_iter().flatten() {
                 out.push(scene::FreeSprite {
@@ -509,7 +542,7 @@ impl Fonts {
                     ..Default::default()
                 });
             }
-            pen += glyph.advance;
+            pen += advance;
         }
         true
     }
@@ -646,6 +679,133 @@ mod readiness_tests {
     }
 
     #[test]
+    fn windows_1252_atlas_keys_and_unicode_outlines_keep_the_same_pens() {
+        let run = text_run("A\u{92}\u{85}\u{80}éB");
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(font(&run.text)));
+        let names = glyph_names(&run);
+        let compiled = fixture_art(&names, "A’…€éB");
+        assert!(fonts.run_ready(&run, &compiled));
+        let mut raster = Vec::new();
+        fonts.run_sprites(&run, None, &compiled, u32::MAX, &mut raster);
+        assert_eq!(raster.len(), run.text.chars().count());
+        assert!(raster.iter().all(|sprite| sprite.glyph.is_none()));
+        assert_eq!(raster[1].set, compiled.set(&format!("Text@{}/146", Fonts::tag(&key(&run)))).unwrap().0.raw(), "atlas lookup retains the Windows byte");
+        let mut outline = Vec::new();
+        assert!(fonts.run_glyphs(&run, None, &compiled, u32::MAX, &mut outline));
+        let unicode: String = outline.iter().map(|sprite| sprite.glyph.unwrap().ch).collect();
+        assert_eq!(unicode, "A’…€éB");
+        assert_eq!(raster.iter().map(|sprite| sprite.x).collect::<Vec<_>>(), outline.iter().map(|sprite| sprite.x).collect::<Vec<_>>());
+        assert!(!fonts.run_ready(&run, &fixture_art(&names[..names.len() - 1], "A’…€éB")), "an omitted later atlas glyph still blocks a partial run");
+        assert!(!fonts.run_ready(&run, &fixture_art(&names, "A…€éB")), "a missing mapped source outline is not accepted");
+        let ellipsis = text_run("\u{85}");
+        assert!(!Fonts::default().run_ready(&ellipsis, &fixture_art(&[], "")), "raw U+0085 is a visible Windows ellipsis, not whitespace");
+    }
+
+    #[test]
+    fn negative_height_nearest_metrics_fallback_preserves_scaled_gdi_pens() {
+        let mut run = text_run("A\u{92}B");
+        run.underline = true;
+        let old = TextRun { height: -6, color: [9, 8, 7], ..run.clone() };
+        let mut metrics = font(&run.text);
+        metrics.glyphs.get_mut(&'A').unwrap().advance = 5;
+        metrics.glyphs.get_mut(&'B').unwrap().advance = 7;
+        let apostrophe = metrics.glyphs.get_mut(&'\u{92}').unwrap();
+        apostrophe.advance = 0;
+        apostrophe.image = tile_render::RgbaImage::new(1, 1);
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&old), Some(metrics));
+        let compiled = fixture_art(&[], "A’B");
+        assert!(fonts.run_ready(&run, &compiled));
+        let mut fallback = Vec::new();
+        fonts.run_sprites(&run, None, &compiled, u32::MAX, &mut fallback);
+        let letters: Vec<_> = fallback.iter().filter(|sprite| sprite.glyph.unwrap().bar.is_none()).map(|sprite| (sprite.x, sprite.glyph.unwrap().ch, sprite.glyph.unwrap().advance)).collect();
+        assert_eq!(letters, [(10, 'A', 10), (20, '’', 6), (26, 'B', 14)], "negative LogFont heights normalize before scaling the nearest metrics");
+        let bars: Vec<_> = fallback.iter().filter_map(|sprite| sprite.glyph.unwrap().bar).collect();
+        assert_eq!(bars, [(2, 2); 3]);
+        assert!(!fonts.run_ready(&run, &fixture_art(&[], "AB")), "legacy empty glyphs require their actual source outlines");
+        let small = TextRun { height: -10, ..run.clone() };
+        let large = TextRun { height: -18, ..old.clone() };
+        let metrics = fonts.fonts.remove(&key(&old)).unwrap();
+        fonts.fonts.insert(key(&large), metrics);
+        assert!(fonts.run_ready(&small, &compiled));
+        let mut down = Vec::new();
+        fonts.run_sprites(&small, None, &compiled, u32::MAX, &mut down);
+        let letters: Vec<_> = down.iter().filter(|sprite| sprite.glyph.unwrap().bar.is_none()).map(|sprite| (sprite.x, sprite.glyph.unwrap().advance)).collect();
+        assert_eq!(letters, [(10, 2), (12, 5), (17, 3)], "larger nearest metrics scale down; the C1 advance still comes from the source face at 10px");
+        assert!(down.iter().filter_map(|sprite| sprite.glyph.unwrap().bar).all(|bar| bar == (0, 1)), "a positive source underline keeps one visible target pixel when scaled down");
+    }
+
+    #[test]
+    fn legacy_c1_exact_metrics_use_source_advance_and_do_not_accept_blank_art() {
+        let run = text_run("A\u{92}B");
+        let mut metrics = font(&run.text);
+        metrics.glyphs.get_mut(&'A').unwrap().advance = 5;
+        metrics.glyphs.get_mut(&'B').unwrap().advance = 7;
+        let apostrophe = metrics.glyphs.get_mut(&'\u{92}').unwrap();
+        apostrophe.advance = 0;
+        apostrophe.image = tile_render::RgbaImage::new(1, 1);
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(metrics));
+        let names = glyph_names(&run);
+        let compiled = fixture_art(&names, "A’B");
+        assert!(fonts.run_ready(&run, &compiled));
+        let mut fallback = Vec::new();
+        fonts.run_sprites(&run, None, &compiled, u32::MAX, &mut fallback);
+        let mut zoomed = Vec::new();
+        assert!(fonts.run_glyphs(&run, None, &compiled, u32::MAX, &mut zoomed));
+        let pens = |sprites: &[scene::FreeSprite]| sprites.iter().map(|sprite| (sprite.x, sprite.glyph.unwrap().ch, sprite.glyph.unwrap().advance)).collect::<Vec<_>>();
+        assert_eq!(pens(&fallback), [(10, 'A', 5), (15, '’', 6), (21, 'B', 7)]);
+        assert_eq!(pens(&fallback), pens(&zoomed));
+        assert!(!fonts.run_ready(&run, &fixture_art(&names, "")), "a named blank atlas glyph cannot substitute for unavailable outlines");
+        fonts.fonts.get_mut(&key(&run)).unwrap().as_mut().unwrap().glyphs.remove(&'B');
+        assert!(!fonts.run_ready(&run, &compiled), "a complete face cannot replace missing layout metrics");
+    }
+
+    #[test]
+    fn real_cached_copyright_renders_the_windows_apostrophe_and_keeps_adjacent_metrics() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        let files = GameFiles::complete(&install);
+        let run = TextRun { x: 717, y: 884, color: [248; 3], face: "Lucida Sans".into(), height: -10, weight: 0, italic: false, underline: false, text: "Sid Meier\u{92}s Civilization III, 2K Games, the 2K Games logo, and Take-Two Interactive Software are all".into(), backdrop: None };
+        let Ok(metrics) = civ3_assets::fonts::load(&files, &key(&run).0, run.color) else { return eprintln!("no real Lucida cache, skipped") };
+        if files.read("LSANS.TTF").is_err() { return eprintln!("no LSANS.TTF, skipped"); }
+        let legacy = legacy_run(&run, &metrics);
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(metrics.clone()));
+        let description = render_desc::Description::parse(&format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n{}", fonts.description())).unwrap();
+        let loader = civ3_assets::loader::Civ3Loader::new(files);
+        let compiled = description.compile(&loader, 256).unwrap();
+        assert!(compiled.set_available(&format!("Text@{}/146", Fonts::tag(&key(&run)))), "raw Windows byte146 has atlas metadata");
+        assert!(fonts.run_ready(&run, &compiled));
+        let mut raster = Vec::new();
+        fonts.run_sprites(&run, None, &compiled, u32::MAX, &mut raster);
+        assert_eq!(raster.len(), 100);
+        if legacy { assert!(raster.iter().all(|sprite| sprite.glyph.is_some()), "old empty C1 sheets use outlines for the whole run"); }
+        let mut outlines = Vec::new();
+        assert!(fonts.run_glyphs(&run, None, &compiled, u32::MAX, &mut outlines));
+        assert_eq!(outlines.len(), 100);
+        let mut pen = run.x;
+        for (c, sprite) in run.text.chars().zip(&outlines) {
+            let glyph = sprite.glyph.unwrap();
+            assert_eq!((sprite.x, glyph.ch), (pen, outline_char(c)));
+            if c == '\u{92}' {
+                assert!(glyph.advance > 0, "the source face supplies a real positive apostrophe advance");
+            } else { assert_eq!(glyph.advance, metrics.glyphs[&c].advance, "adjacent GDI advances stay unchanged"); }
+            pen += glyph.advance;
+        }
+        let mut apostrophe = outlines[9].clone();
+        assert_eq!(apostrophe.glyph.unwrap().ch, '’');
+        apostrophe.x = 4;
+        apostrophe.y = 18;
+        apostrophe.zoom_art = 0;
+        let mut world = compiled.world(1, 1, false, false);
+        world.free.push(tile_viewer::placed_sprite(&compiled, &apostrophe, None, None));
+        let camera = tile_render::Camera { zoomed_art: true, ..tile_render::Camera::new((32, 32)) };
+        let picture = tile_render::reference::render(&world, &compiled.atlas, &camera, 0, [0, 0, 0, 255]);
+        assert!(picture.pixels.iter().any(|pixel| pixel[..3] != [0, 0, 0]), "the actual source apostrophe has visible rendered coverage");
+    }
+
+    #[test]
     fn a_partial_atlas_is_not_a_complete_run() {
         let run = text_run("AB");
         let mut fonts = Fonts::default();
@@ -680,13 +840,18 @@ mod readiness_tests {
     }
 
     #[test]
-    fn underlines_wait_for_their_bars_instead_of_incomplete_fallback() {
+    fn underlines_require_atlas_bars_or_complete_outline_fallback() {
         let mut run = text_run("A");
         run.underline = true;
         let mut fonts = Fonts::default();
         fonts.fonts.insert(key(&run), Some(font("A")));
         let mut names = glyph_names(&run);
-        assert!(!fonts.run_ready(&run, &fixture_art(&[], "A")), "outline_fallback does not draw underlines");
+        let fallback = fixture_art(&[], "A");
+        assert!(fonts.run_ready(&run, &fallback));
+        let mut drawn = Vec::new();
+        fonts.run_sprites(&run, None, &fallback, u32::MAX, &mut drawn);
+        assert_eq!(drawn.len(), 2);
+        assert_eq!(drawn[1].glyph.unwrap().bar, Some((1, 1)), "fallback must include the requested visible bar");
         assert!(!fonts.run_ready(&run, &fixture_art(&names, "A")));
         names.push(format!("TextLine@{}/6", Fonts::tag(&key(&run))));
         assert!(fonts.run_ready(&run, &fixture_art(&names, "A")));
