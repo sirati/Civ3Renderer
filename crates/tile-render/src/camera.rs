@@ -29,6 +29,10 @@ pub struct Camera {
     /// Where the view sits in the render target (its top-left), when several
     /// views share it (see `TileRenderer::render_views`).
     pub origin: (i32, i32),
+    /// Additional target-pixel scissor (x0, y0, x1, y1), independent of
+    /// viewport origin so clipping preserves the fractional zoom phase.
+    /// A stacked view inherits its group head's clip as well as its own.
+    pub target_clip: Option<[i32; 4]>,
     /// Whether the view shows the world (its cells and world-space sprites;
     /// false: only the view's own sprites, e.g. an interface on top).
     pub cells: bool,
@@ -61,6 +65,8 @@ pub struct Camera {
     /// sprites are drawn as they are. Applies before `zoom`: a view at
     /// downscale 2 and zoom 2/1 shows the half-size world twice as big.
     pub downscale: u32,
+    /// Category bits hidden in this camera. Category zero is always visible.
+    pub hidden_categories: u32,
 }
 
 impl Camera {
@@ -73,12 +79,14 @@ impl Camera {
             overhang: (0, 0, 0, 0),
             cull: None,
             origin: (0, 0),
+            target_clip: None,
             cells: true,
             screen_shift: (0, 0),
             zoomed_art: false,
             stacked: false,
             hairline: false,
             downscale: 1,
+            hidden_categories: 0,
         }
     }
 
@@ -98,8 +106,9 @@ impl Camera {
     /// The target pixels of the view inside a target of `size`.
     pub fn target_rect(&self, (w, h): (u32, u32)) -> impl Iterator<Item = (u32, u32)> + use<> {
         let (ox, oy) = self.origin;
-        let x = ox.max(0) as u32..(ox + self.viewport.0 as i32).clamp(0, w as i32) as u32;
-        let y = oy.max(0) as u32..(oy + self.viewport.1 as i32).clamp(0, h as i32) as u32;
+        let [l, t, r, b] = self.target_clip.unwrap_or([0, 0, w as i32, h as i32]);
+        let x = ox.max(l).max(0) as u32..(ox + self.viewport.0 as i32).min(r).clamp(0, w as i32) as u32;
+        let y = oy.max(t).max(0) as u32..(oy + self.viewport.1 as i32).min(b).clamp(0, h as i32) as u32;
         y.flat_map(move |py| x.clone().map(move |px| (px, py)))
     }
 
@@ -176,6 +185,10 @@ impl Camera {
             descending: pass.descending as u32,
             named_palettes: 0,
             corner_cuts: 0,
+            hidden_categories: self.hidden_categories,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         }
     }
 }
@@ -184,6 +197,25 @@ impl Camera {
 mod tests {
     use super::*;
     use crate::world::Layout;
+
+    #[test]
+    fn target_clip_scissors_do_not_move_camera_or_stacked_sampling_origins() {
+        let clip = [64, 19, 131, 87];
+        let camera = Camera { origin: (13, 9), target_clip: Some(clip), cells: false, ..Camera::new((180, 120)) };
+        let p = placements(&[camera], |_| None);
+        assert_eq!(p[0].drawn.origin, (13, 9));
+        assert_eq!(p[0].rect, [13, 9, 180, 120]);
+        assert_eq!(p[0].scissor, [64, 19, 67, 68]);
+        assert_eq!(camera.target_rect((240, 160)).count(), 67 * 68);
+        let head = Camera { zoom: (3, 2), ..camera };
+        let child = Camera { origin: (7, 11), stacked: true, target_clip: Some([80, 0, 200, 77]), cells: false, ..Camera::new((150, 110)) };
+        let p = placements(&[head, child], |_| None);
+        assert_eq!(p[0].scaled.origin, (13, 9));
+        assert_eq!(p[0].scaled_scissor, clip);
+        assert_eq!(p[1].scaled.origin, (13, 9));
+        assert_eq!(p[1].scaled_scissor, [80, 26, 131, 77]);
+        assert_eq!((p[0].scaled_from, p[1].scaled_from), (Some(0), Some(0)));
+    }
 
     #[test]
     fn window_covers_the_viewport_with_overhang() {
@@ -227,6 +259,8 @@ pub(crate) struct Placement {
     /// Where (x, y, w, h): in its group's picture (`source`), else in the
     /// target.
     pub rect: [i32; 4],
+    /// Scissor in the same coordinates as rect, separate from its viewport.
+    pub scissor: [i32; 4],
     /// The group's picture in the source texture, if the group is scaled.
     pub source: Option<[u32; 4]>,
     /// The group's camera and picture, when the group's picture is done
@@ -329,12 +363,22 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
         let (sw, sh) = group.source_size();
         let local = [local[0].max(0), local[1].max(0), local[2].min(sw as i32), local[3].min(sh as i32)];
         let (ox, oy) = group.origin;
-        let scaled_scissor = [
+        let mut scaled_scissor = [
             ox + ceil_mul(local[0], n, d).max(0),
             oy + ceil_mul(local[1], n, d).max(0),
             ox + ceil_mul(local[2], n, d).min(group.viewport.0 as i32),
             oy + ceil_mul(local[3], n, d).min(group.viewport.1 as i32),
         ];
+        // A target clip is a scissor, never a new camera origin. Preserve
+        // sampling and text positions while confining this view to its pane.
+        let intersect = |a: [i32; 4], b: [i32; 4]| [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])];
+        let target_clip = [group.target_clip, c.target_clip].into_iter().flatten().reduce(intersect);
+        if let Some(clip) = target_clip { scaled_scissor = intersect(scaled_scissor, clip); }
+        let scissor = if source.is_none() {
+            let r = [rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]];
+            let r = target_clip.map_or(r, |clip| intersect(r, clip));
+            [r[0], r[1], (r[2] - r[0]).max(0), (r[3] - r[1]).max(0)]
+        } else { rect };
         // Drawn at the zoom from the first zoomed sprite of a view showing
         // them, or from the start of a hairline view, on.
         let scaled_from = match source {
@@ -342,7 +386,7 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
             Some(_) if scaling => Some(0),
             Some(_) => {
                 let zoomed = first_zoomed((n, d)).filter(|_| art).map(|p| 2 * p + 1);
-                let from = if c.hairline { Some(0) } else { zoomed };
+                let from = if c.hairline || target_clip.is_some() { Some(0) } else { zoomed };
                 scaling = from.is_some();
                 from
             }
@@ -354,7 +398,7 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
         let starts_scaling = scaled_from.is_some() && !out.last().is_some_and(|p: &Placement| p.source == source && p.scaled_from.is_some());
         let empty = scaled_from == Some(0) && !c.stacked && !c.cells;
         let blit = source.filter(|_| !empty && (starts_scaling || (last && scaled_from.is_none()))).map(|r| (group, r));
-        out.push(Placement { drawn, rect, source, blit, art, scaled_from, scaled, scaled_scissor });
+        out.push(Placement { drawn, rect, scissor, source, blit, art, scaled_from, scaled, scaled_scissor });
     }
     out
 }

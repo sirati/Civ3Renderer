@@ -13,8 +13,9 @@
 #   --map      keep the game's own map rendering on (default: CIV3R_GAME_MAP=off)
 #   --window   the viewer in a window instead of fullscreen
 #   --nvidia   the renderer on the NVIDIA GPU instead of the Intel iGPU, with
-#              PRIME offload (if that GPU's Vulkan driver does not load or
-#              cannot show the viewer's window, the renderer uses the Intel
+#              PRIME offload (its EGL vendor stays available too; if the
+#              Vulkan driver does not load or cannot show the viewer's
+#              window, the renderer uses the Intel
 #              one and this says so; the Vulkan loader's report on its
 #              drivers, VK_LOADER_DEBUG, goes into Wine's log)
 #   --scale S  the desktop's scale, instead of the one read from the first
@@ -121,12 +122,12 @@ stop) "$WINE/bin/wineserver" -k 2>/dev/null || true; echo "stopped"; exit 0 ;;
 -h|--help|help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 esac
 
-map=off viewer=native-fullscreen gpu=intel scale= game_window=hide
+map=off viewer=native-fullscreen gpu=intel gpu_explicit=0 scale= game_window=hide
 while [ $# -gt 0 ]; do case $1 in
   --map) map=on ;;
   --window) viewer=native ;;
-  --nvidia) gpu=nvidia ;;
-  --intel) gpu=intel ;;
+  --nvidia) gpu=nvidia; gpu_explicit=1 ;;
+  --intel) gpu=intel; gpu_explicit=1 ;;
   --scale) [ $# -ge 2 ] || die "--scale needs a number"; scale=$2; shift ;;
   --scale=*) scale=${1#--scale=} ;;
   --show-game-window) game_window=show ;;
@@ -155,24 +156,38 @@ if awk -v s="$scale" 'BEGIN { exit !(s > 1) }'; then export CIV3R_SCALE=$scale; 
 if [ $game_window = show ]; then export CIV3R_GAME_WINDOW=show; else unset CIV3R_GAME_WINDOW; fi
 export LD_LIBRARY_PATH="$(cat "$libs_file")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 unset DISPLAY   # the prefix uses winewayland; nothing falls back to XWayland
-# The game's own GL stays on Mesa (Intel); only the renderer's Vulkan moves.
+# Keep the game's GLX on Mesa. EGL is selected below: NVIDIA's Vulkan
+# ICD initializes EGL too, so hiding its EGL vendor breaks that driver.
 export __GLX_VENDOR_LIBRARY_NAME=mesa
-[ -f /run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json ] &&
-  export __EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json
 unset VK_ICD_FILENAMES
 # Intel: only its Vulkan driver, so nothing wakes the NVIDIA GPU. NVIDIA:
 # the Intel driver too, for the renderer to fall back on if the NVIDIA GPU
 # cannot present to the desktop's windows.
 intel_icd=$icd/intel_icd.x86_64.json nvidia_icd=$icd/nvidia_icd.json
 case $gpu in
-  intel) files=$intel_icd; export TILE_RENDER_ADAPTER=${TILE_RENDER_ADAPTER:-intel} ;;
+  intel)
+    files=$intel_icd; export TILE_RENDER_ADAPTER=${TILE_RENDER_ADAPTER:-intel}
+    # Clear PRIME settings inherited from a previous NVIDIA launch.
+    unset __NV_PRIME_RENDER_OFFLOAD __VK_LAYER_NV_optimus
+    [ ! -f /run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json ] ||
+      export __EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json ;;
   nvidia)
     files=$nvidia_icd:$intel_icd; export TILE_RENDER_ADAPTER=${TILE_RENDER_ADAPTER:-nvidia}
     # PRIME render offload (the NVIDIA GPU drives no display), and the
     # Vulkan loader's account of every driver it tries, into Wine's log.
-    export __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only
+    # A Mesa-only EGL vendor override causes NVIDIA 580 to fail ICD
+    # initialization and can segfault when Wine and the renderer probe
+    # Vulkan concurrently. Let GLVND load both installed EGL vendors.
+    unset __EGL_VENDOR_LIBRARY_FILENAMES __EGL_VENDOR_LIBRARY_DIRS
+    export __NV_PRIME_RENDER_OFFLOAD=1
+    # The adapter filter picks NVIDIA. Do not hide Intel from the loader:
+    # it must remain available for the advertised presentation fallback.
+    unset __VK_LAYER_NV_optimus
     export VK_LOADER_DEBUG=${VK_LOADER_DEBUG:-error,warn,driver} ;;
 esac
+# An explicit command-line GPU choice wins over a dev shell's inherited
+# adapter filter (for example TILE_RENDER_ADAPTER=radv).
+if [ "$gpu_explicit" = 1 ]; then export TILE_RENDER_ADAPTER=$gpu; fi
 # (CIV3R_VK_DRIVER_FILES replaces that choice, e.g. on a machine with other
 # GPUs, together with TILE_RENDER_ADAPTER.)
 if [ -n "${CIV3R_VK_DRIVER_FILES:-}" ]; then export VK_DRIVER_FILES=$CIV3R_VK_DRIVER_FILES
@@ -212,8 +227,8 @@ if grep -q 'no adapter matches' "$bridge_log" 2>/dev/null; then
 elif grep -q 'cannot show this window\|cannot present to this window' "$bridge_log" 2>/dev/null; then
   say "the renderer cannot show its window on the $gpu GPU here; it uses the default GPU instead (see $bridge_log)"
 fi
-used=$(grep -o 'viewer adapter: AdapterInfo { name: "[^"]*"' "$bridge_log" 2>/dev/null | tail -1 | sed 's/.*name: "//; s/"$//')
+used=$(grep -o 'viewer adapter: AdapterInfo { name: "[^"]*"' "$bridge_log" 2>/dev/null | tail -1 | sed 's/.*name: "//; s/"$//' || true)
 [ -z "$used" ] || echo "civ3-play: the renderer draws on $used"
-failed=$(grep -o 'viewer init: .*\|civ3r-native: viewer: .*\|starting the renderer: .*' "$bridge_log" 2>/dev/null | tail -1)
+failed=$(grep -o 'viewer init: .*\|civ3r-native: viewer: .*\|starting the renderer: .*' "$bridge_log" 2>/dev/null | tail -1 || true)
 [ -z "$failed" ] || say "the renderer did not start ($failed); the game's own window is shown instead. Logs: $bridge_log, $log"
 wait $pid

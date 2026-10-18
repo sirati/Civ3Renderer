@@ -50,6 +50,28 @@ pub fn screen(frame: &Frame, screens: &[(u32, &'static str)]) -> Option<(usize, 
     frame.forms.iter().enumerate().rev().find_map(|(i, f)| screens.iter().find(|s| s.0 == f.0).map(|s| (i, s.1)))
 }
 
+/// The active screen and its placement setting. Preferences is a modal
+/// screen of its own, including over an advisor, and follows the Menu
+/// setting rather than the screen below it.
+pub fn active_screen(frame: &Frame, build: civ3_sys::Build) -> Option<(usize, &'static str)> {
+    let screens = civ3_sys::ui_hooks::screen_forms(build);
+    let preferences = civ3_sys::ui_hooks::preferences_form(build);
+    frame.forms.iter().enumerate().rev().find_map(|(i, f)| {
+        if preferences.is_some_and(|p| p.vtable == f.0) {
+            Some((i, "Menu"))
+        } else {
+            screens.iter().find(|s| s.0 == f.0).map(|s| (i, s.1))
+        }
+    })
+}
+
+/// The map's corner and unit-order controls may roam only while no screen
+/// covers the map. Preferences has its own form outside the named screens
+/// that the viewer can place, but also covers these map controls.
+pub fn map_hud(frame: &Frame, build: civ3_sys::Build) -> Option<&Frame> {
+    active_screen(frame, build).is_none().then_some(frame)
+}
+
 /// The rectangle (x, y, w, h) around the forms composited whose canvas
 /// `pick` chooses.
 pub fn forms_rect(frame: &Frame, pick: impl Fn(u32) -> bool) -> Option<[i32; 4]> {
@@ -96,6 +118,17 @@ pub fn without(frame: &Frame, draws: &[usize]) -> Frame {
         if let Some(d) = out.draws.get_mut(i) {
             *clip_mut(d) = [0, 0, 0, 0];
         }
+    }
+    out
+}
+
+/// Clip a panel's draws to its own bounds while retaining the draw indices
+/// and form ownership used to insert generated controls over the panel.
+pub fn clipped(frame: &Frame, [x, y, w, h]: [i32; 4]) -> Frame {
+    let mut out = frame.clone();
+    for draw in &mut out.draws {
+        let clip = clip_mut(draw);
+        *clip = intersect(*clip, [x, y, x + w, y + h]);
     }
     out
 }
@@ -159,7 +192,81 @@ pub fn popup(frame: &Frame, canvas: u32, screen: Option<usize>, size: (i32, i32)
     if screen.is_some_and(|s| index <= s) {
         return None;
     }
-    part_from(frame, index, size)
+    let (first, [x, y, w, h]) = part_from(frame, index, size)?;
+    let bounds = popup_portraits(frame, first, [x, y, w, h]).into_iter().filter_map(|i| reach(&frame.draws[i]))
+        .fold([x, y, x + w, y + h], |a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
+    Some((first, [bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]]))
+}
+
+/// The advisor picture above a dialog can be drawn on the map canvas,
+/// before the dialog's own form is composed. It is part of the dialog,
+/// even though that canvas also owns map labels and other world overlays.
+fn advisor_portrait(draw: &ScreenDraw) -> bool {
+    let ScreenDraw::Image { path, .. } = draw else { return false };
+    let mut parts = path.rsplit(['/', '\\']);
+    let Some(name) = parts.next() else { return false };
+    parts.next().is_some_and(|folder| folder.eq_ignore_ascii_case("smallheads"))
+        && ["popupDOMESTIC.pcx", "popupTRADE.pcx", "popupMILITARY.pcx", "popupFOREIGN.pcx", "popupCULTURE.pcx", "popupSCIENCE.pcx"].iter().any(|p| name.eq_ignore_ascii_case(p))
+}
+
+fn popup_portraits(frame: &Frame, first: usize, [x, y, w, h]: [i32; 4]) -> Vec<usize> {
+    let near = [x - POPUP_FRAME, y - POPUP_FRAME, x + w + POPUP_FRAME, y + h + POPUP_FRAME];
+    let menus_from = crate::ui_screen::menus_from(frame);
+    frame.draws.iter().enumerate().filter_map(|(i, draw)| {
+        if !advisor_portrait(draw) { return None; }
+        // Do not steal the head of an advisor underneath another dialog.
+        // The map and Main_GUI canvases, and directly drawn pictures,
+        // have no such UI owner.
+        let map_or_unowned = i < menus_from || frame.underlay_draws.iter().any(|r| r.contains(&i))
+            || !frame.form_draws.iter().any(|(_, r)| r.contains(&i));
+        if i < first && !map_or_unowned { return None; }
+        let r = reach(draw)?;
+        let overlap = intersect(r, near);
+        (overlap[2] > overlap[0] && overlap[3] > overlap[1]).then_some(i)
+    }).collect()
+}
+
+/// Split off a popup and its advisor picture. Draws from the map canvas
+/// are transferred individually, so the dialog never takes its background
+/// with it and the picture cannot reappear in a world magnifier.
+pub fn split_popup(frame: &Frame, first: usize, rect: [i32; 4]) -> (Frame, Frame) {
+    // Match against the original form and border, not the already enlarged
+    // rectangle, which might reach another picture farther above it.
+    let source = frame.form_draws.iter().filter(|(_, r)| !r.is_empty() && r.start >= first).min_by_key(|(_, r)| r.start)
+        .and_then(|(canvas, _)| frame.forms.iter().rposition(|f| f.1 == *canvas))
+        .and_then(|index| part_from(frame, index, (rect[0] + rect[2], rect[1] + rect[3])))
+        .map_or(rect, |(_, r)| r);
+    let attached: Vec<_> = popup_portraits(frame, first, source).into_iter().filter(|&i| i < first).collect();
+    let (below, mut above) = split_at(frame, first);
+    let below = without(&below, &attached);
+    let n = attached.len();
+    if n > 0 {
+        let mut draws: Vec<_> = attached.into_iter().map(|i| frame.draws[i].clone()).collect();
+        draws.append(&mut above.draws);
+        above.draws = draws;
+        for (_, range) in &mut above.form_draws {
+            range.start += n;
+            range.end += n;
+        }
+    }
+    (below, above)
+}
+
+/// The active screen's part. Preferences owns a screen-sized canvas,
+/// while its controls and background occupy a 1024 by 768 panel. Keep that
+/// panel, rather than the driver's map, as the rectangle the viewer places.
+/// Its own first draw also keeps an underlying advisor or game menu out.
+pub fn active_screen_part(frame: &Frame, index: usize, build: civ3_sys::Build, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
+    let form = frame.forms.get(index)?;
+    if let Some(preferences) = civ3_sys::ui_hooks::preferences_form(build).filter(|p| p.vtable == form.0) {
+        let first = frame.form_draws.iter().filter(|(c, r)| *c == form.1 && !r.is_empty()).map(|(_, r)| r.start).min()?;
+        let rect = crate::prefs::screen_area(frame, &preferences, (1024, 768))?;
+        return Some((first, rect));
+    }
+    // A game menu owns its frame rather than an advisor's shared
+    // background. Keep it separate even if it fills the driver's window.
+    let is_menu = civ3_sys::ui_hooks::screen_forms(build).iter().any(|s| s.0 == form.0 && s.1 == "Menu");
+    if is_menu { part_from(frame, index, size) } else { screen_part(frame, index, size) }
 }
 
 /// The named screen (form `index` of `frame.forms`) as a part of its own,
@@ -170,7 +277,11 @@ pub fn popup(frame: &Frame, canvas: u32, screen: Option<usize>, size: (i32, i32)
 pub fn screen_part(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
     let place = |f: &(u32, u32, (i32, i32), (i32, i32))| (f.2, f.3);
     let mut bottom = index;
+    let menus_from = crate::ui_screen::menus_from(frame);
     while bottom > 0 && place(&frame.forms[bottom - 1]) == place(&frame.forms[index]) {
+        let previous = frame.forms[bottom - 1].1;
+        let in_menus = frame.form_draws.iter().any(|(canvas, r)| *canvas == previous && !r.is_empty() && r.start >= menus_from);
+        if !in_menus { break; }
         bottom -= 1;
     }
     let (first, rect) = (bottom..=index).find_map(|i| part_from(frame, i, size))?;
@@ -268,6 +379,42 @@ mod tests {
     }
 
     #[test]
+    fn preferences_hides_map_controls_and_closing_it_restores_them() {
+        let build = civ3_sys::Build::PcGames;
+        let hud = civ3_sys::ui_hooks::hud_buttons(build);
+        let mut f = frame();
+        let controls = |f: &Frame| {
+            map_hud(f, build).map(|f| (corner_part(f, &hud.corner), forms_rect(f, |c| hud.is_unit_order(c))))
+        };
+        let before = controls(&f).unwrap();
+        assert!(before.0.is_some() && before.1.is_some());
+        let preferences = civ3_sys::ui_hooks::preferences_form(build).unwrap();
+        f.forms.push((preferences.vtable, preferences.form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, (0, 0), (1920, 1080)));
+        // Preferences is not one of the screens with a placement setting.
+        // Its presence must nevertheless suppress the separately copied HUD.
+        assert_eq!(screen(&f, civ3_sys::ui_hooks::screen_forms(build)), None);
+        assert_eq!(controls(&f), None);
+        // An info popup over Preferences must keep those controls hidden.
+        f.forms.push((0x66_6408, 0x60_0000, (700, 400), (500, 300)));
+        assert_eq!(controls(&f), None);
+        f.forms.pop();
+        f.forms.pop();
+        assert_eq!(controls(&f), Some(before));
+    }
+
+    #[test]
+    fn named_screens_also_hide_map_controls() {
+        let build = civ3_sys::Build::PcGames;
+        let mut f = frame();
+        for &(vtable, _) in civ3_sys::ui_hooks::screen_forms(build) {
+            f.forms.push((vtable, 0x70_0000, (448, 156), (1024, 768)));
+            assert_eq!(map_hud(&f, build), None);
+            f.forms.pop();
+            assert!(map_hud(&f, build).is_some());
+        }
+    }
+
+    #[test]
     fn the_corner_part_takes_its_buttons_and_their_tooltip_from_the_interface() {
         let mut f = frame();
         let hud = civ3_sys::ui_hooks::hud_buttons(civ3_sys::Build::PcGames);
@@ -312,6 +459,105 @@ mod tests {
     }
 
     #[test]
+    fn preferences_uses_the_menu_setting_and_its_panel_without_the_underlying_advisor() {
+        let build = civ3_sys::Build::PcGames;
+        let preferences = civ3_sys::ui_hooks::preferences_form(build).unwrap();
+        let canvas = preferences.form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
+        let mut f = Frame {
+            draws: vec![
+                fill(0, 0, 1920, 1080),
+                fill(21, 12, 36, 30),
+                fill(448, 156, 1024, 768),
+                fill(448, 156, 1024, 768),
+                fill(778, 407, 364, 266),
+                fill(0, 0, 1920, 1080),
+                ScreenDraw::Image {
+                    path: preferences.background.into(), rect: [0, 0, 1024, 768], x: 448, y: 156,
+                    keyed: false, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
+                },
+                fill(500, 800, 80, 30),
+                // The info box's frame is drawn directly onto the screen.
+                fill(690, 70, 420, 30),
+                fill(700, 100, 400, 300),
+                fill(720, 340, 80, 30),
+            ],
+            forms: vec![
+                (0x66_B3D8, 1, (0, 0), (1920, 1080)),
+                (0x66_56C0, 2, (21, 12), (36, 30)),
+                (0x66_88B8, 3, (448, 156), (1024, 768)),
+                (0x66_C270, 4, (448, 156), (1024, 768)),
+                (0x66_DD80, 5, (778, 407), (364, 266)),
+                (preferences.vtable, canvas, (0, 0), (1920, 1080)),
+                (0x66_56C0, 7, (500, 800), (80, 30)),
+                (0x66_6408, 8, (700, 100), (400, 300)),
+                (0x66_56C0, 9, (720, 340), (80, 30)),
+            ],
+            form_draws: vec![(1, 0..1), (2, 1..2), (3, 2..3), (4, 3..4), (5, 4..5), (canvas, 5..7), (7, 7..8), (8, 9..10), (9, 10..11)],
+            underlay_draws: vec![],
+        };
+        assert_eq!(active_screen(&f, build), Some((5, "Menu")));
+        let (popup_first, popup_rect) = popup(&f, 8, Some(5), (1920, 1080)).unwrap();
+        assert_eq!((popup_first, popup_rect), (8, [690, 70, 420, 330]));
+        let (below_popup, info) = split_at(&f, popup_first);
+        let (first, rect) = active_screen_part(&below_popup, 5, build, (1920, 1080)).unwrap();
+        assert_eq!((first, rect), (5, [448, 156, 1024, 768]));
+        let (below_screen, raw_panel) = split_at(&below_popup, first);
+        let panel = clipped(&raw_panel, rect);
+        // The map and its HUD remain in the lower frame. Only the current
+        // panel, not the old advisor or menu, is copied into screen_view.
+        assert_eq!(below_screen.draws, f.draws[..5]);
+        assert_eq!(raw_panel.draws, f.draws[5..8]);
+        assert_eq!(panel.form_draws, raw_panel.form_draws);
+        assert!(panel.draws.iter().all(|draw| match draw {
+            ScreenDraw::Fill { clip, .. } | ScreenDraw::Image { clip, .. } => *clip == [448, 156, 1472, 924],
+            _ => false,
+        }));
+        assert_eq!(info.draws, f.draws[8..]);
+        // The generated tabs have exactly one owner and remain under the
+        // complete info popup, including its directly drawn frame.
+        assert_eq!(crate::prefs::tabs_slot(&below_screen, &preferences, Some(8)), None);
+        assert_eq!(crate::prefs::tabs_slot(&panel, &preferences, Some(8)), Some(3));
+        assert_eq!(crate::prefs::tabs_slot(&info, &preferences, Some(8)), None);
+        f.forms.truncate(5);
+        assert_eq!(active_screen(&f, build), Some((4, "Menu")));
+        assert_eq!(active_screen_part(&f, 4, build, (1920, 1080)), Some((4, [778, 407, 364, 266])));
+        f.forms.truncate(4);
+        assert_eq!(active_screen(&f, build), Some((3, "F1")));
+    }
+
+    #[test]
+    fn preferences_bounds_follow_the_drawn_background_not_its_full_screen_canvas() {
+        let build = civ3_sys::Build::PcGames;
+        let preferences = civ3_sys::ui_hooks::preferences_form(build).unwrap();
+        let f = Frame {
+            draws: vec![fill(0, 0, 1920, 1080), ScreenDraw::Image {
+                path: preferences.background.into(), rect: [100, 50, 924, 718], x: 548, y: 206,
+                keyed: false, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
+            }],
+            forms: vec![(0x66_B3D8, 1, (0, 0), (1920, 1080)), (preferences.vtable, 2, (0, 0), (1920, 1080))],
+            form_draws: vec![(1, 0..1), (2, 1..2)],
+            underlay_draws: vec![],
+        };
+        assert_eq!(active_screen(&f, build), Some((1, "Menu")));
+        assert_eq!(active_screen_part(&f, 1, build, (1920, 1080)), Some((1, [448, 156, 1024, 768])));
+        // An as-yet undrawn Preferences form supplies no empty screen view.
+        let empty = Frame { draws: vec![], form_draws: vec![], ..f };
+        assert_eq!(active_screen_part(&empty, 1, build, (1920, 1080)), None);
+    }
+
+    #[test]
+    fn a_full_screen_game_menu_does_not_take_the_worlds_draws_with_it() {
+        let build = civ3_sys::Build::PcGames;
+        let f = Frame {
+            draws: vec![fill(0, 0, 1024, 768), fill(0, 0, 1024, 768)],
+            forms: vec![(0x66_B3D8, 1, (0, 0), (1024, 768)), (0x66_DD80, 2, (0, 0), (1024, 768))],
+            form_draws: vec![(1, 0..1), (2, 1..2)],
+            underlay_draws: vec![],
+        };
+        assert_eq!(active_screen_part(&f, 1, build, (1024, 768)), Some((1, [0, 0, 1024, 768])));
+    }
+
+    #[test]
     fn the_popup_is_split_off_with_what_is_drawn_over_it() {
         let f = frame();
         let (first, rect) = popup(&f, 0x50_0000, None, (1920, 1080)).unwrap();
@@ -330,6 +576,117 @@ mod tests {
         // Under a screen composited above it: not a popup of its own.
         assert_eq!(popup(&f, 0x50_0000, Some(7), (1920, 1080)), None);
         assert_eq!(popup(&f, 0x12_3456, None, (1920, 1080)), None);
+    }
+
+    fn advisor_popup_frame() -> Frame {
+        let mut f = frame();
+        // The advisor portrait is drawn into the map canvas, before the
+        // popup form. It must not remain a world overlay after moving it.
+        f.draws.insert(1, ScreenDraw::Image {
+            path: "C:\\Games\\Art\\SmallHeads\\popupSCIENCE.pcx".into(), rect: [0, 0, 180, 180], x: 840, y: 220,
+            keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
+        });
+        f.form_draws = vec![(0x9F_8934, 0..3), (0xA0_68B4, 3..4), (0xA1_4A68, 4..5), (0x50_0000, 5..6), (0x50_1000, 6..7)];
+        f.underlay_draws = vec![0..3];
+        f
+    }
+
+    #[test]
+    fn an_advisor_picture_on_the_map_moves_with_the_popup_only() {
+        let f = advisor_popup_frame();
+        let (first, rect) = popup(&f, 0x50_0000, None, (1920, 1080)).unwrap();
+        assert_eq!((first, rect), (5, [700, 220, 500, 480]));
+        let (below, above) = split_popup(&f, first, rect);
+        assert!(!crate::ui::reaches_clip(&below.draws[1]));
+        assert_eq!(above.draws, vec![f.draws[1].clone(), f.draws[5].clone(), f.draws[6].clone()]);
+        assert!(above.underlay_draws.is_empty());
+        assert_eq!(above.form_draws, [(0x50_0000, 1..2), (0x50_1000, 2..3)]);
+        assert_eq!(below.draws[0], f.draws[0], "the map remains behind the dialog");
+        // The same art on Main_GUI is a HUD draw rather than an underlay.
+        // It still belongs to the popup and must share its transform.
+        let mut f = f.clone();
+        f.underlay_draws.clear();
+        assert_eq!(popup(&f, 0x50_0000, None, (1920, 1080)), Some((first, rect)));
+        let (below, above) = split_popup(&f, first, rect);
+        assert!(!crate::ui::reaches_clip(&below.draws[1]));
+        assert_eq!(above.draws.iter().filter(|d| advisor_portrait(d)).count(), 1);
+        // A head owned by an underlying advisor stays on that advisor.
+        f.forms.insert(1, (0x66_C270, 0x77_0000, (448, 156), (1024, 768)));
+        f.form_draws[0].1 = 0..1;
+        f.form_draws.insert(1, (0x77_0000, 1..3));
+        assert_eq!(popup(&f, 0x50_0000, None, (1920, 1080)), Some((5, [700, 400, 500, 300])));
+        let (below, above) = split_popup(&f, 5, [700, 400, 500, 300]);
+        assert!(crate::ui::reaches_clip(&below.draws[1]));
+        assert!(!above.draws.iter().any(advisor_portrait));
+    }
+
+    #[test]
+    fn grouped_advisor_picture_stays_attached_with_strip_panes_and_ui_scales() {
+        use tile_render::{AtlasBuilder, Grid, LayerSpec, PlacedSprite, RgbaImage, SpriteSets, TileWorld};
+        use tile_viewer::{layout, scaling};
+        use viewer_settings::{Place, Resolution, ScreenPlace, Split, Zoom};
+        const GREEN: [u8; 4] = [20, 180, 40, 255];
+        const RED: [u8; 4] = [220, 30, 40, 255];
+        const BLUE: [u8; 4] = [30, 50, 220, 255];
+        let mut atlas = AtlasBuilder::new(128);
+        let ground = atlas.add(&RgbaImage::from_fn(8, 8, |_, _| GREEN), (0, 0)).unwrap();
+        let head = atlas.add(&RgbaImage::from_fn(20, 30, |_, _| RED), (0, 0)).unwrap();
+        let body = atlas.add(&RgbaImage::from_fn(60, 40, |_, _| BLUE), (0, 0)).unwrap();
+        let atlas = atlas.finish();
+        let mut sets = SpriteSets::default();
+        let (ground, head, body) = (sets.single(ground), sets.single(head), sets.single(body));
+        let mut world = TileWorld::new(Grid { cols: 128, rows: 128, layout: tile_render::Layout::Orthogonal, wrap_x: true, wrap_y: true, step: (8, 8) }, sets);
+        world.add_layer(LayerSpec::new("ground", vec![ground]));
+        for place in [Place::Floating, Place::LeftOrBottom, Place::RightOrTop] {
+            for pixel_scale in [1, 2, 3] {
+                for menu_scale in [1.0, 1.5] {
+                    let mut s = scene::Scene { screen_size: (160, 120), shape: scene::WorldShape { cols: 128, rows: 128, wrap_x: true, wrap_y: true }, ..Default::default() };
+                    s.view_mut(0).view.camera_x = 100;
+                    s.view_mut(0).view.camera_y = 100;
+                    part_view(&mut s, POPUP_VIEW, [50, 30, 60, 70], vec![
+                        scene::FreeSprite { set: head.raw(), x: 65, y: 30, ..Default::default() },
+                        scene::FreeSprite { set: body.raw(), x: 50, y: 60, ..Default::default() },
+                    ]);
+                    let mut settings = viewer_settings::Layout { split: Split::Vertical1To1, zoom: Zoom::TopStrip, ..Default::default() };
+                    if place == Place::Floating {
+                        s.interface.popup = Some(POPUP_VIEW);
+                    } else {
+                        // A popup embedded in a named screen is merged into
+                        // that screen's view by the bridge.
+                        s.interface.screen = Some("F6".into());
+                        s.interface.screen_view = Some(POPUP_VIEW);
+                        settings.screens.insert("F6".into(), ScreenPlace { vertical: place, horizontal: place });
+                    }
+                    let plan = scaling::plan((480, 360), 2.0, s.screen_size, &Resolution { pixel_scale, menu_scale, ..Default::default() });
+                    let mut l = layout::Layout::default();
+                    l.apply_settings(&settings);
+                    l.driver_screen = Some(plan.screen);
+                    let mut f = l.frame(&s, plan.canvas(), (0, 0, 0, 0), vec![], None);
+                    scaling::arrange(&plan, &s, &mut f, |sprite| Some(if sprite.set == head.raw() { [65, 30, 20, 30] } else { [50, 60, 60, 40] }));
+                    let camera = f.view_cameras[1].unwrap();
+                    assert!(!f.cameras[camera as usize].cells);
+                    world.free = vec![
+                        PlacedSprite { screen: true, view: Some(camera), ..PlacedSprite::new(head, 65, 30) },
+                        PlacedSprite { screen: true, view: Some(camera), ..PlacedSprite::new(body, 50, 60) },
+                    ];
+                    let image = tile_render::reference::render_views(&world, &atlas, &f.cameras, plan.canvas(), 0, [0, 0, 0, 255]);
+                    let mut head_bottom = None;
+                    let mut body_top = None;
+                    for y in 0..plan.canvas().1 {
+                        for x in 0..plan.canvas().0 {
+                            match image.get(x, y) {
+                                RED => head_bottom = Some(y),
+                                BLUE => { body_top.get_or_insert(y); },
+                                _ => {},
+                            }
+                        }
+                    }
+                    let context = format!("{place:?}, pixel scale {pixel_scale}, menu scale {menu_scale}");
+                    assert!(head_bottom.is_some() && body_top.is_some(), "{context}");
+                    assert_eq!(head_bottom.unwrap() + 1, body_top.unwrap(), "the portrait stays directly above its dialog: {context}");
+                }
+            }
+        }
     }
 
     #[test]

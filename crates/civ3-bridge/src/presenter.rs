@@ -58,7 +58,11 @@ impl Presenter {
         // screen's pixels, and the game scales its mouse by it): only the
         // viewer's thread has the screen's pixels.
         let config = tile_viewer::ViewerConfig { process_dpi_aware: false, ..config };
+        let quit = display.input_sender();
         std::thread::Builder::new().name("civ3r-viewer".into()).spawn(move || {
+            struct QuitWhenStopped(scene::InputSender);
+            impl Drop for QuitWhenStopped { fn drop(&mut self) { let _ = self.0.send(Input::Quit); } }
+            let _quit = QuitWhenStopped(quit);
             #[cfg(windows)]
             if !inproc::dpi::thread_per_monitor_aware() {
                 log::warn!("viewer: its thread could not be made DPI aware (its window in logical pixels)");
@@ -66,6 +70,8 @@ impl Presenter {
             if let Err(e) = tile_viewer::run(config, a, display) {
                 log::error!("viewer: {e}");
             }
+            // The drop guard also covers initialization errors and unwinding
+            // before the viewer's normal close handler exists.
         })?;
         Ok(Presenter { sink: Sink::InProcess { assets, driver }, sent: Scene::default(), generation: 1, prepared: 1, sent_patches: Default::default(), reserve: 0, stats: PublishStats::default() })
     }
@@ -229,13 +235,15 @@ pub struct Native {
     fullscreen: bool,
     input: Vec<u8>,
     log: Vec<u8>,
+    #[cfg(all(windows, target_arch = "x86"))]
+    quit_reported: bool,
 }
 
 impl Native {
     #[cfg(all(windows, target_arch = "x86"))]
     pub fn load(fullscreen: bool) -> Result<Native, String> {
         let lib = wine_unixlib::pe::UnixLib::load("civ3r_native.dll").map_err(|s| format!("civ3r_native.dll: status {s:#x}"))?;
-        Ok(Native { lib, upload_status: None, fullscreen, input: vec![0; 64 * 1024], log: vec![0; 16 * 1024] })
+        Ok(Native { lib, upload_status: None, fullscreen, input: vec![0; 64 * 1024], log: vec![0; 16 * 1024], quit_reported: false })
     }
 
     #[cfg(not(all(windows, target_arch = "x86")))]
@@ -351,12 +359,24 @@ impl Native {
     fn take_input(&mut self) -> Vec<Input> {
         #[cfg(all(windows, target_arch = "x86"))]
         {
+            if self.quit_reported { return Vec::new(); }
             loop {
                 let mut args = civ3r_native::TakeInput { out: wine_unixlib::pe::buffer_mut(&mut self.input), len: 0, _pad: 0 };
                 match self.lib.call(civ3r_native::CALL_INPUT, &mut args) {
-                    0 => return scene::wire::decode_input(&self.input[..args.len as usize]).unwrap_or_default(),
+                    0 => match scene::wire::decode_input(&self.input[..args.len as usize]) {
+                        Ok(input) => return input,
+                        Err(error) => {
+                            log::error!("native viewer input: {error}");
+                            self.quit_reported = true;
+                            return vec![Input::Quit];
+                        }
+                    },
                     wine_unixlib::STATUS_BUFFER_TOO_SMALL => self.input.resize(args.len as usize, 0),
-                    _ => return Vec::new(),
+                    status => {
+                        log::error!("native viewer input: status {status:#x}");
+                        self.quit_reported = true;
+                        return vec![Input::Quit];
+                    },
                 }
             }
         }

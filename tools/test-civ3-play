@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Check launcher GPU isolation without starting Wine or loading a GPU driver."""
+
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+
+LAUNCHER = Path(__file__).resolve().with_name("civ3-play")
+MESA_EGL = "/run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json"
+
+
+class LauncherGpuTests(unittest.TestCase):
+    def launch(self, *args, inherited=None):
+        with tempfile.TemporaryDirectory(prefix="civ3r-launcher-test-") as temp:
+            base = Path(temp)
+            runtime = base / "runtime"
+            wine = base / "wine"
+            prefix = base / "prefix"
+            native = base / "native"
+            game = prefix / "drive_c/Games/Civilization III Complete/Conquests"
+            capture = base / "environment"
+            for path in (wine / "bin", native / "x86_64-unix", game,
+                         runtime / "gcroots/wayland-utils/bin"):
+                path.mkdir(parents=True)
+            (game / "Civ3Conquests.exe").touch()
+            (native / "x86_64-unix/civ3r_native.so").touch()
+            (runtime / "runtime-libs").write_text(str(base / "libraries") + "\n")
+            wayland = runtime / "gcroots/wayland-utils/bin/wayland-info"
+            wayland.write_text("#!/bin/sh\nexit 0\n")
+            wayland.chmod(0o755)
+            fake_wine = wine / "bin/wine"
+            fake_wine.write_text(
+                "#!/bin/sh\n"
+                'env -0 > "$CIV3R_TEST_CAPTURE"\n'
+                "printf '%s\\n' 'viewer adapter: AdapterInfo { name: \"Test GPU\" }' "
+                "> civ3-bridge.log\n"
+            )
+            fake_wine.chmod(0o755)
+            env = os.environ.copy()
+            for key in ("CIV3R_HOME", "CIV3R_SETTINGS", "CIV3R_NATIVE_DIR", "CIV3R_SCALE",
+                        "WINE", "WINEPREFIX", "TILE_RENDER_ADAPTER", "VK_DRIVER_FILES",
+                        "VK_ICD_FILENAMES", "VK_LOADER_DEBUG", "__NV_PRIME_RENDER_OFFLOAD",
+                        "__VK_LAYER_NV_optimus", "__EGL_VENDOR_LIBRARY_FILENAMES",
+                        "__EGL_VENDOR_LIBRARY_DIRS"):
+                env.pop(key, None)
+            env.update({
+                "CIV3R_HOME": str(runtime),
+                "CIV3R_NATIVE_DIR": str(native),
+                "WINE": str(wine),
+                "WINEPREFIX": str(prefix),
+                "WAYLAND_DISPLAY": "test-wayland",
+                "CIV3R_TEST_CAPTURE": str(capture),
+                # Use a manifest path only. The mock Wine never loads it.
+                "CIV3R_VK_DRIVER_FILES": str(base / "test_icd.json"),
+            })
+            env.update(inherited or {})
+            result = subprocess.run(
+                [str(LAUNCHER), "--scale", "1", *args], env=env,
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return dict(item.split("=", 1) for item in capture.read_text().split("\0") if item)
+
+    def test_intel_default_does_not_inherit_prime_offload(self):
+        env = self.launch(inherited={
+            "__NV_PRIME_RENDER_OFFLOAD": "1",
+            "__VK_LAYER_NV_optimus": "NVIDIA_only",
+            "VK_ICD_FILENAMES": "/stale/nvidia.json",
+        })
+        self.assertEqual(env["TILE_RENDER_ADAPTER"], "intel")
+        self.assertNotIn("__NV_PRIME_RENDER_OFFLOAD", env)
+        self.assertNotIn("__VK_LAYER_NV_optimus", env)
+        self.assertNotIn("VK_ICD_FILENAMES", env)
+        self.assertEqual(env["__GLX_VENDOR_LIBRARY_NAME"], "mesa")
+        if Path(MESA_EGL).is_file():
+            self.assertEqual(env["__EGL_VENDOR_LIBRARY_FILENAMES"], MESA_EGL)
+
+    def test_nvidia_allows_its_egl_vendor_and_intel_fallback(self):
+        env = self.launch("--nvidia", inherited={
+            "TILE_RENDER_ADAPTER": "radv",
+            "__EGL_VENDOR_LIBRARY_FILENAMES": "/mesa-only.json",
+            "__EGL_VENDOR_LIBRARY_DIRS": "/mesa-only",
+            "__VK_LAYER_NV_optimus": "NVIDIA_only",
+        })
+        self.assertEqual(env["TILE_RENDER_ADAPTER"], "nvidia")
+        self.assertEqual(env["__NV_PRIME_RENDER_OFFLOAD"], "1")
+        self.assertNotIn("__EGL_VENDOR_LIBRARY_FILENAMES", env)
+        self.assertNotIn("__EGL_VENDOR_LIBRARY_DIRS", env)
+        self.assertNotIn("__VK_LAYER_NV_optimus", env)
+        self.assertEqual(env["__GLX_VENDOR_LIBRARY_NAME"], "mesa")
+        self.assertEqual(env["VK_LOADER_DEBUG"], "error,warn,driver")
+
+    def test_last_explicit_gpu_option_wins(self):
+        env = self.launch("--nvidia", "--intel", inherited={"TILE_RENDER_ADAPTER": "radv"})
+        self.assertEqual(env["TILE_RENDER_ADAPTER"], "intel")
+        self.assertNotIn("__NV_PRIME_RENDER_OFFLOAD", env)
+
+    def test_default_keeps_custom_adapter_filter_and_driver_override(self):
+        env = self.launch(inherited={"TILE_RENDER_ADAPTER": "custom gpu"})
+        self.assertEqual(env["TILE_RENDER_ADAPTER"], "custom gpu")
+        self.assertEqual(env["VK_DRIVER_FILES"], env["CIV3R_VK_DRIVER_FILES"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -20,6 +20,9 @@ pub mod interface_parts;
 pub mod label_check;
 pub mod looks;
 pub mod minimap;
+#[cfg(any(windows, test))]
+pub mod native_sliders;
+pub mod native_camera;
 pub mod modal;
 pub mod preload;
 pub mod prefs;
@@ -30,6 +33,7 @@ pub mod replay_thread;
 pub mod rings;
 pub mod rules;
 pub mod targeting;
+pub mod setup_controls;
 pub mod scene_map;
 pub mod text;
 pub mod ui;
@@ -39,7 +43,12 @@ pub mod ui_screen;
 #[cfg(windows)]
 pub mod ui_trace;
 pub mod units;
+pub mod unit_notices;
+#[cfg(any(windows, test))]
+pub mod unit_views;
 pub mod world;
+#[cfg(any(windows, test))]
+pub mod world_input;
 #[cfg(windows)]
 pub mod game_window;
 #[cfg(windows)]
@@ -82,9 +91,15 @@ fn init() {
         Ok(tracer) => std::mem::forget(tracer),
         Err(e) => log::error!("installing tracer: {e}"),
     }
+    match unit_notices::install(game) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => {},
+        Err(e) => log::warn!("unit notice capture: {e}"),
+    }
     if std::env::var_os("CIV3R_VIEWER").is_some() {
         if let Err(e) = live::start(game) {
             log::error!("starting the renderer: {e}");
+            native_camera::viewer_gone(game, None);
             ui_trace::restore_original_drawing();
             // Without it, the game's own window is the only one.
             if game_window::hidden() {

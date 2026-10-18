@@ -555,6 +555,73 @@ pub const fn generated_surfaces_pcg() -> &'static [(u32, &'static str)] {
     &[(0xA0_E230 + 0x858, "minimap"), (0x9B_3F38 + 0x858, "minimap-advisor")]
 }
 
+/// Which of the navigator's two source images the engine has selected.
+/// 0x579E70 switches `Navigator_Data.PCX_0` at +4 between bright terrain
+/// at +0x18 and the territory/city image at +0x2D0.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum NavigatorMode {
+    #[default]
+    Territory,
+    Geography,
+}
+
+impl NavigatorMode {
+    pub fn from_source(navigator: u32, source: u32) -> Self {
+        if source == navigator.wrapping_add(L::NAVIGATOR_DATA_PCX_1) { Self::Geography } else { Self::Territory }
+    }
+}
+
+/// The HUD and advisor have independent navigator objects and toggles.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct NavigatorModes {
+    pub main: NavigatorMode,
+    pub advisor: NavigatorMode,
+}
+
+impl NavigatorModes {
+    pub fn for_surface(self, name: &str) -> NavigatorMode {
+        if name == "minimap-advisor" { self.advisor } else { self.main }
+    }
+}
+
+impl crate::Civ3 {
+    /// Reads the selected source, rather than inferring it from a button's
+    /// transient appearance. No image pixels are read.
+    pub fn navigator_modes(&self) -> Result<NavigatorModes, crate::Civ3Error> {
+        let mut modes = NavigatorModes::default();
+        for &(surface, name) in generated_surfaces(self.build) {
+            let navigator = surface - 0x858;
+            let source = Ptr32::<u32>::new(navigator + 4).read()?;
+            let mode = NavigatorMode::from_source(navigator, source);
+            match name {
+                "minimap" => modes.main = mode,
+                "minimap-advisor" => modes.advisor = mode,
+                _ => {}
+            }
+        }
+        Ok(modes)
+    }
+}
+
+#[cfg(test)]
+mod navigator_mode_tests {
+    use super::*;
+
+    #[test]
+    fn the_selected_source_follows_the_engine_toggle() {
+        for &(surface, _) in generated_surfaces_pcg() {
+            let navigator = surface - 0x858;
+            assert_eq!(NavigatorMode::from_source(navigator, navigator + 0x2D0), NavigatorMode::Territory);
+            assert_eq!(NavigatorMode::from_source(navigator, navigator + 0x18), NavigatorMode::Geography);
+            assert_eq!(NavigatorMode::from_source(navigator, navigator + 0x2D0), NavigatorMode::Territory);
+            assert_eq!(NavigatorMode::from_source(navigator, 0), NavigatorMode::Territory);
+        }
+        let modes = NavigatorModes { main: NavigatorMode::Geography, advisor: NavigatorMode::Territory };
+        assert_eq!(modes.for_surface("minimap"), NavigatorMode::Geography);
+        assert_eq!(modes.for_surface("minimap-advisor"), NavigatorMode::Territory);
+    }
+}
+
 /// The navigator operations used by the summary replay. These express
 /// terrain and history changes, independently of the game's image pixels.
 pub struct ReplaySites {

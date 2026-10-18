@@ -353,7 +353,7 @@ pub fn minimap_patches(
         let colors: Vec<u16> = (0..32)
             .map(|civ| crate::minimap::from_rgb(table_color(world.color_tables.get(civ).copied().unwrap_or(0))))
             .collect();
-        let rgba = crate::minimap::image(world, *size, |civ| colors.get(civ as usize).copied().unwrap_or(0));
+        let rgba = crate::minimap::image_mode(world, *size, world.navigator_modes.for_surface(name), |civ| colors.get(civ as usize).copied().unwrap_or(0));
         out.extend(menu::screen::patch(compiled, name, *size, rgba));
     }
     out
@@ -529,13 +529,27 @@ pub fn replace_game_view_mark(items: &mut Vec<Item>, world: &crate::world::Civ3W
     let Some(at) = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap")) else { return };
     let Item::Element(Element::Dynamic { size, rect: [rx, ry, _, _], at: (x, y), .. }, _) = items[at].clone() else { return };
     let lines: Vec<[i32; 4]> = crate::minimap::view_rect(world, size, game_tiles).into_iter().map(|[lx, ly, lw, lh]| [x + lx - rx, y + ly - ry, lw, lh]).collect();
-    let before = items.len();
-    items.retain(|i| !matches!(i, Item::Element(Element::Fill { rect, rgb: [255, 255, 255], alpha: 255, .. }, _) if lines.contains(rect)));
-    if items.len() == before {
+    // The game's rectangle drawer gives each corner to just one edge.
+    // Its recorded fills are therefore shorter than view_rect's spans,
+    // and partial canvas copies can split them further. Match contained
+    // line segments, only in the white-fill run just after this minimap.
+    let marks: Vec<usize> = items[at + 1..]
+        .iter()
+        .take_while(|i| matches!(i, Item::Element(Element::Fill { rgb: [255, 255, 255], alpha: 255, .. }, _)))
+        .enumerate()
+        .filter_map(|(offset, i)| {
+            let Item::Element(Element::Fill { rect: [x, y, w, h], .. }, _) = i else { return None };
+            let on_line = *w > 0 && *h > 0 && lines.iter().any(|[lx, ly, lw, lh]| x >= lx && y >= ly && x + w <= lx + lw && y + h <= ly + lh);
+            on_line.then_some(at + 1 + offset)
+        })
+        .collect();
+    if marks.is_empty() {
         // (Not drawn: nothing to replace.)
         return;
     }
-    let at = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap")).unwrap_or(0);
+    for i in marks.into_iter().rev() {
+        items.remove(i);
+    }
     let mut marked = items[..=at].to_vec();
     mark_views(&mut marked, world, &[shown], zoomed_out, [255, 255, 255]);
     let added: Vec<Item> = marked.drain(at + 1..).collect();
@@ -576,7 +590,7 @@ pub fn city_drawn_targets(frame: &Frame, modal_canvas: Option<u32>) -> Vec<scene
                 let [cl, ct, cr, cb] = *clip;
                 let (l, t) = ((*x).max(cl), (*y).max(ct));
                 let (r, b) = ((x + rect[2]).min(cr), (y + rect[3]).min(cb));
-                (r > l && b > t).then(|| scene::Interactable {
+                (r > l && b > t).then(|| scene::Interactable { anchor: None,
                     rect: [l, t, r - l, b - t],
                     kind: scene::InteractableKind::Button,
                     id: (*canvas as u64) << 32 | tag | ((l as u32 & 0xFFF) << 12) as u64 | (t as u32 & 0xFFF) as u64,
@@ -587,6 +601,43 @@ pub fn city_drawn_targets(frame: &Frame, modal_canvas: Option<u32>) -> Vec<scene
         .collect()
 }
 
+/// Unit icons which Main_GUI's status-panel click handler selects. These
+/// have no Button forms. Use only images in its real native hit strip,
+/// not decorative unit art elsewhere. Adjacent icons can overlap: each
+/// target stops at the next icon's x, as the game's column hit test does.
+pub fn status_unit_targets(frame: &Frame, row: Option<(u32, [i32; 4])>) -> Vec<scene::Interactable> {
+    let Some((canvas, [rx, ry, rw, rh])) = row else { return Vec::new() };
+    let Some((_, range)) = frame.form_draws.iter().find(|(c, _)| *c == canvas) else { return Vec::new() };
+    let mut icons: Vec<([i32; 4], [i32; 4])> = frame.draws[range.clone()].iter().filter_map(|d| {
+        let ScreenDraw::Image { path, rect, x, y, clip, .. } = d else { return None };
+        if !path.to_ascii_lowercase().replace('/', "\\").ends_with("\\units_32.pcx") || rect[2..] != [32, 32] {
+            return None;
+        }
+        let [cl, ct, cr, cb] = *clip;
+        let (l, t) = ((*x).max(rx).max(cl), (*y).max(ry).max(ct));
+        let (r, b) = ((x + 32).min(rx + rw).min(cr), (y + 32).min(ry + rh).min(cb));
+        (r > l && b > t).then_some(([*x, t, 32, b - t], *clip))
+    }).collect();
+    icons.sort_unstable_by_key(|(r, _)| r[0]);
+    icons.dedup();
+    let first = icons.first().map_or(rx, |(r, _)| r[0]);
+    icons.iter().enumerate().filter_map(|(k, (r, clip))| {
+        let stride = icons.get(k + 1).map(|(next, _)| next[0] - r[0])
+            .or_else(|| k.checked_sub(1).map(|previous| r[0] - icons[previous].0[0]))
+            .unwrap_or(32).clamp(1, 32);
+        // The game draws the first image at L+42 but starts hit columns
+        // at L+27. Preserve its native column calculation, especially in
+        // dense cargo rows; clicking the image's centre can choose a later
+        // unit there. No guessed unit action or shortcut is substituted.
+        let x = rx + r[0] - first;
+        let (l, t) = (x.max(rx).max(clip[0]), r[1].max(ry).max(clip[1]));
+        let (right, bottom) = ((x + stride).min(rx + rw).min(clip[2]), (r[1] + r[3]).min(ry + rh).min(clip[3]));
+        (right > l && bottom > t).then_some(scene::Interactable { anchor: None,
+            rect: [l, t, right - l, bottom - t], kind: scene::InteractableKind::Button,
+            id: (canvas as u64) << 32 | 0x0E00_0000 | k as u64 })
+    }).collect()
+}
+
 /// The game's controls (`civ3_sys::controls`) as things to point at in the
 /// viewer (button snapping): the game's client pixels are the driver's.
 pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Interactable> {
@@ -594,11 +645,12 @@ pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Int
     use scene::InteractableKind;
     controls
         .iter()
-        .map(|c| scene::Interactable {
+        .map(|c| scene::Interactable { anchor: None,
             rect: c.rect,
             kind: match c.kind {
                 ControlKind::Button => InteractableKind::Button,
                 ControlKind::ListItem => InteractableKind::ListItem,
+                ControlKind::Slider { track, value } => InteractableKind::Slider { track, value },
                 ControlKind::List { scroll, step } => InteractableKind::List { scroll, step },
             },
             id: c.id,
@@ -609,6 +661,52 @@ pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Int
 #[cfg(test)]
 mod view_mark_tests {
     use super::*;
+
+    #[test]
+    fn the_real_games_corner_split_lines_are_replaced() {
+        // Captured at 1920x1080: the game's rectangle drawer assigns each
+        // corner to one edge, unlike view_rect's overlapping edge spans.
+        let world = crate::world::Civ3World { width: 60, height: 60, flags: 5, wrap_x: true, tiles: vec![Default::default(); 1800], ..Default::default() };
+        let clip = [0, 0, 1920, 1080];
+        let minimap = Item::Element(Element::Dynamic { name: "minimap".into(), size: (230, 108), rect: [0, 0, 230, 108], at: (31, 961), clip }, false);
+        let fill = |rect| Item::Element(Element::Fill { rect, rgb: [255, 255, 255], alpha: 255, clip }, false);
+        let game_lines = [[81, 970, 122, 1], [80, 1033, 122, 1], [80, 970, 1, 63], [202, 971, 1, 63]];
+        // A matching white decoration before the minimap is not its mark.
+        let decoration = fill(game_lines[0]);
+        let mut items = vec![decoration.clone(), minimap.clone()];
+        items.extend(game_lines.map(fill));
+        // The frame ends the minimap's mark, even if a later control uses
+        // a white fill with the same rectangle.
+        let frame = Item::Element(Element::Fill { rect: [30, 960, 232, 1], rgb: [200, 160, 80], alpha: 255, clip }, false);
+        items.extend([frame.clone(), decoration.clone()]);
+        let shown = (1376, 196, 960, 1080);
+        replace_game_view_mark(&mut items, &world, (13, 5, 45, 40), shown, false);
+        let mut expected = vec![minimap];
+        mark_views(&mut expected, &world, &[shown], false, [255, 255, 255]);
+        expected.insert(0, decoration.clone());
+        expected.extend([frame, decoration]);
+        assert_eq!(items, expected);
+    }
+
+    #[test]
+    fn a_mark_split_into_smaller_fills_is_replaced_after_wrapping() {
+        let world = crate::world::Civ3World { width: 40, height: 40, flags: 3, wrap_x: true, wrap_y: true, tiles: vec![Default::default(); 800], ..Default::default() };
+        let clip = [0, 0, 1920, 1080];
+        let minimap = Item::Element(Element::Dynamic { name: "minimap".into(), size: (200, 100), rect: [0, 0, 200, 100], at: (30, 960), clip }, false);
+        let game_tiles = (35, 35, 5, 5);
+        let mut items = vec![minimap.clone()];
+        for [x, y, w, h] in crate::minimap::view_rect(&world, (200, 100), game_tiles) {
+            for (offset, len) in pieces(w.max(h)) {
+                let rect = if w >= h { [30 + x + offset, 960 + y, len, 1] } else { [30 + x, 960 + y + offset, 1, len] };
+                items.push(Item::Element(Element::Fill { rect, rgb: [255, 255, 255], alpha: 255, clip }, false));
+            }
+        }
+        let shown = (64 * 38, 32 * 38, 64 * 4, 32 * 4);
+        replace_game_view_mark(&mut items, &world, game_tiles, shown, false);
+        let mut expected = vec![minimap];
+        mark_views(&mut expected, &world, &[shown], false, [255, 255, 255]);
+        assert_eq!(items, expected);
+    }
 
     #[test]
     fn the_games_view_mark_is_replaced_by_what_the_viewer_shows() {
@@ -679,11 +777,13 @@ mod interactable_tests {
             Control { rect: [1, 2, 3, 4], kind: ControlKind::Button, id: 7 },
             Control { rect: [0, 0, 100, 200], kind: ControlKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
             Control { rect: [0, 0, 100, 20], kind: ControlKind::ListItem, id: 9 },
+            Control { rect: [110, 70, 406, 20], kind: ControlKind::Slider { track: [139, 80, 350, 1], value: 322_835 }, id: 10 },
         ];
         assert_eq!(super::interactables(&controls), [
-            Interactable { rect: [1, 2, 3, 4], kind: InteractableKind::Button, id: 7 },
-            Interactable { rect: [0, 0, 100, 200], kind: InteractableKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
-            Interactable { rect: [0, 0, 100, 20], kind: InteractableKind::ListItem, id: 9 },
+            Interactable { anchor: None, rect: [1, 2, 3, 4], kind: InteractableKind::Button, id: 7 },
+            Interactable { anchor: None, rect: [0, 0, 100, 200], kind: InteractableKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
+            Interactable { anchor: None, rect: [0, 0, 100, 20], kind: InteractableKind::ListItem, id: 9 },
+            Interactable { anchor: None, rect: [110, 70, 406, 20], kind: InteractableKind::Slider { track: [139, 80, 350, 1], value: 322_835 }, id: 10 },
         ]);
     }
 }
@@ -712,6 +812,38 @@ mod readiness_tests {
         let mut art = ScreenArt::default();
         art.add(&items.iter().filter_map(|i| if let Item::Element(e, _) = i { Some(e.clone()) } else { None }).collect::<Vec<_>>());
         description(&art)
+    }
+
+    #[test]
+    fn minimap_mode_changes_replace_pixels_without_new_art_or_ui_draws() {
+        use civ3_sys::ui_hooks::NavigatorMode;
+        use crate::world::{Civ3Tile, Civ3World};
+        let mut world = Civ3World {
+            width: 8, height: 8, flags: 1, wrap_x: true, player: 1,
+            color_tables: vec![0, 1],
+            tiles: vec![Civ3Tile { square_type: 2 << 12, owner: 1, explored: 2, ..Default::default() }; 32],
+            ..Default::default()
+        };
+        let items: Vec<_> = ["minimap", "minimap-advisor"].into_iter().map(|name| Item::Element(Element::Dynamic {
+            name: name.into(), size: (32, 16), rect: [0, 0, 32, 16], at: (0, 0), clip: [0, 0, 1920, 1080],
+        }, false)).collect();
+        let source = format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n{}", art(&items));
+        let compiled = render_desc::Description::parse(&source).unwrap().compile(&Images, 256).unwrap();
+        let patches = |world: &Civ3World| minimap_patches(&items, world, &compiled, |_| [231, 8, 8]);
+        let territory = patches(&world);
+        assert_eq!(territory.len(), 2);
+        let before = world.clone();
+        world.navigator_modes.main = NavigatorMode::Geography;
+        assert_ne!(world, before, "a mode switch must defeat the publisher's unchanged-world check");
+        let geography = patches(&world);
+        assert_ne!(geography[0].rgba, territory[0].rgba);
+        assert_eq!(geography[1], territory[1], "the advisor keeps its independent mode");
+        world.navigator_modes.main = NavigatorMode::Territory;
+        assert_eq!(patches(&world), territory);
+        world.navigator_modes.advisor = NavigatorMode::Geography;
+        let advisor = patches(&world);
+        assert_eq!(advisor[0], territory[0]);
+        assert_eq!(advisor[1].rgba, geography[0].rgba);
     }
 
     #[test]
@@ -792,4 +924,45 @@ mod readiness_tests {
         }
     }
 
+}
+
+#[path = "ui_screen/content_targets.rs"]
+mod content_targets;
+pub use content_targets::content_anchors;
+
+
+#[cfg(test)]
+mod status_target_tests {
+    use super::*;
+
+    #[test]
+    fn the_status_selection_icons_are_targets_at_the_native_hit_columns() {
+        let image = |x, y, path: &str| ScreenDraw::Image {
+            path: path.into(), rect: [1, 1, 32, 32], x, y, keyed: true,
+            clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
+        };
+        let canvas = 0x9F_DD84;
+        let mut frame = Frame {
+            draws: vec![
+                // A portrait on another canvas must not become a target.
+                image(742, 514, "C:/Civ3/Art/units/units_32.pcx"),
+                // Icons overlap, as in a transport's status panel.
+                image(742, 514, "C:/Civ3/Art/units/units_32.pcx"),
+                image(758, 514, "C:/Civ3/Art/units/units_32.pcx"),
+                // The unit picture and passive non-unit art are not rows.
+                image(800, 620, "C:/Civ3/Art/units/units_32.pcx"),
+                image(775, 514, "C:/Civ3/Art/other.pcx"),
+            ], forms: vec![], form_draws: vec![(1, 0..1), (canvas, 1..5)], underlay_draws: vec![],
+        };
+        let row = Some((canvas, [727, 514, 247, 22]));
+        let targets = status_unit_targets(&frame, row);
+        assert_eq!(targets.iter().map(|c| (c.rect, c.kind, c.id)).collect::<Vec<_>>(), [
+            ([727, 514, 16, 22], scene::InteractableKind::Button, (canvas as u64) << 32 | 0x0E00_0000),
+            ([743, 514, 16, 22], scene::InteractableKind::Button, (canvas as u64) << 32 | 0x0E00_0001),
+        ]);
+        assert!(status_unit_targets(&frame, None).is_empty());
+        // A hidden HUD absent from composition is never an Alt target.
+        frame.form_draws.retain(|(c, _)| *c != canvas);
+        assert!(status_unit_targets(&frame, row).is_empty());
+    }
 }

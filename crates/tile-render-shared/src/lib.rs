@@ -172,6 +172,11 @@ pub struct FrameParams {
     /// their sprites leave blank ([`SpriteDesc::cuts`]), with
     /// [`OCTAGON_VERTICES`] vertices each (where pixels map 1:1 to texels).
     pub corner_cuts: u32,
+    /// Categories hidden in this camera. A zero category is always visible.
+    pub hidden_categories: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -234,6 +239,10 @@ pub struct LayerDesc {
     /// `k / scale_den` (`k` = the sprite's red channel) instead of covering
     /// it.
     pub scale_den: u32,
+    /// Visibility category bit for per-camera clean-map filtering. Zero is
+    /// always visible; nonzero categories are hidden when the camera mask
+    /// contains their bit.
+    pub category: u32,
 
     /// 0 or [`OFFSET_BYTES`]: whether every record ends with the cell's
     /// pixel offset (see [`cell_offset`]).
@@ -243,7 +252,6 @@ pub struct LayerDesc {
     /// below it index the lookup table (see [`layer_value`]).
     pub palette_shift: u32,
     pub _pad1: u32,
-    pub _pad2: u32,
 }
 
 /// A cell's raw value on `layer` as (lookup table index, named palette; see
@@ -342,9 +350,12 @@ pub struct FreeSprite {
     /// The named palette its indexed sprites' remapped indices are drawn
     /// with (see [`SpriteDesc::remap`]; 0: none, their own colours).
     pub palette: u32,
+    /// Visibility category bit for per-camera clean-map filtering. Zero is
+    /// always visible; nonzero categories are hidden when the camera mask
+    /// contains their bit.
+    pub category: u32,
     pub _pad0: u32,
     pub _pad1: u32,
-    pub _pad2: u32,
 }
 
 /// The free sprite's position is in viewport pixels, unaffected by the
@@ -363,6 +374,22 @@ pub const FREE_LOW: u32 = 1 << 2;
 pub const FREE_ZOOMED: u32 = 1 << 3;
 /// Drawn in every view but `FreeSprite::view` (instead of only in it).
 pub const FREE_EXCEPT_VIEW: u32 = 1 << 4;
+
+/// Categories for per-camera clean-map filtering. A category is a single bit.
+pub const CATEGORY_RIVERS_FLOODPLAINS: u32 = 1 << 0;
+pub const CATEGORY_MOUNTAINS: u32 = 1 << 1;
+pub const CATEGORY_HILLS: u32 = 1 << 2;
+pub const CATEGORY_FORESTS_JUNGLES: u32 = 1 << 3;
+pub const CATEGORY_TERRAIN_BUILDINGS: u32 = 1 << 4;
+pub const CATEGORY_ROADS_RAILROADS: u32 = 1 << 5;
+pub const CATEGORY_IRRIGATION: u32 = 1 << 6;
+pub const CATEGORY_RESOURCES: u32 = 1 << 7;
+pub const CATEGORY_YIELD_ICONS: u32 = 1 << 8;
+pub const CATEGORY_POLLUTION: u32 = 1 << 9;
+pub const CATEGORY_TERRITORY_BOUNDARIES: u32 = 1 << 10;
+pub const CATEGORY_CITIES: u32 = 1 << 11;
+pub const CATEGORY_UNITS: u32 = 1 << 12;
+pub const CATEGORY_ALL: u32 = (1 << 13) - 1;
 
 /// One sprite: a rectangle of an atlas page and where to draw it.
 #[repr(C)]

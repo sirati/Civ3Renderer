@@ -399,3 +399,39 @@ fn trimmed(atlas: &tile_render::Atlas) -> tile_render::Atlas {
     a.trim_blank();
     a
 }
+
+#[test]
+fn clean_map_masks_outline_glyphs_per_camera() {
+    let gpu = Headless::new().expect("GPU");
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (8, 8) }, SpriteSets::default());
+    world.fonts.push(Arc::new(shapes()));
+    let glyph = |x: i32, category: u32| PlacedSprite {
+        x,
+        y: 20,
+        screen: true,
+        category,
+        text: Some(OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 12 * 64, advance: 10, bold: false, italic: false, color: [255, 255, 255], key: None }),
+        ..PlacedSprite::new(SpriteSetId::EMPTY, x, 20)
+    };
+    world.free.push(glyph(1, 1));
+    world.free.push(glyph(14, 2));
+    let atlas = AtlasBuilder::new(64).finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let mut camera = Camera::new((24, 24));
+    camera.hidden_categories = 1;
+    let got = gpu.render(&mut renderer, &camera, 0, CLEAR);
+    let want = reference::render(&world, &atlas, &camera, 0, CLEAR);
+    assert_same(&got, &want, "outline glyph clean-map mask");
+    let mut left = 0;
+    let mut right = 0;
+    for y in 0..24 {
+        for x in 0..24 {
+            if got.get(x, y) == CLEAR { continue; }
+            if x < 12 { left += 1; } else { right += 1; }
+        }
+    }
+    assert_eq!(left, 0, "hidden glyph category must not draw");
+    assert!(right > 0, "visible glyph category must draw");
+}

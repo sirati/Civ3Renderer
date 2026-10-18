@@ -35,7 +35,7 @@ pub fn text_vs(
     // (`FREE_EXCEPT_VIEW`).
     let except = g.flags & FREE_EXCEPT_VIEW != 0;
     let wrong_view = if except { g.view == params.view || params.world == 0 } else { (g.view != ALL_VIEWS && g.view != params.view) || (g.view == ALL_VIEWS && params.world == 0) };
-    if !visible_at_art(g.flags, params.zoom_art) || wrong_view {
+    if !visible_at_art(g.flags, params.zoom_art) || wrong_view || g.category & params.hidden_categories != 0 {
         return;
     }
     // From the screen origin (screen text) or the camera (world text at the

@@ -471,7 +471,7 @@ impl WorldBuffers {
                 a.lut == b.lut && a.per_cell_phase == b.per_cell_phase && a.per_cell_offset == b.per_cell_offset
                     && a.offset == b.offset && a.ticks_per_frame == b.ticks_per_frame && a.hidden == b.hidden
                     && a.pass == b.pass && a.descending == b.descending && a.cull_offset == b.cull_offset
-                    && a.blend == b.blend && a.palette_bits == b.palette_bits && a.index_bits == b.index_bits
+                    && a.blend == b.blend && a.palette_bits == b.palette_bits && a.index_bits == b.index_bits && a.category == b.category
             })
     }
 }
@@ -1996,8 +1996,8 @@ impl TileRenderer {
             // Its steps at zoom 1.
             let rect = place.rect;
             let scissor = match place.source {
-                Some(r) => clipped(rect, [r[0] as i32, r[1] as i32, r[2] as i32, r[3] as i32]),
-                None => clipped(rect, target_rect),
+                Some(r) => clipped(place.scissor, [r[0] as i32, r[1] as i32, r[2] as i32, r[3] as i32]),
+                None => clipped(place.scissor, target_rect),
             };
             let (into, pipelines) = match place.source {
                 None => (&canvas, (canvas_tiles, canvas_free)),
@@ -2012,7 +2012,11 @@ impl TileRenderer {
             // The group's picture, scaled into its rectangle.
             if let Some((group, r)) = place.blit {
                 let group_rect = [group.origin.0, group.origin.1, group.viewport.0 as i32, group.viewport.1 as i32];
-                if let Some(on_target) = clipped(group_rect, target_rect) {
+                let clip = group.target_clip.map_or(target_rect, |[x0, y0, x1, y1]| {
+                    let (x, y) = (x0.max(target_rect[0]), y0.max(target_rect[1]));
+                    [x, y, (x1.min(target_rect[0] + target_rect[2]) - x).max(0), (y1.min(target_rect[1] + target_rect[3]) - y).max(0)]
+                });
+                if let Some(on_target) = clipped(group_rect, clip) {
                     let params = OutputParams {
                         src_x: r[0] as i32,
                         src_y: r[1] as i32,

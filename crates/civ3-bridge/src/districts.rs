@@ -55,6 +55,9 @@ pub struct Stages {
     /// Where the game draws a tile's buildings (the replaced m12): the
     /// district, after the resource sprites if it is drawn over resources.
     pub buildings: Vec<DistrictDraw>,
+    /// Leading resource sprites in `buildings`, kept distinguishable so a
+    /// renderer can hide resources without hiding the district over them.
+    pub building_resources: usize,
     /// Where the game draws a tile's resources (m09, after pollution and
     /// craters): C3X's resource sprites, but only where they differ from the
     /// game's own (see [`takes_over_resource`]).
@@ -90,6 +93,7 @@ pub fn stages(world: &Civ3World, x: i32, y: i32, zoomed_out: bool) -> Stages {
     let Some(kind) = access::kind_of(world, d) else { return out };
     let resources = resources::draws(world, tile, d, kind, zoomed_out);
     if kind.draw_over_resources {
+        out.building_resources = resources.len();
         out.buildings = resources;
     } else {
         out.resources = resources;

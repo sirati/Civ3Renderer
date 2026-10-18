@@ -259,7 +259,8 @@ fn compose<P: Copy>(
             Some(r) => [r[0] as i32, r[1] as i32, (r[0] + r[2]) as i32, (r[1] + r[3]) as i32],
             None => [0, 0, w as i32, h as i32],
         };
-        let rect = [rx.max(bounds[0]), ry.max(bounds[1]), (rx + rw).min(bounds[2]), (ry + rh).min(bounds[3])];
+        let [cx, cy, cw, ch] = place.scissor;
+        let rect = [rx.max(cx).max(bounds[0]), ry.max(cy).max(bounds[1]), (rx + rw).min(cx + cw).min(bounds[2]), (ry + rh).min(cy + ch).min(bounds[3])];
         let art = u32::from(place.art);
         let (buffer, bw, size) = match place.source {
             Some(_) => (&mut source, sw, (sw, sh)),
@@ -412,7 +413,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
         if !steps.contains(&(2 * p + 1)) {
             return;
         }
-        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s)) {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s) && s.category & camera.hidden_categories == 0) {
             if let Some(t) = s.text {
                 // Zoomed art for every zoom: at its 1:1 position (from the
                 // screen origin or the camera; a world glyph's at the view's
@@ -505,7 +506,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
             let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };
             let (ox, oy) = cell_origin(&params.grid, col, row);
             for layer in &packed.layers[first as usize..(first + count) as usize] {
-                if layer.flags & tile_render_shared::LAYER_HIDDEN != 0 {
+                if layer.flags & tile_render_shared::LAYER_HIDDEN != 0 || layer.category & camera.hidden_categories != 0 {
                     continue;
                 }
                 if let Some((x0, y0, x1, y1)) = camera.cull {

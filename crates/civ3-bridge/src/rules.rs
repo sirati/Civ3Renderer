@@ -50,6 +50,35 @@ pub mod terrain_overlay {
     pub const LANDMARK: u32 = 1 << 29;
 }
 
+/// Fill absent corners of a map vertex by extending the opposite valid
+/// boundary tile. At an outside/corner vertex only one tile can survive;
+/// its state fills the rest. Real neighbours, including wrapped ones, stay
+/// unchanged. A non-wrapping boundary has no hidden sea or unexplored tile.
+fn extend_vertex_corners<T: Copy>(corners: [Option<T>; 4], empty: T) -> [T; 4] {
+    let only = corners.into_iter().flatten().next().unwrap_or(empty);
+    let opposite = [3, 2, 1, 0];
+    std::array::from_fn(|k| corners[k].or(corners[opposite[k]]).unwrap_or(only))
+}
+
+/// The terrain image at a vertex, keeping the game's stored sheet and
+/// every in-map corner's terrain/variant. At a non-wrapping edge replace
+/// only the missing corners, whose stored coast/water would otherwise
+/// invent a shoreline through inland terrain.
+pub fn terrain_vertex(world: &Civ3World, vx: i32, vy: i32) -> Option<u32> {
+    let tile = world.tile(vx, vy + 1)?;
+    let (file, location) = ((tile.square_parts >> 8) as u32, (tile.square_parts & 0xFF) as u32);
+    // The all-sea/all-ocean sheets contain arbitrary visual variants, not
+    // ternary terrain combinations. They already have no false shoreline.
+    if file >= 7 || location > 80 || ((world.wrap_x || (1..world.width - 1).contains(&vx)) && (world.wrap_y || (1..world.height - 1).contains(&vy))) {
+        return Some(file * 81 + location);
+    }
+    let neighbours = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)];
+    let weights = [1, 3, 9, 27];
+    let corners = std::array::from_fn(|k| world.tile(neighbours[k].0, neighbours[k].1).map(|_| location / weights[k] % 3));
+    let corners = extend_vertex_corners(corners, 0);
+    Some(file * 81 + corners.into_iter().zip(weights).map(|(digit, weight)| digit * weight).sum::<u32>())
+}
+
 /// The game's per-tile art randomness (§9): ANSI C `rand()` seeded from the
 /// map seed and the tile index.
 pub struct Rng(u32);
@@ -399,8 +428,10 @@ fn in_city_view(world: &Civ3World, city: &crate::world::Civ3City, x: i32, y: i32
 
 /// §6.8: the fog-of-war sprite at vertex (vx, vy): per surrounding tile
 /// N, W, E, S a digit 2 (visible to the player), 1 (explored) or 0
-/// (unexplored, also off the map), weighted 1, 3, 9, 27. All visible (80)
-/// draws nothing.
+/// (unexplored), weighted 1, 3, 9, 27. All visible (80) draws nothing.
+/// At a non-wrapping edge, absent corners take the opposite in-map tile's
+/// state (the sole surviving corner at an outer vertex). The world ends
+/// there; it is not an unexplored neighbour that should darken valid art.
 ///
 /// While the city screen is open the game's map is in "focus city" mode: only
 /// the city's own tiles (in its radius and its civ's territory, the city tile
@@ -410,14 +441,14 @@ fn in_city_view(world: &Civ3World, city: &crate::world::Civ3City, x: i32, y: i32
 pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
     let bit = 1u32 << (world.player & 31);
     let focus = world.focus_city.and_then(|id| world.city(id));
-    let digit = |x: i32, y: i32| match (world.tile(x, y), focus) {
-        (Some(t), Some(c)) if in_city_view(world, c, x, y, t) => 2,
-        (Some(t), None) if world.visible_now(t) => 2,
-        (Some(t), _) if t.explored & bit != 0 => 1,
+    let digit = |x: i32, y: i32| world.tile(x, y).map(|t| match focus {
+        Some(c) if in_city_view(world, c, x, y, t) => 2,
+        None if world.visible_now(t) => 2,
+        _ if t.explored & bit != 0 => 1,
         _ => 0,
-    };
-    let corners = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)];
-    let index: u32 = corners.iter().rev().fold(0, |acc, &(x, y)| acc * 3 + digit(x, y));
+    });
+    let corners = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)].map(|(x, y)| digit(x, y));
+    let index = extend_vertex_corners(corners, 0).into_iter().rev().fold(0, |acc, digit| acc * 3 + digit);
     (index != 80).then(|| format!("Fog_Of_War_Images/{index}"))
 }
 
@@ -661,6 +692,82 @@ mod tests {
         assert_eq!(fog(&world, 10, 9), Some(format!("Fog_Of_War_Images/{}", 1 + 3 * 2 + 9 + 27 * 2)));
         // Far away: everything only explored (index 40, all four digits 1).
         assert_eq!(fog(&world, 20, 21), Some("Fog_Of_War_Images/40".into()));
+    }
+
+    #[test]
+    fn uniform_visibility_does_not_fade_to_unknown_past_the_map_boundary() {
+        let mut world = Civ3World { player: 1, width: 8, height: 8, tiles: vec![Civ3Tile::default(); 32], ..Default::default() };
+        for (explored, visible, expected) in [(0, 0, Some("Fog_Of_War_Images/0")), (2, 0, Some("Fog_Of_War_Images/40")), (2, 2, None)] {
+            world.tiles.fill(Civ3Tile { explored, visibility: visible, ..Default::default() });
+            for vx in -1..=8 {
+                for vy in -1..=8 {
+                    if (vx + vy) & 1 == 0 { continue; }
+                    let touches_map = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)].into_iter().any(|(x, y)| world.tile(x, y).is_some());
+                    let want = if touches_map { expected } else { Some("Fog_Of_War_Images/0") };
+                    assert_eq!(fog(&world, vx, vy).as_deref(), want, "vertex ({vx}, {vy})");
+                }
+            }
+        }
+        // A real unexplored neighbour remains unknown. Only missing map
+        // coordinates receive an extended boundary state.
+        let unknown = world.index(1, 1);
+        world.tiles[unknown].visibility = 0;
+        world.tiles[unknown].explored = 0;
+        assert_eq!(fog(&world, 0, 1).as_deref(), Some("Fog_Of_War_Images/56"));
+    }
+
+    #[test]
+    fn edge_terrain_keeps_every_real_corner_and_interior_texture_variant() {
+        let mut world = Civ3World { width: 8, height: 8, tiles: vec![Civ3Tile::default(); 32], ..Default::default() };
+        for file in 0..=6 {
+            for location in 0..=80 {
+                for ((vx, vy), missing, opposite) in [((0, 1), 1, 2), ((7, 2), 2, 1), ((1, 0), 0, 3)] {
+                    let at = world.index(vx, vy + 1);
+                    world.tiles[at].square_parts = ((file << 8) | location) as u16;
+                    let digits = [location % 3, location / 3 % 3, location / 9 % 3, location / 27 % 3];
+                    let weights = [1, 3, 9, 27];
+                    let expected = location - digits[missing] * weights[missing] + digits[opposite] * weights[missing];
+                    assert_eq!(terrain_vertex(&world, vx, vy), Some(file * 81 + expected));
+                }
+                let inside = world.index(2, 4);
+                world.tiles[inside].square_parts = ((file << 8) | location) as u16;
+                assert_eq!(terrain_vertex(&world, 2, 3), Some(file * 81 + location));
+            }
+        }
+    }
+
+    #[test]
+    fn terrain_edges_repeat_land_without_erasing_real_or_wrapped_coasts() {
+        let mut world = Civ3World { width: 8, height: 8, tiles: vec![Civ3Tile::default(); 32], ..Default::default() };
+        let at = world.index(0, 2);
+        // xdgc: desert=0, grass=1, coast=2. The W coast corner is outside
+        // this inland map; N/E/S all desert. Keep the chosen sheet.
+        world.tiles[at].square_parts = (2 << 8) | 6;
+        assert_eq!(terrain_vertex(&world, 0, 1), Some(2 * 81));
+        // xggc grass variants 0/1 stay as stored; only the outside coast
+        // digit is replaced by the valid E grass variant.
+        world.tiles[at].square_parts = (5 << 8) | 15;
+        assert_eq!(terrain_vertex(&world, 0, 1), Some(5 * 81 + 12));
+        // Real coastal water at the boundary stays water.
+        world.tiles[at].square_parts = (2 << 8) | 80;
+        assert_eq!(terrain_vertex(&world, 0, 1), Some(2 * 81 + 80));
+        // Wrap seams have actual neighbours. Their complete stored terrain
+        // combination, including a genuine coast there, remains unchanged.
+        world.tiles[at].square_parts = (2 << 8) | 6;
+        world.wrap_x = true;
+        assert_eq!(terrain_vertex(&world, 0, 1), Some(2 * 81 + 6));
+        world.wrap_x = false;
+        // Top edge: repeat S into missing N, keeping actual W/E/S colours.
+        let top = world.index(1, 1);
+        world.tiles[top].square_parts = (2 << 8) | 38;
+        assert_eq!(terrain_vertex(&world, 1, 0), Some(2 * 81 + 37));
+        world.wrap_y = true;
+        assert_eq!(terrain_vertex(&world, 1, 0), Some(2 * 81 + 38));
+        // All-sea and all-ocean locations are texture variants.
+        for file in [7, 8] {
+            world.tiles[at].square_parts = (file << 8) | 53;
+            assert_eq!(terrain_vertex(&world, 0, 1), Some(u32::from(file) * 81 + 53));
+        }
     }
 
     #[test]

@@ -148,6 +148,11 @@ pub struct TextGlyph {
     /// With `TEXT_BAR`: its top below the baseline and its height, at 1:1.
     pub bar_top: i32,
     pub bar_height: i32,
+    /// Visibility category bit for per-camera clean-map filtering.
+    pub category: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
 }
 
 /// Where and how big a glyph is drawn: all in fixed-point units of the

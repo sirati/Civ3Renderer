@@ -370,10 +370,12 @@ mod unix_side {
         };
         let a = assets.clone();
         let started = wine_unixlib::unix::spawn_native("civ3r-native-viewer", move || {
+            struct QuitWhenStopped(scene::InputSender);
+            impl Drop for QuitWhenStopped { fn drop(&mut self) { let _ = self.0.send(scene::Input::Quit); } }
+            let _quit = QuitWhenStopped(quit);
             if let Err(e) = tile_viewer::run(config, a, display) {
                 log::error!("civ3r-native: viewer: {e}");
             }
-            let _ = quit.send(scene::Input::Quit);
         });
         if let Err(e) = started {
             log::error!("civ3r-native: starting the viewer: {e}");

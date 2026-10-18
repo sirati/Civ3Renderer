@@ -235,6 +235,9 @@ pub struct PlacedSprite {
     /// The named palette its indexed sprites' remapped indices are drawn
     /// with (see `tile_render_shared::SpriteDesc::remap`; 0: none).
     pub palette: u32,
+    /// Visibility category bit for per-camera clean-map filtering. Zero is
+    /// always visible.
+    pub category: u32,
     /// A glyph drawn from its font's outline instead of the sprite (`set`
     /// and `blend` are ignored). `zoom_art` keeps its twin selection. At
     /// 1:1, `Any` and `Low` draw even when `Camera::zoomed_art` is true.
@@ -307,6 +310,10 @@ impl OutlineGlyph {
             key: self.key.map_or(0, rgb),
             bar_top: bar.0,
             bar_height: bar.1,
+            category: sprite.category,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         })
     }
 }
@@ -324,7 +331,7 @@ pub fn bound_clip(clip: [i32; 4]) -> [i32; 4] {
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, palette: 0 }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, palette: 0, category: 0 }
     }
 
     /// Its view, clipping and Low/Zoomed twin selection flags.
@@ -364,9 +371,9 @@ impl PlacedSprite {
                 _ => 0,
             },
             palette: self.palette,
+            category: self.category,
             _pad0: 0,
             _pad1: 0,
-            _pad2: 0,
         }
     }
 }
@@ -415,6 +422,9 @@ pub struct LayerSpec {
     /// Bits indexing `lut` in a value that picks a palette, at least (0:
     /// as many as the table needs): a table that grows keeps its values.
     pub index_bits: u32,
+    /// Visibility category bit for per-camera clean-map filtering. Zero is
+    /// always visible.
+    pub category: u32,
 }
 
 impl LayerSpec {
@@ -433,6 +443,7 @@ impl LayerSpec {
             blend: Blend::Alpha,
             palette_bits: 0,
             index_bits: 0,
+            category: 0,
         }
     }
 
@@ -708,10 +719,10 @@ impl TileWorld {
                     Blend::Invert | Blend::Subpixel { .. } => 0,
                     b => b.scale_den(),
                 },
+                category: spec.category,
                 offset_bytes: if spec.per_cell_offset { OFFSET_BYTES } else { 0 },
                 palette_shift: spec.palette_shift(),
                 _pad1: 0,
-                _pad2: 0,
             });
             lut.extend(spec.lut.iter().map(|s| s.0));
             data.extend_from_slice(bytes);

@@ -184,7 +184,20 @@ impl ControlArt {
         let art = |d: &ScreenDraw| self.pieces.iter().flatten().any(|(_, s)| draws_region(d, s));
         match self.part {
             Part::Whole => Some(draws.to_vec()),
-            Part::LastArt(r) => draws.iter().rev().find(|d| inside(d, r) && art(d)).map(|d| vec![d.clone()]),
+            Part::LastArt([x, y, w, h]) => draws.iter().rev().find(|d| {
+                // A control's clickable portion can be clipped or inset
+                // from the art's origin, as the status orb is by one row.
+                // Match the visible intersection of its state image.
+                let touches = match d {
+                    ScreenDraw::Image { rect, x: ix, y: iy, clip, .. } => {
+                        let (l, t) = ((*ix).max(clip[0]).max(x), (*iy).max(clip[1]).max(y));
+                        let (r, b) = ((ix + rect[2]).min(clip[2]).min(x + w), (iy + rect[3]).min(clip[3]).min(y + h));
+                        r > l && b > t
+                    }
+                    _ => false,
+                };
+                touches && art(d)
+            }).map(|d| vec![d.clone()]),
             Part::Within(r) => {
                 let own: Vec<ScreenDraw> = draws.iter().filter(|d| inside(d, r)).cloned().collect();
                 (!own.is_empty() && (self.pieces.is_empty() || own.iter().any(art))).then_some(own)
@@ -319,6 +332,16 @@ mod tests {
         // Drawn otherwise (e.g. disabled art), or not composed: none.
         assert_eq!(control_looks(&frame(96), &art()), None);
         assert_eq!(control_looks(&frame(0), &ControlArt { canvas: 0x700, ..art() }), None);
+    }
+
+    #[test]
+    fn status_orb_hover_art_can_start_above_its_native_click_region() {
+        let f = Frame { draws: vec![fill(0), image(0, (100, 200)), fill(500)],
+            forms: vec![], form_draws: vec![(0x500, 0..3)], underlay_draws: vec![] };
+        let a = ControlArt { part: Part::LastArt([100, 201, 32, 28]), ..art() };
+        let got = control_looks(&f, &a).unwrap();
+        assert_eq!(got.draws, [image(0, (100, 200))]);
+        assert_eq!(got.states, [(HOVER, vec![image(32, (100, 200))]), (PRESSED, vec![image(64, (100, 200))])]);
     }
 
     #[test]

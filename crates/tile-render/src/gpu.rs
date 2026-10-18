@@ -14,7 +14,9 @@ pub enum GpuError {
 
 /// Picks an adapter. `filter` (or else the `TILE_RENDER_ADAPTER` environment
 /// variable) selects by case-insensitive substring of the adapter name, e.g.
-/// "radeon" or "llvmpipe"; without either, wgpu's default choice is used.
+/// "radeon" or "llvmpipe". "nvidia" and "intel" also match their PCI vendor
+/// IDs, so an NVIDIA adapter named "Quadro P2000" is recognized. Without
+/// either, wgpu's default choice is used.
 /// With a `surface`, only an adapter that can present to it: if the named
 /// ones cannot (e.g. a discrete GPU not driving the display, whose driver
 /// cannot hand its pictures to the compositor), the default choice for the
@@ -32,7 +34,7 @@ pub async fn select_adapter(
         for adapter in instance.enumerate_adapters(wgpu::Backends::all()).await {
             let info = adapter.get_info();
             let name = format!("{} ({:?})", info.name, info.backend);
-            if !info.name.to_lowercase().contains(&needle) {
+            if !adapter_matches(&info.name, info.vendor, &needle) {
                 seen.push(name);
             } else if surface.is_none_or(|s| adapter.is_surface_supported(s)) {
                 log::info!("using adapter {name}");
@@ -56,6 +58,14 @@ pub async fn select_adapter(
         );
     }
     default_adapter(instance, surface).await
+}
+
+// Vendor names are launcher choices, while all other filters retain the
+// existing device-name substring behavior. In particular "radv" must name
+// that driver, rather than accepting every AMD backend by vendor alone.
+fn adapter_matches(name: &str, vendor: u32, needle: &str) -> bool {
+    name.to_lowercase().contains(needle)
+        || matches!((needle, vendor), ("nvidia", 0x10de) | ("intel", 0x8086))
 }
 
 /// wgpu's default adapter (low power; with a `surface`, one that presents
@@ -251,4 +261,28 @@ pub fn read_texture(
         let p = [data[i], data[i + 1], data[i + 2], data[i + 3]];
         if bgra { [p[2], p[1], p[0], p[3]] } else { p }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adapter_matches;
+
+    #[test]
+    fn launcher_vendor_names_recognize_devices_without_vendor_in_the_name() {
+        assert!(adapter_matches("Quadro P2000", 0x10de, "nvidia"));
+        assert!(adapter_matches("GeForce GTX 1060", 0x10de, "nvidia"));
+        assert!(adapter_matches("UHD Graphics 630", 0x8086, "intel"));
+        assert!(!adapter_matches("UHD Graphics 630", 0x8086, "nvidia"));
+        assert!(!adapter_matches("Quadro P2000", 0x10de, "intel"));
+    }
+
+    #[test]
+    fn device_name_substrings_and_radv_driver_requests_keep_their_meaning() {
+        assert!(adapter_matches("Quadro P2000", 0x10de, "p2000"));
+        assert!(adapter_matches("llvmpipe (LLVM 20)", 0x10005, "llvmpipe"));
+        assert!(adapter_matches("AMD Radeon Graphics (RADV GFX1103_R1)", 0x1002, "radv"));
+        assert!(!adapter_matches("AMD Radeon Graphics", 0x1002, "radv"));
+        assert!(!adapter_matches("Quadro P2000", 0x10de, "radv"));
+        assert!(!adapter_matches("UHD Graphics 630", 0x8086, "radv"));
+    }
 }

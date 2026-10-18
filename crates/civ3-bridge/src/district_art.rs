@@ -41,7 +41,9 @@ pub fn slices(world: &crate::world::Civ3World) -> Vec<Slice> {
 /// Layers district slices go into, in drawing order (a tile shows at most
 /// this many slices: e.g. a great wall's pillar and segments).
 pub const LAYERS: [&str; 6] = ["district_0", "district_1", "district_2", "district_3", "district_4", "district_5"];
-/// Layers for what C3X draws where the game draws resources.
+/// Resource sprites drawn before a district that covers them.
+pub const UNDER_RESOURCE_LAYERS: [&str; 3] = ["district_under_resource_0", "district_under_resource_1", "district_under_resource_2"];
+/// Resources drawn after the district, in the original resource pass.
 pub const RESOURCE_LAYERS: [&str; 3] = ["district_resource_0", "district_resource_1", "district_resource_2"];
 
 impl Slice {

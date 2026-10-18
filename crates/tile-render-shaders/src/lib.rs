@@ -58,7 +58,7 @@ fn resolve_sprite(
     layer_lut: &[u32],
     sprite_sets: &[u32],
 ) -> Option<(u32, u32, i32, i32)> {
-    if layer.flags & LAYER_HIDDEN != 0 {
+    if layer.flags & LAYER_HIDDEN != 0 || layer.category & params.hidden_categories != 0 {
         return None;
     }
     let col = window_col(params, local_cell);
@@ -317,7 +317,7 @@ pub fn free_vs(
     // world but that one.
     let except = f.flags & FREE_EXCEPT_VIEW != 0;
     let wrong_view = if except { f.view == params.view || params.world == 0 } else { (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) };
-    if f.set == 0 || frames == 0 || wrong_art || wrong_view {
+    if f.set == 0 || frames == 0 || wrong_art || wrong_view || f.category & params.hidden_categories != 0 {
         *out_pos = CULLED;
         return;
     }

@@ -239,6 +239,9 @@ fn updating<R>(rect: u32, f: impl FnOnce() -> R) -> R {
 }
 
 fn emit(e: Event) {
+    // MapMessage draws onto the animator's map overlay. It is rebuilt as
+    // tile-anchored world art, never copied into a misplaced UI overlay.
+    if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::Fill { .. }) { return; }
     if let Ok(mut m) = CAPTURE.model.lock() {
         if let Some(m) = m.as_mut() {
             m.apply(e);

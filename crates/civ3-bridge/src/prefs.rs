@@ -33,6 +33,7 @@ pub const TAB: &str = "tab";
 pub const TAB_GAME: &str = "civ3";
 pub const TAB_RESOLUTION: &str = "resolution";
 pub const TAB_LAYOUT: &str = "layout";
+pub const TAB_CLEAN_MAP: &str = "clean_map";
 
 /// The values the panel shows: the tab, every control of the settings
 /// (`viewer_settings::controls`) by its key, the rendered and the window
@@ -51,6 +52,14 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32), desktop: f64) 
         effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window, desktop));
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
+    let height = settings.layout.zoom_box_height;
+    let height = if height > 0.0 {
+        format!("{}%", menu::panel::format_number(height.clamp(0.05, 1.0), 0, true))
+    } else { "Auto".into() };
+    out.insert("layout.zoom_box_height_label".into(), Value::Text(height));
+    for name in viewer_settings::Layout::SCREENS {
+        out.insert(format!("layout.screen_fixed.{name}"), Value::On(name != "Menu" || !settings.layout.menu_follows_pointer));
+    }
     out
 }
 
@@ -281,9 +290,21 @@ impl Prefs {
         out
     }
 
+    /// Restore an unfinished Alt slider edit before its screen or tab goes away.
+    fn cancel_slider_edit(&mut self) {
+        let Some(panel) = self.panels.as_ref().and_then(|p| p.panel(PANEL)) else { return };
+        let Some(event) = self.state.cancel_slider(panel) else { return };
+        if apply(&mut self.settings, &event).0 {
+            if let Err(e) = self.settings.save(&self.path) {
+                log::error!("saving cancelled slider settings: {e}");
+            }
+        }
+    }
+
     /// Puts the layout and the resolution back to their defaults (the
     /// pointer settings stay); whether that changed them.
     fn reset(&mut self) -> bool {
+        self.cancel_slider_edit();
         let before = self.settings.clone();
         self.settings.layout = viewer_settings::Layout::default();
         self.settings.resolution = viewer_settings::Resolution::default();
@@ -300,6 +321,7 @@ impl Prefs {
         let size = self.panels.as_ref().and_then(|p| p.panel(PANEL)).map(|p| p.size()).unwrap_or((1024, 768));
         let open = frame.zip(form).and_then(|(f, form)| screen_area(f, &form, size));
         if open.is_some() != self.open.is_some() {
+            self.cancel_slider_edit();
             log::info!("preferences screen {}", if open.is_some() { "open: our tabs over it" } else { "closed" });
             self.state = PanelState::default();
             self.tab = TAB_GAME.into();
@@ -307,6 +329,7 @@ impl Prefs {
         self.open = open;
         let covered = open.is_some() && form.is_some_and(|f| popup_over(modal, &f));
         if covered != self.covered {
+            self.cancel_slider_edit();
             log::info!("preferences screen: {}", if covered { "a popup over it, the input is the game's" } else { "no popup over it" });
             self.state = PanelState { values: std::mem::take(&mut self.state.values), ..PanelState::default() };
         }
@@ -335,11 +358,21 @@ impl Prefs {
         panels.draw(panel, &self.state, area, &measurer(fonts))
     }
 
+    /// Keep native targets only where the visible panel leaves them
+    /// reachable. This also removes their alternate hover draws before
+    /// they can be painted over the panel by the viewer.
+    pub fn retain_native_controls(&self, controls: &mut Vec<civ3_sys::controls::Control>) {
+        let (Some(area), Some(panels), false) = (self.open, self.panels.as_ref(), self.covered) else { return };
+        let Some(panel) = panels.panel(PANEL) else { return };
+        controls.retain(|c| !panels.covers_any(panel, &self.state, area, c.rect));
+    }
+
     /// The panel's controls (topmost first) with their draws now and in
     /// their other states (`menu::panel::Panels::looks`): things to point
-    /// at that the viewer shows hovered or chosen at once.
+    /// at that the viewer shows hovered or chosen at once. A modal popup
+    /// takes the pointer over the whole panel, including the tabs.
     pub fn looks(&self, fonts: &Fonts) -> Vec<menu::panel::ControlLooks> {
-        let (Some(area), Some(panels)) = (self.open, self.panels.as_ref()) else { return Vec::new() };
+        let (Some(area), Some(panels), false) = (self.open, self.panels.as_ref(), self.covered) else { return Vec::new() };
         let Some(panel) = panels.panel(PANEL) else { return Vec::new() };
         panels.looks(panel, &self.state, area, &measurer(fonts))
     }
@@ -468,6 +501,24 @@ mod tests {
         assert_eq!((s.layout.zoom, s.layout.smooth_world_movement, s.layout.zoom_strip), (Zoom::Mouse131, true, 0.4));
     }
 
+    #[test]
+    fn clean_map_tab_lists_and_changes_every_view_flag() {
+        let (mut prefs, path) = open_prefs("clean-map");
+        assert!(click(&mut prefs, 440, 55).is_empty());
+        assert_eq!(prefs.tab, TAB_CLEAN_MAP);
+        for (column, view) in viewer_settings::clean_map::VIEWS.into_iter().enumerate() {
+            for (row, (flag, _, _)) in viewer_settings::clean_map::FLAGS.into_iter().enumerate() {
+                let key = format!("clean_map.{view}.{flag}");
+                let at = (80 + 300 * column as i32 + 6, 266 + 29 * row as i32 + 6);
+                assert!(click(&mut prefs, at.0, at.1).is_empty(), "{key}");
+                assert_eq!(prefs.settings().control(&key), Some(ControlValue::On(true)), "{key}");
+                assert_eq!(prefs.settings().control(&format!("clean_map.{view}.mode")), Some(ControlValue::Choice("Custom".into())));
+                assert_eq!(Settings::load(&path).unwrap(), *prefs.settings());
+            }
+        }
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     /// The points of art `art`'s `kind` ("labels" or "icons").
     fn art_points(table: &toml::Table, art: &str, kind: &str) -> Vec<(i32, i32)> {
         table["art"][art].get(kind).and_then(|l| l.as_array()).map_or(&[][..], |a| a.as_slice())
@@ -554,6 +605,106 @@ mod tests {
         p.route(vec![Input::MouseMove { x, y }, b(true), b(false)], (1024, 768))
     }
 
+    #[test]
+    fn every_tab_masks_native_targets_below_its_visible_panel() {
+        use civ3_sys::controls::{Control, ControlKind};
+        let (mut p, path) = open_prefs("tab-targets");
+        let body_targets = [[90, 160, 58, 32], [72, 115, 104, 64], [80, 217, 82, 26]];
+        // Include a native target spanning the cover edge, a tab beneath
+        // ours, and the native header and OK button outside the cover.
+        let native = [
+            Control { rect: [100, 140, 300, 16], kind: ControlKind::Button, id: 1 },
+            Control { rect: [40, 200, 15, 20], kind: ControlKind::Button, id: 2 },
+            Control { rect: [62, 42, 70, 16], kind: ControlKind::Button, id: 3 },
+            Control { rect: [795, 28, 150, 28], kind: ControlKind::Button, id: 4 },
+            Control { rect: [975, 718, 32, 28], kind: ControlKind::Button, id: 5 },
+        ];
+        for (tab, tab_x, visible_body) in [(TAB_GAME, 110, None), (TAB_RESOLUTION, 220, Some(0)), (TAB_LAYOUT, 330, Some(1)), (TAB_CLEAN_MAP, 440, Some(2))] {
+            assert!(click(&mut p, tab_x, 55).is_empty());
+            assert_eq!(p.tab, tab);
+            let looks = p.looks(&Fonts::default());
+            for (n, rect) in body_targets.iter().enumerate() {
+                assert_eq!(looks.iter().any(|l| l.rect == *rect), visible_body == Some(n), "{tab}: {rect:?}");
+            }
+            for rect in [[60, 40, 105, 32], [170, 40, 105, 32], [280, 40, 105, 32], [390, 40, 105, 32]] {
+                assert!(looks.iter().any(|l| l.rect == rect), "missing tab {rect:?} on {tab}");
+            }
+            if tab == TAB_GAME {
+                assert_eq!(looks.len(), 4);
+            }
+            let mut visible = native.to_vec();
+            p.retain_native_controls(&mut visible);
+            let ids: Vec<_> = visible.iter().map(|c| c.id).collect();
+            assert_eq!(ids, if tab == TAB_GAME { vec![1, 2, 4, 5] } else { vec![4, 5] }, "{tab}");
+            // Blank painted cover consumes ordinary pointer input too,
+            // while the native header and OK remain usable on every tab.
+            assert_eq!(click(&mut p, 955, 680).len(), if tab == TAB_GAME { 3 } else { 0 }, "{tab}");
+            assert_eq!(click(&mut p, 880, 40).len(), 3, "{tab}");
+            assert_eq!(click(&mut p, 985, 735).len(), 3, "{tab}");
+        }
+        // The game's 1024x768 panel can be centred in a larger window.
+        let f = frame_with_screen((0, 0), (1920, 1080), Some((448, 156)));
+        p.update(Some(&f), Some(FORM), (1920, 1080), None);
+        let mut translated: Vec<_> = native.iter().map(|c| Control { rect: [c.rect[0] + 448, c.rect[1] + 156, c.rect[2], c.rect[3]], ..*c }).collect();
+        p.retain_native_controls(&mut translated);
+        assert_eq!(translated.iter().map(|c| c.id).collect::<Vec<_>>(), [4, 5]);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn hidden_layout_controls_cannot_be_snapped_or_changed() {
+        let (mut p, path) = open_prefs("hidden-layout-targets");
+        assert!(click(&mut p, 330, 55).is_empty());
+        assert!(click(&mut p, 230, 140).is_empty());
+        let menu_row = [[616, 461, 110, 26], [732, 461, 110, 26], [848, 461, 110, 26]];
+        let has_row = |p: &Prefs| menu_row.map(|r| p.looks(&Fonts::default()).iter().filter(|l| l.rect == r).count());
+        assert_eq!(has_row(&p), [0, 0, 0], "menu follows pointer, so its saved fixed placement is hidden");
+        let settings = p.settings().clone();
+        assert!(click(&mut p, 900, 472).is_empty());
+        assert_eq!(*p.settings(), settings);
+        assert!(click(&mut p, 560, 528).is_empty());
+        assert_eq!(has_row(&p), [1, 1, 1]);
+        // The same position holds Top/Bottom in a horizontal split. Only
+        // that orientation's controls should be offered.
+        assert!(click(&mut p, 450, 140).is_empty());
+        assert_eq!(p.settings().layout.split, Split::Horizontal1To1);
+        assert_eq!(has_row(&p), [1, 1, 1]);
+        assert!(click(&mut p, 560, 528).is_empty());
+        assert_eq!(has_row(&p), [0, 0, 0]);
+        let settings = p.settings().clone();
+        assert!(click(&mut p, 220, 55).is_empty());
+        assert!(click(&mut p, 900, 472).is_empty(), "the Resolution cover blocks the former Layout control");
+        assert_eq!(*p.settings(), settings);
+        assert!(!p.looks(&Fonts::default()).iter().any(|l| menu_row.contains(&l.rect)));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn covered_preferences_publish_no_targets_or_hover_states() {
+        use civ3_sys::controls::{Control, ControlKind};
+        let (mut p, path) = open_prefs("covered-targets");
+        assert!(click(&mut p, 330, 55).is_empty());
+        let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+        p.update(Some(&f), Some(FORM), (1024, 768), Some(0x0123_4560));
+        assert!(!p.draws(&Fonts::default()).is_empty(), "panel remains painted beneath the popup");
+        assert!(p.looks(&Fonts::default()).is_empty(), "hidden controls must expose no snap targets or alternate hover draws");
+        let popup = Control { rect: [100, 140, 300, 16], kind: ControlKind::Button, id: 7 };
+        let mut controls = vec![popup];
+        p.retain_native_controls(&mut controls);
+        assert_eq!(controls, [popup], "native popup is above the renderer panel");
+        assert_eq!(click(&mut p, 110, 150).len(), 3);
+        p.update(Some(&f), Some(FORM), (1024, 768), None);
+        assert!(!p.looks(&Fonts::default()).is_empty());
+        p.retain_native_controls(&mut controls);
+        assert!(controls.is_empty(), "ordinary native controls below the restored cover stay hidden");
+        p.update(None, Some(FORM), (1024, 768), None);
+        assert!(p.looks(&Fonts::default()).is_empty());
+        let mut controls = vec![popup];
+        p.retain_native_controls(&mut controls);
+        assert_eq!(controls, [popup], "closing Preferences removes the mask");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     /// Clicks through the tabs: the game gets what lies outside the panel,
     /// a setting changed is saved at once, and the screen opens on the
     /// game's tab again.
@@ -583,6 +734,10 @@ mod tests {
         assert_eq!(Settings::load(&path).unwrap().input.map_movement, viewer_settings::MapMovement::Drag);
         assert!(click(&mut p, 250, 635).is_empty());
         assert_eq!(Settings::load(&path).unwrap().input.map_movement, viewer_settings::MapMovement::EdgeScroll);
+        assert!(click(&mut p, 560, 555).is_empty());
+        assert!(Settings::load(&path).unwrap().input.smooth_menu_scrolling);
+        assert!(click(&mut p, 560, 555).is_empty());
+        assert!(!Settings::load(&path).unwrap().input.smooth_menu_scrolling);
         // The game's OK button (bottom right) is not covered.
         assert_eq!(click(&mut p, 985, 735).len(), 3);
         // The pixel scale on the Resolution tab.
@@ -606,6 +761,47 @@ mod tests {
         let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
         p.update(Some(&f), Some(FORM), (1024, 768), None);
         assert_eq!(p.tab, TAB_GAME);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn menus_follow_the_mouse_by_default_and_fixed_menu_choices_return_when_disabled() {
+        let (mut p, path) = open_prefs("menu-mouse-view");
+        assert!(click(&mut p, 330, 55).is_empty());
+        let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
+        assert!(p.settings().layout.menu_follows_pointer);
+        assert!(texts(&p).contains(&"Mouse view".to_owned()));
+        assert_eq!(texts(&p).iter().filter(|t| *t == "Right").count(), 13, "Menu's fixed row is hidden while other screens keep theirs");
+        assert!(click(&mut p, 340, 140).is_empty());
+        // The hidden fixed Menu row cannot change its saved placement.
+        assert!(click(&mut p, 900, 472).is_empty());
+        assert!(!p.settings().layout.screens.contains_key("Menu"));
+        assert!(click(&mut p, 560, 528).is_empty());
+        assert!(!Settings::load(&path).unwrap().layout.menu_follows_pointer);
+        assert!(!texts(&p).contains(&"Mouse view".to_owned()));
+        assert_eq!(texts(&p).iter().filter(|t| *t == "Right").count(), 14);
+        assert!(click(&mut p, 900, 472).is_empty());
+        assert_eq!(Settings::load(&path).unwrap().layout.screens["Menu"].vertical, Place::RightOrTop);
+        assert!(click(&mut p, 560, 528).is_empty());
+        let saved = Settings::load(&path).unwrap();
+        assert!(saved.layout.menu_follows_pointer);
+        assert_eq!(saved.layout.screens["Menu"].vertical, Place::RightOrTop);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn capture_sensitivity_slider_saves_its_limits_and_shows_the_multiplier() {
+        let (mut p, path) = open_prefs("capture-sensitivity");
+        assert!(click(&mut p, 330, 55).is_empty());
+        assert_eq!(p.settings().input.capture_sensitivity, 1.0);
+        assert!(click(&mut p, 850, 613).is_empty());
+        assert_eq!(p.settings().input.capture_sensitivity, 5.0);
+        assert_eq!(Settings::load(&path).unwrap().input.capture_sensitivity, 5.0);
+        let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
+        assert!(texts.contains(&"5x".to_owned()), "{texts:?}");
+        assert!(click(&mut p, 553, 613).is_empty());
+        assert_eq!(p.settings().input.capture_sensitivity, 0.1);
+        assert_eq!(Settings::load(&path).unwrap().input.capture_sensitivity, 0.1);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -673,7 +869,7 @@ mod tests {
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         let count = |s: &str| texts.iter().filter(|t| *t == s).count();
         // (One "Right": the zoom placement's, greyed out.)
-        assert_eq!((count("Top"), count("Bottom"), count("Right"), count("Left")), (13, 13, 1, 1));
+        assert_eq!((count("Top"), count("Bottom"), count("Right"), count("Left")), (12, 12, 1, 1));
         // "B" in three split pictures and the free roles one; no words in the
         // unit and mouse one: the game's unit icon and pointer.
         assert_eq!((count("B"), count("Mouse"), count("Unit")), (4, 0, 0));
@@ -705,9 +901,35 @@ mod tests {
         assert!(p.route(vec![b(true, 300), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.settings().layout.zoom_strip, 0.05);
         assert!(texts(&p).contains(&"5%".to_string()));
-        // Not for a floating box.
+        // A box on top has its own height slider, initially Auto.
         assert!(click(&mut p, 290, 300).is_empty());
         assert_eq!(p.settings().layout.zoom, Zoom::Floating131);
+        let shown = texts(&p);
+        assert!(shown.contains(&"Box height".to_string()) && shown.contains(&"Auto".to_string()), "{shown:?}");
+        assert!(shown.contains(&"Floating box 1:3:1".to_string()));
+        assert!(shown.contains(&"Keep mouse out of the floating zoom box".to_string()));
+        assert!(!p.settings().layout.zoom_box_block_pointer);
+        assert!(click(&mut p, 80, 388).is_empty());
+        assert!(p.settings().layout.zoom_box_block_pointer);
+        assert!(Settings::load(&path).unwrap().layout.zoom_box_block_pointer);
+        assert!(click(&mut p, 80, 388).is_empty());
+        assert!(!p.settings().layout.zoom_box_block_pointer);
+        // Its own slider reaches the full region height, independently of
+        // the strip/mouse-box setting, and persists immediately.
+        assert!(p.route(vec![b(true, 300), drag(800), b(false, 800)], (1024, 768)).is_empty());
+        assert_eq!(p.settings().layout.zoom_box_height, 1.0);
+        assert_eq!(Settings::load(&path).unwrap().layout.zoom_box_height, 1.0);
+        assert_eq!(p.settings().layout.zoom_strip, 0.05);
+        assert!(texts(&p).contains(&"100%".to_string()));
+        // Both box widths expose the control; the far left restores Auto.
+        assert!(click(&mut p, 430, 300).is_empty());
+        assert_eq!(p.settings().layout.zoom, Zoom::Floating171);
+        assert!(texts(&p).contains(&"Box height".to_string()));
+        assert!(p.route(vec![b(true, 300), drag(0), b(false, 0)], (1024, 768)).is_empty());
+        assert_eq!(p.settings().layout.zoom_box_height, 0.0);
+        assert!(texts(&p).contains(&"Auto".to_string()));
+        assert!(click(&mut p, 140, 300).is_empty());
+        assert_eq!(p.settings().layout.zoom, Zoom::Off);
         assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height")));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -795,4 +1017,90 @@ mod tests {
             assert!(r[0] + r[2] <= pcx.width as i64 && r[1] + r[3] <= pcx.height as i64, "{name}: {r:?} outside {}x{}", pcx.width, pcx.height);
         }
     }
+
+    #[test]
+    fn alt_slider_previews_live_saves_commit_and_restores_on_cancel_or_preferences_closure() {
+        use scene::{InteractableKind, SliderAction};
+        for close in ["cancel", "closed", "covered", "tab", "commit"] {
+            let (mut prefs, path) = open_prefs(&format!("alt-slider-{close}"));
+            assert!(click(&mut prefs, 220, 55).is_empty());
+            let slider = prefs.looks(&Fonts::default()).into_iter().find(|c| matches!(c.kind, InteractableKind::Slider { .. })).unwrap();
+            let initial_values = prefs.state.values.clone();
+            let send = |prefs: &mut Prefs, action, value| prefs.route(vec![Input::Slider { id: slider.id, action, value }], (1024, 768));
+            assert!(send(&mut prefs, SliderAction::Begin, 999_999).is_empty());
+            assert_eq!(prefs.state.values, initial_values, "entry must not change or save any value");
+            assert!(!path.exists());
+            assert!(send(&mut prefs, SliderAction::Preview, 1_000_000).is_empty());
+            let preview = prefs.settings().clone();
+            assert_ne!(preview, Settings::default());
+            assert_eq!(Settings::load(&path).unwrap(), preview);
+            match close {
+                "cancel" => { assert!(send(&mut prefs, SliderAction::Cancel, 0).is_empty()); }
+                "closed" => prefs.update(None, Some(FORM), (1024, 768), None),
+                "covered" => {
+                    let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+                    prefs.update(Some(&f), Some(FORM), (1024, 768), Some(0x1234_5678));
+                }
+                "tab" => { assert!(click(&mut prefs, 330, 55).is_empty()); }
+                "commit" => { assert!(send(&mut prefs, SliderAction::Commit, 0).is_empty()); }
+                _ => unreachable!(),
+            }
+            if close == "commit" {
+                assert_eq!(prefs.settings(), &preview);
+            } else {
+                assert_eq!(prefs.settings(), &Settings::default(), "{close}");
+            }
+            assert_eq!(Settings::load(&path).unwrap(), *prefs.settings());
+            assert!(prefs.state.slider_edit.is_none());
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn alt_slider_mouse_gesture_drives_real_preferences_without_native_button_presses() {
+        use scene::{Interactable, InteractableKind, Scene, View, ViewState};
+        use tile_viewer::{layout::Layout, snap::{Rates, SnapInput}};
+        let (mut prefs, path) = open_prefs("alt-slider-mouse-driver");
+        assert!(click(&mut prefs, 220, 55).is_empty());
+        let slider = prefs.looks(&Fonts::default()).into_iter().find(|c| matches!(c.kind, InteractableKind::Slider { .. })).unwrap();
+        let scene = Scene {
+            seq: 1,
+            views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
+            interactables: vec![Interactable { id: slider.id, rect: slider.rect, anchor: None, kind: slider.kind }],
+            ..Default::default()
+        };
+        let mut layout = Layout::default();
+        layout.frame(&scene, (1024, 768), (0, 0, 0, 0), vec![], None);
+        let mut snap = SnapInput::default();
+        let rates = Rates::default();
+        for down in [true, false] {
+            let input = Input::Key { vk: 0x12, down, text: None };
+            let routed = snap.route(input, &mut layout, &scene, 0.0, rates);
+            prefs.route(routed, (1024, 768));
+        }
+        snap.tick(&mut layout, &scene, 1.0, rates);
+        let button = |button, down| Input::MouseButton { button, down, x: 0, y: 0 };
+        for down in [true, false] {
+            let routed = snap.route(button(scene::Button::Left, down), &mut layout, &scene, 1.0, rates);
+            assert!(!routed.iter().any(|i| matches!(i, Input::MouseButton { .. })));
+            assert!(prefs.route(routed, (1024, 768)).is_empty());
+        }
+        assert_eq!(prefs.settings(), &Settings::default());
+        assert!(!path.exists());
+        let pointer = snap.snapper.pointer();
+        snap.motion((1000.0, 0.0));
+        let routed = snap.tick(&mut layout, &scene, 1.1, rates);
+        assert!(prefs.route(routed, (1024, 768)).is_empty());
+        assert_ne!(prefs.settings(), &Settings::default());
+        assert_eq!(snap.snapper.pointer(), pointer);
+        for down in [true, false] {
+            let routed = snap.route(button(scene::Button::Right, down), &mut layout, &scene, 1.2, rates);
+            assert!(!routed.iter().any(|i| matches!(i, Input::MouseButton { .. })));
+            assert!(prefs.route(routed, (1024, 768)).is_empty());
+        }
+        assert_eq!(prefs.settings(), &Settings::default());
+        assert_eq!(Settings::load(&path).unwrap(), *prefs.settings());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
 }

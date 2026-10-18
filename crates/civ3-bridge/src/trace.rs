@@ -118,6 +118,8 @@ fn record_text(call: &hooks::text_out::Call) {
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
     let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text, backdrop: None };
     crate::ui_trace::on_text(&run);
+    // The semantic notice reader owns this text in UI and text-only modes.
+    if crate::unit_notices::drawing() { return; }
     if let Ok(mut recent) = RECENT_TEXT.lock() {
         let now = std::time::Instant::now();
         while recent.front().is_some_and(|(t, _)| now.duration_since(*t) > TEXT_WINDOW) {
@@ -398,6 +400,10 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     if let Some(p) = crate::targeting::latest_path() {
         let _ = writeln!(out, "{}", p.trace_line());
     }
+    if let Ok(modes) = game.navigator_modes() {
+        use civ3_sys::ui_hooks::NavigatorMode;
+        let _ = writeln!(out, "navigator_modes {} {}", u8::from(modes.main == NavigatorMode::Geography), u8::from(modes.advisor == NavigatorMode::Geography));
+    }
     if let Ok(p) = game.preferences() {
         let _ = writeln!(out, "preferences {p:#x}");
     }
@@ -528,6 +534,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
             let kind = match c.kind {
                 civ3_sys::controls::ControlKind::Button => "button".to_owned(),
                 civ3_sys::controls::ControlKind::ListItem => "list_item".to_owned(),
+                civ3_sys::controls::ControlKind::Slider { track, value } => format!("slider track {track:?} value {value}"),
                 civ3_sys::controls::ControlKind::List { scroll: [sx, sy, sw, sh], step } => format!("list scroll {sx} {sy} {sw} {sh} step {step}"),
             };
             let _ = writeln!(out, "control {x} {y} {w} {h} id {:#x} {kind}", c.id);

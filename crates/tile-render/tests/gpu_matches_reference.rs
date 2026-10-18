@@ -390,6 +390,50 @@ fn a_scaled_interface_shows_what_is_below_it() {
 }
 
 #[test]
+fn target_clips_preserve_fractional_interface_pixels_and_stacked_groups() {
+    let gpu = Headless::new().expect("GPU");
+    let mut builder = AtlasBuilder::new(256);
+    let green = builder.add(&RgbaImage::from_fn(8, 8, |_, _| [12, 100, 36, 255]), (0, 0)).unwrap();
+    let panel = builder.add(&RgbaImage::from_fn(128, 96, |x, y| [220, ((x * 3) % 251) as u8, ((y * 7) % 251) as u8, 255]), (0, 0)).unwrap();
+    let atlas = builder.finish();
+    let mut sets = SpriteSets::default();
+    let (green, panel) = (sets.single(green), sets.single(panel));
+    let mut world = TileWorld::new(Grid { cols: 64, rows: 64, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (8, 8) }, sets);
+    world.add_layer(LayerSpec::new("ground", vec![green]));
+    let main = Camera::new((240, 160));
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    for zoom in [(1, 1), (3, 2), (2, 3)] {
+        for stacked in [false, true] {
+            let head = Camera { origin: (13, 9), zoom, cells: false, hairline: true, target_clip: Some([64, 19, 131, 87]), ..Camera::new((180, 120)) };
+            let child = Camera { origin: (7, 11), cells: false, stacked: true, target_clip: Some([80, 0, 200, 77]), ..Camera::new((150, 110)) };
+            let cameras = if stacked { vec![main, head, child] } else { vec![main, head] };
+            world.free = vec![PlacedSprite { screen: true, view: Some(if stacked { 2 } else { 1 }), ..PlacedSprite::new(panel, 40, 30) }];
+            renderer.set_world(&gpu.device, &world);
+            let got = gpu.render_views(&mut renderer, &cameras, (240, 160), 0, CLEAR);
+            let want = reference::render_views(&world, &atlas, &cameras, (240, 160), 0, CLEAR);
+            assert_same(&got, &want, &format!("target clip, {zoom:?}, stacked {stacked}"));
+            let mut unconfined = cameras.clone();
+            for c in &mut unconfined { c.target_clip = None; }
+            let whole = reference::render_views(&world, &atlas, &unconfined, (240, 160), 0, CLEAR);
+            let clip = if stacked { [80, 19, 131, 77] } else { [64, 19, 131, 87] };
+            let mut changed = 0;
+            for y in 0..160 {
+                for x in 0..240 {
+                    if x >= clip[0] && x < clip[2] && y >= clip[1] && y < clip[3] {
+                        assert_eq!(got.get(x, y), whole.get(x, y), "clipping preserves the sampling phase at {x},{y}");
+                        changed += usize::from(got.get(x, y) != [12, 100, 36, 255]);
+                    } else {
+                        assert_eq!(got.get(x, y), [12, 100, 36, 255], "the other view's world stays visible at {x},{y}");
+                    }
+                }
+            }
+            assert!(changed > 0, "the clipped UI actually draws");
+        }
+    }
+}
+
+#[test]
 fn world_sprites_can_skip_one_view() {
     let gpu = Headless::new().expect("GPU");
     let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
@@ -1380,4 +1424,94 @@ fn a_staged_atlas_draws_as_one_set_at_once() {
     renderer.adopt_atlas(&gpu.device, staged, &atlas);
     let got = gpu.render(&mut renderer, &camera, 0, CLEAR);
     assert_same(&got, &reference::render(&world, &atlas, &camera, 0, CLEAR), "staged");
+}
+
+#[test]
+fn clean_map_categories_are_independent_per_camera() {
+    let gpu = Headless::new().expect("GPU");
+    let adapter = gpu.adapter.get_info();
+    eprintln!("clean-map category adapter: {adapter:?}");
+    if std::env::var("TILE_RENDER_ADAPTER").ok().as_deref() == Some("radv") {
+        assert_eq!(adapter.backend, wgpu::Backend::Vulkan, "radv clean-map check must use Vulkan");
+        assert_eq!(adapter.vendor, 0x1002, "radv clean-map check must use an AMD adapter");
+        assert!(adapter.name.to_ascii_lowercase().contains("radv"), "adapter is not RADV: {}", adapter.name);
+    }
+    let mut atlas_builder = AtlasBuilder::new(64);
+    let free_sprite = atlas_builder.add(&RgbaImage::from_fn(4, 4, |_, _| [220, 80, 40, 255]), (0, 0)).unwrap();
+    let cell_sprite = atlas_builder.add(&RgbaImage::from_fn(4, 4, |_, _| [40, 200, 80, 255]), (0, 0)).unwrap();
+    let mut sets = SpriteSets::default();
+    let free_set = sets.single(free_sprite);
+    let cell_set = sets.single(cell_sprite);
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (8, 8) }, sets);
+    // One independently tagged layer and one independently tagged world
+    // sprite for every clean-map category. Their different y positions make
+    // both paths observable in one frame.
+    for bit in 0..13 {
+        let layer = world.add_layer(LayerSpec {
+            offset: (bit * 4 + 1, 1),
+            category: 1 << bit,
+            ..LayerSpec::new(format!("cell-{bit}"), vec![tile_render::SpriteSetId::EMPTY, cell_set])
+        });
+        world.set(layer, 0, 0, 1);
+        world.free.push(PlacedSprite {
+            x: bit * 4 + 1,
+            y: 6,
+            category: 1 << bit,
+            ..PlacedSprite::new(free_set, 1, 1)
+        });
+    }
+    let atlas = atlas_builder.finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let cameras: Vec<_> = (0..13)
+        .map(|bit| {
+            let mut c = Camera::new((52, 10));
+            c.origin = (bit * 52, 0);
+            c.hidden_categories = 1 << bit;
+            c
+        })
+        .collect();
+    let got = gpu.render_views(&mut renderer, &cameras, (13 * 52, 10), 0, CLEAR);
+    let want = reference::render_views(&world, &atlas, &cameras, (13 * 52, 10), 0, CLEAR);
+    assert_same(&got, &want, "independent per-camera clean-map masks");
+    for bit in 0..13 {
+        let x = bit * 52 + bit * 4 + 1;
+        assert_eq!(got.get(x, 1), CLEAR, "camera {bit} must hide its cell category");
+        assert_eq!(got.get(x, 6), CLEAR, "camera {bit} must hide its free-sprite category");
+        let other = (bit + 1) % 13;
+        let other_x = bit * 52 + other * 4 + 1;
+        assert_eq!(got.get(other_x, 1), [40, 200, 80, 255], "camera {bit} must retain cell category {other}");
+        assert_eq!(got.get(other_x, 6), [220, 80, 40, 255], "camera {bit} must retain free category {other}");
+    }
+}
+
+#[test]
+fn clean_map_mask_change_invalidates_cached_picture() {
+    let gpu = Headless::new().expect("GPU");
+    let mut atlas_builder = AtlasBuilder::new(64);
+    let sprite = atlas_builder.add(&RgbaImage::from_fn(4, 4, |_, _| [220, 80, 40, 255]), (0, 0)).unwrap();
+    let mut sets = SpriteSets::default();
+    let set = sets.single(sprite);
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (8, 8) }, sets);
+    world.color = ColorModel::Quantized { bits: 5 };
+    world.free.push(PlacedSprite { x: 1, y: 1, category: 1, ..PlacedSprite::new(set, 1, 1) });
+    let atlas = atlas_builder.finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let mut camera = Camera::new((8, 8));
+    camera.hidden_categories = 1;
+    let hidden = gpu.render_views(&mut renderer, &[camera], (8, 8), 0, CLEAR);
+    let same = gpu.render_views(&mut renderer, &[camera], (8, 8), 0, CLEAR);
+    assert!(renderer.reused(), "unchanged camera masks may reuse the retained picture");
+    camera.hidden_categories = 0;
+    let visible = gpu.render_views(&mut renderer, &[camera], (8, 8), 0, CLEAR);
+    assert!(!renderer.reused(), "changing a camera mask must invalidate the retained picture");
+    assert_ne!(hidden.pixels, visible.pixels, "changing a camera mask must change its pixels");
+    assert_eq!(hidden.pixels, same.pixels, "replaying an unchanged mask must preserve pixels");
+    camera.hidden_categories = 1;
+    let restored = gpu.render_views(&mut renderer, &[camera], (8, 8), 0, CLEAR);
+    assert!(!renderer.reused(), "restoring a camera mask must invalidate the changed picture");
+    assert_eq!(hidden.pixels, restored.pixels, "restoring the mask must restore the hidden picture");
 }

@@ -8,7 +8,7 @@
 //! Reads go through [`Mem`] so they can be tested without the game. Only
 //! the PCGames build is decoded.
 
-use crate::controls::{Control, ControlKind, Mem, Sites, TAG_CHECK, TAG_CHOICE, TAG_MENU, TAG_TAB};
+use crate::controls::{Control, ControlKind, Mem, Sites, TAG_CHECK, TAG_CHOICE, TAG_MENU, TAG_TAB, TAG_STATUS, STATUS_ORB};
 use crate::layout;
 
 /// The draw (vtable +0x58) of every `Button` that picks its art by its
@@ -138,8 +138,34 @@ pub fn of(mem: &dyn Mem, sites: &Sites, control: &Control) -> Option<StateArt> {
         (o, TAG_CHECK) => check_box(mem, o, part & 0x0FFF_FFFF),
         (o, 0) if part & TAG_CHOICE != 0 => bullet_row(mem, o, part & !TAG_CHOICE),
         (o, TAG_MENU) => menu_row(mem, o, part & 0x0FFF_FFFF),
+        (o, TAG_STATUS) if o == sites.main_gui && part & 0x0FFF_FFFF == STATUS_ORB => status_orb(mem, o),
         _ => None,
     }
+}
+
+/// Main_GUI paints the status orb directly (0x554DA1, 0x555050), and
+/// changes its art in hover (0x558169) and click (0x5560F6). These are
+/// the real sprites, on Main_GUI's canvas; the unit portrait has no hover
+/// or pressed artwork of its own.
+fn status_orb(mem: &dyn Mem, gui: u32) -> Option<StateArt> {
+    let main = gui.checked_sub(0x5450)?;
+    let selected = mem.u32(main + layout::MAIN_SCREEN_FORM_CURRENT_UNIT)? != 0;
+    let normal = if selected { 0 } else { mem.u32(gui + 0x10654)?.min(2) };
+    let state = look(if mem.u32(gui + 0x1064C)? != 0 { Pointer::Hover } else { Pointer::Normal }, false);
+    Some(StateArt {
+        canvas: gui + layout::BASE_FORM_DATA_CANVAS + 4,
+        part: Part::LastArt,
+        state,
+        forced: false,
+        pieces: vec![vec![
+            (look(Pointer::Normal, false), gui + 0x147E4 + normal * layout::SPRITE_SIZE),
+            (look(Pointer::Hover, false), gui + 0x14810),
+            (look(Pointer::Pressed, false), gui + 0x1483C),
+        ]],
+        text_offsets: Vec::new(),
+        colors: Vec::new(),
+        select: Select::None,
+    })
 }
 
 /// The state art of the `Button` at `addr`, if it is one that draws by its
@@ -542,5 +568,47 @@ mod menu_tests {
         assert_eq!(menu_row(&m, form, 2), None);
         m.0.insert(form + MENU_ROW_HOOK, 0x40_0000);
         assert_eq!(menu_row(&m, form, 1), None);
+    }
+}
+
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    struct Fake(HashMap<u32, u32>);
+    impl Mem for Fake {
+        fn u32(&self, addr: u32) -> Option<u32> { self.0.get(&addr).copied() }
+        fn u8(&self, addr: u32) -> Option<u8> { self.u32(addr).map(|v| v as u8) }
+    }
+
+    #[test]
+    fn status_orb_uses_main_gui_art_instead_of_guessing_a_button_object() {
+        let sites = crate::controls::sites(crate::Build::PcGames).unwrap();
+        let g = sites.main_gui;
+        let mut m = Fake::default();
+        m.0.insert(g - 0x5450 + layout::MAIN_SCREEN_FORM_CURRENT_UNIT, 0);
+        m.0.insert(g + 0x10654, 2);
+        m.0.insert(g + 0x1064C, 0);
+        let control = Control { rect: [700, 601, 48, 28], kind: ControlKind::Button,
+            id: (g as u64) << 32 | TAG_STATUS as u64 | STATUS_ORB as u64 };
+        let art = of(&m, &sites, &control).unwrap();
+        assert_eq!((art.canvas, art.part, art.state, art.forced, art.select),
+            (g + 0x274, Part::LastArt, look(Pointer::Normal, false), false, Select::None));
+        assert_eq!(art.pieces, [vec![
+            (look(Pointer::Normal, false), g + 0x1483C),
+            (look(Pointer::Hover, false), g + 0x14810),
+            (look(Pointer::Pressed, false), g + 0x1483C),
+        ]]);
+        m.0.insert(g - 0x5450 + layout::MAIN_SCREEN_FORM_CURRENT_UNIT, 0x5000);
+        m.0.insert(g + 0x1064C, 1);
+        let art = of(&m, &sites, &control).unwrap();
+        assert_eq!(art.state, look(Pointer::Hover, false));
+        assert_eq!(art.pieces[0][0].1, g + 0x147E4);
+        // The portrait only has its normal game drawing. It must not get
+        // the neighbouring orb's hover or pressed art.
+        assert_eq!(of(&m, &sites, &Control { id: control.id | 1, ..control }), None);
     }
 }

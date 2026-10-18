@@ -69,6 +69,7 @@ pub fn sprites(world: &Civ3World, compiled: &Compiled) -> Vec<scene::FreeSprite>
                 not_in_view: None,
                 glyph: None,
                 palette: 0,
+                category: viewer_settings::clean_map::CITIES,
             })
         })
         .collect()

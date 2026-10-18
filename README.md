@@ -198,6 +198,14 @@ the frame on a tile the command takes, and the go-to path (the game's own
 path finder, run on the game's thread) with its marker and turn count; the
 command's pointer is the game's cursor.
 
+The Layout tab's **Smooth scrolling in menu lists** option animates rows
+in scrollable lists, including the city's production chooser. It is off
+by default and independent of smooth world movement. The game receives
+wheel input immediately; confirmed row changes slide through the list's
+bounds, and clicks follow the visible row. Lists without matching rows
+across an update change immediately. Alt button snapping keeps its own
+scroll behavior.
+
 The game decides what its interface shows; how a control looks under the
 pointer the viewer draws itself, at its own frame rate
 (`tile_viewer::looks`, `scene::Looks`). With each scene the bridge sends,
@@ -227,21 +235,40 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   wide), or A above B.
 - **Zoom box**: off; a world magnifier in a box in the middle of the
   window sized 1:3:1 or 1:7:1 across the width (margin : box : margin;
-  the height follows at the window's aspect ratio); a box at the pointer,
+  the Box height slider sets 5-100% of its region's height, with Auto
+  keeping the window's aspect ratio); a box at the pointer,
   1:1:1 or 1:3:1 across and `zoom_strip` of the height, above the pointer
   (below it where there is no room); or a strip across the top,
   `zoom_strip` of the height, that the views give room to. `zoom_strip`
   is 5-50 %. In a side-by-side split `zoom_place` puts it over both
-  views, A or B, and keeps it inside that view. Ctrl+wheel over it zooms
-  it.
+  views, A or B, and keeps it inside that view. Floating boxes move below
+  an approaching pointer; **Keep mouse out of the floating zoom box**
+  instead blocks entry. Top strips always block entry and scroll the map
+  upward at their lower boundary. Controls over a zoom area remain
+  reachable. World magnifiers keep full-size artwork when Z zooms the
+  game's map out. Ctrl+wheel over a zoom view changes its magnification.
 - **Screens**: the advisors F1-F8, the city screen, the palace, espionage,
   the game menu and the Civilopedia (the bridge names the open one,
-  `scene::Interface`, docs §16.11) go over the window, or the game's whole
-  screen is fitted into A or B (left or bottom, right or top), one place
-  per orientation.
-- **Roles**: `Free` (A shows the game's view, B is moved by hand), or
-  `UnitMouse`: A follows the focus of interest (the active unit; while a
-  popup is open the middle of the game's view), B follows the world cursor
+  `scene::Interface`, docs §16.11) go over the window, or their actual
+  panel fills A or B as far as its aspect ratio allows (left or bottom,
+  right or top), one place per orientation. Both map views keep their own
+  cameras. The city panel's internal map follows its panel. The explicit
+  `ui=pane` shortcut still fits the entire game window. **Open menus in
+  mouse view** is enabled by default. The game menu, Preferences and generic
+  popups open in the view that held the mouse, including the captured world
+  cursor's view, and stay there until closed. Their UI keeps the selected
+  menu and pixel scale. Middle-drag inside that view to reach controls in
+  an oversized menu; the other view keeps showing its own world. Turn the
+  option off to use the Menu row's explicit placement.
+- **Clean map**: the Clean map tab has separate A, B and Zoom columns.
+  Game follows the game's Clean Map command and its thirteen preferences;
+  Normal shows every category; Custom hides selected categories in that
+  view. Changing a checkbox selects Custom and saves immediately. Fog and
+  player visibility still apply. Both terrain details and city/unit labels
+  follow the selected view's mask.
+- **Roles**: `Free` (A follows game focus requests and can be panned,
+  B is moved by hand), or `UnitMouse`: A follows game focus requests for
+  the active unit, visible AI actions and popup subjects; B follows the world cursor
   and captures the mouse when clicked into, so the unit stays in sight in
   the other view. An open popup moves fully into A where it fits; one
   the game opens at a click (a context menu) opens where that click was
@@ -254,24 +281,49 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   position hint; where the system pointer cannot be
   moved at all it stays where it is), and the mouse is captured again,
   the world cursor where it was, when the screen closes.
-- **Smooth world movement**: a view following the game's view or the focus
+- **Smooth world movement**: a view following game focus requests
   glides there by pixels (a critically damped spring that keeps its
   velocity when the target moves) instead of jumping a tile at a time.
 - **Map movement** (`input.map_movement`): `EdgeScroll` (the default):
   with the mouse free, the pointer at a window edge or corner scrolls the
   view it is in wherever that view reaches the edge, diagonally in a
-  corner, faster nearer the edge: the game's view (A following it, at any
-  zoom) by the game itself (`scene::Input::Edge`), the viewer's views (B,
-  A following anything else, insets) by the viewer, up to 600 pixels a
-  second. `Drag` (Civilization IV style): the left button held on the map
+  corner, faster nearer the edge. Every world view, including A and B,
+  uses the same speed, up to 600 window pixels a second regardless of pane
+  size or zoom. `Drag` (Civilization IV style): the left button held on the map
   and moved more than 4 pixels grabs it, the map follows the pointer 1:1
   and slides on when let go (with the pointer's velocity, slowing by
   friction as Apple's scroll views do); a shorter press is a click, sent
-  on when the button comes up. No edge scrolling then. The middle button
-  drags in either mode. Dragging the game's view, A is moved by the viewer
-  meanwhile and the game is asked to look where it comes to rest (the
-  bridge clicks the minimap; the game centres on a tile), then A follows
-  the game's view again. While the mouse is captured neither applies.
+  on when the button comes up. The middle button
+  drags in either mode. Panning A preserves its exact pixel position
+  after release, including when smooth movement is enabled. A follows
+  new game camera requests, including AI movement and combat, without
+  moving B. In UnitMouse roles, selecting another unit resumes following
+  that unit. The native game's parked camera does not pull A back to a
+  tile. Toggling Z keeps the views and captured cursor on the same map
+  locations; the magnifier keeps full-detail art. The mouse wheel pans the
+  view under the pointer using the game's scroll-speed setting, vertically
+  by default and horizontally with Shift. Ctrl+wheel changes that view's
+  zoom. Map dragging is disabled while the mouse is
+  captured. In `Drag` mode, a short right click opens the unit menu. Drag
+  the right button to preview the selected unit's native go-to route, then
+  release it and left click the destination tile to confirm. While the
+  right button is held, the preview scrolls the map at its edge. Release
+  stops scrolling and keeps the selected destination fixed. Releasing the
+  right button never moves the unit. Clicking another tile, dragging the
+  confirmation, pressing Escape, or leaving the map cancels the order.
+  Unit-order dragging also works with the captured world cursor.
+
+The native main-map camera stays at (0, 0), with a small range covering
+five tile coordinates per axis. It supplies native bookkeeping only.
+Game camera requests reach A as explicit events, including another request
+for the same tile. Visibility and show-moves preferences still decide which
+AI actions request focus. B and the zoom view keep their own positions.
+Native animation updates include visible units and effects across the map,
+using the original elapsed time once. Window size, UI canvases and the city
+screen's internal map retain their normal geometry. Parking activates only
+when the checked PCGames hooks and native world-input endpoint are ready;
+an unsupported executable or failed dependency keeps the original camera.
+See [the camera contract](docs/independent-camera.md) for diagnostics.
 
 While the mouse is free the divider between A and B is a wall except in
 its middle third (drawn without the line) and where the unit's order
@@ -279,9 +331,9 @@ buttons are: the pointer pushed against it stays in its view (the system
 pointer is moved back where the platform allows; on Wayland the compositor
 holds it out of the walls through a pointer confinement, which also keeps
 it in the window while the mouse is free) and scrolls that view
-instead: the game's own view as at its screen edge (`scene::Input::Edge`;
-the game polls the pointer, `inproc::pointer`), the viewer's views by
-itself. Through the gaps it passes freely. The game's top-left menu,
+instead. A and B use the same pixel-based movement; the game's separate
+edge scroller stays disabled. Through the gaps it passes freely. The game's
+top-left menu,
 Civilopedia and advisor buttons (and their tooltips) are drawn in the view
 the pointer is in, only there. While the mouse is captured they cannot be
 used: in their place the view following the world cursor shows a small
@@ -302,6 +354,12 @@ resolution settings back to their defaults (one view, no zoom box, pixel
 scale 1) and saves them: the way out of settings that make the game hard to
 use. The pointer settings stay. The keys do not reach the game.
 
+The Layout tab's **Captured mouse sensitivity** multiplier changes only
+captured relative movement, from 0.1 to 5 times its normal speed. The
+default is 1. Normal pointing, menu snapping and dragging keep their own
+speed. At a captured view's edge, the system pointer stays inside that
+view; when only one axis is unlocked, it stays on a line along that axis.
+
 The Ctrl+Shift keys change the arrangement for the session on top of the
 settings: S cycles the split, I adds a floating inset at the pointer (X
 removes it), M cycles a magnifier beside the pointer (everything on
@@ -312,17 +370,12 @@ each change is logged), A toggles a blinking arrow over the active unit,
 +/−/0 and arrows zoom and pan the view under the pointer; a middle-button
 drag pans a view (and a left one, with map movement `Drag`), a left drag on
 the divider's open middle moves it. A free
-view set up before the game shows a map is placed at the middle of its view
-once it does. Clicks are routed to the game where its view shows the same
-world pixel; elsewhere the game is asked to look there (the bridge clicks
-its minimap). The main pane following the game's view shows its middle in
-the pane's middle (a split or a zoom strip crops it round its middle), so
-what the game centres on (the active unit, a popup's subject, a place
-looked at) is in the middle of A, and the minimap marks what A shows.
-Where the main pane follows the game's view (at any zoom), the pointer
-resting at the window's edge scrolls the game's map as at the game's own
-screen edge; the viewer's own views scroll at the edges they reach as
-well. `TILE_VIEWER_LAYOUT`
+view set up before the game shows a map is placed at its initial focus.
+World input supplies the selected tile directly to the game's native hover,
+selection and command handlers, including tiles outside its original camera.
+Each renderer view keeps its own camera, and the minimap marks what A shows.
+The pointer resting at an edge scrolls that renderer view at the same speed
+in A and B. `TILE_VIEWER_LAYOUT`
 overrides the settings at start, for testing, e.g.
 `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled):
@@ -348,7 +401,11 @@ flight (1.33 update intervals, a slight overshoot) that lands exactly on
 the element; the game gets the pointer once it rests, and a translucent
 ghost shows the next target meanwhile. While it is on, its pointer is the
 only cursor. In a list, moving up or down scrolls the list under the
-pointer. A click clicks the element, never the map; the view following the
+pointer. Selecting a slider starts editing without changing its value.
+Mouse movement then adjusts that slider while the pointer stays still; the
+next left click accepts the preview and a right click discards it. Esc,
+Alt, losing focus, or closing its tab also restores its original value.
+A click clicks the element, never the map; the view following the
 world cursor is a target too, and a click on it captures the mouse again.
 Turned off, the pointer stays where it ended: on the interface the system
 pointer shows there (a captured mouse is let go), on the capture view the
@@ -359,9 +416,8 @@ is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinkin
 arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
 (the bridge clicks its minimap). Where the main pane follows the game's
-view, the pointer resting at the window's edge scrolls the
-game's map as at the game's own screen edge (`scene::Input::Edge`; the
-game polls the pointer, `inproc::pointer`). `TILE_VIEWER_LAYOUT` sets it up at start,
+view, the pointer resting at the window's edge scrolls it locally at the
+same window-pixel speed as B. `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 The mouse cursor is the game's (`Art/cursor.pcx`, `scene::Cursor`: the
 bridge reads which one the game shows, e.g. its targeting cursors, or the
@@ -374,8 +430,14 @@ captured or snapping (the system pointer hidden, never seen jumping), and
 in the other views showing the world pixel under the pointer (the other
 pane, insets, a world zoom box). While the view following the world
 cursor is held at the edge of a map that does not wrap (the cursor off
-its middle), the system pointer shows at the world cursor and moves it
-until the view can centre it again. The cursor shows once per place at
+its middle), the system pointer shows at the world cursor and stays in
+that view. If only one camera axis reaches the map edge, it moves along
+a one-pixel horizontal or vertical line; the other axis keeps moving the
+camera through relative mouse motion. At a corner it moves within the
+view, with the zoom strip and blocked zoom boxes still reserved. Moving
+inward captures the pointer again once the view can centre it. Ctrl,
+focus loss, menus and button snapping release these edge constraints.
+The cursor shows once per place at
 any moment (`tile_viewer::cursor::Machine`); no world cursor is drawn
 once the mouse is free. Each pointer event redraws at once
 (`TILE_VIEWER_LATENCY=1` logs the latency from motion to the drawn
@@ -429,10 +491,13 @@ rendering resolution shows more of the world about the same middle, not
 the same world larger. The game's interface is drawn at its own pixels
 times the frame scale (the frame's panels, each kept at its side or
 corner: bottom-left, bottom-right, top-left) or the menu scale (menus,
-screens and popups, about the middle; none larger than the picture), and
-pointer input is mapped back through the same pieces; the world scale
-scales the world about the middle of the game's view. All of these change
-live; the Resolution tab shows the resolution rendered at. The system
+screens and popups, about the middle). Pointer input maps back through
+these same pieces. The world scale
+scales the world about the middle of the game's view. Menus retain the
+requested scale even when larger than the window. Hold the middle mouse
+button and drag an oversized menu to reach controls outside the window.
+These settings change live; the Resolution tab shows the rendering
+resolution. The system
 pointer is the game's cursor art at the pixel scale (each of its pixels
 n×n, also over menus at a menu scale of their own), as are the cursors
 and markers the viewer draws.
@@ -563,7 +628,13 @@ the prefix and the native dir go under `~/.local/share/civ3r` (`wine-wow64`,
 `wine-civ3-wow64`, `native`). The game's map is off unless `--map`, the
 renderer uses the Intel iGPU unless `--nvidia` (if that GPU cannot show
 the viewer's window, the renderer falls back to the default one and the
-launcher says so), and `--window` shows the viewer in a window.
+launcher says so), and `--window` shows the viewer in a window. Explicit
+`--nvidia` or `--intel` overrides an inherited `TILE_RENDER_ADAPTER`.
+The NVIDIA path allows both installed EGL vendors: forcing Mesa alone
+also breaks NVIDIA's Vulkan initialization and can crash Wine. Intel
+remains visible to Vulkan for the presentation fallback. Launcher GPU
+selection can be checked without starting Wine or loading a driver with
+`nix develop -c python3 tools/test-civ3-play`.
 
 The viewer is the only window: the game's own is a real window (input is
 posted to it; it asks for the focus and the pointer, which the bridge
