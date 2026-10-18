@@ -41,7 +41,7 @@
 //! as Windows' ClearType draws it) turns that into the 8-bit coverage
 //! drawn per channel, like a measured glyph's.
 
-use crate::{FREE_CLIP, FREE_SCREEN};
+use crate::{FREE_CLIP, FREE_LOW, FREE_SCREEN, FREE_ZOOMED};
 
 /// Fixed-point units per pixel.
 pub const TEXT_FIXED: i32 = 96;
@@ -105,9 +105,15 @@ pub const TEXT_BAR: u32 = 1 << 11;
 pub const BOOST_DARK: u32 = 16;
 pub const BOOST_LIGHT: u32 = 72;
 
-/// One glyph of text drawn from its outline: zoomed art for every zoom,
-/// drawn only where a view is drawn at its zoom showing zoomed art
-/// (`FrameParams::zoom_art` 2), at its 1:1 position scaled.
+/// Whether an outline glyph belongs to this drawing stage. Ordinary
+/// text and 1:1 twins draw in stage 0. Scaled views using outline art skip
+/// their source stage 1 and draw ordinary text and zoomed twins in stage 2.
+pub fn visible_at_art(flags: u32, art: u32) -> bool {
+    if art == 0 { flags & FREE_ZOOMED == 0 } else if art == 2 { flags & FREE_LOW == 0 } else { false }
+}
+
+/// One glyph of text drawn from its outline, at its 1:1 position scaled.
+/// Its Low/Zoomed flags follow the same twin selection as other sprites.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 #[cfg_attr(not(target_arch = "spirv"), derive(bytemuck::Pod, bytemuck::Zeroable))]
@@ -116,7 +122,8 @@ pub struct TextGlyph {
     pub glyph: u32,
     /// Word offset of its face's header.
     pub face: u32,
-    /// `FREE_SCREEN`, `FREE_CLIP`, `FREE_EXCEPT_VIEW` and `TEXT_*` flags.
+    /// `FREE_SCREEN`, `FREE_CLIP`, `FREE_EXCEPT_VIEW`, `FREE_LOW`,
+    /// `FREE_ZOOMED` and `TEXT_*` flags.
     pub flags: u32,
     /// As `FreeSprite::view`.
     pub view: u32,

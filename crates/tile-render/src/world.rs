@@ -325,11 +325,16 @@ impl PlacedSprite {
         Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, palette: 0 }
     }
 
-    /// Its `FREE_SCREEN`, `FREE_CLIP` and `FREE_EXCEPT_VIEW` flags.
-    fn flags(&self) -> u32 {
+    /// Its view, clipping and Low/Zoomed twin selection flags.
+    pub(crate) fn flags(&self) -> u32 {
         (if self.screen { tile_render_shared::FREE_SCREEN } else { 0 })
             | if self.clip.is_some() { tile_render_shared::FREE_CLIP } else { 0 }
             | if self.except_view && self.view.is_some() { tile_render_shared::FREE_EXCEPT_VIEW } else { 0 }
+            | match self.zoom_art {
+                ZoomArt::Any => 0,
+                ZoomArt::Low => tile_render_shared::FREE_LOW,
+                ZoomArt::Zoomed { .. } => tile_render_shared::FREE_ZOOMED,
+            }
     }
 
     pub(crate) fn gpu(&self) -> tile_render_shared::FreeSprite {
@@ -337,12 +342,7 @@ impl PlacedSprite {
             set: self.set.0,
             phase: self.phase,
             ticks_per_frame: self.ticks_per_frame.max(1),
-            flags: self.flags()
-                | match self.zoom_art {
-                    ZoomArt::Any => 0,
-                    ZoomArt::Low => tile_render_shared::FREE_LOW,
-                    ZoomArt::Zoomed { .. } => tile_render_shared::FREE_ZOOMED,
-                },
+            flags: self.flags(),
             x: self.x,
             y: self.y,
             scale_den: self.blend.scale_den(),
@@ -740,6 +740,24 @@ pub(crate) struct PackedWorld {
 mod tests {
     use super::*;
     use tile_render_shared::ByteReader;
+
+    #[test]
+    fn outline_instances_keep_their_low_and_zoomed_twin_flags() {
+        let face = std::sync::Arc::new(gpu_text::Face::from_curves(1000, &[('A', Vec::new(), 600)]));
+        let glyph = OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 12 * 64, advance: 7, bold: false, italic: false, color: [255; 3], key: None };
+        for (zoom_art, flag, at_one, at_zoom) in [
+            (ZoomArt::Any, 0, true, true),
+            (ZoomArt::Low, tile_render_shared::FREE_LOW, true, false),
+            (ZoomArt::Zoomed { zoom: (0, 0), offset: (0, 0) }, tile_render_shared::FREE_ZOOMED, false, true),
+        ] {
+            let sprite = PlacedSprite { screen: true, zoom_art, text: Some(glyph), ..PlacedSprite::new(SpriteSetId::EMPTY, 3, 12) };
+            let packed = glyph.gpu(&sprite, std::slice::from_ref(&face), &[0]).unwrap();
+            assert_eq!(packed.flags & (tile_render_shared::FREE_LOW | tile_render_shared::FREE_ZOOMED), flag);
+            assert_eq!(tile_render_shared::text::visible_at_art(packed.flags, 0), at_one);
+            assert_eq!(tile_render_shared::text::visible_at_art(packed.flags, 2), at_zoom);
+            assert!(!tile_render_shared::text::visible_at_art(packed.flags, 1));
+        }
+    }
 
     #[test]
     fn uniform_alpha_survives_the_scene_and_gpu_sprite_encoding() {

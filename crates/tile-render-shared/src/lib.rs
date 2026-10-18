@@ -150,7 +150,8 @@ pub struct FrameParams {
     /// one target pixel wide (or high), e.g. the one-pixel lines of an
     /// interface shown smaller.
     pub hairline: u32,
-    /// With `scaled`: the target pixel where the view's viewport starts.
+    /// The render-target pixel where the viewport starts, including a
+    /// source rectangle. Outline coverage uses this in every stage.
     pub target_x: i32,
     pub target_y: i32,
 

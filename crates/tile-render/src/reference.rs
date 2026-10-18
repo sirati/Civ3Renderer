@@ -269,8 +269,15 @@ fn compose<P: Copy>(
             let clip = d.clip.unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
             let clip = [clip[0].saturating_add(dx), clip[1].saturating_add(dy), clip[2].saturating_add(dx), clip[3].saturating_add(dy)];
             let clip = [clip[0].max(rect[0]), clip[1].max(rect[1]), clip[2].min(rect[2]), clip[3].min(rect[3])];
-            let d = Draw { x: d.x + dx, y: d.y + dy, clip: Some(clip), ..d };
-            each_texel(atlas, &d, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src));
+            let d = Draw {
+                x: d.x + dx, y: d.y + dy, clip: Some(clip),
+                text: d.text.map(|text| TextPixels { origin: (text.origin.0 + dx, text.origin.1 + dy), ..text }),
+                ..d
+            };
+            match d.text {
+                Some(text) => each_text_pixel(&words, &d, &text, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
+                None => each_texel(atlas, &d, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
+            }
         });
         // The group's picture scaled into its rectangle.
         if let Some((group, r)) = place.blit {
@@ -380,7 +387,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
         _ => None,
     };
     let art_fits = |s: &crate::PlacedSprite| match zoomed_for(s) {
-        _ if s.text.is_some() => art == 2,
+        _ if s.text.is_some() => text::visible_at_art(s.flags(), art),
         Some((z, _)) => art == 2 && z == zoom,
         None => !(art != 0 && s.zoom_art == crate::ZoomArt::Low),
     };

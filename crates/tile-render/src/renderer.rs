@@ -2305,7 +2305,13 @@ impl Steps<'_> {
             let pass = world.passes.get(i).copied().filter(|_| i < passes).unwrap_or_default();
             let octagons = i < passes && world.octagons.get(i).copied().unwrap_or(false);
             let corner_cuts = octagons as u32;
-            let params = FrameParams { named_palettes: self.named_palettes, corner_cuts, ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach) };
+            let params = FrameParams {
+                named_palettes: self.named_palettes, corner_cuts,
+                // Text coverage is viewport-local even when this ordinary
+                // stage draws into an offset source or target rectangle.
+                target_x: bounds.0[0] as i32, target_y: bounds.0[1] as i32,
+                ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach)
+            };
             // Each (view, step) has its own parameter slot: buffer writes all
             // land before the commands run.
             let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;

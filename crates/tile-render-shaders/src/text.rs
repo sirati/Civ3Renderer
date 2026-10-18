@@ -6,7 +6,7 @@
 
 use spirv_std::glam::{IVec4, UVec4, Vec4};
 use spirv_std::spirv;
-use tile_render_shared::text::{GlyphPlace, TextGlyph, bounds, clip_at_zoom, coverage, keyed, on_screen, place};
+use tile_render_shared::text::{GlyphPlace, TextGlyph, bounds, clip_at_zoom, coverage, keyed, on_screen, place, visible_at_art};
 use tile_render_shared::{ALL_VIEWS, ALPHA_STEPS, FREE_EXCEPT_VIEW, FrameParams, QUANTIZED_BIAS, alpha_steps, mixed_source, quantize, shrunk, world_period, wrap_distance};
 
 use crate::{CULLED, max, min, quad_corner};
@@ -30,12 +30,12 @@ pub fn text_vs(
     *out_bar = IVec4::ZERO;
     *out_face = 0;
     *out_pos = CULLED;
-    // Zoomed art (for every zoom): only where a view is drawn at its zoom
-    // showing it; in its view only, or in every view showing the world but
-    // that one (`FREE_EXCEPT_VIEW`).
+    // Ordinary/Low text at 1:1, ordinary/Zoomed text where a scaled view
+    // shows outline art; in its own view, or in the other world views
+    // (`FREE_EXCEPT_VIEW`).
     let except = g.flags & FREE_EXCEPT_VIEW != 0;
     let wrong_view = if except { g.view == params.view || params.world == 0 } else { (g.view != ALL_VIEWS && g.view != params.view) || (g.view == ALL_VIEWS && params.world == 0) };
-    if params.zoom_art != 2 || wrong_view {
+    if !visible_at_art(g.flags, params.zoom_art) || wrong_view {
         return;
     }
     // From the screen origin (screen text) or the camera (world text at the

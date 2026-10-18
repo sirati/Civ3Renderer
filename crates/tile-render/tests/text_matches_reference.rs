@@ -150,6 +150,63 @@ fn differences(gpu: &RgbaImage, cpu: &RgbaImage) -> Vec<i32> {
 }
 
 #[test]
+fn outline_fallback_and_twins_match_reference_at_one_and_magnified() {
+    let gpu = Headless::new().expect("GPU");
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (64, 64) }, SpriteSets::default());
+    world.fonts.push(Arc::new(shapes()));
+    let glyph = |x, color, zoom_art| PlacedSprite {
+        screen: true, zoom_art,
+        text: Some(OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 16 * 64, advance: 10, bold: false, italic: false, color, key: None }),
+        ..PlacedSprite::new(SpriteSetId::EMPTY, x, 20)
+    };
+    world.free = vec![
+        glyph(5, [255, 0, 0], ZoomArt::Low),
+        glyph(5, [0, 255, 0], ZoomArt::Zoomed { zoom: (0, 0), offset: (0, 0) }),
+        glyph(20, [0, 0, 255], ZoomArt::Any),
+    ];
+    let atlas = AtlasBuilder::new(64).finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for (zoom, selected) in [((1, 1), 0), ((2, 1), 1)] {
+        let camera = Camera { zoom, zoomed_art: true, ..Camera::new((64, 64)) };
+        let actual = gpu.render_views(&mut renderer, &[camera], (64, 64), 0, [0, 0, 0, 255]);
+        let expected = reference::render(&world, &atlas, &camera, 0, [0, 0, 0, 255]);
+        assert_same(&actual, &expected, &format!("fallback and twins at {zoom:?}"));
+        assert!(actual.pixels.iter().any(|pixel| pixel[selected] != 0), "the selected twin draws");
+        assert!(actual.pixels.iter().all(|pixel| pixel[1 - selected] == 0), "the other twin does not draw");
+        assert!(actual.pixels.iter().any(|pixel| pixel[2] != 0), "ordinary fallback draws at every scale");
+    }
+}
+
+#[test]
+fn outline_fallback_matches_reference_in_offset_source_rectangles() {
+    let gpu = Headless::new().expect("GPU");
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (64, 64) }, SpriteSets::default());
+    world.fonts.push(Arc::new(shapes()));
+    for (view, color) in [(0, [255, 0, 0]), (1, [0, 255, 0])] {
+        world.free.push(PlacedSprite {
+            screen: true, view: Some(view), zoom_art: ZoomArt::Any,
+            text: Some(OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 10 * 64, advance: 6, bold: false, italic: false, color, key: None }),
+            ..PlacedSprite::new(SpriteSetId::EMPTY, 2, 12)
+        });
+    }
+    let atlas = AtlasBuilder::new(64).finish();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for zoom in [(1, 1), (2, 1)] {
+        let camera = Camera { zoom, ..Camera::new((32, 32)) };
+        let cameras = [camera, Camera { origin: (32, 0), screen_shift: (32, 0), ..camera }];
+        let actual = gpu.render_views(&mut renderer, &cameras, (64, 32), 0, [0, 0, 0, 255]);
+        let expected = reference::render_views(&world, &atlas, &cameras, (64, 32), 0, [0, 0, 0, 255]);
+        assert_same(&actual, &expected, &format!("offset fallback at {zoom:?}"));
+        assert!(actual.pixels.iter().any(|pixel| pixel[0] != 0));
+        assert!(actual.pixels.iter().any(|pixel| pixel[1] != 0), "the second viewport uses its actual render-target origin");
+    }
+}
+
+#[test]
 fn outline_coverage_is_bit_exact() {
     // Glyphs apart from each other, white on black in the direct model:
     // every pixel is the coverage itself (one blend, with nothing under
@@ -184,7 +241,7 @@ fn outline_coverage_is_bit_exact() {
             let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
             renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
             renderer.set_world(&gpu.device, &world);
-            for zoom in [(2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] {
+            for zoom in [(1, 1), (2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] {
                 let camera = Camera { zoom, downscale, zoomed_art: true, ..Camera::new((640, 600)) };
                 let got = gpu.render_views(&mut renderer, &[camera], (640, 600), 1, [0, 0, 0, 255]);
                 let want = reference::render_views(&world, &atlas, &[camera], (640, 600), 1, [0, 0, 0, 255]);
@@ -216,7 +273,7 @@ fn outline_text_matches_the_reference() {
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
-        let zooms: &[(u32, u32)] = if downscale == 1 { &[(2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] } else { &[(2, 1), (3, 2), (3, 1)] };
+        let zooms: &[(u32, u32)] = if downscale == 1 { &[(1, 1), (2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] } else { &[(1, 1), (2, 1), (3, 2), (3, 1)] };
         for &zoom in zooms {
             let main = Camera { x: -20, y: 0, zoom, downscale, zoomed_art: true, screen_shift: (3, -2), overhang: (0, 40, 0, 0), ..Camera::new((640, 400)) };
             let inset = Camera { x: 900 / downscale as i32, y: 30, zoom, downscale, zoomed_art: true, origin: (500, 250), ..Camera::new((140, 150)) };
