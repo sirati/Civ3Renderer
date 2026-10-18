@@ -134,6 +134,11 @@ fn world(color: ColorModel, faces: Vec<Arc<Face>>, spread: i32) -> (TileWorld, t
         }
     }
     world.fonts = faces;
+    // These are the zoomed twins of the fixture's plates. Ordinary
+    // outline fallback is tested separately and also draws at 1:1.
+    for sprite in world.free.iter_mut().filter(|sprite| sprite.text.is_some()) {
+        sprite.zoom_art = ZoomArt::Zoomed { zoom: (0, 0), offset: (0, 0) };
+    }
     // World sprites laid out `spread` times apart (for a view showing the
     // world that many times smaller, as a game's zoomed-out labels are).
     for s in world.free.iter_mut().filter(|s| !s.screen) {
@@ -273,7 +278,7 @@ fn outline_text_matches_the_reference() {
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
-        let zooms: &[(u32, u32)] = if downscale == 1 { &[(1, 1), (2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] } else { &[(1, 1), (2, 1), (3, 2), (3, 1)] };
+        let zooms: &[(u32, u32)] = if downscale == 1 { &[(2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] } else { &[(2, 1), (3, 2), (3, 1)] };
         for &zoom in zooms {
             let main = Camera { x: -20, y: 0, zoom, downscale, zoomed_art: true, screen_shift: (3, -2), overhang: (0, 40, 0, 0), ..Camera::new((640, 400)) };
             let inset = Camera { x: 900 / downscale as i32, y: 30, zoom, downscale, zoomed_art: true, origin: (500, 250), ..Camera::new((140, 150)) };
