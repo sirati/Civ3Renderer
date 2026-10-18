@@ -63,48 +63,110 @@ impl OriginalDrawing {
     }
 }
 
-/// Serialize complete hook installation, retain its guards and reuse the
-/// exact model when the viewer starts. A failed attempt may be retried.
+/// Capture ownership and the result of the normal game's first load.
+/// A failed normal callback may return into unrecorded game execution, so
+/// no later callback or worker may turn that failure into complete capture.
+enum Installation<T> {
+    Waiting,
+    Ready(T),
+    StartupFailed(String),
+}
+
 pub(crate) struct UiCapture<T> {
-    installed: Mutex<Option<T>>,
+    installed: Mutex<Installation<T>>,
     ready: AtomicBool,
     pub(crate) model: Mutex<Option<UiModel>>,
 }
 
 impl<T> UiCapture<T> {
     pub(crate) const fn new() -> Self {
-        Self { installed: Mutex::new(None), ready: AtomicBool::new(false), model: Mutex::new(None) }
+        Self { installed: Mutex::new(Installation::Waiting), ready: AtomicBool::new(false), model: Mutex::new(None) }
     }
 
     pub(crate) fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
     }
 
-    /// Every caller waits for all hooks, including callers that find an
-    /// earlier installation in progress. Hooks may emit into the model
-    /// during setup, so its lock is released before installing them.
-    pub(crate) fn install<E>(
+    /// Workers check this before any disabled-viewer shortcut. Restoring
+    /// original drawing must never hide an earlier normal-startup gap.
+    pub(crate) fn status(&self) -> Result<bool, String> {
+        match &*self.installed.lock().unwrap_or_else(|e| e.into_inner()) {
+            Installation::Waiting => Ok(false),
+            Installation::Ready(_) => Ok(true),
+            Installation::StartupFailed(error) => Err(error.clone()),
+        }
+    }
+
+    /// The actual worker entry decision. Check failure before intentional
+    /// disablement, under the same lock that publishes normal startup.
+    pub(crate) fn worker_needs_capture(&self, enabled: impl FnOnce() -> bool) -> Result<bool, String> {
+        match &*self.installed.lock().unwrap_or_else(|e| e.into_inner()) {
+            Installation::StartupFailed(error) => Err(error.clone()),
+            Installation::Ready(_) => Ok(false),
+            Installation::Waiting => Ok(enabled()),
+        }
+    }
+
+    /// Serialize the whole preparation path, including attachment and
+    /// required text capture before the model/hooks. Every caller waits
+    /// until success or permanent normal-startup failure is published.
+    pub(crate) fn prepare<S>(
+        &self,
+        point: CapturePoint,
+        setup: impl FnOnce() -> Result<S, String>,
+        model: impl FnOnce(&S) -> UiModel,
+        hooks: impl FnOnce(&S) -> Result<T, String>,
+    ) -> Result<bool, String> {
+        if !point.allowed() { return Ok(false) }
+        let mut installed = self.installed.lock().unwrap_or_else(|e| e.into_inner());
+        match &*installed {
+            Installation::Ready(_) => return Ok(false),
+            Installation::StartupFailed(error) => return Err(error.clone()),
+            Installation::Waiting => {},
+        }
+        let result = (|| {
+            let setup = setup()?;
+            {
+                let mut state = self.model.lock().unwrap_or_else(|e| e.into_inner());
+                state.get_or_insert_with(|| {
+                    let mut model = model(&setup);
+                    // The title uses the map canvas before the publisher
+                    // can identify a running game. Preserve startup copies.
+                    model.set_skipping(false);
+                    model
+                });
+            }
+            // Release the model lock before hooks can emit events.
+            hooks(&setup)
+        })();
+        match result {
+            Ok(hooks) => {
+                *installed = Installation::Ready(hooks);
+                self.ready.store(true, Ordering::Release);
+                Ok(true)
+            }
+            Err(error) => {
+                if matches!(point, CapturePoint::LoadCallback) {
+                    let error = format!("normal startup UI capture failed: {error}; an uncaptured execution gap prevents later recovery");
+                    *installed = Installation::StartupFailed(error.clone());
+                    Err(error)
+                } else {
+                    // A separately identified late injection has no normal
+                    // startup callback to preserve. Do not publish readiness.
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn install(
         &self,
         point: CapturePoint,
         model: impl FnOnce() -> UiModel,
-        hooks: impl FnOnce() -> Result<T, E>,
-    ) -> Result<bool, E> {
-        if !point.allowed() { return Ok(false) }
-        let mut installed = self.installed.lock().unwrap_or_else(|e| e.into_inner());
-        if installed.is_some() { return Ok(false) }
-        {
-            let mut state = self.model.lock().unwrap_or_else(|e| e.into_inner());
-            state.get_or_insert_with(|| {
-                let mut model = model();
-                // The title uses the map canvas before the publisher can
-                // identify a running game. Preserve its copies from startup.
-                model.set_skipping(false);
-                model
-            });
-        }
-        *installed = Some(hooks()?);
-        self.ready.store(true, Ordering::Release);
-        Ok(true)
+        hooks: impl FnOnce() -> Result<T, String>,
+    ) -> Result<bool, String> {
+        self.prepare(point, || Ok(()), |_| model(), |_| hooks())
     }
 }
 
@@ -152,18 +214,18 @@ mod tests {
     #[test]
     fn title_capture_precedes_viewer_and_preserves_underlay_copies() {
         let capture = UiCapture::new();
-        capture.install(CapturePoint::LoadCallback, title_model, || Ok::<_, ()>(())).unwrap();
+        capture.install(CapturePoint::LoadCallback, title_model, || Ok::<_, String>(())).unwrap();
         // All startup drawing happens before the viewer/worker gets a turn.
         startup_title(&capture);
         assert_title(&shown(&capture));
-        assert_eq!(capture.install(CapturePoint::Worker { graphics_initialized: true }, || panic!("model reset"), || panic!("hooks installed twice")), Ok::<_, ()>(false));
+        assert_eq!(capture.install(CapturePoint::Worker { graphics_initialized: true }, || panic!("model reset"), || panic!("hooks installed twice")), Ok::<_, String>(false));
         assert_title(&shown(&capture));
     }
 
     #[test]
     fn later_startup_keeps_files_sprites_generated_surfaces_and_presented_snapshot() {
         let capture = UiCapture::new();
-        capture.install(CapturePoint::LoadCallback, title_model, || Ok::<_, ()>(())).unwrap();
+        capture.install(CapturePoint::LoadCallback, title_model, || Ok::<_, String>(())).unwrap();
         startup_title(&capture);
         capture.model.lock().unwrap().as_mut().unwrap().add_generated(701);
         // Retained canvas content changes after presenting. The shown Arc
@@ -171,7 +233,7 @@ mod tests {
         emit(&capture, Event::Fill { canvas: 400, rect: [0, 0, 1920, 1080], rgb: [1, 2, 3], alpha: 255, clip: None });
         let before = shown(&capture);
         let stats = capture.model.lock().unwrap().as_ref().unwrap().stats();
-        capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || Ok::<_, ()>(())).unwrap();
+        capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || Ok::<_, String>(())).unwrap();
         assert_eq!(shown(&capture), before);
         assert_title(&before);
         let mut state = capture.model.lock().unwrap();
@@ -192,26 +254,131 @@ mod tests {
     fn dllmain_and_a_mapped_library_cannot_initialize_full_capture() {
         let capture = UiCapture::<()>::new();
         for point in [CapturePoint::DllMain, CapturePoint::Worker { graphics_initialized: false }] {
-            assert_eq!(capture.install(point, || panic!("capture before CRT/C3X"), || panic!("hooks under loader lock")), Ok::<_, ()>(false));
+            assert_eq!(capture.install(point, || panic!("capture before CRT/C3X"), || panic!("hooks under loader lock")), Ok::<_, String>(false));
             assert!(!capture.ready());
             assert!(capture.model.lock().unwrap().is_none());
         }
-        assert_eq!(capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || Ok::<_, ()>(())), Ok(true));
+        assert_eq!(capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || Ok::<_, String>(())), Ok(true));
     }
 
     #[test]
-    fn failed_setup_is_not_ready_and_retry_keeps_captured_history() {
+    fn true_late_injection_retry_keeps_history_without_claiming_normal_startup() {
         let capture = UiCapture::new();
-        let result = capture.install(CapturePoint::LoadCallback, title_model, || {
+        let result = capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || {
             startup_title(&capture);
-            Err::<(), _>("hook installation failed")
+            Err::<(), _>("hook installation failed".into())
         });
-        assert_eq!(result, Err("hook installation failed"));
+        assert_eq!(result, Err("hook installation failed".into()));
         assert!(!capture.ready());
         assert_title(&shown(&capture));
-        assert_eq!(capture.install(CapturePoint::LoadCallback, || panic!("reset on retry"), || Ok::<_, &str>(())), Ok(true));
+        assert_eq!(capture.install(CapturePoint::Worker { graphics_initialized: true }, || panic!("reset on retry"), || Ok::<_, String>(())), Ok(true));
         assert!(capture.ready());
         assert_title(&shown(&capture));
+    }
+
+    #[test]
+    fn normal_hook_failure_cannot_recover_after_unrecorded_game_execution() {
+        struct HookGuard(Arc<AtomicBool>);
+        impl Drop for HookGuard {
+            fn drop(&mut self) { self.0.store(false, Ordering::Relaxed); }
+        }
+        let capture = UiCapture::<HookGuard>::new();
+        let active = Arc::new(AtomicBool::new(false));
+        let first = capture.prepare(CapturePoint::LoadCallback, || Ok(()), |_| title_model(), |_| {
+            let _hooks = HookGuard(active.clone());
+            active.store(true, Ordering::Relaxed);
+            emit(&capture, Event::Loaded { image: 11, path: "Art/Partial.pcx".into(), size: (1, 1) });
+            Err("final required hook failed".into())
+        });
+        let failure = first.unwrap_err();
+        assert!(failure.contains("uncaptured execution gap"));
+        assert!(!active.load(Ordering::Relaxed), "failed setup must roll its hooks back");
+        // The callback has returned. The game initializes its baked title
+        // while the rolled-back hooks are absent. No repaint occurs later.
+        if active.load(Ordering::Relaxed) { startup_title(&capture); }
+        let before = capture.model.lock().unwrap().as_ref().unwrap().stats();
+        assert!(shown(&capture).draws.is_empty());
+        for point in [CapturePoint::Worker { graphics_initialized: true }, CapturePoint::LoadCallback] {
+            let retry = capture.prepare(point, || Ok(()), |_| panic!("replaced partial model"), |_| {
+                active.store(true, Ordering::Relaxed);
+                Ok(HookGuard(active.clone()))
+            });
+            assert_eq!(retry, Err(failure.clone()));
+            assert_eq!(capture.status(), Err(failure.clone()));
+            assert!(!capture.ready() && !active.load(Ordering::Relaxed));
+            assert_eq!(capture.model.lock().unwrap().as_ref().unwrap().stats(), before);
+            assert!(shown(&capture).draws.is_empty(), "uncaptured title was never reconstructed");
+        }
+        let drawing = OriginalDrawing::new();
+        drawing.activate(capture.ready(), false, |skip| assert!(!skip));
+        drawing.restore(|| {});
+        // Exercise the same worker entry decision as prepare_worker,
+        // including the drawing-restored enabled=false case.
+        assert!(drawing.failed());
+        assert_eq!(capture.worker_needs_capture(|| !drawing.failed()), Err(failure));
+        assert!(!drawing.skipping());
+    }
+
+    #[test]
+    fn normal_attach_or_text_preparation_failure_is_permanent_before_model_creation() {
+        for error in ["game attachment failed", "required TextOutA hook failed"] {
+            let capture = UiCapture::<()>::new();
+            let result = capture.prepare(CapturePoint::LoadCallback, || Err::<(), _>(error.into()), |_| panic!("model before preparation"), |_| panic!("hooks before preparation"));
+            let failure = result.unwrap_err();
+            assert!(failure.contains(error));
+            assert!(!capture.ready() && capture.model.lock().unwrap().is_none());
+            for point in [CapturePoint::LoadCallback, CapturePoint::Worker { graphics_initialized: true }] {
+                assert_eq!(capture.prepare(point, || panic!("retried failed normal preparation"), |_: &()| title_model(), |_| Ok(())), Err(failure.clone()));
+            }
+        }
+    }
+
+    #[test]
+    fn ready_capture_ignores_later_redundant_preparation_failures() {
+        let capture = UiCapture::<()>::new();
+        capture.prepare(CapturePoint::LoadCallback, || Ok(()), |_| title_model(), |_| Ok(())).unwrap();
+        startup_title(&capture);
+        let before = shown(&capture);
+        for point in [CapturePoint::LoadCallback, CapturePoint::Worker { graphics_initialized: true }] {
+            assert_eq!(capture.prepare(point, || panic!("attachment after capture was ready"), |_: &()| panic!("model replaced"), |_| Err("late redundant failure".into())), Ok(false));
+            assert_eq!(capture.status(), Ok(true));
+            assert_eq!(capture.worker_needs_capture(|| panic!("disablement checked after readiness")), Ok(false));
+            assert_eq!(shown(&capture), before);
+        }
+    }
+
+    #[test]
+    fn worker_waiting_on_failed_normal_preparation_observes_the_same_gap() {
+        let capture = Arc::new(UiCapture::<()>::new());
+        let (entered, preparing) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let (started, observing) = mpsc::channel();
+        let (done, status) = mpsc::channel();
+        let timeout = Duration::from_secs(5);
+        let normal = {
+            let capture = capture.clone();
+            std::thread::spawn(move || capture.prepare(CapturePoint::LoadCallback, || {
+                entered.send(()).unwrap();
+                released.recv_timeout(timeout).unwrap();
+                Err::<(), _>("attachment failed".into())
+            }, |_| title_model(), |_| Ok(())))
+        };
+        preparing.recv_timeout(timeout).unwrap();
+        let worker = {
+            let capture = capture.clone();
+            std::thread::spawn(move || {
+                started.send(()).unwrap();
+                done.send(capture.status()).unwrap();
+            })
+        };
+        observing.recv_timeout(timeout).unwrap();
+        let premature = status.recv_timeout(Duration::from_millis(50));
+        release.send(()).unwrap();
+        let failure = normal.join().unwrap().unwrap_err();
+        worker.join().unwrap();
+        assert!(matches!(premature, Err(mpsc::RecvTimeoutError::Timeout)), "worker bypassed serialized preparation: {premature:?}");
+        assert_eq!(status.recv_timeout(timeout).unwrap(), Err(failure));
+        assert!(!capture.ready() && capture.model.lock().unwrap().is_none());
     }
 
     #[test]
@@ -227,7 +394,7 @@ mod tests {
             std::thread::spawn(move || capture.install(CapturePoint::LoadCallback, title_model, || {
                 entered.send(()).unwrap();
                 released.recv_timeout(timeout).unwrap();
-                Ok::<_, ()>(())
+                Ok::<_, String>(())
             }))
         };
         installing.recv_timeout(timeout).unwrap();
@@ -247,7 +414,7 @@ mod tests {
         second.join().unwrap();
         assert!(matches!(premature, Err(mpsc::RecvTimeoutError::Timeout)), "another caller returned before hooks completed: {premature:?}");
         assert_eq!(first_result, Ok(true));
-        assert_eq!(result.recv_timeout(timeout).unwrap(), (Ok::<_, ()>(false), true));
+        assert_eq!(result.recv_timeout(timeout).unwrap(), (Ok::<_, String>(false), true));
     }
 
     #[test]
@@ -298,6 +465,9 @@ mod tests {
 
     #[test]
     fn suppression_requires_complete_capture_and_viewer_failure_restores_drawing() {
+        let disabled = UiCapture::<()>::new();
+        assert_eq!(disabled.worker_needs_capture(|| false), Ok(false));
+        assert_eq!(disabled.status(), Ok(false));
         let drawing = OriginalDrawing::new();
         drawing.activate(false, false, |skip| assert!(!skip));
         assert!(!drawing.skipping());

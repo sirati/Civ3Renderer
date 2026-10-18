@@ -121,11 +121,6 @@ fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, 
     // returning. Claiming the remaining window setup first would let a
     // concurrent caller bypass capture still being installed.
     if !inproc::loader::prepare_before_claim(base, &JGL, || {
-        match crate::trace::hook_jgl_text(base) {
-            Ok(true) => note("text capture installed before the game's jgl calls".into()),
-            Ok(false) => note("text capture: jgl.dll does not import TextOutA".into()),
-            Err(e) => note(format!("text capture: hooking jgl.dll TextOutA: {e}")),
-        }
         match crate::ui_trace::prepare_at(base, point) {
             Ok(true) => note("UI capture installed before the game's first jgl use".into()),
             Ok(false) => {},

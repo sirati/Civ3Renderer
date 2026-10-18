@@ -55,25 +55,34 @@ fn enabled() -> bool {
 /// Full capture is permitted by the actual executable load callback,
 /// after CRT/C3X initialization. The DllMain path returns before attaching.
 pub(crate) fn prepare_at(base: u32, point: CapturePoint) -> Result<bool, String> {
-    if !point.allowed() || !enabled() { return Ok(false) }
-    let game = Civ3::attach().map_err(|e| e.to_string())?;
-    install_configured(&game, base, point).map_err(|e| e.to_string())
+    if point.allowed() { CAPTURE.status()?; }
+    if !point.allowed() || !enabled() {
+        // The already-loaded DllMain path and intentional UI-off mode
+        // retain safe IAT-only text setup, without complete UI preparation.
+        if !crate::trace::hook_jgl_text(base).map_err(|e| e.to_string())? {
+            log::warn!("text capture: jgl.dll does not import TextOutA");
+        }
+        return Ok(false);
+    }
+    install_configured(base, point)
 }
 
 /// Reuse early capture. For late injection only, the initialized graphics
 /// object proves that both C3X and jgl loading have finished. This worker
 /// never installs full capture just because jgl is mapped during DllMain.
 pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
-    if !enabled() { return Ok(()) }
+    // Check permanent failure before enabled(), including after the
+    // original renderer was restored. A failed startup is not UI=off.
+    if !CAPTURE.worker_needs_capture(enabled)? { return Ok(()) }
     if h::ui_sites(game.build).is_none() {
         return Err(format!("unsupported interface capture for {:?}", game.build));
     }
     for _ in 0..1000 {
-        if CAPTURE.ready() { return Ok(()) }
+        if CAPTURE.status()? { return Ok(()) }
         let point = CapturePoint::Worker { graphics_initialized: h::graphics_initialized(game.build) };
         if point.allowed() {
             if let Some(base) = inproc::pe::module_base("jgl.dll") {
-                return install_configured(game, base, point).map(|_| ()).map_err(|e| e.to_string());
+                return install_configured(base, point).map(|_| ());
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -81,27 +90,34 @@ pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
     Err("no post-CRT graphics initialization for UI capture".into())
 }
 
-fn install_configured(game: &Civ3, base: u32, point: CapturePoint) -> Result<bool, HookError> {
+fn install_configured(base: u32, point: CapturePoint) -> Result<bool, String> {
     let game_draws = requested_game_draws();
-    // Base_Form is its vtable followed by Base_Form_Data. The map carries
-    // city labels over our fog; the unit overlay carries our discs/bars.
-    let map_canvas = game.addrs.main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
-    let inspect = std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off");
-    let overlay = h::unit_overlay_canvas(game.build);
-    let (skip, underlays) = if inspect { (Vec::new(), Vec::new()) } else { (overlay.into_iter().collect(), vec![map_canvas]) };
-    let installed = CAPTURE.install(point, || {
+    let installed = CAPTURE.prepare(point, || {
+        // Both failures belong to the normal callback transaction. A
+        // worker cannot retry across game execution after either failure.
+        if !crate::trace::hook_jgl_text(base).map_err(|e| e.to_string())? {
+            return Err("jgl.dll does not import required TextOutA".into());
+        }
+        Civ3::attach().map_err(|e| e.to_string())
+    }, |game| {
+        // Base_Form is its vtable followed by Base_Form_Data. The map
+        // carries city labels over our fog; the overlay carries our bars.
+        let map_canvas = game.addrs.main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
+        let inspect = std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off");
+        let overlay = h::unit_overlay_canvas(game.build);
+        let (skip, underlays) = if inspect { (Vec::new(), Vec::new()) } else { (overlay.into_iter().collect(), vec![map_canvas]) };
         UiModel::new(Vec::new(), skip)
             .with_screen(h::back_buffer(game.build).unwrap_or(0))
             .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
             .with_underlays(underlays, vec!["fogofwar.pcx".into()])
             .with_text_backdrops(!gdi_text::under_wine())
-    }, || install_hooks(game, base))?;
+    }, |game| install_hooks(game, base).map_err(|e| e.to_string()))?;
     // No original pixel work is skipped until the complete installation
     // succeeded. Keep this dynamic so viewer failure also restores jgl present.
     DRAWING.activate(CAPTURE.ready(), game_draws, |skip| {
         if skip {
             let mut skipper = SKIPPER.lock().unwrap_or_else(|e| e.into_inner());
-            skipper.get_or_insert_with(|| Skipper::new(h::read_back_images(game.build)));
+            skipper.get_or_insert_with(|| Skipper::new(BUILD.get().map_or_else(Vec::new, |&build| h::read_back_images(build))));
         }
         crate::trace::GAME_MAP_OFF.store(skip || std::env::var("CIV3R_GAME_MAP").as_deref() == Ok("off"), Relaxed);
         if installed && skip { log::info!("game rendering off: the game's drawing is recorded, not done"); }
@@ -450,7 +466,6 @@ pub struct UiTracer {
 /// model already exists and is retained across attempts and viewer startup.
 fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     let sites = h::ui_sites(game.build).ok_or(HookError::Unsupported)?;
-    if !crate::trace::hook_jgl_text(jgl)? { return Err(HookError::Unsupported) }
     let _ = BUILD.set(game.build);
     let _ = BACK_BUFFER.set(h::back_buffer(game.build).unwrap_or(0));
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
