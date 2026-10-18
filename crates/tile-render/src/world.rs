@@ -235,10 +235,12 @@ pub struct PlacedSprite {
     /// The named palette its indexed sprites' remapped indices are drawn
     /// with (see `tile_render_shared::SpriteDesc::remap`; 0: none).
     pub palette: u32,
-    /// A glyph drawn from its font's outline instead of the sprite (`set`,
-    /// `blend` and `zoom_art` do not matter then): zoomed art for every
-    /// zoom, drawn in views drawn at their zoom showing zoomed art, at its
-    /// 1:1 position scaled, at that zoom's resolution.
+    /// A glyph drawn from its font's outline instead of the sprite (`set`
+    /// and `blend` are ignored). `zoom_art` keeps its twin selection. At
+    /// 1:1, `Any` and `Low` draw even when `Camera::zoomed_art` is true.
+    /// A scaled view's zoomed-art stage draws `Any` and `Zoomed`. Outlines
+    /// use the view's current scale; `Zoomed`'s specific `zoom` and `offset`
+    /// are ignored.
     pub text: Option<OutlineGlyph>,
 }
 

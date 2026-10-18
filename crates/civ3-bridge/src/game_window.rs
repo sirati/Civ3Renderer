@@ -97,7 +97,7 @@ pub fn early() {
     }
     let loaded_scale = scale.clone();
     let loaded = inproc::loader::hook_load_library(exe, move |name, base| {
-        if name == "jgl.dll" && JGL.swap(base, Ordering::SeqCst) == 0 {
+        if name == "jgl.dll" {
             hook_jgl(base, loaded_scale.clone(), hidden);
         }
     });
@@ -106,22 +106,23 @@ pub fn early() {
     // same synchronous hooks. Register load interception first so neither
     // an existing module nor a later load can fall between the two paths.
     if let Some(base) = inproc::pe::module_base("jgl.dll") {
-        if JGL.swap(base, Ordering::SeqCst) == 0 {
-            hook_jgl(base, scale, hidden);
-        }
+        hook_jgl(base, scale, hidden);
     }
 }
 
 /// `jgl.dll` just loaded (at `base`), before it runs: what it learns of the
 /// screen, its window kept hidden and painting, its pointer.
 fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool) {
-    // Install text capture on the game's loading thread before it can
-    // call jgl. A polling worker can miss the title's only initial draw.
-    match crate::trace::hook_jgl_text(base) {
-        Ok(true) => note("text capture installed before the game's jgl calls".into()),
-        Ok(false) => note("text capture: jgl.dll does not import TextOutA".into()),
-        Err(e) => note(format!("text capture: hooking jgl.dll TextOutA: {e}")),
-    }
+    // Every load caller enters serialized text installation before it
+    // can return. Claiming the remaining setup first would let a second
+    // caller return while the first had not installed text capture yet.
+    if !inproc::loader::prepare_before_claim(base, &JGL, || {
+        match crate::trace::hook_jgl_text(base) {
+            Ok(true) => note("text capture installed before the game's jgl calls".into()),
+            Ok(false) => note("text capture: jgl.dll does not import TextOutA".into()),
+            Err(e) => note(format!("text capture: hooking jgl.dll TextOutA: {e}")),
+        }
+    }) { return; }
     if let Some(size) = scale {
         install("CIV3R_SCALE: jgl.dll's GetSystemMetrics", inproc::screen::hook_scaled(base, size), "");
     }
