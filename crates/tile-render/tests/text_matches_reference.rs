@@ -301,6 +301,46 @@ fn outline_text_matches_the_reference() {
 }
 
 #[test]
+fn ordinary_styled_layered_text_matches_reference_and_is_visible_at_one_to_one() {
+    let gpu = Headless::new().expect("GPU");
+    let mut faces = vec![Arc::new(shapes())];
+    faces.extend(lucida().map(Arc::new));
+    for (color, downscale) in [(ColorModel::Direct, 1), (ColorModel::Quantized { bits: 5 }, 1), (ColorModel::Direct, 2), (ColorModel::Quantized { bits: 5 }, 2)] {
+        let (mut world, atlas) = world(color, faces.clone(), downscale as i32);
+        for sprite in world.free.iter_mut().filter(|sprite| sprite.text.is_some()) {
+            sprite.zoom_art = ZoomArt::Any;
+            // This variant places the topmost screen runs inside their
+            // own clips, 400px to the right of the world-space runs.
+            if sprite.screen {
+                sprite.clip = sprite.clip.map(|[left, top, right, bottom]| [left + 400, top, right + 400, bottom]);
+            }
+        }
+        let mut bare = world.clone();
+        bare.free.retain(|sprite| sprite.text.is_none());
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
+        renderer.set_world(&gpu.device, &world);
+        for zoomed_art in [false, true] {
+            let cameras = [
+                Camera { x: -20, downscale, zoomed_art, screen_shift: (3, -2), overhang: (0, 40, 0, 0), ..Camera::new((640, 400)) },
+                Camera { x: 900 / downscale as i32, y: 30, downscale, zoomed_art, origin: (500, 250), ..Camera::new((140, 150)) },
+            ];
+            let actual = gpu.render_views(&mut renderer, &cameras, (640, 400), 1, CLEAR);
+            let expected = reference::render_views(&world, &atlas, &cameras, (640, 400), 1, CLEAR);
+            let difference = differences(&actual, &expected);
+            let (count, most) = (difference.iter().filter(|&&value| value != 0).count(), *difference.iter().max().unwrap());
+            // The same blending allowance as the magnified layered test:
+            // one 8-bit step in direct colour, or one 5-bit colour step.
+            let allowed = if color == ColorModel::Direct { 1 } else { 9 };
+            assert!(most <= allowed, "ordinary styled text at 1:1, {color:?}, downscale {downscale}, zoomed_art {zoomed_art}: {count} pixels differ, by up to {most}");
+            let no_text = reference::render_views(&bare, &atlas, &cameras, (640, 400), 1, CLEAR);
+            let visible = actual.pixels.iter().zip(&no_text.pixels).filter(|(text, bare)| text != bare).count();
+            assert!(visible > 1000, "ordinary styled/layered text must draw visible pixels at 1:1, {color:?}, downscale {downscale}, zoomed_art {zoomed_art}: {visible} pixels");
+        }
+    }
+}
+
+#[test]
 fn text_is_left_out_where_zoomed_art_is_not_shown() {
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = world(ColorModel::Quantized { bits: 5 }, vec![Arc::new(shapes())], 1);
