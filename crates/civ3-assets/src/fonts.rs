@@ -37,10 +37,16 @@ pub struct GlyphFont {
     pub glyphs: BTreeMap<char, Glyph>,
 }
 
-/// The characters the game draws (Windows-1252 as Latin-1).
+/// The game's byte-valued glyph keys. Windows-1252 bytes retain their
+/// numeric values in the trace, cache metrics and atlas names, including
+/// the punctuation in 0x80..=0x9f. The original 191-frame order stays a
+/// prefix so saved descriptions retain their frame indices.
 pub fn charset() -> impl Iterator<Item = char> {
-    (32u32..=126).chain(160..=255).filter_map(char::from_u32)
+    (32u32..=126).chain(160..=255).chain(127..=159).filter_map(char::from_u32)
 }
+
+/// The Unicode character an outline font draws for a byte-valued game glyph.
+pub use gdi_text::windows_1252_char as outline_char;
 
 /// A `w × h` glyph from its pixels (row-major RGBA).
 fn image(pixels: Vec<[u8; 4]>, w: u32, h: u32) -> RgbaImage {
@@ -293,6 +299,17 @@ fn cache_dir() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atlas_charset_preserves_all_windows_1252_byte_positions() {
+        let chars: Vec<_> = charset().collect();
+        assert_eq!(chars.len(), 224);
+        let original: Vec<_> = (32u32..=126).chain(160..=255).filter_map(char::from_u32).collect();
+        assert_eq!(&chars[..191], original, "saved font descriptions keep every original frame index");
+        assert_eq!(chars[191..].iter().map(|&c| c as u32).collect::<Vec<_>>(), (127..=159).collect::<Vec<_>>());
+        assert_eq!(chars[191 + 146 - 127], '\u{92}');
+        assert_eq!(outline_char(chars[191 + 146 - 127]), '’');
+    }
 
     #[test]
     fn the_nearest_height_is_taken_larger_on_a_tie() {

@@ -2,6 +2,22 @@
 //! text — so glyph sheets made with it match their pixels, smoothing
 //! included. All `unsafe` GDI calls stay in this crate.
 
+/// The Unicode character an outline font draws for a byte-valued game
+/// glyph. Other characters pass through unchanged. Undefined Windows-1252
+/// bytes retain their controls so a missing face glyph remains unsupported.
+pub fn windows_1252_char(c: char) -> char {
+    match c {
+        '\u{80}' => '\u{20ac}', '\u{82}' => '\u{201a}', '\u{83}' => '\u{192}', '\u{84}' => '\u{201e}',
+        '\u{85}' => '\u{2026}', '\u{86}' => '\u{2020}', '\u{87}' => '\u{2021}', '\u{88}' => '\u{2c6}',
+        '\u{89}' => '\u{2030}', '\u{8a}' => '\u{160}', '\u{8b}' => '\u{2039}', '\u{8c}' => '\u{152}',
+        '\u{8e}' => '\u{17d}', '\u{91}' => '\u{2018}', '\u{92}' => '\u{2019}', '\u{93}' => '\u{201c}',
+        '\u{94}' => '\u{201d}', '\u{95}' => '\u{2022}', '\u{96}' => '\u{2013}', '\u{97}' => '\u{2014}',
+        '\u{98}' => '\u{2dc}', '\u{99}' => '\u{2122}', '\u{9a}' => '\u{161}', '\u{9b}' => '\u{203a}',
+        '\u{9c}' => '\u{153}', '\u{9e}' => '\u{17e}', '\u{9f}' => '\u{178}', _ => c,
+    }
+}
+
+
 /// A font request, as `CreateFontW` takes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FontSpec {
@@ -122,7 +138,9 @@ pub fn text_extent(font: &FontSpec, text: &[u8]) -> Result<i32, GdiError> {
     }
 }
 
-/// Renders `chars` one by one with `font`.
+/// Renders `chars` one by one with `font`. Byte-valued keys use
+/// Windows-1252 when drawn through GDI's Unicode API; returned glyphs keep
+/// the original keys so sheets and ANSI text retain their byte positions.
 pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<Font, GdiError> {
     #[cfg(windows)]
     return win::render_glyphs(font, chars);
@@ -135,6 +153,16 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_1252_byte_keys_decode_punctuation_for_unicode_drawing() {
+        let bytes = [0x80, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8e, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9e, 0x9f];
+        let decoded: String = bytes.into_iter().map(|byte| super::windows_1252_char(char::from(byte))).collect();
+        assert_eq!(decoded, "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ");
+        for c in ['A', '\u{a0}', 'é', '’', '界', '\u{81}', '\u{8d}', '\u{8f}', '\u{90}', '\u{9d}'] {
+            assert_eq!(super::windows_1252_char(c), c, "non-C1 and undefined characters retain their values");
+        }
+    }
+
     #[test]
     fn black_and_white_text_take_their_own_measurement() {
         let (dark, light) = ([[0; 3], [100, 120, 140], [255; 3]], [[0; 3], [180, 170, 160], [255; 3]]);

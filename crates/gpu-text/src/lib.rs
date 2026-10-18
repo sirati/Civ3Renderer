@@ -84,6 +84,11 @@ impl Face {
         self.cmap.get(&c).copied()
     }
 
+    /// Horizontal advance of `c` in the same font units as `units_per_em`.
+    pub fn advance(&self, c: char) -> Option<i32> {
+        self.glyph(c).and_then(|id| self.words.get(self.record(id) as usize + 4)).map(|&advance| advance as i32)
+    }
+
     pub fn glyph_count(&self) -> u32 {
         self.glyphs
     }
@@ -300,6 +305,15 @@ mod tests {
     fn lucida() -> Option<Vec<u8>> {
         let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
         std::fs::read(std::path::Path::new(&install).join("LSANS.TTF")).ok()
+    }
+
+    #[test]
+    fn glyph_advances_are_reported_in_the_faces_font_units() {
+        let face = Face::from_curves(1000, &[('A', Vec::new(), 650), ('’', Vec::new(), 280)]);
+        assert_eq!(face.advance('A'), Some(650));
+        assert_eq!(face.advance('’'), Some(280));
+        assert_eq!(face.advance('B'), None);
+        assert_eq!(face.units_per_em(), 1000);
     }
 
     #[test]

@@ -168,7 +168,7 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
     let mut out = Vec::new();
     for ch in chars {
         let mut units = [0u16; 2];
-        let units: &[u16] = ch.encode_utf16(&mut units);
+        let units: &[u16] = crate::windows_1252_char(ch).encode_utf16(&mut units);
         // The pen advance as text output places it (of the first of two, so
         // no end-of-string adjustment applies).
         let twice: Vec<u16> = units.iter().chain(units).copied().collect();
@@ -184,7 +184,7 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
             _ => (origin, origin),
         };
         let crop = |m: &[[u8; 3]]| (0..height).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| m[at(x, y)]).collect();
-        // The character as a Windows-1252 byte (Latin-1 codes are the same).
+        // The original Windows-1252 byte, before Unicode decoding.
         let extent = u8::try_from(ch as u32).map_or(Ok(advance), |b| measure.extent(&[b]))?;
         out.push(Glyph {
             ch,
