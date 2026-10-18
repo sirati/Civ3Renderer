@@ -226,6 +226,8 @@ fn optional<T: Default>(what: &str, read: Result<T, Civ3Error>) -> T {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LiveError {
+    #[error("UI capture: {0}")]
+    Capture(String),
     #[error("render description {0}: {1}")]
     Desc(String, String),
     #[error("game folder: {0}")]
@@ -336,6 +338,12 @@ fn art_summary(c: &Compiled, pixels: bool) -> String {
 /// `native-fullscreen` the native Linux viewer (Wine with
 /// `civ3r_native.dll`, see `tools/install-native`).
 pub fn start(game: Civ3) -> Result<(), LiveError> {
+    // Normally installed synchronously by the game's jgl load callback.
+    // Late injection waits for the post-CRT graphics object before hooking.
+    if let Err(e) = ui_trace::prepare_worker(&game) {
+        if !ui_trace::requested_game_draws() { return Err(LiveError::Capture(e)) }
+        log::warn!("not mirroring the interface: {e}; continuing with text only");
+    }
     let (name, mut text) = description()?;
     // Rings around foreign units, if asked for (`crate::rings`).
     let rings = crate::rings::Rings::from_env();
@@ -362,22 +370,6 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let largest = crate::game_window::game_screen().map_or(0, |(w, h)| w.max(h));
     let compiler = Compiler { install: install_root()?, name, text, rings, max_page, largest };
     let folders = ArtFolders::of(&game);
-    // Mirror the game's interface (`CIV3R_UI=off`: only its text).
-    if std::env::var("CIV3R_UI").as_deref() != Ok("off") {
-        // `Base_Form` is its vtable, then `Base_Form_Data`.
-        let map_canvas = game.addrs.main_screen_form + 4 + civ3_sys::layout::BASE_FORM_DATA_CANVAS;
-        // `CIV3R_UI_SKIP=off`: mirror the map canvas too (for finding out what
-        // is drawn there).
-        let inspect = std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off");
-        // The map canvas carries the city labels (kept) over the fog tiles
-        // (ours); the unit overlay carries discs, LEDs, bars (all ours).
-        let overlay = civ3_sys::ui_hooks::unit_overlay_canvas(game.build);
-        let (skip, underlays) = if inspect { (Vec::new(), Vec::new()) } else { (overlay.into_iter().collect(), vec![map_canvas]) };
-        match ui_trace::install(&game, skip, underlays, vec!["fogofwar.pcx".into()]) {
-            Ok(tracer) => std::mem::forget(tracer),
-            Err(e) => log::warn!("not mirroring the interface: {e}"),
-        }
-    }
     // Playing in the viewer's own views while a menu is open
     // (`crate::modal`, `CIV3R_MODAL_INPUT=off`: not).
     if std::env::var("CIV3R_MODAL_INPUT").as_deref() != Ok("off") {

@@ -14,32 +14,104 @@ use inproc::hook::HookError;
 use crate::game_render::Skipper;
 use crate::text::TextRun;
 use crate::ui::{Event, Frame, UiModel, rgb555};
+use crate::ui_capture::{CapturePoint, OriginalDrawing};
 
-static MODEL: Mutex<Option<UiModel>> = Mutex::new(None);
+static CAPTURE: crate::ui_capture::UiCapture<UiTracer> = crate::ui_capture::UiCapture::new();
+static DRAWING: OriginalDrawing = OriginalDrawing::new();
 /// The game's build, once the hooks are installed.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
 /// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
 static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
-/// Whether the game is to skip its own drawing (`crate::game_render`); set
-/// before [`install`].
-static GAME_DRAWS: AtomicBool = AtomicBool::new(true);
-/// What is skipped, once the hooks are installed with the game not drawing
-/// (none: everything is drawn).
+/// What drawing is skipped; populated only after complete hook setup.
 static SKIPPER: Mutex<Option<Skipper>> = Mutex::new(None);
-/// Whether [`SKIPPER`] is set (read without its lock).
-static SKIPPING: AtomicBool = AtomicBool::new(false);
 
-/// Whether the game draws itself (`CIV3R_GAME_RENDER`): if not, the hooks
-/// installed afterwards skip the drawing they record.
-pub fn set_game_draws(on: bool) {
-    GAME_DRAWS.store(on, Relaxed);
+/// Configure the explicit map-only override, without racing capture or
+/// restoration. Called before registering the executable's load callback.
+pub fn configure_map_policy() {
+    DRAWING.map_policy(policy().initial_map_off, |off| crate::trace::GAME_MAP_OFF.store(off, Relaxed));
+}
+
+/// Restore the original renderer after viewer startup fails. Later load
+/// notifications cannot reactivate suppression after this failure.
+pub fn restore_original_drawing() {
+    DRAWING.restore(|| crate::trace::GAME_MAP_OFF.store(false, Relaxed));
+}
+
+fn policy() -> crate::game_render::StartupPolicy {
+    let var = |name: &str| std::env::var(name).ok();
+    crate::game_render::startup_policy(var("CIV3R_GAME_RENDER").as_deref(), var("CIV3R_VIEWER").as_deref(), var("CIV3R_GAME_WINDOW").as_deref(), var("CIV3R_UI").as_deref(), var("CIV3R_GAME_MAP").as_deref())
+}
+
+pub(crate) fn requested_game_draws() -> bool {
+    policy().game_draws
+}
+
+fn enabled() -> bool {
+    policy().capture && !DRAWING.failed()
+}
+
+/// Full capture is permitted by the actual executable load callback,
+/// after CRT/C3X initialization. The DllMain path returns before attaching.
+pub(crate) fn prepare_at(base: u32, point: CapturePoint) -> Result<bool, String> {
+    if !point.allowed() || !enabled() { return Ok(false) }
+    let game = Civ3::attach().map_err(|e| e.to_string())?;
+    install_configured(&game, base, point).map_err(|e| e.to_string())
+}
+
+/// Reuse early capture. For late injection only, the initialized graphics
+/// object proves that both C3X and jgl loading have finished. This worker
+/// never installs full capture just because jgl is mapped during DllMain.
+pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
+    if !enabled() { return Ok(()) }
+    if h::ui_sites(game.build).is_none() {
+        return Err(format!("unsupported interface capture for {:?}", game.build));
+    }
+    for _ in 0..1000 {
+        if CAPTURE.ready() { return Ok(()) }
+        let point = CapturePoint::Worker { graphics_initialized: h::graphics_initialized(game.build) };
+        if point.allowed() {
+            if let Some(base) = inproc::pe::module_base("jgl.dll") {
+                return install_configured(game, base, point).map(|_| ()).map_err(|e| e.to_string());
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Err("no post-CRT graphics initialization for UI capture".into())
+}
+
+fn install_configured(game: &Civ3, base: u32, point: CapturePoint) -> Result<bool, HookError> {
+    let game_draws = requested_game_draws();
+    // Base_Form is its vtable followed by Base_Form_Data. The map carries
+    // city labels over our fog; the unit overlay carries our discs/bars.
+    let map_canvas = game.addrs.main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
+    let inspect = std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off");
+    let overlay = h::unit_overlay_canvas(game.build);
+    let (skip, underlays) = if inspect { (Vec::new(), Vec::new()) } else { (overlay.into_iter().collect(), vec![map_canvas]) };
+    let installed = CAPTURE.install(point, || {
+        UiModel::new(Vec::new(), skip)
+            .with_screen(h::back_buffer(game.build).unwrap_or(0))
+            .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
+            .with_underlays(underlays, vec!["fogofwar.pcx".into()])
+            .with_text_backdrops(!gdi_text::under_wine())
+    }, || install_hooks(game, base))?;
+    // No original pixel work is skipped until the complete installation
+    // succeeded. Keep this dynamic so viewer failure also restores jgl present.
+    DRAWING.activate(CAPTURE.ready(), game_draws, |skip| {
+        if skip {
+            let mut skipper = SKIPPER.lock().unwrap_or_else(|e| e.into_inner());
+            skipper.get_or_insert_with(|| Skipper::new(h::read_back_images(game.build)));
+        }
+        crate::trace::GAME_MAP_OFF.store(skip || std::env::var("CIV3R_GAME_MAP").as_deref() == Ok("off"), Relaxed);
+        if installed && skip { log::info!("game rendering off: the game's drawing is recorded, not done"); }
+    });
+    Ok(installed)
 }
 
 /// Whether drawing is being skipped.
 pub fn skipping() -> bool {
-    SKIPPING.load(Relaxed)
+    DRAWING.skipping()
 }
 
 /// Whether an image or sprite has pixels (its `JGL_Image*` / `JGLSprite*`
@@ -151,7 +223,7 @@ fn updating<R>(rect: u32, f: impl FnOnce() -> R) -> R {
 }
 
 fn emit(e: Event) {
-    if let Ok(mut m) = MODEL.lock() {
+    if let Ok(mut m) = CAPTURE.model.lock() {
         if let Some(m) = m.as_mut() {
             m.apply(e);
         }
@@ -160,18 +232,21 @@ fn emit(e: Event) {
 
 /// The mirror model's size (see `UiModel::stats`).
 pub fn stats() -> Option<(usize, usize, usize)> {
-    MODEL.lock().ok()?.as_ref().map(|m| m.stats())
+    if !CAPTURE.ready() { return None }
+    CAPTURE.model.lock().ok()?.as_ref().map(|m| m.stats())
 }
 
 /// The screen as the game last showed it, if the mirror runs.
 pub fn frame() -> Option<Frame> {
-    MODEL.lock().ok()?.as_ref().map(|m| m.shown_frame())
+    if !CAPTURE.ready() { return None }
+    CAPTURE.model.lock().ok()?.as_ref().map(|m| m.shown_frame())
 }
 
 /// Where the pixels of each of `sprites` (game `Sprite*`) come from, as the
 /// mirror knows them (`None` for 0 and unknown ones).
 pub fn sprite_sources(sprites: &[u32]) -> Vec<Option<crate::ui::Source>> {
-    let model = MODEL.lock().ok();
+    if !CAPTURE.ready() { return vec![None; sprites.len()] }
+    let model = CAPTURE.model.lock().ok();
     let model = model.as_ref().and_then(|m| m.as_ref());
     sprites.iter().map(|&s| model.filter(|_| s != 0).and_then(|m| m.sprite_source(s)).cloned()).collect()
 }
@@ -308,7 +383,7 @@ fn note_form_surface(from: u32, canvas: u32) {
         seen.push((from, s.name));
     }
     log::debug!("UI mirror: {} at {from:#x}", s.name);
-    if let Ok(mut m) = MODEL.lock() {
+    if let Ok(mut m) = CAPTURE.model.lock() {
         if let Some(m) = m.as_mut() {
             m.add_generated(from);
         }
@@ -323,7 +398,7 @@ fn forget_form_surface(image: u32) {
         let Some(i) = seen.iter().position(|&(i, _)| i == image) else { return };
         seen.remove(i);
     }
-    if let Ok(mut m) = MODEL.lock() {
+    if let Ok(mut m) = CAPTURE.model.lock() {
         if let Some(m) = m.as_mut() {
             m.remove_generated(image);
         }
@@ -371,21 +446,13 @@ pub struct UiTracer {
     _hooks: Vec<Box<dyn std::any::Any + Send>>,
 }
 
-/// Installs the hooks. `skip_canvases`: canvases left out while a game runs
-/// (we draw what they show); `underlays`: canvases under the interface whose
-/// own content we draw, mirrored without the art in `underlay_art` (§16).
-pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underlay_art: Vec<String>) -> Result<UiTracer, HookError> {
+/// Install all hooks while the startup capture serializes callers. The
+/// model already exists and is retained across attempts and viewer startup.
+fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     let sites = h::ui_sites(game.build).ok_or(HookError::Unsupported)?;
+    if !crate::trace::hook_jgl_text(jgl)? { return Err(HookError::Unsupported) }
     let _ = BUILD.set(game.build);
     let _ = BACK_BUFFER.set(h::back_buffer(game.build).unwrap_or(0));
-    *MODEL.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some(
-            UiModel::new(Vec::new(), skip_canvases)
-                .with_screen(h::back_buffer(game.build).unwrap_or(0))
-                .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
-                .with_underlays(underlays, underlay_art)
-                .with_text_backdrops(!gdi_text::under_wine()),
-        );
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     macro_rules! hook {
         ($module:ident, $site:expr, $handler:expr) => {
@@ -611,21 +678,6 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
     }
     if let Some(sites) = h::replay_sites(game.build) {
         let game = *game;
-        match crate::replay_thread::ReplayThread::start(move || {
-            // Replay needs only terrain and geometry, without live units,
-            // diplomacy, fonts, districts or other full-scene state.
-            let map = game.map().map_err(|e| e.to_string())?;
-            let tiles = game.tiles(&map).map_err(|e| e.to_string())?.iter()
-                .map(|tile| crate::world::Civ3Tile { square_type: tile.square_type(), ..Default::default() }).collect();
-            Ok(crate::world::Civ3World {
-                width: map.width, height: map.height, flags: map.flags,
-                wrap_x: map.wrap_x, wrap_y: map.wrap_y, tiles,
-                ..Default::default()
-            })
-        }) {
-            Ok(worker) => { let _ = REPLAY.set(worker); }
-            Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
-        }
         hook!(navigator_init, sites.init, move |c| {
             let replay = h::replay_navigator(game.build, c.navigator);
             if replay {
@@ -672,58 +724,57 @@ pub fn install(game: &Civ3, skip_canvases: Vec<u32>, underlays: Vec<u32>, underl
         });
     }
     hook_lines(game, &mut hooks);
-    if !GAME_DRAWS.load(Relaxed) {
-        *SKIPPER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Skipper::new(h::read_back_images(game.build)));
-        SKIPPING.store(true, Relaxed);
-        log::info!("game rendering off: the game's drawing is recorded, not done");
+    hook_jgl(jgl, &mut hooks)?;
+    // Start one lazy worker after fallible hook setup succeeds. Its world
+    // reader runs only on a replay Init command, never during installation.
+    if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
+        let game = *game;
+        match crate::replay_thread::ReplayThread::start(move || {
+            // Replay needs only terrain and geometry, without live units,
+            // diplomacy, fonts, districts or other full-scene state.
+            let map = game.map().map_err(|e| e.to_string())?;
+            let tiles = game.tiles(&map).map_err(|e| e.to_string())?.iter()
+                .map(|tile| crate::world::Civ3Tile { square_type: tile.square_type(), ..Default::default() }).collect();
+            Ok(crate::world::Civ3World {
+                width: map.width, height: map.height, flags: map.flags,
+                wrap_x: map.wrap_x, wrap_y: map.wrap_y, tiles,
+                ..Default::default()
+            })
+        }) {
+            Ok(worker) => { let _ = REPLAY.set(worker); }
+            Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
+        }
     }
-    hook_jgl_later(std::env::var("CIV3R_TRACE_PIXELS").is_ok_and(|v| v == "1"));
+    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") {
+        trace_pixel_access(jgl);
+    }
     log::info!("UI mirror: {} hooks", hooks.len());
     Ok(UiTracer { _hooks: hooks })
 }
 
 
-/// Hooks jgl.dll once the game has loaded it (the hooks stay for the life
-/// of the process): its translucent rectangle fill, its window update (to
-/// skip it while the game does not draw) and, with `trace_pixels`, the
-/// handing out of image pixels (see [`trace_pixel_access`]).
-fn hook_jgl_later(trace_pixels: bool) {
-    std::thread::spawn(move || {
-        for _ in 0..600 {
-            if let Some(base) = inproc::pe::module_base("jgl.dll") {
-                let (slot, expected) = h::jgl_shade_slot(base);
-                if slot.read().ok() != Some(expected) {
-                    return log::warn!("UI mirror: unknown jgl.dll, translucent fills not mirrored");
-                }
-                match h::jgl_shade::install_slot(slot, |c| {
-                    let recorded = shade(c);
-                    match recorded {
-                        Some(canvas) if skips(canvas, 0) => 0,
-                        _ => c.original(),
-                    }
-                }) {
-                    Ok(installed) => std::mem::forget(installed),
-                    Err(e) => log::warn!("UI mirror: hooking translucent fills: {e}"),
-                }
-                if skipping() {
-                    let (slot, expected) = h::jgl_present_slot(base);
-                    if slot.read().ok() != Some(expected) {
-                        log::warn!("game rendering: unknown jgl.dll, the window is still updated");
-                    } else {
-                        match h::jgl_present::install_slot(slot, |c| if skipping() { 0 } else { c.original() }) {
-                            Ok(installed) => std::mem::forget(installed),
-                            Err(e) => log::warn!("game rendering: hooking the window update: {e}"),
-                        }
-                    }
-                }
-                if trace_pixels {
-                    trace_pixel_access(base);
-                }
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(200));
+/// Install jgl capture synchronously at the known loaded base. Present
+/// always has a hook, including drawing-ON startup, and checks suppression
+/// dynamically so restoring the original renderer takes effect immediately.
+fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result<(), HookError> {
+    let check = |(slot, expected): (inproc::Ptr32<u32>, u32)| -> Result<inproc::Ptr32<u32>, HookError> {
+        let found = slot.read()?;
+        if found != expected {
+            return Err(HookError::UnexpectedCode { addr: slot.raw(), found: found.to_le_bytes().to_vec(), expected: expected.to_le_bytes().to_vec() });
         }
-    });
+        Ok(slot)
+    };
+    let shade_slot = check(h::jgl_shade_slot(base))?;
+    let present_slot = check(h::jgl_present_slot(base))?;
+    hooks.push(Box::new(h::jgl_shade::install_slot(shade_slot, |c| {
+        let recorded = shade(c);
+        match recorded {
+            Some(canvas) if skips(canvas, 0) => 0,
+            _ => c.original(),
+        }
+    })?));
+    hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| if skipping() { 0 } else { c.original() })?));
+    Ok(())
 }
 
 /// Logs (once per image) who takes the pixels of an image that a skipped
@@ -898,7 +949,7 @@ fn line_points((x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> Vec<(i32, i32)> {
 /// Whether the skipped canvases (the map) are left out: while a game runs.
 /// Between games the title screen is drawn on the same canvas.
 pub fn set_skipping(on: bool) {
-    if let Ok(mut m) = MODEL.lock() {
+    if let Ok(mut m) = CAPTURE.model.lock() {
         if let Some(m) = m.as_mut() {
             m.set_skipping(on);
         }
@@ -909,7 +960,7 @@ pub fn set_skipping(on: bool) {
 /// `map_renderer`, an image it then copies onto the map canvas: what both
 /// showed is replaced.
 pub fn map_redraw(map_renderer: u32) {
-    if let Ok(mut m) = MODEL.lock() {
+    if let Ok(mut m) = CAPTURE.model.lock() {
         if let Some(m) = m.as_mut() {
             m.reset_underlays();
             m.reset(map_renderer);
