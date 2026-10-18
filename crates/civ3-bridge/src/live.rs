@@ -121,7 +121,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         .collect();
     let district_state = districts::read(game, &map);
     let players = optional("players", game.players());
-    let drawn = optional("units", game.drawn_units());
+    let drawn = optional("units", crate::unit_views::drawn_units(game));
     // The members armies show (§10.11).
     let army_members = drawn
         .iter()
@@ -171,7 +171,9 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         experience_hit_points: optional("experience_hit_points", game.experience_hit_points()),
         unit_tiles: optional("unit_tiles", game.unit_tiles()),
         effects: optional("effects", game.effects()).into_iter().map(|e| effect(&e)).collect(),
+        navigator_modes: optional("navigator_modes", game.navigator_modes()),
         preferences: optional("preferences", game.preferences()),
+        clean_map: optional("clean_map", game.clean_map()),
         debug_mode_bits: optional("debug_mode_bits", game.debug_mode_bits()),
         civ_adjectives: players.adjectives,
         mouse_tile: optional("mouse_tile", game.mouse_tile()),
@@ -379,6 +381,22 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("no map input while menus are open: {e}"),
         }
     }
+    if let Err(e) = crate::native_sliders::install(game) {
+        log::warn!("no transactional native sliders: {e}");
+    }
+    let world_input_ready = crate::world_input::install(game).map_err(|e| {
+        log::warn!("no world interactions beyond the game camera: {e}");
+    }).is_ok();
+    // Native drawing and animation must cover the whole visible world
+    // before the original map camera can become bookkeeping only.
+    let world_units_ready = crate::unit_views::install(game).map_err(|e| {
+        log::warn!("no units beyond the game's camera: {e}");
+    }).is_ok();
+    if world_input_ready && world_units_ready {
+        if let Err(e) = crate::native_camera::install(game) {
+            log::warn!("native camera remains active: {e}");
+        }
+    }
     // The go-to path the map shows (`crate::targeting`, found on the
     // game's thread).
     if let Err(e) = crate::targeting::install(game) {
@@ -517,6 +535,7 @@ fn publish(
     let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>, Option<u64>)> = Default::default();
     // What units drew last (shown while their new animation's art is built).
     let mut unit_memory = units::UnitMemory::default();
+    let mut last_notices: (Vec<crate::unit_notices::Notice>, u32) = Default::default();
     // Art made ahead (`crate::preload`): the plan for the game shown (and
     // which game that is), the interface art to make, the budget, the
     // atlas memory the art takes (the art thread says, with the pixels;
@@ -821,18 +840,37 @@ fn publish(
         // What can be clicked (for the viewer's button snapping): our own
         // title menu's buttons, else the game's controls.
         let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
-        let controls = match own_title {
+        let mut controls = match own_title {
             Some(_) => Vec::new(),
             None => civ3_sys::controls::sites(game.build).map(|s| civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)).unwrap_or_default(),
         };
+        prefs.retain_native_controls(&mut controls);
+        // The native start screen draws its text rows directly into the
+        // main form, without child Button objects. Use its own layout and
+        // the captured labels' system text extents for the same hit boxes.
+        if let Some((frame, layout)) = ui.as_ref().zip(civ3_sys::controls::title_layout(&civ3_sys::controls::Live, game.build)) {
+            use crate::city_labels::Env as _;
+            controls.extend(crate::setup_controls::title(frame, layout, |run| {
+                let font = civ3_assets::fonts::FontStyle { face: run.face.clone(), height: run.height.abs(), weight: run.weight, italic: run.italic };
+                label_env.text_width(&font, &run.text)
+            }));
+        }
         // Our preferences tabs' controls are over the game's.
         let prefs_looks = prefs.looks(&fonts);
         let mut interactables: Vec<scene::Interactable> =
-            prefs_looks.iter().map(|l| scene::Interactable { rect: l.rect, kind: scene::InteractableKind::Button, id: l.id }).collect();
+            prefs_looks.iter().map(|l| scene::Interactable { anchor: None, rect: l.rect, kind: l.kind, id: l.id }).collect();
         interactables.extend(match own_title {
             Some((ms, m)) => ms.interactables(m, input.viewport),
             None => ui_screen::interactables(&controls),
         });
+        if let Some(frame) = ui.as_ref() {
+            ui_screen::content_anchors(frame, &fonts, &controls, &mut interactables);
+        }
+        if let Some(f) = ui.as_ref() {
+            let row = civ3_sys::controls::sites(game.build).and_then(|s|
+                civ3_sys::controls::status_unit_row(&civ3_sys::controls::Live, &s, &controls));
+            interactables.extend(ui_screen::status_unit_targets(f, row));
+        }
         // What the open city screen tests in its code (citizens, units).
         if let (Shown::Map(world, _), Some(f)) = (&shown, ui.as_ref()) {
             if world.focus_city.is_some() {
@@ -861,7 +899,11 @@ fn publish(
             wanted_for.push("text");
         }
         let state = (shown, texts, ui, interactables, cursor);
-        let unchanged = last.as_ref() == Some(&state);
+        let notice_state = if matches!(&state.0, Shown::Map(..)) {
+            (crate::unit_notices::read(&game), game.map_message_background().unwrap_or(0x8000_0000))
+        } else { Default::default() };
+        let unchanged = last.as_ref() == Some(&state) && last_notices == notice_state;
+        last_notices = notice_state.clone();
         mark(&mut profile, "compare", &mut t);
         // GPU upload completion can make another optional preload chunk
         // eligible even on a static screen. CPU compilation alone must not
@@ -885,21 +927,21 @@ fn publish(
         // The parts of the interface the viewer arranges (docs §16.11): the
         // screen open, the popup over it (split off: the viewer may draw it
         // elsewhere).
-        let screen_open = ui.as_ref().and_then(|f| crate::interface_parts::screen(f, civ3_sys::ui_hooks::screen_forms(game.build)));
+        let screen_open = ui.as_ref().and_then(|f| crate::interface_parts::active_screen(f, game.build));
         let screen_size = (input.viewport.0 as i32, input.viewport.1 as i32);
         // (A context menu over the map is one too, modal or not: the topmost
         // form there.)
         let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
-        let popup = match (ui, modal, shown) {
-            (Some(f), m, Shown::Map(..)) => {
+        let popup = match (ui, modal) {
+            (Some(f), m) if matches!(shown, Shown::Map(..)) || screen_open.is_some() => {
                 let modal_popup = m.and_then(|m| crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size));
                 modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size)))
             }
             _ => None,
         };
         let (ui_below, ui_popup) = match (ui, popup) {
-            (Some(f), Some((first, _))) => {
-                let (below, above) = crate::interface_parts::split_at(f, first);
+            (Some(f), Some((first, rect))) => {
+                let (below, above) = crate::interface_parts::split_popup(f, first, rect);
                 (Some(below), Some(above))
             }
             _ => (ui.clone(), None),
@@ -912,7 +954,7 @@ fn publish(
         // An open city screen covers everything under it; the map shows in
         // its gap, as a view of its own (§16.8).
         let city = match (shown, &ui_below) {
-            (Shown::Map(world, _), Some(frame)) if world.focus_city.is_some() => {
+            (Shown::Map(world, _), Some(frame)) if world.focus_city.is_some() && screen_open.is_none_or(|s| s.1 == "City") => {
                 ui_screen::city_screen(frame, &files, files.roots(), &mut city_bands)
             }
             _ => None,
@@ -925,14 +967,14 @@ fn publish(
         // screen, whose map is a view of its own), and what is over it: a
         // part of its own, which the viewer may move (out from under its
         // zoom strip).
-        let screen_part = match (&visible_ui, screen_open, shown) {
-            (Some(f), Some((index, name)), Shown::Map(..)) if name != "City" && city.is_none() => crate::interface_parts::screen_part(f, index, screen_size),
+        let screen_part = match (&visible_ui, screen_open) {
+            (Some(f), Some((index, name))) if name != "City" && city.is_none() => crate::interface_parts::active_screen_part(f, index, game.build, screen_size),
             _ => None,
         };
         let (visible_ui, ui_screen_part) = match (visible_ui, screen_part) {
-            (Some(f), Some((first, _))) => {
+            (Some(f), Some((first, rect))) => {
                 let (below, above) = crate::interface_parts::split_at(&f, first);
-                (Some(below), Some(above))
+                (Some(below), Some(crate::interface_parts::clipped(&above, rect)))
             }
             (v, _) => (v, None),
         };
@@ -942,7 +984,7 @@ fn publish(
         // every view).
         let hud = civ3_sys::ui_hooks::hud_buttons(game.build);
         let on_map = matches!(shown, Shown::Map(..)) && screen_open.is_none();
-        let hud_ui = visible_ui.as_ref().filter(|_| on_map);
+        let hud_ui = visible_ui.as_ref().filter(|_| on_map).and_then(|f| crate::interface_parts::map_hud(f, game.build));
         let corner_part = hud_ui.and_then(|f| crate::interface_parts::corner_part(f, &hud.corner));
         let corner = corner_part.as_ref().map(|(r, _)| *r);
         let reachable = hud_ui.and_then(|f| crate::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
@@ -982,7 +1024,10 @@ fn publish(
             memo.get((f.clone(), extra.clone(), unit_colors), || ui_screen::items_with(f, files.roots(), generated, unit_colors, extra))
         };
         let mut ui_items = frame_ui.as_ref().map(|f| frame_memo.get((f.clone(), None, unit_colors), || ui_screen::items(f, files.roots(), generated, unit_colors))).unwrap_or_default();
-        let mut menu_items = menu_ui.as_ref().map(|f| with_tabs(menu_memo, f)).unwrap_or_default();
+        // An isolated active screen replaces the menus below it. Keeping
+        // an underlying advisor here would cover the world when this
+        // screen is placed in a pane of its own.
+        let mut menu_items = menu_ui.as_ref().filter(|_| screen_part.is_none()).map(|f| with_tabs(menu_memo, f)).unwrap_or_default();
         let mut popup_items = ui_popup.as_ref().map(|f| with_tabs(popup_memo, f)).unwrap_or_default();
         let mut screen_items = ui_screen_part.as_ref().map(|f| with_tabs(screen_memo, f)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
@@ -1019,6 +1064,14 @@ fn publish(
             Shown::Map(world, view) => crate::targeting::label_items(world, view.zoomed_out, &mut label_env),
             _ => Vec::new(),
         };
+        let notice_items = match shown {
+            Shown::Map(_, view) => {
+                use crate::city_labels::Env as _;
+                crate::unit_notices::items(&notice_state.0, view.zoomed_out, crate::ui::rgb555(notice_state.1),
+                    &mut |font, text| label_env.text_width(font, text))
+            }
+            _ => Vec::new(),
+        };
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
             // (The game's own view as the viewer shows it.)
@@ -1032,10 +1085,23 @@ fn publish(
         // Only a popup over the map's own screen is the viewer's to place;
         // one over another screen (the Preferences screen, an advisor) stays
         // with it, with the menus.
+        let embedded_popup = popup.filter(|_| screen_part.is_some());
         let popup = popup.filter(|_| on_map && !prefs.is_open());
         if popup.is_none() {
             if screen_part.is_some() { &mut screen_items } else { &mut menu_items }.append(&mut popup_items);
         }
+        // An info box over Preferences remains with that panel, including
+        // any frame that extends beyond its edges.
+        let screen_part = screen_part.map(|(first, [x, y, w, h])| {
+            let rect = match embedded_popup {
+                Some((_, [px, py, pw, ph])) => {
+                    let (l, t) = (x.min(px), y.min(py));
+                    [l, t, (x + w).max(px + pw) - l, (y + h).max(py + ph) - t]
+                }
+                None => [x, y, w, h],
+            };
+            (first, rect)
+        });
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         // Not while a menu is open: the click would go to the menu.
@@ -1117,6 +1183,10 @@ fn publish(
             recompile = true;
             wanted_for.push("go-to turns");
         }
+        if ui_screen::add_art(&notice_items, &mut screen_art, &mut fonts, &files) {
+            recompile = true;
+            wanted_for.push("unit notices");
+        }
         mark(&mut profile, "ui items+labels", &mut t);
         // Art the description does not have yet: units, text fonts.
         // (A preview's units stand still: only the frames they show, as the
@@ -1146,7 +1216,7 @@ fn publish(
             trace_text(
                 match shown { Shown::Map(..) => "map", Shown::Title(..) => "title", Shown::Preview(..) => "preview" },
                 ui.as_ref(),
-                ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&label_items).chain(&target_items),
+                ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&label_items).chain(&target_items).chain(&notice_items),
                 &fonts,
                 &compiled,
                 last,
@@ -1289,7 +1359,7 @@ fn publish(
         let plain_text: Vec<_> = if ui.is_none() {
             texts.iter().cloned().map(|run| ui_screen::Item::Text(run, [i32::MIN, i32::MIN, i32::MAX, i32::MAX], false)).collect()
         } else { Vec::new() };
-        let mandatory = ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&plain_text);
+        let mandatory = ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&plain_text).chain(&notice_items);
         let size = input.game_window().and_then(|w| w.client_size()).unwrap_or(input.viewport);
         match ui_screen::publication(mandatory.clone(), &fonts, &compiled, schedule.screen_pending(), size) {
             ui_screen::Publication::Retain { unavailable } => {
@@ -1378,6 +1448,14 @@ fn publish(
                 scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len())
             }
         };
+        if matches!(shown, Shown::Map(..)) {
+            scene.camera_focus = crate::native_camera::focus(game);
+            scene.map_wheel_step = civ3_sys::native_camera::map_wheel_step(game).unwrap_or_default();
+            // The tiny native tile range has no authority over renderer art.
+            if scene.camera_focus.is_some() {
+                scene.view_mut(crate::scene_map::GAME_VIEW).view.cull = None;
+            }
+        }
         mark(&mut profile, "scene map+units", &mut t);
         scene.sprites.extend(fonts.sprites(texts, &compiled));
         // Labels and the interface's text also drawn from outlines at
@@ -1386,7 +1464,13 @@ fn publish(
         let outlines = !scene.zooms.is_empty();
         // (The art, its fonts and the items give the sprites.)
         let art_key = (art_generation, fonts.revision(), outlines);
-        scene.sprites.extend(ui_sprites_memo.get((ui_items.clone(), art_key), || ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
+        scene.sprites.extend(ui_sprites_memo.get((ui_items.clone(), art_key), || {
+            let mut sprites = ui_screen::sprites(&ui_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines);
+            for sprite in sprites.iter_mut().filter(|s| s.after_pass != u32::MAX) {
+                sprite.category = viewer_settings::clean_map::CITIES;
+            }
+            sprites
+        }));
         let mut menu_sprites = title_menu;
         menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
         // The city labels go with the world (laid out in the game view's
@@ -1398,7 +1482,7 @@ fn publish(
             .into_iter()
             .map(|s| {
                 let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
-                scene::FreeSprite { screen: false, clip: None, not_in_view, ..s }
+                scene::FreeSprite { screen: false, clip: None, not_in_view, category: viewer_settings::clean_map::CITIES, ..s }
             })
             .collect();
         if let Shown::Map(_, view) = shown {
@@ -1420,13 +1504,17 @@ fn publish(
             }
         }
         scene.sprites.extend(turns);
+        if let Shown::Map(_, view) = shown {
+            scene.sprites.extend(crate::unit_notices::sprites(&notice_items, &fonts, &compiled, outlines, view.zoomed_out));
+        }
         mark(&mut profile, "ui+label sprites", &mut t);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
             let both: Vec<ui_screen::Item> = ui_items.iter().chain(&screen_items).cloned().collect();
-            // (Made of the minimap items, the world without its units and the art.)
+            // The selected source has its own key: toggling Geography or
+            // Territory replaces pixels even when world, UI and art stay put.
             let minimaps: Vec<_> = both.iter().filter(|i| matches!(i, ui_screen::Item::Element(menu::screen::Element::Dynamic { name, .. }, _) if name.starts_with("minimap"))).cloned().collect();
-            scene.patches = minimap_memo.get((minimaps, still.clone(), art_generation), || {
+            scene.patches = minimap_memo.get((minimaps, still.clone(), world.navigator_modes, art_generation), || {
                 ui_screen::minimap_patches(&both, world, &compiled, |table| *table_colors.entry(table).or_insert_with(|| art.table_color(table, 66).unwrap_or_default()))
             });
         }
@@ -1462,7 +1550,7 @@ fn publish(
             // middle of the game's view stands for it).
             if let Some(v) = scene.view(crate::scene_map::GAME_VIEW).map(|v| v.view) {
                 let (w, h) = if v.viewport.0 == 0 || v.viewport.1 == 0 { input.viewport } else { v.viewport };
-                scene.focus = Some((v.camera_x + w as i32 / 2, v.camera_y + h as i32 / 2));
+                scene.focus = scene.camera_focus.map(|f| f.center).or(Some((v.camera_x + w as i32 / 2, v.camera_y + h as i32 / 2)));
             }
         }
         scene.interface = scene::Interface {
@@ -1714,8 +1802,9 @@ impl<K: PartialEq, V: Clone> Memo<K, V> {
 /// `world` without what changes as units move and animate (where they
 /// are, what is selected, the pointer's tile), which the cells, the city
 /// labels and the minimap do not depend on: what their memos key on.
+/// Navigator modes are keyed separately by the minimap alone.
 fn still_world(world: &Civ3World) -> Civ3World {
-    Civ3World { units: Vec::new(), army_members: Vec::new(), mouse_tile: None, current_unit: None, selection: None, unit_tiles: Vec::new(), effects: Vec::new(), targeting: Default::default(), goto: None, ..world.clone() }
+    Civ3World { navigator_modes: Default::default(), units: Vec::new(), army_members: Vec::new(), mouse_tile: None, current_unit: None, selection: None, unit_tiles: Vec::new(), effects: Vec::new(), targeting: Default::default(), goto: None, ..world.clone() }
 }
 
 /// Adds the time since `t` to span `name` of the profile, if one is kept,
@@ -1752,6 +1841,7 @@ fn view_rect_color() -> [u8; 3] {
 #[derive(Default)]
 struct InputForwarder {
     window: Option<inproc::window::Window>,
+    _world_input: Option<inproc::message::Interceptor>,
     held: inproc::window::Buttons,
     clicks: inproc::window::DoubleClicks,
     /// A world pixel the viewer asked to see (`Input::Look`), not yet acted on.
@@ -1801,6 +1891,10 @@ impl InputForwarder {
                 .max_by_key(|w| w.client_size().map_or(0, |(w, h)| w as u64 * h as u64));
             if let Some(w) = self.window {
                 log::info!("forwarding input to {:?} ({:?})", w.title(), w.client_size());
+                match crate::world_input::attach_window(w) {
+                    Ok(hook) => self._world_input = Some(hook),
+                    Err(e) => log::warn!("world input message dispatch unavailable: {e}"),
+                }
                 if self.viewport == (0, 0) {
                     self.viewport = w.client_size().unwrap_or((1024, 768));
                 }
@@ -1865,8 +1959,28 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
     if inputs.is_empty() {
         return;
     }
-    let Some(window) = forwarder.game_window() else { return };
+    let Some(window) = forwarder.game_window() else {
+        if inputs.iter().any(|input| matches!(input, Input::Quit)) {
+            crate::native_camera::viewer_gone(*game, forwarder.main_view);
+            crate::ui_trace::restore_original_drawing();
+            inproc::hidden::set_hiding(false);
+            inproc::pointer::keep_focus(None);
+            forwarder.world_buttons.clear();
+            forwarder.look = None;
+            forwarder.plain_keys.clear();
+        }
+        return;
+    };
+    let native_world_click = crate::world_input::ready(window) && !crate::modal::modal_open(game)
+        && inputs.iter().any(|input| matches!(input, Input::WorldButton { .. }));
     for input in inputs {
+        if !matches!(input, Input::Slider { action: scene::SliderAction::Preview, .. }) {
+            crate::native_sliders::barrier();
+        }
+        if !matches!(input, Input::WorldMove { .. } | Input::UnitOrder { action: scene::UnitOrderAction::Preview, .. }
+            | Input::Views(_) | Input::MainView { .. } | Input::Zooms(_) | Input::Edge { .. } | Input::Window { .. } | Input::Resized { .. }) {
+            crate::world_input::barrier();
+        }
         log::trace!("input {input:?}");
         // (For testing what the viewer draws itself: the pointer never
         // reaches the game.)
@@ -1896,6 +2010,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                 let double = down && forwarder.clicks.press(button, x, y) && window.wants_double_clicks();
                 window.mouse_button(button, down, double, x, y, forwarder.held);
             }
+            Input::Slider { id, action, value } => crate::native_sliders::post(window, id, action, value),
             Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
             Input::Key { vk, down, text } => {
                 log::debug!("input: key {vk:#x} {}", if down { "down" } else { "up" });
@@ -1904,7 +2019,11 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             // A key over a view of the viewer's own: acted on (a few of
             // them) while a menu is open that allows it, else the key it is.
             // A release goes where its press went.
-            Input::WorldKey { vk, down, text, .. } => {
+            Input::WorldKey { vk, down, text, x, y } => {
+                if !crate::modal::modal_open(game) {
+                    crate::world_input::post_move(game, window, (x, y));
+                    crate::world_input::barrier();
+                }
                 let plain = forwarder.plain_keys.iter().position(|&k| k == vk);
                 if plain.is_some() || !crate::modal::world_input(game) {
                     match (down, plain) {
@@ -1923,14 +2042,34 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                     }
                 }
             }
-            Input::WorldButton { button, down: true, x, y } => forwarder.world_buttons.push((button, (x, y))),
-            Input::WorldButton { .. } => {}
+            Input::WorldMove { x, y } => { crate::world_input::post_move(game, window, (x, y)); }
+            Input::UnitOrder { action, x, y } => { crate::world_input::post_order(game, window, action, (x, y)); }
+            Input::WorldButton { button, down, x, y } => {
+                if !crate::modal::modal_open(game) && crate::world_input::ready(window) {
+                    let native_button = match button {
+                        Button::Left => { forwarder.held.left = down; MouseButton::Left }
+                        Button::Right => { forwarder.held.right = down; MouseButton::Right }
+                        Button::Middle => { forwarder.held.middle = down; MouseButton::Middle }
+                    };
+                    let double = down && forwarder.clicks.press(native_button, x, y) && window.wants_double_clicks();
+                    crate::world_input::post_button(game, window, button, down, double, (x, y));
+                } else if down {
+                    forwarder.world_buttons.push((button, (x, y)));
+                }
+            }
             Input::Resized { width, height } => forwarder.viewport = (width, height),
             // (For the preferences' readout, `crate::prefs`.)
             Input::Window { .. } => {}
             // The viewer is gone (closed, or it failed to start): the
             // game's own window is shown, rather than nothing at all.
             Input::Quit => {
+                crate::world_input::post_order(game, window, scene::UnitOrderAction::Cancel, (0, 0));
+                forwarder.world_buttons.clear();
+                forwarder.look = None;
+                forwarder.plain_keys.clear();
+                crate::native_camera::viewer_gone(*game, forwarder.main_view);
+                crate::ui_trace::restore_original_drawing();
+                window.wake();
                 forwarder.edge = (0, 0);
                 if crate::game_window::hidden() && inproc::hidden::hiding() {
                     inproc::hidden::set_hiding(false);
@@ -1940,7 +2079,8 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                 }
             }
             Input::Edge { x, y } => forwarder.edge = (x, y),
-            Input::Look { x, y } => forwarder.look = Some((x, y)),
+            Input::Look { x, y } if !native_world_click => forwarder.look = Some((x, y)),
+            Input::Look { .. } => {}
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
             Input::MainView { x, y, w, h } => forwarder.main_view = (w > 0 && h > 0).then_some((x, y, w, h)),
             // (Text is drawn from outlines at every zoom: no art per zoom.)

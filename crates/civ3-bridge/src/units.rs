@@ -676,7 +676,9 @@ const SHOW_TEAM_COLOR_DISC: u32 = 0x800;
 /// Where the selected unit stands (its tile centre, or where it is on its
 /// way), if one is selected and shown.
 pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
-    let (id, _) = world.selection?;
+    // Cursor blinking changes its artwork, not the selected point of interest.
+    // Older trace files carry only selection, so retain that fallback.
+    let id = world.current_unit.or_else(|| world.selection.map(|(id, _)| id))?;
     world.units.iter().find(|u| u.id == id && u.visible).map(|u| u.pixel)
 }
 
@@ -1059,6 +1061,7 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
         not_in_view: None,
         glyph: None,
         palette: piece_palette(compiled, p),
+        category: viewer_settings::clean_map::UNITS,
     })
 }
 
@@ -1399,6 +1402,23 @@ mod tests {
             }
         }
         assert_eq!(checked, 512);
+    }
+
+    #[test]
+    fn selected_unit_focus_does_not_blink_or_reveal_an_unshown_unit() {
+        let mut world = Civ3World { current_unit: Some(17), units: vec![Civ3Unit { id: 17, visible: true, pixel: (3207, 2003), ..Default::default() }], ..Default::default() };
+        for cursor in [Some((17, 0)), None, Some((17, 3)), None] {
+            world.selection = cursor;
+            assert_eq!(focus(&world), Some((3207, 2003)));
+        }
+        world.units[0].pixel = (3213, 2009);
+        assert_eq!(focus(&world), Some((3213, 2009)), "movement remains a real focus change");
+        world.units[0].visible = false;
+        assert_eq!(focus(&world), None);
+        world.units[0].visible = true;
+        world.current_unit = None;
+        world.selection = Some((17, 2));
+        assert_eq!(focus(&world), Some((3213, 2009)), "historical traces retain selection focus");
     }
 
     #[test]

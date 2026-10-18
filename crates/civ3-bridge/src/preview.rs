@@ -969,7 +969,7 @@ pub fn scene(
     for (tile, items) in labels {
         let mut sprites: Vec<scene::FreeSprite> = crate::ui_screen::sprites(items, fonts, compiled, crate::ui_screen::under_pass(compiled), outlines)
             .into_iter()
-            .map(|s| scene::FreeSprite { screen: false, clip: None, ..s })
+            .map(|s| scene::FreeSprite { screen: false, clip: None, category: viewer_settings::clean_map::CITIES, ..s })
             .collect();
         place_label(&mut sprites, *tile, n);
         scene.sprites.extend(sprites);

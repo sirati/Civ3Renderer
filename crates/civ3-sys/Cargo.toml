@@ -7,6 +7,7 @@ version.workspace = true
 
 [dependencies]
 inproc = { path = "../inproc" }
+gdi-text = { path = "../gdi-text" }
 bytemuck.workspace = true
 thiserror.workspace = true
 log.workspace = true

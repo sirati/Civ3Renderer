@@ -119,6 +119,9 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &r
                 not_in_view: None,
                 glyph: None,
                 palette: 0,
+                // Animated effects are independent of the game's map-detail
+                // flags, including while Clean Map is enabled.
+                category: 0,
             });
         }
     }

@@ -213,8 +213,12 @@ pub struct Civ3World {
     pub unit_tiles: Vec<(i32, i32, i32)>,
     /// The animations drawn besides units, in the animator's order (§10.14).
     pub effects: Vec<Civ3Effect>,
+    /// The engine's Geography/Territory selection for the HUD and advisor.
+    pub navigator_modes: civ3_sys::ui_hooks::NavigatorModes,
     /// The game's `P_*` preference flags.
     pub preferences: u32,
+    /// Effective normalized Clean Map flags; zero while the game toggles it off.
+    pub clean_map: u32,
     /// `p_debug_mode_bits`: bit 3 shows every city's full label (docs §10.8).
     pub debug_mode_bits: u32,
     /// Per civ: its adjective (`Leader_get_civ_adjective`), which a label may
@@ -821,6 +825,11 @@ impl Trace {
                 Some("mouse_tile") => t.world.mouse_tile = Some((n(1)? as i32, n(2)? as i32)),
                 Some("focus_city") => t.world.focus_city = Some(n(1)? as i32),
                 Some("current_unit") => t.world.current_unit = Some(n(1)? as i32),
+                Some("navigator_modes") => {
+                    use civ3_sys::ui_hooks::{NavigatorMode, NavigatorModes};
+                    let mode = |geography| if geography { NavigatorMode::Geography } else { NavigatorMode::Territory };
+                    t.world.navigator_modes = NavigatorModes { main: mode(n(1)? != 0), advisor: mode(n(2)? != 0) };
+                }
                 Some("preferences") => t.world.preferences = n(1)? as u32,
                 Some("selection") => t.world.selection = Some((n(1)? as i32, n(2)? as i32)),
                 Some("targeting") => {
@@ -936,5 +945,24 @@ impl Trace {
         }
         w.set_districts(districts);
         Ok(t)
+    }
+}
+
+#[cfg(test)]
+mod navigator_trace_tests {
+    use super::*;
+    use civ3_sys::ui_hooks::{NavigatorMode, NavigatorModes};
+
+    #[test]
+    fn traces_preserve_independent_navigator_modes_and_old_defaults() {
+        assert_eq!(Trace::parse("").unwrap().world.navigator_modes, NavigatorModes::default());
+        for (text, main, advisor) in [
+            ("navigator_modes 1 0", NavigatorMode::Geography, NavigatorMode::Territory),
+            ("navigator_modes 0 1", NavigatorMode::Territory, NavigatorMode::Geography),
+            ("navigator_modes 0 0", NavigatorMode::Territory, NavigatorMode::Territory),
+        ] {
+            assert_eq!(Trace::parse(text).unwrap().world.navigator_modes, NavigatorModes { main, advisor });
+        }
+        assert!(Trace::parse("navigator_modes 1").is_err());
     }
 }

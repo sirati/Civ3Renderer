@@ -12,10 +12,18 @@ use inproc::Ptr32;
 
 use crate::Build;
 
+mod setup;
+pub use setup::{TitleLayout, title_layout};
+
 /// Reads the game's memory (`None` where it cannot be read).
 pub trait Mem {
     fn u32(&self, addr: u32) -> Option<u32>;
     fn u8(&self, addr: u32) -> Option<u8>;
+    /// One guarded block read, used for the native setup screens' indexed
+    /// hit maps. The live implementation avoids one protection check per pixel.
+    fn read_bytes(&self, addr: u32, len: usize) -> Option<Vec<u8>> {
+        (0..len).map(|i| self.u8(addr.checked_add(u32::try_from(i).ok()?)?)).collect()
+    }
     fn i32(&self, addr: u32) -> Option<i32> {
         self.u32(addr).map(|v| v as i32)
     }
@@ -31,6 +39,9 @@ impl Mem for Live {
     fn u8(&self, addr: u32) -> Option<u8> {
         Ptr32::<u8>::new(addr).read().ok()
     }
+    fn read_bytes(&self, addr: u32, len: usize) -> Option<Vec<u8>> {
+        Ptr32::<u8>::new(addr).read_array(len).ok()
+    }
 }
 
 /// What a control is.
@@ -40,6 +51,8 @@ pub enum ControlKind {
     Button,
     /// An entry of a list box.
     ListItem,
+    /// A native slider, with normalized knob position and screen travel.
+    Slider { track: [i32; 4], value: i32 },
     /// A list box whose entries scroll with the wheel: they scroll in
     /// `scroll` (screen x, y, w, h), `step` pixels a wheel message.
     List { scroll: [i32; 4], step: i32 },
@@ -108,8 +121,9 @@ const NO_MOUSE: u32 = 0x2;
 const WHEEL: u32 = 0x8;
 const KEYED: u32 = 0x100_0000;
 
-/// Buttons (`Button`, its city screen subclass, their base).
-const BUTTON_VTABLES: [u32; 3] = [0x66_56C0, 0x66_5F20, 0x67_1550];
+/// Controls activated by a click: `Button`, its city screen subclass,
+/// their base, and the editable `TextBox` (focus/caret via native input).
+const BUTTON_VTABLES: [u32; 4] = [0x66_56C0, 0x66_5F20, 0x67_1550, 0x66_7188];
 /// `Context_Menu` and its subclass.
 pub const CONTEXT_MENU_VTABLES: [u32; 2] = [0x67_1AC0, 0x66_B240];
 /// A check box group's form part (`CheckBox` + 0x20).
@@ -130,6 +144,10 @@ fn part_id(object: u32, tag: u32, index: u32) -> u64 {
 const TAG_ITEM: u32 = 0;
 const TAG_LINK: u32 = 0x1000_0000;
 pub(crate) const TAG_MENU: u32 = 0x2000_0000;
+/// Regions clicked by Main_GUI's own mouse handler, with no Button form.
+pub(crate) const TAG_STATUS: u32 = 0x3000_0000;
+pub(crate) const STATUS_ORB: u32 = 0;
+pub(crate) const STATUS_UNIT_PICTURE: u32 = 1;
 pub(crate) const TAG_CHECK: u32 = 0x4000_0000;
 pub(crate) const TAG_TAB: u32 = 0x8000_0000;
 pub(crate) const TAG_CHOICE: u32 = 0x0800_0000;
@@ -326,14 +344,25 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
     if empty(form.shown) {
         return;
     }
+    if form.status1 & NO_MOUSE != 0 {
+        return;
+    }
     links(mem, &form, out);
     if addr == sites.advisor {
         tabs(&form, out);
     }
-    if form.status1 & NO_MOUSE != 0 {
-        return;
+    if addr == sites.main_gui {
+        status_panel(mem, &form, out);
     }
-    if BUTTON_VTABLES.contains(&form.vtable) || known.contains(&addr) {
+    setup::controls(mem, &form, out);
+    if let Some(slider) = crate::sliders::Slider::read(mem, addr) {
+        let [x, y, w, h] = slider.track;
+        out.push(Control {
+            rect: form.shown,
+            kind: ControlKind::Slider { track: [form.origin.0 + x, form.origin.1 + y, w, h], value: slider.normalized() },
+            id: addr as u64,
+        });
+    } else if BUTTON_VTABLES.contains(&form.vtable) || known.contains(&addr) {
         out.push(Control { rect: form.shown, kind: ControlKind::Button, id: addr as u64 });
     } else if CONTEXT_MENU_VTABLES.contains(&form.vtable) {
         context_menu(mem, &form, out);
@@ -346,16 +375,101 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
     }
 }
 
-/// The text links of a form (32-byte entries, a RECT at +4).
+// Main_GUI::handle_click_in_status_panel (PCGames 0x555F30) tests these
+// regions itself; neither is a Button in the form tree. Its status orb
+// skips the active unit, or ends a ready turn. The unit picture centres
+// the map on the active unit. Keep their native coordinates and let the
+// normal mouse dispatch run that handler, including C3X's wrapper.
+const MAIN_GUI_IN_SCREEN: u32 = 0x5450;
+const TURN_END_FLAG: u32 = 0x2E198;
+const GUI_ENABLED: u32 = 0x585;
+const UNIT_STATUS_RECT: u32 = 0x13FE8;
+
+fn status_panel(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
+    if !mem.u8(form.addr + GUI_ENABLED).is_some_and(|v| v != 0) {
+        return;
+    }
+    let Some(main) = form.addr.checked_sub(MAIN_GUI_IN_SCREEN) else { return };
+    let unit = mem.u32(main + crate::layout::MAIN_SCREEN_FORM_CURRENT_UNIT).unwrap_or(0);
+    let end_turn = mem.u8(main + TURN_END_FLAG).is_some_and(|v| v != 0);
+    if unit == 0 && !end_turn {
+        return;
+    }
+    let Some([l, t, r, b]) = rect_at(mem, form.addr + UNIT_STATUS_RECT) else { return };
+    if r <= l || b <= t {
+        return;
+    }
+    let middle = t + (b - t) / 2;
+    // The native tests include x=L..L+47, y=middle..middle+28, but
+    // exactly y=middle goes to the upper status row in its outer branch.
+    let orb = form.on_screen([l, middle + 1, 48, 28]);
+    if !empty(orb) {
+        out.push(Control { rect: orb, kind: ControlKind::Button, id: part_id(form.addr, TAG_STATUS, STATUS_ORB) });
+    }
+    if unit != 0 {
+        // Beyond the orb, the lower half's native action centres the
+        // current unit. The upper half contains individual stack icons
+        // and is deliberately not one large, misleading target.
+        let picture = form.on_screen([l + 48, middle + 1, r - l - 47, b - middle]);
+        if !empty(picture) {
+            out.push(Control { rect: picture, kind: ControlKind::Button, id: part_id(form.addr, TAG_STATUS, STATUS_UNIT_PICTURE) });
+        }
+    }
+}
+
+/// Native hit strip of the unit/cargo icons in Main_GUI's upper status
+/// panel (0x556220). The individual icons are identified in the captured
+/// canvas, because their artwork may use scenario-specific icon indices.
+/// Only the main HUD's own published actions permit this region.
+pub fn status_unit_row(mem: &dyn Mem, sites: &Sites, controls: &[Control]) -> Option<(u32, [i32; 4])> {
+    if !controls.iter().any(|c| c.id == part_id(sites.main_gui, TAG_STATUS, STATUS_UNIT_PICTURE)) {
+        return None;
+    }
+    let form = Form::read(mem, sites.main_gui)?;
+    let [l, t, r, b] = rect_at(mem, sites.main_gui + UNIT_STATUS_RECT)?;
+    // All units_32 images are sliced to the same cell dimensions. Refuse
+    // another format instead of guessing native icon geometry.
+    let icons = mem.u32(0xB4_2184).filter(|&p| p != 0)?;
+    let (w, h) = (mem.i32(icons + crate::layout::SPRITE_WIDTH)?, mem.i32(icons + crate::layout::SPRITE_HEIGHT)?);
+    if w != 32 || h != 32 { return None; }
+    let y = t + (b - t) / 4 - h / 2 - 20;
+    let row = form.on_screen([l + 27, y, r - l - 53, h - 10]);
+    (!empty(row)).then_some((sites.main_gui + crate::layout::BASE_FORM_DATA_CANVAS + 4, row))
+}
+
+/// The text links of a form (32-byte entries, a RECT at +4). The game
+/// tests these last first (0x60F170), including links crossing its clip.
 fn links(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
     let n = mem.u32(form.addr + LINK_COUNT).unwrap_or(0);
     let Some(base) = mem.u32(form.addr + LINKS).filter(|&b| b != 0 && n > 0 && n <= MAX_ITEMS) else { return };
-    for i in 0..n {
-        let Some([l, t, r, b]) = rect_at(mem, base + 32 * i + 4) else { continue };
-        let rect = form.on_screen([l, t, r - l, b - t]);
-        if !empty(rect) && r - l <= form.size.0 && b - t <= form.size.1 {
+    for i in (0..n).rev() {
+        let Some(at) = base.checked_add(32 * i).and_then(|a| a.checked_add(4)).filter(|a| *a <= u32::MAX - 12) else { continue };
+        let Some([l, t, r, b]) = rect_at(mem, at) else { continue };
+        let (Some(w), Some(h)) = (r.checked_sub(l), b.checked_sub(t)) else { continue };
+        // Long or partially scrolled links can exceed the form's size.
+        // Their visible intersection, rather than their uncut width,
+        // decides whether they can be selected.
+        if w <= 0 || h <= 0 || l.checked_add(form.origin.0).is_none() || t.checked_add(form.origin.1).is_none() || r.checked_add(form.origin.0).is_none() || b.checked_add(form.origin.1).is_none() {
+            continue;
+        }
+        let rect = form.on_screen([l, t, w, h]);
+        if !empty(rect) {
             out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_LINK, i) });
         }
+    }
+}
+
+impl Control {
+    /// A semantic row or text link whose hit rectangle may include blank
+    /// space after its visible icon or text. Decorations are not controls.
+    pub fn content_row(&self) -> bool {
+        matches!(self.kind, ControlKind::ListItem) ||
+            (self.id >> 32 != 0 && matches!(self.id as u32 & 0xF800_0000, TAG_LINK | TAG_MENU | TAG_CHOICE))
+    }
+
+    /// A link from the form's rich-text hit table.
+    pub fn text_link(&self) -> bool {
+        self.id >> 32 != 0 && self.id as u32 & 0xF800_0000 == TAG_LINK
     }
 }
 
@@ -540,11 +654,22 @@ const LINES_DRAW: u32 = 0x61_D7C0;
 /// Where `ecx` ends up and the draw it jumps to.
 fn typed_draw(mem: &dyn Mem, form: &Form) -> Option<(u32, u32)> {
     let thunk = mem.u32(form.vtable + 0x58)?;
-    let code: Vec<u8> = (0..8).map(|i| mem.u8(thunk + i)).collect::<Option<_>>()?;
-    if code[..4] != [0x2B, 0x49, 0xFC, 0xE9] {
+    if [mem.u8(thunk)?, mem.u8(thunk + 1)?, mem.u8(thunk + 2)?] != [0x2B, 0x49, 0xFC] {
         return None;
     }
-    let d = thunk.wrapping_add(8).wrapping_add(u32::from_le_bytes(code[4..8].try_into().ok()?));
+    let (subtract, jmp) = match (mem.u8(thunk + 3)?, mem.u8(thunk + 4)?) {
+        (0x83, 0xE9) => (mem.u8(thunk + 5)? as i8 as i32 as u32, 6),
+        (0x81, 0xE9) => (mem.u32(thunk + 5)?, 9),
+        _ => (0, 3),
+    };
+    if mem.u8(thunk + jmp)? != 0xE9 { return None; }
+    let d = thunk.wrapping_add(jmp + 5).wrapping_add(mem.u32(thunk + jmp + 1)?);
+    let ecx = form.addr.wrapping_sub(mem.u32(form.addr.wrapping_sub(4))?).wrapping_sub(subtract);
+    // Direct choice classes use the same virtual-base thunk without the
+    // type dispatcher: icon grids (0x671730) and radio rows (0x666778).
+    if matches!(d, CHOICE_DRAW | LINES_DRAW) {
+        return Some((ecx, d));
+    }
     // mov eax,[ecx-8]; dec eax; cmp eax,n; ja; xor edx,edx; mov dl,[eax+idx]; jmp [edx*4+table]
     let head: Vec<u8> = (0..24).map(|i| mem.u8(d + i)).collect::<Option<_>>()?;
     if head[..5] != [0x8B, 0x41, 0xF8, 0x48, 0x83] || head[5] != 0xF8 || head[7] != 0x77 || head[9..13] != [0x33, 0xD2, 0x8A, 0x90] || head[17..20] != [0xFF, 0x24, 0x95] {
@@ -553,7 +678,6 @@ fn typed_draw(mem: &dyn Mem, form: &Form) -> Option<(u32, u32)> {
     let types = head[6] as u32 + 1;
     let idx = u32::from_le_bytes(head[13..17].try_into().ok()?);
     let table = u32::from_le_bytes(head[20..24].try_into().ok()?);
-    let ecx = form.addr.wrapping_sub(mem.u32(form.addr.wrapping_sub(4))?);
     let t = mem.u32(ecx.wrapping_sub(8))?;
     if t == 0 || t > types {
         return None;

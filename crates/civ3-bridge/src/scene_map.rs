@@ -114,7 +114,7 @@ impl<'a> Mapper<'a> {
         // same art at half size (§3), drawn so by the renderer.
         let downscale = if view.zoomed_out { 2 } else { 1 };
         scene.view_mut(GAME_VIEW).view =
-            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), downscale, ..Default::default() };
+            View { camera_x: view.camera_x, camera_y: view.camera_y, zoom: (1, 1), viewport, cull: Some(cull), downscale, hidden_categories: world.clean_map, ..Default::default() };
 
         for row in 0..shape.rows {
             for col in 0..shape.cols {
@@ -125,7 +125,7 @@ impl<'a> Mapper<'a> {
                 // none: the game skips cells outside the map (§5.2; polar
                 // caps fill the gap).
                 let off_map = y == 0 && !world.wrap_y;
-                let terrain = tile.filter(|_| !off_map).map(|t| (t.square_parts >> 8) as u32 * 81 + (t.square_parts & 0xFF) as u32);
+                let terrain = if off_map { None } else { rules::terrain_vertex(world, x, y - 1) };
                 let array = if rules::landmark_vertex(world, x, y - 1) { "LM_Terrain_Images" } else { "Std_Terrain_Images" };
                 self.put(&mut scene, "terrain", col, row, terrain.map(|i| format!("{array}/{i}")));
                 self.put(&mut scene, "polar_cap", col, row, rules::polar_cap(world, x, y - 1));
@@ -144,14 +144,23 @@ impl<'a> Mapper<'a> {
                 if !world.districts.is_empty() {
                     let stages = crate::districts::stages(world, x, y, view.zoomed_out);
                     let slice = |d: Option<&crate::districts::DistrictDraw>| d.map(|d| crate::district_art::Slice::of(d).sprite());
-                    for (i, layer) in crate::district_art::LAYERS.iter().enumerate() {
+                    // A district drawn over a resource must not merge its
+                    // resource/shadow into the building category. Preserve
+                    // their original order in separate resource layers.
+                    let separate = self.compiled.layer_index(crate::district_art::UNDER_RESOURCE_LAYERS[0]).is_some();
+                    let before = if separate { stages.building_resources } else { 0 };
+                    for (i, layer) in crate::district_art::UNDER_RESOURCE_LAYERS.iter().enumerate().filter(|(i, _)| *i < before) {
                         self.put(&mut scene, layer, col, row, slice(stages.buildings.get(i)));
+                    }
+                    for (i, layer) in crate::district_art::LAYERS.iter().enumerate() {
+                        self.put(&mut scene, layer, col, row, slice(stages.buildings.get(before + i)));
                     }
                     for (i, layer) in crate::district_art::RESOURCE_LAYERS.iter().enumerate() {
                         self.put(&mut scene, layer, col, row, slice(stages.resources.get(i)));
                     }
                 }
-                self.put(&mut scene, "mountain", col, row, rules::mountain(world, x, y));
+                let mountain_layer = if tile.is_some_and(|t| t.terrain() == rules::terrain::HILLS) && self.compiled.layer_index("hills").is_some() { "hills" } else { "mountain" };
+                self.put(&mut scene, mountain_layer, col, row, rules::mountain(world, x, y));
                 self.put(&mut scene, "irrigation", col, row, rules::irrigation(world, x, y));
                 self.put(&mut scene, "tnt", col, row, rules::tnt(world, x, y));
                 // C3X's draw_forests_over_roads_and_railroads: a forest with a road
@@ -184,7 +193,27 @@ impl<'a> Mapper<'a> {
                 }
             }
         }
+        self.edge_fog(&mut scene, world);
         scene
+    }
+
+    /// The fog sweep visits odd vertices outside the map too, unlike the
+    /// terrain sweep. One alternating half-diamond along each non-wrapping
+    /// side belongs to a vertex the tile grid cannot represent. Store it in
+    /// the adjacent edge cell with an offset, so it also repeats correctly
+    /// on maps that wrap vertically without changing the map's dimensions.
+    fn edge_fog(&self, scene: &mut Scene, world: &Civ3World) {
+        if scene.shape.cols == 0 { return; }
+        let Some(layer) = self.compiled.layer_index("fog_edge").filter(|_| !world.wrap_x) else { return };
+        for row in 0..scene.shape.rows {
+            let (col, vx, dx) = if row & 1 != 0 {
+                (0, -1, -128)
+            } else {
+                (scene.shape.cols - 1, world.width, 128)
+            };
+            self.put(scene, "fog_edge", col, row, rules::fog(world, vx, row as i32 - 1));
+            scene.set_offset(layer, col, row, (dx, 0));
+        }
     }
 }
 
@@ -243,4 +272,268 @@ pub fn tile_at(world: &Civ3World, (wx, wy): (i32, i32), zoomed_out: bool) -> Opt
     let x = if world.wrap_x { x.rem_euclid(world.width.max(1)) } else { x };
     let y = if world.wrap_y { y.rem_euclid(world.height.max(1)) } else { y };
     world.tile(x, y).map(|_| (x, y))
+}
+
+#[cfg(test)]
+mod clean_map_tests {
+    use super::*;
+    use crate::world::Civ3Tile;
+    use viewer_settings::clean_map;
+
+    #[test]
+    fn every_game_map_category_is_tagged_and_fog_cannot_be_hidden() {
+        let desc = render_desc::Description::parse(crate::assets::BUILTIN_DESC).unwrap();
+        let category = |name: &str| desc.layers.iter().find(|l| l.name == name).unwrap().category;
+        for (name, expected) in [
+            ("flood_plain", clean_map::RIVERS), ("rivers_under", clean_map::RIVERS), ("rivers_over", clean_map::RIVERS),
+            ("mountain", clean_map::MOUNTAINS), ("hills", clean_map::HILLS),
+            ("forest", clean_map::FORESTS), ("forest_over_road", clean_map::FORESTS), ("forest_over_railroad", clean_map::FORESTS),
+            ("mine", clean_map::BUILDINGS), ("district_0", clean_map::BUILDINGS), ("colony", clean_map::BUILDINGS),
+            ("road", clean_map::ROADS), ("railroad", clean_map::ROADS), ("irrigation", clean_map::IRRIGATION),
+            ("resource", clean_map::RESOURCES), ("resource_shadow", clean_map::RESOURCES), ("district_resource_0", clean_map::RESOURCES), ("district_under_resource_0", clean_map::RESOURCES), ("tnt", clean_map::YIELDS),
+            ("pollution", clean_map::POLLUTION), ("craters", clean_map::POLLUTION), ("border_nw", clean_map::BOUNDARIES),
+            ("border_nw_shade", clean_map::BOUNDARIES), ("city", clean_map::CITIES), ("victory_location", clean_map::CITIES), ("unit_disc", clean_map::UNITS),
+        ] { assert_eq!(category(name), expected, "{name}"); }
+        for name in ["terrain", "polar_cap", "fog", "fog_edge"] { assert_eq!(category(name), 0, "{name}"); }
+        for layer in desc.layers.iter().filter(|l| l.name.starts_with("unit_")) {
+            assert_eq!(layer.category, clean_map::UNITS, "{}", layer.name);
+        }
+        let mountains = desc.layers.iter().find(|l| l.name == "mountain").unwrap();
+        assert!(mountains.sets.iter().all(|s| !s.contains("Hills")));
+    }
+
+    #[test]
+    fn clean_map_keeps_all_cells_and_hills_are_independent_of_mountains() {
+        struct NoFiles;
+        impl render_desc::ImageLoader for NoFiles {
+            fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> { panic!("fixture is generated"); }
+        }
+        let compiled = render_desc::Description::parse(r#"
+            [grid]
+            layout = "staggered"
+            step = [64, 32]
+            [images.hills]
+            source = "solid:100,180,40,255:16x1"
+            [images.mountains]
+            source = "solid:180,180,180,255:16x1"
+            [sheets.hills]
+            image = "hills"
+            cell = [1, 1]
+            grid = [16, 1]
+            group = "Hills_Images"
+            [sheets.mountains]
+            image = "mountains"
+            cell = [1, 1]
+            grid = [16, 1]
+            group = "Mountains_Images"
+            [[layers]]
+            name = "mountain"
+            category = 2
+            sets = ["Mountains_Images/*"]
+            [[layers]]
+            name = "hills"
+            category = 4
+            sets = ["Hills_Images/*"]
+        "#).unwrap().compile(&NoFiles, 256).unwrap();
+        let tile = |terrain| Civ3Tile { square_type: (terrain << 12) | (rules::terrain::GRASSLAND << 8), ..Default::default() };
+        let mut world = Civ3World { width: 4, height: 2, tiles: vec![tile(rules::terrain::HILLS), tile(rules::terrain::MOUNTAINS), tile(rules::terrain::GRASSLAND), tile(rules::terrain::GRASSLAND)], ..Default::default() };
+        let mapper = Mapper::new(&compiled);
+        let normal = mapper.scene(&world, &Civ3View::default(), (100, 100), 0);
+        world.clean_map = clean_map::ALL;
+        let clean = mapper.scene(&world, &Civ3View::default(), (100, 100), 0);
+        assert_eq!(normal.layers, clean.layers, "each camera filters its own immutable world");
+        assert_eq!(clean.view(GAME_VIEW).unwrap().view.hidden_categories, clean_map::ALL);
+        let hills = &clean.layers[compiled.layer_index("hills").unwrap()].values;
+        let mountain = &clean.layers[compiled.layer_index("mountain").unwrap()].values;
+        assert!(hills[0] > 0 && hills[1] == 0);
+        assert!(mountain[0] == 0 && mountain[1] > 0);
+    }
+}
+
+
+#[cfg(test)]
+mod edge_fog_tests {
+    use super::*;
+    use crate::world::Civ3Tile;
+    use tile_render::{Blend, Camera, PlacedSprite, RgbaImage};
+
+    fn fog_description() -> render_desc::Description {
+        let mut desc = render_desc::Description::parse(crate::assets::BUILTIN_DESC).unwrap();
+        desc.images.retain(|name, _| name == "fog");
+        desc.sheets.retain(|name, _| name == "fog");
+        desc.layers.retain(|layer| matches!(layer.name.as_str(), "fog" | "fog_edge"));
+        desc.fonts.clear();
+        desc.palettes.clear();
+        desc.sets.clear();
+        desc
+    }
+
+    struct FakeFog;
+    impl render_desc::ImageLoader for FakeFog {
+        fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<RgbaImage>, String> {
+            Ok(vec![RgbaImage::from_fn(1152, 576, |_, _| [9, 0, 0, 255])])
+        }
+    }
+
+    #[test]
+    fn nonwrapping_sides_keep_the_missing_fog_vertices_without_resizing_the_map() {
+        let compiled = fog_description().compile(&FakeFog, 1024).unwrap();
+        let edge = compiled.layer_index("fog_edge").unwrap();
+        let mapper = Mapper::new(&compiled);
+        let mut world = Civ3World { player: 1, width: 8, height: 8, tiles: vec![Civ3Tile { explored: 2, ..Default::default() }; 32], ..Default::default() };
+        for wrap_y in [false, true] {
+            world.wrap_y = wrap_y;
+            let scene = mapper.scene(&world, &Civ3View::default(), (512, 256), 0);
+            assert_eq!((scene.shape.cols, scene.shape.rows), (4, 8 + 2 * u32::from(!wrap_y)));
+            for row in 0..scene.shape.rows {
+                let col = if row & 1 == 0 { 3 } else { 0 };
+                let vy = row as i32 - 1;
+                let digit = if wrap_y || (0..8).contains(&vy) { 1 } else { 0 };
+                let index = digit * 40;
+                let value = compiled.value("fog_edge", &format!("Fog_Of_War_Images/{index}")).unwrap();
+                for c in 0..4 {
+                    assert_eq!(scene.layers[edge].values[(row * 4 + c) as usize], if c == col { value } else { 0 }, "row {row}, col {c}, wrap y {wrap_y}");
+                }
+                assert_eq!(scene.layers[edge].offsets.as_ref().unwrap()[(row * 4 + col) as usize], (if row & 1 == 0 { 128 } else { -128 }, 0));
+            }
+        }
+        world.wrap_x = true;
+        let wrapped = mapper.scene(&world, &Civ3View::default(), (512, 256), 0);
+        assert!(wrapped.layers[edge].values.iter().all(|&value| value == 0), "wrapping grid cells already provide these vertices");
+    }
+
+    /// Compare the mapped grid with a complete fog-vertex sweep using
+    /// logical edge visibility and the installed FogOfWar.pcx. Expected
+    /// colours come from actual tile states, never native border pixels.
+    #[test]
+    fn edge_brightness_matches_a_complete_logical_fog_sweep_with_real_art() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).is_dir() {
+            return eprintln!("no Civ III install, skipped");
+        }
+        let loader = civ3_assets::loader::Civ3Loader::new(civ3_assets::GameFiles::complete(&install));
+        let compiled = fog_description().compile(&loader, 1024).unwrap();
+        let edge = compiled.layer_index("fog_edge").unwrap();
+        let mapper = Mapper::new(&compiled);
+        let mut world = Civ3World { player: 1, width: 8, height: 10, ..Default::default() };
+        world.tiles = (0..40).map(|i| {
+            let state = (i / 4 + i % 4) % 3;
+            Civ3Tile { explored: if state == 0 { 0 } else { 2 }, visibility: if state == 2 { 2 } else { 0 }, ..Default::default() }
+        }).collect();
+        for wrap_x in [false, true] {
+            for wrap_y in [false, true] {
+                world.wrap_x = wrap_x;
+                world.wrap_y = wrap_y;
+                let scene = mapper.scene(&world, &Civ3View::default(), (576, 352), 0);
+                let actual = tile_viewer::scene_world(&compiled, &scene);
+                let mut expected = compiled.world(scene.shape.cols, scene.shape.rows, wrap_x, wrap_y);
+                // The native pass iterates every odd vertex in its draw
+                // rectangle. Bounds checks apply to its four neighbours,
+                // not to the vertex itself (0x4C5148..0x4C551A).
+                for vy in -1..=world.height {
+                    for vx in -1..=world.width {
+                        if (vx + vy) & 1 == 0 { continue; }
+                        let corners = [(vx, vy - 1), (vx - 1, vy), (vx + 1, vy), (vx, vy + 1)].map(|(x, y)| {
+                            world.tile(x, y).map(|tile| if tile.visibility & 2 != 0 { 2 } else { i32::from(tile.explored & 2 != 0) })
+                        });
+                        let fallback = corners.into_iter().flatten().next().unwrap_or(0);
+                        let opposite = [3, 2, 1, 0];
+                        let index: i32 = (0..4).zip([1, 3, 9, 27]).map(|(k, weight)| corners[k].or(corners[opposite[k]]).unwrap_or(fallback) * weight).sum();
+                        if index == 80 { continue; }
+                        let mut sprite = PlacedSprite::new(compiled.set(&format!("Fog_Of_War_Images/{index}")).unwrap().0, vx * 64, (vy + 1) * 32);
+                        sprite.blend = Blend::Scale { denominator: 16 };
+                        expected.free.push(sprite);
+                    }
+                }
+                let mut unfixed = actual.clone();
+                for row in 0..scene.shape.rows {
+                    for col in 0..scene.shape.cols {
+                        unfixed.set(tile_render::LayerId(edge), col, row, 0);
+                    }
+                }
+                for downscale in [1, 2, 4] {
+                    for zoom in [(1, 1), (2, 1)] {
+                        let camera = Camera { downscale, zoom, overhang: OVERHANG, ..Camera::new((576 / downscale, 352 / downscale)) };
+                        let render = |map: &tile_render::TileWorld| tile_render::reference::render(map, &compiled.atlas, &camera, 0, [192, 160, 128, 255]);
+                        let oracle = render(&expected);
+                        let fixed = render(&actual);
+                        assert_eq!(fixed.as_bytes(), oracle.as_bytes(), "wrap ({wrap_x}, {wrap_y}), downscale {downscale}, zoom {zoom:?}");
+                        if !wrap_x {
+                            assert_ne!(render(&unfixed).as_bytes(), oracle.as_bytes(), "the previous missing edge fog must reproduce the brightness error");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn real_fog_art_keeps_uniform_brightness_on_all_edge_half_tiles() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).is_dir() { return eprintln!("no Civ III install, skipped"); }
+        let loader = civ3_assets::loader::Civ3Loader::new(civ3_assets::GameFiles::complete(&install));
+        let compiled = fog_description().compile(&loader, 1024).unwrap();
+        let mapper = Mapper::new(&compiled);
+        let mut world = Civ3World { player: 1, width: 8, height: 10, tiles: vec![Civ3Tile::default(); 40], ..Default::default() };
+        for (visibility, expected) in [(0, [107, 90, 74, 255]), (2, [198, 165, 132, 255])] {
+            world.tiles.fill(Civ3Tile { explored: 2, visibility, ..Default::default() });
+            for wrap_x in [false, true] {
+                for wrap_y in [false, true] {
+                    world.wrap_x = wrap_x;
+                    world.wrap_y = wrap_y;
+                    let scene = mapper.scene(&world, &Civ3View::default(), (576, 352), 0);
+                    let map = tile_viewer::scene_world(&compiled, &scene);
+                    for downscale in [1, 2, 4] {
+                        let camera = Camera { downscale, overhang: OVERHANG, hidden_categories: viewer_settings::clean_map::ALL, ..Camera::new((576 / downscale, 352 / downscale)) };
+                        let image = tile_render::reference::render(&map, &compiled.atlas, &camera, 0, [192, 160, 128, 255]);
+                        for y in 0..10 {
+                            for col in 0..4 {
+                                let x = 2 * col + (y & 1);
+                                for (dx, dy) in [(-48, 0), (48, 0), (0, -16), (0, 16)] {
+                                    let (px, py) = ((64 * x + 64 + dx) as u32 / downscale, (32 * y + 32 + dy) as u32 / downscale);
+                                    assert_eq!(image.get(px, py), expected, "tile ({x}, {y}), sample ({dx}, {dy}), wrap ({wrap_x}, {wrap_y}), downscale {downscale}, visible {visibility}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn real_inland_edge_art_has_no_invented_coast_but_actual_water_stays_blue() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).is_dir() { return eprintln!("no Civ III install, skipped"); }
+        let loader = civ3_assets::loader::Civ3Loader::new(civ3_assets::GameFiles::complete(&install));
+        let mut desc = render_desc::Description::parse(crate::assets::BUILTIN_DESC).unwrap();
+        desc.images.retain(|name, _| name == "xdgc");
+        desc.sheets.retain(|name, _| name == "terrain_xdgc");
+        desc.layers.retain(|layer| layer.name == "terrain");
+        desc.fonts.clear(); desc.palettes.clear(); desc.sets.clear();
+        let compiled = desc.compile(&loader, 1024).unwrap();
+        let mapper = Mapper::new(&compiled);
+        let mut world = Civ3World { width: 8, height: 8, tiles: vec![Civ3Tile { square_type: rules::terrain::DESERT << 8, square_parts: 2 << 8, ..Default::default() }; 32], ..Default::default() };
+        let at = world.index(0, 2);
+        world.tiles[at].square_parts |= 6; // Only the nonexistent W corner is coast.
+        let scene = mapper.scene(&world, &Civ3View::default(), (576, 288), 0);
+        let mut map = tile_viewer::scene_world(&compiled, &scene);
+        let terrain = compiled.layer_index("terrain").unwrap();
+        let desert = compiled.value("terrain", "Std_Terrain_Images/162").unwrap();
+        let false_coast = compiled.value("terrain", "Std_Terrain_Images/168").unwrap();
+        assert_eq!(map.get(tile_render::LayerId(terrain), 0, 2), desert);
+        let camera = Camera { overhang: OVERHANG, ..Camera::new((576, 288)) };
+        let render = |map: &tile_render::TileWorld| tile_render::reference::render(map, &compiled.atlas, &camera, 0, [0, 0, 0, 255]);
+        let blue_pixels = |image: &RgbaImage| image.as_bytes().chunks_exact(4).filter(|p| u16::from(p[2]) > u16::from(p[0]) + 8).count();
+        assert_eq!(blue_pixels(&render(&map)), 0, "inland desert must stay land-coloured to its edge");
+        map.set(tile_render::LayerId(terrain), 0, 2, false_coast);
+        assert!(blue_pixels(&render(&map)) > 0, "the old stored outside-water corner reproduces the blue shoreline");
+        world.wrap_x = true;
+        let wrapped = mapper.scene(&world, &Civ3View::default(), (576, 288), 0);
+        assert_eq!(wrapped.layers[terrain].values[at], false_coast, "a real neighbour across a seam keeps its coast");
+        world.wrap_x = false;
+        world.tiles.fill(Civ3Tile { square_type: rules::terrain::COAST << 8, square_parts: (2 << 8) | 80, ..Default::default() });
+        let water = mapper.scene(&world, &Civ3View::default(), (576, 288), 0);
+        assert!(blue_pixels(&render(&tile_viewer::scene_world(&compiled, &water))) > 0, "genuine water at the boundary stays water");
+    }
 }

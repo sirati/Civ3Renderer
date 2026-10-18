@@ -361,6 +361,10 @@ mod live {
 
     /// How long a path stays fresh when nothing it depends on changed.
     const REFRESH: Duration = Duration::from_millis(500);
+    // Pointer messages may arrive at 240 Hz. The native path finder runs
+    // on the game thread, so limit recomputation while the target moves.
+    // The game timer takes the latest target after the last pointer move.
+    const MIN_REFRESH: Duration = Duration::from_millis(33);
 
     struct Live {
         game: Civ3,
@@ -414,7 +418,10 @@ mod live {
         let key = (unit, targeting.start, to, used);
         let now = Instant::now();
         if let Ok(latest) = LATEST.lock()
-            && latest.as_ref().is_some_and(|(k, at, _)| *k == key && now.duration_since(*at) < REFRESH)
+            && latest.as_ref().is_some_and(|(k, at, _)| {
+                let elapsed = now.duration_since(*at);
+                (*k == key && elapsed < REFRESH) || (k.0 == key.0 && elapsed < MIN_REFRESH)
+            })
         {
             return;
         }

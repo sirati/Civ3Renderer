@@ -260,7 +260,7 @@ selected = "button_selected"
 image = "cover"
 at = [49, 79]
 size = [924, 611]
-show_if = "tab=resolution|layout"
+show_if = "tab=resolution|layout|clean_map"
 
 # ------------------------------------------------ Resolution
 
@@ -424,6 +424,12 @@ text = "Show FPS"
 style = "label"
 show_if = "tab=resolution"
 
+[[panels.preferences.items]]
+text = "Oversized menus: hold the middle mouse button and drag to reach hidden controls."
+style = "label"
+at = [90, 550]
+show_if = "tab=resolution"
+
 # ------------------------------------------------ Layout, left column
 
 [[panels.preferences.items]]
@@ -569,7 +575,7 @@ choice = "layout.zoom"
 value = "Floating131"
 at = [220, 287]
 size = [140, 26]
-text = "Box on top 1:3:1"
+text = "Floating box 1:3:1"
 style = "button"
 normal = "button"
 hover = "button_hover"
@@ -581,7 +587,7 @@ choice = "layout.zoom"
 value = "Floating171"
 at = [368, 287]
 size = [140, 26]
-text = "Box on top 1:7:1"
+text = "Floating box 1:7:1"
 style = "button"
 normal = "button"
 hover = "button_hover"
@@ -634,7 +640,7 @@ show_if = "tab=layout & layout.zoom=TopStrip"
 text = "Box height"
 style = "label"
 at = [72, 357]
-show_if = "tab=layout & layout.zoom=Mouse111|Mouse131"
+show_if = "tab=layout & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_strip"
@@ -653,15 +659,42 @@ style = "label"
 show_if = "tab=layout & layout.zoom=TopStrip|Mouse111|Mouse131"
 
 [[panels.preferences.items]]
+slider = "layout.zoom_box_height"
+at = [180, 352]
+size = [240, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 1.0
+step = 0.05
+decimals = 0
+percent = true
+text = "{layout.zoom_box_height_label}"
+style = "label"
+show_if = "tab=layout & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+checkbox = "layout.zoom_box_block_pointer"
+at = [72, 381]
+size = [440, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Keep mouse out of the floating zoom box"
+style = "label"
+show_if = "tab=layout & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
 text = "Roles"
 style = "heading"
-at = [72, 387]
+at = [72, 407]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 choice = "layout.roles"
 value = "Free"
-at = [72, 409]
+at = [72, 429]
 size = [104, 64]
 icon = "roles_free_{layout.split}"
 normal = "button"
@@ -672,7 +705,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 choice = "layout.roles"
 value = "UnitMouse"
-at = [184, 409]
+at = [184, 429]
 size = [104, 64]
 icon = "roles_unit_{layout.split}"
 normal = "button"
@@ -685,7 +718,7 @@ repeat = ["Both moved freely", "Unit and mouse"]
 spacing = [112, 0]
 text = "{item}"
 style = "caption"
-at = [72, 476]
+at = [72, 496]
 size = [104, 14]
 align = "center"
 show_if = "tab=layout"
@@ -693,18 +726,18 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "A follows the active unit;"
 style = "caption"
-at = [300, 420]
+at = [300, 440]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "B holds the mouse and follows it."
 style = "caption"
-at = [300, 436]
+at = [300, 456]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 checkbox = "layout.smooth_world_movement"
-at = [72, 508]
+at = [72, 524]
 size = [440, 16]
 normal = "check_off"
 hover = "check_hover"
@@ -716,7 +749,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Input"
 style = "heading"
-at = [72, 545]
+at = [72, 549]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -777,9 +810,15 @@ selected = "button_selected"
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-text = "(drag: hold the left button on the map and pull it; middle drag always)"
+text = "Drag mode: left/middle drag map; right click unit menu."
 style = "caption"
-at = [72, 654]
+at = [72, 650]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Right drag previews; left click its target confirms."
+style = "caption"
+at = [72, 668]
 show_if = "tab=layout"
 
 # ------------------------------------------------ Layout, screen locations
@@ -830,7 +869,7 @@ style = "button"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout"
+show_if = "tab=layout & layout.screen_fixed.{item}"
 
 [[panels.preferences.items]]
 repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
@@ -844,7 +883,7 @@ style = "button"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.orientation=vertical"
+show_if = "tab=layout & layout.orientation=vertical & layout.screen_fixed.{item}"
 
 [[panels.preferences.items]]
 repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
@@ -858,7 +897,7 @@ style = "button"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.orientation=vertical"
+show_if = "tab=layout & layout.orientation=vertical & layout.screen_fixed.{item}"
 
 [[panels.preferences.items]]
 repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
@@ -872,7 +911,7 @@ style = "button"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.orientation=horizontal"
+show_if = "tab=layout & layout.orientation=horizontal & layout.screen_fixed.{item}"
 
 [[panels.preferences.items]]
 repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
@@ -886,4 +925,647 @@ style = "button"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.orientation=horizontal"
+show_if = "tab=layout & layout.orientation=horizontal & layout.screen_fixed.{item}"
+
+[[panels.preferences.items]]
+text = "Mouse view"
+style = "label"
+at = [616, 461]
+size = [342, 26]
+valign = "middle"
+show_if = "tab=layout & layout.menu_follows_pointer"
+
+[[panels.preferences.items]]
+checkbox = "layout.menu_follows_pointer"
+at = [552, 520]
+size = [398, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Open menus in mouse view"
+style = "label"
+show_if = "tab=layout"
+
+# Menu list movement is independent of the world-map movement setting.
+[[panels.preferences.items]]
+checkbox = "input.smooth_menu_scrolling"
+at = [552, 548]
+size = [398, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Smooth scrolling in menu lists"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Captured mouse sensitivity"
+style = "label"
+at = [552, 580]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+slider = "input.capture_sensitivity"
+at = [552, 602]
+size = [300, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.1
+max = 5.0
+step = 0.1
+decimals = 1
+text = "{value}x"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Only changes the captured world cursor."
+style = "caption"
+at = [552, 640]
+show_if = "tab=layout"
+
+# Each map view can follow Civ III or choose its own detail.
+[[panels.preferences.items]]
+choice = "tab"
+value = "clean_map"
+at = [390, 40]
+size = [105, 32]
+text = "Clean map"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+
+[[panels.preferences.items]]
+text = "Map detail per view"
+style = "heading"
+at = [72, 100]
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+text = "Game follows Civ III's Clean Map command. Normal shows all detail. Custom hides checked items."
+style = "label"
+at = [72, 129]
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+text = "Checking an item selects Custom for that view. Fog and player visibility always apply."
+style = "caption"
+at = [72, 153]
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+text = "View A"
+style = "heading"
+at = [80, 188]
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.a.mode"
+value = "Inherit"
+at = [80, 217]
+size = [82, 26]
+text = "Game"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.a.mode"
+value = "Normal"
+at = [168, 217]
+size = [82, 26]
+text = "Normal"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.a.mode"
+value = "Custom"
+at = [256, 217]
+size = [82, 26]
+text = "Custom"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.rivers"
+at = [80, 266]
+size = [275, 23]
+text = "Rivers / flood plains"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.mountains"
+at = [80, 295]
+size = [275, 23]
+text = "Mountains / volcanoes"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.hills"
+at = [80, 324]
+size = [275, 23]
+text = "Hills"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.forests"
+at = [80, 353]
+size = [275, 23]
+text = "Forests / jungles / marsh"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.buildings"
+at = [80, 382]
+size = [275, 23]
+text = "Terrain buildings"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.roads"
+at = [80, 411]
+size = [275, 23]
+text = "Roads / railroads"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.irrigation"
+at = [80, 440]
+size = [275, 23]
+text = "Irrigation"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.resources"
+at = [80, 469]
+size = [275, 23]
+text = "Natural resources"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.yields"
+at = [80, 498]
+size = [275, 23]
+text = "Food / shield icons"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.pollution"
+at = [80, 527]
+size = [275, 23]
+text = "Pollution / craters"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.boundaries"
+at = [80, 556]
+size = [275, 23]
+text = "Territory boundaries"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.cities"
+at = [80, 585]
+size = [275, 23]
+text = "Cities and city labels"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.a.units"
+at = [80, 614]
+size = [275, 23]
+text = "Units and unit labels"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+text = "View B"
+style = "heading"
+at = [380, 188]
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.b.mode"
+value = "Inherit"
+at = [380, 217]
+size = [82, 26]
+text = "Game"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.b.mode"
+value = "Normal"
+at = [468, 217]
+size = [82, 26]
+text = "Normal"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.b.mode"
+value = "Custom"
+at = [556, 217]
+size = [82, 26]
+text = "Custom"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.rivers"
+at = [380, 266]
+size = [275, 23]
+text = "Rivers / flood plains"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.mountains"
+at = [380, 295]
+size = [275, 23]
+text = "Mountains / volcanoes"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.hills"
+at = [380, 324]
+size = [275, 23]
+text = "Hills"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.forests"
+at = [380, 353]
+size = [275, 23]
+text = "Forests / jungles / marsh"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.buildings"
+at = [380, 382]
+size = [275, 23]
+text = "Terrain buildings"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.roads"
+at = [380, 411]
+size = [275, 23]
+text = "Roads / railroads"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.irrigation"
+at = [380, 440]
+size = [275, 23]
+text = "Irrigation"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.resources"
+at = [380, 469]
+size = [275, 23]
+text = "Natural resources"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.yields"
+at = [380, 498]
+size = [275, 23]
+text = "Food / shield icons"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.pollution"
+at = [380, 527]
+size = [275, 23]
+text = "Pollution / craters"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.boundaries"
+at = [380, 556]
+size = [275, 23]
+text = "Territory boundaries"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.cities"
+at = [380, 585]
+size = [275, 23]
+text = "Cities and city labels"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.b.units"
+at = [380, 614]
+size = [275, 23]
+text = "Units and unit labels"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+text = "Zoom view"
+style = "heading"
+at = [680, 188]
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.zoom.mode"
+value = "Inherit"
+at = [680, 217]
+size = [82, 26]
+text = "Game"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.zoom.mode"
+value = "Normal"
+at = [768, 217]
+size = [82, 26]
+text = "Normal"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+choice = "clean_map.zoom.mode"
+value = "Custom"
+at = [856, 217]
+size = [82, 26]
+text = "Custom"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.rivers"
+at = [680, 266]
+size = [275, 23]
+text = "Rivers / flood plains"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.mountains"
+at = [680, 295]
+size = [275, 23]
+text = "Mountains / volcanoes"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.hills"
+at = [680, 324]
+size = [275, 23]
+text = "Hills"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.forests"
+at = [680, 353]
+size = [275, 23]
+text = "Forests / jungles / marsh"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.buildings"
+at = [680, 382]
+size = [275, 23]
+text = "Terrain buildings"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.roads"
+at = [680, 411]
+size = [275, 23]
+text = "Roads / railroads"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.irrigation"
+at = [680, 440]
+size = [275, 23]
+text = "Irrigation"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.resources"
+at = [680, 469]
+size = [275, 23]
+text = "Natural resources"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.yields"
+at = [680, 498]
+size = [275, 23]
+text = "Food / shield icons"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.pollution"
+at = [680, 527]
+size = [275, 23]
+text = "Pollution / craters"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.boundaries"
+at = [680, 556]
+size = [275, 23]
+text = "Territory boundaries"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.cities"
+at = [680, 585]
+size = [275, 23]
+text = "Cities and city labels"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"
+
+[[panels.preferences.items]]
+checkbox = "clean_map.zoom.units"
+at = [680, 614]
+size = [275, 23]
+text = "Units and unit labels"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=clean_map"

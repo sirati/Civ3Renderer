@@ -13,21 +13,28 @@
 // hook in `menus`.
 #![deny(unsafe_code)]
 
+pub mod ai_camera_focus;
 pub mod build;
 pub mod c3x;
 pub mod c3x_layout;
 pub mod city_label;
+pub mod clean_map;
 pub mod control_art;
 pub mod controls;
 pub mod cursor;
 pub mod hooks;
 pub mod layout;
 pub mod menus;
+pub mod map_messages;
 pub mod modal;
+pub mod native_camera;
 pub mod sprites;
+pub mod sliders;
 pub mod targeting;
 pub mod ui_hooks;
+pub mod unit_views;
 pub mod world;
+pub mod world_input;
 
 pub use build::{Addresses, Build};
 pub use world::{Civ3, CityInfo, DrawnEffect, DrawnUnit, EffectSource, IconBuilding, ImprovementInfo, MapInfo, Players, TileRecord, ViewState, WallBuilding};

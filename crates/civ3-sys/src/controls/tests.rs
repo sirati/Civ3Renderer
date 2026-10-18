@@ -416,3 +416,362 @@ fn a_popup_s_choices_share_its_height_by_their_lines() {
     typed(&mut m, f, (314, 52), ItemLayout { rows: 1, width: 314, height: 26, ..Default::default() }, 2, 16, 16, LINES_DRAW, -0x184, 0x28, &[1, 1]);
     assert_eq!(controls(&m, &sites()).iter().map(|c| c.rect).collect::<Vec<_>>(), [[100, 100, 314, 26], [100, 126, 314, 26]]);
 }
+
+#[test]
+fn rich_text_links_keep_the_visible_fragment_and_hit_order() {
+    let mut m = Fake::default();
+    let form = 0x10_0000;
+    m.form(form, PANEL, 0, true, [100, 50, 300, 150], 0, &[]);
+    m.put(form + LINKS, 0x30_0000);
+    m.put(form + LINK_COUNT, 5);
+    for (k, r) in [
+        [-30, 10, 250, 26], // A long link clipped on both sides.
+        [15, 40, 65, 56],
+        [30, 40, 90, 56], // Drawn later, so tested first by the game.
+        [10, 120, 60, 136], // Entirely outside the visible form.
+        [80, 70, 60, 86], // Invalid reversed rectangle.
+    ].into_iter().enumerate() {
+        m.rect(0x30_0000 + 32 * k as u32 + 4, r);
+    }
+    with_roots(&mut m, &[form]);
+    let got = controls(&m, &sites());
+    assert_eq!(got.iter().map(|c| c.rect).collect::<Vec<_>>(), [[130,90,60,16], [115,90,50,16], [100,60,200,16]]);
+    assert!(got.iter().all(|c| c.content_row() && c.text_link()));
+    assert_eq!(got.iter().map(|c| c.id).collect::<Vec<_>>(), [part_id(form,TAG_LINK,2), part_id(form,TAG_LINK,1), part_id(form,TAG_LINK,0)]);
+    m.put(form + STATUS1, NO_MOUSE);
+    assert!(controls(&m, &sites()).is_empty(), "a form which never receives clicks has no active text links");
+    m.put(form + STATUS1, 0);
+    m.put(form + STATUS2, 0);
+    assert!(controls(&m, &sites()).is_empty(), "hidden rich text never becomes an Alt target");
+}
+
+
+/// The orb and unit picture are painted directly into Main_GUI rather
+/// than constructed as Button objects.
+#[test]
+fn main_gui_status_actions_are_targets_only_while_the_native_actions_are_available() {
+    let mut m = Fake::default();
+    let g = sites().main_gui;
+    let main = g - MAIN_GUI_IN_SCREEN;
+    m.form(g, 0x66_B570, KEYED, true, [10, 5, 1034, 773], 0, &[]);
+    m.rect(g + UNIT_STATUS_RECT, [700, 500, 1000, 700]);
+    m.put(g + GUI_ENABLED - 1, 0x100);
+    m.put(main + crate::layout::MAIN_SCREEN_FORM_CURRENT_UNIT, 0);
+    m.put(main + TURN_END_FLAG, 0);
+    with_roots(&mut m, &[g]);
+    // A passive status panel or a waiting AI turn is not a button.
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(main + TURN_END_FLAG, 1);
+    assert_eq!(controls(&m, &sites()), [Control {
+        rect: [710, 606, 48, 28], kind: ControlKind::Button,
+        id: part_id(g, TAG_STATUS, STATUS_ORB),
+    }]);
+    m.put(main + crate::layout::MAIN_SCREEN_FORM_CURRENT_UNIT, 0x51_0000);
+    let expected = [
+        Control { rect: [710, 606, 48, 28], kind: ControlKind::Button, id: part_id(g, TAG_STATUS, STATUS_ORB) },
+        Control { rect: [758, 606, 253, 100], kind: ControlKind::Button, id: part_id(g, TAG_STATUS, STATUS_UNIT_PICTURE) },
+    ];
+    assert_eq!(controls(&m, &sites()), expected);
+    m.put(main + TURN_END_FLAG, 0);
+    assert_eq!(controls(&m, &sites()), expected);
+    // The centre of either region follows the corresponding native
+    // branch: the orb's 48 by 29 hit box or the unit picture beside it.
+    for (k, c) in expected.iter().enumerate() {
+        let (x, y) = (c.rect[0] + c.rect[2] / 2 - 10, c.rect[1] + c.rect[3] / 2 - 5);
+        assert!(y > 600 && y <= 700);
+        assert_eq!((700..=747).contains(&x) && y <= 628, k == 0);
+    }
+    m.put(g + GUI_ENABLED - 1, 0);
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(g + GUI_ENABLED - 1, 0x100);
+    m.put(g + STATUS2, 0);
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(g + STATUS2, 1);
+    m.put(g + STATUS1, KEYED | NO_MOUSE);
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(g + STATUS1, KEYED);
+    // Modal roots also remove both HUD actions.
+    m.form(0x70_0000, PANEL, KEYED, true, [0, 0, 100, 100], 0, &[]);
+    m.put(sites().modal, 0x70_0000);
+    assert!(controls(&m, &sites()).is_empty());
+}
+
+#[test]
+fn main_gui_status_actions_use_the_runtime_rect_and_clip() {
+    let mut m = Fake::default();
+    let g = sites().main_gui;
+    m.form(g, 0x66_B570, KEYED, true, [0, 0, 1024, 768], 0, &[]);
+    m.rect(g + UNIT_STATUS_RECT, [800, 500, 1000, 700]);
+    m.put(g + GUI_ENABLED - 1, 0x100);
+    m.put(g - MAIN_GUI_IN_SCREEN + crate::layout::MAIN_SCREEN_FORM_CURRENT_UNIT, 0x51_0000);
+    with_roots(&mut m, &[g]);
+    m.rect(g + CLIP, [0, 0, 840, 620]);
+    assert_eq!(controls(&m, &sites()), [Control {
+        rect: [800, 601, 40, 19], kind: ControlKind::Button,
+        id: part_id(g, TAG_STATUS, STATUS_ORB),
+    }]);
+    m.rect(g + UNIT_STATUS_RECT, [1000, 700, 800, 500]);
+    assert!(controls(&m, &sites()).is_empty());
+}
+
+/// Native New Game screens paint option indices into a separate eight-bit
+/// image. Their mouse handlers read these pixels, not child Button forms.
+fn setup_mask(m: &mut Fake, f: u32, vtable: u32, offset: u32, size: (usize, usize), rects: &[(u8, [i32; 4])]) {
+    let (image, bits) = (0x90_0000, 0x91_0000);
+    m.form(f, vtable, 0, true, [40, 20, 40 + size.0 as i32, 20 + size.1 as i32], 0, &[]);
+    with_roots(m, &[f]);
+    m.put(f + offset + 4, image);
+    m.put(image + 0x24, 8);
+    let stride = (size.0 + 3) & !3;
+    m.put(image + 0x40, stride as u32);
+    m.rect(image + 0x54, [0, 0, size.0 as i32, size.1 as i32]);
+    m.put(image + 0x4C0, bits);
+    let mut data = vec![255; stride * size.1];
+    for &(index, [x, y, w, h]) in rects {
+        for yy in y..y+h {
+            for xx in x..x+w { data[yy as usize * stride + xx as usize] = index; }
+        }
+    }
+    m.bytes(bits, &data);
+}
+
+#[test]
+fn every_world_and_player_option_uses_its_actual_native_hit_mask() {
+    let f = 0x10_0000;
+    for (vtable, offset, count) in [(0x67_0390, 0x3958, 34), (0x66_E2F0, 0x2B60, 67)] {
+        let mut m = Fake::default();
+        m.put(0x9C_3D74, 32);
+        m.put(0x9C_3D54, 8);
+        // World size, barbarians, landmass/water, climate, temperature and
+        // age; player civilization, difficulty, game rules and aggression.
+        let rects: Vec<_> = (0..count).map(|i| (i as u8, [i % 10 * 19, i / 10 * 13, 17, 11])).collect();
+        setup_mask(&mut m, f, vtable, offset, (197, 97), &rects);
+        let got = controls(&m, &sites());
+        assert_eq!(got.len(), count as usize);
+        for (control, &(index, rect)) in got.iter().zip(&rects) {
+            assert_eq!(control.id, (f as u64) << 32 | 0x5000_0000 | index as u64);
+            assert_eq!(control.rect, [rect[0] + 40, rect[1] + 20, rect[2], rect[3]]);
+            let (x, y) = (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2);
+            assert_eq!(m.u8(0x91_0000 + y as u32 * 200 + x as u32), Some(index));
+        }
+        // A scenario-disabled choice is not in the game's mask. It must
+        // disappear instead of keeping an English/static-layout target.
+        let r = rects[3].1;
+        for y in r[1]..r[1]+r[3] { for x in r[0]..r[0]+r[2] { m.0.insert(0x91_0000 + y as u32 * 200 + x as u32, 255); } }
+        let got = controls(&m, &sites());
+        assert_eq!(got.len(), count as usize - 1);
+        assert!(!got.iter().any(|c| c.id as u32 == 0x5000_0003));
+        m.put(f + STATUS2, 0);
+        assert!(controls(&m, &sites()).is_empty());
+    }
+}
+
+#[test]
+fn native_setup_targets_never_land_in_holes_or_over_another_option() {
+    let mut m = Fake::default();
+    // Index 1 has an L shape around index 2. Its bounding-box midpoint
+    // lies on 2, so selecting the largest solid run rectangle matters.
+    setup_mask(&mut m, 0x10_0000, 0x67_0390, 0x3958, (21, 20), &[(1, [0, 0, 20, 20]), (2, [4, 4, 16, 16])]);
+    let got = controls(&m, &sites());
+    assert_eq!(got.len(), 2);
+    let (one, two) = (&got[0], &got[1]);
+    assert_eq!(one.rect, [40, 20, 20, 4]);
+    assert_eq!(two.rect, [44, 24, 16, 16]);
+    // Invalid formats, strides or unreadable pixels fail closed.
+    m.put(0x90_0000 + 0x24, 16);
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(0x90_0000 + 0x24, 8);
+    m.put(0x90_0000 + 0x40, 2);
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(0x90_0000 + 0x40, 24);
+    m.put(0x90_0000 + 0x4C0, 0xFF_FFFF);
+    assert!(controls(&m, &sites()).is_empty());
+}
+
+#[test]
+fn native_title_layout_uses_actual_resolution_rows_and_modal_state() {
+    let mut m = Fake::default();
+    m.bytes(0xB4_25CA, &[1]);
+    assert_eq!(title_layout(&m, Build::Gog), None);
+    assert_eq!(title_layout(&m, Build::Steam), None);
+    m.put(0xCA_D384, 0);
+    m.put(0x9C_72F8, 1920);
+    m.put(0x9C_72FC, 1080);
+    m.put(0x72_C2A4, 200);
+    m.put(0x72_C2A8, 428);
+    m.put(0xB3_E274, 38);
+    m.put(0xA5_2CE8, 0);
+    assert_eq!(title_layout(&m, Build::PcGames), Some(TitleLayout { origin: (648, 456), row_height: 38, first: 1 }));
+    // A larger title viewport has the same client-pixel controls; the
+    // viewer applies its selected adaptive UI scaling afterward.
+    m.put(0x9C_72F8, 3840);
+    m.put(0x9C_72FC, 2160);
+    m.put(0xA5_2CE8, 1);
+    assert_eq!(title_layout(&m, Build::PcGames), Some(TitleLayout { origin: (1608, 996), row_height: 38, first: 0 }));
+    m.put(0xCA_D384, 0x12_3456);
+    assert_eq!(title_layout(&m, Build::PcGames), None);
+    m.put(0xCA_D384, 0);
+    m.bytes(0xB4_25CA, &[0]);
+    assert_eq!(title_layout(&m, Build::PcGames), None);
+}
+
+#[test]
+fn direct_native_grid_and_radio_classes_bypass_the_type_dispatcher() {
+    for (vtable, draw, back, subtract) in [(0x67_1730, CHOICE_DRAW, 0xE0, 0), (0x66_6778, LINES_DRAW, 0x28, 0x578)] {
+        let mut m = Fake::default();
+        let (f, thunk, vb) = (0x10_0000, 0x71_0000, 0x72_0000);
+        m.form(f, vtable, 0, true, [100, 100, 300, 160], 0, &[]);
+        m.put(vtable + 0x58, thunk);
+        m.put(f - 4, 0);
+        m.bytes(thunk, &[0x2B, 0x49, 0xFC]);
+        let jump = if subtract == 0 { thunk + 3 } else {
+            m.bytes(thunk + 3, &[0x81, 0xE9]); m.put(thunk + 5, subtract); thunk + 9
+        };
+        m.bytes(jump, &[0xE9]);
+        m.put(jump + 1, draw.wrapping_sub(jump + 5));
+        let b = f - subtract - back;
+        m.put(b, vb);
+        m.put(vb + 4, f - b);
+        m.put(vb + 8, f + 0x578 - b);
+        let l = f + 0x578;
+        for (field, value) in [(L_X0, 0), (L_Y0, 0), (L_LAYOUT, 0), (L_GAP, 0), (L_ROWS, 2), (L_WIDTH, 200), (L_HEIGHT, 30), (L_COUNT, 2)] { m.put(l + field, value); }
+        m.put(l + L_FIRST_NODE, 0);
+        with_roots(&mut m, &[f]);
+        let controls = controls(&m, &sites());
+        assert_eq!(controls.iter().map(|c| c.rect).collect::<Vec<_>>(), [[100, 100, 200, 30], [100, 130, 200, 30]]);
+        assert_eq!(controls[1].id, (f as u64) << 32 | TAG_CHOICE as u64 | 1);
+        m.put(f + STATUS1, NO_MOUSE);
+        assert!(super::controls(&m, &sites()).is_empty());
+    }
+}
+
+
+#[test]
+fn status_unit_icons_use_the_native_strip_and_need_an_active_visible_hud() {
+    let mut m = Fake::default();
+    let g = sites().main_gui;
+    m.form(g, 0x66_B570, KEYED, true, [10, 5, 1034, 773], 0, &[]);
+    m.rect(g + UNIT_STATUS_RECT, [700, 500, 1000, 700]);
+    m.put(g + GUI_ENABLED - 1, 0x100);
+    m.put(g - MAIN_GUI_IN_SCREEN + crate::layout::MAIN_SCREEN_FORM_CURRENT_UNIT, 0x51_0000);
+    m.put(0xB4_2184, 0x73_0000);
+    m.put(0x73_0000 + crate::layout::SPRITE_WIDTH, 32);
+    m.put(0x73_0000 + crate::layout::SPRITE_HEIGHT, 32);
+    with_roots(&mut m, &[g]);
+    assert_eq!(status_unit_row(&m, &sites(), &controls(&m, &sites())), Some((g + 0x274, [737, 519, 247, 22])));
+    assert_eq!(status_unit_row(&m, &sites(), &[]), None);
+    m.put(g + GUI_ENABLED - 1, 0);
+    assert_eq!(status_unit_row(&m, &sites(), &controls(&m, &sites())), None);
+    m.put(g + GUI_ENABLED - 1, 0x100);
+    m.put(0x73_0000 + crate::layout::SPRITE_HEIGHT, 24);
+    assert_eq!(status_unit_row(&m, &sites(), &controls(&m, &sites())), None);
+}
+
+fn native_slider(m: &mut Fake, f: u32, size: (i32, i32), arrows: bool, border: bool, reverse: bool) {
+    let parent = f + 0x20000;
+    m.form(parent, PANEL, KEYED, true, [100, 50, 1000, 750], 0, &[f]);
+    m.form(f, crate::sliders::VTABLE, 0, true, [10, 20, 10 + size.0, 20 + size.1], parent, &[]);
+    m.put(f + 0x278, 0x500000);
+    m.put(f + 0x574, if arrows { 0 } else { 2 });
+    m.put(f + 0x578, 1);
+    m.put(f + 0x57C, if border { 0 } else { u32::MAX });
+    m.put(f + 0x580, 10);
+    m.put(f + 0x584, 137);
+    m.put(f + 0x588, u32::from(reverse));
+    m.put(f + crate::sliders::VALUE, 51);
+    let inset = i32::from(border);
+    let thickness = size.0.min(size.1);
+    m.rect(f + 0x5AC, [inset, inset, thickness - inset, thickness - inset]);
+    with_roots(m, &[parent]);
+}
+
+#[test]
+fn native_slider_tracks_match_knob_travel_with_arrows_borders_and_both_axes() {
+    let f = 0x100000;
+    for horizontal in [false, true] {
+        for arrows in [false, true] {
+            for border in [false, true] {
+                let mut m = Fake::default();
+                let size = if horizontal { (406, 20) } else { (20, 406) };
+                native_slider(&mut m, f, size, arrows, border, false);
+                let slider = crate::sliders::Slider::read(&m, f).unwrap();
+                let knob = 20 - i32::from(border) * 2;
+                let start = i32::from(border) + knob / 2 + if arrows { knob + 1 } else { 0 };
+                let travel = 406 - knob * if arrows { 3 } else { 1 } - i32::from(border) * 2;
+                let track = if horizontal { [110 + start, 80, travel, 1] } else { [120, 70 + start, 1, travel] };
+                assert_eq!(controls(&m, &sites()), [Control { id: u64::from(f), rect: [110, 70, size.0, size.1], kind: ControlKind::Slider { track, value: slider.normalized() } }]);
+                assert_eq!(slider.exact_at(0), 10);
+                assert_eq!(slider.exact_at(1_000_000), 137);
+            }
+        }
+    }
+}
+
+#[test]
+fn native_slider_reverse_changes_parent_value_but_not_the_drawn_position() {
+    let f = 0x100000;
+    let mut m = Fake::default();
+    native_slider(&mut m, f, (406, 20), true, true, false);
+    let normal = crate::sliders::Slider::read(&m, f).unwrap();
+    m.put(f + 0x588, 1);
+    let reverse = crate::sliders::Slider::read(&m, f).unwrap();
+    assert_eq!(normal.normalized(), reverse.normalized());
+    assert_eq!(normal.track, reverse.track);
+    assert!(!normal.same_control(reverse));
+}
+
+#[test]
+fn native_slider_identity_rejects_reused_canvas_parent_and_range() {
+    let f = 0x100000;
+    for offset in [0x130, 0x278, 0x578, 0x580, 0x584] {
+        let mut m = Fake::default();
+        native_slider(&mut m, f, (406, 20), true, true, false);
+        let before = crate::sliders::Slider::read(&m, f).unwrap();
+        let old = m.u32(f + offset).unwrap();
+        m.put(f + offset, old + 1);
+        assert!(!crate::sliders::Slider::read(&m, f).is_some_and(|after| after.same_control(before)));
+    }
+}
+
+#[test]
+fn hidden_empty_and_malformed_native_sliders_are_not_alt_targets() {
+    let f = 0x100000;
+    for (offset, value) in [(STATUS2, 0), (STATUS1, RELATIVE | NO_MOUSE), (0x278, 0), (0x584, 10), (0x58C, 138), (0x1B4, 10)] {
+        let mut m = Fake::default();
+        native_slider(&mut m, f, (406, 20), true, true, false);
+        m.put(f + offset, value);
+        assert!(controls(&m, &sites()).is_empty(), "offset {offset:x}");
+    }
+}
+
+#[test]
+fn malformed_native_slider_knob_geometry_cannot_overflow_track_arithmetic() {
+    let f = 0x100000;
+    for right in [i32::MAX, i32::MIN, 0, 100_000] {
+        let mut m = Fake::default();
+        native_slider(&mut m, f, (406, 20), true, true, false);
+        m.put(f + 0x5AC, 0);
+        m.put(f + 0x5B4, right as u32);
+        assert!(crate::sliders::Slider::read(&m, f).is_none());
+        assert!(controls(&m, &sites()).is_empty());
+    }
+}
+
+
+#[test]
+fn the_native_map_seed_text_box_can_receive_alt_focus_and_keyboard_editing() {
+    let mut m = Fake::default();
+    let (world, seed) = (0x10_0000, 0x10_120C);
+    m.form(world, 0x67_0390, 0, true, [100, 80, 900, 680], 0, &[seed]);
+    // Real New_Game_Map_Form setup calls TextBox::setup and selects its
+    // editable buffer/max-length. Native clicks position the caret; Alt
+    // must focus this form, without pretending that it is a palette item.
+    m.form(seed, 0x66_7188, 0x102020, true, [420, 550, 620, 575], world, &[]);
+    with_roots(&mut m, &[world]);
+    assert_eq!(controls(&m, &sites()), [Control { rect: [520, 630, 200, 25], kind: ControlKind::Button, id: seed as u64 }]);
+    m.put(seed + STATUS1, 0x102020 | NO_MOUSE);
+    assert!(controls(&m, &sites()).is_empty());
+    m.put(seed + STATUS1, 0x102020);
+    m.put(seed + STATUS2, 0);
+    assert!(controls(&m, &sites()).is_empty());
+}

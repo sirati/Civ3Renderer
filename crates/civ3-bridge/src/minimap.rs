@@ -198,7 +198,13 @@ pub(crate) fn rgba(pixels: &[u16]) -> Vec<u8> {
 
 /// The minimap the viewing player sees, `size` pixels, as row-major RGBA.
 /// `owner_color`: a civ's colour (its colour table's entry 66) in RGB555.
-pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) -> u16) -> Vec<u8> {
+pub fn image(world: &Civ3World, size: (u32, u32), owner_color: impl Fn(i32) -> u16) -> Vec<u8> {
+    image_mode(world, size, world.navigator_modes.main, owner_color)
+}
+
+/// A navigator's selected engine mode. Geography uses the bright terrain
+/// source with no territory tint or city squares; Territory uses PCX_2.
+pub fn image_mode(world: &Civ3World, (w, h): (u32, u32), mode: civ3_sys::ui_hooks::NavigatorMode, owner_color: impl Fn(i32) -> u16) -> Vec<u8> {
     let Terrain { geometry: g, bright, tiles } = terrain(world, (w, h));
     if w == 0 || h == 0 || g.width <= 0 || g.height <= 1 {
         return vec![0; w as usize * h as usize * 4];
@@ -206,9 +212,9 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
     let (w, h) = (w as i64, h as i64);
     // Darkened: averaged with grey (56, 56, 56); owned land tinted 3/4 with
     // the owner's colour over the bright pixel.
-    let mut political: Vec<u16> =
-        bright.iter().copied().map(darken).collect();
-    for (i, tile) in tiles.iter().enumerate() {
+    let geography = mode == civ3_sys::ui_hooks::NavigatorMode::Geography;
+    let mut political: Vec<u16> = if geography { bright.clone() } else { bright.iter().copied().map(darken).collect() };
+    for (i, tile) in tiles.iter().enumerate().filter(|_| !geography) {
         let Some((x, y)) = *tile else { continue };
         let Some(t) = world.tile(x as i32, y as i32) else { continue };
         let owner = i32::from(t.owner);
@@ -230,7 +236,7 @@ pub fn image(world: &Civ3World, (w, h): (u32, u32), owner_color: impl Fn(i32) ->
     }
     let per_col = w / g.width;
     let s = (per_col >> 2).clamp(1, 4);
-    for city in &world.cities {
+    for city in world.cities.iter().filter(|_| !geography) {
         let (x, y) = (g.wrap_x(city.x.into()), g.wrap_y(city.y.into()));
         if !g.valid(x, y) || !explored(x, y) {
             continue;
@@ -334,4 +340,53 @@ pub fn view_rect(world: &Civ3World, (w, h): (u32, u32), (xa, ya, xb, yb): (i32, 
     }
     out.retain(|r| r[2] > 0 && r[3] > 0);
     out
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+    use civ3_sys::ui_hooks::NavigatorMode;
+    use crate::world::{Civ3City, Civ3Tile};
+
+    #[test]
+    fn geography_and_territory_toggle_both_ways_with_ocean_and_unclaimed_land() {
+        let mut world = Civ3World { width: 16, height: 16, flags: 1, wrap_x: true, player: 1, ..Default::default() };
+        for y in 0..16 {
+            for x in ((y & 1)..16).step_by(2) {
+                let (owner, terrain) = match x { 0..=3 => (1, 2), 4..=7 => (2, 2), 8..=11 => (0, 2), _ => (2, 13) };
+                world.tiles.push(Civ3Tile { square_type: terrain << 12, owner, explored: if y < 14 { 2 } else { 0 }, ..Default::default() });
+            }
+        }
+        world.cities.push(Civ3City { x: 2, y: 8, ..Default::default() });
+        let size = (128, 120);
+        let color = |owner| match owner { 1 => from_rgb([231, 8, 8]), 2 => from_rgb([49, 99, 255]), _ => panic!("unexpected owner {owner}") };
+        let sample = |pixels: &[u8], tile| -> [u8; 4] {
+            let (x, y) = pixel_of(&world, size, tile).unwrap();
+            let i = ((y * size.0 + x) * 4) as usize;
+            pixels[i..i + 4].try_into().unwrap()
+        };
+        let territory = image_mode(&world, size, NavigatorMode::Territory, color);
+        let geography = image_mode(&world, size, NavigatorMode::Geography, |_| panic!("geography must not tint owner colours"));
+        // Interior pixels have exact RGB555 values from the engine's
+        // terrain, grey-average and 3:1 owner-colour arithmetic.
+        assert_eq!(sample(&territory, (2, 4)), [206, 41, 16, 255]);
+        assert_eq!(sample(&territory, (6, 4)), [66, 107, 198, 255]);
+        assert_eq!(sample(&territory, (10, 4)), [99, 99, 49, 255]);
+        assert_eq!(sample(&territory, (14, 4)), [24, 66, 74, 255], "owned ocean is never tinted");
+        for tile in [(2, 4), (6, 4), (10, 4), (2, 8)] {
+            assert_eq!(sample(&geography, tile), [140, 148, 49, 255]);
+        }
+        assert_eq!(sample(&geography, (14, 4)), [0, 74, 90, 255]);
+        assert_eq!(sample(&territory, (2, 8)), [255, 255, 255, 255], "city squares belong only to Territory");
+        for pixels in [&territory, &geography] {
+            assert_eq!(sample(pixels, (6, 14)), [0, 0, 0, 255], "unexplored tiles stay black in both modes");
+        }
+        // The normal entry point follows the snapshot's selected source;
+        // both transitions change the world state used for publication.
+        for mode in [NavigatorMode::Territory, NavigatorMode::Geography, NavigatorMode::Territory, NavigatorMode::Geography] {
+            world.navigator_modes.main = mode;
+            let expected = if mode == NavigatorMode::Geography { &geography } else { &territory };
+            assert_eq!(&image(&world, size, color), expected);
+        }
+    }
 }

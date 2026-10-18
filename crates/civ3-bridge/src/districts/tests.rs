@@ -480,11 +480,65 @@ fn the_great_wall_is_drawn_between_its_pieces_and_over_resources() {
     assert_eq!(out[..2], [icon("Art/resources_shadows.pcx"), icon("Art/resources.pcx")]);
     assert_eq!(out[2..], [piece(1), piece(0), piece(5)]);
     assert_eq!(stages(&w, 10, 10, false).resources, vec![]);
+    assert_eq!(stages(&w, 10, 10, false).building_resources, 2);
     let tile = *w.tile(10, 10).unwrap();
     assert!(takes_over_resource(&w, &tile));
     assert!(rules::resource(&w, 10, 10).is_none());
     // Where there is no wall the game draws it.
     assert!(rules::resource(&w, 14, 10).is_some());
+}
+
+#[test]
+fn a_resource_below_a_district_can_be_hidden_independently() {
+    use crate::{district_art, scene_map};
+    use tile_render::{Camera, RgbaImage, reference};
+    use viewer_settings::clean_map;
+    let mut world = world();
+    add_district(&mut world, X::GREAT_WALL_DISTRICT_ID, 10, 10);
+    world.resource_icons = vec![4];
+    world.resource_visible = vec![true];
+    tile_mut(&mut world, 10, 10).resource = 0;
+    let stages = stages(&world, 10, 10, false);
+    assert_eq!(stages.building_resources, 2);
+    let mut text = String::from(r#"
+        [grid]
+        layout = "staggered"
+        step = [64, 32]
+        [images.resource]
+        source = "solid:40,200,80,255:1x1"
+        [images.district]
+        source = "solid:200,80,40,255:1x1"
+        [sheets.resource]
+        image = "resource"
+        cell = [1, 1]
+        grid = [1, 1]
+        [sheets.district]
+        image = "district"
+        cell = [1, 1]
+        grid = [1, 1]
+    "#);
+    for (i, draw) in stages.buildings.iter().enumerate() {
+        let name = district_art::Slice::of(draw).sprite();
+        let name = toml::Value::String(name).to_string();
+        let image = if i < stages.building_resources { "resource" } else { "district" };
+        text += &format!("\n[sets.{name}]\nframes = ['{image}/0']\n");
+    }
+    for (names, category) in [(&district_art::UNDER_RESOURCE_LAYERS[..], clean_map::RESOURCES), (&district_art::LAYERS[..], clean_map::BUILDINGS)] {
+        for name in names { text += &format!("\n[[layers]]\nname = '{name}'\ncategory = {category}\nsets = ['District@*']\n"); }
+    }
+    struct NoFiles;
+    impl render_desc::ImageLoader for NoFiles {
+        fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<RgbaImage>, String> { panic!("generated fixture"); }
+    }
+    let compiled = render_desc::Description::parse(&text).unwrap().compile(&NoFiles, 64).unwrap();
+    let scene = scene_map::Mapper::new(&compiled).scene(&world, &crate::world::Civ3View::default(), (2, 2), 0);
+    let rendered = tile_viewer::scene_world(&compiled, &scene);
+    let clear = [1, 2, 3, 255];
+    for (hidden, expected) in [(0, [200,80,40,255]), (clean_map::BUILDINGS, [40,200,80,255]), (clean_map::RESOURCES, [200,80,40,255]), (clean_map::BUILDINGS | clean_map::RESOURCES, clear)] {
+        let camera = Camera { x: 640, y: 320, hidden_categories: hidden, ..Camera::new((2, 2)) };
+        let image = reference::render(&rendered, &compiled.atlas, &camera, 0, clear);
+        assert_eq!(image.get(0, 0), expected, "mask{hidden:#x}");
+    }
 }
 
 #[test]
@@ -522,7 +576,7 @@ fn generated_resources_go_beside_the_tiles_own() {
     let rig = sheet("OilRig.pcx", (0, 0), (128, 64), (0, 0));
     // (40: C3X centres by the icon sprite's Width, 48, measured live.)
     assert_eq!(draws(&w, 10, 10), vec![rig.clone(), generated((40, 7))]);
-    assert_eq!(stages(&w, 10, 10, false), Stages { buildings: vec![rig.clone()], resources: vec![generated((40, 7))] });
+    assert_eq!(stages(&w, 10, 10, false), Stages { buildings: vec![rig.clone()], resources: vec![generated((40, 7))], building_resources: 0 });
 
     // With the tile's own resource: that one 16 pixels left, this one 16 right of the centre.
     tile_mut(&mut w, 10, 10).resource = 0;

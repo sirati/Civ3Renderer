@@ -1684,86 +1684,107 @@ sets = ["Polar_Icecaps_Images/*"]
 
 [[layers]]
 name = "flood_plain"
+category = 1
 cull_offset = [0, -32]
 pass = 1
 sets = ["Flood_Plains_Images/*"]
 
 [[layers]]
 name = "rivers_under"
+category = 1
 cull_offset = [0, -32]
 pass = 2
 sets = ["Delta_Rivers_Images/*"]
 
 [[layers]]
 name = "mountain"
+category = 2
 pass = 3
-sets = ["Mountains_Images/*", "Volcanos_Images/*", "Hills_Images/*", "LM_Mountains_Images/*", "LM_Hills_Images/*"]
+sets = ["Mountains_Images/*", "Volcanos_Images/*", "LM_Mountains_Images/*"]
+
+[[layers]]
+name = "hills"
+category = 4
+pass = 3
+sets = ["Hills_Images/*", "LM_Hills_Images/*"]
 
 [[layers]]
 name = "irrigation"
+category = 64
 pass = 3
 sets = ["Irrigation_Desert_Images/*"]
 
 [[layers]]
 name = "tnt"
+category = 256
 pass = 3
 sets = ["Tnt_Images/*"]
 
 [[layers]]
 name = "forest"
+category = 8
 pass = 3
 sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*", "LM_Forests_*"]
 
 [[layers]]
 name = "border_nw_shade"
+category = 1024
 pass = 3
 blend = { scale = 16 }
 sets = ["Territory_Shade/*"]
 
 [[layers]]
 name = "border_nw"
+category = 1024
 pass = 3
 sets = ["Territory_Images/*"]
 palettes = true
 
 [[layers]]
 name = "border_ne_shade"
+category = 1024
 pass = 3
 blend = { scale = 16 }
 sets = ["Territory_Shade/*"]
 
 [[layers]]
 name = "border_ne"
+category = 1024
 pass = 3
 sets = ["Territory_Images/*"]
 palettes = true
 
 [[layers]]
 name = "border_sw_shade"
+category = 1024
 pass = 3
 blend = { scale = 16 }
 sets = ["Territory_Shade/*"]
 
 [[layers]]
 name = "border_sw"
+category = 1024
 pass = 3
 sets = ["Territory_Images/*"]
 palettes = true
 
 [[layers]]
 name = "border_se_shade"
+category = 1024
 pass = 3
 blend = { scale = 16 }
 sets = ["Territory_Shade/*"]
 
 [[layers]]
 name = "border_se"
+category = 1024
 pass = 3
 sets = ["Territory_Images/*"]
 palettes = true
 
 [[layers]]
 name = "road"
+category = 32
 pass = 3
 sets = ["Roads_Images/*"]
 
@@ -1771,174 +1792,226 @@ sets = ["Roads_Images/*"]
 # road, and after the railroad (crate::scene_map).
 [[layers]]
 name = "forest_over_road"
+category = 8
 pass = 3
 sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*", "LM_Forests_*"]
 
 [[layers]]
 name = "railroad"
+category = 32
 pass = 3
 sets = ["Railroads_Images/*"]
 
 [[layers]]
 name = "forest_over_railroad"
+category = 8
 pass = 3
 sets = ["Grassland_*", "Plains_*", "Tundra_*", "Marsh_*", "LM_Forests_*"]
 
 # Draw_Tile_Buildings (§6.7b), then craters and pollution.
 [[layers]]
 name = "ruins"
+category = 16
 pass = 3
 sets = ["Ruins/*"]
 
 [[layers]]
 name = "airfield_shadow"
+category = 16
 pass = 3
 blend = { scale = 16 }
 sets = ["Terrain_Buldings_Airfields_Shadow/*"]
 
 [[layers]]
 name = "airfield"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Airfields/*"]
 
 [[layers]]
 name = "mine"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Mines/*"]
 
 [[layers]]
 name = "barricade"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Barricade/*"]
 
 [[layers]]
 name = "fortress"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Fortress/*"]
 
 [[layers]]
 name = "goody_hut"
+category = 16
 pass = 3
 sets = ["Goody_Huts_Images/*"]
 
 [[layers]]
 name = "barbarian_camp"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Barbarian_Camp/*"]
 
 [[layers]]
 name = "colony"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Camp/*"]
 
 [[layers]]
 name = "radar_shadow"
+category = 16
 pass = 3
 blend = { scale = 16 }
 sets = ["Terrain_Buldings_Radar_Shadow/*"]
 
 [[layers]]
 name = "radar"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Radar/*"]
 
 [[layers]]
 name = "outpost_shadow"
+category = 16
 pass = 3
 blend = { scale = 16 }
 sets = ["Terrain_Buldings_Outposts_Shadow/*"]
 
 [[layers]]
 name = "outpost"
+category = 16
 pass = 3
 sets = ["Terrain_Buldings_Outposts/*"]
 
 [[layers]]
 name = "victory_point"
+category = 16
 pass = 3
 sets = ["Victory_Image/*"]
 
 # C3X districts: drawn instead of a tile's buildings (C3X replaces
-# m12_Draw_Tile_Buildings), up to six slices per tile (crate::district_art).
+# m12_Draw_Tile_Buildings): up to three resources beneath six district
+# slices per tile (crate::district_art).
+[[layers]]
+name = "district_under_resource_0"
+category = 128
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_under_resource_1"
+category = 128
+pass = 3
+sets = ["District@*"]
+
+[[layers]]
+name = "district_under_resource_2"
+category = 128
+pass = 3
+sets = ["District@*"]
+
 [[layers]]
 name = "district_0"
+category = 16
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_1"
+category = 16
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_2"
+category = 16
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_3"
+category = 16
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_4"
+category = 16
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_5"
+category = 16
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "craters"
+category = 512
 pass = 3
 sets = ["Craters/*"]
 
 [[layers]]
 name = "pollution"
+category = 512
 pass = 3
 sets = ["Pollution/*"]
 
 [[layers]]
 name = "resource_shadow"
+category = 128
 pass = 3
 blend = { scale = 16 }
 sets = ["ResourcesShadows/*"]
 
 [[layers]]
 name = "resource"
+category = 128
 pass = 3
 sets = ["Resources/*"]
 
 # What C3X draws in the resource slot for districts (crate::districts).
 [[layers]]
 name = "district_resource_0"
+category = 128
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_resource_1"
+category = 128
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "district_resource_2"
+category = 128
 pass = 3
 sets = ["District@*"]
 
 [[layers]]
 name = "city"
+category = 2048
 pass = 3
 sets = ["City_Images/*"]
 
 [[layers]]
 name = "victory_location"
+category = 2048
 pass = 3
 sets = ["Victory_Image/*"]
 
 [[layers]]
 name = "rivers_over"
+category = 1
 cull_offset = [0, -32]
 pass = 4
 sets = ["Delta_Rivers_Images/*"]
@@ -1947,6 +2020,17 @@ sets = ["Delta_Rivers_Images/*"]
 name = "fog"
 cull_offset = [0, -32]
 pass = 5
+blend = { scale = 16 }
+sets = ["Fog_Of_War_Images/*"]
+
+# The fog pass also visits the vertex just beyond each non-wrapping side.
+# The tile grid has no cell there: the adjacent edge cell holds the extra
+# vertex with a +/-128 px offset. Its neighbours still determine the shade.
+[[layers]]
+name = "fog_edge"
+cull_offset = [0, -32]
+pass = 5
+per_cell_offset = true
 blend = { scale = 16 }
 sets = ["Fog_Of_War_Images/*"]
 
@@ -1960,6 +2044,7 @@ sets = ["Fog_Of_War_Images/*"]
 # frame), not from the clock.
 [[layers]]
 name = "unit_disc"
+category = 4096
 pass = 6
 descending = true
 per_cell_offset = true
@@ -1968,6 +2053,7 @@ palettes = true
 
 [[layers]]
 name = "unit_ring"
+category = 4096
 pass = 6
 descending = true
 per_cell_offset = true
@@ -1975,6 +2061,7 @@ sets = ["UnitRing@*"]
 
 [[layers]]
 name = "unit_cursor"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -1986,6 +2073,7 @@ palettes = true
 
 [[layers]]
 name = "unit_banner"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -1997,6 +2085,7 @@ palettes = true
 
 [[layers]]
 name = "unit_shadow"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -2008,6 +2097,7 @@ sets = ["UnitShadowAnim@*"]
 
 [[layers]]
 name = "unit_body"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -2021,6 +2111,7 @@ palettes = true
 # the offset is halved, the HUD's art keeps its size).
 [[layers]]
 name = "unit_hud_bar"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2029,6 +2120,7 @@ sets = ["UnitHud_bar/*"]
 
 [[layers]]
 name = "unit_hud_frame"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2037,6 +2129,7 @@ sets = ["UnitHud_frame/*"]
 
 [[layers]]
 name = "unit_hud_led"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2045,6 +2138,7 @@ sets = ["UnitHud_led@*"]
 
 [[layers]]
 name = "unit_hud_stack"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2053,6 +2147,7 @@ sets = ["UnitHud_stack/*"]
 
 [[layers]]
 name = "unit_over_disc"
+category = 4096
 pass = 6
 descending = true
 per_cell_offset = true
@@ -2061,6 +2156,7 @@ palettes = true
 
 [[layers]]
 name = "unit_over_ring"
+category = 4096
 pass = 6
 descending = true
 per_cell_offset = true
@@ -2068,6 +2164,7 @@ sets = ["UnitRing@*"]
 
 [[layers]]
 name = "unit_over_cursor"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -2079,6 +2176,7 @@ palettes = true
 
 [[layers]]
 name = "unit_over_banner"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -2090,6 +2188,7 @@ palettes = true
 
 [[layers]]
 name = "unit_over_shadow"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -2101,6 +2200,7 @@ sets = ["UnitShadowAnim@*"]
 
 [[layers]]
 name = "unit_over_body"
+category = 4096
 offset = [64, 32]
 pass = 6
 descending = true
@@ -2114,6 +2214,7 @@ palettes = true
 # the offset is halved, the HUD's art keeps its size).
 [[layers]]
 name = "unit_over_hud_bar"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2122,6 +2223,7 @@ sets = ["UnitHud_bar/*"]
 
 [[layers]]
 name = "unit_over_hud_frame"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2130,6 +2232,7 @@ sets = ["UnitHud_frame/*"]
 
 [[layers]]
 name = "unit_over_hud_led"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true
@@ -2138,6 +2241,7 @@ sets = ["UnitHud_led@*"]
 
 [[layers]]
 name = "unit_over_hud_stack"
+category = 4096
 offset = [32, 0]
 pass = 6
 descending = true

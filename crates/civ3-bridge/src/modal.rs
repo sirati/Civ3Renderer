@@ -255,7 +255,7 @@ impl Pending {
 }
 
 #[cfg(windows)]
-pub use live::{install, modal_open, queue, world_input};
+pub use live::{install, modal_open, native_input_allowed, queue, world_input};
 
 #[cfg(windows)]
 mod live {
@@ -365,6 +365,14 @@ mod live {
         let modal = modal_pump::install(sites.modal.0, &sites.modal.1, on_modal).map_err(e("modal pump"))?;
         log::info!("modal input: pump calls patched");
         Ok(Installed { _modal: modal, _human: human, _animation: animation })
+    }
+
+    /// Whether direct map handlers can run from the native input queue.
+    /// An input message can also arrive during an animation's nested pump;
+    /// let the game finish that animation before accepting a virtual action.
+    pub fn native_input_allowed() -> bool {
+        LIVE.get().is_some() && HUMAN_PUMPS.load(SeqCst) > 0
+            && ANIMATION_PUMPS.load(SeqCst) == 0 && !RUNNING.load(SeqCst)
     }
 
     /// Whether a modal form is open (the map takes no input then).

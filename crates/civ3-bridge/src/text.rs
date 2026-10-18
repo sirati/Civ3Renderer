@@ -5,6 +5,7 @@
 //! and at other zooms from the face's outlines (see [`Fonts::run_glyphs`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::cell::RefCell;
 use std::fmt::Write as _;
 
 use civ3_assets::GameFiles;
@@ -97,6 +98,8 @@ pub struct Fonts {
     /// Changes whenever loaded font metrics change, including a reload
     /// whose glyphs are already in the atlas.
     revision: u64,
+    /// Cached glyph ink extents, invalidated when metrics are replaced.
+    ink: RefCell<(u64, BTreeMap<(FontKey, char), Option<[i32; 4]>>)>,
     /// Fonts (face, size, style) that failed to load: reported once, not per
     /// colour.
     failed: BTreeSet<FontStyle>,
@@ -331,6 +334,51 @@ impl Fonts {
         let width = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|g| g.advance).sum();
         let cell = font.glyphs.values().map(|g| g.image.height as i32).max().unwrap_or(font.ascent);
         Some((width, font.ascent, (cell - font.ascent).max(0)))
+    }
+
+    /// Bounds of the visible characters at the game's measured glyph
+    /// positions. Trailing spaces and glyph cell padding do not extend a
+    /// text-only Alt target's preferred pointer position.
+    pub fn ink_bounds(&self, run: &TextRun) -> Option<[i32; 4]> {
+        let want = key(run);
+        let (font, height) = self.fonts.get(&want).and_then(Option::as_ref).map(|f| (f, want.0.height)).or_else(|| {
+            self.fonts.iter().filter(|((s, _, _), f)| s.face == run.face && f.is_some())
+                .min_by_key(|((s, _, _), _)| (s.height - want.0.height).abs())
+                .and_then(|((s, _, _), f)| f.as_ref().map(|f| (f, s.height)))
+        })?;
+        let scale = |v: i32| v * want.0.height / height.max(1);
+        let mut cache = self.ink.borrow_mut();
+        if cache.0 != self.revision { *cache = (self.revision, BTreeMap::new()); }
+        let mut pen = run.x;
+        let mut bounds: Option<[i32; 4]> = None;
+        for c in run.text.chars() {
+            let Some(glyph) = font.glyphs.get(&c) else { continue };
+            if !c.is_whitespace() {
+                let ink = *cache.1.entry((want.clone(), c)).or_insert_with(|| {
+                    let mut ink: Option<[i32; 4]> = None;
+                    for (k, _) in glyph.image.pixels.iter().enumerate().filter(|(_, p)| p[3] != 0) {
+                        let x = k as i32 % glyph.image.width as i32;
+                        let y = k as i32 / glyph.image.width as i32;
+                        ink = Some(match ink {
+                            Some([l,t,r,b]) => [l.min(x),t.min(y),r.max(x+1),b.max(y+1)],
+                            None => [x,y,x+1,y+1],
+                        });
+                    }
+                    ink
+                });
+                if let Some([x, y, right, bottom]) = ink {
+                    let (l, t) = (pen + scale(glyph.left + x), run.y + scale(y - font.ascent));
+                    let (r, b) = (pen + scale(glyph.left + right).max(scale(glyph.left + x) + 1),
+                        run.y + scale(bottom - font.ascent).max(scale(y - font.ascent) + 1));
+                    bounds = Some(match bounds {
+                        Some([bl, bt, br, bb]) => [bl.min(l), bt.min(t), br.max(r), bb.max(b)],
+                        None => [l, t, r, b],
+                    });
+                }
+            }
+            pen += scale(glyph.advance);
+        }
+        bounds.map(|[l, t, r, b]| [l, t, r - l, b - t])
     }
 
     /// The name of `key`'s glyph sets: the font itself, not its place among
@@ -895,4 +943,24 @@ mod readiness_tests {
         assert!(Fonts::default().run_ready(&text_run(""), &fixture_art(&[], "")));
         assert!(Fonts::default().run_ready(&text_run(" \t\n"), &fixture_art(&[], "")));
     }
+    #[test]
+    fn ink_bounds_exclude_trailing_spaces_and_empty_glyph_cell_pixels() {
+        let run = text_run("A A  ");
+        let mut f = font("A ");
+        f.glyphs.get_mut(&'A').unwrap().image = tile_render::RgbaImage::from_fn(7, 12, |x, y| {
+            if (2..5).contains(&x) && (3..9).contains(&y) { [255;4] } else { [0;4] }
+        });
+        f.glyphs.get_mut(&'A').unwrap().left = -1;
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(f));
+        assert_eq!(fonts.ink_bounds(&run), Some([11,13,15,6]));
+        let mut enlarged = run.clone();
+        enlarged.height = -24;
+        assert_eq!(fonts.ink_bounds(&enlarged), Some([12,6,30,12]), "nearest loaded metrics scale with their actual rendering");
+        fonts.insert(key(&run), Ok(font("A ")));
+        assert_eq!(fonts.ink_bounds(&run), Some([10,10,13,1]), "reloaded fonts invalidate cached ink bounds");
+        assert_eq!(fonts.ink_bounds(&text_run("   ")), None);
+        assert_eq!(Fonts::default().ink_bounds(&run), None);
+    }
+
 }

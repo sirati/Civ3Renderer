@@ -172,6 +172,34 @@ pub struct DrawnUnit {
     pub moving: bool,
 }
 
+const UNIT_RECORD_SIZE: usize = (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_LAST + 4) as usize;
+
+fn unit_record(bytes: &[u8; UNIT_RECORD_SIZE]) -> DrawnUnit {
+    let field = |at: u32| i32::from_le_bytes(bytes[at as usize..at as usize + 4].try_into().unwrap());
+    let anim = |at| field(L::UNIT_BODY_ANIMATION + at);
+    DrawnUnit {
+        id: field(L::UNIT_BODY_ID),
+        x: field(L::UNIT_BODY_X),
+        y: field(L::UNIT_BODY_Y),
+        civ: field(L::UNIT_BODY_CIVID),
+        unit_type: field(L::UNIT_BODY_UNITTYPEID),
+        experience: field(L::UNIT_BODY_COMBAT_EXPERIENCE),
+        damage: field(L::UNIT_BODY_DAMAGE),
+        moves: field(L::UNIT_BODY_MOVES),
+        container: field(L::UNIT_BODY_CONTAINER_UNIT),
+        state: field(L::UNIT_BODY_UNITSTATE),
+        always_on_top: bytes[L::UNIT_BODY_ALWAYS_ON_TOP as usize] != 0,
+        pixel: (anim(L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X), anim(L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y)),
+        direction: anim(L::FLC_ANIMATION_SUMMARY_DIRECTION_2),
+        animation: anim(L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE),
+        frame: anim(L::FLC_ANIMATION_FIELD_FC),
+        visible: anim(L::FLC_ANIMATION_LAST) & 0xFF != 0,
+        army_member: field(L::UNIT_BODY_FIELD_1B0 + 4),
+        army_size: field(L::UNIT_BODY_FIELD_1B0 + 8),
+        moving: bytes[(L::UNIT_BODY_ACTIVE + 1) as usize] != 0,
+    }
+}
+
 /// Where an animation the animator draws besides units comes from (docs
 /// §10.14).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -270,6 +298,12 @@ pub struct MapInfo {
     /// Seed of the per-tile art randomness (docs §9).
     pub seed: u32,
     tiles: Ptr32<Ptr32<TileRecord>>,
+}
+
+impl MapInfo {
+    /// The map's tile-pointer array, used to distinguish loaded worlds
+    /// with the same dimensions and art seed.
+    pub fn tiles_address(&self) -> u32 { self.tiles.raw() }
 }
 
 /// A copy of one `Tile` struct, with typed accessors for the members listed
@@ -662,6 +696,17 @@ impl Civ3 {
         Ok(out)
     }
 
+    /// `Unit *` for an id, for engine functions that take an excluded unit.
+    /// Unit list items contain `Unit_Body *`, so undo its header offset.
+    pub fn unit_ptr(&self, id: i32) -> Result<Option<u32>, Civ3Error> {
+        let list = Ptr32::<u8>::new(self.addrs.units);
+        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        if items.is_null() || id < 0 || id > last { return Ok(None); }
+        let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(id as u32 * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
+        Ok(body.raw().checked_sub(L::UNIT_BODY).filter(|_| !body.is_null()))
+    }
+
     /// The unit with `id` (e.g. the member an army shows, docs §10.11).
     pub fn unit(&self, id: i32) -> Result<Option<DrawnUnit>, Civ3Error> {
         let list = Ptr32::<u8>::new(self.addrs.units);
@@ -677,33 +722,17 @@ impl Civ3 {
         Ok(Some(Self::read_unit(body)?))
     }
 
+    /// A unit's current animation and map data from `Unit *`, as returned
+    /// by `Main_Screen_Form::find_visible_unit` on the game's thread.
+    pub fn drawn_unit_at(&self, unit: u32) -> Result<DrawnUnit, Civ3Error> {
+        Self::read_unit(Ptr32::<u8>::new(unit).offset::<u8>(L::UNIT_BODY)?)
+    }
+
     fn read_unit(body: Ptr32<u8>) -> Result<DrawnUnit, Civ3Error> {
-        let anim = body.offset::<u8>(L::UNIT_BODY_ANIMATION)?;
-        let i32_at = |p: Ptr32<u8>, at: u32| -> Result<i32, Civ3Error> { Ok(p.offset::<i32>(at)?.read()?) };
-        Ok(DrawnUnit {
-            id: i32_at(body, L::UNIT_BODY_ID)?,
-            x: i32_at(body, L::UNIT_BODY_X)?,
-            y: i32_at(body, L::UNIT_BODY_Y)?,
-            civ: i32_at(body, L::UNIT_BODY_CIVID)?,
-            unit_type: i32_at(body, L::UNIT_BODY_UNITTYPEID)?,
-            experience: i32_at(body, L::UNIT_BODY_COMBAT_EXPERIENCE)?,
-            damage: i32_at(body, L::UNIT_BODY_DAMAGE)?,
-            moves: i32_at(body, L::UNIT_BODY_MOVES)?,
-            container: i32_at(body, L::UNIT_BODY_CONTAINER_UNIT)?,
-            state: i32_at(body, L::UNIT_BODY_UNITSTATE)?,
-            always_on_top: body.offset::<u8>(L::UNIT_BODY_ALWAYS_ON_TOP)?.read()? != 0,
-            pixel: (i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X)?, i32_at(anim, L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y)?),
-            direction: i32_at(anim, L::FLC_ANIMATION_SUMMARY_DIRECTION_2)?,
-            animation: i32_at(anim, L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE)?,
-            frame: i32_at(anim, L::FLC_ANIMATION_FIELD_FC)?,
-            // The header's `Last` member of `FLC_Animation`.
-            visible: i32_at(anim, L::FLC_ANIMATION_LAST)? & 0xFF != 0,
-            // `field_1B0[1]` / `[2]`.
-            army_member: i32_at(body, L::UNIT_BODY_FIELD_1B0 + 4)?,
-            army_size: i32_at(body, L::UNIT_BODY_FIELD_1B0 + 8)?,
-            // The high byte of the header's `Active`.
-            moving: body.offset::<u8>(L::UNIT_BODY_ACTIVE + 1)?.read()? != 0,
-        })
+        // One checked copy keeps the animation fields together and avoids
+        // a process-memory call for every scalar of every off-camera unit.
+        let bytes: [u8; UNIT_RECORD_SIZE] = body.cast().read()?;
+        Ok(unit_record(&bytes))
     }
 
     fn strings(&self, list: u32, count: u32, stride: u32, member: u32, len: usize) -> Result<Vec<String>, Civ3Error> {
@@ -752,21 +781,17 @@ impl Civ3 {
     /// Tile and container of every unit (for counting stacks).
     pub fn unit_tiles(&self) -> Result<Vec<(i32, i32, i32)>, Civ3Error> {
         let list = Ptr32::<u8>::new(self.addrs.units);
-        let items: Ptr32<u8> = list.offset::<Ptr32<u8>>(L::CITIES_CITIES)?.read()?;
+        let items: Ptr32<[u32; 2]> = list.offset::<Ptr32<[u32; 2]>>(L::CITIES_CITIES)?.read()?;
         let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
         let mut out = Vec::new();
-        if items.is_null() {
-            return Ok(out);
-        }
-        // `Units` has the same shape as `Cities`; items point at the body.
-        // LastIndex is -1 for an empty list.
-        for i in 0..last.clamp(-1, 0xFFFF).saturating_add(1) as u32 {
-            let body: Ptr32<u8> = items.offset::<Ptr32<u8>>(i * L::CITYITEM_SIZE + L::CITYITEM_CITY)?.read()?;
-            if body.is_null() {
-                continue;
-            }
-            let f = |at| -> Result<i32, Civ3Error> { Ok(body.offset::<i32>(at)?.read()?) };
-            out.push((f(L::UNIT_BODY_X)?, f(L::UNIT_BODY_Y)?, f(L::UNIT_BODY_CONTAINER_UNIT)?));
+        if items.is_null() { return Ok(out); }
+        // UnitItem = { index, Unit_Body * }. Copy its array once, then the
+        // short prefix containing position and container once per unit.
+        for [_, body] in items.read_array(last.clamp(-1, 0xFFFF).saturating_add(1) as usize)? {
+            if body == 0 { continue; }
+            let bytes: [u8; (L::UNIT_BODY_CONTAINER_UNIT + 4) as usize] = Ptr32::new(body).read()?;
+            let f = |at: u32| i32::from_le_bytes(bytes[at as usize..at as usize + 4].try_into().unwrap());
+            out.push((f(L::UNIT_BODY_X), f(L::UNIT_BODY_Y), f(L::UNIT_BODY_CONTAINER_UNIT)));
         }
         Ok(out)
     }
@@ -1199,6 +1224,9 @@ impl Civ3 {
     /// `Main_Screen_Form::get_tile_coords_under_mouse` (0x4E3D20) finds it;
     /// `None` off the map.
     pub fn tile_under_mouse(&self) -> Result<Option<(i32, i32)>, Civ3Error> {
+        if let Some(tile) = crate::world_input::virtual_pointer_for(self.addrs.main_screen_form) {
+            return Ok(tile);
+        }
         let view = self.view()?;
         let map = self.map()?;
         Ok(tile_under(
@@ -1240,6 +1268,38 @@ mod tests {
         assert_eq!(tile_under((2, 60), false, (200, 200), (false, false)), None);
         assert_eq!(tile_under((2, 60), false, (200, 200), (true, false)), Some((199, 1)));
         assert_eq!(tile_under((2, 2), false, (200, 200), (true, false)), None);
+    }
+
+    #[test]
+    fn unit_record_keeps_animation_flags_positions_and_army_members() {
+        let mut bytes = [0u8; UNIT_RECORD_SIZE];
+        let mut set = |at: u32, value: i32| bytes[at as usize..at as usize + 4].copy_from_slice(&value.to_le_bytes());
+        for (at, value) in [
+            (L::UNIT_BODY_ID, 71), (L::UNIT_BODY_X, 80), (L::UNIT_BODY_Y, 40),
+            (L::UNIT_BODY_CIVID, 2), (L::UNIT_BODY_UNITTYPEID, 9), (L::UNIT_BODY_COMBAT_EXPERIENCE, 3),
+            (L::UNIT_BODY_DAMAGE, 1), (L::UNIT_BODY_MOVES, 6), (L::UNIT_BODY_CONTAINER_UNIT, -1),
+            (L::UNIT_BODY_UNITSTATE, 1), (L::UNIT_BODY_FIELD_1B0 + 4, 72), (L::UNIT_BODY_FIELD_1B0 + 8, 3),
+            (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X, 5177),
+            (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_Y, -24),
+            (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_SUMMARY_DIRECTION_2, 8),
+            (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_SUMMARY_CURRENT_ANIM_TYPE, 2),
+            (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_FIELD_FC, 17),
+            (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_LAST, 0x10001),
+        ] { set(at, value); }
+        bytes[L::UNIT_BODY_ALWAYS_ON_TOP as usize] = 1;
+        bytes[(L::UNIT_BODY_ACTIVE + 1) as usize] = 1;
+        assert_eq!(unit_record(&bytes), DrawnUnit {
+            id: 71, x: 80, y: 40, civ: 2, unit_type: 9, experience: 3, damage: 1, moves: 6,
+            container: -1, state: 1, always_on_top: true, pixel: (5177,-24), direction: 8,
+            animation: 2, frame: 17, visible: true, army_member: 72, army_size: 3, moving: true,
+        });
+        bytes[(L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_LAST) as usize] = 0;
+        bytes[(L::UNIT_BODY_ACTIVE + 1) as usize] = 0;
+        bytes[L::UNIT_BODY_ACTIVE as usize] = 1;
+        let hidden = unit_record(&bytes);
+        assert!(!hidden.visible, "Last's low byte alone controls visibility");
+        assert!(!hidden.moving, "Active's high byte alone controls movement");
+        assert_eq!(size_of::<[u32; 2]>(), L::CITYITEM_SIZE as usize);
     }
 
     #[test]
