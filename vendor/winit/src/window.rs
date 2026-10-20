@@ -1695,7 +1695,8 @@ pub enum CursorGrabMode {
     ///
     /// ## Platform-specific
     ///
-    /// - **macOS:** Not implemented. Always returns [`ExternalError::NotSupported`] for now.
+    /// - **macOS:** Requires the active key window. Uses relative mouse motion
+    ///   and bounded cursor warps. Focus loss and native menus release it.
     /// - **iOS / Android / Web:** Always returns an [`ExternalError::NotSupported`].
     Confined,
 

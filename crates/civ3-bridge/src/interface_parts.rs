@@ -44,6 +44,93 @@ pub fn capture_hint([x, y, w, h]: [i32; 4]) -> ([i32; 4], Vec<crate::ui_screen::
     (rect, items)
 }
 
+/// Whether the scene carries the capture hint (`scene::Interface::
+/// capture_hint`), for the viewer to show while the mouse is captured: with
+/// the corner's buttons on the map, and also while a screen (the city
+/// screen, an advisor) hides them but the world is still shown beside it,
+/// where the mouse can be captured to play on (`crate::modal`).
+pub fn capture_hint_shown(corner_buttons: bool, map_shown: bool, screen_open: bool) -> bool {
+    corner_buttons || (map_shown && screen_open)
+}
+
+/// A popup the game opens where a map click was made, and so belongs at
+/// that click (`scene::Interface::popup_anchor`) rather than with the
+/// screens.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ClickPopup {
+    /// A context menu (the unit stack's list, the right-click menu).
+    /// `Context_Menu_open` (PCGames 0x61A3B0) puts a top-level menu's
+    /// top-left corner one pixel right of and below the mouse point; with
+    /// bit 2 of its field 0x574 the menu is first moved left by its width
+    /// (its top-right corner at the point). Only where that leaves the
+    /// screen does the game flip it to the other side of the point.
+    ContextMenu { right_aligned: bool },
+    /// The right-click tile information box (terrain, its name, yields,
+    /// the units there). `open_tile_info` (PCGames 0x5AA530) puts its
+    /// top-left corner at the tile's screen position
+    /// (`tile_to_screen_coords`) moved left by half a tile width and down
+    /// by 9 less half a tile height, then keeps it on the screen.
+    TileInfo,
+}
+
+/// The tile information box's form class (`open_tile_info`'s object at
+/// 0xC950A0, constructed at 0x5AA400).
+pub fn tile_info_vtable(build: civ3_sys::Build) -> Option<u32> {
+    match build {
+        civ3_sys::Build::PcGames => Some(0x66_F5C8),
+        _ => None,
+    }
+}
+
+/// Bit of `Context_Menu` field 0x574 that aligns a menu's right edge to
+/// the point it opens at, and that field's offset.
+pub const CONTEXT_MENU_FLAGS: u32 = 0x574;
+pub const CONTEXT_MENU_RIGHT_ALIGNED: u32 = 2;
+
+/// What the open popup of form class `vtable` is, if one the game places
+/// at a map click (`flags`: a context menu's field 0x574).
+pub fn click_popup(build: civ3_sys::Build, vtable: u32, flags: impl FnOnce() -> Option<u32>) -> Option<ClickPopup> {
+    if civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&vtable) {
+        return Some(ClickPopup::ContextMenu { right_aligned: flags().is_some_and(|f| f & CONTEXT_MENU_RIGHT_ALIGNED != 0) });
+    }
+    (tile_info_vtable(build) == Some(vtable)).then_some(ClickPopup::TileInfo)
+}
+
+/// Where popup `kind` (`size`: its width and height) goes for the map
+/// click at world pixel `at` (the current zoom's view pixels) on `tile`,
+/// by the game's own rule (without its flip at the screen's edges: the
+/// viewer moves the view instead).
+pub fn popup_anchor(kind: ClickPopup, at: (i32, i32), tile: (i32, i32), zoomed_out: bool, size: (i32, i32)) -> scene::PopupAnchor {
+    match kind {
+        ClickPopup::ContextMenu { right_aligned } => scene::PopupAnchor { world: at, offset: (if right_aligned { 1 - size.0 } else { 1 }, 1), world_scaled: false },
+        ClickPopup::TileInfo => {
+            let (w, h) = if zoomed_out { (64, 32) } else { (128, 64) };
+            scene::PopupAnchor { world: (tile.0 * w / 2 - w / 2, tile.1 * h / 2 + 9 - h / 2), offset: (0, 0), world_scaled: true }
+        }
+    }
+}
+
+/// Where popup `kind` opened for the map press at world pixel `at` on
+/// `tile` goes: [`popup_anchor`], the tile box at `game_tile` if known, the
+/// tile the game's own pointer conversion gave `open_tile_info` (a city
+/// menu's "Terrain details": the city's tile, the menu's), not the press's.
+pub fn click_anchor(kind: ClickPopup, at: (i32, i32), tile: (i32, i32), game_tile: Option<(i32, i32)>, zoomed_out: bool, size: (i32, i32)) -> scene::PopupAnchor {
+    let tile = match kind {
+        ClickPopup::TileInfo => game_tile.unwrap_or(tile),
+        ClickPopup::ContextMenu { .. } => tile,
+    };
+    popup_anchor(kind, at, tile, zoomed_out, size)
+}
+
+/// The point of interest while popup `open`: unchanged while the game's
+/// camera is parked (`camera_focus` published: its real focus requests
+/// say where to look, opening a menu is none). Older drivers' popups
+/// stand for the subject the game brought into its own view's middle.
+pub fn popup_focus(focus: Option<(i32, i32)>, camera_focus: Option<scene::CameraFocus>, open: bool, game_view_middle: Option<(i32, i32)>) -> Option<(i32, i32)> {
+    if !open || camera_focus.is_some() { return focus; }
+    game_view_middle.or(focus)
+}
+
 /// The screen `frame` shows that the viewer may place: the topmost form of
 /// a class in `screens` (vtable, name); with its index in `frame.forms`.
 pub fn screen(frame: &Frame, screens: &[(u32, &'static str)]) -> Option<(usize, &'static str)> {
@@ -139,7 +226,8 @@ fn intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
 
 fn clip_mut(d: &mut ScreenDraw) -> &mut [i32; 4] {
     match d {
-        ScreenDraw::Image { clip, .. } | ScreenDraw::Fill { clip, .. } | ScreenDraw::Text { clip, .. } | ScreenDraw::Flc { clip, .. } | ScreenDraw::Surface { clip, .. } => clip,
+        ScreenDraw::Image { clip, .. } | ScreenDraw::ResizedImage { clip, .. } | ScreenDraw::Fill { clip, .. } | ScreenDraw::Text { clip, .. } | ScreenDraw::Flc { clip, .. } | ScreenDraw::Surface { clip, .. }
+        | ScreenDraw::Indexed { clip, .. } => clip,
     }
 }
 
@@ -172,9 +260,14 @@ const POPUP_FRAME: i32 = 48;
 fn reach(d: &ScreenDraw) -> Option<[i32; 4]> {
     let (r, clip) = match d {
         ScreenDraw::Image { rect, x, y, clip, .. } | ScreenDraw::Surface { rect, x, y, clip, .. } => ([*x, *y, x + rect[2], y + rect[3]], clip),
+        ScreenDraw::Indexed { rect, x, y, clip, indices, .. } => { let (w, h) = indices.size(*rect); ([*x, *y, x + w, y + h], clip) },
+        ScreenDraw::ResizedImage { x, y, size: (w, h), clip, .. } => ([*x, *y, x + w, y + h], clip),
         ScreenDraw::Fill { rect, clip, .. } => ([rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]], clip),
         ScreenDraw::Text { run, clip } => ([run.x, run.y - 1, run.x + 1, run.y], clip),
-        ScreenDraw::Flc { .. } => return None,
+        // Leader animations carry their exact window clip. Unit FLCs
+        // belong to the world and cannot define a dialog's UI bounds.
+        ScreenDraw::Flc { x, y, clip, plain: true, .. } => ([(*x).max(clip[0]), (*y).max(clip[1]), clip[2], clip[3]], clip),
+        ScreenDraw::Flc { plain: false, .. } => return None,
     };
     let r = intersect(r, *clip);
     (r[2] > r[0] && r[3] > r[1]).then_some(r)
@@ -196,6 +289,35 @@ pub fn popup(frame: &Frame, canvas: u32, screen: Option<usize>, size: (i32, i32)
     let bounds = popup_portraits(frame, first, [x, y, w, h]).into_iter().filter_map(|i| reach(&frame.draws[i]))
         .fold([x, y, x + w, y + h], |a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
     Some((first, [bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]]))
+}
+
+/// How much smaller than the menu under it, each way, a modal form between
+/// games is to be a popup over that menu rather than a screen of its own.
+const MENU_POPUP_MARGIN: i32 = 32;
+/// The game's menus (title, setup screens): 1024 by 768, in the middle of its window.
+const MENU_SIZE: (i32, i32) = (1024, 768);
+
+/// The popup open between games (as [`popup`], no screen placed): the
+/// modal form `canvas` where it is a popup over the title or a setup
+/// screen. Those screens are modal forms themselves, as large as the menu
+/// under them (the title's 1024 by 768 content; full-window backdrops left
+/// out): a popup is smaller than that each way.
+///
+/// In a window larger than the menu the game also draws a few small
+/// pieces at the window's own edges (the version number in its bottom
+/// left corner, a bar at the bottom): those are not the menu either, and
+/// counting them would make the menu window-sized, so that a full setup
+/// screen over the title fits "inside" it as a popup. Only pieces that
+/// reach into the menu's 1024 by 768 in the window's middle count.
+pub fn menu_popup(frame: &Frame, canvas: u32, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
+    let (first, rect) = popup(frame, canvas, None, size)?;
+    let backdrop = |r: &[i32; 4]| r[0] <= 0 && r[1] <= 0 && r[2] >= size.0 && r[3] >= size.1;
+    let [ml, mt] = [(size.0 - MENU_SIZE.0) / 2, (size.1 - MENU_SIZE.1) / 2];
+    let larger = size.0 > MENU_SIZE.0 || size.1 > MENU_SIZE.1;
+    let in_menu = |r: &[i32; 4]| !larger || (r[2] > ml && r[0] < ml + MENU_SIZE.0 && r[3] > mt && r[1] < mt + MENU_SIZE.1);
+    let [l, t, r, b] = frame.draws[..first].iter().filter_map(reach).filter(|r| !backdrop(r) && in_menu(r))
+        .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])?;
+    (rect[2] + 2 * MENU_POPUP_MARGIN <= r - l && rect[3] + 2 * MENU_POPUP_MARGIN <= b - t).then_some((first, rect))
 }
 
 /// The advisor picture above a dialog can be drawn on the map canvas,
@@ -252,6 +374,32 @@ pub fn split_popup(frame: &Frame, first: usize, rect: [i32; 4]) -> (Frame, Frame
     (below, above)
 }
 
+/// One modal canvas, separated from both its parent and its child dialogs.
+#[derive(Clone, Debug)]
+pub struct PopupPart {
+    pub canvas: u32,
+    pub rect: [i32; 4],
+    pub frame: Frame,
+}
+
+/// Remove the complete visible modal stack before measuring the named screen.
+/// Split from the top down so a full-window transparent parent never includes
+/// a child's art when its own visible content bounds are measured.
+pub fn split_modal_stack(frame: &Frame, canvases: &[u32], screen: Option<usize>, size: (i32, i32)) -> (Frame, Vec<PopupPart>) {
+    let mut below = frame.clone();
+    let mut parts = Vec::new();
+    for &canvas in canvases.iter().rev() {
+        if parts.len() == 4 { break; }
+        if parts.iter().any(|part: &PopupPart| part.canvas == canvas) { continue; }
+        let Some((first, rect)) = popup(&below, canvas, screen, size) else { continue };
+        let (parent, own) = split_popup(&below, first, rect);
+        parts.push(PopupPart { canvas, rect, frame: own });
+        below = parent;
+    }
+    parts.reverse();
+    (below, parts)
+}
+
 /// The active screen's part. Preferences owns a screen-sized canvas,
 /// while its controls and background occupy a 1024 by 768 panel. Keep that
 /// panel, rather than the driver's map, as the rectangle the viewer places.
@@ -294,7 +442,19 @@ fn part_from(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usize, [i
     let (_, canvas, (x, y), (w, h)) = frame.forms[index];
     let mut first = frame.form_draws.iter().find(|(c, _)| *c == canvas).map(|(_, r)| r.start)?;
     let mut bounds = [x, y, x + w, y + h];
-    let near = [x - POPUP_FRAME, y - POPUP_FRAME, x + w + POPUP_FRAME, y + h + POPUP_FRAME];
+    if x <= 0 && y <= 0 && x + w >= size.0 && y + h >= size.1 {
+        // A full-window canvas does not mean a full-window dialog.
+        // Diplomacy, for example, composites its small conversation,
+        // leader and advisor onto one transparent full-window canvas.
+        // Use only this part and what is above it, never the map/HUD
+        // canvases below it, so the complete UI can fit in the opening view.
+        if let Some(content) = frame.draws[first..].iter().filter_map(reach)
+            .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]) {
+            bounds = content;
+        }
+    }
+    bounds = crate::loading_cursor::extend_bounds(frame.forms[index].0, bounds);
+    let near = [bounds[0] - POPUP_FRAME, bounds[1] - POPUP_FRAME, bounds[2] + POPUP_FRAME, bounds[3] + POPUP_FRAME];
     let owned = |i: usize| frame.form_draws.iter().map(|(_, r)| r).chain(&frame.underlay_draws).any(|r| r.contains(&i));
     let meets = |a: [i32; 4], b: [i32; 4]| {
         let c = intersect(a, b);
@@ -340,6 +500,123 @@ pub fn part_view(scene: &mut scene::Scene, id: u32, [x, y, w, h]: [i32; 4], over
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_capture_hint_is_there_wherever_the_world_can_be_captured() {
+        // The map with its corner buttons; a screen over it, the world
+        // beside it; not between games (no world).
+        assert!(capture_hint_shown(true, true, false));
+        assert!(capture_hint_shown(false, true, true));
+        assert!(!capture_hint_shown(false, false, true));
+        assert!(!capture_hint_shown(false, false, false));
+    }
+
+    #[test]
+    fn context_menus_and_the_tile_box_are_anchored_by_the_games_rule() {
+        use civ3_sys::Build;
+        // The unit stack's list and the right-click menu: either class.
+        for vt in civ3_sys::controls::CONTEXT_MENU_VTABLES {
+            assert_eq!(click_popup(Build::PcGames, vt, || Some(0)), Some(ClickPopup::ContextMenu { right_aligned: false }));
+            assert_eq!(click_popup(Build::PcGames, vt, || Some(CONTEXT_MENU_RIGHT_ALIGNED)), Some(ClickPopup::ContextMenu { right_aligned: true }));
+            assert_eq!(click_popup(Build::PcGames, vt, || None), Some(ClickPopup::ContextMenu { right_aligned: false }));
+        }
+        assert_eq!(click_popup(Build::PcGames, 0x66_F5C8, || None), Some(ClickPopup::TileInfo));
+        // Advisors, dialogs, diplomacy: placed with the screens.
+        for vt in [0x66_C270, 0x66_58B0, 0x66_C14C, 0] {
+            assert_eq!(click_popup(Build::PcGames, vt, || Some(2)), None);
+        }
+        assert_eq!(click_popup(Build::Steam, 0x66_F5C8, || None), None);
+        // Top-left one pixel right of and below the click; right-aligned
+        // menus their top-right corner there.
+        let menu = ClickPopup::ContextMenu { right_aligned: false };
+        assert_eq!(popup_anchor(menu, (1234, -56), (19, 0), false, (180, 300)), scene::PopupAnchor { world: (1234, -56), offset: (1, 1), world_scaled: false });
+        let right = ClickPopup::ContextMenu { right_aligned: true };
+        assert_eq!(popup_anchor(right, (10, 20), (0, 0), true, (180, 300)), scene::PopupAnchor { world: (10, 20), offset: (-179, 1), world_scaled: false });
+        // The tile box: half a tile left of the tile's corner, 9 less half
+        // a tile down; zoomed out with the smaller tiles.
+        assert_eq!(popup_anchor(ClickPopup::TileInfo, (0, 0), (5, 7), false, (256, 173)), scene::PopupAnchor { world: (5 * 64 - 64, 7 * 32 + 9 - 32), offset: (0, 0), world_scaled: true });
+        assert_eq!(popup_anchor(ClickPopup::TileInfo, (0, 0), (6, 0), true, (256, 173)), scene::PopupAnchor { world: (6 * 32 - 32, 9 - 16), offset: (0, 0), world_scaled: true });
+    }
+
+    #[test]
+    fn terrain_details_from_a_city_menu_anchor_at_the_city_tile_at_both_zooms() {
+        // The menu opened by a right click on the city at (19, 23); the game
+        // takes the tile box's tile from its pointer conversion (kept on the
+        // city's tile while the menu is open), whatever the pointer did since.
+        let city = (19, 23);
+        for zoomed_out in [false, true] {
+            let (w, h) = if zoomed_out { (64, 32) } else { (128, 64) };
+            let at = (city.0 * w / 2 + 5, city.1 * h / 2 + 7);
+            let want = scene::PopupAnchor { world: (city.0 * w / 2 - w / 2, city.1 * h / 2 + 9 - h / 2), offset: (0, 0), world_scaled: true };
+            for press_tile in [city, (40, 2)] {
+                assert_eq!(click_anchor(ClickPopup::TileInfo, at, press_tile, Some(city), zoomed_out, (256, 173)), want, "Z {zoomed_out}, press on {press_tile:?}");
+            }
+            // Unknown: the press's tile.
+            assert_eq!(click_anchor(ClickPopup::TileInfo, at, city, None, zoomed_out, (256, 173)), want);
+            // A context menu goes to its click, not to a tile.
+            let menu = ClickPopup::ContextMenu { right_aligned: false };
+            assert_eq!(click_anchor(menu, at, city, Some((40, 2)), zoomed_out, (180, 300)), scene::PopupAnchor { world: at, offset: (1, 1), world_scaled: false });
+        }
+    }
+
+    #[test]
+    fn opening_a_popup_leaves_the_focus_while_the_camera_is_parked() {
+        let parked = Some(scene::CameraFocus { serial: 3, center: (4000, 1200) });
+        let unit = Some((640, 320));
+        let corner = Some((512, 384));
+        assert_eq!(popup_focus(unit, parked, true, corner), unit);
+        assert_eq!(popup_focus(None, parked, true, corner), None);
+        assert_eq!(popup_focus(unit, parked, false, corner), unit);
+        // Older drivers: the game's own view's middle is the subject.
+        assert_eq!(popup_focus(unit, None, true, corner), corner);
+        assert_eq!(popup_focus(unit, None, false, corner), unit);
+    }
+
+    #[test]
+    fn a_full_canvas_diplomacy_popup_uses_its_dialog_leader_and_advisor_bounds() {
+        let full = [0, 0, 1920, 1080];
+        let image = |path: &str, x, y, w, h| ScreenDraw::Image {
+            path: path.into(), rect: [0, 0, w, h], x, y, keyed: true,
+            clip: full, mask: None, palette: None, opacity: 255,
+        };
+        // Native WW2 diplomacy owns a full-window canvas but only draws
+        // the conversation, its leader and the separate advisor on it.
+        let frame = Frame {
+            forms: vec![(0x66b3d8, 1, (0, 0), (1920, 1080)), (0x66c0d8, 2, (0, 0), (1920, 1080))],
+            draws: vec![
+                fill(0, 0, 1920, 1080),
+                image("Art/Diplomacy/talk_offer.pcx", 297, 50, 438, 517),
+                ScreenDraw::Flc { path: "Art/Flics/leader.flc".into(), chunk: 1, x: 411, y: 59, clip: [411, 59, 611, 299], plain: true },
+                image("Art/SmallHeads/popupForeign.pcx", 907, 0, 91, 109),
+                image("Art/Advisors/diplowinbox.pcx", 807, 99, 206, 102),
+            ],
+            form_draws: vec![(1, 0..1), (2, 1..5)],
+            underlay_draws: vec![0..1],
+        };
+        let (first, rect) = popup(&frame, 2, None, (1920, 1080)).unwrap();
+        assert_eq!((first, rect), (1, [297, 0, 716, 567]));
+        let (map, dialog) = split_popup(&frame, first, rect);
+        assert_eq!(map.draws, frame.draws[..1]);
+        assert_eq!(dialog.draws, frame.draws[1..]);
+        assert!(dialog.underlay_draws.is_empty());
+        // The same rule covers full-canvas menus and cropped screen parts.
+        assert_eq!(screen_part(&frame, 1, (1920, 1080)), Some((1, rect)));
+    }
+
+    #[test]
+    fn a_plain_leader_animation_defines_the_visible_bounds_of_its_full_canvas_popup() {
+        let frame = Frame {
+            forms: vec![(0x123, 2, (0, 0), (1920, 1080))],
+            draws: vec![ScreenDraw::Flc { path: "Art/Flics/leader.flc".into(), chunk: 3, x: 411, y: 59, clip: [411, 59, 611, 299], plain: true }],
+            form_draws: vec![(2, 0..1)],
+            ..Default::default()
+        };
+        assert_eq!(popup(&frame, 2, None, (1920, 1080)), Some((0, [411, 59, 200, 240])));
+        // Ordinary unit animations cannot turn a world canvas into UI bounds.
+        let mut unit = frame.clone();
+        if let ScreenDraw::Flc { plain, .. } = &mut unit.draws[0] { *plain = false; }
+        assert_eq!(popup(&unit, 2, None, (1920, 1080)), Some((0, [0, 0, 1920, 1080])));
+    }
 
     fn fill(x: i32, y: i32, w: i32, h: i32) -> ScreenDraw {
         ScreenDraw::Fill { rect: [x, y, w, h], rgb: [1, 2, 3], alpha: 255, clip: [0, 0, 1920, 1080] }
@@ -578,6 +855,58 @@ mod tests {
         assert_eq!(popup(&f, 0x12_3456, None, (1920, 1080)), None);
     }
 
+    /// Between games the title and the setup screens are modal forms
+    /// themselves: only a form smaller than the menu under it is a popup.
+    #[test]
+    fn between_games_only_a_form_smaller_than_the_menu_is_a_popup() {
+        let size = (1920, 1080);
+        let (x, y) = (448, 156);
+        // The full-window backdrop and the title, a setup screen over it,
+        // a popup over that.
+        let f = Frame {
+            draws: vec![fill(0, 0, 1920, 1080), fill(x, y, 1024, 768), fill(x, y, 1024, 768), fill(x + 262, y + 234, 500, 300)],
+            forms: vec![(0x11, 1, (0, 0), (1920, 1080)), (0x22, 2, (x, y), (1024, 768)), (0x33, 3, (x + 262, y + 234), (500, 300))],
+            form_draws: vec![(1, 0..2), (2, 2..3), (3, 3..4)],
+            underlay_draws: vec![],
+        };
+        assert_eq!(menu_popup(&f, 3, size), Some((3, [x + 262, y + 234, 500, 300])));
+        assert_eq!(menu_popup(&f, 2, size), None);
+        // Nothing under it but the backdrop: no menu to be over.
+        let alone = Frame { draws: vec![fill(0, 0, 1920, 1080), fill(x, y, 500, 300)], forms: vec![(0x11, 1, (0, 0), (1920, 1080)), (0x33, 3, (x, y), (500, 300))],
+            form_draws: vec![(1, 0..1), (3, 1..2)], underlay_draws: vec![] };
+        assert_eq!(menu_popup(&alone, 3, size), None);
+    }
+
+    /// TS Neo: a 3274 by 2048 game window. Besides the backdrop and the
+    /// title the game draws the version number in the window's bottom
+    /// left corner and a bar at its bottom. Player Setup (and the other
+    /// setup screens, Load Scenario among them) replaces the title: a full
+    /// menu, never a popup over it. A real dialog over it still is one.
+    #[test]
+    fn setup_screens_over_the_title_in_a_large_window_are_menus_not_popups() {
+        let size = (3274, 2048);
+        let big = |x, y, w, h| ScreenDraw::Fill { rect: [x, y, w, h], rgb: [1, 2, 3], alpha: 255, clip: [0, 0, 3274, 2048] };
+        let (x, y) = (1125, 640);
+        let title = vec![big(0, 0, 3274, 2048), big(x, y, 1024, 768), big(1, 2010, 60, 20), big(1600, 2010, 80, 20)];
+        let n = title.len();
+        let setup = |draws: Vec<ScreenDraw>| {
+            let mut all = title.clone();
+            let from = all.len();
+            all.extend(draws);
+            let to = all.len();
+            Frame { draws: all, forms: vec![(0x11, 1, (0, 0), size), (0x22, 2, (x, y), (1024, 768))],
+                form_draws: vec![(1, 0..n), (2, from..to)], underlay_draws: vec![] }
+        };
+        // Player Setup, Load Scenario, Game setup: full 1024 by 768 forms.
+        for form in [vec![big(x, y, 1024, 768)], vec![big(x, y, 1024, 768), big(x + 40, y + 60, 400, 600)]] {
+            assert_eq!(menu_popup(&setup(form), 2, size), None);
+        }
+        // A small dialog over the title is a popup.
+        let mut f = setup(vec![big(x + 262, y + 234, 500, 300)]);
+        f.forms[1] = (0x22, 2, (x + 262, y + 234), (500, 300));
+        assert_eq!(menu_popup(&f, 2, size), Some((n, [x + 262, y + 234, 500, 300])));
+    }
+
     fn advisor_popup_frame() -> Frame {
         let mut f = frame();
         // The advisor portrait is drawn into the map canvas, before the
@@ -655,9 +984,10 @@ mod tests {
                         // that screen's view by the bridge.
                         s.interface.screen = Some("F6".into());
                         s.interface.screen_view = Some(POPUP_VIEW);
-                        settings.screens.insert("F6".into(), ScreenPlace { vertical: place, horizontal: place });
+                        settings.screen_place = ScreenPlace { vertical: place, horizontal: place };
                     }
-                    let plan = scaling::plan((480, 360), 2.0, s.screen_size, &Resolution { pixel_scale, menu_scale, ..Default::default() });
+                    let mut plan = scaling::plan((480, 360), 2.0, s.screen_size, &Resolution { pixel_scale, ..Default::default() });
+                    plan.menu.zoom = scaling::ratio(menu_scale);
                     let mut l = layout::Layout::default();
                     l.apply_settings(&settings);
                     l.driver_screen = Some(plan.screen);
@@ -707,6 +1037,64 @@ mod tests {
         f.draws.push(fill(0, 0, 1920, 1080));
         f.form_draws.push((0x78_0000, 7..8));
         assert_eq!(screen_part(&f, f.forms.len() - 1, (1920, 1080)), None);
+    }
+
+    #[test]
+    fn every_named_screen_keeps_its_native_part_when_a_prompt_is_split_off_outside_it() {
+        let build = civ3_sys::Build::PcGames;
+        let size = (1920, 1080);
+        for &(vtable, name) in civ3_sys::ui_hooks::screen_forms(build) {
+            let canvas = 0x710000;
+            let base = Frame {
+                forms: vec![(0x66_B3D8, 1, (0, 0), size), (vtable, canvas, (448, 156), (1024, 768))],
+                draws: vec![fill(0, 0, 1920, 1080), fill(448, 156, 1024, 768)],
+                form_draws: vec![(1, 0..1), (canvas, 1..2)],
+                underlay_draws: vec![0..1],
+            };
+            let before = active_screen_part(&base, 1, build, size);
+            for rect in [[8, 2, 400, 160], [1400, 900, 510, 170], [200, 100, 1500, 600]] {
+                let mut frame = base.clone();
+                let [x, y, w, h] = rect;
+                frame.forms.push((0x66_B240, 0x720000, (x, y), (w, h)));
+                frame.draws.push(fill(x, y, w, h));
+                frame.form_draws.push((0x720000, 2..3));
+                let (first, body) = popup(&frame, 0x720000, Some(1), size).unwrap();
+                let (below, above) = split_popup(&frame, first, body);
+                assert_eq!(active_screen_part(&below, 1, build, size), before, "{name}, {rect:?}");
+                assert_eq!(below.draws, base.draws, "{name}: popup art never joins parent art");
+                assert_eq!(above.draws, frame.draws[2..], "{name}: popup remains independently owned");
+            }
+        }
+    }
+
+    #[test]
+    fn nested_full_canvas_modals_keep_separate_bounds_and_leave_the_named_screen_unchanged() {
+        let size = (1920, 1080);
+        let screen_canvas = 0x710000;
+        let mut frame = Frame {
+            forms: vec![(0x66_B3D8, 1, (0, 0), size), (0x66_F420, screen_canvas, (0, 0), size)],
+            draws: vec![fill(0, 0, 1920, 1080), fill(448, 156, 1024, 768)],
+            form_draws: vec![(1, 0..1), (screen_canvas, 1..2)], underlay_draws: vec![0..1],
+        };
+        let baseline = active_screen_part(&frame, 1, civ3_sys::Build::PcGames, size);
+        let native_rects = [[300, 100, 650, 300], [8, 2, 400, 160], [900, 10, 510, 240]];
+        for (index, rect) in native_rects.into_iter().enumerate() {
+            let canvas = 0x720000 + index as u32 * 0x1000;
+            let [x,y,w,h] = rect;
+            frame.forms.push((0x66_B240, canvas, (0, 0), size));
+            let start = frame.draws.len();
+            frame.draws.push(fill(x,y,w,h));
+            frame.form_draws.push((canvas, start..start+1));
+            let canvases: Vec<_> = (0..=index).map(|i| 0x720000 + i as u32 * 0x1000).collect();
+            let (below, parts) = split_modal_stack(&frame, &canvases, Some(1), size);
+            assert_eq!(active_screen_part(&below, 1, civ3_sys::Build::PcGames, size), baseline);
+            assert_eq!(below.draws.len(), 2);
+            assert_eq!(parts.len(), index + 1);
+            for (i, part) in parts.iter().enumerate() {
+                assert_eq!(part.rect, native_rects[i], "parent overlay bounds never include children");
+                assert_eq!(part.frame.draws.len(), 1);
+            }
+        }
     }
 
     #[test]

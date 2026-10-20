@@ -7,6 +7,7 @@ version.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+civ3r-sync = { path = "../civ3r-sync" }
 render-desc = { path = "../render-desc", optional = true }
 tile-render = { workspace = true, optional = true }
 toml = { version = "0.9", optional = true }

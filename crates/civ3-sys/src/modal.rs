@@ -65,6 +65,13 @@ inproc::thiscall_fn! {
     pub fn unit_can_perform_command(unit; command) -> u32;
 }
 
+inproc::thiscall_fn! {
+    /// `void City_Form::draw(this)` (City_Form vtable +0x58, 0x419770;
+    /// C3X redirects it). The city screen calls it itself after giving a
+    /// unit in the city an order (0x4228BE).
+    pub fn city_form_draw(city_form;) -> ();
+}
+
 /// A `call rel32` site and its exact bytes (checked before patching).
 pub type CallSite = (u32, [u8; 5]);
 
@@ -103,6 +110,7 @@ pub struct FunctionSites {
     pub perform_action_on_tile: FunctionSite,
     pub issue_command: FunctionSite,
     pub unit_can_perform_command: FunctionSite,
+    pub city_form_draw: FunctionSite,
 }
 
 pub fn function_sites(build: Build) -> Option<FunctionSites> {
@@ -118,6 +126,8 @@ pub fn function_sites(build: Build) -> Option<FunctionSites> {
             issue_command: (0x4D_AB30, &[0x53, 0x55, 0x56, 0x8B, 0x74, 0x24, 0x14]),
             // push ecx / push ebx / push ebp / push esi / push edi
             unit_can_perform_command: (0x5C_17E0, &[0x51, 0x53, 0x55, 0x56, 0x57]),
+            // sub esp,2B4h
+            city_form_draw: (0x41_9770, &[0x81, 0xEC, 0xB4, 0x02, 0x00, 0x00]),
         }),
         Build::Gog | Build::Steam => None,
     }
@@ -137,6 +147,10 @@ pub struct Globals {
     /// The forms acting is allowed under: `Advisor_GUI`, the Civilopedia.
     pub advisor_form: u32,
     pub civilopedia_form: u32,
+    /// The city screen (`p_city_form`), also a form acting is allowed under.
+    pub city_form: u32,
+    /// The diplomacy screen (acting is not allowed under it).
+    pub diplo_form: u32,
 }
 
 /// The human-turn loop's flag (a byte of `Main_Screen_Form`, set while
@@ -152,6 +166,8 @@ pub fn globals(build: Build) -> Option<Globals> {
             pbem: 0xA5_2774,
             advisor_form: 0x9A_FD58,
             civilopedia_form: 0x9E_85B0,
+            city_form: 0x74_09C0,
+            diplo_form: 0xA3_51C0,
         }),
         Build::Gog | Build::Steam => None,
     }
@@ -160,11 +176,18 @@ pub fn globals(build: Build) -> Option<Globals> {
 /// `Unit_Mode_Actions::UMA_Go_To`.
 pub const ACTION_GO_TO: u32 = 1;
 
+/// `UnitStateType::UnitState_Go_To`: a go-to order the unit walks on
+/// later turns (`perform_action_on_tile` sets it for a far tile, 0x4E6EED).
+pub const UNIT_STATE_GO_TO: i32 = 0x10;
+
 /// `Unit_Command_Values` the map's keys give.
 pub mod command {
     pub const SKIP_TURN: u32 = 0x1;
     pub const WAIT: u32 = 0x2;
     pub const FORTIFY: u32 = 0x4;
+    /// Arms go-to: the next map click picks the destination (the map's G,
+    /// and what holding the button on the unit does, 0x4EE81A).
+    pub const GO_TO: u32 = 0x10;
     pub const SENTRY: u32 = 0x40;
 }
 
@@ -177,6 +200,22 @@ pub struct DialogState {
     pub turn_flag: bool,
     pub online: bool,
     pub pbem: bool,
+}
+
+/// A coherent bounded snapshot of the game's modal stack, oldest first.
+/// Sample on the game thread together with the UI's presented command frame.
+pub fn modal_stack(mem: &dyn crate::controls::Mem, build: Build) -> Option<[u32; 4]> {
+    if build != Build::PcGames { return None; }
+    let depth = mem.u32(0xCA_D388)?;
+    if depth > 4 { return None; }
+    let mut forms = [0; 4];
+    for index in 0..depth as usize {
+        let form = mem.u32(0xCA_CD20 + index as u32 * 4)?;
+        if form == 0 || forms[..index].contains(&form) { return None; }
+        forms[index] = form;
+    }
+    let top = if depth == 0 { 0 } else { forms[depth as usize - 1] };
+    (mem.u32(0xCA_D384)? == top).then_some(forms)
 }
 
 impl Civ3 {
@@ -270,7 +309,47 @@ mod tests {
     }
 
     #[test]
+    fn the_screens_are_the_recovered_forms() {
+        let g = globals(Build::PcGames).unwrap();
+        assert_eq!((g.city_form, g.advisor_form, g.civilopedia_form, g.diplo_form), (0x74_09C0, 0x9A_FD58, 0x9E_85B0, 0xA3_51C0));
+        // The city screen's draw is its vtable's +0x58 (0x665908 holds it).
+        assert_eq!(function_sites(Build::PcGames).unwrap().city_form_draw.0, 0x41_9770);
+    }
+
+    #[test]
     fn turn_flag_is_the_documented_global() {
         assert_eq!(Build::PcGames.addresses().main_screen_form + MAIN_SCREEN_FORM_TURN_FLAG, 0xA2_6858);
+    }
+}
+
+#[cfg(test)]
+mod modal_stack_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    struct Memory(BTreeMap<u32, u32>);
+    impl crate::controls::Mem for Memory {
+        fn u32(&self, address: u32) -> Option<u32> { self.0.get(&address).copied() }
+        fn u8(&self, address: u32) -> Option<u8> { self.u32(address).map(|v| v as u8) }
+    }
+    #[test]
+    fn modal_stack_is_bounded_ordered_and_rejects_torn_or_invalid_native_state() {
+        let mut mem = Memory(BTreeMap::from([(0xCA_D388, 0), (0xCA_D384, 0)]));
+        assert_eq!(modal_stack(&mem, Build::PcGames), Some([0; 4]));
+        for depth in 1..=4 {
+            mem.0.insert(0xCA_CD20 + (depth - 1) * 4, 0x1000 * depth);
+            mem.0.insert(0xCA_D388, depth);
+            mem.0.insert(0xCA_D384, 0x1000 * depth);
+            let stack = modal_stack(&mem, Build::PcGames).unwrap();
+            assert_eq!(stack[depth as usize - 1], 0x1000 * depth);
+        }
+        mem.0.insert(0xCA_D388, 5);
+        assert_eq!(modal_stack(&mem, Build::PcGames), None);
+        mem.0.insert(0xCA_D388, 4);
+        mem.0.insert(0xCA_D384, 0x9999);
+        assert_eq!(modal_stack(&mem, Build::PcGames), None);
+        mem.0.insert(0xCA_D384, 0x4000);
+        mem.0.insert(0xCA_CD20 + 4, 0x1000);
+        assert_eq!(modal_stack(&mem, Build::PcGames), None);
+        assert_eq!(modal_stack(&mem, Build::Steam), None);
     }
 }

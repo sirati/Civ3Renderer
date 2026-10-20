@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Build the native macOS viewer; cross-build the Windows bridge on Linux.
+# All intermediate output stays in the selected build directory.
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo"
+[ "$(uname -s)" = Darwin ] || { echo 'build-macos: run this inside macOS (the QA VM is supported)' >&2; exit 1; }
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$HOME/Library/Caches/civ3r/build}
+# Supply a module built from the same shader sources on the Linux build
+# machine when the rust-gpu toolchain cannot be installed on the Mac guest.
+if [ -n "${TILE_RENDER_PRECOMPILED_SPV:-}" ]; then
+  [ -f "$TILE_RENDER_PRECOMPILED_SPV" ] || { echo 'missing precompiled shader module' >&2; exit 1; }
+fi
+cargo build --locked --release -p civ3r-viewer -p civ3r-launcher
+install_home=${CIV3R_HOME:-$HOME/Library/Application Support/civ3r}
+mkdir -p "$install_home/bin"
+install -m 755 "$CARGO_TARGET_DIR/release/civ3r-viewer" "$install_home/bin/civ3r-viewer"
+install -m 755 "$CARGO_TARGET_DIR/release/civ3-play-macos" "$install_home/bin/civ3-play-macos"
+# The game bridge is produced by the Linux build host, not by a Mac C compiler.
+if [ -n "${CIV3R_BRIDGE:-}" ]; then
+  install -m 755 "$CIV3R_BRIDGE" "$install_home/bin/IFC23.dll"
+fi
+# Glyph sheets are generated data from Windows GDI, not original game files.
+# Install only that named data set when supplied; never copy the game tree.
+if [ -n "${CIV3R_FONT_CACHE_SOURCE:-}" ]; then
+  [ -d "$CIV3R_FONT_CACHE_SOURCE" ] || { echo 'missing generated font cache directory' >&2; exit 1; }
+  [ ! -L "$install_home/fonts" ] || { echo 'font cache destination must not be a symlink' >&2; exit 1; }
+  shopt -s nullglob
+  c3r_glyph_files=("$CIV3R_FONT_CACHE_SOURCE"/Lucida_Sans-*.png "$CIV3R_FONT_CACHE_SOURCE"/Lucida_Sans-*.toml)
+  [ "${#c3r_glyph_files[@]}" -gt 0 ] || { echo 'no generated Lucida Sans glyph sheets in font cache source' >&2; exit 1; }
+  for c3r_metadata in font-cache-manifest.json font-cache-provenance.json; do
+    if [ -f "$CIV3R_FONT_CACHE_SOURCE/$c3r_metadata" ]; then
+      c3r_glyph_files+=("$CIV3R_FONT_CACHE_SOURCE/$c3r_metadata")
+    fi
+  done
+  mkdir -p "$install_home/fonts"
+  c3r_font_source=$(cd "$CIV3R_FONT_CACHE_SOURCE" && pwd -P)
+  c3r_font_destination=$(cd "$install_home/fonts" && pwd -P)
+  if [ "$c3r_font_source" != "$c3r_font_destination" ]; then
+    install -m 644 "${c3r_glyph_files[@]}" "$install_home/fonts/"
+  fi
+fi
+printf 'Native macOS renderer installed at %s/bin\n' "$install_home"

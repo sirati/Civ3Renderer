@@ -19,8 +19,9 @@
 #![cfg_attr(target_arch = "spirv", no_std)]
 
 pub mod text;
+pub mod glyph_cache;
 
-use spirv_std::glam::{IVec2, UVec3, Vec2, Vec4};
+use spirv_std::glam::{IVec2, UVec2, UVec3, UVec4, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
@@ -120,10 +121,13 @@ pub fn tile_vs(
     #[spirv(flat)] out_scaled: &mut u32,
     #[spirv(flat)] out_step: &mut u32,
     #[spirv(flat)] out_palette: &mut UVec3,
+    #[spirv(flat)] out_background: &mut UVec4,
+    #[spirv(flat)] out_primitive: &mut UVec2,
 ) {
     let layer_index = params.layer_first + instance % params.layer_count;
     let local_cell = instance / params.layer_count;
-    let layer = &layers[layer_index as usize];
+    // (From the view's layer table: its binding's data slots.)
+    let layer = &layers[(params.layer_table + layer_index) as usize];
 
     *out_local = Vec2::ZERO;
     *out_origin = IVec2::ZERO;
@@ -135,6 +139,8 @@ pub fn tile_vs(
     *out_scaled = 0;
     *out_step = 1;
     *out_palette = UVec3::ZERO;
+    *out_background = UVec4::ZERO;
+    *out_primitive = UVec2::ZERO;
     let Some((sprite_index, palette, x, y)) =
         resolve_sprite(params, layer, local_cell, tile_data, layer_lut, sprite_sets)
     else {
@@ -243,7 +249,15 @@ fn on_target(params: &FrameParams, (l, t, r, b): (i32, i32, i32, i32)) -> Option
 /// The pixels `p` with `scaled(p, d, n)` in `[lo, hi)`: from `ceil(lo·n/d)`
 /// to `ceil(hi·n/d)`; with `hair`, at least the pixel holding `lo·n/d`.
 fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32)> {
-    let (a, b) = (-scaled(-lo, n, d), -scaled(-hi, n, d));
+    // Compute ceil directly. The negated-floor form collapses both
+    // endpoints on the DX12 compiler used by Microsoft Basic Render Driver,
+    // leaving only the hairline fallback pixel instead of the whole quad.
+    let ceil = |v: i32| {
+        let p = v * n as i32;
+        let d = d as i32;
+        if p >= 0 { (p + d - 1) / d } else { -((-p) / d) }
+    };
+    let (a, b) = (ceil(lo), ceil(hi));
     if b > a {
         Some((a, b))
     } else if hair {
@@ -292,6 +306,8 @@ pub fn free_vs(
     #[spirv(flat)] out_scaled: &mut u32,
     #[spirv(flat)] out_step: &mut u32,
     #[spirv(flat)] out_palette: &mut UVec3,
+    #[spirv(flat)] out_background: &mut UVec4,
+    #[spirv(flat)] out_primitive: &mut UVec2,
 ) {
     let f = &free[instance as usize];
     *out_tint = f.tint;
@@ -304,7 +320,10 @@ pub fn free_vs(
     *out_scaled = 0;
     *out_step = 1;
     *out_palette = UVec3::ZERO;
-    let frames = sprite_sets[f.set as usize];
+    *out_background = UVec4::ZERO;
+    *out_primitive = UVec2::ZERO;
+    let solid = f.primitive.kind == tile_render_shared::PRIMITIVE_SOLID;
+    let frames = if solid { 1 } else { sprite_sets[f.set as usize] };
     // Zoom art: zoomed sprites only where a view at their zoom is drawn at
     // it, low ones not where zoomed ones are shown.
     let zoomed = f.flags & FREE_ZOOMED != 0;
@@ -317,18 +336,20 @@ pub fn free_vs(
     // world but that one.
     let except = f.flags & FREE_EXCEPT_VIEW != 0;
     let wrong_view = if except { f.view == params.view || params.world == 0 } else { (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) };
-    if f.set == 0 || frames == 0 || wrong_art || wrong_view || f.category & params.hidden_categories != 0 {
+    if (!solid && f.set == 0) || frames == 0 || wrong_art || wrong_view || f.category & params.hidden_categories != 0 {
         *out_pos = CULLED;
         return;
     }
-    let ticks = if f.ticks_per_frame == 0 { 1 } else { f.ticks_per_frame };
-    let frame = (params.frame / ticks + f.phase) % frames;
+    let frame = tile_render_shared::free_frame_of(params.frame, params.host_tick_ms, f.ticks_per_frame, f.phase, frames);
     let screen = f.flags & FREE_SCREEN != 0;
     // A view showing the world smaller shows world sprites smaller, at
     // their positions shrunk; screen sprites as they are.
     let n = if screen { 1 } else { params.downscale };
-    let sprite = &sprites[drawn_sprite(sprites, sprite_sets[(f.set + 1 + frame) as usize], n) as usize];
-    let p = placed(sprite, n);
+    // Procedural commands never dereference an atlas sprite or set.
+    let solid_desc = SpriteDesc { scaling: tile_render_shared::KEEP_SIZE, width: f.primitive.width, height: f.primitive.height,
+        box_w: f.primitive.width, box_h: f.primitive.height, ..SpriteDesc::default() };
+    let sprite = if solid { solid_desc } else { sprites[drawn_sprite(sprites, sprite_sets[(f.set + 1 + frame) as usize], n) as usize] };
+    let p = placed(&sprite, n);
     let (u, v) = quad_corner(vertex);
     // Where 1:1 positions start in the viewport: screen sprites are given in
     // target pixels from the view's screen origin, world sprites in world
@@ -348,7 +369,7 @@ pub fn free_vs(
     let y0 = scaled(fy, zn, zd) + dy + p.corner_y + p.inset_y as i32;
     // Without the sprite's blank margins (ClearType-like sprites draw
     // where their coverage is, whatever their alpha: all of them).
-    let (dx0, dy0, dx1, dy1) = if f.scale_den == SCALE_SUBPIXEL { (0, 0, p.width, p.height) } else { trimmed(sprite, &p, params) };
+    let (dx0, dy0, dx1, dy1) = if solid || f.scale_den == SCALE_SUBPIXEL { (0, 0, p.width, p.height) } else { trimmed(&sprite, &p, params) };
     let (mut l, mut t) = (x0 + dx0 as i32, y0 + dy0 as i32);
     let (mut r, mut b) = (x0 + dx1 as i32, y0 + dy1 as i32);
     // Clipping shrinks the quad (sprites are axis-aligned rectangles).
@@ -374,6 +395,10 @@ pub fn free_vs(
     let (sx, sy) = (ql as f32 + u * (qr - ql) as f32, qt as f32 + v * (qb - qt) as f32);
     *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
     *out_local = Vec2::new(sx - x0 as f32, sy - y0 as f32);
+    if solid {
+        *out_primitive = UVec2::new(tile_render_shared::PRIMITIVE_SOLID, f.primitive.rgba);
+        return;
+    }
     *out_origin = IVec2::new((sprite.atlas_x + p.texel_x) as i32, (sprite.atlas_y + p.texel_y) as i32);
     *out_page = sprite.page;
     *out_base = IVec2::new(x0, y0);
@@ -381,6 +406,9 @@ pub fn free_vs(
     *out_scaled = if zoomed { 0 } else { params.scaled };
     *out_step = p.step;
     *out_palette = UVec3::new(sprite.palette, sprite.remap, f.palette);
+    if screen && f.scale_den == 0 && sprite.sampling == tile_render_shared::SAMPLING_UI_BACKGROUND {
+        *out_background = UVec4::new(sprite.width, sprite.height, sprite.sampling_origin_x, sprite.sampling_origin_y);
+    }
 }
 
 fn max(a: i32, b: i32) -> i32 {
@@ -389,6 +417,77 @@ fn max(a: i32, b: i32) -> i32 {
 
 fn min(a: i32, b: i32) -> i32 {
     if a < b { a } else { b }
+}
+
+/// The selected software adapter preserves float blend inputs but truncates
+/// FP16 target writes. Its integer values use a unit-spaced FP16 interval.
+fn quantized_opaque(q: u32, params: &FrameParams) -> f32 {
+    if params.quantized_float != 0 { (tile_render_shared::FLOAT_QUANTIZED_BIAS + q) as f32 }
+    else { (QUANTIZED_BIAS + q) as f32 / 255.0 }
+}
+fn quantized_mixed(q: u32, k: u32, params: &FrameParams) -> f32 {
+    if params.quantized_float != 0 {
+        let stored = (tile_render_shared::FLOAT_QUANTIZED_BIAS + q) as f32;
+        if k >= ALPHA_STEPS { stored }
+        else { stored * (k as f32 / ALPHA_STEPS as f32) + 0.5 / ALPHA_STEPS as f32 }
+    } else { mixed_source(q + QUANTIZED_BIAS, k, params.color_bits) }
+}
+
+/// Terrain-cell RGB555 composition. Tile vertices always emit zero tint,
+/// background and procedural-command flags, so these modes can be fixed
+/// when compiling this entry. Generic tile_fs remains the fallback.
+#[spirv(fragment)]
+pub fn tile555_fs(
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(flat)] scale_den: u32,
+    #[spirv(flat)] tint: u32,
+    #[spirv(flat)] base: IVec2,
+    #[spirv(flat)] lo: IVec2,
+    #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] background: UVec4,
+    #[spirv(flat)] primitive: UVec2,
+    #[spirv(frag_coord)] frag: Vec4,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
+    output: &mut Vec4,
+) {
+    let offset = texel_offset(local, base, lo, scaled_view, step, frag, params);
+    let xy = origin + offset;
+    let c = if palette.x != 0 {
+        let index: Vec4 = index_atlas.fetch(xy.extend(page as i32));
+        let c = indexed_color(to_u8(index.x), palette.x, palette.y, palette.z, params.named_palettes, palettes);
+        UVec4::new(c[0], c[1], c[2], c[3])
+    } else {
+        let c: Vec4 = atlas.fetch(xy.extend(page as i32));
+        UVec4::new(to_u8(c.x), to_u8(c.y), to_u8(c.z), to_u8(c.w))
+    };
+    if c.w == 0 { spirv_std::arch::kill(); }
+    if scale_den == SCALE_INVERT {
+        let highest = (31 + 2 * QUANTIZED_BIAS) as f32 / 255.0;
+        *output = Vec4::new(highest, highest, highest, 0.0);
+    } else if scale_den != 0 {
+        let k = c.x;
+        if k >= scale_den { spirv_std::arch::kill(); }
+        let a = 1.0 - k as f32 / scale_den as f32;
+        let value = scale_offset(k, scale_den) / 255.0;
+        *output = Vec4::new(value, value, value, a);
+    } else {
+        let k = alpha_steps(c.w);
+        if k == 0 { spirv_std::arch::kill(); }
+        let a = k as f32 / ALPHA_STEPS as f32;
+        *output = Vec4::new(
+            mixed_source((c.x >> 3) + QUANTIZED_BIAS, k, 5),
+            mixed_source((c.y >> 3) + QUANTIZED_BIAS, k, 5),
+            mixed_source((c.z >> 3) + QUANTIZED_BIAS, k, 5),
+            a,
+        );
+    }
 }
 
 /// Draws a sprite texel. In a quantized colour model (`color_bits != 0`)
@@ -408,6 +507,8 @@ pub fn tile_fs(
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
     #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] background: UVec4,
+    #[spirv(flat)] primitive: UVec2,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
@@ -415,8 +516,59 @@ pub fn tile_fs(
     #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
     output: &mut Vec4,
 ) {
-    let xy = origin + texel_offset(local, base, lo, scaled_view, step, frag, params);
-    let mut color = texel(xy, page, palette, params, atlas, index_atlas, palettes);
+    let offset = texel_offset(local, base, lo, scaled_view, step, frag, params);
+    let mut color = if primitive.x == tile_render_shared::PRIMITIVE_SOLID {
+        let c = primitive.y;
+        Vec4::new((c & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, ((c >> 16) & 255) as f32 / 255.0, (c >> 24) as f32 / 255.0)
+    } else { texel(origin + offset, page, palette, params, atlas, index_atlas, palettes) };
+    let background_mode = params.background_sampling;
+    let scaled_background = background.x != 0 && scaled_view != 0 && params.zoom_num != params.zoom_den && color.w != 0.0;
+    if scaled_background && params.zoom_num > params.zoom_den && background_mode != tile_render_shared::BACKGROUND_NEAREST {
+        // Magnification needs reconstruction between source texel centres.
+        // A minification footprint alone would still be nearest at 2x/3x.
+        let (n, d) = (params.zoom_num, params.zoom_den);
+        let x = tile_render_shared::background_linear_axis(pixel(frag.x) as i32 - params.target_x, base.x, (background.x + step - 1) / step, n, d);
+        let y = tile_render_shared::background_linear_axis(pixel(frag.y) as i32 - params.target_y, base.y, (background.y + step - 1) / step, n, d);
+        let sampled = if background_mode == tile_render_shared::BACKGROUND_INTERPOLATE {
+            linear_mean(x, y, step as i32, origin, page, palette, params, atlas, index_atlas, palettes)
+        } else {
+            let (sx, sy) = tile_render_shared::background_linear_texel(x, y, (background.z, background.w));
+            texel(origin + IVec2::new(sx as i32, sy as i32) * step as i32, page, palette, params, atlas, index_atlas, palettes)
+        };
+        if sampled.w != 0.0 { color = Vec4::new(sampled.x, sampled.y, sampled.z, color.w); }
+    } else if scaled_background && background_mode == tile_render_shared::BACKGROUND_INTERPOLATE {
+        // Box filter: the area-weighted mean colour of the source texels
+        // this target pixel covers, transparent ones (the other side of an
+        // alpha mask) left out. The nominal sample's alpha is kept, as for
+        // the dither, so coverage and keyed shapes stay exact.
+        let (n, d) = (params.zoom_num, params.zoom_den);
+        let s = step as i32;
+        let (bound_x, bound_y) = ((background.x + step - 1) / step, (background.y + step - 1) / step);
+        let (x0, x1, ax, bx) = tile_render_shared::background_footprint(pixel(frag.x) as i32 - params.target_x, base.x, lo.x, bound_x, n, d);
+        let (y0, y1, ay, by) = tile_render_shared::background_footprint(pixel(frag.y) as i32 - params.target_y, base.y, lo.y, bound_y, n, d);
+        let footprint = [x0, x1, ax, bx, y0, y1, ay, by];
+        let mean = box_mean(footprint, n, s, origin, page, palette, params, atlas, index_atlas, palettes);
+        if mean.w != 0.0 {
+            color = Vec4::new(mean.x, mean.y, mean.z, color.w);
+        }
+    } else if scaled_background && background_mode == tile_render_shared::BACKGROUND_DITHER {
+        // Jitter only the background colour within the source area covered
+        // by this target pixel. Keep the ordinary sample's alpha so keyed
+        // shapes and alpha masks keep their existing coverage exactly.
+        let (n, d) = (params.zoom_num, params.zoom_den);
+        let end_x = scaled(pixel(frag.x) as i32 + 1 - params.target_x, d, n) - base.x;
+        let end_y = scaled(pixel(frag.y) as i32 + 1 - params.target_y, d, n) - base.y;
+        let span_x = max(1, end_x * step as i32 - offset.x) as u32;
+        let span_y = max(1, end_y * step as i32 - offset.y) as u32;
+        let (x, y) = tile_render_shared::background_texel(
+            (offset.x as u32, offset.y as u32), (span_x, span_y),
+            (background.x, background.y), (background.z, background.w),
+        );
+        let sampled = texel(origin + IVec2::new(x as i32, y as i32), page, palette, params, atlas, index_atlas, palettes);
+        if sampled.w != 0.0 {
+            color = Vec4::new(sampled.x, sampled.y, sampled.z, color.w);
+        }
+    }
     if scale_den == 0 && tint >> 24 != 0 {
         // The high byte is inverse opacity: existing zero tints stay opaque.
         let opacity = 255 - (tint >> 24);
@@ -429,7 +581,7 @@ pub fn tile_fs(
     if scale_den == SCALE_INVERT {
         // The pipeline subtracts what is there from this: the highest
         // stored value (direct: 1), so the result is the inverse.
-        let k = if bits != 0 { (((1u32 << bits) - 1) + 2 * QUANTIZED_BIAS) as f32 / 255.0 } else { 1.0 };
+        let k = if bits != 0 { if params.quantized_float != 0 { (((1u32 << bits) - 1) + 2 * tile_render_shared::FLOAT_QUANTIZED_BIAS) as f32 } else { (((1u32 << bits) - 1) + 2 * QUANTIZED_BIAS) as f32 / 255.0 } } else { 1.0 };
         *output = Vec4::new(k, k, k, 0.0);
     } else if scale_den != 0 {
         let k = to_u8(color.x);
@@ -438,7 +590,7 @@ pub fn tile_fs(
         }
         let a = 1.0 - k as f32 / scale_den as f32;
         *output = if bits != 0 {
-            let o = scale_offset(k, scale_den) / 255.0;
+            let o = if params.quantized_float != 0 { tile_render_shared::FLOAT_QUANTIZED_BIAS as f32 * a + 0.5 / scale_den as f32 } else { scale_offset(k, scale_den) / 255.0 };
             Vec4::new(o, o, o, a)
         } else {
             Vec4::new(0.0, 0.0, 0.0, a)
@@ -450,10 +602,146 @@ pub fn tile_fs(
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let channel = |c| mixed_source(quantize(to_u8(c), bits) + QUANTIZED_BIAS, k, bits);
+        let channel = |c| quantized_mixed(quantize(to_u8(c), bits), k, params);
         *output = Vec4::new(channel(color.x), channel(color.y), channel(color.z), a);
     } else {
         *output = color;
+    }
+}
+
+/// Native RGB555 smoke composition. This entry is isolated from tile_fs.
+#[spirv(fragment)]
+pub fn native_palette_alpha_fs(
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(flat)] scale_den: u32,
+    #[spirv(flat)] tint: u32,
+    #[spirv(flat)] base: IVec2,
+    #[spirv(flat)] lo: IVec2,
+    #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] background: UVec4,
+    #[spirv(flat)] primitive: UVec2,
+    #[spirv(frag_coord)] frag: Vec4,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(descriptor_set = 1, binding = 0)] snapshot: &Image!(2D, type = f32, sampled),
+    #[spirv(uniform, descriptor_set = 1, binding = 1)] smoke: &tile_render_shared::NativePaletteParams,
+    output: &mut Vec4,
+) {
+    let offset = texel_offset(local, base, lo, scaled_view, step, frag, params);
+    let source = texel(origin + offset, page, palette, params, atlas, index_atlas, palettes);
+    let a = to_u8(source.w);
+    if a == 0 { spirv_std::arch::kill(); }
+    let pos = IVec2::new(pixel(frag.x) as i32 - smoke.origin_x, pixel(frag.y) as i32 - smoke.origin_y);
+    let dst: Vec4 = snapshot.fetch(pos);
+    let channel = |v: f32, stored: f32| {
+        let dst5 = if params.color_bits == 5 {
+            if params.quantized_float != 0 { (stored + 0.5) as u32 - tile_render_shared::FLOAT_QUANTIZED_BIAS }
+            else { to_u8(stored) - QUANTIZED_BIAS }
+        } else if params.color_bits == 0 { quantize(to_u8(stored), 5) }
+        else {
+            let q = if params.quantized_float != 0 { (stored + 0.5) as u32 - tile_render_shared::FLOAT_QUANTIZED_BIAS } else { to_u8(stored) - QUANTIZED_BIAS };
+            quantize(expand(q, params.color_bits), 5)
+        };
+        let q = (to_u8(v) * a + 8 * dst5 * (256 - a)) / 2048;
+        if params.color_bits == 0 { expand(q, 5) as f32 / 255.0 }
+        else if params.color_bits == 5 { quantized_opaque(q, params) }
+        else { quantized_opaque(quantize(expand(q, 5), params.color_bits), params) }
+    };
+    *output = Vec4::new(channel(source.x, dst.x), channel(source.y, dst.y), channel(source.z, dst.z), dst.w);
+}
+
+
+/// Four-tap magnification. Indexed palettes are resolved before averaging;
+/// nominal alpha is retained by the caller, so masks and controls stay sharp.
+#[allow(clippy::too_many_arguments)]
+fn linear_mean(
+    x: (u32, u32, u32), y: (u32, u32, u32), s: i32,
+    origin: IVec2, page: u32, palette: UVec3, params: &FrameParams,
+    atlas: &Image!(2D, type = f32, sampled, arrayed),
+    index_atlas: &Image!(2D, type = f32, sampled, arrayed), palettes: &[u32],
+) -> Vec4 {
+    // Explicit taps avoid the SPIR-V-to-MSL loop-phi issue described below.
+    let a = texel(origin + IVec2::new(x.0 as i32 * s, y.0 as i32 * s), page, palette, params, atlas, index_atlas, palettes);
+    let b = texel(origin + IVec2::new(x.1 as i32 * s, y.0 as i32 * s), page, palette, params, atlas, index_atlas, palettes);
+    let c = texel(origin + IVec2::new(x.0 as i32 * s, y.1 as i32 * s), page, palette, params, atlas, index_atlas, palettes);
+    let d = texel(origin + IVec2::new(x.1 as i32 * s, y.1 as i32 * s), page, palette, params, atlas, index_atlas, palettes);
+    let wa = if a.w != 0.0 { (64 - x.2) * (64 - y.2) } else { 0 };
+    let wb = if b.w != 0.0 { x.2 * (64 - y.2) } else { 0 };
+    let wc = if c.w != 0.0 { (64 - x.2) * y.2 } else { 0 };
+    let wd = if d.w != 0.0 { x.2 * y.2 } else { 0 };
+    let weight = wa + wb + wc + wd;
+    let rgb = |t: Vec4| UVec3::new(to_u8(t.x), to_u8(t.y), to_u8(t.z));
+    let sum = rgb(a) * wa + rgb(b) * wb + rgb(c) * wc + rgb(d) * wd;
+    if weight == 0 { Vec4::ZERO } else { Vec4::new(
+        tile_render_shared::background_mean(sum.x, weight) as f32 / 255.0,
+        tile_render_shared::background_mean(sum.y, weight) as f32 / 255.0,
+        tile_render_shared::background_mean(sum.z, weight) as f32 / 255.0, 1.0) }
+}
+
+/// The interpolated background's box filter: the weighted mean colour of the
+/// opaque texels in `footprint` (`[x0, x1, ax, bx, y0, y1, ay, by]`, see
+/// `tile_render_shared::background_footprint`), alpha 1, or alpha 0 if none
+/// is opaque.
+///
+/// One flat loop with a trailing iteration that adds nothing. Naga's
+/// SPIR-V-to-MSL translation (Metal) of these loops drops the last
+/// iteration: it updates the loop's phis before evaluating the exit test
+/// on them, or exports the sums from before the last iteration. Either way
+/// the dropped one is the empty extra iteration; Vulkan runs it as a no-op.
+#[allow(clippy::too_many_arguments)]
+fn box_mean(
+    footprint: [i32; 8],
+    n: u32,
+    s: i32,
+    origin: IVec2,
+    page: u32,
+    palette: UVec3,
+    params: &FrameParams,
+    atlas: &Image!(2D, type = f32, sampled, arrayed),
+    index_atlas: &Image!(2D, type = f32, sampled, arrayed),
+    palettes: &[u32],
+) -> Vec4 {
+    let [x0, x1, ax, bx, y0, y1, ay, by] = footprint;
+    if x1 <= x0 || y1 <= y0 {
+        return Vec4::ZERO;
+    }
+    let columns = (x1 - x0) as u32;
+    let total = columns * (y1 - y0) as u32;
+    let (mut r, mut g, mut b, mut weight) = (0u32, 0u32, 0u32, 0u32);
+    let mut k = 0u32;
+    loop {
+        if k < total {
+            let (i, j) = (x0 + (k % columns) as i32, y0 + (k / columns) as i32);
+            let w = tile_render_shared::background_weight(j, ay, by, n) * tile_render_shared::background_weight(i, ax, bx, n);
+            if w != 0 {
+                let t = texel(origin + IVec2::new(i * s, j * s), page, palette, params, atlas, index_atlas, palettes);
+                if t.w != 0.0 {
+                    r += w * to_u8(t.x);
+                    g += w * to_u8(t.y);
+                    b += w * to_u8(t.z);
+                    weight += w;
+                }
+            }
+        }
+        k += 1;
+        if k > total {
+            return if weight == 0 {
+                Vec4::ZERO
+            } else {
+                Vec4::new(
+                    tile_render_shared::background_mean(r, weight) as f32 / 255.0,
+                    tile_render_shared::background_mean(g, weight) as f32 / 255.0,
+                    tile_render_shared::background_mean(b, weight) as f32 / 255.0,
+                    1.0,
+                )
+            };
+        }
     }
 }
 
@@ -506,7 +794,7 @@ fn subpixel(
             spirv_std::arch::kill();
         }
         let a = k as f32 / ALPHA_STEPS as f32;
-        let v = mixed_source(quantize(c8, bits) + QUANTIZED_BIAS, k, bits);
+        let v = quantized_mixed(quantize(c8, bits), k, params);
         Vec4::new(v, v, v, a)
     } else {
         if coverage == 0.0 {
@@ -515,6 +803,49 @@ fn subpixel(
         let c = c8 as f32 / 255.0;
         Vec4::new(c, c, c, coverage)
     }
+}
+
+/// Fetch a subpixel sprite once and blend all RGB channels independently.
+/// The build helper assigns both outputs to Location 0 with source indices
+/// 0 and 1. The pipeline keeps the three-pass fallback's target alpha.
+#[spirv(fragment)]
+pub fn subpixel_dual_fs(
+    local: Vec2,
+    #[spirv(flat)] origin: IVec2,
+    #[spirv(flat)] page: u32,
+    #[spirv(flat)] _scale_den: u32,
+    #[spirv(flat)] tint: u32,
+    #[spirv(flat)] base: IVec2,
+    #[spirv(flat)] lo: IVec2,
+    #[spirv(flat)] scaled_view: u32,
+    #[spirv(flat)] step: u32,
+    #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] _background: UVec4,
+    #[spirv(frag_coord)] frag: Vec4,
+    #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
+    #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
+    #[spirv(storage_buffer, descriptor_set = 0, binding = 10)] palettes: &[u32],
+    #[spirv(descriptor_set = 0, binding = 11)] index_atlas: &Image!(2D, type = f32, sampled, arrayed),
+    subpixel_dual_source: &mut Vec4,
+    subpixel_dual_coverage: &mut Vec4,
+) {
+    let offset = texel_offset(local, base, lo, scaled_view, step, frag, params);
+    let texel = texel(origin + offset, page, palette, params, atlas, index_atlas, palettes);
+    let (r, ar) = text::dual_channel_out(to_u8(texel.x), tint, 0, params);
+    let (g, ag) = text::dual_channel_out(to_u8(texel.y), tint, 1, params);
+    let (b, ab) = text::dual_channel_out(to_u8(texel.z), tint, 2, params);
+    // Direct colour keeps the fetched UNORM coverage, exactly as the
+    // three-pass shader; quantized colour uses whole alpha steps.
+    let coverage = if params.color_bits == 0 {
+        Vec4::new(texel.x, texel.y, texel.z, 0.0)
+    } else {
+        Vec4::new(ar, ag, ab, 0.0)
+    };
+    if coverage.x == 0.0 && coverage.y == 0.0 && coverage.z == 0.0 {
+        spirv_std::arch::kill();
+    }
+    *subpixel_dual_source = Vec4::new(r, g, b, 0.0);
+    *subpixel_dual_coverage = coverage;
 }
 
 #[spirv(fragment)]
@@ -529,6 +860,7 @@ pub fn subpixel_r_fs(
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
     #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] _background: UVec4,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
@@ -551,6 +883,7 @@ pub fn subpixel_g_fs(
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
     #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] _background: UVec4,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
@@ -573,6 +906,7 @@ pub fn subpixel_b_fs(
     #[spirv(flat)] scaled_view: u32,
     #[spirv(flat)] step: u32,
     #[spirv(flat)] palette: UVec3,
+    #[spirv(flat)] _background: UVec4,
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 0)] params: &FrameParams,
     #[spirv(descriptor_set = 0, binding = 6)] atlas: &Image!(2D, type = f32, sampled, arrayed),
@@ -607,7 +941,7 @@ pub fn output_fs(
     let (sx, sy) = (params.src_x + ox as i32, params.src_y + oy as i32);
     let v: Vec4 = source.fetch(IVec2::new(sx, sy));
     let bits = params.bits;
-    *output = if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits), to_unorm(v.y, bits), to_unorm(v.z, bits), v.w) };
+    *output = if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits, params.quantized_float), to_unorm(v.y, bits, params.quantized_float), to_unorm(v.z, bits, params.quantized_float), v.w) };
 }
 
 /// `v · num / den`, rounded down.
@@ -623,9 +957,10 @@ fn offset(p: f32, o: i32) -> u32 {
     if r < 0 { 0 } else { r as u32 }
 }
 
-fn to_unorm(stored: f32, bits: u32) -> f32 {
-    let s = to_u8(stored);
-    let q = if s > QUANTIZED_BIAS { s - QUANTIZED_BIAS } else { 0 };
+fn to_unorm(stored: f32, bits: u32, float_encoding: u32) -> f32 {
+    let s = if float_encoding != 0 { stored as u32 } else { to_u8(stored) };
+    let bias = if float_encoding != 0 { tile_render_shared::FLOAT_QUANTIZED_BIAS } else { QUANTIZED_BIAS };
+    let q = if s > bias { s - bias } else { 0 };
     expand(q, bits) as f32 / 255.0
 }
 

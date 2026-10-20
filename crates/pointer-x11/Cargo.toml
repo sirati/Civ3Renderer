@@ -1,0 +1,16 @@
+[package]
+name = "pointer-x11"
+description = "X11 window pointer capture and physical cursor positioning"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+pointer-api = { path = "../pointer-api" }
+pointer-fallback = { path = "../pointer-fallback" }
+winit.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The version the window library already uses; only the XFixes requests.
+x11rb = { version = "0.13", default-features = false, features = ["xfixes"] }

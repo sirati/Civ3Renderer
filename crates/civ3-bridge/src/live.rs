@@ -13,16 +13,35 @@ use crate::art::{ArtJob, ArtThread, Built, Work};
 use crate::presenter::{self, Presenter};
 use crate::{assets, city_hud, city_site, districts, text, trace, ui_screen, ui_trace, units};
 use crate::scene_map::Mapper;
+use crate::world_items::WorldItems;
 use crate::world::{Civ3City, Civ3Tile, Civ3Unit, Civ3View, Civ3World, IconBuilding, WallBuilding};
 
 /// The viewer window's title (also how we tell it from the game's window).
 const VIEWER_TITLE: &str = "Civ III (reimplemented renderer)";
 
 
-/// How often the publisher looks at the game.
+/// How often the publisher looks at the game at least: it goes on at once
+/// when rung (`presenter::WAKE`: a present that changed the screen, input,
+/// a preview stage); this is for what nobody rings for (the world).
 const POLL: Duration = Duration::from_millis(33);
+/// How often the publisher tells the viewer whether the game answers
+/// (`crate::heartbeat`; the viewer takes 500 ms without word as busy).
+const HOST_EVERY: Duration = Duration::from_millis(100);
+/// The pause before trying again a scene the renderer was too busy to take.
+const BUSY_RETRY: Duration = Duration::from_millis(2);
+
+/// How often the memory diagnostics are logged (`CIV3R_MEMORY_LOG_S`,
+/// seconds; 30 by default).
+fn memory_every() -> Duration {
+    static EVERY: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *EVERY.get_or_init(|| Duration::from_secs(std::env::var("CIV3R_MEMORY_LOG_S").ok().and_then(|v| v.parse().ok()).unwrap_or(30)))
+}
 /// How long a font no text has asked for stays in the art (see `text::Fonts::prune`).
 const FONT_KEPT: Duration = Duration::from_secs(60);
+/// How long a scenario stays highlighted on the Load Scenario screen before
+/// its preview's own art (a whole build for its folders) is made: going
+/// through the list never queues the menu's art behind such a build.
+const PREVIEW_ART_REST: Duration = Duration::from_millis(250);
 /// About how many bytes of pixels an addition of art made ahead has
 /// (`crate::preload`): art the screen needs waits at most for one.
 const PRELOAD_CHUNK: u64 = 3 << 20;
@@ -39,9 +58,11 @@ fn unit(u: &civ3_sys::DrawnUnit) -> Civ3Unit {
         y: u.y,
         civ: u.civ,
         unit_type: u.unit_type,
+        leader_kind: u.leader_kind,
         experience: u.experience,
         damage: u.damage,
         moves: u.moves,
+        max_move_points: u.max_move_points,
         container: u.container,
         state: u.state,
         always_on_top: u.always_on_top,
@@ -75,17 +96,16 @@ pub(crate) fn effect(e: &civ3_sys::DrawnEffect) -> crate::world::Civ3Effect {
 /// at war). The raw fields are logged when they change: not all treaty
 /// bits are known (`civ3_sys::world::Diplomacy`).
 fn relations(game: &Civ3, player: i32) -> Vec<civ3_sys::world::Relation> {
-    static LAST: std::sync::Mutex<Option<civ3_sys::world::Diplomacy>> = std::sync::Mutex::new(None);
+    // (Read by the publisher and the preview: either may log a change.)
+    static LAST: civ3r_sync::Latest<civ3_sys::world::Diplomacy> = civ3r_sync::Latest::new();
     let Ok(d) = game.diplomacy(player) else { return Vec::new() };
-    if let Ok(mut last) = LAST.lock()
-        && last.as_ref() != Some(&d)
-    {
+    if LAST.load().as_deref() != Some(&d) {
         let known: Vec<String> = (0..32)
             .filter(|&c| d.at_war[c] || d.contacts[c] != 0 || d.treaties[c] != 0 || d.military_allies[c] != 0)
             .map(|c| format!("{c}: war {} contacts {:#x} treaties {:#x} allies {:#x}", d.at_war[c] as u8, d.contacts[c], d.treaties[c], d.military_allies[c]))
             .collect();
         log::info!("diplomacy of civ {player}: {}", known.join("; "));
-        *last = Some(d.clone());
+        LAST.publish(d.clone());
     }
     (0..32).map(|c| if c == 0 { civ3_sys::world::Relation::War } else { d.relation(c) }).collect()
 }
@@ -122,13 +142,15 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
     let district_state = districts::read(game, &map);
     let players = optional("players", game.players());
     let drawn = optional("units", crate::unit_views::drawn_units(game));
-    // The members armies show (§10.11).
-    let army_members = drawn
-        .iter()
-        .filter(|u| u.army_member >= 0)
-        .filter_map(|u| game.unit(u.army_member).ok().flatten())
-        .map(|m| unit(&m))
-        .collect();
+    // The members of the armies drawn (§10.11): the one each shows, and
+    // all of them for the army's hit points and moves (§10.6).
+    let armies: Vec<i32> = drawn.iter().filter(|u| u.army_member >= 0).map(|u| u.id).collect();
+    let mut army_members: Vec<Civ3Unit> = optional("army members", game.units_in(&armies)).iter().map(unit).collect();
+    for u in drawn.iter().filter(|u| u.army_member >= 0) {
+        if !army_members.iter().any(|m| m.id == u.army_member) {
+            army_members.extend(game.unit(u.army_member).ok().flatten().map(|m| unit(&m)));
+        }
+    }
     let cities = optional("cities", game.cities())
         .into_iter()
         .map(|c| Civ3City {
@@ -230,6 +252,8 @@ fn optional<T: Default>(what: &str, read: Result<T, Civ3Error>) -> T {
 pub enum LiveError {
     #[error("UI capture: {0}")]
     Capture(String),
+    #[error("Preferences audio transaction: {0}")]
+    Preferences(String),
     #[error("render description {0}: {1}")]
     Desc(String, String),
     #[error("game folder: {0}")]
@@ -258,7 +282,7 @@ fn description() -> Result<(String, String), LiveError> {
 }
 
 /// Where the game currently loads art from.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 struct ArtFolders {
     scenario: Option<String>,
     search: Vec<String>,
@@ -272,6 +296,8 @@ impl ArtFolders {
 
 struct Compiler {
     install: PathBuf,
+    /// Reuse resolved roots and listings until scenario search paths change.
+    files: civ3r_sync::Latest<(ArtFolders, civ3_assets::GameFiles)>,
     name: String,
     text: String,
     /// Rings around foreign units (their art is in `text`).
@@ -285,7 +311,12 @@ struct Compiler {
 
 impl Compiler {
     fn files(&self, folders: &ArtFolders) -> civ3_assets::GameFiles {
-        assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search)
+        if let Some(cached) = self.files.load().filter(|cached| cached.0 == *folders) {
+            return cached.1.clone();
+        }
+        let files = assets::game_files(&self.install, folders.scenario.as_deref(), &folders.search);
+        self.files.publish((folders.clone(), files.clone()));
+        files
     }
 
     /// The whole description: everything the game showed so far (also
@@ -338,8 +369,15 @@ fn art_summary(c: &Compiled, pixels: bool) -> String {
 /// Starts the publisher and the viewer; returns at once. `CIV3R_VIEWER`:
 /// `1` / `fullscreen` a window of this process, `native` /
 /// `native-fullscreen` the native Linux viewer (Wine with
-/// `civ3r_native.dll`, see `tools/install-native`).
+/// `civ3r_native.dll`, see `tools/install-native`), `external` /
+/// `external-fullscreen` the launcher's separate native viewer, using
+/// `CIV3R_VIEWER_ADDR` and `CIV3R_VIEWER_TOKEN`.
 pub fn start(game: Civ3) -> Result<(), LiveError> {
+    // Required before any presenter or UI worker starts. A byte-contract
+    // failure returns through this Result path, with partial patches undone.
+    let prefs_audio = if civ3_sys::ui_hooks::preferences_form(game.build).is_some() {
+        Some(civ3_sys::preferences::install(game.build).map_err(|error| LiveError::Preferences(error.to_string()))?)
+    } else { None };
     // Normally installed synchronously by the game's jgl load callback.
     // Late injection waits for the post-CRT graphics object before hooking.
     if let Err(e) = ui_trace::prepare_worker(&game) {
@@ -347,6 +385,8 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         log::warn!("not mirroring the interface: {e}; continuing with text only");
     }
     let (name, mut text) = description()?;
+    let install = install_root()?;
+    text += crate::loading_cursor::description(&civ3_assets::GameFiles::complete(&install));
     // Rings around foreign units, if asked for (`crate::rings`).
     let rings = crate::rings::Rings::from_env();
     text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
@@ -355,13 +395,18 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     // What the map shows while a command waits for its tile (`crate::targeting`).
     text += &crate::targeting::description();
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
-    // The native viewer: loaded first, its GPU's limits size the atlas pages.
-    let native = match mode.starts_with("native") {
-        true => Some(presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?),
-        false => None,
+    // Remote viewers connect first so their GPU limits size both sides'
+    // atlas tables. The Windows process never initializes a GPU for them.
+    let remote = if mode == "external" || mode == "external-fullscreen" {
+        Some(Presenter::external(mode == "external-fullscreen").map_err(LiveError::Install)?)
+    } else if mode.starts_with("native") {
+        let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
+        Some(Presenter::native(native))
+    } else {
+        None
     };
-    let max_page = match &native {
-        Some(n) => n.max_texture(),
+    let max_page = match &remote {
+        Some(presenter) => presenter.max_texture(),
         None => tile_render::gpu::max_texture_dimension(),
     };
     let max_page = max_page.unwrap_or_else(|| {
@@ -370,7 +415,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     });
     // (Screen pictures are at most the game's screen.)
     let largest = crate::game_window::game_screen().map_or(0, |(w, h)| w.max(h));
-    let compiler = Compiler { install: install_root()?, name, text, rings, max_page, largest };
+    let compiler = Compiler { install, files: civ3r_sync::Latest::new(), name, text, rings, max_page, largest };
     let folders = ArtFolders::of(&game);
     // Playing in the viewer's own views while a menu is open
     // (`crate::modal`, `CIV3R_MODAL_INPUT=off`: not).
@@ -381,6 +426,11 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Err(e) => log::warn!("no map input while menus are open: {e}"),
         }
     }
+    // The game thread's heartbeat, for the viewer's busy indicator.
+    match crate::heartbeat::install() {
+        Ok(()) => log::info!("heartbeat: jgl.dll's PeekMessageA and WaitMessage stamp it"),
+        Err(e) => log::warn!("no game heartbeat (the viewer judges by the connection alone): {e}"),
+    }
     if let Err(e) = crate::native_sliders::install(game) {
         log::warn!("no transactional native sliders: {e}");
     }
@@ -389,6 +439,10 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     }).is_ok();
     // Native drawing and animation must cover the whole visible world
     // before the original map camera can become bookkeeping only.
+    match civ3_sys::combat_speed::install(game) {
+        Ok(hooks) => { std::mem::forget(hooks); log::info!("combat animation speed: scoped native FLC clock installed"); }
+        Err(error) => log::warn!("combat animation speed unavailable: {error}"),
+    }
     let world_units_ready = crate::unit_views::install(game).map_err(|e| {
         log::warn!("no units beyond the game's camera: {e}");
     }).is_ok();
@@ -408,9 +462,16 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         Ok(None) => log::warn!("cursor: the game does not import SetCursor"),
         Err(e) => log::warn!("cursor: hooking SetCursor: {e}"),
     }
+    // (The game hiding the system pointer while it draws its own is kept
+    // from the system: the viewer's window has the pointer.)
+    match inproc::pointer::hook_show_cursor(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => log::debug!("cursor: the game does not import ShowCursor"),
+        Err(e) => log::warn!("cursor: hooking ShowCursor: {e}"),
+    }
     crate::preview::install(&game);
-    // The native viewer makes its own atlas: this side needs the tables only.
-    let pixels = native.is_none();
+    // Remote viewers make their own atlas: this side needs the tables only.
+    let pixels = remote.is_none();
     hook_game_window(crate::game_window::hidden());
     let first = compiler.whole_text(&units::Needed::default(), &mut text::Fonts::default(), &Default::default(), &Default::default());
     let wire = compiler.wire(&folders, &first, false);
@@ -419,8 +480,8 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         .map_err(|e| LiveError::Desc(compiler.name.clone(), e.to_string()))?;
     log::info!("live renderer: {} in {} ms ({folders:?})", art_summary(&compiled, pixels), started.elapsed().as_millis());
     let compiled = Arc::new(compiled);
-    let mut presenter = if let Some(native) = native {
-        Presenter::native(native)
+    let mut presenter = if let Some(presenter) = remote {
+        presenter
     } else {
         let config = tile_viewer::ViewerConfig {
             title: VIEWER_TITLE.into(),
@@ -439,7 +500,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let timing = crate::art_schedule::Timing::GROWING;
     std::thread::Builder::new()
         .name("civ3r-publish".into())
-        .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels))
+        .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels, prefs_audio))
         .map_err(LiveError::Install)?;
     Ok(())
 }
@@ -459,7 +520,10 @@ enum Shown {
 
 /// A scenario's world as the Load Scenario screen previews it
 /// (`crate::preview::Current`): the world, the part of it to show, its
-/// labels, whether its unit art is resolved.
+/// labels, whether its unit art is resolved, what of it is drawn now
+/// (the world as soon as it is made: `Current::drawn`), whether all its
+/// own art is there, whether more of it is still coming (the loading
+/// indicator over it, `preview::loading_indicator`).
 #[derive(Clone)]
 struct PreviewShown {
     number: u64,
@@ -467,20 +531,27 @@ struct PreviewShown {
     area: [i32; 4],
     labels: Arc<crate::preview::LabelItems>,
     needed: Option<Arc<units::Needed>>,
+    drawn: crate::preview::Drawn,
+    ready: bool,
+    loading: bool,
 }
 
 impl PreviewShown {
-    fn of(c: &crate::preview::Current) -> Self {
-        Self { number: c.number, world: c.preview.world.clone(), area: c.preview.area, labels: c.labels.clone(), needed: c.needed.clone() }
+    fn of(c: &crate::preview::Current, drawn: crate::preview::Drawn, ready: bool, use_art: bool) -> Self {
+        Self { number: c.number, world: c.preview.world.clone(), area: c.preview.area, labels: c.labels.clone(), needed: c.needed.clone().filter(|_| use_art), drawn, ready, loading: false }
     }
 }
 
 /// (The same preview as made: the world is not compared tile by tile.)
 impl PartialEq for PreviewShown {
     fn eq(&self, o: &Self) -> bool {
-        self.number == o.number && Arc::ptr_eq(&self.world, &o.world) && Arc::ptr_eq(&self.labels, &o.labels) && self.needed.is_some() == o.needed.is_some()
+        self.number == o.number && Arc::ptr_eq(&self.world, &o.world) && Arc::ptr_eq(&self.labels, &o.labels) && self.needed.is_some() == o.needed.is_some() && self.drawn == o.drawn && self.ready == o.ready && self.loading == o.loading
     }
 }
+
+/// The publisher's rounds so far (for the hang watchdog,
+/// `inproc::alloc::watchdog`).
+pub static PUBLISHER_ROUNDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Publishes a new scene whenever what the game shows changes.
 #[allow(clippy::too_many_arguments)]
@@ -493,11 +564,14 @@ fn publish(
     mut art_thread: ArtThread,
     timing: crate::art_schedule::Timing,
     pixels: bool,
+    _prefs_audio: Option<civ3_sys::preferences::Installed>,
 ) {
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
     let mut menus = menus_of(&compiled);
-    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor)> = None;
+    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor, Option<Arc<ui_trace::NativeUi>>)> = None;
+    let mut last_camera_focus = None;
+    let mut last_camera_arrival = None;
     // The viewer is the only window the player sees: the game's own is
     // hidden (`CIV3R_GAME_WINDOW=show` keeps it shown, e.g. for looking at
     // it next to the viewer).
@@ -505,6 +579,8 @@ fn publish(
     let mut hiding = Hiding::default();
     let mut seq = 0;
     let mut input = InputForwarder::default();
+    let mut stale_inputs = crate::stale_input::BatchFilter::default();
+    let mut last_input_take = std::time::Instant::now();
     let mut title = menu::MenuState::default();
     let mut art = units::UnitArt::new(compiler.files(&folders));
     let mut have = units::Needed::default();
@@ -529,13 +605,18 @@ fn publish(
     let mut described_districts = crate::district_art::DistrictArt::default();
     // A whole description is wanted (the art folders changed).
     let mut whole_wanted = false;
+    // The adopted atlas and each whole build retain their own folder identity.
+    // Optional preview metadata cannot use an atlas from another scenario.
+    let mut compiled_folders = folders.clone();
+    let mut whole_folders = std::collections::HashMap::new();
     // Growths a renderer compiling its own art may not have yet (scenes
     // use them once it has).
     // (With the request they cover, `ArtSchedule::done` once they are used.)
     let mut pending_growths: std::collections::VecDeque<(u64, Arc<render_desc::Growth>, Option<u64>)> = Default::default();
     // What units drew last (shown while their new animation's art is built).
     let mut unit_memory = units::UnitMemory::default();
-    let mut last_notices: (Vec<crate::unit_notices::Notice>, u32) = Default::default();
+    let mut last_notices: (Vec<crate::unit_notices::Notice>, u32, Vec<(u64, u32)>) = Default::default();
+    let mut notices_shown = crate::unit_notices::Shown::default();
     // Art made ahead (`crate::preload`): the plan for the game shown (and
     // which game that is), the interface art to make, the budget, the
     // atlas memory the art takes (the art thread says, with the pixels;
@@ -543,8 +624,10 @@ fn publish(
     let art_list = crate::preload::ArtList::parse(crate::preload::BUILTIN_LIST);
     let mut preload = crate::preload::Preload::none();
     let mut preload_for = None;
-    let mut planning: Option<std::sync::mpsc::Receiver<crate::preload::Preload>> = None;
     let budget = crate::preload::budget(if pixels { PRELOAD_MIB_IN_PROCESS } else { PRELOAD_MIB_NATIVE });
+    let mut planner = if budget == 0 { None } else {
+        crate::preload::Planner::new().map_err(|e| log::error!("preload: planning: {e}")).ok()
+    };
     let mut atlas_used: u64 = 0;
     let mut sent_bytes: u64 = 0;
     // `CIV3R_ART_LIST`: where to write the art the game showed (for the
@@ -559,7 +642,13 @@ fn publish(
     // The renderer's own settings, and our tabs over the game's Preferences
     // screen (`crate::prefs`); what they drew and the settings last published.
     let mut prefs = crate::prefs::Prefs::load(crate::prefs::settings_path());
-    let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>) = (Vec::new(), None);
+    civ3_sys::combat_speed::set_speed_quarters((prefs.settings().animation.effective_combat_speed() * 4.0) as u8);
+    let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>, Option<scene::SettingsPreview>) = (Vec::new(), None, None);
+    // The open popup's canvas and where it is anchored (`scene::Interface::popup_anchor`).
+    let mut popup_anchor_state: Option<(u32, Option<scene::PopupAnchor>)> = None;
+    // When a popup anchored at a map click last showed (one an entry of it
+    // opens, e.g. a city menu's "Terrain details", belongs to that click).
+    let mut click_popup_seen: Option<std::time::Instant> = None;
     // The last scene's size: bytes of cells, world sprites, overlay sprites.
     let mut scene_size = (0, 0, 0);
     // The replay picture belongs to the renderer. The game supplies semantic
@@ -569,6 +658,7 @@ fn publish(
     let mut last_replay_revision = 0;
     // The scenario the Load Scenario screen previews.
     let mut previews = crate::preview::Previews::default();
+    let mut complete_preview_menu = None;
     // How often the art folders changed (whole descriptions for folders
     // before stop, `crate::art::ArtStop`).
     let folders_changed = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -578,8 +668,16 @@ fn publish(
     // (Measuring: when this round of the publisher began, and since when a
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
-    let mut held_since: Option<std::time::Instant> = None;
-    let mut unavailable_screen = false;
+    // Since when the screen shows without some of its art (still loading).
+    let mut partial_since: Option<std::time::Instant> = None;
+    // Holds a scene back while its interface's art is coming.
+    let mut partial_reported = false;
+    // Visible art missing that `art_retry` asks for again (a static screen
+    // is not skipped meanwhile).
+    let mut retry_wanted = false;
+    // Image files in none of the art folders, and art asked for again.
+    let mut absent_art = ui_screen::AbsentArt::default();
+    let mut art_retry = ui_screen::ArtRetry::default();
     // What the last publish made of the parts of the world and of the
     // interface that did not change since (`Memo`): the world's cells, the
     // city labels, the interface's and the labels' sprites, the minimap.
@@ -588,6 +686,24 @@ fn publish(
     let mut ui_sprites_memo = Memo::default();
     let mut label_sprites_memo = Memo::default();
     let mut minimap_memo = Memo::default();
+    // The previewed world's scene (`crate::preview::scene_with`).
+    let mut preview_memo: Memo<_, scene::Scene> = Memo::default();
+    // The controls' pointer anchors (`ui_screen::content_anchors`).
+    let mut anchors_memo = Memo::default();
+    // The round that shows a new frame of the Load Scenario screen's menu
+    // (a new highlight) shows the world beside it as it was, the next one
+    // (at once) the newer selection's: the highlight does not wait for its
+    // world's scene to be made and sent (tens of ms for a large map).
+    let mut preview_deferred = false;
+    // The selection the Load Scenario screen had last round.
+    let mut preview_selection = 0u64;
+    // A whole build for an older selection stopped, not replaced yet.
+    let mut rebuild_stopped = false;
+    // Whether art folders have a screen file (`ui_screen::retain_present_by`).
+    let mut present_in_folders: std::collections::HashMap<(ArtFolders, String), bool> = std::collections::HashMap::new();
+    // A press on that screen not shown yet: when, the selection then and
+    // the game's frame then.
+    let mut preview_input: Option<(std::time::Instant, u64, Option<crate::ui::Frame>)> = None;
     // The interface's items (the parts of the screen's frame: the frame,
     // the menu, the popup, the screen part) and the sprites of the parts drawn
     // in views of their own (corner, hint, screen, popup).
@@ -602,7 +718,12 @@ fn publish(
         .then(|| tile_viewer::profile::Profile::new("publisher", Duration::from_secs(5)));
     // How many controls had looks last (for the log).
     let mut last_looks = (0, 0, 0, 0);
+    // The longest pause before the next round (the bell, `presenter::WAKE`,
+    // ends it as soon as there is something new).
+    let mut wait = POLL;
+    let mut host_sent = std::time::Instant::now();
     loop {
+        PUBLISHER_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if let Some(t) = round_began.take() {
             let took = t.elapsed();
             if took >= Duration::from_millis(40) {
@@ -616,14 +737,21 @@ fn publish(
             }
         }
         // (Sooner when a stage of the previewed scenario is ready.)
-        previews.wait(POLL);
+        // (Not longer than the host's status may go unsent.)
+        previews.wait(std::mem::replace(&mut wait, POLL).min(HOST_EVERY));
         round_began = Some(std::time::Instant::now());
+        // Whether the game's thread answers (`crate::heartbeat`), also
+        // while nothing changes: the viewer's busy indicator.
+        if host_sent.elapsed() >= HOST_EVERY {
+            host_sent = std::time::Instant::now();
+            presenter.send_host();
+        }
         if let Some(p) = &mut profile {
             p.round_start();
         }
         let mut t = std::time::Instant::now();
         // Now and then, how much everything holds (memory diagnostics).
-        if last_stats.elapsed() >= Duration::from_secs(30) {
+        if last_stats.elapsed() >= memory_every() {
             last_stats = std::time::Instant::now();
             let mem = inproc::process::memory().unwrap_or_default();
             let (canvases, ops, presented) = crate::ui_trace::stats().unwrap_or_default();
@@ -637,7 +765,7 @@ fn publish(
                 atlas_used.max(sent_bytes) >> 20,
                 if pixels { "" } else { " (estimated)" },
                 fonts.len(),
-                screen_art.regions.len(),
+                screen_art.regions.len() + screen_art.resized_regions.len(),
                 screen_art.fills.len(),
                 screen_art.dynamic.len(),
                 district_art.len(),
@@ -645,6 +773,9 @@ fn publish(
                 scene_size.1,
                 scene_size.2,
             );
+            if let Some(detail) = crate::ui_trace::detail() {
+                log::info!("memory: ui mirror {detail}");
+            }
             if let Some(path) = &art_list_out {
                 let lines = format!("{}{}{}", art_list_header(), screen_art.to_lines(), fonts.lines());
                 if let Err(e) = std::fs::write(path, lines) {
@@ -655,6 +786,7 @@ fn publish(
         // Art built: from now on the scenes use it.
         while let Some(done) = art_thread.try_done() {
             let now = std::time::Instant::now();
+            let built_folders = whole_folders.remove(&done.generation);
             match done.built {
                 Ok(Built::Whole(c)) => {
                     log::info!(
@@ -665,7 +797,19 @@ fn publish(
                         now.duration_since(done.wanted).as_millis()
                     );
                     let c = Arc::new(c);
-                    presenter.adopt_assets(&c, done.generation);
+                    // (A newer whole description replaced it in the
+                    // renderer: scenes keep naming the table there was
+                    // until that one is built.)
+                    if !presenter.adopt_assets(&c, done.generation) {
+                        if let Some(token) = done.token {
+                            schedule.done(now, token);
+                        }
+                        new_art = true;
+                        continue;
+                    }
+                    if let Some(folders) = built_folders {
+                        compiled_folders = folders;
+                    }
                     // The viewer has the pixels; this side needs the rest only.
                     compiled = c.without_pixels();
                     art_generation += 1;
@@ -694,20 +838,19 @@ fn publish(
                         done.pages.1,
                         now.duration_since(done.wanted).as_millis()
                     );
-                    if g.is_empty() {
-                        // A no-op still completes its prepared generation,
-                        // including the end-to-end preload acknowledgment.
-                        presenter.adopt_growth(&g, done.generation);
-                        if let Some(token) = done.token {
-                            schedule.done(now, token);
-                        }
-                    } else {
-                        pending_growths.push_back((done.generation, g, done.token));
-                    }
+                    // Even an empty growth waits behind earlier growths.
+                    // Adopting it now would retire their generation records
+                    // before their sprite tables have been applied here.
+                    pending_growths.push_back((done.generation, g, done.token));
                 }
                 Err(e) => {
+                    if built_folders.is_some() {
+                        presenter.abandon_assets(done.generation);
+                    }
                     if e.contains(crate::assets::STOPPED) {
                         log::info!("art: a whole description for art folders no longer shown stopped after {} ms", done.took.as_millis());
+                        // The renderer may still build it, but scenes
+                        // cannot name it or any of its additions.
                     } else {
                         log::error!("art for {}: {e}", done.reason);
                     }
@@ -725,13 +868,16 @@ fn publish(
         // Growths the renderer has: a renderer given the art gets them now,
         // one compiling its own has compiled them (`Presenter::art_status`).
         let ready = presenter.art_status().unwrap_or(u64::MAX);
-        if pending_growths.front().is_some_and(|(generation, _, _)| *generation <= ready) {
+        if pending_growths.front().is_some_and(|(generation, _, _)| *generation <= ready || presenter.assets_superseded(*generation)) {
             let now = std::time::Instant::now();
-            while pending_growths.front().is_some_and(|(generation, _, _)| *generation <= ready) {
+            while pending_growths.front().is_some_and(|(generation, _, _)| *generation <= ready || presenter.assets_superseded(*generation)) {
                 let Some((generation, g, token)) = pending_growths.pop_front() else { break };
-                presenter.adopt_growth(&g, generation);
-                compiled.apply(&g);
-                art_generation += 1;
+                // (Of a table scenes no longer name: not applied here
+                // either, its sprite ids would mean other art.)
+                if presenter.adopt_growth(&g, generation) {
+                    compiled.apply(&g);
+                    art_generation += 1;
+                }
                 // (Art the screen waited for is there now.)
                 if let Some(token) = token {
                     schedule.done(now, token);
@@ -746,8 +892,27 @@ fn publish(
             art_wanted = None;
         }
         mark(&mut profile, "art handover", &mut t);
-        // The game's interface, mirrored (else its text only).
-        let ui = ui_trace::frame();
+        // (For the preview latency: the selection before this frame.)
+        let selection_before_ui = crate::preview::selected().number;
+        // The game's interface, mirrored (else its text only), and the city
+        // screen state it was presented with (`crate::city_screen`).
+        let (mut ui, presented, native_ui, sources) = ui_trace::snapshot().map_or_else(
+            || (None, None, None, ui_trace::SnapshotSources::default()),
+            |snapshot| (Some(snapshot.frame), snapshot.presented, Some(snapshot.native), snapshot.sources),
+        );
+        // The order buttons lit as the game's targeting mode says, however
+        // the command was given (`crate::lit_orders`); they have no looks.
+        let lit_orders: Vec<u64> = match (ui.as_mut(), civ3_sys::controls::sites(game.build)) {
+            (Some(f), Some(sites)) => {
+                let live = civ3_sys::controls::Live;
+                let lit = civ3_sys::lit_orders::Mode::read(&live, sites.main_gui).map(|mode| civ3_sys::lit_orders::lit(&live, sites.main_gui, mode)).unwrap_or_default();
+                crate::lit_orders::apply(f, &lit, |sprites| sources.get(sprites)).into_iter().map(u64::from).collect()
+            }
+            _ => Vec::new(),
+        };
+        if let (Some(p), Some(f)) = (&mut profile, &ui) {
+            p.count("ui frame draws", f.draws.len());
+        }
         mark(&mut profile, "ui frame", &mut t);
         // The world shows while the map screen's interface is composed (under
         // whatever screens are open over it). Between games the game's tables
@@ -759,27 +924,62 @@ fn publish(
         let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui) && !f.forms.iter().any(|f| end_of_game.contains(&f.0)));
         // The Load Scenario screen, and the world of the scenario it shows.
         let load_screen = ui.as_ref().filter(|_| !in_game).and_then(|f| crate::preview::screen(f, game.build));
-        // (Made ready on a thread of its own: as far as it is now.)
-        let preview = load_screen.and_then(|_| previews.update(&compiler.install)).cloned();
-        // A scenario brings its own art (also the one previewed, once the
-        // preview's thread has resolved its unit art there: until then the
-        // world shows with the art before; nor the game's folders then: it
-        // has loaded the scenario for the screen itself).
+        // The first complete scenario menu goes out before its optional
+        // world can replace the shared atlas. Input and menu publication
+        // continue while that preview is prepared. Its whole build also
+        // waits for the menu's assets to reach the viewer's GPU.
+        let preview = if load_screen.is_some() {
+            previews.update(&compiler.install).cloned()
+        } else {
+            previews.close();
+            complete_preview_menu = None;
+            None
+        };
+        let menu_published = load_screen.is_some() && complete_preview_menu == load_screen;
+        // The scenario's own art (a whole build for its folders, which art
+        // the menu needs for a newer selection would queue behind) only once
+        // the menu showing this selection went out and the selection rested
+        // a moment: going through the list never waits for it. Its world
+        // shows meanwhile, in the art there is (`Current::drawn`).
+        let menu_published = menu_published && previews.menu_shown() && previews.rested(PREVIEW_ART_REST);
+        let use_preview_art = menu_published && preview.as_ref().is_some_and(|p| {
+            let (scenario, search) = p.folders();
+            p.needed.is_some() && (folders == ArtFolders { scenario, search } || presenter.current_assets_ready())
+        });
+        // A newer selection stops the whole build of an older one's art
+        // still running (`ArtStop`): its folders are no longer wanted.
+        // Only the stop, at once (an atomic): nothing else is done for it
+        // in this round, the one that shows the newer selection. The art
+        // thread's art is then made again whole for the folders wanted
+        // next (`rebuild_stopped`), not before the newer selection rests.
+        let selection = previews.asked();
+        if load_screen.is_some() && selection != preview_selection && !whole_folders.is_empty() && folders != compiled_folders {
+            log::info!("scenario preview: a newer selection stops the art being made for {:?}", folders);
+            folders_changed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            rebuild_stopped = true;
+        }
+        preview_selection = selection;
         let now = match (&preview, load_screen) {
-            (Some(p), _) if p.needed.is_some() => {
+            (Some(p), _) if use_preview_art => {
                 let (scenario, search) = p.folders();
                 ArtFolders { scenario, search }
             }
             (_, Some(_)) => folders.clone(),
+            // A highlighted scenario also changes the game's tables before
+            // its menu opens. Between games those tables do not choose the
+            // title's art folders.
+            _ if !in_game && !ui.as_ref().is_some_and(|f| f.forms.iter().any(|f| end_of_game.contains(&f.0))) => ArtFolders::default(),
             _ => ArtFolders::of(&game),
         };
-        let resolved_art = if preview.as_ref().is_some_and(|p| p.needed.is_some()) { previews.take_art() } else { None };
+        mark(&mut profile, "preview update", &mut t);
+        let resolved_art = if use_preview_art { previews.take_art() } else { None };
         let mut recompile = false;
         // Art for what the game's screen shows (held back without it).
         let mut screen_recompile = false;
         // What the art is rebuilt for (for the log).
         let mut wanted_for: Vec<&str> = Vec::new();
         if now != folders {
+            rebuild_stopped = false;
             folders = now;
             folders_changed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             art = resolved_art.unwrap_or_else(|| units::UnitArt::new(compiler.files(&folders)));
@@ -787,12 +987,31 @@ fn publish(
             labels_memo = Memo::default();
             items_memos = Default::default();
             have = units::Needed::default();
+            absent_art.clear();
+            art_retry.clear();
+            // (Looked up once per art folders: going back and forth between
+            // scenarios does not look up every screen file again.)
+            let files = compiler.files(&folders);
+            ui_screen::retain_present_by(&mut screen_art, &mut |path| {
+                *present_in_folders.entry((folders.clone(), path.to_owned())).or_insert_with(|| files.resolve(path).is_ok())
+            });
+            whole_wanted = true;
+            recompile = true;
+            wanted_for.push("art folders");
+        } else if rebuild_stopped && (use_preview_art || load_screen.is_none()) {
+            // (A whole build was stopped and nothing replaced it: the art
+            // thread has nothing to add to.)
+            rebuild_stopped = false;
+            if let Some(a) = resolved_art {
+                art = a;
+            }
             whole_wanted = true;
             recompile = true;
             wanted_for.push("art folders");
         } else if let Some(a) = resolved_art {
             art = a;
         }
+        mark(&mut profile, "art folders", &mut t);
         // (Until the viewer is gone, see `forward_input`.)
         if hide_game_window && inproc::hidden::hiding() {
             hide_window(&mut input, &mut hiding);
@@ -800,7 +1019,18 @@ fn publish(
         // (No unit art is read here while the preview's thread reads it for
         // the preview shown.)
         art.set_reading(!(preview.is_some() && previews.art_pending()));
-        let inputs = presenter.take_input();
+        // Input that waited out a stall of this thread is dropped, not
+        // posted to the game in one burst (`crate::stale_input`).
+        let taken_at = std::time::Instant::now();
+        let waited = taken_at.saturating_duration_since(std::mem::replace(&mut last_input_take, taken_at));
+        let inputs = stale_inputs.filter(presenter.take_input(), waited.as_millis().min(u32::MAX as u128) as u32);
+        // A press on the Load Scenario screen: timed until a scene shows a
+        // newer selection in a newer frame of the game's menu (logged).
+        if load_screen.is_some() && preview_input.is_none()
+            && inputs.iter().any(|i| matches!(i, scene::Input::Key { down: true, .. } | scene::Input::MouseButton { down: true, .. }))
+        {
+            preview_input = Some((std::time::Instant::now(), selection_before_ui, ui.clone()));
+        }
         // What our preferences tabs take does not reach the game.
         let inputs = prefs.route(inputs, input.viewport);
         presenter.forward_log();
@@ -808,8 +1038,21 @@ fn publish(
         let snapshot = if in_game { snapshot(&game) } else { Err(Civ3Error::NoGame) };
         mark(&mut profile, "snapshot", &mut t);
         let shown = match (snapshot, load_screen) {
-            (_, Some(rect)) => Shown::Preview(rect, preview.as_ref().map(PreviewShown::of)),
-            (Ok((world, view)), None) => Shown::Map(world, view),
+            (_, Some(rect)) => Shown::Preview(rect, preview.as_ref().map(|p| {
+                let (scenario, search) = p.folders();
+                let own_art = use_preview_art && compiled_folders == ArtFolders { scenario, search };
+                let ready = own_art && p.art_ready(&compiled, &fonts);
+                let asking = !use_preview_art || p.needed.as_ref().is_some_and(|n| !have.covers(n));
+                let building = whole_wanted || schedule.pending() || schedule.running() || !pending_growths.is_empty() || !art_thread.idle();
+                let loading = crate::preview::loading(ready, p.needed.is_none(), asking, building);
+                PreviewShown { loading, ..PreviewShown::of(p, p.drawn(use_preview_art, &compiled, &fonts), ready, use_preview_art) }
+            })),
+            // The city screen is the one the game presented: its city's map
+            // and fog, never another's read meanwhile (`crate::city_screen`).
+            (Ok((mut world, view)), None) => {
+                world.focus_city = crate::city_screen::screen_state(world.focus_city, (view.camera_x, view.camera_y), presented).focus_city;
+                Shown::Map(world, view)
+            }
             // Between games: the title menu, which follows the pointer.
             (Err(Civ3Error::NoGame), None) => {
                 if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))) {
@@ -822,33 +1065,49 @@ fn publish(
             (Err(e), None) => {
                 log::debug!("snapshot: {e}");
                 forward_input(&game, &mut input, inputs);
+                prefs.native_inputs_posted(input.window);
                 continue;
             }
         };
         ui_trace::set_skipping(matches!(shown, Shown::Map(..)));
         forward_input(&game, &mut input, inputs);
+        prefs.native_inputs_posted(input.window);
         if input.viewport == (0, 0) {
             input.game_window();
         }
-        let modal = game.modal_form().ok().flatten().filter(|&m| m != 0);
-        // Our tabs over the game's Preferences screen, while it is shown.
+        // The fence acquire must precede the native modal lookup. Captured
+        // draw frames alone can still describe a popup that just closed.
         let prefs_form = civ3_sys::ui_hooks::preferences_form(game.build);
-        prefs.update(ui.as_ref(), prefs_form, input.viewport, modal);
+        let modal = prefs.update_with_modal(ui.as_ref(), prefs_form, input.viewport,
+            || game.modal_form().ok().map(|modal| modal.filter(|&m| m != 0)));
+        // Combat timing receives committed values; draft-only settings never project here.
+        civ3_sys::combat_speed::set_speed_quarters((prefs.settings().animation.effective_combat_speed() * 4.0) as u8);
         let prefs_draws = prefs.draws(&fonts);
-        let prefs_changed = published_prefs.0 != prefs_draws || published_prefs.1.as_ref() != Some(prefs.settings());
+        mark(&mut profile, "controls: prefs", &mut t);
+        let prefs_changed = published_prefs.0 != prefs_draws || published_prefs.1.as_ref() != Some(prefs.settings()) || published_prefs.2 != prefs.settings_preview();
         let texts = if ui.is_some() { Vec::new() } else { trace::recent_texts() };
         // What can be clicked (for the viewer's button snapping): our own
         // title menu's buttons, else the game's controls.
         let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
         let mut controls = match own_title {
             Some(_) => Vec::new(),
-            None => civ3_sys::controls::sites(game.build).map(|s| civ3_sys::controls::controls(&civ3_sys::controls::Live, &s)).unwrap_or_default(),
+            None => native_ui.as_ref().map(|native| native.controls.clone()).unwrap_or_else(||
+                civ3_sys::controls::sites(game.build).map(|sites| civ3_sys::controls::controls(&civ3_sys::controls::Live, &sites)).unwrap_or_default()),
         };
         prefs.retain_native_controls(&mut controls);
+        mark(&mut profile, "controls: read", &mut t);
+        // The military advisor's unit columns where it drew units.
+        if let Some(frame) = ui.as_ref() {
+            let strips = native_ui.as_ref().map(|native| native.military.clone()).unwrap_or_else(||
+                civ3_sys::controls::screens::military_unit_strips(&civ3_sys::controls::Live, &controls));
+            controls.extend(ui_screen::military_unit_controls(frame, &strips));
+        }
         // The native start screen draws its text rows directly into the
         // main form, without child Button objects. Use its own layout and
         // the captured labels' system text extents for the same hit boxes.
-        if let Some((frame, layout)) = ui.as_ref().zip(civ3_sys::controls::title_layout(&civ3_sys::controls::Live, game.build)) {
+        let native_title = native_ui.as_ref().map_or_else(
+            || civ3_sys::controls::title_layout(&civ3_sys::controls::Live, game.build), |native| native.title);
+        if let Some((frame, layout)) = ui.as_ref().zip(native_title) {
             use crate::city_labels::Env as _;
             controls.extend(crate::setup_controls::title(frame, layout, |run| {
                 let font = civ3_assets::fonts::FontStyle { face: run.face.clone(), height: run.height.abs(), weight: run.weight, italic: run.italic };
@@ -858,17 +1117,24 @@ fn publish(
         // Our preferences tabs' controls are over the game's.
         let prefs_looks = prefs.looks(&fonts);
         let mut interactables: Vec<scene::Interactable> =
-            prefs_looks.iter().map(|l| scene::Interactable { anchor: None, rect: l.rect, kind: l.kind, id: l.id }).collect();
+            prefs_looks.iter().map(|l| scene::Interactable { alt_right_click: false, anchor: None, rect: l.rect, kind: l.kind, id: l.id }).collect();
         interactables.extend(match own_title {
             Some((ms, m)) => ms.interactables(m, input.viewport),
             None => ui_screen::interactables(&controls),
         });
         if let Some(frame) = ui.as_ref() {
-            ui_screen::content_anchors(frame, &fonts, &controls, &mut interactables);
+            // (Measures the rows' text: made again only when the frame, the
+            // controls or the fonts change, not in every round.)
+            interactables = anchors_memo.get((frame.clone(), fonts.revision(), controls.clone(), interactables.clone()), || {
+                let mut anchored = interactables.clone();
+                ui_screen::content_anchors(frame, &fonts, &controls, &mut anchored);
+                anchored
+            });
+            mark(&mut profile, "controls: anchors", &mut t);
         }
         if let Some(f) = ui.as_ref() {
-            let row = civ3_sys::controls::sites(game.build).and_then(|s|
-                civ3_sys::controls::status_unit_row(&civ3_sys::controls::Live, &s, &controls));
+            let row = native_ui.as_ref().map_or_else(|| civ3_sys::controls::sites(game.build).and_then(|sites|
+                civ3_sys::controls::status_unit_row(&civ3_sys::controls::Live, &sites, &controls)), |native| native.status_row);
             interactables.extend(ui_screen::status_unit_targets(f, row));
         }
         // What the open city screen tests in its code (citizens, units).
@@ -879,6 +1145,12 @@ fn publish(
         }
         // The pointer the game shows (docs §16.11).
         let game_cursor = civ3_sys::cursor::sites(game.build).and_then(|s| civ3_sys::cursor::read(&civ3_sys::controls::Live, &s));
+        // While a command waits for its tile, over the world: the command's
+        // pointer, or "not here" where it cannot go (`crate::cursor::targeting`).
+        let game_cursor = match &shown {
+            Shown::Map(world, _) => crate::cursor::targeting(game_cursor, world.targeting.mode, world.targeting.target_ok, crate::world_input::pointer_tile().is_some()),
+            _ => game_cursor,
+        };
         let standard = inproc::pointer::last_set_cursor().and_then(inproc::pointer::standard_cursor);
         let cursor = crate::cursor::scene_cursor(game_cursor, standard, |n| compiled.set(n).map(|(s, _)| s.raw()), crate::cursor::system_arrow());
         if last.as_ref().is_none_or(|l| l.4 != cursor) {
@@ -898,25 +1170,41 @@ fn publish(
             screen_recompile = true;
             wanted_for.push("text");
         }
-        let state = (shown, texts, ui, interactables, cursor);
+        let state = (shown, texts, ui, interactables, cursor, native_ui);
         let notice_state = if matches!(&state.0, Shown::Map(..)) {
-            (crate::unit_notices::read(&game), game.map_message_background().unwrap_or(0x8000_0000))
+            // (With the renderer's own: why a press under a screen was not
+            // acted on, `crate::modal`.) One per tile, each until its own
+            // time is up on this clock, not the game's frames.
+            let notices = notices_shown.update(std::time::Instant::now(), crate::unit_notices::read(&game), crate::modal::notices(&game));
+            (notices, game.map_message_background().unwrap_or(0x8000_0000), notices_shown.lifetimes())
         } else { Default::default() };
-        let unchanged = last.as_ref() == Some(&state) && last_notices == notice_state;
+        let deferred = std::mem::take(&mut preview_deferred);
+        // A native focus request can arrive before simulation changes the world.
+        // Publish it even while combat waits for the viewer to expose its tile.
+        let camera_focus = matches!(state.0, Shown::Map(..)).then(|| crate::native_camera::focus(game)).flatten();
+        let camera_arrival = civ3_sys::native_camera::arrival(game).filter(|a| camera_focus.is_some_and(|f| f.serial == a.serial)).map(|a| scene::CameraArrival { serial: a.serial, bounds: a.bounds });
+        let unchanged = last.as_ref() == Some(&state) && last_notices == notice_state && last_camera_focus == camera_focus && last_camera_arrival == camera_arrival && !deferred;
+        // (A new frame of the game's menu: see `preview_deferred`.)
+        let menu_changed = last.as_ref().is_none_or(|l| l.2 != state.2);
         last_notices = notice_state.clone();
         mark(&mut profile, "compare", &mut t);
         // GPU upload completion can make another optional preload chunk
         // eligible even on a static screen. CPU compilation alone must not
         // let background art outrun the viewer.
-        let preload_ready = presenter.preload_ready();
-        let preload_work = planning.is_some() || (!preload.finished() && preload_ready);
-        if unchanged && replay_revision == last_replay_revision && !recompile && !new_art && !schedule.pending() && !preload_work && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
+        let planning = planner.as_ref().is_some_and(crate::preload::Planner::ready);
+        let preload_ready = if planning || !preload.finished() {
+            let ready = presenter.preload_ready();
+            mark(&mut profile, "preload: upload acknowledgment", &mut t);
+            ready
+        } else { false };
+        let preload_work = planning || (!preload.finished() && preload_ready);
+        if unchanged && replay_revision == last_replay_revision && !recompile && !new_art && !schedule.pending() && !retry_wanted && !preload_work && input.look.is_none() && input.world_buttons.is_empty() && !prefs_changed {
             if let Some(p) = &mut profile {
                 p.event("unchanged", 1);
             }
             continue;
         }
-        let (shown, texts, ui, interactables, cursor) = &state;
+        let (shown, texts, ui, interactables, cursor, native_ui) = &state;
         // (Once per round: the memos below key on it.)
         let still = match shown {
             Shown::Map(world, _) => Arc::new(still_world(world)),
@@ -932,19 +1220,66 @@ fn publish(
         // (A context menu over the map is one too, modal or not: the topmost
         // form there.)
         let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
-        let popup = match (ui, modal) {
+        let popup_and_canvas = match (ui, modal) {
             (Some(f), m) if matches!(shown, Shown::Map(..)) || screen_open.is_some() => {
-                let modal_popup = m.and_then(|m| crate::interface_parts::popup(f, m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, screen_open.map(|s| s.0), screen_size));
-                modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size)))
+                let modal_popup = m.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4).and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c)));
+                modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c))))
+            }
+            // Between games: a popup over the title or a setup screen (those
+            // screens are modal forms themselves: not popups).
+            (Some(f), Some(m)) if matches!(shown, Shown::Title(_)) => {
+                let c = m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
+                crate::interface_parts::menu_popup(f, c, screen_size).map(|p| (p, c))
             }
             _ => None,
         };
-        let (ui_below, ui_popup) = match (ui, popup) {
-            (Some(f), Some((first, rect))) => {
-                let (below, above) = crate::interface_parts::split_popup(f, first, rect);
-                (Some(below), Some(above))
+        let popup = popup_and_canvas.map(|(p, _)| p);
+        // A context menu or the tile box the game opened at the map click
+        // just made goes there (decided when it opens, kept while open).
+        let popup_anchor = match (popup_and_canvas, ui) {
+            (Some(((_, [_, _, w, h]), canvas)), Some(f)) if matches!(shown, Shown::Map(..)) && screen_open.is_none() => {
+                if popup_anchor_state.is_none_or(|(c, _)| c != canvas) {
+                    let form = canvas - civ3_sys::layout::BASE_FORM_DATA_CANVAS - 4;
+                    let kind = f.forms.iter().find(|t| t.1 == canvas).and_then(|t| {
+                        crate::interface_parts::click_popup(game.build, t.0, || {
+                            inproc::Ptr32::<u32>::new(form + crate::interface_parts::CONTEXT_MENU_FLAGS).read().ok()
+                        })
+                    });
+                    let chained = click_popup_seen.is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+                    let press = crate::world_input::last_press().filter(|p| chained || p.when.elapsed() < Duration::from_secs(2));
+                    // The tile box shows the tile the game's map conversion
+                    // gave `open_tile_info` (kept while a popup opened at the
+                    // click is open: a city menu's "Terrain details" is the
+                    // city's tile), not where a later pointer went.
+                    let game_tile = crate::world_input::popup_tile();
+                    let anchor = kind.zip(press).map(|(kind, p)| crate::interface_parts::click_anchor(kind, p.at, p.tile, game_tile, p.zoomed_out, (w, h)));
+                    if let Some(a) = anchor {
+                        log::info!("popup: {kind:?} at the map click{}, anchored {a:?}", if chained { " (opened from the popup there)" } else { "" });
+                    }
+                    popup_anchor_state = Some((canvas, anchor));
+                }
+                let anchor = popup_anchor_state.and_then(|(_, a)| a);
+                if anchor.is_some() {
+                    click_popup_seen = Some(std::time::Instant::now());
+                }
+                anchor
             }
-            _ => (ui.clone(), None),
+            _ => {
+                popup_anchor_state = None;
+                None
+            }
+        };
+        let popup_canvases: Vec<u32> = native_ui.as_ref().into_iter()
+            .flat_map(|native| native.modal_stack).filter(|&form| form != 0)
+            .map(|form| form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)
+            .chain(popup_and_canvas.map(|(_, canvas)| canvas))
+            .fold(Vec::new(), |mut out, canvas| { if !out.contains(&canvas) { out.push(canvas); } out });
+        let (ui_below, popup_frames) = match ui {
+            Some(frame) => {
+                let (below, layers) = crate::interface_parts::split_modal_stack(frame, &popup_canvases, screen_open.map(|s| s.0), screen_size);
+                (Some(below), layers)
+            }
+            None => (None, Vec::new()),
         };
         // Unit pictures in panels are drawn in the viewing player's colours.
         let unit_colors = match shown {
@@ -959,8 +1294,26 @@ fn publish(
             }
             _ => None,
         };
+        // Its map centred on the city as the screen intends (not clamped to
+        // the map as the game's camera is), what the game drew over its map
+        // moved with it, the pointer there moved back (`crate::city_screen`).
+        let city_anchor = match (shown, city) {
+            (Shown::Map(world, view), Some((band, _))) => world.focus_city.and_then(|id| world.city(id)).map(|c| {
+                let game_camera = crate::city_screen::screen_state(world.focus_city, (view.camera_x, view.camera_y), presented).camera;
+                let period = (if world.wrap_x { 64 * world.width } else { 0 }, if world.wrap_y { 32 * world.height } else { 0 });
+                crate::city_screen::Anchor::new((c.x, c.y), screen_size, band, game_camera, period)
+            }),
+            _ => None,
+        };
+        input.city_map = city_anchor;
         let visible_ui = match city {
-            Some((_, first)) => ui_below.as_ref().map(|f| ui_screen::from_draw(f, first)),
+            Some((_, first)) => ui_below.as_ref().map(|f| {
+                let mut f = ui_screen::from_draw(f, first);
+                if let Some(a) = &city_anchor {
+                    a.apply(&mut f);
+                }
+                f
+            }),
             None => ui_below.clone(),
         };
         // A named screen smaller than the window (an advisor; not the city
@@ -1028,8 +1381,15 @@ fn publish(
         // an underlying advisor here would cover the world when this
         // screen is placed in a pane of its own.
         let mut menu_items = menu_ui.as_ref().filter(|_| screen_part.is_none()).map(|f| with_tabs(menu_memo, f)).unwrap_or_default();
-        let mut popup_items = ui_popup.as_ref().map(|f| with_tabs(popup_memo, f)).unwrap_or_default();
-        let mut screen_items = ui_screen_part.as_ref().map(|f| with_tabs(screen_memo, f)).unwrap_or_default();
+        let popup_layers: Vec<_> = popup_frames.iter().map(|part| {
+            // Canvas identity survives pushes/pops; depth-based IDs would
+            // confuse a replaced dialog with its still-open parent.
+            let id = part.canvas;
+            (id, part.rect, with_tabs(popup_memo, &part.frame))
+        }).collect();
+        let popup_items: Vec<_> = popup_layers.iter().flat_map(|(_, _, items)| items.iter().cloned()).collect();
+        let popup_view = popup_layers.last().map(|(id, _, _)| *id);
+        let screen_items = ui_screen_part.as_ref().map(|f| with_tabs(screen_memo, f)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
         // canvas (`CIV3R_MAP_LABELS=mirror`: the game's own, in its view only).
@@ -1047,28 +1407,39 @@ fn publish(
                 // may have drawn none itself, e.g. with its map rendering off.)
                 labels_not_in_game_view = (screen_open.is_some() || modal.is_some()) && !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
-                let labels = labels_memo.get((still.clone(), view.zoomed_out), || crate::city_labels::labels(world, view.zoomed_out, &mut label_env));
-                let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
-                crate::city_labels::items(&labels, (0, 0), everywhere, true)
+                labels_memo.get((still.clone(), view.zoomed_out), || WorldItems::new(view.zoomed_out, |reduced| {
+                    let labels = crate::city_labels::labels(world, reduced, &mut label_env);
+                    let everywhere = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
+                    crate::city_labels::items(&labels, (0, 0), everywhere, true)
+                }))
             }
             // (Drawn with the preview's scene, `preview::scene`.)
             // (Made with it, on the preview's thread.)
-            Shown::Preview(_, Some(p)) if ui.is_some() => {
+            Shown::Preview(_, Some(p)) if ui.is_some() && p.needed.is_some() => {
                 preview_labels = p.labels.clone();
-                preview_labels.iter().flat_map(|(_, items)| items.iter().cloned()).collect()
+                WorldItems::full(preview_labels.iter().flat_map(|(_, items)| items.iter().cloned()).collect())
             }
-            _ => Vec::new(),
+            _ => WorldItems::default(),
         };
         // The go-to path's turn count (§10.15), with the world as the labels.
         let target_items = match shown {
-            Shown::Map(world, view) => crate::targeting::label_items(world, view.zoomed_out, &mut label_env),
-            _ => Vec::new(),
+            Shown::Map(world, view) => WorldItems::new(view.zoomed_out, |reduced| crate::targeting::label_items(world, reduced, &mut label_env)),
+            _ => WorldItems::default(),
         };
         let notice_items = match shown {
             Shown::Map(_, view) => {
                 use crate::city_labels::Env as _;
-                crate::unit_notices::items(&notice_state.0, view.zoomed_out, crate::ui::rgb555(notice_state.1),
-                    &mut |font, text| label_env.text_width(font, text))
+                WorldItems::new(view.zoomed_out, |reduced| crate::unit_notices::items(&notice_state.0, reduced, crate::ui::rgb555(notice_state.1),
+                    &mut |font, text| label_env.text_width(font, text)))
+            }
+            _ => WorldItems::default(),
+        };
+        let notice_layouts: Vec<_> = match shown {
+            Shown::Map(_, view) => {
+                use crate::city_labels::Env as _;
+                notice_state.0.iter().map(|notice| WorldItems::new(view.zoomed_out, |reduced|
+                    crate::unit_notices::items(std::slice::from_ref(notice), reduced, crate::ui::rgb555(notice_state.1),
+                        &mut |font, text| label_env.text_width(font, text)))).collect()
             }
             _ => Vec::new(),
         };
@@ -1082,26 +1453,10 @@ fn publish(
         }
         // (Our tabs where no part draws the screen: on top.)
         menu_items.extend(prefs_items.take().unwrap_or_default());
-        // Only a popup over the map's own screen is the viewer's to place;
-        // one over another screen (the Preferences screen, an advisor) stays
-        // with it, with the menus.
-        let embedded_popup = popup.filter(|_| screen_part.is_some());
-        let popup = popup.filter(|_| on_map && !prefs.is_open());
-        if popup.is_none() {
-            if screen_part.is_some() { &mut screen_items } else { &mut menu_items }.append(&mut popup_items);
-        }
-        // An info box over Preferences remains with that panel, including
-        // any frame that extends beyond its edges.
-        let screen_part = screen_part.map(|(first, [x, y, w, h])| {
-            let rect = match embedded_popup {
-                Some((_, [px, py, pw, ph])) => {
-                    let (l, t) = (x.min(px), y.min(py));
-                    [l, t, (x + w).max(px + pw) - l, (y + h).max(py + ph) - t]
-                }
-                None => [x, y, w, h],
-            };
-            (first, rect)
-        });
+        // Every detected popup is an overlay of its own. Its parent screen
+        // keeps the bounds measured before the popup was split off, even if
+        // the popup reaches outside it. Never merge those bounds or items:
+        // fitting their union moves and rescales the screen beneath a dialog.
         // The viewer asked to see a world pixel: click it on the minimap (the
         // game centres its view there).
         // Not while a menu is open: the click would go to the menu.
@@ -1124,7 +1479,15 @@ fn publish(
                         w.wake();
                     }
                 }
-                _ => log::debug!("modal input: {button:?} at world {at:?} ({action:?}): no menu that allows it"),
+                _ => {
+                    log::debug!("modal input: {button:?} at world {at:?} ({action:?}): no menu that allows it");
+                    let form = game.modal_form().ok().flatten().unwrap_or(0);
+                    // (No notice under a popup opened at a map click: those
+                    // are for full screens.)
+                    if let (Some(tile), true) = (crate::scene_map::tile_at(world, at, view.zoomed_out), form != 0 && !crate::world_input::click_popup_open(&game)) {
+                        crate::modal::refuse(&game, tile, &crate::modal::Refused::OtherForm(form));
+                    }
+                }
             }
         }
         if let Some(f) = ui {
@@ -1145,47 +1508,59 @@ fn publish(
         }
         // The controls in their other states (hover, pressed), for the
         // viewer to draw at once (`crate::looks`), and their art.
-        let arts: Vec<crate::looks::ControlArt> = match (ui, civ3_sys::controls::sites(game.build)) {
-            (Some(_), Some(sites)) => controls.iter().filter_map(|c| control_art(&sites, c)).collect(),
-            _ => Vec::new(),
-        };
+        let arts: Vec<crate::looks::ControlArt> = native_ui.as_ref().map(|native| {
+            native.arts.iter().filter(|art| !lit_orders.contains(&art.id) && controls.iter().any(|control| control.id == art.id)).cloned().collect()
+        }).unwrap_or_default();
         let control_looks: Vec<crate::looks::ControlLooks> = match ui {
             Some(f) => arts.iter().filter_map(|a| crate::looks::control_looks(f, a)).collect(),
             None => Vec::new(),
         };
+        mark(&mut profile, "ui items: commands and look states", &mut t);
         let looks_items = |draws: &[crate::ui::ScreenDraw]| ui_screen::items(&crate::ui::Frame { draws: draws.to_vec(), ..Default::default() }, files.roots(), generated, unit_colors);
         let mut looks_art = false;
         for (_, draws) in control_looks.iter().flat_map(|c| &c.states) {
-            looks_art |= ui_screen::add_art(&looks_items(draws), &mut screen_art, &mut fonts, &files);
+            looks_art |= ui_screen::add_present_art(&looks_items(draws), &mut screen_art, &mut fonts, &files, &mut absent_art);
         }
         for (_, draws) in prefs_looks.iter().flat_map(|c| &c.states) {
-            looks_art |= ui_screen::add_art(&crate::prefs::items(draws), &mut screen_art, &mut fonts, &files);
+            looks_art |= ui_screen::add_present_art(&crate::prefs::items(draws), &mut screen_art, &mut fonts, &files, &mut absent_art);
         }
+        mark(&mut profile, "ui items: control source lookup", &mut t);
         if looks_art {
             screen_recompile = true;
             wanted_for.push("control states");
         }
-        if ui_screen::add_art(&ui_items, &mut screen_art, &mut fonts, &files)
-            | ui_screen::add_art(&menu_items, &mut screen_art, &mut fonts, &files)
-            | ui_screen::add_art(&popup_items, &mut screen_art, &mut fonts, &files)
-            | ui_screen::add_art(&screen_items, &mut screen_art, &mut fonts, &files)
-            | ui_screen::add_art(&corner_items, &mut screen_art, &mut fonts, &files)
-            | ui_screen::add_art(&hint.1, &mut screen_art, &mut fonts, &files)
-        {
+        let plain_text: Vec<_> = if ui.is_none() {
+            texts.iter().cloned().map(|run| ui_screen::Item::Text(run, [i32::MIN, i32::MIN, i32::MAX, i32::MAX], false)).collect()
+        } else { Vec::new() };
+        let mandatory = ui_screen::mandatory_items([&ui_items, &menu_items, &popup_items, &screen_items, &corner_items, &plain_text], &notice_items);
+        if ui_screen::add_present_art(mandatory.clone(), &mut screen_art, &mut fonts, &files, &mut absent_art) {
             screen_recompile = true;
             wanted_for.push("interface");
         }
-        if ui_screen::add_art(&label_items, &mut screen_art, &mut fonts, &files) {
+        mark(&mut profile, "ui items: visible source lookup", &mut t);
+        if ui_screen::add_present_art(&hint.1, &mut screen_art, &mut fonts, &files, &mut absent_art) {
+            recompile = true;
+            wanted_for.push("hint");
+        }
+        if ui_screen::add_present_art(&label_items, &mut screen_art, &mut fonts, &files, &mut absent_art) {
             recompile = true;
             wanted_for.push("city labels");
         }
-        if ui_screen::add_art(&target_items, &mut screen_art, &mut fonts, &files) {
+        if ui_screen::add_present_art(&target_items, &mut screen_art, &mut fonts, &files, &mut absent_art) {
             recompile = true;
             wanted_for.push("go-to turns");
         }
-        if ui_screen::add_art(&notice_items, &mut screen_art, &mut fonts, &files) {
-            recompile = true;
-            wanted_for.push("unit notices");
+        // Visible art described before that has not arrived although
+        // nothing is being built (an addition that failed or was given
+        // up): asked for again at once, a few times.
+        if !whole_wanted && !schedule.screen_pending() && !schedule.running() && art_thread.idle() && pending_growths.is_empty() {
+            let missing = ui_screen::unready_art(mandatory.clone().filter(|i| !absent_art.covers(i)), &compiled);
+            let again = art_retry.due(&missing, std::time::Instant::now());
+            if !again.is_empty() {
+                described_screen = described_screen.minus(&again);
+                screen_recompile = true;
+                wanted_for.push("visible art not resident");
+            }
         }
         mark(&mut profile, "ui items+labels", &mut t);
         // Art the description does not have yet: units, text fonts.
@@ -1238,45 +1613,50 @@ fn publish(
         let now = std::time::Instant::now();
         if recompile || screen_recompile {
             log::debug!("art: wanted for {}", wanted_for.join(", "));
-            schedule.want(now, screen_recompile);
+            // A replacement whole atlas carries the mandatory menu too.
+            // Canceling its predecessor cannot make still-missing menu art
+            // look terminally unavailable while this replacement is pending.
+            schedule.want(now, screen_recompile || whole_wanted);
             if wanted_for.contains(&"art folders") {
                 previews.art_wanted(schedule.asked());
             }
             art_wanted.get_or_insert(now);
             reasons.extend(wanted_for.iter().copied());
         }
-        // A new game: plan the art to make ahead for it (once its units are
-        // there).
-        // (The plan reads the headers of every unit's art files: on a thread
-        // of its own, the game goes on.)
-        if let Shown::Map(world, view) = shown {
-            let key = Some((folders.clone(), crate::preload::game_key(world)));
-            if preload_for != key && !world.units.is_empty() && !world.unit_type_keys.is_empty() {
+        // Interface work is ready before exhaustive unit planning. A single
+        // worker keeps only the latest game request and stops obsolete reads.
+        // Title menus can prewarm too; disabling preload starts no planner.
+        if let Some(planner) = planner.as_mut() {
+            let key = Some((folders.clone(), match shown {
+                Shown::Map(world, _) => Some(crate::preload::game_key(world)),
+                _ => None,
+            }));
+            if preload_for != key {
                 preload_for = key;
                 preload = crate::preload::Preload::none();
-                let (tx, rx) = std::sync::mpsc::channel();
-                let (world, view, list, files) = (world.clone(), *view, art_list.clone(), compiler.files(&folders));
-                let spawned = std::thread::Builder::new().name("civ3r-preload-plan".into()).spawn(move || {
-                    let mut art = units::UnitArt::new(files);
-                    let _ = tx.send(crate::preload::Preload::plan(&world, &view, &mut art, &list, budget));
-                });
-                match spawned {
-                    Ok(_) => planning = Some(rx),
-                    Err(e) => log::error!("preload: planning: {e}"),
-                }
+                let (world, view) = match shown {
+                    Shown::Map(world, view) => (crate::preload::planning_world(world), *view),
+                    _ => (Civ3World::default(), Civ3View::default()),
+                };
+                let stop = crate::art::ArtStop {
+                    started: folders_changed.load(std::sync::atomic::Ordering::Acquire), now: folders_changed.clone(),
+                };
+                planner.request(world, view, art_list.clone(), compiler.files(&folders), stop, budget);
             }
-        }
-        if let Some(plan) = planning.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            planning = None;
-            preload = plan;
-            // Room in the atlas for what will be made (as far as the
-            // budget goes), at once: not moved again and again.
-            let page = 2048 * 2048;
-            let used = atlas_used.max(sent_bytes);
-            let ahead = preload.left().min(budget.saturating_sub(used));
-            // (Mostly indexed art; the shelves leave some room unused.)
-            let index_pages = ((used + ahead * 5 / 4).min(budget.max(used)) / page) as u32 + 1;
-            presenter.reserve(0, index_pages);
+            let [interface, scenario, units] = planner.take();
+            let received = interface.is_some() || scenario.is_some() || units.is_some();
+            if let Some(plan) = interface { preload = plan; }
+            for phase in [scenario, units].into_iter().flatten() { preload.append(phase); }
+            if received {
+                // Reserve once per additional phase. The inbox keeps its
+                // high-water record, including after requests are consumed.
+                let page = 2048 * 2048;
+                let used = atlas_used.max(sent_bytes);
+                let ahead = preload.left().min(budget.saturating_sub(used));
+                let room = used.saturating_add(ahead.saturating_mul(5) / 4).min(budget.max(used));
+                let index_pages = u32::try_from(room / page).unwrap_or(u32::MAX).saturating_add(1);
+                presenter.reserve(0, index_pages);
+            }
         }
         if let Some(token) = schedule.start(now) {
             // Fonts no screen or zoom has asked for in a while are let go
@@ -1305,8 +1685,12 @@ fn publish(
                     };
                     // A renderer that compiles its own copy starts at once.
                     let generation = presenter.prepare_assets(&compiler.wire(&folders, text, append));
+                    if !append {
+                        whole_folders.insert(generation, folders.clone());
+                    }
                     let stop = matches!(work, Work::Whole(_)).then(|| crate::art::ArtStop { started: folders_changed.load(std::sync::atomic::Ordering::Acquire), now: folders_changed.clone() });
                     if !art_thread.send(crate::art::ArtJob { stop, ..compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted) }) {
+                        whole_folders.remove(&generation);
                         log::error!("the art thread is gone");
                         schedule.done(now, token);
                     }
@@ -1337,6 +1721,8 @@ fn publish(
                         }
                         crate::preload::Item::Screen(art) => {
                             screen_art.regions.extend(art.regions);
+                            screen_art.resized_regions.extend(art.resized_regions);
+                            screen_art.indexed.extend(art.indexed);
                             screen_art.fills.extend(art.fills);
                             screen_art.dynamic.extend(art.dynamic);
                         }
@@ -1351,55 +1737,33 @@ fn publish(
                 }
             }
         }
-        // Keep the last complete screen until all currently visible UI
-        // resolves. The viewer keeps drawing that screen with local cursor,
-        // hover and layout updates while input and art processing continue.
-        // Optional alternate states, hints and world labels do not hold the
-        // screen back, and there is no timeout that publishes missing art.
-        let plain_text: Vec<_> = if ui.is_none() {
-            texts.iter().cloned().map(|run| ui_screen::Item::Text(run, [i32::MIN, i32::MIN, i32::MAX, i32::MAX], false)).collect()
-        } else { Vec::new() };
-        let mandatory = ui_items.iter().chain(&menu_items).chain(&popup_items).chain(&screen_items).chain(&corner_items).chain(&plain_text).chain(&notice_items);
+        // Asset readiness drives retries and diagnostics, not UI publication.
         let size = input.game_window().and_then(|w| w.client_size()).unwrap_or(input.viewport);
-        match ui_screen::publication(mandatory.clone(), &fonts, &compiled, schedule.screen_pending(), size) {
-            ui_screen::Publication::Retain { unavailable } => {
-                if unavailable && !unavailable_screen {
-                    log::error!("scene: mandatory and diagnostic art unavailable; retaining the complete screen");
-                    for missing in ui_screen::missing_art(mandatory, &fonts, &compiled) { log::error!("scene: missing {missing}"); }
+        let visible = mandatory.clone().filter(|i| !absent_art.covers(i));
+        match ui_screen::publication(visible.clone(), &fonts, &compiled, schedule.screen_pending(), size) {
+            ui_screen::Publication::Partial { pending } => {
+                if partial_since.is_none() {
+                    partial_since = Some(std::time::Instant::now());
+                    partial_reported = false;
+                    log::debug!("scene: shown while visible art loads");
                 }
-                unavailable_screen = unavailable;
-                if held_since.is_none() {
-                    held_since = Some(std::time::Instant::now());
-                    log::debug!("scene: retaining the complete screen while mandatory art is built");
+                retry_wanted = !pending && art_retry.would_ask(&ui_screen::unready_art(visible.clone(), &compiled));
+                if !pending && !retry_wanted && !partial_reported {
+                    partial_reported = true;
+                    log::warn!("scene: visible art did not arrive; drawn as nothing");
+                    for missing in ui_screen::missing_art(visible, &fonts, &compiled) { log::warn!("scene: not resident: {missing}"); }
                 }
-                last = None;
-                continue;
             }
-            ui_screen::Publication::Diagnostic(mut scene) => {
-                if !unavailable_screen {
-                    log::error!("scene: mandatory art request completed without visible art; showing the generated missing-art screen");
-                    for missing in ui_screen::missing_art(mandatory, &fonts, &compiled) { log::error!("scene: missing {missing}"); }
+            ui_screen::Publication::Complete => {
+                retry_wanted = false;
+                partial_reported = false;
+                if let Some(since) = partial_since.take() {
+                    log::info!("scene: all visible art arrived {} ms after the screen showed without it", since.elapsed().as_millis());
                 }
-                unavailable_screen = true;
-                held_since = None;
-                new_art = false;
-                seq += 1;
-                scene.seq = seq;
-                scene.cursor = *cursor;
-                scene.settings = Some(prefs.settings().clone());
-                let published = presenter.publish(scene);
-                if published {
-                    published_prefs = (prefs_draws, Some(prefs.settings().clone()));
-                    last_replay_revision = replay_revision;
-                }
-                last = published.then_some(state);
-                continue;
             }
-            ui_screen::Publication::Complete => unavailable_screen = false,
         }
-        if let Some(since) = held_since.take() {
-            log::info!("scene: mandatory screen art settled after {} ms", since.elapsed().as_millis());
-        }
+        // Capture commits complete UI command groups at Present. Missing art
+        // omits only that sprite; it never delays publishing the other commands.
         new_art = false;
         seq += 1;
         // How much smaller a previewed world is shown: about the size of the
@@ -1438,8 +1802,25 @@ fn publish(
                 }
                 scene
             }
-            Shown::Preview(_, Some(p)) => crate::preview::scene(&p.world, preview_scale, &mapper, &mut art, &compiled, &preview_labels, &fonts),
-            Shown::Preview(_, None) => scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len()),
+            // (Made again only when the preview, its stage or the art
+            // changes: a new highlight in the menu goes out at once.)
+            Shown::Preview(_, Some(p)) => {
+                let key = (p.number, Arc::as_ptr(&p.world) as usize, p.drawn.labels.then(|| Arc::as_ptr(&preview_labels) as usize), p.drawn, preview_scale, art_generation, fonts.revision());
+                let shown_before = preview_memo.last.as_ref().filter(|(k, _)| menu_changed && *k != key).map(|(_, scene)| scene.clone());
+                preview_deferred = shown_before.is_some();
+                let mut scene = shown_before.unwrap_or_else(|| preview_memo.get(key, || {
+                    let none = crate::preview::LabelItems::new();
+                    let labels = if p.drawn.labels { &*preview_labels } else { &none };
+                    crate::preview::scene_with(&p.world, preview_scale, &mapper, p.drawn.units.then_some(&mut art), &compiled, labels, &fonts)
+                }));
+                // While its art is still coming: the game's loading cursor
+                // over it (under the menus).
+                if p.loading {
+                    scene.sprites.extend(crate::preview::loading_indicator(p.area, &compiled));
+                }
+                scene
+            }
+            Shown::Preview(..) => scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len()),
             Shown::Title(state) => {
                 // Our own title menu, unless the game's is mirrored.
                 if let Some(m) = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| ui.is_none()) {
@@ -1449,7 +1830,8 @@ fn publish(
             }
         };
         if matches!(shown, Shown::Map(..)) {
-            scene.camera_focus = crate::native_camera::focus(game);
+            scene.camera_focus = camera_focus;
+            scene.camera_arrival = camera_arrival;
             scene.map_wheel_step = civ3_sys::native_camera::map_wheel_step(game).unwrap_or_default();
             // The tiny native tile range has no authority over renderer art.
             if scene.camera_focus.is_some() {
@@ -1473,40 +1855,20 @@ fn publish(
         }));
         let mut menu_sprites = title_menu;
         menu_sprites.extend(ui_screen::sprites(&menu_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
-        // The city labels go with the world (laid out in the game view's
-        // pixels: zoomed out at full size, which the renderer halves).
-        // (A preview's are in its scene already.)
-        let label_items = if matches!(shown, Shown::Preview(..)) { Vec::new() } else { label_items };
-        let mut labels: Vec<_> = label_sprites_memo
-            .get((label_items.clone(), art_key), || ui_screen::sprites(&label_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines))
+        // Each world camera chooses the label layout for its own scale.
+        // Preview labels are already part of their separately built scene.
+        let label_items = if matches!(shown, Shown::Preview(..)) { WorldItems::default() } else { label_items };
+        let labels = label_sprites_memo
+            .get((label_items.clone(), art_key), || label_items.sprites(&fonts, &compiled, ui_screen::under_pass(&compiled), outlines))
             .into_iter()
-            .map(|s| {
-                let not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
-                scene::FreeSprite { screen: false, clip: None, not_in_view, category: viewer_settings::clean_map::CITIES, ..s }
-            })
-            .collect();
-        if let Shown::Map(_, view) = shown {
-            if view.zoomed_out {
-                crate::scene_map::from_zoomed_out(&mut labels);
-            }
-        }
+            .map(|mut s| {
+                s.not_in_view = labels_not_in_game_view.then_some(crate::scene_map::GAME_VIEW);
+                s.category |= viewer_settings::clean_map::CITIES;
+                s
+            });
         scene.sprites.extend(labels);
-        // The go-to path's turn count, over the fog, under the units (laid
-        // out as the labels).
         let under_units = units::unit_passes(&compiled).1;
-        let mut turns: Vec<_> = ui_screen::sprites(&target_items, &fonts, &compiled, under_units, outlines)
-            .into_iter()
-            .map(|s| scene::FreeSprite { screen: false, clip: None, ..s })
-            .collect();
-        if let Shown::Map(_, view) = shown {
-            if view.zoomed_out {
-                crate::scene_map::from_zoomed_out(&mut turns);
-            }
-        }
-        scene.sprites.extend(turns);
-        if let Shown::Map(_, view) = shown {
-            scene.sprites.extend(crate::unit_notices::sprites(&notice_items, &fonts, &compiled, outlines, view.zoomed_out));
-        }
+        scene.sprites.extend(target_items.sprites(&fonts, &compiled, under_units, outlines));
         mark(&mut profile, "ui+label sprites", &mut t);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
@@ -1523,6 +1885,14 @@ fn publish(
         let all = ui_items.iter().chain(&menu_items).chain(&screen_items).chain(&popup_items);
         scene.patches.extend(ui_screen::surface_patches(all, &replay_surface, &compiled));
         crate::scene_map::overlay_screen_sprites(&mut scene);
+        // Add transient world art after screen sprites have been partitioned,
+        // so its index ranges remain valid through the rest of publication.
+        for (items, &(serial, duration_ms)) in notice_layouts.iter().zip(&notice_state.2) {
+            let start = scene.sprites.len() as u32;
+            scene.sprites.extend(crate::unit_notices::sprites(items, &fonts, &compiled, outlines));
+            scene.sprite_lifetimes.push(scene::SpriteLifetime { serial, sprites: (start, scene.sprites.len() as u32), duration_ms });
+        }
+
         crate::scene_map::overlay_menus(&mut scene, menu_sprites);
         // The parts of the interface the viewer arranges, in views of their
         // own (the corner's buttons a copy, the popup not in the interface).
@@ -1532,7 +1902,12 @@ fn publish(
         };
         if let Some(r) = corner {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::CORNER_VIEW, r, part_sprites(corner_memo, &corner_items));
-            // (In its place while the mouse is captured.)
+        }
+        // The hint how to let a captured mouse go, in the corner buttons'
+        // place: also while a screen hides them, its world beside it (the
+        // mouse can be captured there to play on, `crate::modal`).
+        let map_hint = crate::interface_parts::capture_hint_shown(corner.is_some(), matches!(shown, Shown::Map(..)), screen_open.is_some());
+        if map_hint {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::HINT_VIEW, hint.0, part_sprites(hint_memo, &hint.1));
         }
         // The hint for exploring a preview world with the mouse captured
@@ -1544,20 +1919,27 @@ fn publish(
         if let Some((_, r)) = screen_part {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(screen_part_memo, &screen_items));
         }
-        if let Some((_, r)) = popup {
-            crate::interface_parts::part_view(&mut scene, crate::interface_parts::POPUP_VIEW, r, part_sprites(popup_part_memo, &popup_items));
-            // The popup's subject: the game brings it into view first (the
-            // middle of the game's view stands for it).
-            if let Some(v) = scene.view(crate::scene_map::GAME_VIEW).map(|v| v.view) {
+        for (id, rect, items) in &popup_layers {
+            crate::interface_parts::part_view(&mut scene, *id, *rect, part_sprites(popup_part_memo, items));
+        }
+        if popup.is_some() && on_map {
+            // The popup's subject: older drivers' games bring it into view
+            // first (the middle of the game's view stands for it). With the
+            // camera parked that middle is the map's corner, and the game
+            // asks for any real move itself: the focus stays.
+            let middle = scene.view(crate::scene_map::GAME_VIEW).map(|v| v.view).map(|v| {
                 let (w, h) = if v.viewport.0 == 0 || v.viewport.1 == 0 { input.viewport } else { v.viewport };
-                scene.focus = scene.camera_focus.map(|f| f.center).or(Some((v.camera_x + w as i32 / 2, v.camera_y + h as i32 / 2)));
-            }
+                (v.camera_x + w as i32 / 2, v.camera_y + h as i32 / 2)
+            });
+            scene.focus = crate::interface_parts::popup_focus(scene.focus, scene.camera_focus, true, middle);
         }
         scene.interface = scene::Interface {
             screen: screen_open.map(|s| s.1.to_owned()),
+            menu_fit: prefs.screen_rect().is_some() || own_title.is_some() || native_title.is_some(),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
-            capture_hint: (corner.is_some() || preview_hint).then_some(crate::interface_parts::HINT_VIEW),
-            popup: popup.map(|_| crate::interface_parts::POPUP_VIEW),
+            capture_hint: (map_hint || preview_hint).then_some(crate::interface_parts::HINT_VIEW),
+            popup: popup_view,
+            modal_stack: scene::ModalStack(std::array::from_fn(|index| popup_layers.get(index).map(|(id, _, _)| *id))),
             screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
             // Where the pointer goes when the screen opens: the city
             // screen's production box (its largest own button).
@@ -1574,13 +1956,26 @@ fn publish(
                 Shown::Preview(rect, p) => Some(scene::Beside { screen: *rect, edge: scene::Edge::Left, world: p.as_ref().map(|p| p.area) }),
                 _ => None,
             },
+            popup_anchor,
+            // A unit command waits for its tile (`crate::targeting`):
+            // the game's own mode, whatever gave the command.
+            targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
+            // Go-to and the stack moves only: the cursor tile by tile.
+            snap_to_tiles: matches!(shown, Shown::Map(world, _) if crate::targeting::go_to(world.targeting.mode)),
         };
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
-            crate::scene_map::city_view(&mut scene, (view.camera_x, view.camera_y), [x, y, w, h]);
+            let camera = city_anchor.map_or((view.camera_x, view.camera_y), |a| a.camera);
+            crate::scene_map::city_view(&mut scene, camera, [x, y, w, h]);
         }
         // The renderer's settings go with every scene (sent when they change).
         scene.settings = Some(prefs.settings().clone());
+        scene.settings_preview = prefs.settings_preview();
         scene.interactables = interactables.clone();
+        if let (Shown::Map(world, _), Some(frame), Some(anchor)) = (shown, ui.as_ref(), city_anchor) {
+            let eligible = crate::city_screen::native::eligibility(&game, world);
+            scene.interactables.extend(crate::city_screen::tile_targets(world, frame, anchor,
+                modal.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4), eligible.as_ref().map(|e| e.tiles())));
+        }
         scene.cursor = *cursor;
         // The game's screen: a viewer with a larger window shows it scaled
         // up (e.g. the game at the desktop's logical size, `CIV3R_SCALE`).
@@ -1592,8 +1987,7 @@ fn publish(
             (crate::scene_map::MENU_VIEW, None),
             (crate::interface_parts::CORNER_VIEW, corner),
             (crate::interface_parts::SCREEN_VIEW, None),
-            (crate::interface_parts::POPUP_VIEW, None),
-        ];
+        ].into_iter().chain(popup_layers.iter().map(|(id, _, _)| (*id, None))).collect::<Vec<_>>();
         scene.looks = crate::looks::scene_looks(&scene, &control_looks, &looks_views, |d, part| Some(ui_screen::sprites(&looks_items(&crate::looks::in_part(d, part)), &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)));
         // Our preferences tabs' and title menu's controls.
         let prefs_looks: Vec<crate::looks::ControlLooks<Vec<menu::panel::Draw>>> = prefs_looks
@@ -1650,13 +2044,33 @@ fn publish(
         }
         mark(&mut profile, "publish (other)", &mut t);
         if published {
-            if matches!(shown, Shown::Preview(_, Some(_))) {
+            if let Shown::Preview(rect, _) = shown {
+                complete_preview_menu = Some(*rect);
+                previews.menu_published();
+                if let Some((at, before, frame)) = &preview_input {
+                    if selection_before_ui > *before && ui != frame {
+                        log::info!("scenario preview: input to menu with a new selection published in {:.1} ms (scene {seq})", at.elapsed().as_secs_f64() * 1e3);
+                        preview_input = None;
+                    } else if at.elapsed() > Duration::from_secs(2) {
+                        preview_input = None;
+                    }
+                }
+            }
+            if matches!(shown, Shown::Preview(_, Some(_))) && !preview_deferred {
                 previews.published(seq);
             }
-            published_prefs = (prefs_draws, Some(prefs.settings().clone()));
+            published_prefs = (prefs_draws, Some(prefs.settings().clone()), prefs.settings_preview());
             last_replay_revision = replay_revision;
         }
+        last_camera_focus = published.then_some(camera_focus).flatten();
+        last_camera_arrival = published.then_some(camera_arrival).flatten();
         last = published.then_some(state);
+        // (Held back: again soon, the renderer is about to take the last.)
+        wait = if published { POLL } else { BUSY_RETRY };
+        // (The world held back for the menu: next, at once.)
+        if preview_deferred {
+            wait = Duration::ZERO;
+        }
     }
 }
 
@@ -1722,42 +2136,6 @@ fn trace_text<'a>(screen: &str, frame: Option<&crate::ui::Frame>, items: impl It
 fn art_list_header() -> &'static str {
     "# Art the game's interface showed (civ3-bridge, CIV3R_ART_LIST): screen regions, fills,\n# run-time pictures, fonts; tab-separated (menu::screen::ScreenArt::to_lines, preload::font_line).\n"
 
-}
-
-/// The art of `control`'s states, if it is a button the game draws by its
-/// state and that state is the pointer's (not forced): the sprites of its
-/// pieces as the mirror knows them.
-fn control_art(sites: &civ3_sys::controls::Sites, control: &civ3_sys::controls::Control) -> Option<crate::looks::ControlArt> {
-    use crate::looks::look_state;
-    use civ3_sys::control_art::Select;
-    let art = civ3_sys::control_art::of(&civ3_sys::controls::Live, sites, control).filter(|a| !a.forced)?;
-    let sprites: Vec<u32> = art.pieces.iter().flatten().map(|(_, s)| *s).collect();
-    let mut sources = ui_trace::sprite_sources(&sprites).into_iter();
-    let pieces = art
-        .pieces
-        .iter()
-        .map(|p| p.iter().filter_map(|(l, _)| Some((look_state(*l), sources.next()??))).collect())
-        .collect();
-    let select = match art.select {
-        Select::None => scene::Select::None,
-        Select::Toggle => scene::Select::Toggle,
-        Select::Pick(group) => scene::Select::Pick { group: group as u64 },
-    };
-    Some(crate::looks::ControlArt {
-        id: control.id,
-        select,
-        canvas: art.canvas,
-        part: match art.part {
-            civ3_sys::control_art::Part::Whole => crate::looks::Part::Whole,
-            civ3_sys::control_art::Part::LastArt => crate::looks::Part::LastArt(control.rect),
-            civ3_sys::control_art::Part::Within => crate::looks::Part::Within(control.rect),
-        },
-        colors: art.colors.iter().map(|(l, c)| (look_state(*l), c.iter().map(|&c| color_rgb(c)).collect())).collect(),
-        state: look_state(art.state),
-        pieces,
-        text_offsets: art.text_offsets.iter().map(|(l, o)| (look_state(*l), *o)).collect(),
-        selected_by_fields: select != scene::Select::None,
-    })
 }
 
 /// Whether the viewer's pointer moves and buttons are kept from the game:
@@ -1866,6 +2244,9 @@ struct InputForwarder {
     edge_point: Option<(i32, i32)>,
     /// Where the viewer last moved the game's pointer (client pixels).
     pointer: Option<(i32, i32)>,
+    /// The open city screen's map as shown: the pointer over it moves to
+    /// where the game has those tiles (`crate::city_screen::Anchor::to_game`).
+    city_map: Option<crate::city_screen::Anchor>,
 }
 
 impl InputForwarder {
@@ -1953,14 +2334,22 @@ fn key(window: inproc::window::Window, vk: u32, down: bool, text: Option<char>) 
     }
 }
 
-fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene::Input>) {
+fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<scene::Input>) {
     use inproc::window::MouseButton;
     use scene::{Button, Input};
+    // Receipts run while the game thread is parked before combat.
+    // Queueing them to that thread would deadlock the barrier.
+    inputs.retain(|input| match *input {
+        Input::CameraArrived { serial } => { civ3_sys::camera_arrival::receipt(serial, true); false },
+        Input::CameraUnavailable { serial } => { civ3_sys::camera_arrival::receipt(serial, false); false },
+        _ => true,
+    });
     if inputs.is_empty() {
         return;
     }
     let Some(window) = forwarder.game_window() else {
         if inputs.iter().any(|input| matches!(input, Input::Quit)) {
+            if !crate::ui_trace::compatibility_fallback() { std::process::exit(0); }
             crate::native_camera::viewer_gone(*game, forwarder.main_view);
             crate::ui_trace::restore_original_drawing();
             inproc::hidden::set_hiding(false);
@@ -1974,6 +2363,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
     let native_world_click = crate::world_input::ready(window) && !crate::modal::modal_open(game)
         && inputs.iter().any(|input| matches!(input, Input::WorldButton { .. }));
     for input in inputs {
+        crate::ui_trace::audit_semantic(crate::ui_trace::SemanticClass::Input);
         if !matches!(input, Input::Slider { action: scene::SliderAction::Preview, .. }) {
             crate::native_sliders::barrier();
         }
@@ -1989,10 +2379,13 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
         }
         match input {
             Input::MouseMove { x, y } => {
+                let (x, y) = forwarder.city_map.map_or((x, y), |m| m.to_game((x, y)));
                 forwarder.pointer = Some((x, y));
                 window.mouse_move(x, y, forwarder.held);
             }
             Input::MouseButton { button, down, x, y } => {
+                if down && forwarder.city_map.is_some() { crate::city_screen::native::invalidate(); }
+                let (x, y) = forwarder.city_map.map_or((x, y), |m| m.to_game((x, y)));
                 let button = match button {
                     Button::Left => {
                         forwarder.held.left = down;
@@ -2011,7 +2404,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                 window.mouse_button(button, down, double, x, y, forwarder.held);
             }
             Input::Slider { id, action, value } => crate::native_sliders::post(window, id, action, value),
-            Input::Wheel { delta, x, y } => window.wheel(delta, x, y, forwarder.held),
+            Input::Wheel { delta, x, y } => {
+                let (x, y) = forwarder.city_map.map_or((x, y), |m| m.to_game((x, y)));
+                window.wheel(delta, x, y, forwarder.held)
+            }
             Input::Key { vk, down, text } => {
                 log::debug!("input: key {vk:#x} {}", if down { "down" } else { "up" });
                 key(window, vk, down, text)
@@ -2020,7 +2416,9 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             // them) while a menu is open that allows it, else the key it is.
             // A release goes where its press went.
             Input::WorldKey { vk, down, text, x, y } => {
-                if !crate::modal::modal_open(game) {
+                // (Under a screen the map is played on too: G aims where
+                // the pointer is.)
+                if !crate::modal::modal_open(game) || crate::modal::world_input(game) {
                     crate::world_input::post_move(game, window, (x, y));
                     crate::world_input::barrier();
                 }
@@ -2045,7 +2443,9 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             Input::WorldMove { x, y } => { crate::world_input::post_move(game, window, (x, y)); }
             Input::UnitOrder { action, x, y } => { crate::world_input::post_order(game, window, action, (x, y)); }
             Input::WorldButton { button, down, x, y } => {
-                if !crate::modal::modal_open(game) && crate::world_input::ready(window) {
+                // (Under a screen too: the game's thread decides what may be
+                // done there, and says so where not, `crate::world_input`.)
+                if crate::world_input::ready(window) {
                     let native_button = match button {
                         Button::Left => { forwarder.held.left = down; MouseButton::Left }
                         Button::Right => { forwarder.held.right = down; MouseButton::Right }
@@ -2063,6 +2463,11 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
             // The viewer is gone (closed, or it failed to start): the
             // game's own window is shown, rather than nothing at all.
             Input::Quit => {
+                if !crate::ui_trace::compatibility_fallback() { std::process::exit(0); }
+                // The viewer may disappear before physical modifier releases
+                // arrive. Retire them in the same owned window queue before
+                // its native UI becomes the fallback input target.
+                let _ = inproc::keyboard::release(window);
                 crate::world_input::post_order(game, window, scene::UnitOrderAction::Cancel, (0, 0));
                 forwarder.world_buttons.clear();
                 forwarder.look = None;
@@ -2079,12 +2484,24 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, inputs: Vec<scene:
                 }
             }
             Input::Edge { x, y } => forwarder.edge = (x, y),
+            // On the game's thread, in order with the popup's own loop.
+            Input::DismissPopup => {
+                if !crate::world_input::post_dismiss(game, window) {
+                    log::debug!("input: dismissing the popup opened at a map click: world input not ready");
+                }
+            }
             Input::Look { x, y } if !native_world_click => forwarder.look = Some((x, y)),
             Input::Look { .. } => {}
             Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
-            Input::MainView { x, y, w, h } => forwarder.main_view = (w > 0 && h > 0).then_some((x, y, w, h)),
+            Input::MainView { x, y, w, h } => {
+                forwarder.main_view = (w > 0 && h > 0).then_some((x, y, w, h));
+                if crate::ui_trace::requested_game_draws() {
+                    crate::native_camera::renderer_view(*game, forwarder.main_view);
+                    window.wake();
+                }
+            },
             // (Text is drawn from outlines at every zoom: no art per zoom.)
-            Input::Zooms(_) => {}
+            Input::Zooms(_) | Input::SettingsPreviewDecision { .. } | Input::CameraArrived { .. } | Input::CameraUnavailable { .. } => {}
         }
     }
     update_game_pointer(forwarder, window);
@@ -2195,17 +2612,4 @@ fn hook_game_window(hidden_window: bool) {
             );
         }
     });
-}
-
-/// A colour of the game's controls as the mirror has it: text as
-/// `SetTextColor` gets it (a packed colour: bit 31 and RGB555, each channel
-/// shifted up; else a palette index, black on the game's 16-bit canvases,
-/// docs §16.10), fills as RGB555 expanded.
-fn color_rgb(c: civ3_sys::control_art::Color) -> [u8; 3] {
-    use civ3_sys::control_art::Color;
-    match c {
-        Color::Text(c) if c & 0x8000_0000 != 0 => [((c >> 7) & 0xF8) as u8, ((c >> 2) & 0xF8) as u8, ((c & 0x1F) << 3) as u8],
-        Color::Text(_) => [0, 0, 0],
-        Color::Fill(c) => crate::ui::rgb555(c),
-    }
 }

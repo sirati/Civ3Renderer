@@ -88,6 +88,12 @@ impl Slider {
         (min + (span * i64::from(normalized.clamp(0, SCALE)) + i64::from(SCALE) / 2) / i64::from(SCALE)) as i32
     }
 
+    /// The exact value `steps` of the game's own arrow-button step (one
+    /// stored unit; 0x60DEB0 commands 1 and 2) away, clamped to its range.
+    pub fn stepped(self, steps: i32) -> i32 {
+        self.exact.saturating_add(steps).clamp(self.identity.minimum, self.identity.maximum)
+    }
+
     pub fn same_control(self, other: Self) -> bool { self.identity == other.identity }
 }
 

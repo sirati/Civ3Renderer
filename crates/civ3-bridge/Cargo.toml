@@ -12,12 +12,15 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 inproc = { path = "../inproc" }
+civ3r-sync = { path = "../civ3r-sync" }
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "time"] }
 civ3-sys = { path = "../civ3-sys" }
 log.workspace = true
 civ3-assets = { path = "../civ3-assets" }
 gdi-text = { path = "../gdi-text" }
 render-desc = { path = "../render-desc" }
 scene = { path = "../scene" }
+viewer-transport = { path = "../viewer-transport" }
 menu = { path = "../menu" }
 wine-unixlib = { path = "../wine-unixlib" }
 civ3r-native = { package = "civ3r-native", path = "../civ3r-native" }

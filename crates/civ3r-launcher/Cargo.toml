@@ -1,0 +1,24 @@
+[package]
+name = "civ3r-launcher"
+description = "Private game installation and process lifecycle for the native renderer"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "civ3-play-macos"
+path = "src/main.rs"
+
+[dependencies]
+getrandom = "0.3"
+sha2 = "0.10.9"
+
+[target.'cfg(unix)'.dependencies]
+winit.workspace = true
+font8x8 = "0.3"
+tile-render.workspace = true
+wgpu.workspace = true
+pollster.workspace = true
+civ3r-process = { path = "../civ3r-process" }
+rustix = { version = "1", features = ["process"] }
+signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }

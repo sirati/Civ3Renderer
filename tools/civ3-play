@@ -5,12 +5,14 @@
 # tests), this needs no `nix develop`: the runtime libraries the unixlib
 # loads are nix store paths found once by `setup`.
 #
-#   tools/civ3-play [--map] [--window] [--nvidia] [--scale S] [--show-game-window]
+#   tools/civ3-play [--map] [--window] [--nvidia] [--scale S] [--show-game-window] [--compare] [--compatibility-fallback]
 #                                                   start the game
 #   tools/civ3-play setup                           find the runtime libraries, add the .desktop entry
 #   tools/civ3-play stop                            end the game (wineserver -k of the prefix)
 #
-#   --map      keep the game's own map rendering on (default: CIV3R_GAME_MAP=off)
+#   --map      enable only the original map pixels for diagnostics
+#   --compare (or --compare-game) draw the original game beside the renderer
+#   --compatibility-fallback allow native game recovery if the viewer is lost
 #   --window   the viewer in a window instead of fullscreen
 #   --nvidia   the renderer on the NVIDIA GPU instead of the Intel iGPU, with
 #              PRIME offload (its EGL vendor stays available too; if the
@@ -22,8 +24,8 @@
 #              output (2 at 200%, 1.5 at 150%): the game runs at the
 #              screen's size divided by S, and the pixel scale Auto (the
 #              default) is S rounded down
-#   --show-game-window  keep the game's own window shown too (normally the
-#              viewer is the only window; for testing)
+#   --show-game-window  show the original window for diagnostics; its pixels
+#              stay disabled unless --map or --compare is explicitly selected
 #
 # The game takes the desktop's logical size (KeepRes=1), as the bridge makes
 # it see it: the screen divided by the desktop's scale, so on a 3840x2160
@@ -45,6 +47,9 @@
 #   gcroots/          GC roots of those, and of wayland-utils (wayland-info: the desktop's scale)
 #   logs/             Wine's output, one file per start (the bridge logs to civ3-bridge.log in the game folder)
 set -euo pipefail
+if [ "$(uname -s)" = Darwin ]; then
+  exec "$(dirname "$0")/civ3-play-macos" "$@"
+fi
 repo=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 home=${CIV3R_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/civ3r}
 WINE=${WINE:-$home/wine-wow64}
@@ -97,8 +102,8 @@ Name=Renderer on the NVIDIA GPU
 Exec=$me --nvidia
 
 [Desktop Action map]
-Name=Keep the game's own map
-Exec=$me --map
+Name=Compare with the original renderer
+Exec=$me --compare
 EOF
   echo "desktop entry: $apps/civ3-renderer.desktop"
 }
@@ -122,7 +127,7 @@ stop) "$WINE/bin/wineserver" -k 2>/dev/null || true; echo "stopped"; exit 0 ;;
 -h|--help|help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 esac
 
-map=off viewer=native-fullscreen gpu=intel gpu_explicit=0 scale= game_window=hide
+map=off viewer=native-fullscreen gpu=intel gpu_explicit=0 scale= game_window=hide game_render=${CIV3R_GAME_RENDER:-off}
 while [ $# -gt 0 ]; do case $1 in
   --map) map=on ;;
   --window) viewer=native ;;
@@ -131,8 +136,15 @@ while [ $# -gt 0 ]; do case $1 in
   --scale) [ $# -ge 2 ] || die "--scale needs a number"; scale=$2; shift ;;
   --scale=*) scale=${1#--scale=} ;;
   --show-game-window) game_window=show ;;
+  --compare|--compare-game) game_render=on ;;
+  --compatibility-fallback) game_render=compat ;;
   *) die "unknown option $1 (see --help)" ;;
 esac; shift; done
+case $game_render in
+  on|compare) map=on; game_window=show ;;
+  off|compat|compatibility) ;;
+  *) die 'CIV3R_GAME_RENDER must be off, on, compare, compat or compatibility' ;;
+esac
 [ -z "$scale" ] || { [[ $scale =~ ^[0-9]+(\.[0-9]+)?$ ]] && awk -v s="$scale" 'BEGIN { exit !(s >= 1) }'; } ||
   die "--scale takes a number >= 1 (e.g. 2 or 1.5), not $scale"
 
@@ -149,7 +161,8 @@ export WINEDEBUG=${WINEDEBUG:--all}
 export CIV3R_VIEWER=$viewer
 # (One settings file for the viewer and the bridge; Wine hides HOME from it.)
 export CIV3R_SETTINGS=${CIV3R_SETTINGS:-${XDG_CONFIG_HOME:-$HOME/.config}/civ3r/settings.toml}
-if [ $map = off ]; then export CIV3R_GAME_MAP=off; else unset CIV3R_GAME_MAP; fi
+export CIV3R_GAME_MAP=$map
+export CIV3R_GAME_RENDER=$game_render
 # The game at the screen's size / the desktop's scale (the bridge divides
 # what it learns of the screen); the viewer's Auto pixel scale.
 if awk -v s="$scale" 'BEGIN { exit !(s > 1) }'; then export CIV3R_SCALE=$scale; else unset CIV3R_SCALE; fi
@@ -230,5 +243,10 @@ fi
 used=$(grep -o 'viewer adapter: AdapterInfo { name: "[^"]*"' "$bridge_log" 2>/dev/null | tail -1 | sed 's/.*name: "//; s/"$//' || true)
 [ -z "$used" ] || echo "civ3-play: the renderer draws on $used"
 failed=$(grep -o 'viewer init: .*\|civ3r-native: viewer: .*\|starting the renderer: .*' "$bridge_log" 2>/dev/null | tail -1 || true)
-[ -z "$failed" ] || say "the renderer did not start ($failed); the game's own window is shown instead. Logs: $bridge_log, $log"
+if [ -n "$failed" ]; then
+  case $game_render in
+    compat|compatibility) say "the renderer did not start ($failed); explicit compatibility fallback uses the game's window. Logs: $bridge_log, $log" ;;
+    *) say "the renderer did not start ($failed). Logs: $bridge_log, $log" ;;
+  esac
+fi
 wait $pid

@@ -29,6 +29,7 @@
 //! nothing.
 #![cfg_attr(target_arch = "spirv", no_std)]
 
+pub mod glyph_cache;
 pub mod text;
 
 #[cfg(not(target_arch = "spirv"))]
@@ -73,7 +74,23 @@ pub struct OutputParams {
     pub zoom_num: u32,
     pub zoom_den: u32,
     pub bits: u32,
-    pub _pad: u32,
+    /// 1: integer FP16 storage; 0: biased UNORM8 storage.
+    pub quantized_float: u32,
+}
+
+/// One bounded destination snapshot origin for native palette composition.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]
+pub struct NativePaletteParams {
+    pub origin_x: i32,
+    pub origin_y: i32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+    pub _pad3: u32,
+    pub _pad4: u32,
+    pub _pad5: u32,
 }
 
 /// Per-frame parameters, one uniform buffer.
@@ -174,9 +191,21 @@ pub struct FrameParams {
     pub corner_cuts: u32,
     /// Categories hidden in this camera. A zero category is always visible.
     pub hidden_categories: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
+    /// How scaled UI backgrounds are sampled: [`BACKGROUND_DITHER`],
+    /// [`BACKGROUND_INTERPOLATE`] or [`BACKGROUND_NEAREST`].
+    pub background_sampling: u32,
+    /// Where the view's layer table starts in `layers` (entries): the
+    /// layers as its camera's binding draws them, each from its own records
+    /// or from a data slot bound in their place (`LayerDesc` copies whose
+    /// `data_byte_offset` points at the slot). 0: the shared table.
+    pub layer_table: u32,
+    /// 1: integer FP16 storage; 0: biased UNORM8 storage.
+    pub quantized_float: u32,
+    /// Viewer milliseconds, used only by HOST_CLOCK free sprites.
+    pub host_tick_ms: u32,
+    pub _host_reserved0: u32,
+    pub _host_reserved1: u32,
+    pub _host_reserved2: u32,
 }
 
 /// Shape of the world's cell grid.
@@ -305,6 +334,15 @@ pub fn frame_of(tick: u32, ticks_per_frame: u32, phase: u32, frames: u32) -> u32
     (clock + phase) % frames
 }
 
+/// A free sprite period selects the viewer clock when this bit is set.
+pub const HOST_CLOCK: u32 = 1 << 31;
+
+pub fn free_frame_of(game_tick: u32, host_tick_ms: u32, ticks_per_frame: u32, phase: u32, frames: u32) -> u32 {
+    let tick = if ticks_per_frame & HOST_CLOCK != 0 { host_tick_ms } else { game_tick };
+    let period = (ticks_per_frame & !HOST_CLOCK).max(1);
+    (tick / period).wrapping_add(phase) % frames.max(1)
+}
+
 /// The column of the visible window drawn as its `local`-th cell of a row
 /// (`FrameParams::descending`: from the last column back).
 pub fn window_col(params: &FrameParams, local: u32) -> i32 {
@@ -356,7 +394,22 @@ pub struct FreeSprite {
     pub category: u32,
     pub _pad0: u32,
     pub _pad1: u32,
+    pub primitive: FreePrimitive,
 }
+
+/// The free command's explicit procedural primitive. Kind zero samples sprites.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]
+pub struct FreePrimitive {
+    pub kind: u32,
+    pub width: u32,
+    pub height: u32,
+    /// RGBA, red in the low byte.
+    pub rgba: u32,
+}
+pub const PRIMITIVE_SPRITE: u32 = 0;
+pub const PRIMITIVE_SOLID: u32 = 1;
 
 /// The free sprite's position is in viewport pixels, unaffected by the
 /// camera (UI).
@@ -390,6 +443,25 @@ pub const CATEGORY_TERRITORY_BOUNDARIES: u32 = 1 << 10;
 pub const CATEGORY_CITIES: u32 = 1 << 11;
 pub const CATEGORY_UNITS: u32 = 1 << 12;
 pub const CATEGORY_ALL: u32 = (1 << 13) - 1;
+
+/// Reserved layout categories, outside the user-selectable category mask.
+/// Paired world annotations may use different layouts for full-size and
+/// reduced-size worlds while retaining their ordinary visibility category.
+pub const CATEGORY_FULL_RESOLUTION: u32 = 1 << 30;
+pub const CATEGORY_REDUCED_RESOLUTION: u32 = 1 << 31;
+/// Likewise for a layout made for the half-size world only (downscale 2,
+/// the game's zoomed-out view) and one made for any other scale: e.g. a
+/// world shown much smaller that is also explored at half size.
+pub const CATEGORY_HALF_RESOLUTION: u32 = 1 << 29;
+pub const CATEGORY_NOT_HALF_RESOLUTION: u32 = 1 << 28;
+
+/// A camera hides the annotation layout intended for the other world scale.
+pub fn categories_at_downscale(hidden: u32, downscale: u32) -> u32 {
+    hidden
+        | if downscale > 1 { CATEGORY_FULL_RESOLUTION } else { CATEGORY_REDUCED_RESOLUTION }
+        | if downscale == 2 { CATEGORY_NOT_HALF_RESOLUTION } else { CATEGORY_HALF_RESOLUTION }
+}
+
 
 /// One sprite: a rectangle of an atlas page and where to draw it.
 #[repr(C)]
@@ -454,9 +526,119 @@ pub struct SpriteDesc {
     /// they do not cross ([`corner_cuts`]). A diamond on a 2:1 grid leaves
     /// half its rectangle out. 0: none.
     pub cuts: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
+    /// Explicit sampling role. Zero is exact nearest sampling. Only
+    /// [`SAMPLING_UI_BACKGROUND`] screen sprites may vary their colour
+    /// sample when a view is drawn at a different size than its source art.
+    pub sampling: u32,
+    /// The sprite's top-left in its original source picture. The spatial
+    /// dither follows that picture across atlas repacking, clipping and
+    /// copied/cropped regions, rather than a window or animation clock.
+    pub sampling_origin_x: u32,
+    pub sampling_origin_y: u32,
+}
+
+/// A pure interface background texture, with controls and text drawn
+/// separately. Never use for art with baked labels, icons or borders.
+pub const SAMPLING_UI_BACKGROUND: u32 = 1;
+
+/// Pick one source texel inside a downsampled background pixel's footprint.
+/// `nearest` and `bounds` are relative to the sprite; `origin` anchors the
+/// pattern in the original image. This changes only spatial sampling, with
+/// no clock or viewport coordinate, and never reads outside the source crop.
+pub fn background_texel(nearest: (u32, u32), footprint: (u32, u32), bounds: (u32, u32), origin: (u32, u32)) -> (u32, u32) {
+    let width = bounds.0.max(1);
+    let height = bounds.1.max(1);
+    let x = nearest.0.min(width - 1);
+    let y = nearest.1.min(height - 1);
+    let span_x = footprint.0.max(1).min(width - x);
+    let span_y = footprint.1.max(1).min(height - y);
+    let seed = x.wrapping_add(origin.0).wrapping_mul(0x9e37_79b9)
+        ^ y.wrapping_add(origin.1).wrapping_mul(0x85eb_ca6b);
+    (x + background_hash(seed) % span_x, y + background_hash(seed ^ 0xc2b2_ae35) % span_y)
+}
+
+/// A magnified pixel's two source neighbours and right-hand weight in
+/// 64ths, sampled at its centre. Clamp to the actual source crop, never
+/// neighbouring atlas art. Clipping changes coverage, not this phase.
+pub fn background_linear_axis(pixel: i32, base: i32, bound: u32, n: u32, d: u32) -> (u32, u32, u32) {
+    let (n, d) = (n.max(1) as i32, d.max(1) as i32);
+    let denominator = 2 * n;
+    let position = (pixel * d - base * n) * 2 + d - n;
+    let first = if position >= 0 { position / denominator } else { -((-position + denominator - 1) / denominator) };
+    let fraction = (position - first * denominator) as u32;
+    let last = bound.max(1) as i32 - 1;
+    let left = first.max(0).min(last) as u32;
+    let right = (first + 1).max(0).min(last) as u32;
+    (left, right, (fraction * 64 + denominator as u32 / 2) / denominator as u32)
+}
+
+/// Choose one of the four bilinear neighbours with their interpolation
+/// weights. The fixed pattern follows source coordinates and subpixel
+/// phases, so a stationary magnified background cannot flicker.
+pub fn background_linear_texel(x: (u32, u32, u32), y: (u32, u32, u32), origin: (u32, u32)) -> (u32, u32) {
+    let seed = x.0.wrapping_add(origin.0).wrapping_mul(0x9e37_79b9)
+        ^ y.0.wrapping_add(origin.1).wrapping_mul(0x85eb_ca6b)
+        ^ x.2.wrapping_mul(0x27d4_eb2d) ^ y.2.wrapping_mul(0x1656_67b1);
+    (if background_hash(seed) & 63 < x.2 { x.1 } else { x.0 },
+        if background_hash(seed ^ 0xc2b2_ae35) & 63 < y.2 { y.1 } else { y.0 })
+}
+
+/// [`FrameParams::background_sampling`]: how a scaled
+/// [`SAMPLING_UI_BACKGROUND`] sprite picks its colour. Dither selects one
+/// source texel, from the footprint when shrinking or weighted bilinear
+/// neighbours when magnifying. Nominal alpha stays unchanged.
+pub const BACKGROUND_DITHER: u32 = 0;
+/// Smooth colour: an area-weighted box filter when shrinking, bilinear
+/// interpolation when magnifying. Transparent neighbours are omitted.
+pub const BACKGROUND_INTERPOLATE: u32 = 1;
+/// The ordinary nearest texel, like any other sprite.
+pub const BACKGROUND_NEAREST: u32 = 2;
+/// The most texels per axis a box-filtered pixel averages (a footprint
+/// wider than this, a downscale beyond 16×, averages its first 16).
+pub const BACKGROUND_MAX_TAPS: i32 = 16;
+
+/// The source footprint of target pixel `pixel` (from the view's scaled
+/// origin) along one axis of a sprite whose zoom-1 rectangle starts at
+/// `base`, drawn at zoom `n / d`: `(first, end, a, b)`, texels
+/// `first..end` of the sprite (from `lo`, its first drawn one, below
+/// `bound`, its size), the pixel covering `[a, b)` in `1/n` texels.
+pub fn background_footprint(pixel: i32, base: i32, lo: i32, bound: u32, n: u32, d: u32) -> (i32, i32, i32, i32) {
+    let (n, d) = (n.max(1) as i32, d.max(1) as i32);
+    let a = pixel * d - base * n;
+    let b = a + d;
+    let floor = if a >= 0 { a / n } else { -((-a + n - 1) / n) };
+    let ceil = if b >= 0 { (b + n - 1) / n } else { -(-b / n) };
+    let first = if floor > lo { floor } else { lo };
+    let mut end = ceil;
+    if end > bound as i32 { end = bound as i32; }
+    if end > first + BACKGROUND_MAX_TAPS { end = first + BACKGROUND_MAX_TAPS; }
+    (first, end, a, b)
+}
+
+/// The weight of texel `j` in a footprint `[a, b)` (in `1/n` texels, see
+/// [`background_footprint`]): its overlap, exact up to `n = 64`, else
+/// rescaled to 64ths, so that weighted sums of 8-bit colours stay well
+/// inside 32 bits.
+pub fn background_weight(j: i32, a: i32, b: i32, n: u32) -> u32 {
+    let n = n.max(1) as i32;
+    let lo = if a > j * n { a } else { j * n };
+    let hi = if b < (j + 1) * n { b } else { (j + 1) * n };
+    if hi <= lo {
+        return 0;
+    }
+    let w = (hi - lo) as u32;
+    if n <= 64 { w } else { (w * 64 + n as u32 / 2) / n as u32 }
+}
+
+/// One channel of a box-filtered colour: `sum / weight`, rounded.
+pub fn background_mean(sum: u32, weight: u32) -> u32 {
+    if weight == 0 { 0 } else { (sum + weight / 2) / weight }
+}
+
+fn background_hash(mut value: u32) -> u32 {
+    value = (value ^ (value >> 16)).wrapping_mul(0x7feb_352d);
+    value = (value ^ (value >> 15)).wrapping_mul(0x846c_a68b);
+    value ^ (value >> 16)
 }
 
 /// [`SpriteDesc::cuts`] of the four corner cuts (top left, top right,
@@ -472,6 +654,8 @@ pub fn corner_cuts(c: [u32; 4], w: u32, h: u32) -> u32 {
 pub const BLANK_BINARY: u32 = 1 << 7;
 /// [`SpriteDesc::blank`]: every texel has alpha 255.
 pub const BLANK_OPAQUE: u32 = 1 << 15;
+/// Every sampled texel is proven transparent, independent of saturated margins.
+pub const BLANK_EMPTY: u32 = 1 << 23;
 
 /// [`SpriteDesc::blank`] of blank margins (left, top, right, bottom),
 /// each cut to 127.
@@ -679,6 +863,8 @@ impl<'a> ByteReader<'a> {
 /// 8-bit value `q + QUANTIZED_BIAS`. The bias lets a "scale" blit round
 /// down with ordinary blending (see `scale_offset`).
 pub const QUANTIZED_BIAS: u32 = 16;
+/// Integer-valued FP16 storage on the measured DX12 software adapter.
+pub const FLOAT_QUANTIZED_BIAS: u32 = 1536;
 
 /// A free sprite's `scale_den` that inverts what is under its opaque
 /// texels (`Blend::Invert`).
@@ -687,6 +873,8 @@ pub const SCALE_INVERT: u32 = u32::MAX;
 /// coverage per colour channel (red, green, blue; alpha: any), it draws
 /// `FreeSprite::tint` with that coverage per channel (`Blend::Subpixel`).
 pub const SCALE_SUBPIXEL: u32 = u32::MAX - 1;
+/// Dedicated native RGB555 palette-alpha composition pipeline.
+pub const SCALE_PALETTE_ALPHA256: u32 = u32::MAX - 2;
 /// Largest scale denominator the bias supports (`2·QUANTIZED_BIAS`).
 pub const MAX_SCALE_DENOMINATOR: u32 = 32;
 
@@ -832,6 +1020,40 @@ pub fn wrap_cell(grid: &GridParams, col: i32, row: i32) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn magnified_background_neighbours_match_centres_and_stay_inside_source_crops() {
+        for (n, d) in [(2, 1), (3, 1), (3, 2), (5, 4), (7, 3), (129, 64)] {
+            for base in [-11, 0, 17] { for bound in [1, 2, 31] { for pixel in -12..100 {
+                let got = background_linear_axis(pixel, base, bound, n, d);
+                let coordinate = (pixel as f64 + 0.5) * d as f64 / n as f64 - base as f64 - 0.5;
+                let first = coordinate.floor();
+                let expected = (first.max(0.0).min((bound - 1) as f64) as u32,
+                    (first + 1.0).max(0.0).min((bound - 1) as f64) as u32,
+                    ((coordinate - first) * 64.0).round() as u32);
+                assert_eq!(got, expected, "pixel {pixel}, base {base}, bound {bound}, zoom {n}/{d}");
+                assert!(got.0 < bound && got.1 < bound && got.2 <= 64);
+                assert_eq!(got, background_linear_axis(pixel + n as i32 * 3, base + d as i32 * 3, bound, n, d), "moving the destination must not reset source phase");
+            } } }
+        }
+    }
+
+    #[test]
+    fn magnified_dither_uses_weighted_neighbours_without_clock_or_out_of_crop_samples() {
+        let mut selected = [0u32; 4];
+        for y in 0..256 { for x in 0..256 {
+            let horizontal = (x, x + 1, 16);
+            let vertical = (y, y + 1, 48);
+            let sample = background_linear_texel(horizontal, vertical, (17, 29));
+            assert!(sample.0 == x || sample.0 == x+1);
+            assert!(sample.1 == y || sample.1 == y+1);
+            selected[usize::from(sample.0 != x) + 2 * usize::from(sample.1 != y)] += 1;
+            assert_eq!(background_linear_texel((x, x+1, 0), (y, y+1, 64), (0,0)), (x,y+1));
+        } }
+        for (count, expected) in selected.into_iter().zip([12_288, 4_096, 36_864, 12_288]) {
+            assert!(count.abs_diff(expected) < 700, "weighted dither distribution {count}, expected about {expected}");
+        }
+    }
 
     #[test]
     fn div255_divides() {

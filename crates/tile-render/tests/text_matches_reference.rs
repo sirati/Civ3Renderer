@@ -435,3 +435,111 @@ fn clean_map_masks_outline_glyphs_per_camera() {
     assert_eq!(left, 0, "hidden glyph category must not draw");
     assert!(right > 0, "visible glyph category must draw");
 }
+
+/// Cropped named panels keep text in driver coordinates while their
+/// stacked camera moves the panel into a pane at its own scale.
+#[test]
+fn cropped_panel_text_twins_and_fallback_keep_visible_pixels_at_every_scale() {
+    let gpu = Headless::new().expect("GPU");
+    let mut atlas = AtlasBuilder::new(64);
+    let mut sets = SpriteSets::default();
+    let red = sets.single(atlas.add(&RgbaImage::from_fn(8, 12, |_, _| [255, 0, 0, 255]), (0, -12)).unwrap());
+    let atlas = atlas.finish();
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, step: (32, 32), wrap_x: false, wrap_y: false }, sets);
+    world.fonts.push(Arc::new(shapes()));
+    for (x, key) in [(470, None), (500, Some([255, 0, 255]))] {
+        let base = PlacedSprite { screen: true, view: Some(1), clip: Some([448, 156, 1472, 924]), ..PlacedSprite::new(red, x, 200) };
+        world.free.push(PlacedSprite { zoom_art: ZoomArt::Low, ..base });
+        world.free.push(PlacedSprite {
+            zoom_art: ZoomArt::Zoomed { zoom: (0, 0), offset: (0, 0) },
+            text: Some(OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 16 * 64, advance: 10, bold: false, italic: false, color: [0, 255, 0], key }),
+            ..base
+        });
+    }
+    world.free.push(PlacedSprite {
+        x: 540, screen: true, view: Some(1), clip: Some([448, 156, 1472, 924]), zoom_art: ZoomArt::Any,
+        text: Some(OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 16 * 64, advance: 10, bold: false, italic: false, color: [0, 0, 255], key: None }),
+        ..PlacedSprite::new(SpriteSetId::EMPTY, 540, 200)
+    });
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for zoom in [(239, 256), (957, 1024), (4095, 4096), (1, 1), (3, 2), (2, 1)] {
+        let viewport = ((1024u32 * zoom.0).div_ceil(zoom.1), (768u32 * zoom.0).div_ceil(zoom.1));
+        let origin = (100, 100);
+        let cameras = [
+            Camera { origin, viewport, zoom, cells: false, hairline: true, ..Camera::new(viewport) },
+            Camera { origin: (0, 0), screen_shift: (-448, -156), cells: false, hairline: true, stacked: true, zoomed_art: zoom.0 != zoom.1, ..Camera::new((1024, 768)) },
+        ];
+        let actual = gpu.render_views(&mut renderer, &cameras, (2300, 1800), 0, [0, 0, 0, 255]);
+        let expected = reference::render_views(&world, &atlas, &cameras, (2300, 1800), 0, [0, 0, 0, 255]);
+        assert_same(&actual, &expected, &format!("cropped panel text at {zoom:?}"));
+        let selected = if zoom.0 == zoom.1 { 0 } else { 1 };
+        let counts: Vec<_> = (0..3).map(|c| actual.pixels.iter().filter(|p| p[c] > 0).count()).collect();
+        assert!(counts[selected] > 30, "selected text twin draws at {zoom:?}: {counts:?}");
+        assert!(actual.pixels.iter().filter(|p| p[2] > 0).count() > 30, "ordinary outline fallback draws at {zoom:?}");
+    }
+}
+
+
+#[test]
+fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_switches() {
+    use tile_render::{CATEGORY_ALL, CATEGORY_CITIES, CATEGORY_FULL_RESOLUTION, CATEGORY_REDUCED_RESOLUTION, KEEP_SIZE};
+    let gpu = Headless::new().unwrap();
+    let mut builder = AtlasBuilder::new(128);
+    let plate = builder.add(&RgbaImage::from_fn(80, 20, |_, _| [30, 40, 50, 255]), (0, 0)).unwrap();
+    let mut atlas = builder.finish();
+    atlas.sprites[plate.0 as usize].scaling = KEEP_SIZE;
+    let mut sets = SpriteSets::default();
+    let plate_set = sets.add(&[plate]);
+    let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (64, 64) }, sets);
+    world.color = ColorModel::Quantized { bits: 5 };
+    world.fonts.push(Arc::new(shapes()));
+    let full = CATEGORY_CITIES | CATEGORY_FULL_RESOLUTION;
+    let reduced = CATEGORY_CITIES | CATEGORY_REDUCED_RESOLUTION;
+    for (category, x, y, step) in [(full, 80, 140, 1), (reduced, 40, 180, 2)] {
+        world.free.push(PlacedSprite { category, ..PlacedSprite::new(plate_set, x, y) });
+        let mut glyphs = run(&world.fonts[0], 0, "sos", (x + 10 * step, y + 15 * step), 12, [230, 240, 250], (false, false, None), PlacedSprite { category, zoom_art: ZoomArt::Any, ..PlacedSprite::new(SpriteSetId::EMPTY, 0, 0) });
+        if step == 2 {
+            for g in glyphs.iter_mut().skip(2) {
+                // Reduced layout anchors are doubled, while glyph metrics
+                // and the plate's own pixels keep their native size.
+                let start = x + 10 * step;
+                g.x = start + (g.x - start) * 2;
+            }
+        }
+        world.free.extend(glyphs);
+    }
+    assert_eq!(CATEGORY_ALL & (CATEGORY_FULL_RESOLUTION | CATEGORY_REDUCED_RESOLUTION), 0);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    for downscale in [1, 2, 1, 2] {
+        for zoom in [(1, 1), (2, 1), (3, 2), (239, 256)] {
+            let camera = Camera { downscale, zoom, zoomed_art: true, ..Camera::new((640, 480)) };
+            let selected = if downscale == 1 { CATEGORY_FULL_RESOLUTION } else { CATEGORY_REDUCED_RESOLUTION };
+            let mut expected_world = world.clone();
+            expected_world.free.retain(|s| s.category & selected != 0);
+            for s in &mut expected_world.free { s.category = 0; }
+            let expected = reference::render_views(&expected_world, &atlas, &[camera], (640, 480), 0, CLEAR);
+            let actual = gpu.render_views(&mut renderer, &[camera], (640, 480), 0, CLEAR);
+            assert_same(&actual, &expected, &format!("annotation layout downscale{downscale} zoom{zoom:?}"));
+            let cpu = reference::render_views(&world, &atlas, &[camera], (640, 480), 0, CLEAR);
+            assert_same(&cpu, &expected, "CPU scale-layout selection");
+            let (px, py) = if downscale == 1 { (80, 140) } else { (20, 90) };
+            let scaled = |v: i32| (v as i64 * zoom.0 as i64).div_euclid(zoom.1 as i64) as i32;
+            let plate_bounds = [scaled(px), scaled(py), scaled(px + 80), scaled(py + 20)];
+            let ink: Vec<_> = actual.pixels.iter().enumerate().filter(|(_, p)| p[0] > 100 && p[1] > 100).collect();
+            assert!(ink.len() > 25, "text must draw inside its native plate");
+            assert!(ink.iter().all(|(at, _)| {
+                let (x, y) = ((*at % 640) as i32, (*at / 640) as i32);
+                x >= plate_bounds[0] && x <= plate_bounds[2] && y >= plate_bounds[1] && y <= plate_bounds[3]
+            }), "letters and underline must remain inside their plate at downscale{downscale} zoom{zoom:?}");
+            let hidden = Camera { hidden_categories: CATEGORY_CITIES, ..camera };
+            let actual = gpu.render_views(&mut renderer, &[hidden], (640, 480), 0, CLEAR);
+            expected_world.free.clear();
+            let expected = reference::render_views(&expected_world, &atlas, &[hidden], (640, 480), 0, CLEAR);
+            assert_same(&actual, &expected, "city filtering must hide both layouts");
+        }
+    }
+}

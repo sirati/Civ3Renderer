@@ -1,0 +1,13 @@
+[package]
+name = "pointer-wayland"
+description = "Physical-pixel pointer regions and placement for a Wayland window"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pointer-api = { path = "../pointer-api" }
+pointer-fallback = { path = "../pointer-fallback" }
+wl-pointer = { path = "../wl-pointer" }
+winit.workspace = true
+log.workspace = true

@@ -224,6 +224,7 @@ Unit_Body X
 Unit_Body Y
 Unit_Body CivID
 Unit_Body UnitTypeID
+Unit_Body leader_kind
 Unit_Body Damage
 Unit_Body Moves
 Unit_Body Container_Unit

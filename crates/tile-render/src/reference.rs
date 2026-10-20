@@ -33,11 +33,22 @@ pub struct Draw {
     /// Text drawn from outlines instead of the sprite: the glyph's pixels
     /// from (`x`, `y`) on.
     pub text: Option<TextPixels>,
+    /// Procedural colour used only by this reference oracle.
+    pub solid: Option<[u8; 4]>,
     /// The named palette an indexed sprite is drawn with (0: none).
     pub palette: u32,
+    /// True only for screen-space UI art. Background metadata must never
+    /// change a world sprite's sampling.
+    pub screen: bool,
 }
 
 impl Draw {
+    fn descriptor(&self, atlas: &Atlas) -> tile_render_shared::SpriteDesc {
+        if self.solid.is_some() {
+            tile_render_shared::SpriteDesc { width: self.placed.width, height: self.placed.height, ..Default::default() }
+        } else { atlas.sprites[self.sprite.0 as usize] }
+    }
+
     /// The drawn rectangle's top-left.
     fn rect_x(&self) -> i32 {
         self.x + self.placed.inset_x as i32
@@ -56,6 +67,7 @@ impl Draw {
     /// The colour atlas texel (`tx`, `ty`) of `sprite` is drawn in (an
     /// indexed sprite's through its palette rows).
     fn color(&self, atlas: &Atlas, sprite: &tile_render_shared::SpriteDesc, (tx, ty): (u32, u32)) -> [u8; 4] {
+        if let Some(color) = self.solid { return color; }
         if sprite.palette == 0 {
             return atlas.pages[sprite.page as usize].get(tx, ty);
         }
@@ -134,6 +146,7 @@ pub fn render_composed(
         ColorModel::Direct => {
             let mut out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
                 Blend::Alpha => *dst = blend(src, *dst),
+                Blend::NativePaletteAlpha => panic!("native palette composition is GPU-only"),
                 Blend::AlphaOpacity { opacity } => {
                     let mut src = src;
                     src[3] = (u32::from(src[3]) * u32::from(opacity) / 255) as u8;
@@ -166,6 +179,7 @@ pub fn render_composed(
     let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
     let background = [stored(clear[0]), stored(clear[1]), stored(clear[2])];
     let mut out = compose(world, atlas, cameras, size, frame, background, |dst: &mut [u32; 3], d, src| match d.blend {
+        Blend::NativePaletteAlpha => panic!("native palette composition is GPU-only"),
         Blend::Scale { denominator } if (src[0] as u32) < denominator => {
             for c in dst.iter_mut() {
                 *c = scale_stored(*c, src[0] as u32, denominator);
@@ -243,7 +257,7 @@ fn compose<P: Copy>(
     let mut out = vec![background; (w * h) as usize];
     let cameras = &cameras[..cameras.len().min(crate::renderer::MAX_VIEWS)];
     let first_zoomed = crate::world::first_zoomed(&world.free, world.passes().len().min(crate::renderer::MAX_PASSES));
-    let placements = crate::camera::placements(cameras, |z| crate::world::zoomed_from(&first_zoomed, z));
+    let placements = crate::camera::placements(cameras, |z, view, camera| crate::world::zoomed_from(&first_zoomed, z, view, camera));
     let (words, _) = crate::world::outline_words(&world.fonts);
     // The source texture: every scaled group's picture, laid out the same.
     let (sw, sh) = placements.iter().filter_map(|p| p.source).fold((1, 1), |(sw, sh), r| (sw.max(r[0] + r[2]), sh.max(r[1] + r[3])));
@@ -308,7 +322,7 @@ fn compose<P: Copy>(
                     }
                     return;
                 }
-                let sprite = atlas.sprites[d.sprite.0 as usize];
+                let sprite = d.descriptor(atlas);
                 // The sprite's zoom-1 rectangle from the origin, clipped.
                 let (x0, y0) = (d.rect_x() - ox, d.rect_y() - oy);
                 let l = x0.max(clip[0].saturating_sub(ox));
@@ -323,8 +337,64 @@ fn compose<P: Copy>(
                     for px in (ox + tl).max(scissor[0])..(ox + tr).min(scissor[2]) {
                         let sx = ((px - ox) as i64 * dd as i64).div_euclid(n as i64) as i32;
                         let sy = ((py - oy) as i64 * dd as i64).div_euclid(n as i64) as i32;
-                        let (tx, ty) = d.texel(&sprite, (sx.max(l) - x0) as u32, (sy.max(t) - y0) as u32);
-                        let src = d.color(atlas, &sprite, (tx, ty));
+                        let ix = (sx.max(l) - x0) as u32;
+                        let iy = (sy.max(t) - y0) as u32;
+                        let mut src = d.color(atlas, &sprite, d.texel(&sprite, ix, iy));
+                        let background = d.screen && matches!(d.blend, Blend::Alpha | Blend::AlphaOpacity { .. }) && sprite.sampling == tile_render_shared::SAMPLING_UI_BACKGROUND && n != dd && src[3] != 0;
+                        if background && n > dd && c.background_sampling != crate::BackgroundSampling::Nearest {
+                            let p = d.placed;
+                            let x = tile_render_shared::background_linear_axis(px - ox, x0, (sprite.width + p.step - 1) / p.step, n, dd);
+                            let y = tile_render_shared::background_linear_axis(py - oy, y0, (sprite.height + p.step - 1) / p.step, n, dd);
+                            let sample = |i, j| d.color(atlas, &sprite, (sprite.atlas_x + p.texel_x + p.step * i, sprite.atlas_y + p.texel_y + p.step * j));
+                            if c.background_sampling == crate::BackgroundSampling::Interpolate {
+                                let (mut sum, mut weight) = ([0u32; 3], 0u32);
+                                for (j, wy) in [(y.0, 64 - y.2), (y.1, y.2)] { for (i, wx) in [(x.0, 64 - x.2), (x.1, x.2)] {
+                                    let w = wx * wy;
+                                    if w == 0 { continue; }
+                                    let t = sample(i, j);
+                                    if t[3] != 0 { for k in 0..3 { sum[k] += w * t[k] as u32; } weight += w; }
+                                } }
+                                if weight != 0 { for k in 0..3 { src[k] = tile_render_shared::background_mean(sum[k], weight) as u8; } }
+                            } else {
+                                let (i, j) = tile_render_shared::background_linear_texel(x, y, (sprite.sampling_origin_x, sprite.sampling_origin_y));
+                                let t = sample(i, j);
+                                if t[3] != 0 { src = [t[0], t[1], t[2], src[3]]; }
+                            }
+                        } else if background && c.background_sampling == crate::BackgroundSampling::Interpolate {
+                            // As the shader: the area-weighted mean of the
+                            // footprint's non-transparent texels, nominal alpha.
+                            let p = d.placed;
+                            let bound = ((sprite.width + p.step - 1) / p.step, (sprite.height + p.step - 1) / p.step);
+                            let (fx0, fx1, ax, bx) = tile_render_shared::background_footprint(px - ox, x0, l - x0, bound.0, n, dd);
+                            let (fy0, fy1, ay, by) = tile_render_shared::background_footprint(py - oy, y0, t - y0, bound.1, n, dd);
+                            let (mut sum, mut weight) = ([0u32; 3], 0u32);
+                            for j in fy0..fy1 {
+                                let wy = tile_render_shared::background_weight(j, ay, by, n);
+                                for i in fx0..fx1 {
+                                    let w = wy * tile_render_shared::background_weight(i, ax, bx, n);
+                                    if w == 0 { continue; }
+                                    let at = (sprite.atlas_x + p.texel_x + p.step * i as u32, sprite.atlas_y + p.texel_y + p.step * j as u32);
+                                    let sample = d.color(atlas, &sprite, at);
+                                    if sample[3] != 0 {
+                                        for k in 0..3 { sum[k] += w * sample[k] as u32; }
+                                        weight += w;
+                                    }
+                                }
+                            }
+                            if weight != 0 {
+                                let mean = |k: usize| tile_render_shared::background_mean(sum[k], weight) as u8;
+                                src = [mean(0), mean(1), mean(2), src[3]];
+                            }
+                        } else if background && c.background_sampling == crate::BackgroundSampling::Dither {
+                            let ex = ((px - ox + 1) as i64 * dd as i64).div_euclid(n as i64) as i32 - x0;
+                            let ey = ((py - oy + 1) as i64 * dd as i64).div_euclid(n as i64) as i32 - y0;
+                            let p = d.placed;
+                            let nearest = (p.texel_x + p.step * ix, p.texel_y + p.step * iy);
+                            let footprint = (((ex.max(0) as u32 * p.step).saturating_sub(p.step * ix)).max(1), ((ey.max(0) as u32 * p.step).saturating_sub(p.step * iy)).max(1));
+                            let (tx, ty) = tile_render_shared::background_texel(nearest, footprint, (sprite.width, sprite.height), (sprite.sampling_origin_x, sprite.sampling_origin_y));
+                            let sample = d.color(atlas, &sprite, (sprite.atlas_x + tx, sprite.atlas_y + ty));
+                            if sample[3] != 0 { src = [sample[0], sample[1], sample[2], src[3]]; }
+                        }
                         if src[3] != 0 {
                             put(&mut out[(py as u32 * w + px as u32) as usize], &d, src);
                         }
@@ -353,7 +423,7 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
 
 /// Calls `f` for every opaque texel of `d` inside the viewport.
 fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32, u32, [u8; 4])) {
-    let sprite = atlas.sprites[d.sprite.0 as usize];
+    let sprite = d.descriptor(atlas);
     for sy in 0..d.placed.height {
         for sx in 0..d.placed.width {
             let (px, py) = (d.rect_x() + sx as i32, d.rect_y() + sy as i32);
@@ -413,8 +483,8 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
         if !steps.contains(&(2 * p + 1)) {
             return;
         }
-        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s) && s.category & camera.hidden_categories == 0) {
-            if let Some(t) = s.text {
+        for s in world.free.iter().filter(|s| s.after_pass.min(passes.len()) == p && s.view.map_or(camera.cells, |sv| if s.except_view { camera.cells && sv != view } else { sv == view }) && art_fits(s) && s.category & camera.effective_hidden_categories() == 0) {
+            if let Some(t) = s.text.filter(|_| s.solid.is_none()) {
                 // Zoomed art for every zoom: at its 1:1 position (from the
                 // screen origin or the camera; a world glyph's at the view's
                 // scale, its copy near the camera) scaled, its clip
@@ -439,21 +509,25 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     blend: if t.key.is_some() { crate::Blend::Alpha } else { crate::Blend::Subpixel { color: t.color } },
                     clip: within(clip),
                     placed: Placed::default(),
+                    solid: None,
                     text: Some(TextPixels { place, size: (r - l, b - t_), origin: (vx, vy), color: g.color, key: t.key.map(|_| g.key) }),
                     palette: 0,
+                    screen: s.screen,
                 }, true);
                 continue;
             }
-            let set = s.set.0 as usize;
-            let frames = packed.sets[set];
-            if set == 0 || frames == 0 {
-                continue;
-            }
-            let f = (frame / s.ticks_per_frame.max(1) + s.phase) % frames;
-            // World sprites at the view's scale; screen sprites as they are.
             let n = if s.screen { 1 } else { dn };
-            let sprite_id = drawn_sprite(&atlas.sprites, packed.sets[set + 1 + f as usize], n);
-            let placed = placed(&atlas.sprites[sprite_id as usize], n);
+            let (sprite_id, placed) = if let Some(solid) = s.solid {
+                let desc = tile_render_shared::SpriteDesc { scaling: tile_render_shared::KEEP_SIZE, width: solid.width, height: solid.height, box_w: solid.width, box_h: solid.height, ..Default::default() };
+                (0, placed(&desc, n))
+            } else {
+                let set = s.set.0 as usize;
+                let frames = packed.sets[set];
+                if set == 0 || frames == 0 { continue; }
+                let f = tile_render_shared::free_frame_of(frame, 0, s.ticks_per_frame, s.phase, frames);
+                let sprite_id = drawn_sprite(&atlas.sprites, packed.sets[set + 1 + f as usize], n);
+                (sprite_id, placed(&atlas.sprites[sprite_id as usize], n))
+            };
             // In a wrapping world, the copy of a world sprite near the camera.
             let s = &crate::PlacedSprite {
                 x: if s.screen { s.x } else { camera.x + tile_render_shared::wrap_distance(shrunk(s.x, n) - camera.x, period.0) },
@@ -475,11 +549,12 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     x: vx + sc(s.x, bx) + dx + placed.corner_x,
                     y: vy + sc(s.y, by) + dy + placed.corner_y,
                     pass: p,
-                    blend: s.blend,
+                    blend: if s.solid.is_some() { Blend::Alpha } else { s.blend },
                     clip: within(s.clip.map(crate::world::bound_clip).map(|[x0, y0, x1, y1]| [vx + cl(x0, bx), vy + cl(y0, by), vx + cl(x1, bx), vy + cl(y1, by)])),
                     placed,
-                    text: None,
+                    text: None, solid: s.solid.map(|r| r.rgba),
                     palette: s.palette,
+                    screen: s.screen,
                 }, true);
                 continue;
             }
@@ -488,11 +563,12 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 x: s.x + placed.corner_x - cx,
                 y: s.y + placed.corner_y - cy,
                 pass: p,
-                blend: s.blend,
+                blend: if s.solid.is_some() { Blend::Alpha } else { s.blend },
                 clip: within(s.clip.map(crate::world::bound_clip).map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
                 placed,
-                text: None,
+                text: None, solid: s.solid.map(|r| r.rgba),
                 palette: s.palette,
+                screen: s.screen,
             }, false);
         }
     };
@@ -500,13 +576,15 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
         let (first, count) = (pass.first, pass.count);
         // (Its grid is the grid at the view's scale.)
         let params = camera.frame_params(&world.grid, world.color, frame, pass, view, 0, None, packed.reach);
+        // The view's layer table: its binding's data slots.
+        let table = crate::world::table_of(&packed.tables, camera.binding) as usize;
         for local in 0..if camera.cells && steps.contains(&(2 * pass_index)) { params.cols * params.rows } else { 0 } {
             let col = window_col(&params, local);
             let row = params.first_row + (local / params.cols) as i32;
             let Some((c, r)) = wrap_cell(&params.grid, col, row) else { continue };
             let (ox, oy) = cell_origin(&params.grid, col, row);
-            for layer in &packed.layers[first as usize..(first + count) as usize] {
-                if layer.flags & tile_render_shared::LAYER_HIDDEN != 0 || layer.category & camera.hidden_categories != 0 {
+            for layer in &packed.layers[table + first as usize..table + (first + count) as usize] {
+                if layer.flags & tile_render_shared::LAYER_HIDDEN != 0 || layer.category & camera.effective_hidden_categories() != 0 {
                     continue;
                 }
                 if let Some((x0, y0, x1, y1)) = camera.cull {
@@ -538,8 +616,9 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
                     clip: within(None),
                     placed,
-                    text: None,
+                    text: None, solid: None,
                     palette,
+                    screen: false,
                 }, false);
             }
         }

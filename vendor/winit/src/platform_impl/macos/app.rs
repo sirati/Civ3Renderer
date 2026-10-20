@@ -2,15 +2,42 @@
 #![allow(unknown_lints)] // New lint below
 #![allow(static_mut_refs)] // Uses `MainThreadBound` in new version.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::mem;
 
 use objc2::runtime::{Imp, Sel};
 use objc2::sel;
 use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
-use objc2_foundation::MainThreadMarker;
+use objc2_foundation::{MainThreadMarker, NSObjectProtocol};
 
 use super::app_state::ApplicationDelegate;
+use super::cursor_confinement::WarpCorrection;
+
+thread_local! {
+    static MOUSE_WARPS: RefCell<WarpCorrection> = RefCell::new(WarpCorrection::default());
+    static MOUSE_DELTA: Cell<(f64, (f64, f64))> = const { Cell::new((-1.0, (0.0, 0.0))) };
+}
+
+pub(super) fn record_mouse_warp(before: (f64, f64), after: (f64, f64)) {
+    MOUSE_WARPS.with(|warps| warps.borrow_mut().warp(before, after));
+}
+
+pub(super) fn clear_mouse_warps() {
+    MOUSE_WARPS.with(|warps| warps.borrow_mut().clear());
+    MOUSE_DELTA.with(|last| last.set((-1.0, (0.0, 0.0))));
+}
+
+/// The device and window paths consume one corrected delta, rather than
+/// applying the warp correction a second time in the view callback.
+pub(super) fn mouse_delta(event: &NSEvent) -> (f64, f64) {
+    MOUSE_DELTA.with(|last| {
+        let (timestamp, delta) = last.get();
+        // SAFETY: the caller holds the live NSEvent supplied to AppKit's
+        // main-thread callback. This typed timestamp getter returns a scalar.
+        if timestamp == unsafe { event.timestamp() } { delta } else { (0.0, 0.0) }
+    })
+}
+
 use crate::event::{DeviceEvent, ElementState};
 
 type SendEvent = extern "C" fn(&NSApplication, Sel, &NSEvent);
@@ -44,6 +71,19 @@ extern "C" fn send_event(app: &NSApplication, sel: Sel, event: &NSEvent) {
     // to get device events is to listen for them on NSApplication.
     let delegate = ApplicationDelegate::get(mtm);
     maybe_dispatch_device_event(&delegate, event);
+
+    // In a host's application (an attached event loop), the host's own
+    // `sendEvent:` may take pointer events for itself (Wine's does while one
+    // of its windows has the mouse captured): ours go straight to our window.
+    if delegate.is_attached() && pointer_event(event_type) {
+        // SAFETY: a plain getter of the live event on the main thread.
+        if let Some(window) = unsafe { event.window(mtm) } {
+            if window.is_kind_of::<super::window::WinitWindow>() {
+                window.sendEvent(event);
+                return;
+            }
+        }
+    }
 
     let _ = mtm;
     let original = unsafe { ORIGINAL.get().expect("no existing sendEvent: handler set") };
@@ -100,6 +140,23 @@ pub(crate) fn override_send_event(global_app: &NSApplication) {
     unsafe { ORIGINAL.set(Some(original)) };
 }
 
+fn pointer_event(event_type: NSEventType) -> bool {
+    matches!(
+        event_type,
+        NSEventType::MouseMoved
+            | NSEventType::LeftMouseDragged
+            | NSEventType::RightMouseDragged
+            | NSEventType::OtherMouseDragged
+            | NSEventType::LeftMouseDown
+            | NSEventType::LeftMouseUp
+            | NSEventType::RightMouseDown
+            | NSEventType::RightMouseUp
+            | NSEventType::OtherMouseDown
+            | NSEventType::OtherMouseUp
+            | NSEventType::ScrollWheel
+    )
+}
+
 fn maybe_dispatch_device_event(delegate: &ApplicationDelegate, event: &NSEvent) {
     let event_type = unsafe { event.r#type() };
     #[allow(non_upper_case_globals)]
@@ -108,8 +165,14 @@ fn maybe_dispatch_device_event(delegate: &ApplicationDelegate, event: &NSEvent) 
         | NSEventType::LeftMouseDragged
         | NSEventType::OtherMouseDragged
         | NSEventType::RightMouseDragged => {
-            let delta_x = unsafe { event.deltaX() } as f64;
-            let delta_y = unsafe { event.deltaY() } as f64;
+            // SAFETY: sendEvent supplied a live NSEvent on AppKit's main
+            // thread. These typed scalar getters accept every motion type
+            // matched above and do not retain pointers supplied by us.
+            let (delta, timestamp) = unsafe {
+                ((event.deltaX() as f64, event.deltaY() as f64), event.timestamp())
+            };
+            let (delta_x, delta_y) = MOUSE_WARPS.with(|warps| warps.borrow_mut().motion(delta));
+            MOUSE_DELTA.with(|last| last.set((timestamp, (delta_x, delta_y))));
 
             if delta_x != 0.0 {
                 delegate.maybe_queue_device_event(DeviceEvent::Motion { axis: 0, value: delta_x });

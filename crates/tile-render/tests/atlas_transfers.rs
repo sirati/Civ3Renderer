@@ -492,3 +492,27 @@ fn superseded_preparation_releases_its_candidate_before_replacement_allocation()
     renderer.set_world(&gpu.device, &old_world);
     check(&gpu, &mut renderer, &replacement, &old_world);
 }
+
+#[test]
+fn runtime_transfer_and_retirement_progress_with_nonblocking_polls_only() {
+    let gpu = Headless::new().expect("GPU");
+    let (atlas, _) = base();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let source = AtlasTransferSource::Whole(&atlas);
+    renderer.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let progress = renderer.advance_atlas_transfer(&gpu.device, &gpu.queue, source, 269).unwrap();
+        assert!(progress.bytes <= 269);
+        if progress.ready { break }
+        assert!(std::time::Instant::now() < deadline, "nonblocking transfer stopped progressing");
+        std::thread::yield_now();
+    }
+    assert!(renderer.commit_atlas_transfer(&gpu.device, &gpu.queue));
+    while !renderer.atlas_transfer_idle() {
+        renderer.poll_atlas_transfers(&gpu.device);
+        assert!(std::time::Instant::now() < deadline, "retirement callback was not serviced");
+        std::thread::yield_now();
+    }
+    assert_eq!(renderer.atlas_room(), (1, 0));
+}

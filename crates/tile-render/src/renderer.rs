@@ -1,6 +1,9 @@
 //! The wgpu side: pipeline, GPU buffers and the draw call.
 
 use std::num::NonZeroU64;
+mod smoke;
+mod glyph_cache;
+pub use glyph_cache::GlyphCacheStats;
 
 use tile_render_shared::{FrameParams, FreeSprite, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc};
 use wgpu::util::DeviceExt;
@@ -10,10 +13,51 @@ use crate::camera::Camera;
 use crate::world::{ColorModel, Grid, Pass, TileWorld};
 
 const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
+const FALLBACK_SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV_FALLBACK"));
 
 /// Per-pass `FrameParams` live in one buffer at this stride (the minimum
 /// uniform offset alignment wgpu guarantees).
 const PARAMS_STRIDE: u64 = 256;
+/// Only draw controls are tripled, never world buffers or atlas textures.
+const CONTROL_SLOTS: usize = 3;
+
+#[derive(Default)]
+struct ControlFrames {
+    next: std::cell::Cell<usize>,
+    prepared: std::cell::Cell<usize>,
+    active: std::cell::Cell<usize>,
+}
+
+impl ControlFrames {
+    fn claim(&self) -> Option<usize> {
+        if self.prepared.get() == CONTROL_SLOTS { return None }
+        let slot = self.next.get();
+        self.next.set((slot + 1) % CONTROL_SLOTS);
+        self.prepared.set(self.prepared.get() + 1);
+        self.active.set(slot);
+        Some(slot)
+    }
+}
+#[derive(Default)]
+struct ControlUpload {
+    params: ControlBytes,
+    output: ControlBytes,
+}
+
+#[derive(Default)]
+struct ControlBytes {
+    bytes: std::cell::RefCell<Vec<u8>>,
+    start: std::cell::Cell<usize>,
+}
+
+fn control_bytes(upload: &ControlBytes, offset: u64, data: &[u8]) {
+    let mut bytes = upload.bytes.borrow_mut();
+    let offset = offset as usize;
+    upload.start.set(upload.start.get().min(offset));
+    if bytes.len() < offset + data.len() { bytes.resize(offset + data.len(), 0); }
+    bytes[offset..offset + data.len()].copy_from_slice(data);
+}
+
 /// Views [`TileRenderer::render_views`] draws at most. A split needs
 /// divider fills and lines as well as the driver's views, anchored HUD
 /// panels, three framed insets, a framed magnifier, cursor and FPS.
@@ -36,12 +80,21 @@ pub struct TileRenderer {
     pipelines: [std::sync::OnceLock<wgpu::RenderPipeline>; P::COUNT],
     shader: wgpu::ShaderModule,
     target_format: wgpu::TextureFormat,
+    quantized_float: bool,
+    /// Selected once for numeric/performance A/B; unsupported devices keep three draws.
+    subpixel_dual: bool,
+    /// RGB555 cell specialization; generic shader remains available for paired A/B.
+    tiles555: bool,
     layout: wgpu::BindGroupLayout,
     output_layout: wgpu::BindGroupLayout,
-    params: wgpu::Buffer,
+    params: [wgpu::Buffer; CONTROL_SLOTS],
+    controls: ControlFrames,
+    control_uploads: [ControlUpload; CONTROL_SLOTS],
     /// `OutputParams` of each copy (one slot per view, then the final one).
-    output_params: wgpu::Buffer,
+    output_params: [wgpu::Buffer; CONTROL_SLOTS],
     scratch: Option<Scratch>,
+    smoke: std::cell::RefCell<Option<smoke::State>>,
+    glyph_cache: std::cell::RefCell<Option<glyph_cache::State>>,
     /// Decoding of the retained canvas, independent of later world uploads.
     picture_bits: u32,
     /// The pictures of zoomed views at zoom 1 (see `Camera::source_size`).
@@ -57,7 +110,7 @@ pub struct TileRenderer {
     /// The palette rows indexed sprites are drawn through (`Atlas::palettes`).
     palettes: Option<wgpu::Buffer>,
     world: Option<WorldBuffers>,
-    bind_group: Option<wgpu::BindGroup>,
+    bind_group: Option<[wgpu::BindGroup; CONTROL_SLOTS]>,
     /// Whether more views than drawn were asked for (warned once).
     too_many_views: bool,
     /// `tile_render_shared::CELL_INDICES`.
@@ -67,10 +120,13 @@ pub struct TileRenderer {
     /// The markers (see [`TileRenderer::set_markers`]) and how they are
     /// drawn (runs from 0).
     markers: Vec<FreeSprite>,
+    marker_sources: Vec<crate::PlacedSprite>,
     marker_runs: FreeRuns,
+    marker_smoke_count: usize,
     /// Bumped whenever what the views draw changes (anything uploaded but
     /// markers): a frame of the same views, markers and tick is the same.
     generation: u64,
+    host_tick_ms: u32,
     /// What the internal canvas shows (see `render_layered`), whether its
     /// overlay views are drawn on it, and a copy of it without them.
     drawn: Option<FrameKey>,
@@ -86,8 +142,10 @@ struct FrameKey {
     generation: u64,
     /// The markers drawn in them.
     markers: Vec<FreeSprite>,
+    marker_text: Vec<crate::PlacedSprite>,
     cameras: Vec<Camera>,
     frame: u32,
+    host_frame: u32,
     clear: [u8; 4],
     size: (u32, u32),
 }
@@ -261,7 +319,7 @@ struct RetiredAtlas {
     _textures: Option<AtlasTextures>,
     _sprites: Option<wgpu::Buffer>,
     _palettes: Option<wgpu::Buffer>,
-    _bind_group: Option<wgpu::BindGroup>,
+    _bind_group: Option<[wgpu::BindGroup; CONTROL_SLOTS]>,
     _upload: Option<wgpu::Buffer>,
     done: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -420,7 +478,7 @@ impl PageArray {
 /// An internal texture and the bind group reading it in the output pass.
 struct Scratch {
     main: wgpu::Texture,
-    output: wgpu::BindGroup,
+    output: [wgpu::BindGroup; CONTROL_SLOTS],
 }
 
 struct WorldBuffers {
@@ -434,6 +492,9 @@ struct WorldBuffers {
     /// to draw after it (the last entry: after all passes).
     free: wgpu::Buffer,
     free_after: Vec<FreeRuns>,
+    host_period_ms: u32,
+    smoke_count: usize,
+    scene_smoke_count: usize,
     /// The world's free sprites as uploaded, and the runs of them after
     /// all passes (the markers' runs follow).
     scene_free: Vec<FreeSprite>,
@@ -450,14 +511,25 @@ struct WorldBuffers {
     /// Text drawn from outlines (`tile_render_shared::text::TextGlyph`), in
     /// drawing order (`free_after`'s text runs index it).
     text: wgpu::Buffer,
+    text_source: Vec<tile_render_shared::text::TextGlyph>,
+    scene_text_len: usize,
+    scene_has_text: bool,
+    font_bases: Vec<u32>,
+    has_text: bool,
     /// The fonts' outlines, and shared ownership of their source faces.
     /// Holding the faces makes pointer identity stable until replacement.
     outlines: wgpu::Buffer,
     fonts: Vec<std::sync::Arc<gpu_text::Face>>,
     /// Per zoom with zoomed sprites, the first pass they follow.
-    first_zoomed: Vec<((u32, u32), usize)>,
-    scene_first_zoomed: Vec<((u32, u32), usize)>,
+    first_zoomed: Vec<crate::world::ZoomedStart>,
+    scene_first_zoomed: Vec<crate::world::ZoomedStart>,
+    /// The layer tables as uploaded (`TileWorld::layer_tables`): the
+    /// shared one, then one per binding; and where each binding's starts.
+    layer_table: Vec<LayerDesc>,
+    tables: Vec<(u32, u32)>,
     layers: wgpu::Buffer,
+    /// The cell data: the layers' records, then the data slots'. With room
+    /// to grow, so that a slot allocated writes only its records.
     tile_data: wgpu::Buffer,
     lut: wgpu::Buffer,
     sets: wgpu::Buffer,
@@ -520,9 +592,16 @@ impl TileRenderer {
     /// `Bgra8Unorm`): atlas colours are written unchanged, which is what
     /// makes the output byte-identical to the source art.
     pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+        let subpixel_dual = device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING)
+            && std::env::var("TILE_RENDER_SUBPIXEL_DUAL").as_deref() != Ok("0");
+        let tiles555 = std::env::var("TILE_RENDER_TILES555").as_deref() != Ok("0");
+        let adapter = device.adapter_info();
+        let quantized_float = adapter.backend == wgpu::Backend::Dx12 && adapter.device_type == wgpu::DeviceType::Cpu
+            && adapter.vendor == 0x1414 && adapter.device == 0x8c && adapter.name == "Microsoft Basic Render Driver";
+        if quantized_float { log::info!("integer FP16 composition for the measured Microsoft software adapter"); }
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tile-render shaders"),
-            source: wgpu::util::make_spirv(SPV),
+            source: wgpu::util::make_spirv(if device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) { SPV } else { FALLBACK_SPV }),
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tile-render"),
@@ -566,27 +645,34 @@ impl TileRenderer {
                 },
             ],
         });
-        let output_params = device.create_buffer(&wgpu::BufferDescriptor {
+        let output_params = std::array::from_fn(|_| device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render output params"),
             size: PARAMS_STRIDE * (MAX_VIEWS + 1 + MAX_COPIES) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        });
-        let params = device.create_buffer(&wgpu::BufferDescriptor {
+        }));
+        let params = std::array::from_fn(|_| device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("tile-render params"),
             size: PARAMS_STRIDE * (VIEW_SLOTS * MAX_VIEWS) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        });
+        }));
         Self {
             pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
             shader,
             target_format,
+            quantized_float,
+            subpixel_dual,
+            tiles555,
             layout,
             output_layout,
             params,
+            controls: ControlFrames::default(),
+            control_uploads: std::array::from_fn(|_| ControlUpload::default()),
             output_params,
             scratch: None,
+            smoke: Default::default(),
+            glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
             atlas: None,
@@ -606,12 +692,71 @@ impl TileRenderer {
             }),
             timer: None,
             markers: Vec::new(),
+            marker_sources: Vec::new(),
             marker_runs: Vec::new(),
+            marker_smoke_count: 0,
             generation: 0,
+            host_tick_ms: 0,
             drawn: None,
             overlaid: false,
             base: None,
             reused: false,
+        }
+    }
+
+    /// Whether another immutable control snapshot fits before submission.
+    /// Latest scene/input updates can remain pending when all three are full.
+    pub fn control_frame_available(&self) -> bool {
+        self.controls.prepared.get() < CONTROL_SLOTS
+    }
+
+    /// GPU coverage cache diagnostics for numeric and retention checks.
+    pub fn glyph_cache_stats(&self) -> GlyphCacheStats {
+        self.glyph_cache.borrow().as_ref().map_or_else(GlyphCacheStats::default, glyph_cache::State::stats)
+    }
+
+    /// Call immediately after submitting all commands encoded with this
+    /// renderer. This recycles control slots at the CPU submission boundary,
+    /// without waiting for GPU completion. Queue ordering places subsequent
+    /// writes after the preceding submitted draws. Never call before submit.
+    /// If omitted, a fourth frame is refused instead of overwriting controls.
+    ///
+    /// These slots snapshot controls, not mutable world/atlas storage. Submit
+    /// already encoded draws before calling queue-writing updates such as
+    /// `update_free`, `update_cells`, `set_markers` or `patch_sprite`: a write
+    /// queued before submission would also affect those earlier draws.
+    pub fn controls_submitted(&self) {
+        self.controls.prepared.set(0);
+        if let Some(cache) = self.glyph_cache.borrow_mut().as_mut() { cache.submitted(); }
+    }
+
+    /// The last prepared snapshot's upload bytes and queue-write calls.
+    /// Controls are assembled on the CPU and uploaded once per nonempty
+    /// uniform buffer, rather than once per camera/pass/copy.
+    pub fn control_upload_stats(&self) -> (usize, usize) {
+        let upload = &self.control_uploads[self.controls.active.get()];
+        let lengths = [&upload.params, &upload.output].map(|u| u.bytes.borrow().len().saturating_sub(u.start.get()));
+        (lengths.iter().sum(), lengths.iter().filter(|&&n| n != 0).count())
+    }
+
+    fn claim_control_frame(&self) -> Option<usize> {
+        let slot = self.controls.claim()?;
+        if let Some(cache) = self.glyph_cache.borrow_mut().as_mut() { cache.begin(slot); }
+        for upload in [&self.control_uploads[slot].params, &self.control_uploads[slot].output] {
+            upload.bytes.borrow_mut().clear();
+            upload.start.set(usize::MAX);
+        }
+        Some(slot)
+    }
+
+    fn flush_controls(&self, queue: &wgpu::Queue, slot: usize) {
+        if let Some(cache) = self.glyph_cache.borrow().as_ref() { cache.flush(queue, slot); }
+        if let Some(smoke) = self.smoke.borrow().as_ref() { smoke.flush(queue, slot); }
+        let upload = &self.control_uploads[slot];
+        for (buffer, upload) in [(&self.params[slot], &upload.params), (&self.output_params[slot], &upload.output)] {
+            let bytes = upload.bytes.borrow();
+            let start = upload.start.get();
+            if start < bytes.len() { queue.write_buffer(buffer, start as u64, &bytes[start..]); }
         }
     }
 
@@ -621,6 +766,11 @@ impl TileRenderer {
     pub fn enable_timing(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         self.timer = crate::timing::GpuTimer::new(device, queue);
         self.timer.is_some()
+    }
+
+    /// Stops recording timing queries; pending readbacks are discarded.
+    pub fn disable_timing(&mut self) {
+        self.timer = None;
     }
 
     /// Whether the last frame showed the picture drawn before (only its
@@ -652,36 +802,62 @@ impl TileRenderer {
             let (tiles, free, copy) = (("tile_vs", "tile_fs"), ("free_vs", "tile_fs"), ("fullscreen_vs", "output_fs"));
             let all = wgpu::ColorWrites::ALL;
             let (target, internal) = (self.target_format, QUANTIZED_FORMAT);
+            let quantized = self.quantized_format();
             let (stages, layout, format, blend, mask) = match p {
+                P::NativePaletteAlpha(into) => {
+                    let format = [target, quantized, internal][into as usize];
+                    (("free_vs", "native_palette_alpha_fs"), &self.layout, format, None, wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE)
+                }
                 P::Tiles => (tiles, &self.layout, target, alpha, all),
                 P::Free => (free, &self.layout, target, alpha, all),
-                P::TilesQuantized => (tiles, &self.layout, internal, premultiplied, all),
-                P::FreeQuantized => (free, &self.layout, internal, premultiplied, all),
+                P::TilesQuantized => (tiles, &self.layout, quantized, premultiplied, all),
+                P::Tiles555 => (("tile_vs", "tile555_fs"), &self.layout, quantized, premultiplied, all),
+                P::FreeQuantized => (free, &self.layout, quantized, premultiplied, all),
                 P::TilesSource => (tiles, &self.layout, internal, alpha, all),
                 P::FreeSource => (free, &self.layout, internal, alpha, all),
                 P::FreeInvert => (free, &self.layout, target, invert, all),
                 P::FreeInvertInternal => (free, &self.layout, internal, invert, all),
+                P::FreeInvertQuantized => (free, &self.layout, quantized, invert, all),
                 P::Subpixel(into, channel) => {
                     let (fs, mask) = [("subpixel_r_fs", wgpu::ColorWrites::RED), ("subpixel_g_fs", wgpu::ColorWrites::GREEN), ("subpixel_b_fs", wgpu::ColorWrites::BLUE)][channel as usize];
-                    let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
+                    let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
                     (("free_vs", fs), &self.layout, format, blend, mask)
                 }
                 P::Text(into, channel) => {
                     let (fs, mask) = [("text_r_fs", wgpu::ColorWrites::RED), ("text_g_fs", wgpu::ColorWrites::GREEN), ("text_b_fs", wgpu::ColorWrites::BLUE)][channel as usize];
-                    let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
+                    let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
                     (("text_vs", fs), &self.layout, format, blend, mask)
                 }
+                P::TextDual(into) | P::SubpixelDual(into) => {
+                    let format = [target, quantized, internal][into as usize];
+                    let blend = Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: if into == 1 { wgpu::BlendFactor::One } else { wgpu::BlendFactor::Src1 },
+                            dst_factor: wgpu::BlendFactor::OneMinusSrc1,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    });
+                    let stages = if matches!(p, P::SubpixelDual(_)) { ("free_vs", "subpixel_dual_fs") } else { ("text_vs", "text_dual_fs") };
+                    (stages, &self.layout, format, blend,
+                        wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE)
+                }
                 P::TextKeyed(into) => {
-                    let (format, blend) = [(target, alpha), (internal, premultiplied), (internal, alpha)][into as usize];
+                    let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
                     (("text_vs", "text_keyed_fs"), &self.layout, format, blend, all)
                 }
                 P::Output => (copy, &self.output_layout, target, None, all),
                 P::Blit => (copy, &self.output_layout, internal, None, all),
+                P::BlitQuantized => (copy, &self.output_layout, quantized, None, all),
             };
             let name = format!("tile-render {p:?}");
+            let ordinary_layouts = [Some(layout)];
+            let native_layouts = [Some(layout), Some(&self.output_layout)];
+            let cache = self.glyph_cache.borrow();
+            let text_layouts = cache.as_ref().map(|cache| [Some(layout), Some(&cache.layout)]);
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&name),
-                bind_group_layouts: &[Some(layout)],
+                bind_group_layouts: if matches!(p, P::NativePaletteAlpha(_)) { &native_layouts } else if matches!(p, P::Text(..) | P::TextDual(..) | P::TextKeyed(..)) { text_layouts.as_ref().expect("text cache prepared") } else { &ordinary_layouts },
                 immediate_size: 0,
             });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -701,6 +877,10 @@ impl TileRenderer {
                 cache: None,
             })
         })
+    }
+
+    fn quantized_format(&self) -> wgpu::TextureFormat {
+        if self.quantized_float { wgpu::TextureFormat::Rgba16Float } else { QUANTIZED_FORMAT }
     }
 
     /// The pipelines free sprites are drawn with into `into` (0 the
@@ -893,11 +1073,18 @@ impl TileRenderer {
             pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
             shader: self.shader.clone(),
             target_format: self.target_format,
+            quantized_float: self.quantized_float,
+            subpixel_dual: self.subpixel_dual,
+            tiles555: self.tiles555,
             layout: self.layout.clone(),
             output_layout: self.output_layout.clone(),
             params: self.params.clone(),
+            controls: ControlFrames::default(),
+            control_uploads: std::array::from_fn(|_| ControlUpload::default()),
             output_params: self.output_params.clone(),
             scratch: None,
+            smoke: Default::default(),
+            glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
             atlas: None,
@@ -913,8 +1100,11 @@ impl TileRenderer {
             cell_indices: self.cell_indices.clone(),
             timer: None,
             markers: Vec::new(),
+            marker_sources: Vec::new(),
             marker_runs: Vec::new(),
+            marker_smoke_count: 0,
             generation: 0,
+            host_tick_ms: 0,
             drawn: None,
             overlaid: false,
             base: None,
@@ -928,7 +1118,7 @@ impl TileRenderer {
         self.atlas_transfer_limit
     }
 
-    /// Atlas allocations still owned here, including candidate/retirement
+    /// Resident art and composition textures, including candidate/retirement
     /// resources and reserved upload workspaces. Shared arrays and buffers
     /// are counted once. Driver metadata and live patch uploads are separate.
     pub fn atlas_resident_bytes(&self) -> u64 {
@@ -952,7 +1142,12 @@ impl TileRenderer {
             buffers.extend(old._upload.iter());
             if old._upload.is_some() { workspaces += 2 * ATLAS_TRANSFER_MAX_BATCH_BYTES; }
         }
-        let mut bytes = workspaces;
+        let mut bytes = workspaces + self.smoke.borrow().as_ref().map_or(0, smoke::State::bytes)
+            + self.glyph_cache.borrow().as_ref().map_or(0, glyph_cache::State::bytes);
+        for texture in self.scratch.iter().map(|s| &s.main).chain(self.sources.iter().map(|s| &s.main)).chain(self.base.iter()) {
+            let texel_bytes = if texture.format() == wgpu::TextureFormat::Rgba16Float { 8 } else { 4 };
+            bytes += u64::from(texture.width()) * u64::from(texture.height()) * texel_bytes;
+        }
         for (i, a) in arrays.iter().enumerate() {
             if !arrays[..i].iter().any(|b| a.texture == b.texture) {
                 bytes += array_bytes(a.size, a.capacity, a.texel_bytes());
@@ -1012,7 +1207,11 @@ impl TileRenderer {
 
     /// Services completion callbacks without waiting for GPU work.
     pub fn poll_atlas_transfers(&mut self, device: &wgpu::Device) {
-        let _ = device.poll(wgpu::PollType::Poll);
+        // Idle frames have no atlas callbacks to service. Completed flags
+        // can also be reaped after another subsystem polled this device.
+        let pending = self.atlas_retired.as_ref().is_some_and(|r| !r.done.load(std::sync::atomic::Ordering::Acquire))
+            || self.atlas_transfer.as_ref().and_then(|j| j.fence.as_ref()).is_some_and(|f| !f.load(std::sync::atomic::Ordering::Acquire));
+        if pending { let _ = device.poll(wgpu::PollType::Poll); }
         if self.atlas_retired.as_ref().is_some_and(|r| r.done.load(std::sync::atomic::Ordering::Acquire)) {
             self.atlas_retired = None;
         }
@@ -1057,9 +1256,7 @@ impl TileRenderer {
         }
         let active = self.atlas.as_ref();
         let active_room = active.map_or((0, 0), |a| (a.rgba.capacity, a.index.capacity));
-        let resident = active.map_or(0, |a| array_bytes(a.rgba.size, a.rgba.capacity, 4) + array_bytes(a.index.size, a.index.capacity, 1))
-            + self.sprites.as_ref().map_or(0, wgpu::Buffer::size)
-            + self.palettes.as_ref().map_or(0, wgpu::Buffer::size);
+        let resident = self.atlas_resident_bytes();
         let (kind, size, used, sprites, palettes, named_palettes, prefix_sprites, palette_tail) = match source {
             AtlasTransferSource::Whole(a) => {
                 let pages = a.pages.iter().filter(|p| p.width == a.page_size).count() as u32;
@@ -1536,29 +1733,51 @@ impl TileRenderer {
         let mut runs = dedup_free(&w.source_runs, &w.scene_free, &w.sets_source, sprites);
         w.last_runs = runs.last().cloned().unwrap_or_default();
         if let Some(last) = runs.last_mut() {
-            last.extend(shifted(&self.marker_runs, w.scene_free.len() as u32));
+            last.extend(shifted_markers(&self.marker_runs, w.scene_free.len() as u32, w.scene_text_len as u32));
         }
+        w.smoke_count = smoke_instances(&runs);
         w.free_after = runs;
     }
 
     /// Uploads a whole world. Call again (or `update_world`) when it changes.
     pub fn set_world(&mut self, device: &wgpu::Device, world: &TileWorld) {
+        // Solid commands and outline text can draw before any art arrives.
+        // Empty GPU resources satisfy bindings without generating CPU pixels.
+        if self.atlas.is_none() {
+            self.atlas = Some(AtlasTextures {
+                rgba: PageArray::new(device, wgpu::TextureFormat::Rgba8Unorm, 1, 0),
+                index: PageArray::new(device, wgpu::TextureFormat::R8Unorm, 1, 0),
+                rgba_pages: 0, index_pages: 0, sprites: Vec::new(), palettes: Vec::new(),
+            });
+            self.sprites = Some(storage(device, "tile-render empty sprites", bytemuck::bytes_of(&SpriteDesc::default())));
+            self.palettes = Some(storage(device, "tile-render empty palettes", &[0; 4]));
+        }
+
         self.generation += 1;
         let packed = world.pack();
         let empty = [LayerDesc::default()];
         let layers: &[LayerDesc] = if packed.layers.is_empty() { &empty } else { &packed.layers };
+        let layer_table = packed.layers.clone();
+        let tables = packed.tables.clone();
         let (outlines, bases) = crate::world::outline_words(&world.fonts);
         let sprites = self.atlas.as_ref().map_or(&[][..], |a| &a.sprites[..]);
-        let (free, text, source_runs) = free_sprites(world, &bases);
+        let (free, mut text, source_runs) = free_sprites(world, &bases);
+        let scene_text_len = text.len();
+        let (markers, marker_text, marker_runs) = pack_markers(&self.marker_sources, &world.fonts, &bases);
+        self.markers = markers;
+        self.marker_runs = marker_runs;
         let mut free_after = dedup_free(&source_runs, &free, &world.sets, sprites);
         let last_runs = free_after.last().cloned().unwrap_or_default();
         if let Some(last) = free_after.last_mut() {
-            last.extend(shifted(&self.marker_runs, free.len() as u32));
+            last.extend(shifted_markers(&self.marker_runs, free.len() as u32, text.len() as u32));
         }
         let mut all = free.clone();
         all.extend_from_slice(&self.markers);
         let sprite_table = self.atlas.as_ref().map_or(&[][..], |a| &a.sprites[..]);
         let octagons = world.passes().iter().map(|p| octagon_pass(world, p, sprite_table)).collect();
+        let scene_has_text = source_runs.iter().flatten().any(|(_, kind, _)| matches!(kind, FreeKind::Text | FreeKind::TextKeyed));
+        let has_text = scene_has_text || !marker_text.is_empty();
+        text.extend(marker_text);
         self.world = Some(WorldBuffers {
             octagons,
             grid: world.grid,
@@ -1566,19 +1785,29 @@ impl TileRenderer {
             passes: world.passes(),
             reach: packed.reach,
             free: storage_with_room(device, "tile-render free sprites", bytemuck::cast_slice(&all)),
+            scene_smoke_count: smoke_instances(&source_runs),
+            smoke_count: smoke_instances(&free_after),
             free_after,
+            host_period_ms: host_period(world.free.iter().map(|s| s.ticks_per_frame)),
             scene_free: free,
             source_runs,
             last_runs,
             layer_specs: world.layers().to_vec(),
             sets_source: world.sets.clone(),
             text: storage(device, "tile-render text", bytemuck::cast_slice(&text)),
+            text_source: text,
+            scene_text_len,
+            scene_has_text,
+            font_bases: bases,
+            has_text,
             outlines: storage(device, "tile-render outlines", bytemuck::cast_slice(&outlines)),
             fonts: world.fonts.clone(),
             first_zoomed: with_markers(crate::world::first_zoomed(&world.free, world.passes().len().min(MAX_PASSES)), &self.markers, world.passes().len().min(MAX_PASSES)),
             scene_first_zoomed: crate::world::first_zoomed(&world.free, world.passes().len().min(MAX_PASSES)),
-            layers: storage(device, "tile-render layers", bytemuck::cast_slice(layers)),
-            tile_data: storage(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
+            layer_table,
+            tables,
+            layers: storage_with_room(device, "tile-render layers", bytemuck::cast_slice(layers)),
+            tile_data: storage_with_room(device, "tile-render tile data", bytemuck::cast_slice(&packed.data)),
             lut: storage(device, "tile-render lut", bytemuck::cast_slice(&packed.lut)),
             sets: storage(device, "tile-render sprite sets", bytemuck::cast_slice(&packed.sets)),
         });
@@ -1588,17 +1817,57 @@ impl TileRenderer {
     /// Re-uploads the cell values of an already uploaded world of the same
     /// shape (same grid and layer tables). Cheap enough to do every frame.
     pub fn update_world(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) {
-        let packed = world.pack();
         match &self.world {
-            Some(w) if w.same_shape(world) && w.tile_data.size() == (packed.data.len() * 4) as u64 => {
-                queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
-                if let Some(w) = self.world.as_mut() {
+            Some(w) if w.same_shape(world) => {
+                if !self.sync_tables(device, queue, world) {
+                    let packed = world.pack();
+                    let w = self.world.as_mut().expect("matched above");
+                    queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
                     w.reach = packed.reach;
                 }
                 self.update_free(device, queue, world);
             }
             _ => self.set_world(device, world),
         }
+    }
+
+    /// Brings the uploaded layer tables and the room for the cell data up
+    /// to `world`'s (data slots allocated or freed, bindings changed), into
+    /// the buffers where they fit (queued writes: the GPU never waits for
+    /// them, nor they for it), else into new ones with room to grow.
+    /// Whether the cell data moved to a new buffer (then all of it is
+    /// written, and nothing else needs to be).
+    fn sync_tables(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld) -> bool {
+        let Some(w) = self.world.as_mut() else { return false };
+        let mut rebind = false;
+        let (table, tables) = world.layer_tables();
+        if table != w.layer_table {
+            let empty = [LayerDesc::default()];
+            let bytes: &[u8] = bytemuck::cast_slice(if table.is_empty() { &empty[..] } else { &table[..] });
+            if w.layers.size() >= bytes.len() as u64 {
+                queue.write_buffer(&w.layers, 0, bytes);
+            } else {
+                w.layers = storage_with_room(device, "tile-render layers", bytes);
+                rebind = true;
+            }
+            w.layer_table = table;
+            // (A slot freed or bound may reach less or further.)
+            w.reach = world.offset_reach();
+            self.generation += 1;
+        }
+        w.tables = tables;
+        let moved = (w.tile_data.size() as usize) < world.packed_words() * 4;
+        if moved {
+            let packed = world.pack();
+            w.tile_data = storage_with_room(device, "tile-render tile data", bytemuck::cast_slice(&packed.data));
+            w.reach = packed.reach;
+            self.generation += 1;
+            rebind = true;
+        }
+        if rebind {
+            self.rebuild_bind_group(device);
+        }
+        moved
     }
 
     /// Re-uploads only the free sprites (and text) of an already uploaded
@@ -1612,15 +1881,26 @@ impl TileRenderer {
         // (The fonts' outlines are put together only when they change.)
         let bases = font_bases(&world.fonts);
         let sprites = self.atlas.as_ref().map_or(&[][..], |a| &a.sprites[..]);
-        let (free, text, source_runs) = free_sprites(world, &bases);
+        let (free, mut text, source_runs) = free_sprites(world, &bases);
+        let scene_text_len = text.len();
+        let (markers, marker_text, marker_runs) = pack_markers(&self.marker_sources, &world.fonts, &bases);
+        self.markers = markers;
+        self.marker_runs = marker_runs;
         let mut free_after = dedup_free(&source_runs, &free, &world.sets, sprites);
+        w.host_period_ms = host_period(world.free.iter().map(|s| s.ticks_per_frame));
         w.scene_first_zoomed = crate::world::first_zoomed(&world.free, w.passes.len().min(MAX_PASSES));
         w.first_zoomed = with_markers(w.scene_first_zoomed.clone(), &self.markers, w.passes.len().min(MAX_PASSES));
+        w.scene_has_text = source_runs.iter().flatten().any(|(_, kind, _)| matches!(kind, FreeKind::Text | FreeKind::TextKeyed));
+        w.has_text = w.scene_has_text || !marker_text.is_empty();
+        w.scene_text_len = scene_text_len;
+        w.font_bases = bases;
         w.source_runs = source_runs;
         w.last_runs = free_after.last().cloned().unwrap_or_default();
         if let Some(last) = free_after.last_mut() {
-            last.extend(shifted(&self.marker_runs, free.len() as u32));
+            last.extend(shifted_markers(&self.marker_runs, free.len() as u32, text.len() as u32));
         }
+        w.scene_smoke_count = smoke_instances(&w.source_runs);
+        w.smoke_count = smoke_instances(&free_after);
         w.free_after = free_after;
         let mut all = free.clone();
         all.extend_from_slice(&self.markers);
@@ -1641,7 +1921,9 @@ impl TileRenderer {
                 rebind = true;
             }
         };
+        text.extend(marker_text);
         write(&mut w.text, "tile-render text", bytemuck::cast_slice(&text));
+        w.text_source = text;
         if !same_fonts(&w.fonts, &world.fonts) {
             let (outlines, _) = crate::world::outline_words(&world.fonts);
             w.outlines = storage(device, "tile-render outlines", bytemuck::cast_slice(&outlines));
@@ -1656,27 +1938,29 @@ impl TileRenderer {
     /// Sprites drawn after everything else, in list order, that change
     /// more often than the world (a viewer's cursor, markers, a frame
     /// counter): uploaded on their own, after the world's free sprites,
-    /// which are not touched. They must not be text drawn from outlines
-    /// (those are left out); their `after_pass` does not matter.
+    /// which are not touched. Outline text uses the uploaded world's fonts.
+    /// Only bounded marker records are packed and written here; scene text
+    /// and immutable font outlines are retained in their existing GPU buffers.
     pub fn set_markers(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, markers: &[crate::PlacedSprite]) {
-        let mut runs: FreeRuns = Vec::new();
-        self.markers.clear();
-        for m in markers.iter().filter(|m| m.text.is_none()) {
-            self.markers.push(m.gpu());
-            push_run(&mut runs, self.markers.len() as u32 - 1, free_kind(m), view_class(m));
-        }
-        self.marker_runs = runs;
+        self.marker_sources.clear();
+        self.marker_sources.extend_from_slice(markers);
         let Some(w) = &mut self.world else { return };
+        let (free, text, runs) = pack_markers(markers, &w.fonts, &w.font_bases);
+        self.markers = free;
+        self.marker_runs = runs;
+        self.marker_smoke_count = self.marker_runs.iter().filter(|(_, kind, _)| *kind == FreeKind::NativePaletteAlpha).map(|(range, _, _)| range.len()).sum();
         let first_zoomed = with_markers(w.scene_first_zoomed.clone(), &self.markers, w.passes.len().min(MAX_PASSES));
         if w.first_zoomed != first_zoomed {
             w.first_zoomed = first_zoomed;
             self.generation += 1;
         }
+        w.smoke_count = w.scene_smoke_count + self.marker_smoke_count;
         let base = w.scene_free.len();
         if let Some(last) = w.free_after.last_mut() {
             *last = w.last_runs.clone();
-            last.extend(shifted(&self.marker_runs, base as u32));
+            last.extend(shifted_markers(&self.marker_runs, base as u32, w.scene_text_len as u32));
         }
+        let mut rebind = false;
         let size = size_of::<FreeSprite>();
         if w.free.size() >= ((base + self.markers.len()) * size) as u64 {
             if !self.markers.is_empty() {
@@ -1686,8 +1970,22 @@ impl TileRenderer {
             let mut all = w.scene_free.clone();
             all.extend_from_slice(&self.markers);
             w.free = storage_with_room(device, "tile-render free sprites", bytemuck::cast_slice(&all));
-            self.rebuild_bind_group(device);
+            rebind = true;
         }
+        w.has_text = w.scene_has_text || !text.is_empty();
+        w.text_source.truncate(w.scene_text_len);
+        w.text_source.extend_from_slice(&text);
+        let size = size_of::<tile_render_shared::text::TextGlyph>();
+        if w.text.size() >= (w.text_source.len() * size) as u64 {
+            if !text.is_empty() {
+                queue.write_buffer(&w.text, (w.scene_text_len * size) as u64, bytemuck::cast_slice(&text));
+            }
+        } else {
+            // Growth is occasional; steady animation writes only its tail.
+            w.text = storage_with_room(device, "tile-render text", bytemuck::cast_slice(&w.text_source));
+            rebind = true;
+        }
+        if rebind { self.rebuild_bind_group(device); }
     }
 
     /// Uploads the records of `world`'s cells that `dirty` lists (taken
@@ -1703,17 +2001,21 @@ impl TileRenderer {
             crate::world::Dirty::Records(r) => r,
             crate::world::Dirty::All => {
                 self.generation += 1;
+                if self.sync_tables(device, queue, world) {
+                    return;
+                }
                 let packed = world.pack();
                 let w = self.world.as_mut().expect("checked above");
-                if w.tile_data.size() != (packed.data.len() * 4) as u64 {
-                    return self.set_world(device, world);
-                }
                 queue.write_buffer(&w.tile_data, 0, bytemuck::cast_slice(&packed.data));
                 w.reach = packed.reach;
                 return;
             }
         };
         self.generation += 1;
+        // (Slots allocated or freed, bindings changed: the tables first.)
+        if self.sync_tables(device, queue, world) {
+            return;
+        }
         let w = self.world.as_mut().expect("checked above");
         // The byte ranges, word aligned, merged where they touch.
         let mut ranges: Vec<(usize, usize)> = records
@@ -1744,14 +2046,14 @@ impl TileRenderer {
     fn rebuild_bind_group(&mut self, device: &wgpu::Device) {
         self.bind_group = None;
         let (Some(atlas), Some(sprites), Some(palettes), Some(world)) = (&self.atlas, &self.sprites, &self.palettes, &self.world) else { return };
-        self.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.bind_group = Some(std::array::from_fn(|slot| device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tile-render"),
             layout: &self.layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.params,
+                        buffer: &self.params[slot],
                         offset: 0,
                         size: wgpu::BufferSize::new(size_of::<FrameParams>() as u64),
                     }),
@@ -1768,7 +2070,7 @@ impl TileRenderer {
                 wgpu::BindGroupEntry { binding: 9, resource: world.outlines.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 10, resource: palettes.as_entire_binding() },
             ],
-        }));
+        })));
     }
 
     /// Renders the world into `target` (`RENDER_ATTACHMENT`, of the format
@@ -1871,18 +2173,22 @@ impl TileRenderer {
         frame: u32,
         clear: [u8; 4],
         present: Present,
-    ) {
+    ) -> bool {
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear)), None));
-            return;
+            return true;
         };
+        let Some(control_slot) = self.claim_control_frame() else { return false };
+        let bind_group = &bind_group[control_slot];
         if cameras.len() > MAX_VIEWS && !self.too_many_views {
             log::warn!("{} views, only the first {MAX_VIEWS} are drawn (not repeated)", cameras.len());
         }
         self.too_many_views |= cameras.len() > MAX_VIEWS;
         let cameras = &cameras[..cameras.len().min(MAX_VIEWS)];
         let bits = world.color.bits();
+        let internal_format = if bits != 0 { self.quantized_format() } else { QUANTIZED_FORMAT };
+        let float_encoding = u32::from(bits != 0 && self.quantized_float);
         let target_size = (target.width(), target.height());
         let unscaled = present == Present::unscaled(target_size);
         // What is drawn: the canvas, shown on the target afterwards.
@@ -1892,31 +2198,42 @@ impl TileRenderer {
         let background = if bits == 0 {
             crate::gpu::color(clear)
         } else {
-            let q = |c: u8| f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0;
+            let q = |c: u8| if float_encoding != 0 { f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::FLOAT_QUANTIZED_BIAS) } else { f64::from(tile_render_shared::quantize(c.into(), bits) + tile_render_shared::QUANTIZED_BIAS) / 255.0 };
             wgpu::Color { r: q(clear[0]), g: q(clear[1]), b: q(clear[2]), a: f64::from(clear[3]) / 255.0 }
         };
         let write_output = |slot: usize, params: OutputParams| {
             let offset = slot as u64 * PARAMS_STRIDE;
-            queue.write_buffer(&self.output_params, offset, bytemuck::bytes_of(&params));
+            control_bytes(&self.control_uploads[control_slot].output, offset, bytemuck::bytes_of(&params));
             offset as u32
         };
         // Scaled groups' pictures, side by side in rows.
-        let placements = crate::camera::placements(cameras, |z| crate::world::zoomed_from(&world.first_zoomed, z));
+        let placements = crate::camera::placements(cameras, |z, view, camera| crate::world::zoomed_from(&world.first_zoomed, z, view, camera));
+        if world.smoke_count != 0 {
+            let draws = world.smoke_count.checked_mul(cameras.len().max(1)).and_then(|n| n.checked_mul(2)).expect("native palette control bound");
+            let mut smoke = self.smoke.borrow_mut();
+            smoke.get_or_insert_with(|| smoke::State::new(device, draws)).begin(device, control_slot, draws);
+        }
         let copies = &copies[..copies.len().min(MAX_COPIES)];
         // Copies read the finished picture, and a scaled one is shown from
         // it: then it is composed internally.
-        let direct = bits == 0 && copies.is_empty() && unscaled;
+        let direct = bits == 0 && copies.is_empty() && unscaled && world.smoke_count == 0;
         // The picture of the views but the overlays drawn last, if this
         // frame's are the same (then only the overlays are drawn, over a
         // copy of it without the last frame's).
         let overlay_from = overlay_from.min(cameras.len());
         let overlays = overlay_from < cameras.len();
         let markers = self.markers.iter().filter(|m| m.view == tile_render_shared::ALL_VIEWS || (m.view as usize) < overlay_from || m.flags & tile_render_shared::FREE_EXCEPT_VIEW != 0);
-        let key = FrameKey { generation: self.generation, markers: markers.copied().collect(), cameras: cameras[..overlay_from].to_vec(), frame, clear, size: (size.width, size.height) };
+        let markers: Vec<_> = markers.copied().collect();
+        let period = host_period(markers.iter().map(|s| s.ticks_per_frame)
+            .chain((world.host_period_ms != 0).then_some(world.host_period_ms | tile_render_shared::HOST_CLOCK)));
+        let host_frame = if period == 0 { 0 } else { self.host_tick_ms / period };
+        let key = FrameKey { generation: self.generation, markers, marker_text: self.marker_sources.iter().filter(|m|
+            m.text.is_some() && (m.view.is_none_or(|v| (v as usize) < overlay_from) || m.except_view)).copied().collect(), cameras: cameras[..overlay_from].to_vec(), frame, host_frame, clear, size: (size.width, size.height) };
         // A scaled overlay may share its source picture with a preceding
         // view. Restoring the canvas alone cannot restore that group's
         // unfinished source picture, so draw these arrangements in full.
-        let cacheable = !direct && placements[overlay_from..].iter().all(|p| p.source.is_none());
+        // (One drawn at its zoom from its start has an empty picture.)
+        let cacheable = !direct && placements[overlay_from..].iter().all(|p| p.source.is_none_or(|r| r[2] == 0 || r[3] == 0));
         let same = cacheable && reuse_frames() && self.drawn.as_ref() == Some(&key) && self.scratch.is_some();
         let reuse = same && (!self.overlaid || self.base.is_some());
         // An overlay can return after a newer picture was drawn without
@@ -1924,7 +2241,7 @@ impl TileRenderer {
         let capture_base = cacheable && overlays && (!reuse || !self.overlaid);
         self.reused = reuse;
         if capture_base {
-            let fits = self.base.as_ref().is_some_and(|b| (b.width(), b.height()) == (size.width, size.height));
+            let fits = self.base.as_ref().is_some_and(|b| (b.width(), b.height()) == (size.width, size.height) && b.format() == internal_format);
             if !fits {
                 self.base = Some(device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("tile-render canvas without overlays"),
@@ -1932,7 +2249,7 @@ impl TileRenderer {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: QUANTIZED_FORMAT,
+                    format: internal_format,
                     usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 }));
@@ -1941,7 +2258,7 @@ impl TileRenderer {
         if !reuse {
             let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
             if placements.iter().any(|p| p.source.is_some()) {
-                let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true);
+                let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true, internal_format);
                 let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear sources".into()));
                 drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background), timed));
             }
@@ -1950,7 +2267,7 @@ impl TileRenderer {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(background), self.timed(|| "clear".into())));
             view.clone()
         } else {
-            let s = scratch_for(&mut self.scratch, device, &self.output_layout, &self.output_params, (size.width, size.height), false);
+            let s = scratch_for(&mut self.scratch, device, &self.output_layout, &self.output_params, (size.width, size.height), false, internal_format);
             let main = s.main.create_view(&Default::default());
             if !reuse {
                 let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear".into()));
@@ -1973,17 +2290,20 @@ impl TileRenderer {
         };
         let target_rect = [0, 0, size.width as i32, size.height as i32];
         // Pipelines into the canvas, and into the source texture.
+        // tile_vs emits no tint, background sampling or procedural mode.
+        // Only RGB555 cells in UNORM8 composition use tile555_fs; all free
+        // sprites and other cell formats retain their generic pipelines.
         let (canvas_tiles, canvas_free) = match () {
             _ if direct => (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0)),
             _ if bits == 0 => (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2)),
-            _ => (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1)),
+            _ => (self.pipeline(device, if self.tiles555 && bits == 5 && !self.quantized_float { P::Tiles555 } else { P::TilesQuantized }), self.free_pipelines(device, 1)),
         };
         let source_pipelines = if bits == 0 {
             (self.pipeline(device, P::TilesSource), self.free_pipelines(device, 2))
         } else {
-            (self.pipeline(device, P::TilesQuantized), self.free_pipelines(device, 1))
+            (self.pipeline(device, if self.tiles555 && bits == 5 && !self.quantized_float { P::Tiles555 } else { P::TilesQuantized }), self.free_pipelines(device, 1))
         };
-        let steps = Steps { queue, params: &self.params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), cell_indices: &self.cell_indices };
+        let steps = Steps { renderer: self, device, control_slot, params: &self.control_uploads[control_slot].params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), quantized_float: self.quantized_float, cell_indices: &self.cell_indices };
         for (v, place) in placements.iter().enumerate() {
             if reuse && v < overlay_from {
                 continue;
@@ -1999,15 +2319,15 @@ impl TileRenderer {
                 Some(r) => clipped(place.scissor, [r[0] as i32, r[1] as i32, r[2] as i32, r[3] as i32]),
                 None => clipped(place.scissor, target_rect),
             };
-            let (into, pipelines) = match place.source {
-                None => (&canvas, (canvas_tiles, canvas_free)),
-                Some(_) => (source_view.as_ref().expect("created above"), source_pipelines),
+            let (into, texture, pipelines) = match place.source {
+                None => (&canvas, if direct { target } else { &self.scratch.as_ref().expect("created above").main }, (canvas_tiles, canvas_free)),
+                Some(_) => (source_view.as_ref().expect("created above"), &self.sources.as_ref().expect("created above").main, source_pipelines),
             };
             // Which zoom art the view draws (see `FrameParams::zoom_art`).
             let art = u32::from(place.art);
             if let Some(scissor) = scissor {
                 let viewport = [rect[0] as f32, rect[1] as f32, rect[2] as f32, rect[3] as f32];
-                steps.draw(encoder, into, (viewport, scissor), &place.drawn, v, (art, None), place.steps_at_one(), 0, pipelines);
+                steps.draw(encoder, into, texture, (viewport, scissor), &place.drawn, v, (art, None), place.steps_at_one(), 0, pipelines);
             }
             // The group's picture, scaled into its rectangle.
             if let Some((group, r)) = place.blit {
@@ -2022,16 +2342,16 @@ impl TileRenderer {
                         src_y: r[1] as i32,
                         dst_x: group.origin.0,
                         dst_y: group.origin.1,
-                        zoom_num: group.zoom.0.max(1),
-                        zoom_den: group.zoom.1.max(1),
+                        zoom_num: group.picture_zoom().0,
+                        zoom_den: group.picture_zoom().1,
                         bits: 0,
-                        _pad: 0,
+                        quantized_float: 0,
                     };
                     let offset = write_output(v, params);
                     let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load, self.timed(|| format!("v{v} blit")));
-                    pass.set_pipeline(self.pipeline(device, if direct { P::Output } else { P::Blit }));
+                    pass.set_pipeline(self.pipeline(device, if direct { P::Output } else if bits != 0 { P::BlitQuantized } else { P::Blit }));
                     pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
-                    pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output, &[offset]);
+                    pass.set_bind_group(0, &self.sources.as_ref().expect("created above").output[control_slot], &[offset]);
                     pass.draw(0..3, 0..1);
                 }
             }
@@ -2042,18 +2362,21 @@ impl TileRenderer {
                 let c = &place.scaled;
                 let viewport = [c.origin.0 as f32, c.origin.1 as f32, c.viewport.0 as f32, c.viewport.1 as f32];
                 let art = if place.art { 2 } else { 0 };
-                steps.draw(encoder, &canvas, (viewport, scissor), c, v, (art, Some(c.origin)), place.steps_scaled(), MAX_PASSES + 1, (canvas_tiles, canvas_free));
+                steps.draw(encoder, &canvas, if direct { target } else { &self.scratch.as_ref().expect("canvas").main }, (viewport, scissor), c, v, (art, Some(c.origin)), place.steps_scaled(), MAX_PASSES + 1, (canvas_tiles, canvas_free));
             }
         }
         if direct {
             // This frame was drawn into the caller's texture, so a previous
             // internal canvas no longer represents the current picture.
             self.scratch = None;
-            return;
+            self.flush_controls(queue, control_slot);
+            return true;
         }
         self.picture_bits = bits;
         let shown = self.output_picture(device, queue, encoder, target, copies, clear, present, self.timed(|| "output".into()));
         debug_assert!(shown, "a composed frame has an internal canvas");
+        self.flush_controls(queue, control_slot);
+        true
     }
 
     /// Presents the most recently composed picture without drawing its
@@ -2080,7 +2403,11 @@ impl TileRenderer {
         clear: [u8; 4],
         present: Present,
     ) -> bool {
-        self.output_picture(device, queue, encoder, target, copies, clear, present, None)
+        if self.scratch.is_none() { return false }
+        let Some(slot) = self.claim_control_frame() else { return false };
+        let shown = self.output_picture(device, queue, encoder, target, copies, clear, present, None);
+        self.flush_controls(queue, slot);
+        shown
     }
 
     /// Shared output path. Replays do not allocate timer queries because
@@ -2089,7 +2416,7 @@ impl TileRenderer {
     fn output_picture(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        _queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::Texture,
         copies: &[ScreenCopy],
@@ -2098,6 +2425,7 @@ impl TileRenderer {
         timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> bool {
         let Some(scratch) = &self.scratch else { return false };
+        let control_slot = self.controls.active.get();
         let bits = self.picture_bits;
         let target_size = (target.width(), target.height());
         let (canvas_w, canvas_h) = (scratch.main.width(), scratch.main.height());
@@ -2108,7 +2436,7 @@ impl TileRenderer {
         let view = target.create_view(&Default::default());
         let write_output = |slot: usize, params: OutputParams| {
             let offset = slot as u64 * PARAMS_STRIDE;
-            queue.write_buffer(&self.output_params, offset, bytemuck::bytes_of(&params));
+            control_bytes(&self.control_uploads[control_slot].output, offset, bytemuck::bytes_of(&params));
             offset as u32
         };
         let clipped = |[x, y, w, h]: [i32; 4], [bx, by, bw, bh]: [i32; 4]| {
@@ -2119,7 +2447,7 @@ impl TileRenderer {
         let copies = &copies[..copies.len().min(MAX_COPIES)];
         let (n, d) = (present.zoom.0.max(1), present.zoom.1.max(1));
         let (ax, ay) = present.at;
-        let params = OutputParams { dst_x: ax, dst_y: ay, zoom_num: n, zoom_den: d, bits, ..Default::default() };
+        let params = OutputParams { dst_x: ax, dst_y: ay, zoom_num: n, zoom_den: d, bits, quantized_float: u32::from(self.quantized_float && bits != 0), ..Default::default() };
         let offset = write_output(MAX_VIEWS, params);
         // Around a scaled picture: clear.
         let load = if unscaled { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(crate::gpu::color(clear)) };
@@ -2136,7 +2464,7 @@ impl TileRenderer {
         let Some(picture) = shown([0, 0, canvas_w, canvas_h]) else { return true };
         pass.set_pipeline(self.pipeline(device, P::Output));
         pass.set_scissor_rect(picture[0], picture[1], picture[2], picture[3]);
-        pass.set_bind_group(0, &scratch.output, &[offset]);
+        pass.set_bind_group(0, &scratch.output[control_slot], &[offset]);
         pass.draw(0..3, 0..1);
         for (i, c) in copies.iter().enumerate() {
             // (A copy of a scaled picture samples it at the target's pixels,
@@ -2146,10 +2474,10 @@ impl TileRenderer {
             let [src_x, src_y, _, _] = c.source;
             let at = |v: i32, a: i32| a + (v as i64 * n as i64).div_euclid(d as i64) as i32;
             let (dst_x, dst_y) = (at(c.at.0, ax), at(c.at.1, ay));
-            let params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, _pad: 0 };
+            let params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, quantized_float: u32::from(self.quantized_float && bits != 0) };
             let offset = write_output(MAX_VIEWS + 1 + i, params);
             pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
-            pass.set_bind_group(0, &scratch.output, &[offset]);
+            pass.set_bind_group(0, &scratch.output[control_slot], &[offset]);
             pass.draw(0..3, 0..1);
         }
         true
@@ -2178,6 +2506,24 @@ impl Present {
     /// Target pixels per canvas pixel.
     pub fn factor(&self) -> f64 {
         self.zoom.0.max(1) as f64 / self.zoom.1.max(1) as f64
+    }
+
+    /// Target pixels per canvas pixel where that is a whole number above 1
+    /// (each canvas pixel shown as a `k`×`k` box).
+    pub fn pixel_box(&self) -> Option<u32> {
+        let (n, d) = (self.zoom.0.max(1), self.zoom.1.max(1));
+        (n % d == 0 && n / d > 1).then_some(n / d)
+    }
+
+    /// The same presentation of a canvas composed at the target's
+    /// resolution: [`Present::pixel_box`] times larger each way, shown 1:1
+    /// where the boxes were (its cameras [`Camera::boxed`], its copies
+    /// [`ScreenCopy::boxed`]). As it is without whole boxes.
+    ///
+    /// [`Camera::boxed`]: crate::Camera::boxed
+    pub fn at_target(&self) -> Present {
+        let Some(k) = self.pixel_box() else { return *self };
+        Present { canvas: (self.canvas.0.saturating_mul(k), self.canvas.1.saturating_mul(k)), zoom: (1, 1), ..*self }
     }
 
     /// The canvas pixel under target point `p` (e.g. the pointer). Points
@@ -2211,6 +2557,13 @@ pub struct ScreenCopy {
 }
 
 impl ScreenCopy {
+    /// This copy of a canvas `k` times as large each way (see
+    /// `Camera::boxed`): the same part of the picture, at the same zoom.
+    pub fn boxed(&self, k: u32) -> ScreenCopy {
+        let k = k.max(1) as i32;
+        ScreenCopy { source: self.source.map(|v| v.saturating_mul(k)), at: (self.at.0.saturating_mul(k), self.at.1.saturating_mul(k)), zoom: self.zoom }
+    }
+
     /// Target pixel `p` of the copy shows source pixel `source + (p − at)·den/num`
     /// (per axis). The target pixels (x, y, w, h) that are inside a target of
     /// `size` and show a source pixel inside it, if any.
@@ -2247,30 +2600,52 @@ struct FreePipelines<'a> {
 impl FreePipelines<'_> {
     /// The pipelines a run of `kind` is drawn with, in order (ClearType-like
     /// sprites once per colour channel).
-    fn of(&self, kind: FreeKind) -> Vec<&wgpu::RenderPipeline> {
+    fn of(&self, kind: FreeKind) -> impl Iterator<Item = &wgpu::RenderPipeline> {
         let get = |p| self.renderer.pipeline(self.device, p);
-        match (kind, self.into) {
-            (FreeKind::Normal, 0) => vec![get(P::Free)],
-            (FreeKind::Normal, 1) => vec![get(P::FreeQuantized)],
-            (FreeKind::Normal, _) => vec![get(P::FreeSource)],
-            (FreeKind::Invert, 0) => vec![get(P::FreeInvert)],
-            (FreeKind::Invert, _) => vec![get(P::FreeInvertInternal)],
-            (FreeKind::Subpixel, into) => (0..3).map(|c| get(P::Subpixel(into, c))).collect(),
-            (FreeKind::Text, into) => (0..3).map(|c| get(P::Text(into, c))).collect(),
-            (FreeKind::TextKeyed, into) => vec![get(P::TextKeyed(into))],
-        }
+        let one = |p| [Some(get(p)), None, None];
+        let pipelines = match (kind, self.into) {
+            (FreeKind::NativePaletteAlpha, into) => one(P::NativePaletteAlpha(into)),
+            (FreeKind::Normal, 0) => one(P::Free),
+            (FreeKind::Normal, 1) => one(P::FreeQuantized),
+            (FreeKind::Normal, _) => one(P::FreeSource),
+            (FreeKind::Invert, 0) => one(P::FreeInvert),
+            (FreeKind::Invert, 1) => one(P::FreeInvertQuantized),
+            (FreeKind::Invert, _) => one(P::FreeInvertInternal),
+            (FreeKind::Subpixel, into) if self.renderer.subpixel_dual => one(P::SubpixelDual(into)),
+            (FreeKind::Subpixel, into) => std::array::from_fn(|c| Some(get(P::Subpixel(into, c as u8)))),
+            (FreeKind::Text, into) if self.device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) => one(P::TextDual(into)),
+            (FreeKind::Text, into) => std::array::from_fn(|c| Some(get(P::Text(into, c as u8)))),
+            (FreeKind::TextKeyed, into) => one(P::TextKeyed(into)),
+        };
+        pipelines.into_iter().flatten()
     }
+}
+
+/// Recomputed only when command metadata changes. Its GCD supplies a
+/// conservative retained-picture boundary for every flagged animation.
+fn host_period(periods: impl IntoIterator<Item = u32>) -> u32 {
+    let gcd = |mut a: u32, mut b: u32| { while b != 0 { (a, b) = (b, a % b); } a };
+    periods.into_iter().filter(|p| p & tile_render_shared::HOST_CLOCK != 0)
+        .map(|p| (p & !tile_render_shared::HOST_CLOCK).max(1)).fold(0, gcd)
+}
+
+impl TileRenderer {
+    /// A scalar uniform clock. It never changes or uploads scene commands.
+    pub fn set_host_tick_ms(&mut self, milliseconds: u32) { self.host_tick_ms = milliseconds; }
 }
 
 /// What drawing a view's steps (see `camera::Placement`) needs.
 struct Steps<'a> {
-    queue: &'a wgpu::Queue,
-    params: &'a wgpu::Buffer,
+    renderer: &'a TileRenderer,
+    device: &'a wgpu::Device,
+    control_slot: usize,
+    params: &'a ControlBytes,
     world: &'a WorldBuffers,
     bind_group: &'a wgpu::BindGroup,
     frame: u32,
     named_palettes: u32,
     timer: Option<&'a crate::timing::GpuTimer>,
+    quantized_float: bool,
     cell_indices: &'a wgpu::Buffer,
 }
 
@@ -2284,6 +2659,7 @@ impl Steps<'_> {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         into: &wgpu::TextureView,
+        texture: &wgpu::Texture,
         bounds: ([f32; 4], [u32; 4]),
         camera: &Camera,
         v: usize,
@@ -2292,6 +2668,7 @@ impl Steps<'_> {
         slot: usize,
         (tiles, free): (&wgpu::RenderPipeline, FreePipelines<'_>),
     ) {
+        let glyph_cache = self.prepare_glyph_cache(encoder, camera, v, art, scaled_at, bounds.0, &steps);
         let world = self.world;
         let passes = world.passes.len().min(MAX_PASSES);
         // One render pass for all the steps (draws blend in order within
@@ -2301,7 +2678,7 @@ impl Steps<'_> {
         let mut render: Option<wgpu::RenderPass<'static>> = None;
         for i in 0..=passes {
             let cells = i < passes && camera.cells && steps.contains(&(2 * i));
-            let drawable = |(_, _, c): &(std::ops::Range<u32>, FreeKind, u32)| *c == v as u32 || (*c == tile_render_shared::ALL_VIEWS && camera.cells);
+            let drawable = |(_, kind, class): &(std::ops::Range<u32>, FreeKind, u32)| free_run_visible(*kind, *class, v as u32, camera.cells, art);
             let sprites = steps.contains(&(2 * i + 1)) && world.free_after.get(i).is_some_and(|r| r.iter().any(drawable));
             if !cells && !sprites {
                 continue;
@@ -2311,19 +2688,26 @@ impl Steps<'_> {
             let corner_cuts = octagons as u32;
             let params = FrameParams {
                 named_palettes: self.named_palettes, corner_cuts,
+                host_tick_ms: self.renderer.host_tick_ms,
+                quantized_float: u32::from(self.quantized_float && world.color.bits() != 0),
                 // Text coverage is viewport-local even when this ordinary
                 // stage draws into an offset source or target rectangle.
                 target_x: bounds.0[0] as i32, target_y: bounds.0[1] as i32,
+                // The layers as the view's binding draws them.
+                layer_table: crate::world::table_of(&world.tables, camera.binding),
                 ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach)
             };
-            // Each (view, step) has its own parameter slot: buffer writes all
-            // land before the commands run.
-            let offset = (v * VIEW_SLOTS + slot + i) as u64 * PARAMS_STRIDE;
-            self.queue.write_buffer(self.params, offset, bytemuck::bytes_of(&params));
+            let sprites = sprites && (world.smoke_count == 0 || self.native_step_visible(i, &params, bounds, texture, (v as u32, camera.cells)));
+            if !cells && !sprites { continue; }
+            // Pack only steps that actually draw, with one unique aligned
+            // block per draw. This keeps the single upload small even when
+            // the view only uses its final free-sprite step.
+            let offset = self.params.bytes.borrow().len().next_multiple_of(PARAMS_STRIDE as usize) as u64;
+            control_bytes(self.params, offset, bytemuck::bytes_of(&params));
             if split {
                 drop(render.take());
             }
-            let render = match &mut render {
+            let active = match &mut render {
                 Some(r) => {
                     r.set_bind_group(0, self.bind_group, &[offset as u32]);
                     r
@@ -2339,14 +2723,18 @@ impl Steps<'_> {
                 }
             };
             if cells {
-                render.set_pipeline(tiles);
+                active.set_pipeline(tiles);
                 // (Indexed: the vertex shader runs once per corner.)
                 let indices = if octagons { 6..6 + tile_render_shared::OCTAGON_VERTICES } else { 0..QUAD_VERTICES };
-                render.set_index_buffer(self.cell_indices.slice(..), wgpu::IndexFormat::Uint16);
-                render.draw_indexed(indices, 0, 0..params.cols * params.rows * pass.count);
+                active.set_index_buffer(self.cell_indices.slice(..), wgpu::IndexFormat::Uint16);
+                active.draw_indexed(indices, 0, 0..params.cols * params.rows * pass.count);
             }
             if sprites {
-                draw_free(render, world, i, free, (v as u32, camera.cells));
+                if world.smoke_count == 0 {
+                    draw_free(active, world, i, free, (v as u32, camera.cells, art), glyph_cache.as_ref());
+                } else {
+                    self.draw_native_free(encoder, &mut render, into, texture, bounds, &params, offset as u32, i, free, (v as u32, camera.cells), glyph_cache.as_ref());
+                }
             }
         }
     }
@@ -2354,12 +2742,13 @@ impl Steps<'_> {
 
 /// Free sprites that follow pass `i`, into `pass` (whose bind group is
 /// already set), each run with its pipelines.
-fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: FreePipelines<'_>, (view, cells): (u32, bool)) {
+fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pipelines: FreePipelines<'_>, (view, cells, art): (u32, bool, u32), glyph_cache: Option<&wgpu::BindGroup>) {
     for (range, kind, class) in world.free_after.get(i).into_iter().flatten() {
         // (A run for other views draws nothing here: not drawn at all.)
-        if !(*class == view || (*class == tile_render_shared::ALL_VIEWS && cells)) {
+        if !free_run_visible(*kind, *class, view, cells, art) {
             continue;
         }
+        if matches!(kind, FreeKind::Text | FreeKind::TextKeyed) { pass.set_bind_group(1, glyph_cache.expect("text cache prepared"), &[]); }
         for p in pipelines.of(*kind) {
             pass.set_pipeline(p);
             pass.draw(0..QUAD_VERTICES, range.clone());
@@ -2371,6 +2760,7 @@ fn draw_free(pass: &mut wgpu::RenderPass<'_>, world: &WorldBuffers, i: usize, pi
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum FreeKind {
     Normal,
+    NativePaletteAlpha,
     Invert,
     Subpixel,
     /// Text drawn from outlines, ClearType-like (its range indexes the text
@@ -2385,6 +2775,13 @@ enum FreeKind {
 /// (A run's view class, `view_class`.)
 type FreeRuns = Vec<(std::ops::Range<u32>, FreeKind, u32)>;
 
+/// Coarse draw eligibility shared by cache preparation and both draw paths.
+/// Text's source-art stage emits only culled vertices (visible_at_art).
+fn free_run_visible(kind: FreeKind, class: u32, view: u32, cells: bool, art: u32) -> bool {
+    (class == view || (class == tile_render_shared::ALL_VIEWS && cells))
+        && (!matches!(kind, FreeKind::Text | FreeKind::TextKeyed) || matches!(art, 0 | 2))
+}
+
 /// Which views free sprite `s` may be drawn in: its own one only (its
 /// index), or (`ALL_VIEWS`) those showing the world, maybe but one.
 fn view_class(s: &crate::PlacedSprite) -> u32 {
@@ -2392,6 +2789,28 @@ fn view_class(s: &crate::PlacedSprite) -> u32 {
         Some(v) if !s.except_view => v,
         _ => tile_render_shared::ALL_VIEWS,
     }
+}
+
+/// Pack a small overlay command list without touching canonical world data.
+fn pack_markers(markers: &[crate::PlacedSprite], fonts: &[std::sync::Arc<gpu_text::Face>], bases: &[u32])
+    -> (Vec<FreeSprite>, Vec<tile_render_shared::text::TextGlyph>, FreeRuns)
+{
+    let (mut free, mut text, mut runs) = (Vec::new(), Vec::new(), Vec::new());
+    for marker in markers {
+        let (kind, index) = match marker.text.filter(|_| marker.solid.is_none()) {
+            Some(glyph) => {
+                let Some(gpu) = glyph.gpu(marker, fonts, bases) else { continue };
+                text.push(gpu);
+                (if glyph.key.is_some() { FreeKind::TextKeyed } else { FreeKind::Text }, text.len() as u32 - 1)
+            }
+            None => {
+                free.push(marker.gpu());
+                (free_kind(marker), free.len() as u32 - 1)
+            }
+        };
+        push_run(&mut runs, index, kind, view_class(marker));
+    }
+    (free, text, runs)
 }
 
 /// The world's free sprites in drawing order (by the pass they follow,
@@ -2406,7 +2825,7 @@ fn free_sprites(world: &TileWorld, bases: &[u32]) -> (Vec<FreeSprite>, Vec<tile_
     let mut gpu: Vec<FreeSprite> = Vec::with_capacity(order.len());
     let mut text = Vec::new();
     for s in order {
-        let (kind, i) = match s.text {
+        let (kind, i) = match s.text.filter(|_| s.solid.is_none()) {
             Some(t) => {
                 let Some(g) = t.gpu(s, &world.fonts, bases) else { continue };
                 text.push(g);
@@ -2473,7 +2892,7 @@ fn dedup_free(source: &[FreeRuns], free: &[FreeSprite], sets: &crate::SpriteSets
             }
             for i in range.clone().rev() {
                 let s = free[i as usize];
-                if s.scale_den == 0 && !later.insert(bytemuck::cast(s)) && is_binary(s.set) {
+                if s.primitive.kind == tile_render_shared::PRIMITIVE_SPRITE && s.scale_den == 0 && !later.insert(bytemuck::cast(s)) && is_binary(s.set) {
                     hidden.insert(i);
                 }
             }
@@ -2495,19 +2914,29 @@ fn dedup_free(source: &[FreeRuns], free: &[FreeSprite], sets: &crate::SpriteSets
 
 /// The first zoomed step of the scene or of its markers. Markers follow
 /// every cell pass, regardless of the pass given on their input sprites.
-fn with_markers(mut first: Vec<((u32, u32), usize)>, markers: &[FreeSprite], passes: usize) -> Vec<((u32, u32), usize)> {
+fn with_markers(mut first: Vec<crate::world::ZoomedStart>, markers: &[FreeSprite], passes: usize) -> Vec<crate::world::ZoomedStart> {
     for m in markers.iter().filter(|m| m.flags & tile_render_shared::FREE_ZOOMED != 0) {
         let zoom = (m.zoom >> 16, m.zoom & 0xFFFF);
-        if !first.iter().any(|(z, _)| *z == zoom) {
-            first.push((zoom, passes));
-        }
+        first.push(crate::world::ZoomedStart {
+            zoom,
+            pass: passes,
+            view: (m.view != tile_render_shared::ALL_VIEWS).then_some(m.view),
+            except_view: m.flags & tile_render_shared::FREE_EXCEPT_VIEW != 0,
+            category: m.category,
+        });
     }
     first
 }
 
+fn smoke_instances(runs: &[FreeRuns]) -> usize {
+    runs.iter().flatten().filter(|(_, kind, _)| *kind == FreeKind::NativePaletteAlpha).map(|(range, _, _)| range.len()).sum()
+}
+
 /// How free sprite `s` (not text) is drawn.
 fn free_kind(s: &crate::PlacedSprite) -> FreeKind {
+    if s.solid.is_some() { return FreeKind::Normal; }
     match s.blend {
+        crate::Blend::NativePaletteAlpha => FreeKind::NativePaletteAlpha,
         crate::Blend::Invert => FreeKind::Invert,
         crate::Blend::Subpixel { .. } => FreeKind::Subpixel,
         _ => FreeKind::Normal,
@@ -2522,9 +2951,12 @@ fn push_run(runs: &mut FreeRuns, i: u32, kind: FreeKind, class: u32) {
     }
 }
 
-/// `runs` of instances `by` further on.
-fn shifted(runs: &FreeRuns, by: u32) -> impl Iterator<Item = (std::ops::Range<u32>, FreeKind, u32)> + '_ {
-    runs.iter().map(move |(r, k, c)| (r.start + by..r.end + by, *k, *c))
+/// Marker text and ordinary sprites index independent GPU buffers.
+fn shifted_markers(runs: &FreeRuns, free_by: u32, text_by: u32) -> impl Iterator<Item = (std::ops::Range<u32>, FreeKind, u32)> + '_ {
+    runs.iter().map(move |(range, kind, class)| {
+        let by = if matches!(kind, FreeKind::Text | FreeKind::TextKeyed) { text_by } else { free_by };
+        (range.start + by..range.end + by, *kind, *class)
+    })
 }
 
 /// Where each font's words start in the outline buffer (see
@@ -2604,13 +3036,14 @@ fn scratch_for<'a>(
     slot: &'a mut Option<Scratch>,
     device: &wgpu::Device,
     output_layout: &wgpu::BindGroupLayout,
-    output_params: &wgpu::Buffer,
+    output_params: &[wgpu::Buffer; CONTROL_SLOTS],
     (w, h): (u32, u32),
     grow: bool,
+    format: wgpu::TextureFormat,
 ) -> &'a Scratch {
     let fits = |s: &Scratch| {
         let have = s.main.size();
-        if grow { have.width >= w && have.height >= h } else { (have.width, have.height) == (w, h) }
+        s.main.format() == format && if grow { have.width >= w && have.height >= h } else { (have.width, have.height) == (w, h) }
     };
     if !slot.as_ref().is_some_and(fits) {
         let size = match slot.as_ref().filter(|_| grow) {
@@ -2623,11 +3056,11 @@ fn scratch_for<'a>(
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: QUANTIZED_FORMAT,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let output = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let output = std::array::from_fn(|slot| device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("tile-render output"),
             layout: output_layout,
             entries: &[
@@ -2635,13 +3068,13 @@ fn scratch_for<'a>(
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: output_params,
+                        buffer: &output_params[slot],
                         offset: 0,
                         size: NonZeroU64::new(size_of::<OutputParams>() as u64),
                     }),
                 },
             ],
-        });
+        }));
         *slot = Some(Scratch { main, output });
     }
     slot.as_ref().unwrap()
@@ -2668,8 +3101,10 @@ enum P {
     /// Cells and free sprites into the caller's target (direct colour).
     Tiles,
     Free,
+    NativePaletteAlpha(u8),
     /// Into the internal target (quantized colour models).
     TilesQuantized,
+    Tiles555,
     FreeQuantized,
     /// Into an internal target in direct colour (zoomed views' pictures,
     /// pictures screen copies read).
@@ -2678,25 +3113,31 @@ enum P {
     /// Inverting free sprites, into the caller's target and internally.
     FreeInvert,
     FreeInvertInternal,
+    FreeInvertQuantized,
     /// ClearType-like free sprites: into (as `free_pipelines`), channel.
     Subpixel(u8, u8),
+    SubpixelDual(u8),
     /// Text drawn from outlines: into, channel; onto a colour key: into.
     Text(u8, u8),
+    TextDual(u8),
     TextKeyed(u8),
     /// Copies (scaled) into the caller's target, expanding quantized values.
     Output,
     /// Copies (scaled) into the internal target.
     Blit,
+    BlitQuantized,
 }
 
 impl P {
-    const COUNT: usize = 31;
+    const COUNT: usize = 43;
 
     fn index(self) -> usize {
         match self {
+            P::NativePaletteAlpha(into) => 33 + into.min(2) as usize,
             P::Tiles => 0,
             P::Free => 1,
             P::TilesQuantized => 2,
+            P::Tiles555 => 42,
             P::FreeQuantized => 3,
             P::TilesSource => 4,
             P::FreeSource => 5,
@@ -2704,7 +3145,11 @@ impl P {
             P::FreeInvertInternal => 7,
             P::Output => 8,
             P::Blit => 9,
+            P::BlitQuantized => 31,
+            P::FreeInvertQuantized => 32,
             P::Subpixel(into, channel) => 10 + 3 * into.min(2) as usize + channel.min(2) as usize,
+            P::TextDual(into) => 36 + into.min(2) as usize,
+            P::SubpixelDual(into) => 39 + into.min(2) as usize,
             P::Text(into, channel) => 19 + 3 * into.min(2) as usize + channel.min(2) as usize,
             P::TextKeyed(into) => 28 + into.min(2) as usize,
         }
@@ -2714,6 +3159,75 @@ impl P {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marker_text_keeps_painter_order_and_uses_its_own_buffer_offset() {
+        let face = std::sync::Arc::new(gpu_text::Face::from_curves(1000, &[]));
+        let sprite = crate::PlacedSprite::new(crate::SpriteSetId::EMPTY, 0, 0);
+        let text = crate::PlacedSprite { text: Some(crate::OutlineGlyph { font:0,
+            shape:crate::GlyphShape::Bar {top:0,height:3},em64:640,advance:8,
+            bold:false,italic:false,color:[10,20,30],key:None }), ..sprite };
+        let (free,glyphs,runs)=pack_markers(&[sprite,text,sprite], &[face], &[0]);
+        assert_eq!((free.len(),glyphs.len()),(2,1));
+        assert_eq!(runs.iter().map(|(_,kind,_)|*kind).collect::<Vec<_>>(),vec![FreeKind::Normal,FreeKind::Text,FreeKind::Normal]);
+        let shifted=shifted_markers(&runs,100,7).collect::<Vec<_>>();
+        assert_eq!(shifted.iter().map(|(range,_,_)|range.clone()).collect::<Vec<_>>(),vec![100..101,7..8,101..102]);
+        let (free,glyphs,runs)=pack_markers(&[sprite,text,sprite], &[], &[]);
+        assert_eq!((free.len(),glyphs.len(),runs.len()),(2,0,1));
+    }
+
+    #[test]
+    fn source_art_text_is_rejected_while_other_free_kinds_stay_drawable() {
+        for kind in [FreeKind::Text, FreeKind::TextKeyed] {
+            for cells in [false, true] {
+                assert!(free_run_visible(kind, 2, 2, cells, 0));
+                assert!(!free_run_visible(kind, 2, 2, cells, 1));
+                assert!(free_run_visible(kind, 2, 2, cells, 2));
+            }
+        }
+        for kind in [FreeKind::Normal, FreeKind::NativePaletteAlpha, FreeKind::Invert, FreeKind::Subpixel] {
+            for art in 0..=2 {
+                assert!(free_run_visible(kind, 2, 2, false, art));
+            }
+        }
+    }
+
+    #[test]
+    fn free_run_view_eligibility_keeps_world_text_out_of_ui_only_cameras() {
+        for kind in [FreeKind::Normal, FreeKind::NativePaletteAlpha, FreeKind::Invert,
+            FreeKind::Subpixel, FreeKind::Text, FreeKind::TextKeyed] {
+            for art in [0, 2] {
+                for cells in [false, true] {
+                    assert!(free_run_visible(kind, 3, 3, cells, art));
+                    assert!(!free_run_visible(kind, 4, 3, cells, art));
+                }
+                assert!(!free_run_visible(kind, tile_render_shared::ALL_VIEWS, 3, false, art));
+                assert!(free_run_visible(kind, tile_render_shared::ALL_VIEWS, 3, true, art));
+            }
+        }
+    }
+
+    #[test]
+    fn retained_fp16_texture_bytes_are_reserved_before_atlas_transfer() {
+        let gpu = crate::Headless::new().expect("GPU");
+        let mut builder = crate::AtlasBuilder::new(16);
+        builder.add(&crate::RgbaImage::from_fn(1, 1, |_, _| [255; 4]), (0, 0)).unwrap();
+        let atlas = builder.finish();
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        let before = renderer.atlas_resident_bytes();
+        renderer.set_atlas_transfer_limit(NonZeroU64::new(1).unwrap());
+        let required = match renderer.begin_atlas_transfer(&gpu.device, AtlasTransferSource::Whole(&atlas), (0, 0)) {
+            Err(AtlasTransferError::BudgetExceeded { required, .. }) => required,
+            other => panic!("expected initial budget rejection, got {other:?}"),
+        };
+        scratch_for(&mut renderer.scratch, &gpu.device, &renderer.output_layout, &renderer.output_params, (4, 5), false, wgpu::TextureFormat::Rgba16Float);
+        assert_eq!(renderer.atlas_resident_bytes(), before + 4 * 5 * 8);
+        renderer.set_atlas_transfer_limit(NonZeroU64::new(required).unwrap());
+        assert_eq!(renderer.begin_atlas_transfer(&gpu.device, AtlasTransferSource::Whole(&atlas), (0, 0)),
+            Err(AtlasTransferError::BudgetExceeded { required: required + 4 * 5 * 8, limit: required }));
+        assert!(renderer.atlas_transfer_idle());
+    }
 
     #[test]
     fn mutable_binary_art_restores_and_removes_duplicate_draws_without_losing_text_order() {

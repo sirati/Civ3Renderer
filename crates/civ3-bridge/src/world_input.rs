@@ -6,8 +6,6 @@
 //! thread handler substitutes the tile for the native coordinate helper
 //! and calls the native map handlers. Movement rules stay in the game.
 
-use std::collections::HashMap;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Event {
     Move((i32, i32)),
@@ -21,6 +19,10 @@ enum Event {
         double: bool,
         at: (i32, i32),
     },
+    /// Close the popup the game opened at a map click, if it is still open
+    /// (`scene::Input::DismissPopup`).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Dismiss,
 }
 
 /// An event's map and viewing player. Stale clicks after loading another
@@ -38,12 +40,10 @@ struct Pending {
     event: Event,
 }
 
+/// The events waiting for their private message, handed from the thread
+/// posting them to the game's thread without a lock (`civ3r_sync::Posted`).
 #[derive(Default)]
-struct Queue {
-    next: u32,
-    events: HashMap<u32, Pending>,
-    last_move: Option<u32>,
-}
+struct Queue(civ3r_sync::Posted<Pending>);
 
 impl Queue {
     fn movement(event: Event) -> u8 {
@@ -57,44 +57,36 @@ impl Queue {
         }
     }
 
+    /// Which moves may share one message: of one kind, in one world.
+    fn key(pending: &Pending) -> Option<u32> {
+        let kind = Self::movement(pending.event);
+        let w = pending.world;
+        (kind != 0).then(|| {
+            (w.tiles ^ w.seed.rotate_left(11) ^ (w.player as u32).rotate_left(22)).wrapping_mul(0x9E37_79B1) ^ u32::from(kind)
+        })
+    }
+
     /// The boolean says whether a new OS message needs to be posted.
     /// A move can replace only a consecutive, still-pending move in the
     /// same world. Keys, buttons and UI messages call barrier first.
-    fn push(&mut self, pending: Pending) -> (u32, bool) {
-        if Self::movement(pending.event) != 0 {
-            if let Some(token) = self.last_move
-                && let Some(old) = self.events.get_mut(&token)
-                && old.world == pending.world
-                && Self::movement(old.event) == Self::movement(pending.event)
-            {
-                *old = pending;
-                return (token, false);
-            }
-        }
-        self.barrier();
-        loop {
-            self.next = self.next.wrapping_add(1).max(1);
-            if !self.events.contains_key(&self.next) {
-                break;
-            }
-        }
-        let token = self.next;
-        if Self::movement(pending.event) != 0 {
-            self.last_move = Some(token);
-        }
-        self.events.insert(token, pending);
-        (token, true)
+    fn push(&self, pending: Pending) -> (u32, bool) {
+        self.0.push(pending, Self::key(&pending))
     }
 
-    fn barrier(&mut self) {
-        self.last_move = None;
+    fn barrier(&self) {
+        self.0.barrier();
     }
 
-    fn take(&mut self, token: u32) -> Option<Pending> {
-        if self.last_move == Some(token) {
-            self.last_move = None;
-        }
-        self.events.remove(&token)
+    /// The message for `token` was not posted.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn retract(&self, token: u32) {
+        self.0.retract(token);
+    }
+
+    /// On the game's thread: the events up to `token`'s message, a run of
+    /// joined moves as its latest.
+    fn take(&self, token: u32, inbox: &mut civ3r_sync::Inbox<Pending>) -> Vec<Pending> {
+        self.0.take(token, inbox)
     }
 }
 
@@ -115,7 +107,7 @@ impl Preview {
 }
 
 /// Clear a pending gesture regardless of whether the native command can
-/// currently receive Escape. A modal or a changed selected unit must not
+/// currently receive cancellation. A modal or a changed selected unit must not
 /// inherit cancellation intended for the previous map transaction.
 fn retire_preview(
     preview: &mut Option<Preview>,
@@ -128,6 +120,55 @@ fn retire_preview(
     })
 }
 
+/// What a map press does while a full screen (an advisor, the
+/// Civilopedia, the city screen) is open, `crate::modal`. The game's own
+/// map handlers would also open cities and menus (a double click zooms
+/// into a city, the right button opens the context menu or the
+/// Civilopedia, 0x4EB540): those are not reachable from there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScreenPress {
+    /// To the game's own handler: the right button cancels the command
+    /// waiting for its tile.
+    Native,
+    /// A left click with go-to armed picks the destination, through the
+    /// game's handler (`perform_action_on_tile`), if it is no attack.
+    Confirm,
+    /// Select the player's unit there (`Unit::select`, no camera move).
+    Select,
+    /// Send the selected unit there (as with an advisor open, v1).
+    SendTo,
+    /// A command other than go-to waits for its tile: not taken here.
+    Refuse,
+    Ignore,
+}
+
+fn screen_press(button: scene::Button, down: bool, go_to_armed: bool, other_mode: bool) -> ScreenPress {
+    use scene::Button::{Left, Middle, Right};
+    match (button, down) {
+        (Middle, _) => ScreenPress::Ignore,
+        (Right, _) if go_to_armed || other_mode => ScreenPress::Native,
+        (Left, true) if other_mode => ScreenPress::Refuse,
+        (Left, true) if go_to_armed => ScreenPress::Confirm,
+        (Left, true) => ScreenPress::Select,
+        (Right, true) => ScreenPress::SendTo,
+        (Left | Right, false) => ScreenPress::Ignore,
+    }
+}
+
+/// A button's bit in a mask of buttons.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn button_bit(b: scene::Button) -> u8 {
+    match b {
+        scene::Button::Left => 0,
+        scene::Button::Right => 1,
+        scene::Button::Middle => 2,
+    }
+}
+
+/// The Escape key (a Windows virtual-key code).
+#[cfg_attr(not(windows), allow(dead_code))]
+const VK_ESCAPE: u32 = 0x1B;
+
 fn native_tile(
     at: (i32, i32),
     zoomed_out: bool,
@@ -139,8 +180,8 @@ fn native_tile(
 
 #[cfg(windows)]
 pub use live::{
-    attach_window, barrier, endpoint_ready, install, leave_world, pointer_tile, post_button,
-    post_move, post_order, ready,
+    attach_window, barrier, click_popup_open, endpoint_ready, install, last_press, leave_world,
+    pointer_tile, popup_tile, post_button, post_dismiss, post_move, post_order, ready, wake, Press,
 };
 
 #[cfg(test)]
@@ -157,24 +198,52 @@ mod tests {
             event: Event::Move((x, 300)),
         }
     }
+    /// What one message delivers, which must be one event.
+    fn only(taken: Vec<Pending>) -> Pending {
+        assert_eq!(taken.len(), 1, "{taken:?}");
+        taken[0]
+    }
+
+    #[test]
+    fn under_a_screen_presses_select_send_and_confirm_but_never_open_anything() {
+        use scene::Button::{Left, Middle, Right};
+        use ScreenPress::*;
+        // Nothing armed: the left button selects, the right one sends; their
+        // releases do nothing (no city zoom, context menu or Civilopedia).
+        assert_eq!(screen_press(Left, true, false, false), Select);
+        assert_eq!(screen_press(Left, false, false, false), Ignore);
+        assert_eq!(screen_press(Right, true, false, false), SendTo);
+        assert_eq!(screen_press(Right, false, false, false), Ignore);
+        assert_eq!(screen_press(Middle, true, false, false), Ignore);
+        // Go-to armed: the left button picks the destination, the right one
+        // cancels as the game's own handler does.
+        assert_eq!(screen_press(Left, true, true, false), Confirm);
+        assert_eq!(screen_press(Left, false, true, false), Ignore);
+        assert_eq!(screen_press(Right, true, true, false), Native);
+        assert_eq!(screen_press(Right, false, true, false), Native);
+        // Another command armed (bombard...): told, or cancelled.
+        assert_eq!(screen_press(Left, true, false, true), Refuse);
+        assert_eq!(screen_press(Right, true, false, true), Native);
+    }
 
     #[test]
     fn rapid_moves_keep_one_message_with_the_latest_destination() {
-        let mut q = Queue::default();
+        let q = Queue::default();
+        let mut inbox = civ3r_sync::Inbox::default();
         let (first, post) = q.push(movement(0));
         assert!(post);
         for x in 1..100_000 {
             assert_eq!(q.push(movement(x)), (first, false));
         }
-        assert_eq!(q.events.len(), 1);
-        assert_eq!(q.take(first).unwrap().event, Event::Move((99_999, 300)));
-        assert!(q.take(first).is_none());
+        assert_eq!(only(q.take(first, &mut inbox)).event, Event::Move((99_999, 300)));
+        assert!(q.take(first, &mut inbox).is_empty());
         assert!(q.push(movement(100_000)).1);
     }
 
     #[test]
     fn moves_cannot_cross_keys_buttons_or_ui_messages() {
-        let mut q = Queue::default();
+        let q = Queue::default();
+        let mut inbox = civ3r_sync::Inbox::default();
         let (before_key, _) = q.push(movement(1));
         q.barrier(); // A key or ordinary UI event was posted here.
         let (after_key, post) = q.push(movement(2));
@@ -191,15 +260,16 @@ mod tests {
         let (press, _) = q.push(button);
         let (after_press, post) = q.push(movement(3));
         assert!(post && after_press != after_key);
-        assert_eq!(q.take(before_key).unwrap().event, Event::Move((1, 300)));
-        assert_eq!(q.take(after_key).unwrap().event, Event::Move((2, 300)));
-        assert_eq!(q.take(press).unwrap().event, button.event);
-        assert_eq!(q.take(after_press).unwrap().event, Event::Move((3, 300)));
+        assert_eq!(only(q.take(before_key, &mut inbox)).event, Event::Move((1, 300)));
+        assert_eq!(only(q.take(after_key, &mut inbox)).event, Event::Move((2, 300)));
+        assert_eq!(only(q.take(press, &mut inbox)).event, button.event);
+        assert_eq!(only(q.take(after_press, &mut inbox)).event, Event::Move((3, 300)));
     }
 
     #[test]
     fn preview_updates_coalesce_but_do_not_replace_plain_hover() {
-        let mut q = Queue::default();
+        let q = Queue::default();
+        let mut inbox = civ3r_sync::Inbox::default();
         let preview = |x| Pending {
             world: WORLD,
             event: Event::Order {
@@ -213,8 +283,8 @@ mod tests {
         }
         let (plain, post) = q.push(movement(10_000));
         assert!(post && plain != first);
-        assert_eq!(q.take(first).unwrap().event, preview(9_999).event);
-        assert_eq!(q.take(plain).unwrap().event, Event::Move((10_000, 300)));
+        assert_eq!(only(q.take(first, &mut inbox)).event, preview(9_999).event);
+        assert_eq!(only(q.take(plain, &mut inbox)).event, Event::Move((10_000, 300)));
     }
 
     #[test]
@@ -240,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn modal_or_focus_cancellation_retires_the_preview_without_escaping_another_command() {
+    fn modal_or_focus_cancellation_retires_the_preview_without_canceling_another_command() {
         let original = Preview {
             world: WORLD,
             unit: 77,
@@ -305,7 +375,8 @@ mod tests {
 
     #[test]
     fn pending_moves_from_a_previous_world_are_separate() {
-        let mut q = Queue::default();
+        let q = Queue::default();
+        let mut inbox = civ3r_sync::Inbox::default();
         let (old, _) = q.push(movement(1));
         let other = Pending {
             world: World {
@@ -316,28 +387,94 @@ mod tests {
         };
         let (new, post) = q.push(other);
         assert!(post && old != new);
-        assert_eq!(q.take(old).unwrap().world, WORLD);
-        assert_eq!(q.take(new).unwrap().world, other.world);
+        assert_eq!(only(q.take(old, &mut inbox)).world, WORLD);
+        assert_eq!(only(q.take(new, &mut inbox)).world, other.world);
     }
 }
 
 #[cfg(windows)]
 mod live {
-    use super::{Event, Pending, Preview, Queue, World};
+    use super::{Event, Pending, Preview, Queue, World, VK_ESCAPE};
     use civ3_sys::world_input as native;
     use civ3_sys::{Build, Civ3};
     use inproc::window::Window;
-    use std::sync::{Mutex, OnceLock};
+    use std::cell::{Cell, RefCell};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{LazyLock, OnceLock};
 
     struct Live {
         game: Civ3,
         message: u32,
     }
     static LIVE: OnceLock<Live> = OnceLock::new();
-    static QUEUE: Mutex<Option<Queue>> = Mutex::new(None);
+    /// Filled by the publisher, taken by the game's thread (no lock).
+    static QUEUE: LazyLock<Queue> = LazyLock::new(Queue::default);
     static WINDOW: OnceLock<Window> = OnceLock::new();
-    static ACTIVE: Mutex<Option<(World, (i32, i32))>> = Mutex::new(None);
-    static PREVIEW: Mutex<Option<Preview>> = Mutex::new(None);
+    /// The world tile under the pointer, as the game's thread last set it.
+    static ACTIVE: civ3r_sync::Latest<(World, (i32, i32))> = civ3r_sync::Latest::new();
+    /// Set by another thread to retire the preview at the game thread's
+    /// next use of it.
+    static RETIRE_PREVIEW: AtomicBool = AtomicBool::new(false);
+    static LAST_PRESS: civ3r_sync::Latest<Press> = civ3r_sync::Latest::new();
+    thread_local! {
+        /// Received events whose messages are still queued.
+        static INBOX: RefCell<civ3r_sync::Inbox<Pending>> = RefCell::new(civ3r_sync::Inbox::default());
+        /// The go-to preview this map transaction armed (game thread only).
+        static PREVIEW: Cell<Option<Preview>> = const { Cell::new(None) };
+        /// Buttons (`super::button_bit`) whose press only dismissed a popup
+        /// opened at a map click: their release does nothing either.
+        static SWALLOWED: Cell<u8> = const { Cell::new(0) };
+    }
+
+    fn preview() -> Option<Preview> {
+        if RETIRE_PREVIEW.swap(false, Ordering::AcqRel) {
+            PREVIEW.set(None);
+        }
+        PREVIEW.get()
+    }
+
+    fn take_preview() -> Option<Preview> {
+        let p = preview();
+        PREVIEW.set(None);
+        p
+    }
+
+    /// The last map button given to the game's own handlers: the world
+    /// pixel and tile, whether zoomed out, when. A menu it opens belongs
+    /// there (`interface_parts::popup_anchor`).
+    #[derive(Copy, Clone, Debug)]
+    pub struct Press {
+        pub at: (i32, i32),
+        pub tile: (i32, i32),
+        pub zoomed_out: bool,
+        pub when: std::time::Instant,
+    }
+
+    pub fn last_press() -> Option<Press> {
+        LAST_PRESS.get()
+    }
+
+    /// Whether the game's modal form is a popup it opens at a map click (a
+    /// context menu, the tile information box,
+    /// `crate::interface_parts::ClickPopup`). While one is open the map's
+    /// virtual tile stays the one it was opened for: its entries act on
+    /// it (a city's "Terrain details" opens `open_tile_info`, which takes
+    /// its tile from the map's pointer conversion).
+    pub fn click_popup_open(game: &Civ3) -> bool {
+        let Some(form) = game.modal_form().ok().flatten().filter(|&f| f != 0) else { return false };
+        let Ok(vtable) = inproc::Ptr32::<u32>::new(form).read() else { return false };
+        crate::interface_parts::click_popup(game.build, vtable, || {
+            inproc::Ptr32::<u32>::new(form + crate::interface_parts::CONTEXT_MENU_FLAGS).read().ok()
+        })
+        .is_some()
+    }
+
+    /// The tile the game's map pointer conversion gives while a popup
+    /// opened at a map click is open (the tile it was opened for, which
+    /// the tile information box shows), if it is the renderer's.
+    pub fn popup_tile() -> Option<(i32, i32)> {
+        native::virtual_tile()
+    }
 
     fn world(game: &Civ3) -> Option<World> {
         let map = game.map().ok()?;
@@ -372,17 +509,30 @@ mod live {
     pub fn attach_window(window: Window) -> Result<inproc::message::Interceptor, String> {
         let live = LIVE.get().ok_or("world input is not installed")?;
         let interceptor = inproc::message::intercept(window, move |message| {
-            if message.id == 0 { crate::native_camera::restore_if_requested(live.game); }
+            if message.id == 0 {
+                crate::native_camera::restore_if_requested(live.game);
+                crate::ui_trace::refresh_original_drawing(live.game);
+            }
+            // Input the game reaches only after a stall is dropped, never
+            // replayed in a burst (`crate::stale_input`).
+            if !crate::stale_input::live::admit_native(message) {
+                return Some(0);
+            }
             if let Some(result) = crate::native_sliders::handle_message(message) {
                 return Some(result);
             }
+            if let Some(result) = crate::prefs::handle_message(message) {
+                return Some(result);
+            }
             if message.id == live.message {
-                let pending = QUEUE
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_mut()
-                    .and_then(|q| q.take(message.wparam as u32));
-                if let Some(pending) = pending {
+                // (No borrow lasts into dispatch: native handlers may run a
+                // nested message loop that comes back here.)
+                let pending = INBOX.with_borrow_mut(|inbox| QUEUE.take(message.wparam as u32, inbox));
+                let fresh = |pending: &Pending| match pending.event {
+                    Event::Button { button, down, .. } => crate::stale_input::live::admit_world_button(button, down),
+                    _ => true,
+                };
+                for pending in pending.into_iter().filter(fresh) {
                     dispatch(live, window, pending);
                 }
                 return Some(0);
@@ -390,13 +540,15 @@ mod live {
             // Ordinary client pointer input restores the game's own pixel
             // conversion. Keyboard input keeps the last world tile so G,
             // bombard and other commands can start where the pointer rests.
+            // (Not while a popup opened at a map click is open: its entries
+            // act on the tile it was opened for, `click_popup_open`.)
             if (0x0200..=0x020E).contains(&message.id) || message.id == 0x0008 {
-                clear();
+                if !click_popup_open(&live.game) {
+                    clear();
+                }
             } else if ACTIVE
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .is_some_and(|(old, _)| Some(*old) != world(&live.game))
+                .load()
+                .is_some_and(|active| Some(active.0) != world(&live.game))
             {
                 clear();
             }
@@ -419,9 +571,17 @@ mod live {
         WINDOW.get() == Some(&window) && inproc::message::is_intercepted(window)
     }
 
+    /// Wakes the game's thread if it waits for a message (a screen's loop
+    /// has more to do, `crate::modal`).
+    pub fn wake() {
+        if let Some(window) = WINDOW.get() {
+            window.wake();
+        }
+    }
+
     fn clear() {
         native::set_virtual_tile(None);
-        *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        ACTIVE.clear();
     }
 
     /// Semantic UI messages such as native sliders do not necessarily
@@ -432,16 +592,13 @@ mod live {
 
     pub fn pointer_tile() -> Option<(i32, i32)> {
         let live = LIVE.get()?;
-        let active = *ACTIVE.lock().ok()?;
-        let (old, tile) = active?;
+        let (old, tile) = ACTIVE.get()?;
         (Some(old) == world(&live.game) && !crate::modal::modal_open(&live.game)).then_some(tile)
     }
 
     /// End coalescing before posting an ordinary key, button or UI event.
     pub fn barrier() {
-        if let Some(q) = QUEUE.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            q.barrier();
-        }
+        QUEUE.barrier();
     }
 
     fn post(game: &Civ3, window: Window, event: Event) -> bool {
@@ -452,28 +609,23 @@ mod live {
         let Some(world) = world(game) else {
             return false;
         };
-        let (token, send) = QUEUE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get_or_insert_with(Queue::default)
-            .push(Pending { world, event });
+        let (token, send) = QUEUE.push(Pending { world, event });
         if !send {
             return true;
         }
         if window.post_message(live.message, token) {
             return true;
         }
-        QUEUE
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_mut()
-            .and_then(|q| q.take(token));
+        QUEUE.retract(token);
         log::warn!("world input: the game window rejected an input message");
         false
     }
 
     pub fn post_move(game: &Civ3, window: Window, at: (i32, i32)) -> bool {
         post(game, window, Event::Move(at))
+    }
+    pub fn post_dismiss(game: &Civ3, window: Window) -> bool {
+        post(game, window, Event::Dismiss)
     }
     pub fn post_button(
         game: &Civ3,
@@ -504,7 +656,7 @@ mod live {
         if !posted && action == scene::UnitOrderAction::Cancel {
             // Loading a save can temporarily remove the map or window.
             // Retire bookkeeping without calling native code off thread.
-            PREVIEW.lock().unwrap_or_else(|e| e.into_inner()).take();
+            RETIRE_PREVIEW.store(true, Ordering::Release);
         }
         posted
     }
@@ -521,7 +673,7 @@ mod live {
 
     fn hover(live: &Live, state: World, tile: (i32, i32), p: (i32, i32)) {
         native::set_virtual_tile(Some(tile));
-        *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some((state, tile));
+        ACTIVE.publish((state, tile));
         native::hover(live.game.addrs.main_screen_form, p.0, p.1);
         // The target/path are now the game's own validated values. Refresh
         // the renderer's copied path on this same thread, after hover.
@@ -546,7 +698,56 @@ mod live {
         }
     }
 
-    fn cancel(_window: Window, safe: bool) {
+    /// A map press while a full screen is open (`super::screen_press`).
+    fn screen_button(live: &Live, b: scene::Button, down: bool, tile: (i32, i32), p: (i32, i32)) {
+        let game = &live.game;
+        let (go_to_armed, other_mode) = game.targeting().map_or((false, false), |t| {
+            let go_to = matches!(t.mode, crate::targeting::GO_TO | crate::targeting::STACK_GO_TO);
+            (go_to && t.armed, crate::targeting::active(t.mode) && !go_to)
+        });
+        let press = super::screen_press(b, down, go_to_armed, other_mode);
+        log::debug!("world input under a screen: {b:?} {} at {tile:?}: {press:?}", if down { "down" } else { "up" });
+        let result = match press {
+            super::ScreenPress::Ignore => return,
+            super::ScreenPress::Native => {
+                button(live, b, down, false, p);
+                crate::targeting::on_game_thread();
+                return;
+            }
+            super::ScreenPress::Refuse => Err(crate::modal::Refused::NotGoTo),
+            super::ScreenPress::Confirm => crate::modal::may_enter_now(tile).map(|()| {
+                // (The path the game showed, before the click retires it.)
+                let path = crate::targeting::latest_path().filter(|path| path.to == tile);
+                button(live, scene::Button::Left, true, false, p);
+                button(live, scene::Button::Left, false, false, p);
+                crate::modal::after_world_order(path);
+                format!("go-to destination {tile:?} picked")
+            }),
+            super::ScreenPress::Select => crate::modal::run_now(crate::modal::Action::Select(tile)),
+            super::ScreenPress::SendTo => crate::modal::run_now(crate::modal::Action::GoTo(tile)),
+        };
+        match result {
+            Ok(done) => log::info!("world input under a screen: {done}"),
+            Err(refused) => {
+                log::debug!("world input under a screen: {press:?} at {tile:?}: {refused}");
+                crate::modal::refuse(game, tile, &refused);
+            }
+        }
+        crate::targeting::on_game_thread();
+    }
+
+    fn cancel_native(live: &Live, window: Window) {
+        let Some(size) = window.client_size() else { return };
+        let p = native::safe_client_point(size);
+        // Civ3's Escape key opens the quit dialog even while G is armed.
+        // Its ordinary right click cancels G without issuing an order or
+        // opening that dialog. Keep the native press and release paired.
+        button(live, scene::Button::Right, true, false, p);
+        button(live, scene::Button::Right, false, false, p);
+        crate::targeting::on_game_thread();
+    }
+
+    fn cancel(window: Window, safe: bool) {
         let current = LIVE
             .get()
             .and_then(|live| Some((world(&live.game)?, live.game.current_unit_ptr().ok()?)));
@@ -559,57 +760,113 @@ mod live {
                     )
             })
         });
-        let send_escape = super::retire_preview(
-            &mut PREVIEW.lock().unwrap_or_else(|e| e.into_inner()),
+        let mut retiring = take_preview();
+        let cancel_order = super::retire_preview(
+            &mut retiring,
             current,
             safe,
             armed,
         );
-        if send_escape {
-            let live = LIVE.get().unwrap();
-            native::key(live.game.addrs.main_screen_form, 0x1B, 0x1B);
+        if cancel_order {
+            cancel_native(LIVE.get().unwrap(), window);
         }
+    }
+
+    /// Closes the popup the game opened at a map click the way its player
+    /// does, with Escape delivered synchronously; whether one was
+    /// open. Only from the game's thread: the check and the key are in
+    /// order with that loop's messages, so the key never reaches the map.
+    fn dismiss_click_popup(game: &Civ3, window: Window) -> bool {
+        if !click_popup_open(game) {
+            return false;
+        }
+        if !window.key_now(VK_ESCAPE, true) { return false; }
+        window.key_now(VK_ESCAPE, false);
+        true
     }
 
     fn dispatch(live: &Live, window: Window, pending: Pending) {
         let game = &live.game;
+        if pending.event == Event::Dismiss {
+            if dismiss_click_popup(game, window) {
+                log::info!("world input: the popup opened at a map click dismissed");
+            }
+            return;
+        }
+        // The release of a press that only dismissed such a popup: nothing.
+        if let Event::Button { button: b, down: false, .. } = pending.event {
+            let bit = 1 << super::button_bit(b);
+            if SWALLOWED.get() & bit != 0 {
+                SWALLOWED.set(SWALLOWED.get() & !bit);
+                return;
+            }
+        }
         if let Event::Order {
             action: scene::UnitOrderAction::Cancel,
             ..
         } = pending.event
         {
             // Cancellation always retires the transaction, even if a dialog
-            // opened after the viewer queued it. Escape belongs only to our
-            // still-active map command, never to a newly opened dialog.
+            // opened after the viewer queued it. Native cancellation belongs
+            // only to our active map command, never to a newly opened dialog.
             let safe = world(game) == Some(pending.world)
-                && !crate::modal::modal_open(game)
-                && crate::modal::native_input_allowed()
-                && game
-                    .dialog_state()
-                    .is_ok_and(|d| d.is_some_and(|d| d.turn_flag && d.depth == 0));
+                && if crate::modal::modal_open(game) {
+                    // (A screen the map may be played under, only.)
+                    crate::modal::screen_gate().is_ok()
+                } else {
+                    crate::modal::native_input_allowed()
+                        && game
+                            .dialog_state()
+                            .is_ok_and(|d| d.is_some_and(|d| d.turn_flag && d.depth == 0))
+                };
             cancel(window, safe);
             return;
         }
         if world(game) != Some(pending.world) {
-            PREVIEW.lock().unwrap_or_else(|e| e.into_inner()).take();
+            take_preview();
             clear();
             return;
         }
         // Unlike the old fallback, never click the minimap just to make a
         // renderer-visible tile reachable. Ordinary gameplay uses the same
         // map handlers at the supplied tile, with the existing cameras.
-        if crate::modal::modal_open(game) {
-            clear();
+        // Under a full screen the map is played from the screen's loop
+        // (`crate::modal::screen_gate`); a press refused there is explained
+        // on the map.
+        let under_screen = crate::modal::modal_open(game);
+        if under_screen && click_popup_open(game) {
+            // A press on the world while a context menu or the tile box is
+            // open closes it, as a click beside it does in the game, and
+            // does nothing else (no notice: those are for full screens).
+            // The map's tile stays the popup's.
+            if let Event::Button { button: b, down: true, .. } = pending.event
+                && dismiss_click_popup(game, window)
+            {
+                SWALLOWED.set(SWALLOWED.get() | 1 << super::button_bit(b));
+                log::info!("world input: a map press dismissed the popup opened at a map click");
+            }
             return;
         }
-        if !crate::modal::native_input_allowed() {
-            return;
-        }
-        let Some(dialog) = game.dialog_state().ok().flatten() else {
-            return;
-        };
-        if !dialog.turn_flag || dialog.depth != 0 {
-            return;
+        if under_screen {
+            if let Err(refused) = crate::modal::screen_gate() {
+                if let Event::Button { down: true, at, .. } | Event::Order { action: scene::UnitOrderAction::Confirm, at } = pending.event
+                    && let Some(t) = tile(game, at)
+                {
+                    crate::modal::refuse(game, t, &refused);
+                }
+                clear();
+                return;
+            }
+        } else {
+            if !crate::modal::native_input_allowed() {
+                return;
+            }
+            let Some(dialog) = game.dialog_state().ok().flatten() else {
+                return;
+            };
+            if !dialog.turn_flag || dialog.depth != 0 {
+                return;
+            }
         }
         let Some((width, height)) = window.client_size() else {
             return;
@@ -617,6 +874,7 @@ mod live {
         let p = native::safe_client_point((width, height));
         let at = match pending.event {
             Event::Move(at) | Event::Button { at, .. } | Event::Order { at, .. } => at,
+            Event::Dismiss => return,
         };
         let Some(tile) = tile(game, at) else {
             clear();
@@ -634,10 +892,21 @@ mod live {
                 button: b,
                 down,
                 double,
-                ..
+                at,
             } => {
                 hover(live, pending.world, tile, p);
-                button(live, b, down, double, p);
+                // (Before the handler: a menu it opens runs its own loop.)
+                LAST_PRESS.publish(Press {
+                    at,
+                    tile,
+                    zoomed_out: game.zoomed_out().unwrap_or(false),
+                    when: std::time::Instant::now(),
+                });
+                if under_screen {
+                    screen_button(live, b, down, tile, p);
+                } else {
+                    button(live, b, down, double, p);
+                }
             }
             Event::Order {
                 action: scene::UnitOrderAction::Preview,
@@ -650,7 +919,7 @@ mod live {
                     cancel(window, true);
                     return;
                 }
-                let old = *PREVIEW.lock().unwrap_or_else(|e| e.into_inner());
+                let old = preview();
                 if old.is_some_and(|old| old.world != pending.world || old.unit != unit) {
                     cancel(window, true);
                     return;
@@ -658,7 +927,15 @@ mod live {
                 if old.is_none() {
                     // Native G follows the same ability/movement checks as
                     // the key the player presses. It does not issue a move.
-                    native::key(game.addrs.main_screen_form, u32::from(b'g'), 0x47);
+                    // (Under a screen, the go-to command G gives: the map's
+                    // keys are off while the city screen shows.)
+                    if under_screen {
+                        if let Err(refused) = crate::modal::run_now(crate::modal::Action::ArmGoTo) {
+                            crate::modal::refuse(game, tile, &refused);
+                        }
+                    } else {
+                        native::key(game.addrs.main_screen_form, u32::from(b'g'), 0x47);
+                    }
                 }
                 let Ok(targeting) = game.targeting() else {
                     return;
@@ -671,18 +948,18 @@ mod live {
                 {
                     return;
                 }
-                *PREVIEW.lock().unwrap_or_else(|e| e.into_inner()) = Some(Preview {
+                PREVIEW.set(Some(Preview {
                     world: pending.world,
                     unit,
                     tile,
-                });
+                }));
                 hover(live, pending.world, tile, p);
             }
             Event::Order {
                 action: scene::UnitOrderAction::Confirm,
                 ..
             } => {
-                let preview = PREVIEW.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let preview = take_preview();
                 let valid = preview.is_some_and(|preview| {
                     preview.confirms(pending.world, game.current_unit_ptr().unwrap_or(0), tile)
                 });
@@ -693,22 +970,34 @@ mod live {
                             crate::targeting::GO_TO | crate::targeting::STACK_GO_TO
                         )
                 });
-                if valid && armed {
+                let attack = under_screen && valid && armed && match crate::modal::may_enter_now(tile) {
+                    Ok(()) => false,
+                    Err(refused) => {
+                        crate::modal::refuse(game, tile, &refused);
+                        true
+                    }
+                };
+                if valid && armed && !attack {
                     hover(live, pending.world, tile, p);
+                    let path = crate::targeting::latest_path().filter(|path| path.to == tile);
                     button(live, scene::Button::Left, true, false, p);
                     button(live, scene::Button::Left, false, false, p);
+                    if under_screen {
+                        crate::modal::after_world_order(path);
+                    }
                 } else if armed
                     && preview.is_some_and(|preview| {
                         preview.owned_by(pending.world, game.current_unit_ptr().unwrap_or(0))
                     })
                 {
-                    native::key(game.addrs.main_screen_form, 0x1B, 0x1B);
+                    cancel_native(live, window);
                 }
             }
             Event::Order {
                 action: scene::UnitOrderAction::Cancel,
                 ..
-            } => unreachable!(),
+            }
+            | Event::Dismiss => unreachable!(),
         }
     }
 }

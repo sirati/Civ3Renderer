@@ -60,7 +60,26 @@ fn complete_units(main: Vec<DrawnUnit>, other: Vec<DrawnUnit>, view: &ViewState,
 }
 
 #[cfg(windows)]
-pub use live::{drawn_units, install};
+pub use live::{copy_captured_movement, drawn_units, install};
+
+/// Identity must match before a calculated stat crosses from the game
+/// thread's capture into a fresh memory-only publisher record. Addresses
+/// are compared as opaque values; they are never dereferenced here.
+fn copy_movement(current: &mut [DrawnUnit], captured: &[DrawnUnit]) {
+    let identity = |u: &DrawnUnit| (u.native_address, u.id, u.unit_type, u.civ, u.army_member, u.army_size);
+    let values: std::collections::HashMap<_, _> = captured.iter().filter(|u| u.native_address != 0)
+        .filter_map(|u| u.max_move_points.map(|points| (identity(u), points))).collect();
+    for unit in current {
+        unit.max_move_points = unit.max_move_points.or_else(|| values.get(&identity(unit)).copied());
+    }
+}
+
+/// Called only from the game's post-animation capture. Keeping the call
+/// behind the nonzero identity gate also handles an object disappearing.
+#[cfg(any(windows, test))]
+fn sample_movement(unit: &mut DrawnUnit, read: impl FnOnce(u32) -> i32) {
+    if unit.native_address != 0 { unit.max_move_points = Some(read(unit.native_address)); }
+}
 
 /// The same display gates are checked again for cached ids on each native
 /// tick. An id surviving in the cache must not keep a now-fogged, loaded,
@@ -115,12 +134,13 @@ fn advance_and_capture(seconds: u32, advance: impl FnOnce(u32), capture: impl Fn
 
 #[cfg(windows)]
 mod live {
-    use std::sync::Mutex;
+    use std::cell::RefCell;
     use std::time::{Duration, Instant};
 
     use inproc::Ptr32;
     use civ3_sys::{Civ3, Civ3Error, MapInfo, layout as L};
     use civ3_sys::modal::find_visible_unit;
+    use civ3_sys::targeting::max_move_points;
     use civ3_sys::unit_views::{self as sys, advance_animations, build_unit_list, tile_visible, visible_to};
 
     use super::*;
@@ -135,13 +155,17 @@ mod live {
     }
 
     struct Capture { key: MapKey, units: Vec<DrawnUnit>, main_count: usize }
-    static CAPTURE: Mutex<Option<Capture>> = Mutex::new(None);
+    /// Published by the game's thread after each tick, read by the publisher.
+    static CAPTURE: civ3r_sync::Latest<Capture> = civ3r_sync::Latest::new();
     // Cache ids only. Raw pointers can become invalid when a unit dies,
     // loads into a transport, or a game is replaced between two ticks.
     struct Selection { key: MapKey, at: Instant, ids: Vec<i32> }
-    static SELECTION: Mutex<Option<Selection>> = Mutex::new(None);
+    thread_local! {
+        // Both only on the game's thread (its animation hooks).
+        static SELECTION: RefCell<Option<Selection>> = const { RefCell::new(None) };
+        static MEMBERSHIP: RefCell<Option<Membership>> = const { RefCell::new(None) };
+    }
     struct Membership { key: MapKey, ids: Vec<i32> }
-    static MEMBERSHIP: Mutex<Option<Membership>> = Mutex::new(None);
     const PERIOD: Duration = Duration::from_millis(33);
 
     struct Selector {
@@ -149,6 +173,7 @@ mod live {
         find: find_visible_unit::Function,
         visible: visible_to::Function,
         tile: tile_visible::Function,
+        max_moves: max_move_points::Function,
     }
 
     impl Selector {
@@ -166,11 +191,9 @@ mod live {
         fn selected(&self, map: &MapInfo, view: &ViewState, debug: bool) -> Result<Vec<i32>, Civ3Error> {
             let key = MapKey::of(map, view.player_civ);
             let now = Instant::now();
-            {
-                let state = SELECTION.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(s) = state.as_ref().filter(|s| s.key == key && now.saturating_duration_since(s.at) < PERIOD) {
-                    return Ok(s.ids.clone());
-                }
+            let cached = SELECTION.with_borrow(|state| state.as_ref().filter(|s| s.key == key && now.saturating_duration_since(s.at) < PERIOD).map(|s| s.ids.clone()));
+            if let Some(ids) = cached {
+                return Ok(ids);
             }
             let occupied = occupied_tiles(&self.game.unit_tiles()?, (map.width, map.height));
             let units = additional_units(&[], &occupied, |(x, y), excluded| {
@@ -181,7 +204,7 @@ mod live {
                 self.allowed(ptr, &unit, view, map, debug).then_some(unit)
             });
             let ids: Vec<_> = units.into_iter().map(|u| u.id).collect();
-            *SELECTION.lock().unwrap_or_else(|e| e.into_inner()) = Some(Selection { key, at: now, ids: ids.clone() });
+            SELECTION.set(Some(Selection { key, at: now, ids: ids.clone() }));
             Ok(ids)
         }
 
@@ -211,7 +234,7 @@ mod live {
         }
 
         fn clear_membership(&self) {
-            let previous = MEMBERSHIP.lock().unwrap_or_else(|e| e.into_inner()).take();
+            let previous = MEMBERSHIP.take();
             let current = self.game.map().ok().zip(self.game.view().ok());
             if let Some(previous) = previous && let Some((map, view)) = current
                 && previous.key == MapKey::of(&map, view.player_civ)
@@ -226,7 +249,7 @@ mod live {
 
         fn sync_membership(&self, key: MapKey, units: &[DrawnUnit], native: &HashSet<i32>) {
             let desired: Vec<_> = units.iter().map(|u| u.id).filter(|id| !native.contains(id)).collect();
-            let previous = MEMBERSHIP.lock().unwrap_or_else(|e| e.into_inner()).take();
+            let previous = MEMBERSHIP.take();
             if let Some(previous) = previous.filter(|p| p.key == key) {
                 for id in retired_members(&previous.ids, &desired, native) {
                     if let Ok(Some(ptr)) = self.game.unit_ptr(id) {
@@ -240,7 +263,7 @@ mod live {
                     ids.push(id);
                 }
             }
-            *MEMBERSHIP.lock().unwrap_or_else(|e| e.into_inner()) = Some(Membership { key, ids });
+            MEMBERSHIP.set(Some(Membership { key, ids }));
         }
 
         fn after_build(&self) -> Result<(), Civ3Error> {
@@ -298,23 +321,28 @@ mod live {
             // record copied by the viewport's earlier list builder.
             let current = self.game.map().ok().zip(self.game.view().ok());
             let Some((map, view)) = current.filter(|(map, view)| MapKey::of(map, view.player_civ) == prepared.key) else {
-                *CAPTURE.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                *SELECTION.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                CAPTURE.clear();
+                SELECTION.set(None);
                 return;
             };
             let debug = self.game.debug_mode_bits().unwrap_or(0) & 8 != 0;
             let units = prepared.ids.iter().filter_map(|&id| {
                 let ptr = self.game.unit_ptr(id).ok().flatten()?;
-                let unit = self.game.drawn_unit_at(ptr).ok()?;
-                self.allowed(ptr, &unit, &view, &map, debug).then_some(unit)
+                let mut unit = self.game.drawn_unit_at(ptr).ok()?;
+                if !self.allowed(ptr, &unit, &view, &map, debug) { return None; }
+                // This getter reads native movement rules and army members.
+                // C3X's entry redirection is retained by the checked handle.
+                // It runs after the original tick, on the game thread only.
+                sample_movement(&mut unit, |address| self.max_moves.call(address) as i32);
+                Some(unit)
             }).collect();
             let units = complete_units(Vec::new(), units, &view, (map.width, map.height), (map.wrap_x, map.wrap_y));
             let capture = Capture { key: prepared.key, units, main_count: prepared.main_count };
-            let mut previous = CAPTURE.lock().unwrap_or_else(|e| e.into_inner());
-            if previous.as_ref().map(|p| (p.key, p.main_count, p.units.len())) != Some((capture.key, capture.main_count, capture.units.len())) {
+            let previous = CAPTURE.load();
+            if previous.as_deref().map(|p| (p.key, p.main_count, p.units.len())) != Some((capture.key, capture.main_count, capture.units.len())) {
                 log::debug!("world units: {} in the game camera, {} visible across the map; {} effect animations", capture.main_count, capture.units.len(), prepared.effect_ptrs.len());
             }
-            *previous = Some(capture);
+            CAPTURE.publish(capture);
         }
     }
 
@@ -336,8 +364,10 @@ mod live {
         let sites = sys::sites(game.build).ok_or_else(|| format!("no world-unit sites for {:?}", game.build))?;
         let find_site = civ3_sys::modal::function_sites(game.build).ok_or("no unit selector")?.find_visible_unit;
         let e = |what: &str, error: inproc::hook::HookError| format!("{what}: {error}");
+        let moves_site = civ3_sys::targeting::sites(game.build).ok_or("no unit movement getter")?.max_move_points;
         let selector = std::sync::Arc::new(Selector {
             game,
+            max_moves: max_move_points::Function::at(moves_site.0, moves_site.1).map_err(|err| e("unit max movement", err))?,
             find: find_visible_unit::Function::at(find_site.0, find_site.1).map_err(|err| e("find_visible_unit", err))?,
             visible: visible_to::Function::at(sites.visible_to.0, sites.visible_to.1).map_err(|err| e("unit visibility", err))?,
             tile: tile_visible::Function::at(sites.tile_visible.0, sites.tile_visible.1).map_err(|err| e("tile visibility", err))?,
@@ -359,8 +389,8 @@ mod live {
                 }
                 Err(error) => {
                     log::debug!("world animation selection: {error}");
-                    *CAPTURE.lock().unwrap_or_else(|e| e.into_inner()) = None;
-                    *SELECTION.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    CAPTURE.clear();
+                    SELECTION.set(None);
                     call.original();
                 }
             }
@@ -385,15 +415,27 @@ mod live {
         Ok(())
     }
 
+    /// Enrich a trace's native-camera records from copied game-thread stats.
+    /// This API performs memory reads and comparisons, never native calls.
+    pub fn copy_captured_movement(game: &Civ3, units: &mut [DrawnUnit]) -> Result<(), Civ3Error> {
+        let map = game.map()?;
+        let view = game.view()?;
+        if let Some(capture) = CAPTURE.load().filter(|c| c.key == MapKey::of(&map, view.player_civ)) {
+            copy_movement(units, &capture.units);
+        }
+        Ok(())
+    }
+
     /// Called by the publisher. Only copied snapshots cross threads;
     /// selectors, visibility checks and native animation stay on the game
     /// thread. Fresh native entries replace stale choices on their tile.
     pub fn drawn_units(game: &Civ3) -> Result<Vec<DrawnUnit>, Civ3Error> {
-        let main = game.drawn_units()?;
+        let mut main = game.drawn_units()?;
         let map = game.map()?;
         let view = game.view()?;
-        let other = CAPTURE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        let other = CAPTURE.load()
             .filter(|c| c.key == MapKey::of(&map, view.player_civ)).map(|c| c.units.clone()).unwrap_or_default();
+        copy_movement(&mut main, &other);
         Ok(complete_units(main, other, &view, (map.width, map.height), (map.wrap_x, map.wrap_y)))
     }
 }
@@ -403,13 +445,60 @@ mod tests {
     use super::*;
 
     fn unit(id: i32, x: i32, y: i32) -> DrawnUnit {
-        DrawnUnit { id, x, y, civ: 1, unit_type: 0, experience: 0, damage: 0, moves: 0, container: -1, state: 0, always_on_top: false,
+        DrawnUnit { native_address: 0x1000 + id as u32 * 0x100, max_move_points: None, id, x, y, civ: 1, unit_type: 0, leader_kind: 0, experience: 0, damage: 0, moves: 0, container: -1, state: 0, always_on_top: false,
             pixel: (64*x+64, 32*y+32), direction: 3, animation: 1, frame: 0, visible: true, army_member: -1, army_size: 0, moving: false }
     }
     fn view() -> ViewState {
         ViewState { camera_x: 0, camera_y: 0, mouse_x: 0, mouse_y: 0, tile_x: (0, 10), tile_y: (0, 10), current_unit: 0, player_civ: 1 }
     }
     fn ids(units: &[DrawnUnit]) -> Vec<i32> { units.iter().map(|u| u.id).collect() }
+
+    #[test]
+    fn calculated_moves_require_the_same_native_object_and_army_contents() {
+        let captured = DrawnUnit { max_move_points: Some(17), ..unit(2, 80, 40) };
+        let fresh = DrawnUnit { frame: 9, x: 82, moves: 3, ..unit(2, 80, 40) };
+        let mut current = [fresh];
+        copy_movement(&mut current, &[captured]);
+        assert_eq!(current[0].max_move_points, Some(17));
+        for replaced in [
+            DrawnUnit { native_address: captured.native_address + 0x100, ..fresh },
+            DrawnUnit { id: captured.id + 1, ..fresh },
+            DrawnUnit { unit_type: captured.unit_type + 1, ..fresh },
+            DrawnUnit { civ: captured.civ + 1, ..fresh },
+            DrawnUnit { army_size: captured.army_size + 1, ..fresh },
+            DrawnUnit { army_member: 999, ..fresh },
+            DrawnUnit { native_address: 0, ..fresh },
+        ] {
+            let mut current = [replaced];
+            copy_movement(&mut current, &[captured]);
+            assert_eq!(current[0].max_move_points, None, "a reused id/address or changed unit cannot inherit old movement: {replaced:?}");
+        }
+    }
+
+    #[test]
+    fn movement_getter_runs_only_in_the_post_animation_capture() {
+        use std::cell::RefCell;
+        let events = RefCell::new(Vec::new());
+        let mut captured = unit(2, 80, 40);
+        assert_eq!(captured.max_move_points, None);
+        advance_and_capture(0.125f32.to_bits(), |_| events.borrow_mut().push("native animation"), || {
+            sample_movement(&mut captured, |address| {
+                assert_eq!(address, 0x1200);
+                events.borrow_mut().push("native movement getter");
+                0 // Immobile is a valid result, not missing metadata.
+            });
+            events.borrow_mut().push("publish copied stats");
+        });
+        assert_eq!(*events.borrow(), ["native animation", "native movement getter", "publish copied stats"]);
+        assert_eq!(captured.max_move_points, Some(0));
+        let mut publisher = [unit(2, 80, 40)];
+        copy_movement(&mut publisher, &[captured]);
+        assert_eq!(publisher[0].max_move_points, Some(0));
+        assert_eq!(events.borrow().len(), 3, "publisher copies never invoke a game function");
+        let mut gone = DrawnUnit { native_address: 0, ..unit(3, 90, 40) };
+        sample_movement(&mut gone, |_| panic!("a missing object must never be called"));
+        assert_eq!(gone.max_move_points, None);
+    }
 
     #[test]
     fn a_new_command_refreshes_only_its_stack_before_the_selector_cache_expires() {
@@ -497,7 +586,7 @@ mod tests {
     #[test]
     fn a_unit_only_in_b_is_collected_without_moving_a() {
         let main = vec![unit(1, 4, 4)];
-        let b = unit(2, 80, 40);
+        let b = DrawnUnit { max_move_points: Some(12), ..unit(2, 80, 40) };
         let tiles = occupied_tiles(&[(4,4,-1), (80,40,-1), (80,40,-1), (90,40,2), (-1,3,-1), (81,40,-1)], (100,60));
         assert_eq!(tiles, vec![(4,4), (80,40)]);
         let mut requested = Vec::new();
@@ -506,7 +595,7 @@ mod tests {
         let a = view();
         let full = complete_units(main, extra, &a, (100,60), (false,false));
         assert_eq!(ids(&full), vec![1,2]);
-        assert!(full.iter().any(|u| u.pixel == b.pixel));
+        assert!(full.iter().any(|u| u.pixel == b.pixel && u.max_move_points == Some(12)));
         assert_eq!(a, view(), "collecting B never changes A's camera");
     }
 

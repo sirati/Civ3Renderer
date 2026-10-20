@@ -87,6 +87,12 @@ impl Default for SpriteSets {
 }
 
 impl SpriteSets {
+    /// Whether every existing numeric set record is unchanged in `other`,
+    /// including records whose former names now resolve to newer sets.
+    pub fn is_prefix_of(&self, other: &Self) -> bool {
+        other.words.starts_with(&self.words)
+    }
+
     /// Frame `i` of `set`, if it has one.
     pub fn frame(&self, set: SpriteSetId, i: u32) -> Option<SpriteId> {
         let at = set.0 as usize;
@@ -121,6 +127,9 @@ pub enum Blend {
     Alpha,
     /// Alpha blending with uniform sprite opacity; atlas pixels are shared.
     AlphaOpacity { opacity: u8 },
+    /// Exact native RGB555 destination composition with raw alpha / 256.
+    /// Free sprites only. A cell layer draws it as ordinary alpha.
+    NativePaletteAlpha,
     /// Darkens what is underneath to `k / denominator` (`k` = the sprite's
     /// red channel; `denominator` at most 32) — how games darken with blend
     /// tables (fog of war, shadows). Exact (rounded down per channel after
@@ -145,6 +154,7 @@ impl Blend {
         match self {
             Blend::Alpha | Blend::AlphaOpacity { .. } => 0,
             Blend::Scale { denominator } => denominator.max(1),
+            Blend::NativePaletteAlpha => tile_render_shared::SCALE_PALETTE_ALPHA256,
             Blend::Invert => tile_render_shared::SCALE_INVERT,
             Blend::Subpixel { .. } => tile_render_shared::SCALE_SUBPIXEL,
         }
@@ -164,6 +174,7 @@ impl Blend {
         match d {
             0 if tint >> 24 != 0 => Blend::AlphaOpacity { opacity: (255 - (tint >> 24)) as u8 },
             0 => Blend::Alpha,
+            tile_render_shared::SCALE_PALETTE_ALPHA256 => Blend::NativePaletteAlpha,
             tile_render_shared::SCALE_INVERT => Blend::Invert,
             tile_render_shared::SCALE_SUBPIXEL => Blend::Subpixel { color: [(tint >> 16) as u8, (tint >> 8) as u8, tint as u8] },
             d => Blend::Scale { denominator: d },
@@ -245,6 +256,17 @@ pub struct PlacedSprite {
     /// use the view's current scale; `Zoomed`'s specific `zoom` and `offset`
     /// are ignored.
     pub text: Option<OutlineGlyph>,
+    /// Procedural rectangle, independent of atlas and sprite set.
+    pub solid: Option<SolidRect>,
+}
+
+/// A solid rectangle with unpremultiplied RGBA, retaining its dimensions
+/// under world downscale like UI sprite art; camera zoom still applies.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SolidRect {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: [u8; 4],
 }
 
 /// One glyph of text drawn from outlines (see `tile_render_shared::text`),
@@ -331,7 +353,7 @@ pub fn bound_clip(clip: [i32; 4]) -> [i32; 4] {
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, palette: 0, category: 0 }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, solid: None, palette: 0, category: 0 }
     }
 
     /// Its view, clipping and Low/Zoomed twin selection flags.
@@ -354,10 +376,10 @@ impl PlacedSprite {
             flags: self.flags(),
             x: self.x,
             y: self.y,
-            scale_den: self.blend.scale_den(),
+            scale_den: if self.solid.is_some() { 0 } else { self.blend.scale_den() },
             view: self.view.unwrap_or(tile_render_shared::ALL_VIEWS),
             clip: self.clip.map_or([0; 4], bound_clip),
-            tint: self.blend.tint(),
+            tint: if self.solid.is_some() { 0 } else { self.blend.tint() },
             zoom: match self.zoom_art {
                 ZoomArt::Zoomed { zoom: (n, d), .. } => n << 16 | d,
                 _ => 0,
@@ -372,6 +394,10 @@ impl PlacedSprite {
             },
             palette: self.palette,
             category: self.category,
+            primitive: self.solid.map_or_else(tile_render_shared::FreePrimitive::default, |solid| tile_render_shared::FreePrimitive {
+                kind: tile_render_shared::PRIMITIVE_SOLID, width: solid.width, height: solid.height,
+                rgba: u32::from_le_bytes(solid.rgba),
+            }),
             _pad0: 0,
             _pad1: 0,
         }
@@ -495,8 +521,34 @@ pub struct TileWorld {
     layers: Vec<LayerSpec>,
     /// Each layer's records, packed, little endian.
     data: Vec<Vec<u8>>,
+    /// Data slots ([`SlotId`]): records of a layer kept apart from its own,
+    /// which the cameras of a binding draw instead ([`TileWorld::bind`]). A
+    /// freed slot keeps its region for the next slot of that size.
+    slots: Vec<Slot>,
+    /// Per binding but the shared one (by key, ascending), the layers it
+    /// binds to slots (by layer, ascending).
+    bindings: Vec<(u32, Vec<(usize, SlotId)>)>,
     /// The records changed since [`TileWorld::take_dirty`] last took them.
     dirty: Dirty,
+}
+
+/// A data slot of a [`TileWorld`]: a region holding one layer's records
+/// for every cell, apart from the layer's own (see [`TileWorld::add_slot`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SlotId(pub u32);
+
+/// The binding every camera has unless it names another
+/// (`Camera::binding`): every layer drawn from its own records.
+pub const SHARED_BINDING: u32 = 0;
+
+/// [`Dirty::Records`]' cell index for all of a region's records.
+pub const ALL_CELLS: u32 = u32::MAX;
+
+#[derive(Clone, Debug)]
+struct Slot {
+    layer: usize,
+    live: bool,
+    data: Vec<u8>,
 }
 
 /// Which cells' records changed (see [`TileWorld::take_dirty`]).
@@ -504,7 +556,10 @@ pub struct TileWorld {
 pub enum Dirty {
     #[default]
     None,
-    /// These (layer, cell index) records, maybe more than once.
+    /// These (data region, cell index) records, maybe more than once: a
+    /// layer's own records are region `layer`, a slot's region
+    /// [`TileWorld::slot_region`]; cell [`ALL_CELLS`]: all of the region's.
+    /// Empty: only which slots the bindings draw changed.
     Records(Vec<(u32, u32)>),
     /// Too many to list: all of them.
     All,
@@ -519,11 +574,12 @@ pub struct LayerId(pub usize);
 
 impl TileWorld {
     pub fn new(grid: Grid, sets: SpriteSets) -> Self {
-        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), fonts: Vec::new(), layers: Vec::new(), data: Vec::new(), dirty: Dirty::All }
+        Self { grid, sets, color: ColorModel::Direct, free: Vec::new(), fonts: Vec::new(), layers: Vec::new(), data: Vec::new(), slots: Vec::new(), bindings: Vec::new(), dirty: Dirty::All }
     }
 
     pub fn add_layer(&mut self, spec: LayerSpec) -> LayerId {
         assert!(self.layers.len() < 255);
+        assert!(self.slots.is_empty(), "layer {} added after data slots: add every layer first", spec.name);
         if let Some(prev) = self.layers.last() {
             assert!(spec.pass >= prev.pass, "layer {} (pass {}) after pass {}: layers must be ordered by pass", spec.name, spec.pass, prev.pass);
             assert!(
@@ -565,23 +621,214 @@ impl TileWorld {
 
     /// Sets the value of a cell (the index into the layer's table).
     pub fn set(&mut self, layer: LayerId, col: u32, row: u32, value: u32) {
-        let spec = &self.layers[layer.0];
-        let n = spec.value_bytes() as usize;
-        let at = self.record_at(layer, col, row);
-        self.data[layer.0][at..at + n].copy_from_slice(&value.to_le_bytes()[..n]);
-        self.touch(layer, col, row);
+        self.set_region(layer.0, col, row, value);
     }
 
-    /// Notes that the record of (`col`, `row`) on `layer` changed.
-    fn touch(&mut self, layer: LayerId, col: u32, row: u32) {
-        let cell = row * self.grid.cols + col;
+    /// Replaces one layer's complete cell records. Missing values, phases
+    /// and offsets are zero. Pack directly into the already allocated
+    /// upload records and note one region change, rather than dispatching
+    /// individual setters and dirty tracking for every field of every cell.
+    pub fn set_layer_cells(&mut self, layer: LayerId, values: &[u32], phases: Option<&[u8]>, offsets: Option<&[(i16, i16)]>) {
+        let spec = &self.layers[layer.0];
+        let (n, stride) = (spec.value_bytes() as usize, spec.record_bytes() as usize);
+        let (phase, offset) = (spec.per_cell_phase, spec.per_cell_offset);
+        let bytes = &mut self.data[layer.0];
+        bytes.fill(0);
+        for (record, value) in bytes.chunks_exact_mut(stride).zip(values) {
+            record[..n].copy_from_slice(&value.to_le_bytes()[..n]);
+        }
+        if let (true, Some(phases)) = (phase, phases) {
+            for (record, &value) in bytes.chunks_exact_mut(stride).zip(phases) { record[n] = value; }
+        }
+        if let (true, Some(offsets)) = (offset, offsets) {
+            let at = n + usize::from(phase);
+            for (record, &(x, y)) in bytes.chunks_exact_mut(stride).zip(offsets) {
+                record[at..at + 2].copy_from_slice(&x.to_le_bytes());
+                record[at + 2..at + 4].copy_from_slice(&y.to_le_bytes());
+            }
+        }
+        self.touch_cell(layer.0, ALL_CELLS);
+    }
+
+    /// [`TileWorld::set`] in data slot `slot` (a live one).
+    pub fn set_in(&mut self, slot: SlotId, col: u32, row: u32, value: u32) {
+        self.set_region(self.live_region(slot), col, row, value);
+    }
+
+    fn set_region(&mut self, region: usize, col: u32, row: u32, value: u32) {
+        let n = self.region_spec(region).value_bytes() as usize;
+        let at = self.region_record_at(region, col, row);
+        self.region_bytes_mut(region)[at..at + n].copy_from_slice(&value.to_le_bytes()[..n]);
+        self.touch(region, col, row);
+    }
+
+    /// Notes that the record of (`col`, `row`) in data region `region`
+    /// changed.
+    fn touch(&mut self, region: usize, col: u32, row: u32) {
+        self.touch_cell(region, row * self.grid.cols + col);
+    }
+
+    fn touch_cell(&mut self, region: usize, cell: u32) {
         match &mut self.dirty {
             Dirty::All => {}
-            Dirty::None => self.dirty = Dirty::Records(vec![(layer.0 as u32, cell)]),
+            Dirty::None => self.dirty = Dirty::Records(vec![(region as u32, cell)]),
             Dirty::Records(r) if r.len() >= MOST_DIRTY => self.dirty = Dirty::All,
-            Dirty::Records(r) => r.push((layer.0 as u32, cell)),
+            Dirty::Records(r) => r.push((region as u32, cell)),
         }
     }
+
+    /// Notes that which slots bindings draw changed (no records did).
+    fn touch_bindings(&mut self) {
+        if self.dirty == Dirty::None {
+            self.dirty = Dirty::Records(Vec::new());
+        }
+    }
+
+    /// A new data slot for `layer`'s records, all zero (drawing what value
+    /// 0 draws): a region of the cell data the cameras of a binding draw
+    /// in place of the layer's own records once bound to it
+    /// ([`TileWorld::bind`]). It reuses a freed slot's region of its size,
+    /// so slots that come and go cost no new memory. Slots follow all
+    /// layers: add every layer first.
+    pub fn add_slot(&mut self, layer: LayerId) -> SlotId {
+        let bytes = (self.layers[layer.0].record_bytes() * self.grid.cells()) as usize;
+        let i = match self.slots.iter().position(|s| !s.live && s.data.len() == bytes) {
+            Some(i) => {
+                let s = &mut self.slots[i];
+                (s.layer, s.live) = (layer.0, true);
+                s.data.fill(0);
+                i
+            }
+            None => {
+                self.slots.push(Slot { layer: layer.0, live: true, data: vec![0; bytes] });
+                self.slots.len() - 1
+            }
+        };
+        self.touch_cell(self.layers.len() + i, ALL_CELLS);
+        SlotId(i as u32)
+    }
+
+    /// Frees `slot`: no binding draws it any more (they draw the layer's
+    /// own records again). Its region is kept for the next slot of its
+    /// size, unless no slot after it is live (then it is given back).
+    pub fn free_slot(&mut self, slot: SlotId) {
+        let Some(s) = self.slots.get_mut(slot.0 as usize).filter(|s| s.live) else { return };
+        s.live = false;
+        for (_, b) in &mut self.bindings {
+            b.retain(|&(_, s)| s != slot);
+        }
+        self.bindings.retain(|(_, b)| !b.is_empty());
+        while self.slots.last().is_some_and(|s| !s.live) {
+            self.slots.pop();
+        }
+        self.touch_bindings();
+    }
+
+    /// The live data slots and the layer each holds records of.
+    pub fn slots(&self) -> impl Iterator<Item = (SlotId, LayerId)> + '_ {
+        self.slots.iter().enumerate().filter(|(_, s)| s.live).map(|(i, s)| (SlotId(i as u32), LayerId(s.layer)))
+    }
+
+    /// The data region of `slot` in [`Dirty::Records`].
+    pub fn slot_region(&self, slot: SlotId) -> u32 {
+        (self.layers.len() + slot.0 as usize) as u32
+    }
+
+    /// Bytes the slots' regions take (freed ones kept for reuse included).
+    pub fn slot_bytes(&self) -> usize {
+        self.slots.iter().map(|s| s.data.len()).sum()
+    }
+
+    /// Makes the cameras of `binding` (`Camera::binding`) draw `layer`
+    /// from `slot` (`None`: from the layer's own records again). Binding
+    /// [`SHARED_BINDING`] always draws the layers' own records. Binding the
+    /// same slot to several bindings shares it: nothing is copied.
+    pub fn bind(&mut self, binding: u32, layer: LayerId, slot: Option<SlotId>) {
+        if binding == SHARED_BINDING {
+            debug_assert!(slot.is_none(), "the shared binding draws the layers' own records");
+            return;
+        }
+        if let Some(s) = slot {
+            let held = self.slots.get(s.0 as usize).filter(|d| d.live).map(|d| d.layer);
+            assert_eq!(held, Some(layer.0), "slot {s:?} does not hold records of layer {}", self.layers[layer.0].name);
+        }
+        let i = match self.bindings.binary_search_by_key(&binding, |b| b.0) {
+            Ok(i) => i,
+            Err(_) if slot.is_none() => return,
+            Err(i) => {
+                self.bindings.insert(i, (binding, Vec::new()));
+                i
+            }
+        };
+        let b = &mut self.bindings[i].1;
+        let before = b.clone();
+        b.retain(|&(l, _)| l != layer.0);
+        if let Some(s) = slot {
+            b.push((layer.0, s));
+            b.sort_unstable();
+        }
+        let changed = *b != before;
+        if b.is_empty() {
+            self.bindings.remove(i);
+        }
+        if changed {
+            self.touch_bindings();
+        }
+    }
+
+    /// The slot the cameras of `binding` draw `layer` from, if not its own
+    /// records.
+    pub fn bound(&self, binding: u32, layer: LayerId) -> Option<SlotId> {
+        let i = self.bindings.binary_search_by_key(&binding, |b| b.0).ok()?;
+        self.bindings[i].1.iter().find(|(l, _)| *l == layer.0).map(|&(_, s)| s)
+    }
+
+    /// The bindings that draw some layer from a slot.
+    pub fn bindings(&self) -> impl Iterator<Item = u32> + '_ {
+        self.bindings.iter().map(|b| b.0)
+    }
+
+    /// The layer whose records data region `region` holds, if any.
+    fn region_layer(&self, region: usize) -> Option<usize> {
+        match region.checked_sub(self.layers.len()) {
+            None => Some(region),
+            Some(s) => self.slots.get(s).map(|s| s.layer),
+        }
+    }
+
+    fn region_spec(&self, region: usize) -> &LayerSpec {
+        &self.layers[self.region_layer(region).expect("a data region of the world")]
+    }
+
+    fn region_bytes(&self, region: usize) -> &[u8] {
+        match region.checked_sub(self.layers.len()) {
+            None => &self.data[region],
+            Some(s) => &self.slots[s].data,
+        }
+    }
+
+    fn region_bytes_mut(&mut self, region: usize) -> &mut [u8] {
+        match region.checked_sub(self.layers.len()) {
+            None => &mut self.data[region],
+            Some(s) => &mut self.slots[s].data,
+        }
+    }
+
+    /// The data region of `slot`, which must be live.
+    fn live_region(&self, slot: SlotId) -> usize {
+        assert!(self.slots.get(slot.0 as usize).is_some_and(|s| s.live), "{slot:?} is not a live data slot");
+        self.layers.len() + slot.0 as usize
+    }
+
+    /// Every data region's bytes, in packed order: the layers', then the
+    /// slots'.
+    fn regions(&self) -> impl Iterator<Item = &[u8]> + '_ {
+        self.data.iter().map(Vec::as_slice).chain(self.slots.iter().map(|s| s.data.as_slice()))
+    }
+
+    /// The pending cell changes without consuming them. Reading an already
+    /// clean shared world must not require copying its immutable records.
+    pub fn dirty(&self) -> &Dirty { &self.dirty }
 
     /// The records changed since the last call (all of them in a world
     /// just made), to upload only those (`TileRenderer::update_cells`).
@@ -589,14 +836,20 @@ impl TileWorld {
         std::mem::take(&mut self.dirty)
     }
 
-    /// Where the record of `cell` on `layer` lies in the packed data the
-    /// GPU reads (byte offset, length; see `pack`).
-    pub fn packed_record(&self, layer: u32, cell: u32) -> Option<(usize, usize)> {
-        let spec = self.layers.get(layer as usize)?;
+    /// Where the record of `cell` in data region `region` (see
+    /// [`Dirty::Records`]; [`ALL_CELLS`]: all of them) lies in the packed
+    /// data the GPU reads (byte offset, length; see `pack`).
+    pub fn packed_record(&self, region: u32, cell: u32) -> Option<(usize, usize)> {
+        let region = region as usize;
+        let spec = &self.layers[self.region_layer(region)?];
         let len = spec.record_bytes() as usize;
-        let start: usize = self.data[..layer as usize].iter().map(Vec::len).sum();
+        let start: usize = self.regions().take(region).map(<[u8]>::len).sum();
+        let bytes = self.region_bytes(region).len();
+        if cell == ALL_CELLS {
+            return Some((start, bytes));
+        }
         let at = cell as usize * len;
-        (at + len <= self.data[layer as usize].len()).then_some((start + at, len))
+        (at + len <= bytes).then_some((start + at, len))
     }
 
     /// The packed data's bytes `range` (zeros past the records, as `pack`
@@ -604,7 +857,7 @@ impl TileWorld {
     pub fn packed_bytes(&self, range: std::ops::Range<usize>) -> Vec<u8> {
         let mut out = vec![0; range.len()];
         let mut start = 0;
-        for d in &self.data {
+        for d in self.regions() {
             let (lo, hi) = (range.start.max(start), range.end.min(start + d.len()));
             if lo < hi {
                 out[lo - range.start..hi - range.start].copy_from_slice(&d[lo - start..hi - start]);
@@ -614,53 +867,91 @@ impl TileWorld {
         out
     }
 
-    /// Whether `layer` stores per-cell offsets.
-    pub fn has_offsets(&self, layer: u32) -> bool {
-        self.layers.get(layer as usize).is_some_and(|l| l.per_cell_offset)
+    /// Whether the records of data region `region` (a layer's, or a
+    /// slot's: see [`Dirty::Records`]) store per-cell offsets.
+    pub fn has_offsets(&self, region: u32) -> bool {
+        self.region_layer(region as usize).and_then(|l| self.layers.get(l)).is_some_and(|l| l.per_cell_offset)
     }
 
     pub fn get(&self, layer: LayerId, col: u32, row: u32) -> u32 {
-        let n = self.layers[layer.0].value_bytes() as usize;
-        let at = self.record_at(layer, col, row);
+        self.get_region(layer.0, col, row)
+    }
+
+    /// [`TileWorld::get`] in data slot `slot` (a live one).
+    pub fn get_in(&self, slot: SlotId, col: u32, row: u32) -> u32 {
+        self.get_region(self.live_region(slot), col, row)
+    }
+
+    fn get_region(&self, region: usize, col: u32, row: u32) -> u32 {
+        let n = self.region_spec(region).value_bytes() as usize;
+        let at = self.region_record_at(region, col, row);
         let mut b = [0u8; 4];
-        b[..n].copy_from_slice(&self.data[layer.0][at..at + n]);
+        b[..n].copy_from_slice(&self.region_bytes(region)[at..at + n]);
         u32::from_le_bytes(b)
     }
 
     /// Sets the cell's animation phase. Requires `per_cell_phase`.
     pub fn set_phase(&mut self, layer: LayerId, col: u32, row: u32, phase: u8) {
-        let spec = &self.layers[layer.0];
+        self.set_phase_region(layer.0, col, row, phase);
+    }
+
+    /// [`TileWorld::set_phase`] in data slot `slot` (a live one).
+    pub fn set_phase_in(&mut self, slot: SlotId, col: u32, row: u32, phase: u8) {
+        self.set_phase_region(self.live_region(slot), col, row, phase);
+    }
+
+    fn set_phase_region(&mut self, region: usize, col: u32, row: u32, phase: u8) {
+        let spec = self.region_spec(region);
         assert!(spec.per_cell_phase, "layer {} has no per-cell phase", spec.name);
-        let at = self.record_at(layer, col, row) + spec.value_bytes() as usize;
-        self.data[layer.0][at] = phase;
-        self.touch(layer, col, row);
+        let at = self.region_record_at(region, col, row) + spec.value_bytes() as usize;
+        self.region_bytes_mut(region)[at] = phase;
+        self.touch(region, col, row);
     }
 
     /// Sets the cell's pixel offset (x, y): its sprite is drawn that far
     /// from where the cell and the layer put it (in a view showing the
     /// world `n` times smaller, the offset divided by `n`, rounded down).
     /// Requires `per_cell_offset`.
-    pub fn set_offset(&mut self, layer: LayerId, col: u32, row: u32, (x, y): (i16, i16)) {
-        let at = self.offset_at(layer, col, row);
-        self.data[layer.0][at..at + 2].copy_from_slice(&x.to_le_bytes());
-        self.data[layer.0][at + 2..at + 4].copy_from_slice(&y.to_le_bytes());
-        self.touch(layer, col, row);
+    pub fn set_offset(&mut self, layer: LayerId, col: u32, row: u32, offset: (i16, i16)) {
+        self.set_offset_region(layer.0, col, row, offset);
+    }
+
+    /// [`TileWorld::set_offset`] in data slot `slot` (a live one).
+    pub fn set_offset_in(&mut self, slot: SlotId, col: u32, row: u32, offset: (i16, i16)) {
+        self.set_offset_region(self.live_region(slot), col, row, offset);
+    }
+
+    fn set_offset_region(&mut self, region: usize, col: u32, row: u32, (x, y): (i16, i16)) {
+        let at = self.offset_at(region, col, row);
+        let d = self.region_bytes_mut(region);
+        d[at..at + 2].copy_from_slice(&x.to_le_bytes());
+        d[at + 2..at + 4].copy_from_slice(&y.to_le_bytes());
+        self.touch(region, col, row);
     }
 
     /// The cell's pixel offset (0, 0 on a layer without them).
     pub fn offset(&self, layer: LayerId, col: u32, row: u32) -> (i16, i16) {
-        if !self.layers[layer.0].per_cell_offset {
+        self.offset_region(layer.0, col, row)
+    }
+
+    /// [`TileWorld::offset`] in data slot `slot` (a live one).
+    pub fn offset_in(&self, slot: SlotId, col: u32, row: u32) -> (i16, i16) {
+        self.offset_region(self.live_region(slot), col, row)
+    }
+
+    fn offset_region(&self, region: usize, col: u32, row: u32) -> (i16, i16) {
+        if !self.region_spec(region).per_cell_offset {
             return (0, 0);
         }
-        let at = self.offset_at(layer, col, row);
-        let d = &self.data[layer.0];
+        let at = self.offset_at(region, col, row);
+        let d = self.region_bytes(region);
         (i16::from_le_bytes([d[at], d[at + 1]]), i16::from_le_bytes([d[at + 2], d[at + 3]]))
     }
 
-    fn offset_at(&self, layer: LayerId, col: u32, row: u32) -> usize {
-        let spec = &self.layers[layer.0];
+    fn offset_at(&self, region: usize, col: u32, row: u32) -> usize {
+        let spec = self.region_spec(region);
         assert!(spec.per_cell_offset, "layer {} has no per-cell offset", spec.name);
-        self.record_at(layer, col, row) + (spec.value_bytes() + spec.per_cell_phase as u32) as usize
+        self.region_record_at(region, col, row) + (spec.value_bytes() + spec.per_cell_phase as u32) as usize
     }
 
     /// How far the per-cell offsets of the cells that draw something move
@@ -669,12 +960,15 @@ impl TileWorld {
     /// outside the viewport may reach into it).
     pub fn offset_reach(&self) -> (u32, u32, u32, u32) {
         let mut reach = (0, 0, 0, 0);
-        for (i, spec) in self.layers.iter().enumerate() {
+        // (A slot's records reach as far as the layer's would.)
+        let regions = self.data.iter().enumerate().chain(self.slots.iter().filter(|s| s.live).map(|s| (s.layer, &s.data)));
+        for (i, data) in regions {
+            let spec = &self.layers[i];
             if !spec.per_cell_offset {
                 continue;
             }
             let (n, at) = (spec.value_bytes() as usize, (spec.value_bytes() + spec.per_cell_phase as u32) as usize);
-            for record in self.data[i].chunks_exact(spec.record_bytes() as usize) {
+            for record in data.chunks_exact(spec.record_bytes() as usize) {
                 if record[..n].iter().all(|&b| b == 0) {
                     continue;
                 }
@@ -689,21 +983,69 @@ impl TileWorld {
         reach
     }
 
-    fn record_at(&self, layer: LayerId, col: u32, row: u32) -> usize {
+    fn region_record_at(&self, region: usize, col: u32, row: u32) -> usize {
         assert!(col < self.grid.cols && row < self.grid.rows, "cell ({col}, {row}) outside the grid");
-        let spec = &self.layers[layer.0];
+        let spec = self.region_spec(region);
         ((row * self.grid.cols + col) * spec.record_bytes()) as usize
     }
 
-    /// GPU layer table, lookup tables and packed data, in the layout the
+    /// The GPU's layer tables: the layers drawn from their own records
+    /// (the shared binding's), then per binding (ascending) the same with
+    /// the layers it binds to slots drawn from those; and where each
+    /// binding's table starts (binding, entries; the shared one at 0, not
+    /// listed). Small next to the cell data: a binding costs a table, not
+    /// a copy of the cells.
+    pub(crate) fn layer_tables(&self) -> (Vec<LayerDesc>, Vec<(u32, u32)>) {
+        let (shared, _) = self.shared_table();
+        let mut starts = Vec::with_capacity(self.slots.len());
+        let mut at: usize = self.data.iter().map(Vec::len).sum();
+        for s in &self.slots {
+            starts.push(at as u32);
+            at += s.data.len();
+        }
+        let mut table = shared.clone();
+        let mut tables = Vec::with_capacity(self.bindings.len());
+        for (key, bound) in &self.bindings {
+            tables.push((*key, table.len() as u32));
+            table.extend(shared.iter().enumerate().map(|(l, d)| match bound.iter().find(|(bl, _)| *bl == l) {
+                Some((_, s)) => LayerDesc { data_byte_offset: starts[s.0 as usize], ..*d },
+                None => *d,
+            }));
+        }
+        (table, tables)
+    }
+
+    /// Words of the packed cell data (see `pack`).
+    pub(crate) fn packed_words(&self) -> usize {
+        self.regions().map(<[u8]>::len).sum::<usize>().div_ceil(4) + 1
+    }
+
+    /// GPU layer tables, lookup tables and packed data, in the layout the
     /// shader expects.
     pub(crate) fn pack(&self) -> PackedWorld {
+        let (layers, tables) = self.layer_tables();
+        let (_, lut) = self.shared_table();
+        let mut data: Vec<u8> = Vec::with_capacity(self.packed_words() * 4);
+        for bytes in self.regions() {
+            data.extend_from_slice(bytes);
+        }
+        // Word-align, plus one spare word: the shader may read the word after
+        // a record that ends exactly on a word boundary.
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+        data.extend_from_slice(&[0; 4]);
+        PackedWorld { layers, tables, lut, data: bytemuck::pod_collect_to_vec(&data), sets: self.sets.words().to_vec(), reach: self.offset_reach() }
+    }
+
+    /// The layers drawn from their own records, and their lookup tables.
+    fn shared_table(&self) -> (Vec<LayerDesc>, Vec<u32>) {
         let mut layers = Vec::with_capacity(self.layers.len());
         let mut lut = Vec::new();
-        let mut data = Vec::new();
+        let mut at = 0usize;
         for (spec, bytes) in self.layers.iter().zip(&self.data) {
             layers.push(LayerDesc {
-                data_byte_offset: data.len() as u32,
+                data_byte_offset: at as u32,
                 value_bytes: spec.value_bytes(),
                 phase_bytes: spec.per_cell_phase as u32,
                 lut_offset: lut.len() as u32,
@@ -716,7 +1058,7 @@ impl TileWorld {
                 cull_offset_x: spec.cull_offset.0,
                 cull_offset_y: spec.cull_offset.1,
                 scale_den: match spec.blend {
-                    Blend::Invert | Blend::Subpixel { .. } => 0,
+                    Blend::NativePaletteAlpha | Blend::Invert | Blend::Subpixel { .. } => 0,
                     b => b.scale_den(),
                 },
                 category: spec.category,
@@ -725,23 +1067,26 @@ impl TileWorld {
                 _pad1: 0,
             });
             lut.extend(spec.lut.iter().map(|s| s.0));
-            data.extend_from_slice(bytes);
+            at += bytes.len();
         }
-        // Word-align, plus one spare word: the shader may read the word after
-        // a record that ends exactly on a word boundary.
-        while data.len() % 4 != 0 {
-            data.push(0);
-        }
-        data.extend_from_slice(&[0; 4]);
         if lut.is_empty() {
             lut.push(0);
         }
-        PackedWorld { layers, lut, data: bytemuck::pod_collect_to_vec(&data), sets: self.sets.words().to_vec(), reach: self.offset_reach() }
+        (layers, lut)
     }
 }
 
+/// Where the layer table of `binding` starts (`FrameParams::layer_table`),
+/// of [`TileWorld::layer_tables`]' list: 0, the shared table, for a binding
+/// that binds nothing.
+pub(crate) fn table_of(tables: &[(u32, u32)], binding: u32) -> u32 {
+    tables.binary_search_by_key(&binding, |t| t.0).map_or(0, |i| tables[i].1)
+}
+
 pub(crate) struct PackedWorld {
+    /// The layer tables (see [`TileWorld::layer_tables`]).
     pub layers: Vec<LayerDesc>,
+    pub tables: Vec<(u32, u32)>,
     pub lut: Vec<u32>,
     pub data: Vec<u32>,
     pub sets: Vec<u32>,
@@ -781,6 +1126,70 @@ mod tests {
             assert_eq!(Blend::from_scale_den(gpu.scale_den, gpu.tint), blend);
         }
         assert_eq!(Blend::from_scale_den(0, 0), Blend::Alpha);
+    }
+
+    #[test]
+    fn slots_are_allocated_reused_freed_and_bound_without_copies() {
+        let grid = Grid { cols: 6, rows: 4, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+        let mut sets = SpriteSets::default();
+        let a = sets.single(SpriteId(3));
+        let mut w = TileWorld::new(grid, sets);
+        let terrain = w.add_layer(LayerSpec::new("terrain", vec![a; 300]));
+        let fog = w.add_layer(LayerSpec::new("fog", vec![SpriteSetId::EMPTY, a, a]));
+        let mut edge_spec = LayerSpec::new("fog_edge", vec![SpriteSetId::EMPTY, a]);
+        edge_spec.per_cell_offset = true;
+        let edge = w.add_layer(edge_spec);
+        w.set(fog, 1, 1, 1);
+        let base_bytes: u32 = (2 + 1 + 5) * 24;
+        // No slot, no binding: one table, every camera the shared one.
+        let (table, tables) = w.layer_tables();
+        assert_eq!((table.len(), tables.len(), w.slot_bytes()), (3, 0, 0));
+        let _ = w.take_dirty();
+        let s = w.add_slot(fog);
+        assert_eq!(w.take_dirty(), Dirty::Records(vec![(3, ALL_CELLS)]), "a new slot uploads its region");
+        assert_eq!(w.packed_record(3, ALL_CELLS), Some((base_bytes as usize, 24)));
+        assert_eq!(w.get_in(s, 1, 1), 0, "a slot starts empty");
+        w.set_in(s, 2, 3, 2);
+        assert_eq!((w.get_in(s, 2, 3), w.get(fog, 2, 3), w.get(fog, 1, 1)), (2, 0, 1));
+        assert_eq!(w.take_dirty(), Dirty::Records(vec![(w.slot_region(s), 3 * 6 + 2)]));
+        assert_eq!(w.packed_record(w.slot_region(s), 3 * 6 + 2), Some((base_bytes as usize + 20, 1)));
+        // Bound to two bindings: one region, two tables pointing at it.
+        w.bind(1, fog, Some(s));
+        w.bind(5, fog, Some(s));
+        w.bind(5, fog, Some(s));
+        assert_eq!(w.take_dirty(), Dirty::Records(Vec::new()), "binding moves no records");
+        let (table, tables) = w.layer_tables();
+        assert_eq!(tables, [(1, 3), (5, 6)]);
+        assert_eq!((table[4].data_byte_offset, table[7].data_byte_offset), (base_bytes, base_bytes));
+        assert_eq!((table[3], table[5]), (table[0], table[2]), "unbound layers draw their own records");
+        assert_eq!((table_of(&tables, 5), table_of(&tables, 0), table_of(&tables, 2)), (6, 0, 0));
+        // The packed data reads the slot back where the table says.
+        let p = w.pack();
+        let reader = tile_render_shared::ByteReader::new(&p.data);
+        assert_eq!(reader.uint(tile_render_shared::record_at(&p.layers[4], 6, 2, 3), 1), 2);
+        assert_eq!(reader.uint(tile_render_shared::record_at(&p.layers[1], 6, 1, 1), 1), 1);
+        assert_eq!(p.data.len(), w.packed_words());
+        // An offset slot reaches as far as its records do.
+        let e = w.add_slot(edge);
+        w.set_in(e, 0, 1, 1);
+        w.set_offset_in(e, 0, 1, (-128, 0));
+        assert_eq!((w.offset_reach(), w.offset_in(e, 0, 1), w.offset(edge, 0, 1)), ((128, 0, 0, 0), (-128, 0), (0, 0)));
+        w.bind(1, edge, Some(e));
+        // Freeing the first slot unbinds it everywhere and keeps its region
+        // (a slot after it is live) for the next one of its size.
+        w.free_slot(s);
+        assert_eq!((w.bound(1, fog), w.bound(5, fog), w.bound(1, edge)), (None, None, Some(e)));
+        assert_eq!(w.bindings().collect::<Vec<_>>(), [1]);
+        assert_eq!(w.slot_bytes(), 24 + 5 * 24);
+        let again = w.add_slot(fog);
+        assert_eq!((again, w.slot_bytes(), w.get_in(again, 2, 3)), (s, 24 + 5 * 24, 0), "reused, cleared");
+        // Freed from the end: given back.
+        w.free_slot(e);
+        assert_eq!((w.slot_bytes(), w.offset_reach()), (24, (0, 0, 0, 0)));
+        w.free_slot(again);
+        assert_eq!((w.slot_bytes(), w.slots().count(), w.layer_tables().0.len()), (0, 0, 3));
+        assert_eq!(w.packed_record(3, 0), None, "a freed region is no record");
+        let _ = terrain;
     }
 
     #[test]
@@ -831,11 +1240,20 @@ mod tests {
     }
 }
 
-/// Per zoom that `free` has zoomed sprites for, the first pass they follow
-/// (of `passes`; `passes`: after all of them); zoom (0, 0): text drawn from
-/// outlines, zoomed art for every zoom (see [`zoomed_from`]).
-pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<((u32, u32), usize)> {
-    let mut out: Vec<((u32, u32), usize)> = Vec::new();
+/// A view's first sprite requiring rendering at the target resolution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ZoomedStart {
+    pub zoom: (u32, u32),
+    pub pass: usize,
+    pub view: Option<u32>,
+    pub except_view: bool,
+    pub category: u32,
+}
+
+/// Keep the visibility of each zoomed sprite. Text in a separate interface
+/// must not switch unrelated world views to full-resolution rendering.
+pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<ZoomedStart> {
+    let mut out: Vec<ZoomedStart> = Vec::new();
     for s in free {
         let zoom = match (s.text, s.zoom_art) {
             (Some(_), _) => (0, 0),
@@ -843,17 +1261,24 @@ pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<((u32, u
             _ => continue,
         };
         let pass = s.after_pass.min(passes);
-        match out.iter_mut().find(|(z, _)| *z == zoom) {
-            Some((_, p)) => *p = (*p).min(pass),
-            None => out.push((zoom, pass)),
+        if let Some(start) = out.iter_mut().find(|start| start.zoom == zoom && start.view == s.view && start.except_view == s.except_view && start.category == s.category) {
+            start.pass = start.pass.min(pass);
+        } else {
+            out.push(ZoomedStart { zoom, pass, view: s.view, except_view: s.except_view, category: s.category });
         }
     }
     out
 }
 
-/// Of [`first_zoomed`]'s list, the first pass zoomed art for `zoom` follows.
-pub(crate) fn zoomed_from(first: &[((u32, u32), usize)], zoom: (u32, u32)) -> Option<usize> {
-    first.iter().filter(|(z, _)| *z == zoom || *z == (0, 0)).map(|&(_, p)| p).min()
+pub(crate) fn zoomed_from(first: &[ZoomedStart], zoom: (u32, u32), view: u32, camera: &crate::Camera) -> Option<usize> {
+    first.iter().filter(|s| {
+        let visible = if s.except_view {
+            s.view != Some(view) && camera.cells
+        } else {
+            s.view.map_or(camera.cells, |v| v == view)
+        };
+        visible && s.category & camera.effective_hidden_categories() == 0 && (s.zoom == zoom || s.zoom == (0, 0))
+    }).map(|s| s.pass).min()
 }
 
 /// The words of `fonts` back to back (one outline buffer), and where each
@@ -869,4 +1294,69 @@ pub(crate) fn outline_words(fonts: &[std::sync::Arc<gpu_text::Face>]) -> (Vec<u3
         words.push(0);
     }
     (words, bases)
+}
+
+#[cfg(test)]
+mod zoomed_start_tests {
+    use super::*;
+
+    #[test]
+    fn unrelated_or_hidden_art_does_not_scale_world_passes() {
+        let sprite = |view, after_pass| PlacedSprite {
+            view,
+            after_pass,
+            zoom_art: ZoomArt::Zoomed { zoom: (2, 1), offset: (0, 0) },
+            ..PlacedSprite::new(SpriteSetId::EMPTY, 0, 0)
+        };
+        let first = first_zoomed(&[
+            sprite(Some(1), 0),
+            PlacedSprite { category: 4, ..sprite(Some(0), 1) },
+            PlacedSprite { except_view: true, ..sprite(Some(0), 2) },
+            sprite(None, 3),
+        ], 4);
+        let world = crate::Camera { hidden_categories: 4, ..crate::Camera::new((100, 100)) };
+        assert_eq!(zoomed_from(&first, (2, 1), 0, &world), Some(3));
+        assert_eq!(zoomed_from(&first, (2, 1), 1, &world), Some(0));
+        assert_eq!(zoomed_from(&first, (2, 1), 2, &world), Some(2));
+        assert_eq!(zoomed_from(&first, (3, 1), 0, &world), None);
+        let interface = crate::Camera { cells: false, ..world };
+        assert_eq!(zoomed_from(&first, (2, 1), 2, &interface), None);
+        assert_eq!(zoomed_from(&first, (2, 1), 1, &interface), Some(0));
+    }
+}
+
+#[cfg(test)]
+mod bulk_cell_tests {
+    use super::*;
+    #[test]
+    fn whole_layer_packing_matches_individual_setters_for_every_record_width() {
+        for n in 1..=4 {
+            for phase in [false, true] { for offset in [false, true] {
+                for len in [0, 7, 15, 21] {
+                    let grid = Grid { cols: 5, rows: 3, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (8, 8) };
+                    let mut spec = LayerSpec::new("cells", vec![SpriteSetId::EMPTY; 2]);
+                    if n > 1 { spec.index_bits = 8; spec.palette_bits = 8 * (n - 1); }
+                    spec.per_cell_phase = phase; spec.per_cell_offset = offset;
+                    assert_eq!(spec.value_bytes(), n);
+                    let mut expected = TileWorld::new(grid, SpriteSets::default());
+                    let mut actual = TileWorld::new(grid, SpriteSets::default());
+                    expected.add_layer(spec.clone()); actual.add_layer(spec);
+                    let values: Vec<_> = (0..len).map(|i| i * 0x1020304 + 0x12).collect();
+                    let phases: Vec<_> = (0..len).map(|i| (i * 17) as u8).collect();
+                    let offsets: Vec<_> = (0..len).map(|i| (i as i16 - 9, 4 - i as i16)).collect();
+                    for i in 0..len.min(15) {
+                        expected.set(LayerId(0), i % 5, i / 5, values[i as usize]);
+                        if phase { expected.set_phase(LayerId(0), i % 5, i / 5, phases[i as usize]); }
+                        if offset { expected.set_offset(LayerId(0), i % 5, i / 5, offsets[i as usize]); }
+                    }
+                    actual.set_layer_cells(LayerId(0), &values, Some(&phases), Some(&offsets));
+                    assert_eq!(actual.data, expected.data, "width={n}, phase={phase}, offset={offset}, len={len}");
+                    actual.take_dirty();
+                    actual.set_layer_cells(LayerId(0), &[], None, None);
+                    assert!(actual.data[0].iter().all(|&v| v == 0));
+                    assert_eq!(actual.take_dirty(), Dirty::Records(vec![(0, ALL_CELLS)]));
+                }
+            } }
+        }
+    }
 }

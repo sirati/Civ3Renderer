@@ -72,6 +72,22 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// Scaled A4/A8 wrappers. Eight callee-popped words; the nested ordinary
+    /// draw receives temporarily scaled crop offsets and global JGL scale.
+    pub mod sprite_draw_scaled_a4(sprite, edx; canvas, x, y, a4, num_x, num_y, den, ct) -> i32;
+}
+
+inproc::fastcall_hook! {
+    pub mod sprite_draw_scaled_a8(sprite, edx; canvas, x, y, a4, num_x, num_y, den, ct) -> i32;
+}
+
+inproc::fastcall_hook! {
+    /// Scaled two-surface colour draw. canvas is background/read-only;
+    /// canvas2 is output. Nine stack words, native ret24h.
+    pub mod sprite_draw_scaled_colored(sprite, edx; canvas, canvas2, x, y, num_x, num_y, den, flags, ct) -> i32;
+}
+
+inproc::fastcall_hook! {
     /// `Sprite::draw_opacity(this, canvas, x, y, float opacity, ct, flags)`.
     /// The ABI carries the float's raw bits in the fourth stack argument.
     pub mod sprite_draw_opacity(sprite, edx; canvas, x, y, opacity, ct, flags) -> i32;
@@ -253,6 +269,9 @@ pub struct UiSites {
     pub sprite_draw_a4: Site,
     pub sprite_draw_a4b: Site,
     pub sprite_draw_blend: Site,
+    pub sprite_draw_scaled_a4: Site,
+    pub sprite_draw_scaled_a8: Site,
+    pub sprite_draw_scaled_colored: Site,
     pub sprite_draw_opacity: Site,
     pub sprite_draw_alpha: Site,
     pub sprite_draw_masked: Site,
@@ -302,6 +321,9 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             sprite_draw_variant: (0x5F_81A0, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             // mov eax,ecx / push esi / mov ecx,[eax+8]
             sprite_draw_a4: (0x5F_84A0, &[0x8B, 0xC1, 0x56, 0x8B, 0x48, 0x08]),
+            sprite_draw_scaled_a4: (0x5F_83E0, &[0x83, 0xEC, 0x0C, 0x8D, 0x54, 0x24, 0x00]),
+            sprite_draw_scaled_a8: (0x5F_86A0, &[0x83, 0xEC, 0x0C, 0x8D, 0x54, 0x24, 0x00]),
+            sprite_draw_scaled_colored: (0x5F_8870, &[0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x14]),
             // mov eax,[ecx+8] / push esi / test eax,eax
             sprite_draw_a4b: (0x5F_8760, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
             sprite_draw_opacity: (0x5F_89A0, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
@@ -431,6 +453,43 @@ pub fn sprite_cut_colors(sprite: u32) -> Option<Vec<u32>> {
     first_colors(read(jgl.checked_add(0x10)?)?)
 }
 
+/// Entries `first..first + count` (RGB, `0xBBGGRR`) of the `PCX_Color_Table`
+/// `ct` (its `JGL_Color_Table` at +4).
+pub fn color_table_entries(ct: u32, first: u32, count: u32) -> Option<Vec<u32>> {
+    let jgl = Ptr32::<u32>::new(ct.checked_add(4)?).read().ok().filter(|&p| p != 0)?;
+    let entries = Ptr32::<u32>::new(jgl.checked_add(0x0C + 4 * first)?).read_array(count as usize).ok()?;
+    Some(entries.into_iter().map(|c| c & 0xFF_FFFF).collect())
+}
+
+/// The first civ colour table (NN of `ntpNN.pcx`) whose entries
+/// `first..first + count` are `colors`: the table a colour table made by
+/// copying those entries of a civ's comes from (the territory borders',
+/// entries 64 and 65 of the owner's, 0x4C3B87..0x4C3BEC).
+pub fn civ_table_with(build: Build, first: u32, colors: &[u32]) -> Option<u32> {
+    let tables = Ptr32::<u32>::new(color_tables(build)?).read_array(32).ok()?;
+    (0u32..).zip(tables).find_map(|(n, t)| (t != 0 && color_table_entries(t, first, colors.len() as u32).as_deref() == Some(colors)).then_some(n))
+}
+
+/// Where the pointers to the game's two sets of 16-bit blend tables are
+/// (docs §6.7a, §10.14), on builds where that is known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlendTables {
+    /// The shadow tables (0x403D40 builds them): four of 32768 RGB555
+    /// entries, darkening to 8, 10, 12 and 14 sixteenths. Resource,
+    /// airfield, outpost and radar shadows go through them.
+    pub shadows: u32,
+    /// The shade and smoke levels (0x6283A0 builds them; the "flags" of
+    /// the colour-table blits): levels 0..14 darken to 1..15 sixteenths.
+    pub levels: u32,
+}
+
+pub fn blend_tables(build: Build) -> Option<BlendTables> {
+    match build {
+        Build::PcGames => Some(BlendTables { shadows: 0x73_D9F0, levels: 0x9C_7304 }),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
 /// Fields of the game's image, sprite and form objects (docs §16.2-16.5).
 pub mod obj {
     use super::*;
@@ -465,11 +524,31 @@ pub mod obj {
     /// whether a click lands on the form or goes through it (0x608C70). A
     /// form is recognised by its vtable (in the exe's `.rdata`) whose
     /// composite (`m79`, +0x13C) is `Base_Form`'s (0x602710). PCGames build.
+    /// Native0x608FA1 rejects NO_MOUSE before pixel reads;0x608FCD also
+    /// bypasses pixels when the rectangle-only hit flag0x100 is set.
+    pub const fn keyed_hit_mask_flags(status1: u32) -> bool {
+        status1 & 0x100_0000 != 0 && status1 & 0x102 == 0
+    }
+
     pub fn keyed_form_canvas(canvas: u32) -> bool {
         let form = canvas.wrapping_sub(CANVAS);
         let u32_at = |a: u32| Ptr32::<u32>::new(a).read().ok();
         let Some(vtable) = u32_at(form).filter(|v| (0x66_5000..0x68_0000).contains(v)) else { return false };
-        u32_at(vtable + 0x13C) == Some(0x60_2710) && u32_at(form + STATUS1).is_some_and(|s| s & 0x100_0000 != 0)
+        u32_at(vtable + 0x13C) == Some(0x60_2710) && u32_at(form + STATUS1).is_some_and(keyed_hit_mask_flags)
+    }
+
+    /// Sprite+8 selects the native lazy file-load branch. At8060 this
+    /// branch loads a PCX and calls its hooked ordinary draw, without
+    /// applying the wrapper's crop or scale.
+    pub fn sprite_loads_file(sprite: u32) -> bool {
+        Ptr32::<u32>::new(sprite.wrapping_add(8)).read().is_ok_and(|path| path != 0)
+    }
+
+    /// Span-compiled sprites skip the plain scaler's extra integer-ratio
+    /// origin offset. This flag is part of JGLSprite's checked draw dispatch.
+    pub fn sprite_compiled(sprite: u32) -> Option<bool> {
+        let jgl = Ptr32::<u32>::new(sprite.wrapping_add(4)).read().ok().filter(|&p| p != 0)?;
+        Ptr32::<u32>::new(jgl + 0x18).read().ok().map(|flags| flags & 1 != 0)
     }
 
     /// Whether the sprite has pixels.
@@ -981,8 +1060,27 @@ pub fn flc_frame(sprite: u32) -> Option<(u32, u32)> {
 /// A canvas's clip rectangle (its `JGL_Image`'s `Clip_Rect`, left, top,
 /// right, bottom), when it is smaller than the canvas.
 pub fn canvas_clip(image: u32) -> Option<[i32; 4]> {
+    let clip = canvas_text_clip(image)?;
     let jgl = Ptr32::<u32>::new(image.wrapping_add(4)).read().ok().filter(|&p| p != 0)?;
-    let clip = obj::rect(jgl + 0x44)?;
     let full = obj::rect(jgl + 0x54)?;
     (clip != full && clip[2] > clip[0] && clip[3] > clip[1]).then_some(clip)
+}
+
+/// The native text draw clip. Empty rectangles suppress text as well.
+/// Unlike `canvas_clip`, this retains full and empty clipping rectangles.
+pub fn canvas_text_clip(image: u32) -> Option<[i32; 4]> {
+    let jgl = Ptr32::<u32>::new(image.wrapping_add(4)).read().ok().filter(|&p| p != 0)?;
+    obj::rect(jgl + 0x44)
+}
+
+#[cfg(test)]
+mod native_hit_mask_tests {
+    #[test]
+    fn only_forms_whose_native_hit_test_reads_pixels_retain_their_mask() {
+        use super::obj::keyed_hit_mask_flags;
+        assert!(keyed_hit_mask_flags(0x0100_0020)); // Main_GUI.
+        assert!(!keyed_hit_mask_flags(0x0100_0022)); // NO_MOUSE map overlay.
+        assert!(!keyed_hit_mask_flags(0x0100_0120)); // Rectangle-only hit test.
+        assert!(!keyed_hit_mask_flags(0x0020)); // Opaque form.
+    }
 }

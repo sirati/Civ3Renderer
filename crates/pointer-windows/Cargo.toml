@@ -1,0 +1,14 @@
+[package]
+name = "pointer-windows"
+description = "Windows pointer grabbing and physical view confinement"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+pointer-api = { path = "../pointer-api" }
+
+[target.'cfg(windows)'.dependencies]
+inproc = { path = "../inproc" }
+pointer-fallback = { path = "../pointer-fallback" }
+winit.workspace = true

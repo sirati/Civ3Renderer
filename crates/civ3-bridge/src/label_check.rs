@@ -87,7 +87,7 @@ fn actual(trace: &Trace, roots: &[PathBuf]) -> Vec<Op> {
             ScreenDraw::Image { path, rect, x, y, .. } => {
                 Some(Op::Image { path: relative_path(path, roots).to_ascii_lowercase(), rect: *rect, at: (*x, *y) })
             }
-            ScreenDraw::Flc { .. } | ScreenDraw::Surface { .. } => None,
+            ScreenDraw::Flc { .. } | ScreenDraw::Surface { .. } | ScreenDraw::ResizedImage { .. } | ScreenDraw::Indexed { .. } => None,
         })
         .collect()
 }
@@ -95,7 +95,7 @@ fn actual(trace: &Trace, roots: &[PathBuf]) -> Vec<Op> {
 /// The size of the map image: the form of the map canvas (`0x9F8934`, 1920×1080).
 fn image_size(trace: &Trace) -> (i32, i32) {
     let clip = trace.ui.as_ref().and_then(|ui| ui.draws.first()).and_then(|d| match d {
-        ScreenDraw::Fill { clip, .. } | ScreenDraw::Image { clip, .. } | ScreenDraw::Text { clip, .. } => Some(*clip),
+        ScreenDraw::Fill { clip, .. } | ScreenDraw::Image { clip, .. } | ScreenDraw::ResizedImage { clip, .. } | ScreenDraw::Text { clip, .. } => Some(*clip),
         _ => None,
     });
     clip.map_or((1920, 1080), |c| (c[2], c[3]))

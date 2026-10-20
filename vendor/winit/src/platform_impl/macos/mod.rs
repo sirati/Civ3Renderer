@@ -4,6 +4,8 @@ mod util;
 mod app;
 mod app_state;
 mod cursor;
+mod cursor_confinement;
+mod cursor_system;
 mod event;
 mod event_handler;
 mod event_loop;
@@ -18,6 +20,7 @@ mod window_delegate;
 use std::fmt;
 
 pub(crate) use self::event::{physicalkey_to_scancode, scancode_to_physicalkey, KeyEventExtra};
+pub(crate) use self::event_loop::host_application_running;
 pub(crate) use self::event_loop::{
     ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle,
     PlatformSpecificEventLoopAttributes,
@@ -27,6 +30,7 @@ pub(crate) use self::window::WindowId;
 pub(crate) use self::window_delegate::PlatformSpecificWindowAttributes;
 use crate::event::DeviceId as RootDeviceId;
 
+pub(crate) use self::cursor::accessibility_cursor_size;
 pub(crate) use self::cursor::CustomCursor as PlatformCustomCursor;
 pub(crate) use self::window::Window;
 pub(crate) use crate::cursor::OnlyCursorImageSource as PlatformCustomCursorSource;

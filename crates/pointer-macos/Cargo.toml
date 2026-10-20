@@ -1,0 +1,12 @@
+[package]
+name = "pointer-macos"
+description = "AppKit and CoreGraphics pointer backend"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+pointer-api = { path = "../pointer-api" }
+pointer-fallback = { path = "../pointer-fallback" }
+winit.workspace = true
+log.workspace = true

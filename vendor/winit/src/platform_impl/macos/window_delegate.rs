@@ -5,7 +5,6 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::{Arc, Mutex};
 
-use core_graphics::display::{CGDisplay, CGPoint};
 use monitor::VideoModeHandle;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -151,6 +150,7 @@ declare_class!(
         #[method(windowWillClose:)]
         fn window_will_close(&self, _: Option<&AnyObject>) {
             trace_scope!("windowWillClose:");
+            let _ = self.view().release_pointer();
             // `setDelegate:` retains the previous value and then autoreleases it
             autoreleasepool(|_| {
                 // Since El Capitan, we need to be careful that delegate methods can't
@@ -215,6 +215,8 @@ declare_class!(
         #[method(windowDidResignKey:)]
         fn window_did_resign_key(&self, _: Option<&AnyObject>) {
             trace_scope!("windowDidResignKey:");
+            let _ = self.view().release_pointer();
+            super::app::clear_mouse_warps();
             // It happens rather often, e.g. when the user is Cmd+Tabbing, that the
             // NSWindowDelegate will receive a didResignKey event despite no event
             // being received when the modifiers are released.  This is because
@@ -1121,17 +1123,7 @@ impl WindowDelegate {
 
     #[inline]
     pub fn set_cursor_grab(&self, mode: CursorGrabMode) -> Result<(), ExternalError> {
-        let associate_mouse_cursor = match mode {
-            CursorGrabMode::Locked => false,
-            CursorGrabMode::None => true,
-            CursorGrabMode::Confined => {
-                return Err(ExternalError::NotSupported(NotSupportedError::new()))
-            },
-        };
-
-        // TODO: Do this for real https://stackoverflow.com/a/40922095/5435443
-        CGDisplay::associate_mouse_and_mouse_cursor_position(associate_mouse_cursor)
-            .map_err(|status| ExternalError::Os(os_error!(OsError::CGError(status))))
+        self.view().set_cursor_grab(mode)
     }
 
     #[inline]
@@ -1150,20 +1142,8 @@ impl WindowDelegate {
 
     #[inline]
     pub fn set_cursor_position(&self, cursor_position: Position) -> Result<(), ExternalError> {
-        let physical_window_position = self.inner_position().unwrap();
-        let scale_factor = self.scale_factor();
-        let window_position = physical_window_position.to_logical::<CGFloat>(scale_factor);
-        let logical_cursor_position = cursor_position.to_logical::<CGFloat>(scale_factor);
-        let point = CGPoint {
-            x: logical_cursor_position.x + window_position.x,
-            y: logical_cursor_position.y + window_position.y,
-        };
-        CGDisplay::warp_mouse_cursor_position(point)
-            .map_err(|e| ExternalError::Os(os_error!(OsError::CGError(e))))?;
-        CGDisplay::associate_mouse_and_mouse_cursor_position(true)
-            .map_err(|e| ExternalError::Os(os_error!(OsError::CGError(e))))?;
-
-        Ok(())
+        let p = cursor_position.to_physical::<f64>(self.scale_factor());
+        self.view().warp_pointer((p.x, p.y))
     }
 
     #[inline]
@@ -1725,6 +1705,10 @@ fn restore_and_release_display(monitor: &MonitorHandle) {
 }
 
 impl WindowExtMacOS for WindowDelegate {
+    fn set_cursor_confinement(&self, bounds: Option<[i32; 4]>, exclusions: &[[i32; 4]]) -> Result<(), ExternalError> {
+        self.view().set_cursor_confinement(bounds, exclusions)
+    }
+
     #[inline]
     fn simple_fullscreen(&self) -> bool {
         self.ivars().is_simple_fullscreen.get()

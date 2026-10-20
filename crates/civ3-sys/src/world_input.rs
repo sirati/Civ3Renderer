@@ -310,9 +310,9 @@ inproc::thiscall_fn! {
 
 inproc::thiscall_fn! {
     /// Base_Form::m84_On_Mouse_Left_Down (0x608960). Four stack arguments
-    /// are part of the game's event ABI: local x/y, double-click flag, and
+    /// are part of the game's event ABI: double-click flag, local x/y, and
     /// the fourth button message parameter.
-    pub fn left_down_fn(screen; local_x, local_y, double_click, param_4) -> ();
+    pub fn left_down_fn(screen; double_click, local_x, local_y, param_4) -> ();
 }
 
 inproc::thiscall_fn! {
@@ -324,7 +324,7 @@ inproc::thiscall_fn! {
 inproc::thiscall_fn! {
     /// Base_Form::m86_On_Mouse_Right_Down (0x608AF0), with the same four
     /// message arguments as left-down.
-    pub fn right_down_fn(screen; local_x, local_y, double_click, param_4) -> ();
+    pub fn right_down_fn(screen; double_click, local_x, local_y, param_4) -> ();
 }
 
 inproc::thiscall_fn! {
@@ -343,14 +343,17 @@ pub fn hover(screen: u32, local_x: i32, local_y: i32) {
 
 /// Invokes the game's Base_Form left-down path. It dispatches through the
 /// form's current vtable, preserving C3X's replacement of the left-down leaf.
+/// The native ABI puts the double-click flag before both coordinates. See
+/// 0x608981 and 0x6089A3: argument 4 selects the route, argument 1 tests
+/// double-click, and arguments 2/3 become the leaf handler's x/y.
 pub fn left_down(screen: u32, local_x: i32, local_y: i32, double_click: bool, param_4: u32) {
     left_down_fn::Function::at(PCGAMES.left_down, LEFT_DOWN_PROLOGUE)
         .expect("checked PCGames left-down site")
         .call(
             screen,
+            u32::from(double_click),
             local_x as u32,
             local_y as u32,
-            u32::from(double_click),
             param_4,
         );
 }
@@ -368,9 +371,9 @@ pub fn right_down(screen: u32, local_x: i32, local_y: i32, double_click: bool, p
         .expect("checked PCGames right-down site")
         .call(
             screen,
+            u32::from(double_click),
             local_x as u32,
             local_y as u32,
-            u32::from(double_click),
             param_4,
         );
 }

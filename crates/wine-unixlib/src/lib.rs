@@ -5,7 +5,7 @@
 //! * The PE side ([`pe`], 32-bit Windows targets) asks Wine for the unixlib
 //!   of a builtin DLL and calls its functions with a plain-data argument
 //!   struct.
-//! * The Unix side ([`unix`], Linux) exports the call tables Wine looks up
+//! * The Unix side ([`unix`], Linux and macOS) exports the call tables Wine looks up
 //!   in the `.so` ([`unix_call_table!`]), reads memory of 32-bit callers
 //!   (under Wine's new WoW64 mode the 32-bit address space is the low
 //!   4 GiB of the same 64-bit process), and starts native threads that are
@@ -15,7 +15,10 @@
 //! marker "Wine builtin DLL" at offset 0x40 (see `tools/mark-wine-builtin`);
 //! it is found as `$WINEDLLPATH/i386-windows/NAME.dll` (a copy must also be
 //! on the Windows search path) and its unixlib as
-//! `$WINEDLLPATH/x86_64-unix/NAME.so`.
+//! `$WINEDLLPATH/x86_64-unix/NAME.so`. On Apple silicon (ARM64 Wine, the
+//! 32-bit PE translated by FEX through new WoW64) the unixlib is an ARM64
+//! Mach-O dylib named `$WINEDLLPATH/aarch64-unix/NAME.so`; the calls and
+//! the shared low 4 GiB are the same.
 //!
 //! All `unsafe` needed for this lives here.
 
@@ -40,5 +43,5 @@ pub struct Buffer32 {
 
 #[cfg(all(windows, target_arch = "x86"))]
 pub mod pe;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod unix;

@@ -108,14 +108,19 @@ pub fn max_texture_dimension() -> Option<u32> {
     })
 }
 
-/// A device on `adapter`; with timestamp queries where the adapter has them
-/// and GPU timing is asked for (`crate::timing::requested`).
+/// Optional capabilities shared by standalone and in-process renderers.
+/// Unsupported features remain absent so all devices retain the fallback paths.
+fn optional_features(available: wgpu::Features) -> wgpu::Features {
+    available & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::DUAL_SOURCE_BLENDING)
+}
+
+/// A device on `adapter`, enabling supported timing and LCD blend features.
 pub async fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), GpuError> {
-    let timing = crate::timing::requested() && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+    let features = optional_features(adapter.features());
     Ok(adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("tile-render"),
-            required_features: if timing { wgpu::Features::TIMESTAMP_QUERY } else { wgpu::Features::empty() },
+            required_features: features,
             // (As many atlas pages as the adapter allows: an atlas grows.)
             required_limits: wgpu::Limits { max_texture_array_layers: adapter.limits().max_texture_array_layers, ..wgpu::Limits::default().using_resolution(adapter.limits()) },
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
@@ -218,7 +223,9 @@ impl Headless {
         });
         let mut encoder = self.device.create_command_encoder(&Default::default());
         renderer.render_layered(&self.device, &self.queue, &mut encoder, &target, cameras, overlay_from, copies, frame, clear, present);
-        read_texture(&self.device, &self.queue, encoder, &target)
+        let image = read_texture(&self.device, &self.queue, encoder, &target);
+        renderer.controls_submitted();
+        image
     }
 }
 
@@ -284,5 +291,21 @@ mod tests {
         assert!(!adapter_matches("AMD Radeon Graphics", 0x1002, "radv"));
         assert!(!adapter_matches("Quadro P2000", 0x10de, "radv"));
         assert!(!adapter_matches("UHD Graphics 630", 0x8086, "radv"));
+    }
+}
+
+#[cfg(test)]
+mod optional_feature_tests {
+    use super::*;
+
+    #[test]
+    fn requests_only_supported_optional_capabilities() {
+        for available in [wgpu::Features::empty(), wgpu::Features::TIMESTAMP_QUERY,
+            wgpu::Features::DUAL_SOURCE_BLENDING,
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::DUAL_SOURCE_BLENDING] {
+            assert_eq!(optional_features(available), available);
+        }
+        assert_eq!(optional_features(wgpu::Features::all()),
+            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::DUAL_SOURCE_BLENDING);
     }
 }

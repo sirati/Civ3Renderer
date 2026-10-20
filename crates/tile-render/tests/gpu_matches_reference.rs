@@ -1515,3 +1515,78 @@ fn clean_map_mask_change_invalidates_cached_picture() {
     assert!(!renderer.reused(), "restoring a camera mask must invalidate the changed picture");
     assert_eq!(hidden.pixels, restored.pixels, "restoring the mask must restore the hidden picture");
 }
+
+/// Candidate clipping must preserve sprites reaching into the viewport from
+/// edge cells and offset cells. Equivalent free sprites form an independent
+/// pixel oracle that never uses the tile candidate rectangle.
+#[test]
+fn nonwrapping_candidate_bounds_preserve_tall_wide_and_fixed_anchor_pixels() {
+    let gpu = Headless::new().expect("GPU");
+    for scaling in [tile_render::SHRINK, tile_render::SHRINK_KEEP_ANCHOR, tile_render::KEEP_SIZE] {
+        let mut builder = AtlasBuilder::new(512);
+        let sprite = builder.add(&RgbaImage::from_fn(129, 257, |x, y| {
+            if (x + y) % 7 == 0 { [0; 4] } else { [x as u8, y as u8, 213, 255] }
+        }), (-64, -128)).unwrap();
+        builder.sprite_mut(sprite).scaling = scaling;
+        let hud = builder.add(&RgbaImage::from_fn(4, 3, |_, _| [230, 50, 70, 255]), (0, 0)).unwrap();
+        let atlas = builder.finish();
+        let mut sets = SpriteSets::default();
+        let set = sets.single(sprite);
+        let hud = sets.single(hud);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        let mut oversized_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        oversized_renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        for layout in [Layout::Orthogonal, Layout::Staggered] {
+            let grid = Grid { cols: 3, rows: 3, layout, wrap_x: false, wrap_y: false, step: (64, 32) };
+            let mut world = TileWorld::new(grid, sets.clone());
+            let layer = world.add_layer(LayerSpec { per_cell_offset: true, ..LayerSpec::new("edge sprites", vec![tile_render::SpriteSetId::EMPTY, set]) });
+            world.set(layer, 0, 0, 1);
+            world.set(layer, 2, 2, 1);
+            world.set_offset(layer, 2, 2, (-192, 160));
+            let interface = PlacedSprite { screen: true, ..PlacedSprite::new(hud, 2, 3) };
+            world.free.push(interface.clone());
+            let mut oracle = TileWorld::new(grid, sets.clone());
+            let (x, y) = grid.origin(2, 2);
+            oracle.free = vec![PlacedSprite::new(set, 0, 0), PlacedSprite::new(set, x - 192, y + 160), interface];
+            renderer.set_world(&gpu.device, &world);
+            // An empty four-cell border deliberately keeps oversized
+            // candidate ranges around the exact same map content.
+            let padded_grid = Grid { cols: 11, rows: 11, ..grid };
+            let mut padded = TileWorld::new(padded_grid, sets.clone());
+            let padded_layer = padded.add_layer(LayerSpec { per_cell_offset: true, ..LayerSpec::new("oversized candidates", vec![tile_render::SpriteSetId::EMPTY, set]) });
+            padded.set(padded_layer, 4, 4, 1);
+            padded.set(padded_layer, 6, 6, 1);
+            padded.set_offset(padded_layer, 6, 6, (-192, 160));
+            padded.free.push(world.free[0].clone());
+            oversized_renderer.set_world(&gpu.device, &padded);
+            let (padding_x, padding_y) = grid.origin(4, 4);
+            let mut visible = 0;
+            for downscale in [1, 2, 32] {
+                for zoom in [(1, 1), (21, 23)] {
+                    for (x, y) in [(-70, -135), (-64, -128), (0, 0), (20, 25), (1000, -1000)] {
+                        let camera = Camera { x, y, downscale, zoom, overhang: (128, 128, 128, 128), ..Camera::new((32, 24)) };
+                        let expected = reference::render(&oracle, &atlas, &camera, 0, CLEAR);
+                        let cpu = reference::render(&world, &atlas, &camera, 0, CLEAR);
+                        let actual = gpu.render(&mut renderer, &camera, 0, CLEAR);
+                        let oversized_camera = Camera { x: camera.x + padding_x / downscale as i32, y: camera.y + padding_y / downscale as i32, ..camera };
+                        let oversized_cpu = reference::render(&padded, &atlas, &oversized_camera, 0, CLEAR);
+                        let oversized_gpu = gpu.render(&mut oversized_renderer, &oversized_camera, 0, CLEAR);
+                        let context = format!("nonwrapped {layout:?}, scaling {scaling}, downscale {downscale}, zoom {zoom:?}, camera ({x},{y})");
+                        assert_same(&cpu, &expected, &format!("CPU/free oracle {context}"));
+                        assert_same(&actual, &expected, &format!("GPU/free oracle {context}"));
+                        assert_same(&oversized_cpu, &expected, &format!("CPU/oversized candidate oracle {context}"));
+                        assert_same(&oversized_gpu, &expected, &format!("GPU/oversized candidate oracle {context}"));
+                        visible += expected.pixels.iter().any(|pixel| pixel[2] == 213) as usize;
+                        // The last position has an empty cell intersection;
+                        // its independent interface sprite must still draw.
+                        if (x, y) == (1000, -1000) {
+                            assert!(actual.pixels.iter().any(|pixel| *pixel == [230, 50, 70, 255]));
+                        }
+                    }
+                }
+            }
+            assert!(visible > 0, "the edge-sprite comparisons must exercise visible art");
+        }
+    }
+}

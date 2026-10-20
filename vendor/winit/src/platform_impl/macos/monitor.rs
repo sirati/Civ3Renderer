@@ -248,6 +248,25 @@ impl MonitorHandle {
         position.to_physical(self.scale_factor())
     }
 
+    pub fn work_area(&self) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+        run_on_main(|mtm| {
+            let screen = self.ns_screen(mtm)?;
+            let visible = screen.visibleFrame();
+            let top_left = flip_window_screen_coordinates(visible);
+            let scale = screen.backingScaleFactor() as f64;
+            // Round inwards so fractional desktop coordinates cannot put
+            // a physical window pixel under the Dock or menu bar.
+            let left = (top_left.x * scale).ceil() as i32;
+            let top = (top_left.y * scale).ceil() as i32;
+            let right = ((top_left.x + visible.size.width) * scale).floor() as i64;
+            let bottom = ((top_left.y + visible.size.height) * scale).floor() as i64;
+            Some((
+                PhysicalPosition::new(left, top),
+                PhysicalSize::new((right - left as i64).max(0) as u32, (bottom - top as i64).max(0) as u32),
+            ))
+        }).unwrap_or_else(|| (self.position(), self.size()))
+    }
+
     pub fn scale_factor(&self) -> f64 {
         run_on_main(|mtm| {
             match self.ns_screen(mtm) {

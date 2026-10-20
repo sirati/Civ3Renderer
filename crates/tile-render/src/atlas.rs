@@ -440,7 +440,7 @@ impl Atlas {
 /// Returns the descriptors whose bounds changed, for a GPU table update.
 pub(crate) fn patch_bounds(sprites: &mut [SpriteDesc], patched: &SpriteDesc, image: &RgbaImage) -> Vec<usize> {
     let whole = margins(patched, &[(true, true); 256], &[], Some((image, 0, 0)), None);
-    let alpha_flags = tile_render_shared::BLANK_BINARY | tile_render_shared::BLANK_OPAQUE;
+    let alpha_flags = tile_render_shared::BLANK_BINARY | tile_render_shared::BLANK_OPAQUE | tile_render_shared::BLANK_EMPTY;
     let mut changed = Vec::new();
     for (i, s) in sprites.iter_mut().enumerate() {
         if s.palette != 0 || s.page != patched.page
@@ -559,6 +559,7 @@ fn margins(s: &SpriteDesc, named: &[(bool, bool); 256], palettes: &[u32], rgba: 
     }
     let cuts = if c[0] == u32::MAX { 0 } else { tile_render_shared::corner_cuts(c, w, h) };
     let flags = if binary { tile_render_shared::BLANK_BINARY } else { 0 } | if opaque { tile_render_shared::BLANK_OPAQUE } else { 0 };
+    let flags = flags | if c[0] == u32::MAX { tile_render_shared::BLANK_EMPTY } else { 0 };
     let blank = |x: u32, y: u32| alpha(x, y).0;
     let row_blank = |y: u32| (0..w).all(|x| blank(x, y));
     let top = (0..h).take_while(|&y| row_blank(y)).count() as u32;
@@ -656,7 +657,7 @@ mod tests {
         atlas.trim_blank();
         assert_eq!(atlas.sprites[a.0 as usize].blank, tile_render_shared::blank_margins(3, 2, 5, 1));
         let binary = tile_render_shared::BLANK_BINARY;
-        assert_eq!(atlas.sprites[empty.0 as usize].blank, tile_render_shared::blank_margins(4, 3, 4, 3) | binary);
+        assert_eq!(atlas.sprites[empty.0 as usize].blank, tile_render_shared::blank_margins(4, 3, 4, 3) | binary | tile_render_shared::BLANK_EMPTY);
         assert_eq!(atlas.sprites[opaque.0 as usize].blank, binary | tile_render_shared::BLANK_OPAQUE);
         // (Its remapped index 200 is clear in every named row.)
         assert_eq!(atlas.sprites[i.0 as usize].blank, tile_render_shared::blank_margins(1, 0, 1, 0) | binary);
@@ -666,7 +667,7 @@ mod tests {
         let half = tile_render_shared::Placed { texel_x: 1, texel_y: 0, step: 2, width: 5, height: 5, ..Default::default() };
         assert_eq!(tile_render_shared::drawn_part(&s, &half), (1, 1, 3, 5));
         assert!(atlas.patch(a, &RgbaImage::new(12, 10)));
-        assert_eq!(atlas.sprites[a.0 as usize].blank, tile_render_shared::blank_margins(12, 10, 12, 10) | tile_render_shared::BLANK_BINARY);
+        assert_eq!(atlas.sprites[a.0 as usize].blank, tile_render_shared::blank_margins(12, 10, 12, 10) | tile_render_shared::BLANK_BINARY | tile_render_shared::BLANK_EMPTY);
     }
 
     #[test]
@@ -751,5 +752,37 @@ mod tests {
                 assert!(kept || !inside(x, y), "texel ({x}, {y}) is cut off");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod empty_proof_tests {
+    use super::*;
+    #[test]
+    fn large_empty_sprites_keep_their_sample_box_and_refresh_after_patches() {
+        let mut builder = AtlasBuilder::new(512);
+        let id = builder.add(&RgbaImage::new(400, 300), (17, -9)).unwrap();
+        let mut atlas = builder.finish(); atlas.trim_blank();
+        let original = atlas.sprites[id.0 as usize];
+        assert_ne!(original.blank & tile_render_shared::BLANK_EMPTY, 0, "saturated margins cannot prove this alone");
+        assert!(atlas.patch(id, &RgbaImage::from_fn(400, 300, |x, y| if (x, y) == (200, 150) { [9, 8, 7, 1] } else { [0; 4] })));
+        let changed = atlas.sprites[id.0 as usize];
+        assert_eq!((changed.box_w, changed.box_h, changed.anchor_x, changed.anchor_y), (original.box_w, original.box_h, original.anchor_x, original.anchor_y));
+        assert_eq!(changed.blank & tile_render_shared::BLANK_EMPTY, 0);
+        assert!(atlas.patch(id, &RgbaImage::new(400, 300)));
+        assert_ne!(atlas.sprites[id.0 as usize].blank & tile_render_shared::BLANK_EMPTY, 0);
+    }
+    #[test]
+    fn indexed_empty_proof_survives_rgb_and_is_invalidated_by_alpha_changes() {
+        let mut builder = AtlasBuilder::new(512);
+        let id = builder.add_indexed(&IndexImage::from_fn(400, 300, |_, _| 7), (0, 0), 1, 0).unwrap();
+        let mut atlas = builder.finish(); atlas.palettes = vec![0; 512]; atlas.trim_blank();
+        assert_ne!(atlas.sprites[id.0 as usize].blank & tile_render_shared::BLANK_EMPTY, 0);
+        let old = atlas.palettes.clone(); let mut rgb = old.clone(); rgb[256 + 7] = 0x00123456;
+        assert!(palette_bounds(&mut atlas.sprites, &old, &rgb, 0).is_empty());
+        assert_ne!(atlas.sprites[id.0 as usize].blank & tile_render_shared::BLANK_EMPTY, 0);
+        let mut visible = rgb.clone(); visible[256 + 7] |= 0x01000000;
+        assert_eq!(palette_bounds(&mut atlas.sprites, &rgb, &visible, 0), vec![id.0 as usize]);
+        assert_eq!(atlas.sprites[id.0 as usize].blank & tile_render_shared::BLANK_EMPTY, 0);
     }
 }

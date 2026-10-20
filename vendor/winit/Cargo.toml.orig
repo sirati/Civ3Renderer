@@ -123,6 +123,8 @@ objc2 = { version = "0.5.2", features = ["relax-sign-encoding"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23.1"
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGError", "CGRemoteOperation", "libc"] }
 
 [target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
 version = "0.2.2"

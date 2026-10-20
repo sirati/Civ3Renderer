@@ -5,10 +5,10 @@ use std::sync::OnceLock;
 use objc2::rc::Retained;
 use objc2::runtime::Sel;
 use objc2::{msg_send, msg_send_id, sel, ClassType};
-use objc2_app_kit::{NSBitmapImageRep, NSCursor, NSDeviceRGBColorSpace, NSImage};
+use objc2_app_kit::{NSBitmapImageRep, NSCursor, NSDeviceRGBColorSpace, NSImage, NSScreen};
 use objc2_foundation::{
-    ns_string, NSData, NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSPoint, NSSize,
-    NSString,
+    ns_string, MainThreadMarker, NSData, NSDictionary, NSNumber, NSObject, NSObjectProtocol,
+    NSPoint, NSSize, NSString, NSUserDefaults,
 };
 
 use crate::cursor::{CursorImage, OnlyCursorImageSource};
@@ -50,14 +50,49 @@ pub(crate) fn cursor_from_image(cursor: &CursorImage) -> Retained<NSCursor> {
     let bitmap_data = unsafe { slice::from_raw_parts_mut(bitmap.bitmapData(), cursor.rgba.len()) };
     bitmap_data.copy_from_slice(&cursor.rgba);
 
+    // Custom cursor images are physical pixels, as on the other platforms:
+    // an image of N pixels is N / backing scale points, so each image pixel
+    // is one display pixel. The main screen's scale is used; a cursor shown
+    // on a display with a different scale is resized by AppKit.
+    let scale = backing_scale();
     let image = unsafe {
-        NSImage::initWithSize(NSImage::alloc(), NSSize::new(width.into(), height.into()))
+        NSImage::initWithSize(
+            NSImage::alloc(),
+            NSSize::new(width as f64 / scale, height as f64 / scale),
+        )
     };
     unsafe { image.addRepresentation(&bitmap) };
 
-    let hotspot = NSPoint::new(cursor.hotspot_x as f64, cursor.hotspot_y as f64);
+    let hotspot = NSPoint::new(cursor.hotspot_x as f64 / scale, cursor.hotspot_y as f64 / scale);
 
     NSCursor::initWithImage_hotSpot(NSCursor::alloc(), &image, hotspot)
+}
+
+/// The main screen's backing scale factor, or 1 off the main thread or
+/// without a screen.
+fn backing_scale() -> f64 {
+    MainThreadMarker::new()
+        .and_then(NSScreen::mainScreen)
+        .map(|screen| screen.backingScaleFactor())
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(1.0)
+}
+
+/// The accessibility pointer size factor (System Settings, Accessibility,
+/// Display, Pointer size): the `mouseDriverCursorSize` preference of
+/// `com.apple.universalaccess`, normally 1 to 4. 0 when it is unset or
+/// cannot be read (the domain can be withheld from the application).
+pub(crate) fn accessibility_cursor_size() -> f64 {
+    // SAFETY: NSUserDefaults is thread-safe; initWithSuiteName takes a
+    // valid NSString and returns an owned object or nil; doubleForKey
+    // takes a valid NSString and returns a plain value (0 when absent).
+    unsafe {
+        NSUserDefaults::initWithSuiteName(
+            NSUserDefaults::alloc(),
+            Some(ns_string!("com.apple.universalaccess")),
+        )
+        .map_or(0.0, |defaults| defaults.doubleForKey(ns_string!("mouseDriverCursorSize")))
+    }
 }
 
 pub(crate) fn default_cursor() -> Retained<NSCursor> {

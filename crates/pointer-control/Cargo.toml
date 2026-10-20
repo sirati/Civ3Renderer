@@ -1,0 +1,22 @@
+[package]
+name = "pointer-control"
+description = "Common physical-pixel pointer control API with display-specific backends"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+pointer-api = { path = "../pointer-api" }
+pointer-fallback = { path = "../pointer-fallback" }
+winit.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pointer-wayland = { path = "../pointer-wayland" }
+pointer-x11 = { path = "../pointer-x11" }
+
+[target.'cfg(windows)'.dependencies]
+pointer-windows = { path = "../pointer-windows" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+pointer-macos = { path = "../pointer-macos" }

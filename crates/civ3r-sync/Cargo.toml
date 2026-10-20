@@ -1,0 +1,10 @@
+[package]
+name = "civ3r-sync"
+description = "Lock-free hand-off between the game's thread and the renderer's own threads: latest values, mailboxes and posted window-message payloads"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arc-swap = "1.7"
+crossbeam-channel = "0.5"

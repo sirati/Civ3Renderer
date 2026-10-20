@@ -6,7 +6,7 @@
 
 use std::cell::OnceCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use civ3_sys::build::IMAGE_BASE;
 use civ3_sys::c3x::{C3xState, District, DistrictConfigs};
@@ -35,36 +35,35 @@ impl DistrictState {
 
 /// C3X's state in this process: found once (`None` inside: there is none).
 fn c3x_state() -> Option<C3xState> {
-    static STATE: Mutex<Option<Option<C3xState>>> = Mutex::new(None);
-    let mut slot = STATE.lock().ok()?;
-    if slot.is_none() {
-        match C3xState::find(IMAGE_BASE) {
-            Ok(found) => *slot = Some(found),
-            Err(e) => {
-                log::debug!("looking for C3X's state: {e}");
-                return None;
-            }
+    // (A failed search is tried again; two threads racing find the same.)
+    static STATE: OnceLock<Option<C3xState>> = OnceLock::new();
+    if let Some(found) = STATE.get() {
+        return *found;
+    }
+    match C3xState::find(IMAGE_BASE) {
+        Ok(found) => *STATE.get_or_init(|| found),
+        Err(e) => {
+            log::debug!("looking for C3X's state: {e}");
+            None
         }
     }
-    (*slot).flatten()
 }
 
 /// The configs C3X holds, read again only when they change: what they were
 /// read from, then the names of the improvements their wonders were matched
 /// with.
 fn configs(state: &C3xState, names: &[String]) -> Option<Arc<DistrictConfigs>> {
-    static CACHE: Mutex<Option<((u64, u64), Arc<DistrictConfigs>)>> = Mutex::new(None);
+    static CACHE: civ3r_sync::Latest<((u64, u64), Arc<DistrictConfigs>)> = civ3r_sync::Latest::new();
     let key = (state.fingerprint().ok()?, {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         names.hash(&mut hasher);
         hasher.finish()
     });
-    let mut cache = CACHE.lock().ok()?;
-    if let Some((cached, configs)) = cache.as_ref()
-        && *cached == key
+    if let Some(cached) = CACHE.load()
+        && cached.0 == key
     {
-        return Some(configs.clone());
+        return Some(cached.1.clone());
     }
     let mut configs = state.configs().inspect_err(|e| log::debug!("reading C3X's district configs: {e}")).ok()?;
     configs.resolve_wonders(names);
@@ -76,7 +75,7 @@ fn configs(state: &C3xState, names: &[String]) -> Option<Arc<DistrictConfigs>> {
         configs.natural_wonders.len(),
         configs.flags
     );
-    *cache = Some((key, configs.clone()));
+    CACHE.publish((key, configs.clone()));
     Some(configs)
 }
 

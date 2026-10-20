@@ -14,6 +14,8 @@ use crate::Build;
 
 mod setup;
 pub use setup::{TitleLayout, title_layout};
+pub mod advisors;
+pub mod screens;
 
 /// Reads the game's memory (`None` where it cannot be read).
 pub trait Mem {
@@ -355,6 +357,8 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
         status_panel(mem, &form, out);
     }
     setup::controls(mem, &form, out);
+    advisors::controls(mem, &form, out);
+    screens::controls(mem, &form, out);
     if let Some(slider) = crate::sliders::Slider::read(mem, addr) {
         let [x, y, w, h] = slider.track;
         out.push(Control {
@@ -464,7 +468,15 @@ impl Control {
     /// space after its visible icon or text. Decorations are not controls.
     pub fn content_row(&self) -> bool {
         matches!(self.kind, ControlKind::ListItem) ||
-            (self.id >> 32 != 0 && matches!(self.id as u32 & 0xF800_0000, TAG_LINK | TAG_MENU | TAG_CHOICE))
+            (self.id >> 32 != 0 && matches!(self.id as u32 & 0xF800_0000, TAG_LINK | TAG_MENU | TAG_CHOICE)) ||
+            advisors::cell_kind(self.id).is_some_and(|k| k != advisors::CELL_LIST)
+    }
+
+    /// Its only action is on the right button, so a button-snapping left
+    /// click is sent as a right click: the domestic advisor's production
+    /// cells (the quick build chooser has no left click equivalent).
+    pub fn alt_right_click(&self) -> bool {
+        advisors::cell_kind(self.id) == Some(advisors::CELL_PRODUCTION)
     }
 
     /// A link from the form's rich-text hit table.
@@ -764,12 +776,20 @@ fn list_box(mem: &dyn Mem, form: &Form, parts: ListParts, out: &mut Vec<Control>
     // Lines per item shown (variable layout): from the item nodes.
     let lines: Vec<i32> = if layout.variable { item_lines(mem, parts.items, first, shown) } else { vec![1; shown as usize] };
     let mut before = 0;
+    let mut content: Option<[i32; 4]> = None;
     for k in 0..shown {
         let own = lines.get(k as usize).copied().unwrap_or(1);
         let r = layout.item(k, before, own);
         before += own;
         let rect = form.on_screen(r);
         if !empty(rect) {
+            content = Some(match content {
+                None => rect,
+                Some([x, y, w, h]) => {
+                    let (left, top) = (x.min(rect[0]), y.min(rect[1]));
+                    [left, top, (x + w).max(rect[0] + rect[2]) - left, (y + h).max(rect[1] + rect[3]) - top]
+                }
+            });
             out.push(Control { rect, kind: ControlKind::ListItem, id: part_id(form.addr, TAG_ITEM, (first + k) as u32) });
         }
     }
@@ -777,7 +797,10 @@ fn list_box(mem: &dyn Mem, form: &Form, parts: ListParts, out: &mut Vec<Control>
     // than it shows.
     if form.status1 & WHEEL != 0 && count > shown {
         let step = layout.height + layout.gap;
-        out.push(Control { rect: form.shown, kind: ControlKind::List { scroll: form.shown, step }, id: form.addr as u64 });
+        // Child scrollbar arrows and frames are outside the item layout.
+        // Keep the form's full wheel hit area, but animate only its content.
+        let scroll = content.map(|[x, _, w, _]| [x, form.shown[1], w, form.shown[3]]).unwrap_or(form.shown);
+        out.push(Control { rect: form.shown, kind: ControlKind::List { scroll, step }, id: form.addr as u64 });
     }
 }
 

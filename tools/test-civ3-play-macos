@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""Exercise the compiled Rust launcher. Test stand-ins are development-only.
+
+Build with cargo build -p civ3r-launcher, then set CIV3R_TEST_LAUNCHER to
+the resulting civ3-play-macos executable. No Darwin spoofing is used.
+"""
+import json
+import os
+from pathlib import Path
+import subprocess
+import signal
+import time
+import sys
+import tempfile
+import unittest
+
+LAUNCHER = Path(os.environ.get("CIV3R_TEST_LAUNCHER",
+    str(Path(os.environ.get("CARGO_TARGET_DIR", "target")) / "debug/civ3-play-macos"))).resolve()
+
+class MacLauncherTests(unittest.TestCase):
+    def run_case(self, *, viewer_fails=False, wine_exit=0, extra=(), occupied=False, other_source=False, source_alias=False, viewer_address="127.0.0.1:45678", interrupt=False, occupied_bridge=False, runtime_in_source=False, prefix_in_source=False, grandchild=False, viewer_fallback=False, viewer_ignores_term=False, registry_fails=False, font_cache=None, existing_rules_links=False, missing_rules=False, legacy_private_state=False, planted_state_link=False, existing_private_state=False, write_private_state=False, planted_history_link=False, render_env=None, viewer_exit=0):
+        temp = tempfile.TemporaryDirectory(prefix="civ3r-mac-launch-")
+        self.addCleanup(temp.cleanup)
+        base = Path(temp.name)
+        install = base / "existing game"
+        game = install / "Conquests"
+        game.mkdir(parents=True)
+        (install / "Art").mkdir()
+        (install / "Art/terrain.pcx").write_bytes(b"original terrain")
+        (game / "Art").mkdir()
+        (game / "Art/units.pcx").write_bytes(b"original units")
+        (game / "Civ3Conquests.exe").write_bytes(b"original game")
+        (game / "IFC23.dll").write_bytes(b"original interface")
+        (game / "conquests.ini").write_text("[Conquests]\nKeepRes=1\n")
+        if not missing_rules:
+            # Input content is synthetic; the launcher must expose every byte,
+            # not parse or replace the original game's rules/scenario data.
+            if os.environ.get('CIV3R_TEST_RULES_SOURCE'):
+                (game / "conquests.biq").symlink_to(Path(os.environ['CIV3R_TEST_RULES_SOURCE']).resolve())
+            else:
+                (game / "conquests.biq").write_bytes(b"BICX original default scenario rules")
+                (game / "conquests.biq").chmod(0o444)
+        (game / "conquests.mb").write_bytes(bytes.fromhex("7a8b24c7"))
+        (game / "conquests.mb").chmod(0o444)
+        scratch_names=['bic__in_.tmp','bic__out.tmp','MPRules.tmp','MPSave.tmp','MPScenario.tmp','iskeuvha.tmp','mixed.TMP']
+        history_names=['CampaignRecord.hof','HighScores.cv3']
+        for name in scratch_names: (game/name).write_bytes(b'stale original scratch '+name.encode())
+        for name in history_names: (game/name).write_bytes(b'original user history '+name.encode())
+        (game / "LSANS.fot").write_bytes(b"stale generated font resource")
+        (game / "Saves/Auto").mkdir(parents=True)
+        (game / "Saves/old.SAV").write_bytes(b"original save")
+        before = {str(p.relative_to(install)):p.read_bytes() for p in install.rglob("*") if p.is_file()}
+        home = install / "private runtime" if runtime_in_source else base / "runtime"
+        if occupied:
+            (home / 'launch.lock').mkdir(parents=True)
+            (home / 'launch.lock/pid').write_text('external session')
+        if other_source:
+            private = home / 'game/Civilization III Complete/Conquests'
+            private.mkdir(parents=True)
+            (private / 'ifc23_orig.dll').symlink_to('/another/game/IFC23.dll')
+        if existing_rules_links:
+            private = home / 'game/Civilization III Complete/Conquests'
+            private.mkdir(parents=True)
+            for name in ['conquests.biq','conquests.mb']:
+                (private/name).symlink_to(game/name)
+        if legacy_private_state or existing_private_state or planted_state_link or planted_history_link:
+            private = home / 'game/Civilization III Complete/Conquests'
+            private.mkdir(parents=True,exist_ok=True)
+            for name in scratch_names+history_names:
+                if legacy_private_state: (private/name).symlink_to(game/name)
+                elif existing_private_state: (private/name).write_bytes(b'private existing state '+name.encode())
+            if planted_state_link:
+                (private/'bic__in_.tmp').symlink_to(game/'Art/units.pcx')
+                (private/'MPRules.tmp').symlink_to(game/'MPRules.tmp')
+                (private/'HighScores.cv3').symlink_to(game/'HighScores.cv3')
+            if planted_history_link:
+                (private/'MPRules.tmp').symlink_to(game/'MPRules.tmp')
+                (private/'CampaignRecord.hof').symlink_to(game/'CampaignRecord.hof')
+                (private/'HighScores.cv3').symlink_to(game/'Art/units.pcx')
+        if source_alias:
+            private = home / 'game/Civilization III Complete/Conquests'
+            private.mkdir(parents=True)
+            (private / 'conquests.ini').symlink_to(game / 'conquests.ini')
+        bin_dir = base / "bin"
+        bin_dir.mkdir()
+        viewer = bin_dir / "viewer"
+        viewer.write_text(f"#!{sys.executable}\n" + '''import json, os, pathlib, signal, sys, time
+args=sys.argv[1:]
+if os.environ.get('TEST_VIEWER_IGNORES_TERM')=='1': signal.signal(signal.SIGTERM,signal.SIG_IGN)
+if os.environ.get('TEST_VIEWER_FAIL')=='1':
+    print('controlled native initialization failure', file=sys.stderr)
+    sys.exit(19)
+assert '--fullscreen' not in args
+ready=pathlib.Path(args[args.index('--ready-file')+1])
+token=pathlib.Path(args[args.index('--token-file')+1])
+assert token.stat().st_mode & 0o077 == 0
+assert token.parent.stat().st_mode & 0o077 == 0
+assert len(token.read_text().strip())==64
+pathlib.Path(os.environ['TEST_VIEWER_CAPTURE']).write_text(json.dumps({'font_cache':os.environ.get('CIV3R_FONT_CACHE')}))
+ready.write_text(os.environ['TEST_VIEWER_ADDRESS']+'\\n')
+pathlib.Path(os.environ['TEST_VIEWER_PID']).write_text(str(os.getpid()))
+while True:
+    if os.environ.get('TEST_VIEWER_FALLBACK')=='1' and pathlib.Path(os.environ['TEST_CAPTURE']).exists(): sys.exit(int(os.environ['TEST_VIEWER_EXIT']))
+    time.sleep(0.02)
+''')
+        viewer.chmod(0o755)
+        wine = bin_dir / "wine"
+        wine.write_text(f"#!{sys.executable}\n" + '''import json, os, pathlib, signal, subprocess, sys, time
+if len(sys.argv)>1 and sys.argv[1]=='reg.exe':
+    with open(os.environ['TEST_REGISTRY'],'a') as output:
+        output.write(json.dumps({'argv':sys.argv[1:],'prefix':os.environ['WINEPREFIX']})+'\\n')
+    sys.exit(7 if os.environ.get('TEST_REGISTRY_FAIL')=='1' else 0)
+if os.environ.get('TEST_GRANDCHILD')=='1':
+    helper=subprocess.Popen([sys.executable,'-c','import time; time.sleep(3600)'])
+    pathlib.Path(os.environ['TEST_GRANDCHILD_PID']).write_text(str(helper.pid))
+    def stop(signum,frame):
+        helper.wait(timeout=3)
+        sys.exit(0)
+    signal.signal(signal.SIGTERM,stop)
+rules=pathlib.Path('conquests.biq').read_bytes()
+assert rules==pathlib.Path(os.environ['TEST_RULES_SOURCE']).read_bytes()
+assert pathlib.Path('conquests.mb').read_bytes()==bytes.fromhex('7a8b24c7')
+pathlib.Path(os.environ['TEST_WINE_PID']).write_text(str(os.getpid()))
+pathlib.Path(os.environ['TEST_CAPTURE']).write_text(json.dumps({'argv':sys.argv[1:], 'env':{k:v for k,v in os.environ.items() if k.startswith(('CIV3R_', 'WINE', 'WGPU'))}, 'cwd':os.getcwd(), 'scenario_rules':rules.hex()}))
+pathlib.Path('civ3-bridge.log').write_text('game started')
+if os.environ.get('TEST_WRITE_PRIVATE_STATE')=='1':
+    for name in json.loads(os.environ['TEST_SCRATCH_NAMES']): pathlib.Path(name).write_bytes(b'new load scratch '+name.encode())
+    for name in json.loads(os.environ['TEST_HISTORY_NAMES']):
+        with pathlib.Path(name).open('ab') as output: output.write(b' updated by game')
+if os.environ.get('TEST_VIEWER_FALLBACK')=='1':
+    time.sleep(0.5)
+    pathlib.Path(os.environ['TEST_GAME_COMPLETED']).write_text('native game continued after viewer close')
+while os.environ.get('TEST_WINE_HANG')=='1': time.sleep(1)
+sys.exit(int(os.environ.get('TEST_WINE_EXIT','0')))
+''')
+        wine.chmod(0o755)
+        bridge = base / "new bridge.dll"
+        bridge.write_bytes(b"new renderer interface")
+        if occupied_bridge:
+            private = home / 'game/Civilization III Complete/Conquests'
+            private.mkdir(parents=True)
+            (private/'IFC23.dll').symlink_to(game/'IFC23.dll')
+        env = os.environ.copy()
+        env.update(PATH=str(bin_dir)+os.pathsep+env['PATH'],
+                   CIV3R_HOME=str(home), CIV3R_VIEWER_BIN=str(viewer),
+                   CIV3R_BRIDGE=str(bridge), CIV3R_WINE=str(wine),
+                   WINEPREFIX=str(install / "private prefix" if prefix_in_source else home / "prefix"),
+                   TEST_CAPTURE=str(base / "capture.json"),
+                   TEST_RULES_SOURCE=str(game / "conquests.biq"),
+                   TEST_VIEWER_CAPTURE=str(base / "viewer-env.json"),
+                   TEST_GAME_COMPLETED=str(base / "game-completed"),
+                   TEST_VIEWER_PID=str(base / "viewer.pid"),
+                   TEST_VIEWER_FAIL="1" if viewer_fails else "0",
+                   TEST_VIEWER_EXIT=str(viewer_exit),
+                   TEST_WINE_EXIT=str(wine_exit),
+                   TEST_VIEWER_ADDRESS=viewer_address,
+                   TEST_WINE_PID=str(base / "wine.pid"),
+                   TEST_WINE_HANG="1" if interrupt else "0",
+                   TEST_GRANDCHILD="1" if grandchild else "0",
+                   TEST_GRANDCHILD_PID=str(base / "grandchild.pid"),
+                   TEST_VIEWER_FALLBACK="1" if viewer_fallback else "0",
+                   TEST_VIEWER_IGNORES_TERM="1" if viewer_ignores_term else "0",
+                   TEST_REGISTRY=str(base / 'registry.jsonl'),
+                   TEST_REGISTRY_FAIL="1" if registry_fails else "0",
+                   TEST_WRITE_PRIVATE_STATE="1" if write_private_state else "0",
+                   TEST_SCRATCH_NAMES=json.dumps(scratch_names),
+                   TEST_HISTORY_NAMES=json.dumps(history_names))
+        for key in ['CIV3R_GAME','CIV3R_SCALE','WGPU_BACKEND','CIV3R_SETTINGS','CIV3R_FONT_CACHE','CIV3R_GAME_RENDER']:
+            env.pop(key,None)
+        if font_cache is not None:
+            env['CIV3R_FONT_CACHE']=font_cache
+        if render_env is not None:
+            env['CIV3R_GAME_RENDER']=render_env
+        process = subprocess.Popen([str(LAUNCHER), '--game', str(game), *extra],
+                                   env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        if interrupt:
+            deadline=time.monotonic()+10
+            while not (base/'capture.json').exists() and process.poll() is None:
+                if time.monotonic()>deadline: self.fail('game never started')
+                time.sleep(0.05)
+            process.send_signal(signal.SIGTERM)
+        stdout,stderr=process.communicate(timeout=15)
+        result=subprocess.CompletedProcess(process.args,process.returncode,stdout,stderr)
+        after = {str(p.relative_to(install)):p.read_bytes() for p in install.rglob("*") if p.is_file()}
+        self.assertEqual(before,after,"launcher changed original game/assets/saves")
+        self.assertFalse(list(home.glob('session.*')),"session token/state leaked")
+        if occupied:
+            self.assertEqual((home / 'launch.lock/pid').read_text(), 'external session')
+        else:
+            self.assertFalse((home / 'launch.lock').exists(), "launch lock leaked")
+        for name in ['viewer.pid', 'wine.pid', 'grandchild.pid']:
+            pid_file = base / name
+            if pid_file.exists():
+                pid=int(pid_file.read_text())
+                def cleanup_pid(pid=pid):
+                    try: os.kill(pid,signal.SIGKILL)
+                    except ProcessLookupError: pass
+                self.addCleanup(cleanup_pid)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid,0)
+        return base, home, result
+
+    def test_launch_uses_private_writes_and_links_original_assets(self):
+        base, home, result = self.run_case(extra=('--window','--scale','2'))
+        self.assertEqual(result.returncode,0,result.stderr)
+        capture=json.loads((base/'capture.json').read_text())
+        private=Path(capture['cwd'])
+        self.assertEqual(capture['env']['CIV3R_VIEWER'],'external')
+        self.assertEqual(capture['env']['WGPU_BACKEND'],'metal')
+        self.assertEqual(capture['env']['CIV3R_SCALE'],'2')
+        self.assertEqual(capture['env']['CIV3R_SETTINGS'],str(home / 'settings.toml'))
+        self.assertEqual(capture['env']['CIV3R_GAME_WINDOW'],'hide')
+        self.assertEqual(capture['env']['CIV3R_GAME_RENDER'],'off')
+        self.assertEqual(capture['env']['CIV3R_GAME_MAP'],'off')
+        expected_cache='Z:'+str(home/'fonts').replace('/','\\')
+        self.assertEqual(capture['env']['CIV3R_FONT_CACHE'],expected_cache)
+        self.assertEqual(json.loads((base/'viewer-env.json').read_text())['font_cache'],expected_cache)
+        self.assertTrue(capture['argv'][0].startswith('Z:\\'))
+        self.assertTrue((private/'Civ3Conquests.exe').is_symlink())
+        self.assertTrue((private/'Art').is_symlink())
+        self.assertTrue((private.parent/'Art').is_symlink())
+        self.assertTrue((private/'ifc23_orig.dll').is_symlink())
+        self.assertEqual((private/'IFC23.dll').read_bytes(),b'new renderer interface')
+        self.assertFalse((private/'Saves/Auto').is_symlink())
+
+    def test_viewer_failure_keeps_game_unstarted(self):
+        base, _, result=self.run_case(viewer_fails=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('controlled native initialization failure',result.stderr)
+        self.assertFalse((base/'capture.json').exists())
+
+    def test_wine_failure_is_reported_and_viewer_reaped(self):
+        _, _, result=self.run_case(wine_exit=7)
+        self.assertEqual(result.returncode,7,result.stderr)
+
+    def test_invalid_scale_does_not_launch_processes(self):
+        base, _, result=self.run_case(extra=('--scale','0'))
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((base/'capture.json').exists())
+
+    def test_occupied_install_starts_no_processes_and_preserves_owner(self):
+        base, home, result=self.run_case(occupied=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('another launch owns',result.stderr)
+        self.assertFalse((base/'capture.json').exists())
+        self.assertFalse((home/'game').exists())
+
+    def test_different_original_game_is_rejected_before_adding_assets(self):
+        base, home, result=self.run_case(other_source=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('belongs to another game',result.stderr)
+        self.assertFalse((base/'capture.json').exists())
+        self.assertFalse((home/'game/Civilization III Complete/Art').exists())
+
+    def test_writable_config_alias_is_rejected_without_touching_original(self):
+        base, home, result=self.run_case(source_alias=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('writable private path must not be a symlink',result.stderr)
+        self.assertFalse((base/'capture.json').exists())
+        self.assertFalse((home/'game/Civilization III Complete/Conquests/IFC23.dll').exists())
+
+    def test_fullscreen_map_and_visible_game_flags_are_forwarded(self):
+        base, _, result=self.run_case(extra=('--map','--show-game-window'))
+        self.assertEqual(result.returncode,0,result.stderr)
+        capture=json.loads((base/'capture.json').read_text())
+        self.assertEqual(capture['env']['CIV3R_VIEWER'],'external-fullscreen')
+        self.assertEqual(capture['env']['CIV3R_GAME_MAP'],'on')
+        self.assertEqual(capture['env']['CIV3R_GAME_WINDOW'],'show')
+        self.assertTrue(capture['env']['WINEDLLOVERRIDES'].startswith('ifc23=n,b;'))
+
+    def test_term_reaps_both_children_and_erases_token(self):
+        _, _, result=self.run_case(interrupt=True)
+        self.assertEqual(result.returncode,143,result.stderr)
+
+    def test_nonloopback_and_invalid_viewer_address_do_not_launch_wine(self):
+        for address in ['192.0.2.1:1234','127.0.0.1:0','not an address']:
+            with self.subTest(address=address):
+                base, _, result=self.run_case(viewer_address=address)
+                self.assertNotEqual(result.returncode,0)
+                self.assertFalse((base/'capture.json').exists())
+
+    def test_renderer_dll_alias_is_replaced_without_writing_source(self):
+        base, home, result=self.run_case(occupied_bridge=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        dll=home/'game/Civilization III Complete/Conquests/IFC23.dll'
+        self.assertFalse(dll.is_symlink())
+        self.assertEqual(dll.read_bytes(),b'new renderer interface')
+
+    def test_writable_runtime_and_prefix_inside_source_are_rejected_before_any_write(self):
+        for options in [dict(runtime_in_source=True),dict(prefix_in_source=True)]:
+            with self.subTest(options=options):
+                base, _, result=self.run_case(**options)
+                self.assertNotEqual(result.returncode,0)
+                self.assertIn('outside the original game installation',result.stderr)
+                self.assertFalse((base/'capture.json').exists())
+                self.assertFalse((base/'existing game/private runtime').exists())
+                self.assertFalse((base/'existing game/private prefix').exists())
+
+    def test_interruption_stops_owned_wine_helper_processes(self):
+        _, _, result=self.run_case(interrupt=True,grandchild=True)
+        self.assertEqual(result.returncode,143,result.stderr)
+
+    def test_explicit_compatibility_keeps_native_game_running_after_viewer_close(self):
+        base, _, result=self.run_case(viewer_fallback=True,extra=('--compatibility-fallback',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue((base/'game-completed').exists())
+        capture=json.loads((base/'capture.json').read_text())
+        self.assertEqual(capture['env']['CIV3R_GAME_RENDER'],'compat')
+
+    def test_default_viewer_close_stops_owned_game_without_legacy_fallback(self):
+        base, _, result=self.run_case(viewer_fallback=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('stopping owned game',result.stderr)
+        self.assertFalse((base/'game-completed').exists())
+
+    def test_unresponsive_viewer_is_killed_within_cleanup_bound(self):
+        started=time.monotonic()
+        _, _, result=self.run_case(viewer_ignores_term=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertLess(time.monotonic()-started,9)
+
+    def test_install_registry_uses_32bit_private_paths_and_complete_flags(self):
+        base, home, result=self.run_case()
+        self.assertEqual(result.returncode,0,result.stderr)
+        entries=[json.loads(line) for line in (base/'registry.jsonl').read_text().splitlines()]
+        self.assertEqual(len(entries),5)
+        self.assertTrue(all(entry['prefix']==str(home/'prefix') for entry in entries))
+        for entry in entries:
+            args=entry['argv']
+            self.assertEqual(args[0:2],['reg.exe','add'])
+            self.assertIn('/reg:32',args)
+            value=args[args.index('/d')+1]
+            if args[args.index('/t')+1]=='REG_SZ':
+                self.assertTrue(value.startswith('Z:'+str(home).replace('/','\\')),value)
+                self.assertNotIn('existing game',value)
+            else: self.assertEqual(value,'1')
+        self.assertTrue(entries[-1]['argv'][entries[-1]['argv'].index('/d')+1].endswith('\\'))
+
+    def test_registry_failure_starts_neither_viewer_nor_game(self):
+        base, _, result=self.run_case(registry_fails=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('registry initialization failed',result.stderr)
+        self.assertFalse((base/'viewer.pid').exists())
+        self.assertFalse((base/'capture.json').exists())
+
+    def test_explicit_font_cache_is_preserved_for_wine_and_native_viewer(self):
+        cache=r'Z:\precomputed glyphs\fonts'
+        base, _, result=self.run_case(font_cache=cache)
+        self.assertEqual(result.returncode,0,result.stderr)
+        game=json.loads((base/'capture.json').read_text())
+        viewer=json.loads((base/'viewer-env.json').read_text())
+        self.assertEqual(game['env']['CIV3R_FONT_CACHE'],cache)
+        self.assertEqual(viewer['font_cache'],cache)
+
+    def test_original_rules_inputs_remain_linked_on_existing_private_install(self):
+        base, home, result=self.run_case(existing_rules_links=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        private=home/'game/Civilization III Complete/Conquests'
+        source=base/'existing game/Conquests'
+        for name in ['conquests.biq','conquests.mb']:
+            self.assertTrue((private/name).is_symlink(),name)
+            self.assertEqual((private/name).resolve(),(source/name).resolve())
+            self.assertEqual((private/name).read_bytes(),(source/name).read_bytes())
+        game=json.loads((base/'capture.json').read_text())
+        self.assertEqual(bytes.fromhex(game['scenario_rules']),(source/'conquests.biq').read_bytes())
+        self.assertFalse((private/'bic__out.tmp').exists())
+        self.assertFalse((private/'LSANS.fot').exists())
+
+    def test_missing_original_rules_prevents_startup_before_any_runtime_write(self):
+        base, home, result=self.run_case(missing_rules=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('no required rules file conquests.biq',result.stderr)
+        self.assertFalse(home.exists())
+        self.assertFalse((base/'viewer.pid').exists())
+        self.assertFalse((base/'capture.json').exists())
+
+    def test_load_scratch_and_histories_are_private_on_fresh_install(self):
+        base, home, result=self.run_case(write_private_state=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        private=home/'game/Civilization III Complete/Conquests'
+        for name in ['bic__in_.tmp','bic__out.tmp','MPRules.tmp','MPSave.tmp','MPScenario.tmp','iskeuvha.tmp','mixed.TMP']:
+            self.assertFalse((private/name).is_symlink())
+            self.assertEqual((private/name).read_bytes(),b'new load scratch '+name.encode())
+        for name in ['CampaignRecord.hof','HighScores.cv3']:
+            self.assertFalse((private/name).is_symlink())
+            self.assertEqual((private/name).read_bytes(),b'original user history '+name.encode()+b' updated by game')
+
+    def test_legacy_private_state_links_migrate_before_game_writes(self):
+        _, home, result=self.run_case(legacy_private_state=True,write_private_state=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        private=home/'game/Civilization III Complete/Conquests'
+        self.assertFalse((private/'bic__in_.tmp').is_symlink())
+        self.assertEqual((private/'bic__in_.tmp').read_bytes(),b'new load scratch bic__in_.tmp')
+        self.assertEqual((private/'HighScores.cv3').read_bytes(),b'original user history HighScores.cv3 updated by game')
+
+    def test_regular_private_scratch_and_histories_survive_relaunch(self):
+        _, home, result=self.run_case(existing_private_state=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        private=home/'game/Civilization III Complete/Conquests'
+        for name in ['bic__in_.tmp','bic__out.tmp','MPRules.tmp','HighScores.cv3','CampaignRecord.hof']:
+            self.assertFalse((private/name).is_symlink())
+            self.assertEqual((private/name).read_bytes(),b'private existing state '+name.encode())
+
+    def test_unrelated_private_state_link_rejected_before_any_owned_link_migrates(self):
+        for options in [dict(planted_state_link=True),dict(planted_history_link=True)]:
+            with self.subTest(options=options):
+                base, home, result=self.run_case(**options)
+                self.assertNotEqual(result.returncode,0)
+                self.assertIn('untrusted private state symlink',result.stderr)
+                private=home/'game/Civilization III Complete/Conquests'
+                self.assertTrue((private/'MPRules.tmp').is_symlink())
+                self.assertTrue((private/'HighScores.cv3').is_symlink())
+                if options.get('planted_history_link'):
+                    self.assertTrue((private/'CampaignRecord.hof').is_symlink())
+                self.assertFalse((base/'viewer.pid').exists())
+                self.assertFalse((base/'capture.json').exists())
+
+    def test_diagnostics_window_does_not_enable_legacy_pixels(self):
+        base, _, result=self.run_case(extra=('--show-game-window',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        capture=json.loads((base/'capture.json').read_text())
+        self.assertEqual(capture['env']['CIV3R_GAME_RENDER'],'off')
+        self.assertEqual(capture['env']['CIV3R_GAME_MAP'],'off')
+        self.assertEqual(capture['env']['CIV3R_GAME_WINDOW'],'show')
+
+    def test_explicit_comparison_enables_full_legacy_pixels_and_stops_on_close(self):
+        for option in ['--compare','--compare-game']:
+            with self.subTest(option=option):
+                base, _, result=self.run_case(extra=(option,),viewer_fallback=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+                capture=json.loads((base/'capture.json').read_text())
+                self.assertEqual(capture['env']['CIV3R_GAME_RENDER'],'on')
+                self.assertEqual(capture['env']['CIV3R_GAME_MAP'],'on')
+                self.assertEqual(capture['env']['CIV3R_GAME_WINDOW'],'show')
+                self.assertFalse((base/'game-completed').exists())
+
+    def test_explicit_render_environment_is_preserved_and_cli_mode_overrides_it(self):
+        for inherited,extra,expected in [('on',(),'on'),('off',(),'off'),('compatibility',(),'compatibility'),('on',('--compatibility-fallback',),'compat'),('compat',('--compare',),'on')]:
+            with self.subTest(inherited=inherited,extra=extra):
+                base, _, result=self.run_case(render_env=inherited,extra=extra)
+                self.assertEqual(result.returncode,0,result.stderr)
+                capture=json.loads((base/'capture.json').read_text())
+                self.assertEqual(capture['env']['CIV3R_GAME_RENDER'],expected)
+
+    def test_default_viewer_loss_stops_owned_game_helper_group(self):
+        base, _, result=self.run_case(viewer_fallback=True,grandchild=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse((base/'game-completed').exists())
+
+    def test_default_viewer_crash_reports_failure_and_stops_owned_game(self):
+        base, _, result=self.run_case(viewer_fallback=True,viewer_exit=19)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('native viewer failed; stopping owned game',result.stderr)
+        self.assertFalse((base/'game-completed').exists())
+
+if __name__=='__main__': unittest.main()

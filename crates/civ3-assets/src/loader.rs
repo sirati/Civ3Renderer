@@ -39,6 +39,12 @@
 //!
 //! `font:<face>/<height>/<r>,<g>,<b>[/<weight>/<italic>]` sources are the game's text glyphs
 //! (see `fonts`), one image per character of `fonts::charset()`, in order.
+//!
+//! `system-cursor:<IDC>/<size>` sources are a system pointer the game asks
+//! the system for, e.g. `system-cursor:32514/32` its wait cursor (`IDC_WAIT`)
+//! at 32 pixels, from the system's `user32.dll` (see `syscursor`): one
+//! image, `size`×`size` (drawn from its top-left); clear where the system
+//! has no such cursor (real Windows keeps its cursors in files instead).
 
 use render_desc::ImageLoader;
 use tile_render::RgbaImage;
@@ -52,6 +58,28 @@ pub struct Civ3Loader {
 impl Civ3Loader {
     pub fn new(files: GameFiles) -> Self {
         Self { files }
+    }
+
+    fn options_rgba(&self, options: &toml::Table) -> Result<[Option<[u8; 4]>; 256], String> {
+        let mut explicit = rgba_table(options)?;
+        let Some(value) = options.get("palette_alpha") else { return Ok(explicit) };
+        let table = value.as_table().ok_or("palette_alpha must be a table")?;
+        let source = table.get("source").and_then(|v| v.as_str()).ok_or("palette_alpha.source is required")?;
+        let first = table.get("first").ok_or("palette_alpha.first is required").and_then(|v| int(v).map_err(|_| "invalid palette_alpha.first"))?;
+        let count = table.get("count").ok_or("palette_alpha.count is required").and_then(|v| int(v).map_err(|_| "invalid palette_alpha.count"))?;
+        if first >= 256 || count == 0 || count > 256 - first { return Err("palette_alpha range is outside palette".into()); }
+        let skip = table.get("skip").and_then(|v| v.as_array()).filter(|v| v.len() == 3).ok_or("palette_alpha.skip must be RGB")?;
+        let byte = |v| u8::try_from(int(v)?).map_err(|_| "palette_alpha.skip channel is outside byte range".to_string());
+        let skip = [byte(&skip[0])?, byte(&skip[1])?, byte(&skip[2])?];
+        let bytes = self.files.read(source).map_err(|e| e.to_string())?;
+        let palette = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?.palette;
+        for (dst, value) in palette_alpha_colors(&palette, first, count, skip).into_iter().enumerate() {
+            if let Some(value) = value {
+                if explicit[dst].is_some() { return Err("palette_alpha overlaps an explicit rgba override".into()); }
+                explicit[dst] = Some(value);
+            }
+        }
+        Ok(explicit)
     }
 
     fn options_palette(&self, options: &toml::Table, base: &Palette) -> Result<Palette, String> {
@@ -74,6 +102,16 @@ impl Civ3Loader {
         }
         Ok(out)
     }
+}
+
+/// Raw palette channels and the original entry number. No RGB555 or alpha
+/// quantization is allowed here; the destination-dependent GPU mode does it.
+fn palette_alpha_colors(palette: &Palette, first: usize, count: usize, skip: [u8; 3]) -> [Option<[u8; 4]>; 256] {
+    let mut out = [None; 256];
+    for (j, (index, c)) in palette.0.iter().enumerate().filter(|(_, c)| [c.0, c.1, c.2] != skip).take(count).enumerate() {
+        out[first + j] = Some([c.0, c.1, c.2, index as u8]);
+    }
+    out
 }
 
 /// Copies entries of `from` into `out` per a `{ dst = src }` table.
@@ -237,6 +275,37 @@ pub fn on_backdrop(image: &RgbaImage, color: [u8; 3], key: [u8; 3]) -> RgbaImage
 }
 
 /// The style, colour and backdrop a `font:` source names.
+/// `<IDC>/<size>` of a `system-cursor:` source.
+fn system_cursor_spec(spec: &str) -> Result<(u32, u32), String> {
+    let err = || format!("system-cursor:{spec}: want <IDC>/<size>");
+    let (id, size) = spec.split_once('/').ok_or_else(err)?;
+    let size: u32 = size.parse().map_err(|_| err())?;
+    if size == 0 || size > 256 {
+        return Err(err());
+    }
+    Ok((id.parse().map_err(|_| err())?, size))
+}
+
+/// A `system-cursor:` source's image: the cursor at the top-left of a
+/// `size`×`size` image (cut if larger); clear (logged) where the system has
+/// none.
+fn system_cursor(files: &GameFiles, spec: &str) -> Result<RgbaImage, String> {
+    let (id, size) = system_cursor_spec(spec)?;
+    let found = crate::syscursor::find(&crate::syscursor::user32_candidates(files.roots()), id, size);
+    let c = found.unwrap_or_else(|e| {
+        log::warn!("{e}: left clear");
+        crate::syscursor::CursorImage { width: 0, height: 0, rgba: Vec::new(), hotspot: (0, 0) }
+    });
+    Ok(RgbaImage::from_fn(size, size, |x, y| {
+        if x < c.width && y < c.height {
+            let i = ((y * c.width + x) * 4) as usize;
+            [c.rgba[i], c.rgba[i + 1], c.rgba[i + 2], c.rgba[i + 3]]
+        } else {
+            [0; 4]
+        }
+    }))
+}
+
 fn font_spec(spec: &str) -> Result<(crate::fonts::FontStyle, [u8; 3], Option<[u8; 3]>), String> {
     let err = || format!("font source {spec:?}: expected <face>/<height>/<r>,<g>,<b>[/<weight>/<italic>[/on=<r>,<g>,<b>]]");
     let rgb_of = |s: &str| -> Result<[u8; 3], String> {
@@ -256,6 +325,10 @@ impl ImageLoader for Civ3Loader {
     /// From the files' headers (FLC: and their chunks'), and font sheets'
     /// metrics: no pixels are made.
     fn sizes(&self, source: &str, options: &toml::Table) -> Result<Vec<(u32, u32)>, String> {
+        if let Some(spec) = source.strip_prefix("system-cursor:") {
+            let (_, size) = system_cursor_spec(spec)?;
+            return Ok(vec![(size, size)]);
+        }
         if let Some(spec) = source.strip_prefix("font:") {
             let sizes = crate::fonts::glyph_sizes(&self.files, &font_spec(spec)?.0)?;
             return Ok(crate::fonts::charset().map(|c| sizes.get(&c).copied().unwrap_or((1, 1))).collect());
@@ -296,6 +369,10 @@ impl ImageLoader for Civ3Loader {
                 out.push_str(&resolved(path));
             }
         }
+        if let Some(source) = options.get("palette_alpha").and_then(|v| v.as_table()).and_then(|v| v.get("source")).and_then(|v| v.as_str()) {
+            out.push('|');
+            out.push_str(&resolved(source));
+        }
         // (Other frames made, other sheets.)
         if let Some(frames) = options.get("frames") {
             out.push_str(&format!("|frames={frames}"));
@@ -312,7 +389,7 @@ impl ImageLoader for Civ3Loader {
         }
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
         let alpha = alpha_table(options)?;
-        let explicit = rgba_table(options)?;
+        let explicit = self.options_rgba(options)?;
         let q = quantizer(options)?;
         let frame = |w: u32, h: u32, pixels: &[u8], palette: &Palette| -> Result<render_desc::IndexedFrame, String> {
             Ok(render_desc::IndexedFrame {
@@ -352,13 +429,16 @@ impl ImageLoader for Civ3Loader {
     }
 
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
+        if let Some(spec) = source.strip_prefix("system-cursor:") {
+            return Ok(vec![system_cursor(&self.files, spec)?]);
+        }
         if let Some(spec) = source.strip_prefix("font:") {
             let font = font_of(&self.files, spec)?;
             return Ok(crate::fonts::charset().map(|c| font.glyphs.get(&c).map_or_else(|| RgbaImage::from_fn(1, 1, |_, _| [0; 4]), |g| g.image.clone())).collect());
         }
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
         let alpha = alpha_table(options)?;
-        let explicit = rgba_table(options)?;
+        let explicit = self.options_rgba(options)?;
         let q = quantizer(options)?;
         let lower = source.to_lowercase();
         if lower.ends_with(".pcx") {
@@ -405,6 +485,30 @@ impl ImageLoader for Civ3Loader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn palette_alpha_preserves_non_filler_order_rgb_bytes_and_original_index_weights() {
+        let mut palette = Palette([crate::Rgb(0, 0, 255); 256]);
+        palette.0[0] = crate::Rgb(3, 7, 11);
+        palette.0[51] = crate::Rgb(150, 149, 151);
+        palette.0[231] = crate::Rgb(50, 51, 52);
+        let colors = palette_alpha_colors(&palette, 224, 16, [0, 0, 255]);
+        assert_eq!(colors[224], Some([3, 7, 11, 0]));
+        assert_eq!(colors[225], Some([150, 149, 151, 51]));
+        assert_eq!(colors[226], Some([50, 51, 52, 231]));
+        assert!(colors[227..].iter().all(Option::is_none));
+        assert!(colors[..224].iter().all(Option::is_none));
+        // Explicit palette channels bypass the generic RGB555 asset option.
+        let img = to_rgba_with(1, 1, &[225], &palette, &[0; 256], &colors, |v| (v >> 3) << 3);
+        assert_eq!(img.pixels, [[150, 149, 151, 51]]);
+    }
+
+    #[test]
+    fn missing_palette_alpha_source_is_an_error_instead_of_transparent_fallback() {
+        let loader = Civ3Loader::new(GameFiles::with_roots(Vec::new()));
+        let options: toml::Table = toml::from_str("palette_alpha = { source = 'missing.pcx', first = 224, count = 16, skip = [0, 0, 255] }").unwrap();
+        assert!(loader.options_rgba(&options).is_err());
+    }
 
     #[test]
     fn opacity_scales_every_index_s_alpha() {

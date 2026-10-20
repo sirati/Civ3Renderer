@@ -3,9 +3,8 @@
 //! the composition of forms onto the screen.
 
 use std::cell::Cell;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::Ordering::{Acquire, AcqRel, Relaxed, Release};
 
 use civ3_sys::{Civ3, layout as L};
 use civ3_sys::ui_hooks::{self as h, obj};
@@ -16,27 +15,181 @@ use crate::text::TextRun;
 use crate::ui::{Event, Frame, UiModel, rgb555};
 use crate::ui_capture::{CapturePoint, OriginalDrawing};
 
-static CAPTURE: crate::ui_capture::UiCapture<UiTracer> = crate::ui_capture::UiCapture::new();
+static CAPTURE: std::sync::LazyLock<crate::ui_capture::UiCapture<UiTracer>> = std::sync::LazyLock::new(crate::ui_capture::UiCapture::new);
 static DRAWING: OriginalDrawing = OriginalDrawing::new();
+static REQUESTED_GAME_DRAWS: AtomicBool = AtomicBool::new(false);
+static COMPATIBILITY: AtomicBool = AtomicBool::new(false);
+static PIXEL_AUDIT: AtomicBool = AtomicBool::new(false);
+static PIXEL_SKIPPED: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+static PIXEL_ORIGINAL: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+// Audit rows, written by the game's thread (the only writer), read by the
+// audit snapshot (`serve_pixel_audit`).
+static READBACK_REASONS: civ3r_sync::Latest<Vec<(u32, &'static str, u64)>> = civ3r_sync::Latest::new();
+static READBACK_TOTALS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+static MAP_ORIGINAL_SAMPLES: civ3r_sync::Latest<Vec<(String, u64)>> = civ3r_sync::Latest::new();
+static RESIZED_FILE_CAPTURES: AtomicU64 = AtomicU64::new(0);
+static RESIZED_UNSUPPORTED: AtomicU64 = AtomicU64::new(0);
+static SCALED_SKIPPED: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+static SCALED_ORIGINAL: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
+thread_local! { static SCALED_NATIVE: Cell<bool> = const { Cell::new(false) }; }
+thread_local! { static BLEND_WRAPPER_NATIVE: Cell<bool> = const { Cell::new(false) }; }
+
+/// The map wrapper already captured its blend. Its native implementation
+/// can enter the direct blend hook, which must not record it a second time.
+pub(crate) fn blend_wrapper_original<R>(original: impl FnOnce() -> R) -> R {
+    struct Guard(bool);
+    impl Drop for Guard { fn drop(&mut self) { BLEND_WRAPPER_NATIVE.with(|v| v.set(self.0)); } }
+    let _guard = Guard(BLEND_WRAPPER_NATIVE.with(|v| v.replace(true)));
+    original()
+}
+static SEMANTIC_CALLS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
+
+#[derive(Clone, Copy)]
+pub(crate) enum PixelClass { Title, Ui, Map, Present, Readback, Empty, Replay, Unknown }
+#[derive(Clone, Copy)]
+pub(crate) enum SemanticClass { SceneEvent, PixelRead, TextRun, Input }
+
+pub(crate) fn audit_semantic(class: SemanticClass) {
+    if PIXEL_AUDIT.load(Relaxed) { SEMANTIC_CALLS[class as usize].fetch_add(1, Relaxed); }
+}
+
+fn audit_pixel(class: PixelClass, skip: bool) {
+    if PIXEL_AUDIT.load(Relaxed) {
+        (if skip { &PIXEL_SKIPPED } else { &PIXEL_ORIGINAL })[class as usize].fetch_add(1, Relaxed);
+    }
+}
+
+fn audit_readback(canvas: u32, reason: &'static str) {
+    if !PIXEL_AUDIT.load(Relaxed) { return; }
+    audit_pixel(PixelClass::Readback, false);
+    let index = match reason { "palette_indices" => 0, "native_hit_mask" => 1, _ => 2 };
+    READBACK_TOTALS[index].fetch_add(1, Relaxed);
+    READBACK_REASONS.update(|old| {
+        let mut reasons = old.cloned().unwrap_or_default();
+        if let Some(row) = reasons.iter_mut().find(|row| row.0 == canvas && row.1 == reason) { row.2 += 1; }
+        else if reasons.len() < 64 { reasons.push((canvas, reason, 1)); }
+        Some(reasons)
+    });
+}
+
+/// Bound diagnostic samples to32 distinct original map callbacks. This
+/// classifies direct sprite-wrapper calls without changing their behavior.
+pub(crate) fn audit_map_original(kind: &str, sprite: u32, canvas: u32, args: &[u32]) {
+    if !PIXEL_AUDIT.load(Relaxed) { return; }
+    let reason = if kind == "map_sprite" && obj::sprite_loads_file(sprite) { "file_image_source" }
+        else if !has_pixels(canvas) { "no_pixels" }
+        else if obj::image_bits(canvas).is_some_and(|bits| bits <= 8) { "palette_indices" }
+        else if obj::keyed_form_canvas(canvas) { "native_hit_mask" }
+        else if with_any_skipper(|s| s.keeps(canvas)) == Some(true) { "native_pixel_source" }
+        else { "unclassified" };
+    let args = args.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let sample = format!("\"kind\":\"{kind}\",\"sprite\":\"{sprite:#x}\",\"canvas\":\"{canvas:#x}\",\"reason\":\"{reason}\",\"args\":[{args}]");
+    MAP_ORIGINAL_SAMPLES.update(|old| {
+        let mut samples = old.cloned().unwrap_or_default();
+        if let Some(row) = samples.iter_mut().find(|row| row.0 == sample) { row.1 += 1; }
+        else if samples.len() < 32 { samples.push((sample.clone(), 1)); }
+        Some(samples)
+    });
+}
+
+pub(crate) fn audit_call(class: PixelClass, skip: bool, original: impl FnOnce() -> i32) -> i32 {
+    audit_pixel(class, skip);
+    crate::game_render::pixel_callback(skip, original)
+}
+
+/// Explicit private-session audit. No file checks or counter increments occur
+/// normally. A request snapshots callback counts without resetting evidence.
+pub(crate) fn serve_pixel_audit() {
+    if !PIXEL_AUDIT.load(Relaxed) || !std::path::Path::new("civ3-pixel-audit.request").exists() { return; }
+    let p = policy();
+    let mut rows = vec![format!("\"policy\":{{\"game_draws\":{},\"compatibility_fallback\":{},\"skipping\":{},\"map_pixels_off\":{}}}", p.game_draws, p.fallback, skipping(), crate::trace::GAME_MAP_OFF.load(Relaxed))];
+    for (i, name) in ["title", "ui", "map", "present", "readback", "empty", "replay", "unknown"].into_iter().enumerate() {
+        rows.push(format!("\"{name}\":{{\"skipped\":{},\"original\":{}}}", PIXEL_SKIPPED[i].load(Relaxed), PIXEL_ORIGINAL[i].load(Relaxed)));
+    }
+    for (i, name) in ["scene_events", "pixel_reads", "text_runs", "inputs"].into_iter().enumerate() {
+        rows.push(format!("\"{name}\":{}", SEMANTIC_CALLS[i].load(Relaxed)));
+    }
+    let reasons = READBACK_REASONS.load().unwrap_or_default().iter()
+        .map(|(canvas, reason, calls)| format!("{{\"canvas\":\"{canvas:#x}\",\"reason\":\"{reason}\",\"calls\":{calls}}}"))
+        .collect::<Vec<_>>().join(",");
+    rows.push(format!("\"readback_images\":[{reasons}]"));
+    rows.push(format!("\"readback_reasons\":{{\"palette_indices\":{},\"native_hit_mask\":{},\"native_pixel_source\":{}}}", READBACK_TOTALS[0].load(Relaxed), READBACK_TOTALS[1].load(Relaxed), READBACK_TOTALS[2].load(Relaxed)));
+    let samples = MAP_ORIGINAL_SAMPLES.load().unwrap_or_default().iter()
+        .map(|(sample, calls)| format!("{{{sample},\"calls\":{calls}}}"))
+        .collect::<Vec<_>>().join(",");
+    rows.push(format!("\"map_original_samples\":[{samples}]"));
+    let wrappers = ["scaled_a4", "scaled_fog", "scaled_colored"].into_iter().enumerate()
+        .map(|(i, name)| format!("\"{name}\":{{\"skipped\":{},\"original\":{}}}", SCALED_SKIPPED[i].load(Relaxed), SCALED_ORIGINAL[i].load(Relaxed)))
+        .collect::<Vec<_>>().join(",");
+    rows.push(format!("\"scaled_wrappers\":{{{wrappers}}}"));
+    rows.push(format!("\"resized_capture\":{{\"file\":{},\"unsupported\":{}}}", RESIZED_FILE_CAPTURES.load(Relaxed), RESIZED_UNSUPPORTED.load(Relaxed)));
+    match std::fs::write("civ3-pixel-audit.json", format!("{{{} }}\n", rows.join(","))) {
+        Ok(()) => { let _ = std::fs::remove_file("civ3-pixel-audit.request"); }
+        Err(error) => log::warn!("pixel audit snapshot: {error}"),
+    }
+}
+
+static ORIGINAL_REFRESH: AtomicBool = AtomicBool::new(false);
+static ORIGINAL_COMPOSE_ALL: AtomicBool = AtomicBool::new(false);
+static ORIGINAL_PRESENT_ALL: AtomicBool = AtomicBool::new(false);
+thread_local! { static ORIGINAL_REFRESHING: Cell<bool> = const { Cell::new(false) }; }
 /// The game's build, once the hooks are installed.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
 /// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
 static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
-/// What drawing is skipped; populated only after complete hook setup.
-static SKIPPER: Mutex<Option<Skipper>> = Mutex::new(None);
+/// The images kept drawn, once skipping was set up (only after complete
+/// hook setup, on whichever thread prepared it).
+static SKIPPER_KEEPS: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+thread_local! {
+    /// What drawing is skipped: the game's thread's, which alone draws.
+    static SKIPPER: std::cell::RefCell<Option<Skipper>> = const { std::cell::RefCell::new(None) };
+}
+
+/// `f` of the skipper, made on first use once skipping was set up.
+fn with_any_skipper<R>(f: impl FnOnce(&mut Skipper) -> R) -> Option<R> {
+    SKIPPER.with_borrow_mut(|s| {
+        if s.is_none() { *s = SKIPPER_KEEPS.get().map(|keep| Skipper::new(keep.clone())); }
+        s.as_mut().map(f)
+    })
+}
 
 /// Configure the explicit map-only override, without racing capture or
 /// restoration. Called before registering the executable's load callback.
 pub fn configure_map_policy() {
-    DRAWING.map_policy(policy().initial_map_off, |off| crate::trace::GAME_MAP_OFF.store(off, Relaxed));
+    let p = policy();
+    REQUESTED_GAME_DRAWS.store(p.game_draws, Relaxed);
+    COMPATIBILITY.store(p.fallback, Relaxed);
+    PIXEL_AUDIT.store(std::env::var("CIV3R_PIXEL_AUDIT").as_deref() == Ok("on"), Relaxed);
+    DRAWING.map_policy(p.initial_map_off, |off| crate::trace::GAME_MAP_OFF.store(off, Relaxed));
 }
 
 /// Restore the original renderer after viewer startup fails. Later load
 /// notifications cannot reactivate suppression after this failure.
 pub fn restore_original_drawing() {
-    DRAWING.restore(|| crate::trace::GAME_MAP_OFF.store(false, Relaxed));
+    if DRAWING.restore(compatibility_fallback(), || crate::trace::GAME_MAP_OFF.store(false, Relaxed)) {
+        ORIGINAL_REFRESH.store(true, Release);
+    }
+}
+
+/// Service only at native UI-thread safe points. Rebuild retained canvases
+/// once before composition; painting cached black canvases is insufficient.
+pub fn refresh_original_drawing(game: Civ3) {
+    if Painting::inside() || ORIGINAL_REFRESHING.with(Cell::get) || !ORIGINAL_REFRESH.swap(false, AcqRel) { return; }
+    struct Refreshing;
+    impl Drop for Refreshing {
+        fn drop(&mut self) { ORIGINAL_REFRESHING.with(|v| v.set(false)); }
+    }
+    ORIGINAL_REFRESHING.with(|v| v.set(true));
+    let _refreshing = Refreshing;
+    crate::native_camera::restore_if_requested(game);
+    ORIGINAL_COMPOSE_ALL.store(true, Release);
+    ORIGINAL_PRESENT_ALL.store(true, Release);
+    match civ3_sys::native_redraw::refresh(game.build) {
+        Ok(count) => log::info!("original renderer: rebuilt {} retained form canvases and {} frame caches", count.canvases, count.frame_caches),
+        Err(error) => log::warn!("original renderer canvas refresh: {error}"),
+    }
 }
 
 fn policy() -> crate::game_render::StartupPolicy {
@@ -45,7 +198,19 @@ fn policy() -> crate::game_render::StartupPolicy {
 }
 
 pub(crate) fn requested_game_draws() -> bool {
-    policy().game_draws
+    REQUESTED_GAME_DRAWS.load(Relaxed)
+}
+
+pub(crate) fn compatibility_fallback() -> bool {
+    COMPATIBILITY.load(Relaxed)
+}
+
+/// Unrecoverable replacement failure must never switch pixel rendering on.
+/// Native output recovery is available only through an explicit compat mode.
+pub(crate) fn replacement_failed(message: &str) {
+    log::error!("{message}");
+    eprintln!("civ3-renderer: {message}");
+    if !compatibility_fallback() { std::process::exit(1); }
 }
 
 fn enabled() -> bool {
@@ -111,15 +276,18 @@ fn install_configured(base: u32, point: CapturePoint) -> Result<bool, String> {
             .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
             .with_underlays(underlays, vec!["fogofwar.pcx".into()])
             .with_text_backdrops(!gdi_text::under_wine())
+            .with_opaque_files(std::sync::Arc::new(crate::ui_opacity::opaque))
     }, |game| install_hooks(game, base).map_err(|e| e.to_string()))?;
     // No original pixel work is skipped until the complete installation
     // succeeded. Keep this dynamic so viewer failure also restores jgl present.
     DRAWING.activate(CAPTURE.ready(), game_draws, |skip| {
         if skip {
-            let mut skipper = SKIPPER.lock().unwrap_or_else(|e| e.into_inner());
-            skipper.get_or_insert_with(|| Skipper::new(BUILD.get().map_or_else(Vec::new, |&build| h::read_back_images(build))));
+            SKIPPER_KEEPS.get_or_init(|| BUILD.get().map_or_else(Vec::new, |&build| h::read_back_images(build)));
         }
-        crate::trace::GAME_MAP_OFF.store(skip || std::env::var("CIV3R_GAME_MAP").as_deref() == Ok("off"), Relaxed);
+        crate::trace::GAME_MAP_OFF.store(crate::game_render::map_off(skip, std::env::var("CIV3R_GAME_MAP").ok().as_deref()), Relaxed);
+        if installed {
+            log::info!("native rendering policy: original pixels={}, compatibility fallback={}, map pixels off={}, pixel audit={}", game_draws, compatibility_fallback(), crate::trace::GAME_MAP_OFF.load(Relaxed), PIXEL_AUDIT.load(Relaxed));
+        }
         if installed && skip { log::info!("game rendering off: the game's drawing is recorded, not done"); }
     });
     Ok(installed)
@@ -145,27 +313,101 @@ fn has_pixels(object: u32) -> bool {
 /// its maps of the regions under the mouse), and onto the canvases of
 /// colour-keyed forms (the game reads them to tell whether a click lands
 /// on the form: the HUD over the map).
-fn skips(canvas: u32, source: u32) -> bool {
-    if !skipping() || !has_pixels(canvas) || (source != 0 && !has_pixels(source)) {
-        return false;
-    }
-    if obj::image_bits(canvas).is_none_or(|b| b <= 8) || obj::keyed_form_canvas(canvas) {
-        return false;
-    }
-    SKIPPER.lock().ok().is_some_and(|mut s| s.as_mut().is_some_and(|s| s.skip(canvas)))
+fn world_canvas(canvas: u32) -> bool {
+    let Some(&build) = BUILD.get() else { return false };
+    let map = build.addresses().main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
+    canvas == map || h::unit_overlay_canvas(build) == Some(canvas)
+        || (build == civ3_sys::Build::PcGames && canvas == 0x9C_7560)
 }
 
-/// Runs the game's drawing `original` onto `canvas` from `source` unless
-/// it is skipped (then: 0, the game's success).
+fn title_canvas(canvas: u32) -> bool {
+    let Some(build) = BUILD.get() else { return false };
+    let map_canvas = build.addresses().main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
+    if canvas != map_canvas { return false; }
+    let visible = civ3_sys::controls::sites(*build)
+        .and_then(|sites| inproc::Ptr32::<u32>::new(sites.main_gui + 0xA0).read().ok())
+        .map(|status| status & 1 != 0);
+    crate::game_render::retained_title_canvas(true, canvas, map_canvas, visible)
+}
+
+fn skips(canvas: u32, source: u32) -> bool {
+    let title = (COMPATIBILITY.load(Relaxed) || PIXEL_AUDIT.load(Relaxed)) && title_canvas(canvas);
+    let class = if title { PixelClass::Title } else { PixelClass::Ui };
+    if !skipping() || (world_canvas(canvas) && !crate::trace::GAME_MAP_OFF.load(Relaxed)) {
+        audit_pixel(class, false);
+        return false;
+    }
+    if !has_pixels(canvas) || (source != 0 && !has_pixels(source)) {
+        audit_pixel(PixelClass::Empty, false);
+        return false;
+    }
+    let Some(bits) = obj::image_bits(canvas) else {
+        audit_pixel(PixelClass::Unknown, false);
+        return false;
+    };
+    if bits <= 8 {
+        audit_readback(canvas, "palette_indices");
+        return false;
+    }
+    if obj::keyed_form_canvas(canvas) {
+        audit_readback(canvas, "native_hit_mask");
+        return false;
+    }
+    if COMPATIBILITY.load(Relaxed) && title {
+        audit_pixel(class, false);
+        return false;
+    }
+    let skip = with_any_skipper(|s| s.skip(canvas)) == Some(true);
+    if skip { audit_pixel(class, true); }
+    else { audit_readback(canvas, "native_pixel_source"); }
+    skip
+}
+
+/// Capturing a drawing command precedes this gate. The native pixel callback
+/// is suppressed independently of scene construction and input semantics.
 fn draw(canvas: u32, source: u32, original: impl FnOnce() -> i32) -> i32 {
-    if skips(canvas, source) { 0 } else { original() }
+    crate::game_render::pixel_callback(skips(canvas, source), original)
+}
+
+fn scaled_draw(kind: usize, canvas: u32, sprite: u32, original: impl FnOnce() -> i32) -> i32 {
+    let skip = skips(canvas, sprite);
+    if PIXEL_AUDIT.load(Relaxed) {
+        (if skip { &SCALED_SKIPPED } else { &SCALED_ORIGINAL })[kind].fetch_add(1, Relaxed);
+    }
+    if skip { return 0; }
+    struct Guard(bool);
+    impl Drop for Guard { fn drop(&mut self) { SCALED_NATIVE.with(|v| v.set(self.0)); } }
+    let _guard = Guard(SCALED_NATIVE.with(|v| v.replace(true)));
+    original()
+}
+
+fn resized_blit(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], ct: u32, indices: Option<menu::screen::Indices>) {
+    if world_canvas(canvas) || SCALED_NATIVE.with(Cell::get) { return; }
+    let Some(crop) = obj::sprite_crop(sprite) else { return };
+    let Some(compiled) = obj::sprite_compiled(sprite) else { return };
+    let Some(((x, y), size, sample_step)) = crate::game_render::scaled_geometry((x as i32, y as i32), crop, scale, compiled) else { return };
+    if let Some((flic, chunk)) = h::flc_frame(sprite) {
+        // FLC_Frame_Image::load at 0x5F7A90 creates Sprite+8 from the full
+        // header frame dimensions. 0x5F7B0C..1E copies header offsets into
+        // Sprite+0x20/+0x24. Those offsets affect destination geometry
+        // above; the decoded chunk starts at source coordinate 0,0.
+        let indices = indices.unwrap_or_else(|| menu::screen::Indices { transparent: vec![254, 255], ..Default::default() });
+        emit(Event::ResizedFlcBlit { flic, chunk, canvas, x, y, source_size: (crop.2, crop.3), size, sample_step, clip: clip_of(canvas), palette: palette_from(sprite, ct).or_else(|| copied_civ_colors(ct)), indices });
+        return;
+    }
+    if PIXEL_AUDIT.load(Relaxed) {
+        let file = with_model(false, |m| matches!(m.sprite_source(sprite), Some(crate::ui::Source::File { .. }))) == Some(true);
+        if file { RESIZED_FILE_CAPTURES.fetch_add(1, Relaxed); }
+        else { RESIZED_UNSUPPORTED.fetch_add(1, Relaxed); }
+    }
+    emit(Event::ResizedBlit { sprite, canvas, x, y, size, sample_step, clip: clip_of(canvas), palette: palette_from(sprite, ct).or_else(|| copied_civ_colors(ct)), indices });
 }
 
 fn with_skipper<R>(f: impl FnOnce(&mut Skipper) -> R) -> Option<R> {
     if !skipping() {
         return None;
     }
-    SKIPPER.lock().ok()?.as_mut().map(f)
+    with_any_skipper(f)
 }
 
 /// Whether the text the game's text functions are writing now (`TextOutA`,
@@ -179,7 +421,7 @@ pub fn skips_text() -> bool {
 /// Whether a colour-table blit of `sprite` onto `canvas` (recorded as a
 /// unit picture by [`on_colored`]) is skipped.
 pub fn skips_colored(sprite: u32, canvas: u32) -> bool {
-    h::flc_frame(sprite).is_some() && skips(canvas, sprite)
+    skips(canvas, sprite)
 }
 
 thread_local! {
@@ -238,36 +480,294 @@ fn updating<R>(rect: u32, f: impl FnOnce() -> R) -> R {
     out
 }
 
+thread_local! {
+    /// The mirror model, owned by the game's thread: only it draws. Taken
+    /// over from the thread that prepared capture at its first use.
+    static MODEL: std::cell::RefCell<Option<UiModel>> = const { std::cell::RefCell::new(None) };
+    /// What the game shows with the present being mirrored (`emit_present`).
+    static PRESENTING: Cell<Option<crate::city_screen::Presented>> = const { Cell::new(None) };
+}
+
+/// Native layout and look metadata captured on the game's Present callback.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct NativeUi {
+    pub modal_stack: [u32; 4],
+    pub controls: Vec<civ3_sys::controls::Control>,
+    pub title: Option<civ3_sys::controls::TitleLayout>,
+    pub military: Vec<civ3_sys::controls::screens::UnitStrip>,
+    pub status_row: Option<(u32, [i32; 4])>,
+    pub arts: Vec<crate::looks::ControlArt>,
+}
+
+impl NativeUi {
+    fn read(model: &UiModel) -> Self {
+        let Some(&build) = BUILD.get() else { return Self::default() };
+        let Some(sites) = civ3_sys::controls::sites(build) else { return Self::default() };
+        let mem = civ3_sys::controls::Live;
+        let controls = civ3_sys::controls::controls(&mem, &sites);
+        Self {
+            modal_stack: civ3_sys::modal::modal_stack(&mem, build).unwrap_or_default(),
+            title: civ3_sys::controls::title_layout(&mem, build),
+            military: civ3_sys::controls::screens::military_unit_strips(&mem, &controls),
+            status_row: civ3_sys::controls::status_unit_row(&mem, &sites, &controls),
+            arts: controls.iter().filter_map(|control| control_art(model, &sites, control)).collect(),
+            controls,
+        }
+    }
+}
+
+/// The art of `control`'s states, if it is a button the game draws by its
+/// state and that state is the pointer's (not forced): the sprites of its
+/// pieces as the mirror knows them.
+fn control_art(model: &UiModel, sites: &civ3_sys::controls::Sites, control: &civ3_sys::controls::Control) -> Option<crate::looks::ControlArt> {
+    use crate::looks::look_state;
+    use civ3_sys::control_art::Select;
+    let art = civ3_sys::control_art::of(&civ3_sys::controls::Live, sites, control).filter(|a| !a.forced)?;
+    let sprites: Vec<u32> = art.pieces.iter().flatten().map(|(_, s)| *s).collect();
+    let mut sources = sprites.iter().map(|&sprite| model.sprite_source(sprite).cloned());
+    let pieces = art
+        .pieces
+        .iter()
+        .map(|p| p.iter().filter_map(|(l, _)| Some((look_state(*l), sources.next()??))).collect())
+        .collect();
+    let select = match art.select {
+        Select::None => scene::Select::None,
+        Select::Toggle => scene::Select::Toggle,
+        Select::Pick(group) => scene::Select::Pick { group: group as u64 },
+    };
+    Some(crate::looks::ControlArt {
+        id: control.id,
+        select,
+        canvas: art.canvas,
+        part: match art.part {
+            civ3_sys::control_art::Part::Whole => crate::looks::Part::Whole,
+            civ3_sys::control_art::Part::LastArt => crate::looks::Part::LastArt(control.rect),
+            civ3_sys::control_art::Part::Within => crate::looks::Part::Within(control.rect),
+        },
+        colors: art.colors.iter().map(|(l, c)| (look_state(*l), c.iter().map(|&c| color_rgb(c)).collect())).collect(),
+        state: look_state(art.state),
+        pieces,
+        text_offsets: art.text_offsets.iter().map(|(l, o)| (look_state(*l), *o)).collect(),
+        selected_by_fields: select != scene::Select::None,
+    })
+}
+
+/// A colour of the game's controls as the mirror has it: text as
+/// `SetTextColor` gets it (a packed colour: bit 31 and RGB555, each channel
+/// shifted up; else a palette index, black on the game's 16-bit canvases,
+/// docs §16.10), fills as RGB555 expanded.
+fn color_rgb(c: civ3_sys::control_art::Color) -> [u8; 3] {
+    use civ3_sys::control_art::Color;
+    match c {
+        Color::Text(c) if c & 0x8000_0000 != 0 => [((c >> 7) & 0xF8) as u8, ((c >> 2) & 0xF8) as u8, ((c & 0x1F) << 3) as u8],
+        Color::Text(_) => [0, 0, 0],
+        Color::Fill(c) => crate::ui::rgb555(c),
+    }
+}
+
+/// Keeps draw commands, their sprite sources and native metadata at the same
+/// completed Present. Reader refreshes cannot expose an in-progress group.
+#[derive(Default)]
+struct CommittedCapture {
+    model: UiModel,
+    native: std::sync::Arc<NativeUi>,
+    presented: Option<crate::city_screen::Presented>,
+}
+
+impl CommittedCapture {
+    fn view(&mut self, model: &UiModel, present: bool, presented: Option<crate::city_screen::Presented>, sample: impl FnOnce(&UiModel) -> NativeUi) -> (UiView, bool) {
+        let mut changed = false;
+        if present {
+            let native = sample(model);
+            changed = *self.native != native || self.presented != presented;
+            if *self.native != native { self.native = std::sync::Arc::new(native); }
+            self.model = model.snapshot();
+            self.presented = presented;
+        }
+        (UiView { model: self.model.snapshot(), native: self.native.clone(), stats: model.stats(), presented: self.presented }, changed)
+    }
+}
+
+thread_local! {
+    static COMMITTED: std::cell::RefCell<CommittedCapture> = std::cell::RefCell::new(CommittedCapture::default());
+}
+
+/// What other threads read of the mirror: published by the game's thread
+/// after each present, and with its next drawing whenever a reader asked
+/// for a newer one (`WANT_VIEW`). Readers never wait for the game's thread.
+struct UiView {
+    /// `UiModel::snapshot`: composes the screen and knows the sprites.
+    model: UiModel,
+    native: std::sync::Arc<NativeUi>,
+    stats: (usize, usize, usize),
+    /// What the game showed with the last present mirrored in `model`.
+    presented: Option<crate::city_screen::Presented>,
+}
+static VIEW: civ3r_sync::Latest<UiView> = civ3r_sync::Latest::new();
+static WANT_VIEW: AtomicBool = AtomicBool::new(false);
+/// What the publisher last set skipping to (`set_skipping`): 0 not yet, 1
+/// off, 2 on. The game's thread applies it at its next drawing; readers
+/// compose with it at once.
+static SKIPPING: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn requested_skipping() -> Option<bool> {
+    match SKIPPING.load(Acquire) {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
+    }
+}
+
+/// `f` of the model, on the game's thread; then a view is published if due.
+fn with_model<R>(present: bool, f: impl FnOnce(&mut UiModel) -> R) -> Option<R> {
+    // The thread that took the model over: the game's, which alone draws.
+    static OWNER: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
+    MODEL.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            if OWNER.get().is_some_and(|&owner| owner != std::thread::current().id()) {
+                static NOTED: AtomicBool = AtomicBool::new(false);
+                if !NOTED.swap(true, Relaxed) { log::warn!("UI mirror: drawing on another thread than the game's is not mirrored"); }
+                return None;
+            }
+            *slot = CAPTURE.take_model();
+            if slot.is_some() {
+                let _ = OWNER.set(std::thread::current().id());
+            }
+        }
+        let model = slot.as_mut()?;
+        if let Some(on) = requested_skipping() {
+            model.set_skipping(on);
+        }
+        let result = f(model);
+        if WANT_DETAIL.load(Relaxed) && WANT_DETAIL.swap(false, AcqRel) {
+            DETAIL.publish(model.detail());
+        }
+        if present || (WANT_VIEW.load(Relaxed) && WANT_VIEW.swap(false, AcqRel)) {
+            let (view, native_changed) = COMMITTED.with_borrow_mut(|committed| committed.view(model, present, PRESENTING.get(), NativeUi::read));
+            VIEW.publish(view);
+            // A present that changed what the window shows: the publisher
+            // goes on at once (a swap and an unpark; this thread never waits).
+            thread_local! { static RUNG: Cell<u64> = const { Cell::new(0) }; }
+            if present && (RUNG.replace(model.shown_revision()) != model.shown_revision() || native_changed) {
+                crate::presenter::WAKE.ring();
+            }
+        }
+        Some(result)
+    })
+}
+
 fn emit(e: Event) {
+    audit_semantic(SemanticClass::SceneEvent);
     // MapMessage draws onto the animator's map overlay. It is rebuilt as
     // tile-anchored world art, never copied into a misplaced UI overlay.
-    if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::Fill { .. }) { return; }
-    if let Ok(mut m) = CAPTURE.model.lock() {
-        if let Some(m) = m.as_mut() {
-            m.apply(e);
+    if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::TextClipped { .. } | Event::Fill { .. }) { return; }
+    let present = matches!(e, Event::Present { .. });
+    watch(&e);
+    with_model(present, |m| m.apply(e));
+}
+
+/// Logs the events onto or from the canvases in `CIV3R_UI_WATCH` (hex
+/// addresses, comma-separated; for finding out how a canvas is drawn).
+fn watch(e: &Event) {
+    static WATCHED: std::sync::LazyLock<Vec<u32>> = std::sync::LazyLock::new(|| {
+        std::env::var("CIV3R_UI_WATCH").unwrap_or_default().split(',')
+            .filter_map(|s| u32::from_str_radix(s.trim().trim_start_matches("0x"), 16).ok()).collect()
+    });
+    if WATCHED.is_empty() { return; }
+    let touched = match e {
+        Event::Loaded { image, .. } | Event::Cleared { image } | Event::Sliced { image, .. } => *image,
+        Event::Blit { canvas, .. } | Event::IndexedBlit { canvas, .. } | Event::ResizedBlit { canvas, .. } | Event::OpacityBlit { canvas, .. } | Event::MaskedBlit { canvas, .. }
+        | Event::Fill { canvas, .. } | Event::Text { canvas, .. } | Event::TextClipped { canvas, .. } | Event::FlcBlit { canvas, .. } | Event::ResizedFlcBlit { canvas, .. } | Event::Composite { canvas, .. } => *canvas,
+        Event::Copy { from, canvas, .. } => if WATCHED.contains(from) { *from } else { *canvas },
+        _ => 0,
+    };
+    if WATCHED.contains(&touched) {
+        log::info!("UI watch: {e:?} (clip {:?})", h::canvas_clip(touched));
+    }
+}
+
+/// The latest view, asking the game's thread for a newer one.
+fn view() -> Option<std::sync::Arc<UiView>> {
+    if !CAPTURE.ready() { return None }
+    WANT_VIEW.store(true, Release);
+    VIEW.load()
+}
+
+fn compose(view: &UiView) -> Frame {
+    match requested_skipping() {
+        Some(on) => {
+            let mut model = view.model.snapshot();
+            model.set_skipping(on);
+            model.committed_frame()
         }
+        None => view.model.committed_frame(),
     }
 }
 
 /// The mirror model's size (see `UiModel::stats`).
 pub fn stats() -> Option<(usize, usize, usize)> {
-    if !CAPTURE.ready() { return None }
-    CAPTURE.model.lock().ok()?.as_ref().map(|m| m.stats())
+    view().map(|v| v.stats)
+}
+
+/// The model in detail as the game's thread last described it on request
+/// (`UiModel::detail`), asking it for a newer one (for diagnostics).
+static DETAIL: civ3r_sync::Latest<String> = civ3r_sync::Latest::new();
+static WANT_DETAIL: AtomicBool = AtomicBool::new(false);
+pub fn detail() -> Option<String> {
+    WANT_DETAIL.store(true, Release);
+    DETAIL.get()
 }
 
 /// The screen as the game last showed it, if the mirror runs.
 pub fn frame() -> Option<Frame> {
-    if !CAPTURE.ready() { return None }
-    CAPTURE.model.lock().ok()?.as_ref().map(|m| m.shown_frame())
+    frame_presented().map(|(frame, _)| frame)
+}
+
+/// A present, and what the game showed with it (`presented`): published
+/// with the view made at this present.
+fn emit_present(rect: Option<[i32; 4]>, presented: Option<crate::city_screen::Presented>) {
+    PRESENTING.set(presented);
+    emit(Event::Present { rect });
+}
+
+/// [`frame`], and what the game showed when it presented it (its city
+/// screen's city and camera: `crate::city_screen::screen_state`), from
+/// the same publication.
+pub fn frame_presented() -> Option<(Frame, Option<crate::city_screen::Presented>)> {
+    snapshot().map(|snapshot| (snapshot.frame, snapshot.presented))
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct SnapshotSources(Option<std::sync::Arc<UiView>>);
+
+impl SnapshotSources {
+    pub fn get(&self, sprites: &[u32]) -> Vec<Option<crate::ui::Source>> {
+        let Some(view) = &self.0 else { return vec![None; sprites.len()] };
+        sprites.iter().map(|&sprite| if sprite == 0 { None } else { view.model.sprite_source(sprite).cloned() }).collect()
+    }
+}
+
+pub(crate) struct Snapshot {
+    pub frame: Frame,
+    pub presented: Option<crate::city_screen::Presented>,
+    pub native: std::sync::Arc<NativeUi>,
+    pub sources: SnapshotSources,
+}
+
+/// One immutable Present for commands, native hit geometry and look recipes.
+pub(crate) fn snapshot() -> Option<Snapshot> {
+    view().map(|view| Snapshot {
+        frame: compose(&view), presented: view.presented, native: view.native.clone(), sources: SnapshotSources(Some(view)),
+    }).or_else(|| {
+        CAPTURE.ready().then(|| Snapshot { frame: Frame::default(), presented: None, native: Default::default(), sources: Default::default() })
+    })
 }
 
 /// Where the pixels of each of `sprites` (game `Sprite*`) come from, as the
 /// mirror knows them (`None` for 0 and unknown ones).
 pub fn sprite_sources(sprites: &[u32]) -> Vec<Option<crate::ui::Source>> {
-    if !CAPTURE.ready() { return vec![None; sprites.len()] }
-    let model = CAPTURE.model.lock().ok();
-    let model = model.as_ref().and_then(|m| m.as_ref());
-    sprites.iter().map(|&s| model.filter(|_| s != 0).and_then(|m| m.sprite_source(s)).cloned()).collect()
+    let Some(view) = view() else { return vec![None; sprites.len()] };
+    sprites.iter().map(|&s| if s == 0 { None } else { view.model.sprite_source(s).cloned() }).collect()
 }
 
 /// Text drawn with `TextOutA` (canvas coordinates): part of the canvas the
@@ -275,7 +775,9 @@ pub fn sprite_sources(sprites: &[u32]) -> Vec<Option<crate::ui::Source>> {
 pub fn on_text(run: &TextRun) {
     let canvas = TEXT_CANVAS.with(Cell::get);
     if canvas != 0 {
-        emit(Event::Text { canvas, run: run.clone() });
+        let dirty = if BACK_BUFFER.get() == Some(&canvas) { DIRTY.with(Cell::get) } else { None };
+        let clip = crate::ui::content_clip(h::canvas_text_clip(canvas), dirty).unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+        emit(Event::TextClipped { canvas, run: run.clone(), clip });
     }
 }
 
@@ -300,29 +802,32 @@ fn rect_xywh(at: u32) -> Option<[i32; 4]> {
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
 /// `ct`: the colour table it is drawn through (0: its own palette).
 fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
+    if SCALED_NATIVE.with(Cell::get) { return; }
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
     // A frame of an FLC animation in its own colours (a leader head).
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
         emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), plain: true });
         return;
     }
+    let palette = palette_from(sprite, ct);
+    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette });
+}
+
+fn palette_from(sprite: u32, ct: u32) -> Option<menu::screen::PaletteFrom> {
     // Through a civ colour table: that table's palette.
     let table = BUILD.get().and_then(|&b| h::civ_color_table(b, ct));
     if ct != 0 && table.is_none() {
         // (Once per table: which ones are not the civs'.)
-        static SEEN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-        if let Ok(mut seen) = SEEN.lock() {
-            if !seen.contains(&ct) && seen.len() < 64 {
-                seen.push(ct);
-                log::debug!("sprite {sprite:#x} drawn through colour table {ct:#x}, not a civ's");
-            }
+        thread_local! { static SEEN: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
+        if SEEN.with_borrow_mut(|seen| !seen.contains(&ct) && seen.len() < 64 && { seen.push(ct); true }) {
+            log::debug!("sprite {sprite:#x} drawn through colour table {ct:#x}, not a civ's");
         }
     }
     let ntp = |n: u32, count: u32| menu::screen::PaletteFrom { image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 0, count };
     // Else a sprite of its own colour table, recoloured by copying a civ's
     // first 64 colours into it.
     let palette = table.map(|n| ntp(n, 256)).or_else(|| own_civ_colors(sprite).map(|n| ntp(n, 64)));
-    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette });
+    palette
 }
 
 /// Which civ's colours `sprite`'s own colour table holds (its first 64), if
@@ -371,7 +876,8 @@ fn replay_operation(navigator: u32, operation: crate::replay::Operation) -> bool
 }
 
 /// The forms' own surfaces seen so far (`h::form_surface`): image and name.
-static FORM_SURFACES: Mutex<Vec<(u32, &'static str)>> = Mutex::new(Vec::new());
+/// Written by the game's thread (the only writer), read by the publisher.
+static FORM_SURFACES: civ3r_sync::Latest<Vec<(u32, &'static str)>> = civ3r_sync::Latest::new();
 
 /// The surfaces the game fills itself: the fixed ones and the forms' own
 /// seen so far (see `ui_screen::items`).
@@ -383,7 +889,7 @@ pub fn generated_surfaces(build: civ3_sys::Build) -> Vec<(u32, &'static str)> {
 
 /// The forms' own surfaces seen so far: image and name.
 pub fn form_surfaces() -> Vec<(u32, &'static str)> {
-    FORM_SURFACES.lock().map(|s| s.clone()).unwrap_or_default()
+    FORM_SURFACES.get().unwrap_or_default()
 }
 
 /// A copy of `from` onto `canvas`: if `from` is a surface of the form
@@ -394,34 +900,24 @@ fn note_form_surface(from: u32, canvas: u32) {
         return;
     }
     let Some(s) = h::form_surface(build, from, canvas) else { return };
-    {
-        let Ok(mut seen) = FORM_SURFACES.lock() else { return };
-        if seen.iter().any(|&(image, _)| image == from) {
-            return;
-        }
-        seen.push((from, s.name));
+    let mut seen = FORM_SURFACES.get().unwrap_or_default();
+    if seen.iter().any(|&(image, _)| image == from) {
+        return;
     }
+    seen.push((from, s.name));
+    FORM_SURFACES.publish(seen);
     log::debug!("UI mirror: {} at {from:#x}", s.name);
-    if let Ok(mut m) = CAPTURE.model.lock() {
-        if let Some(m) = m.as_mut() {
-            m.add_generated(from);
-        }
-    }
+    with_model(false, |m| m.add_generated(from));
 }
 
 /// `image` lost its pixels: if it was a form's surface, it is an image like
 /// any other again (its memory may be another's next).
 fn forget_form_surface(image: u32) {
-    {
-        let Ok(mut seen) = FORM_SURFACES.lock() else { return };
-        let Some(i) = seen.iter().position(|&(i, _)| i == image) else { return };
-        seen.remove(i);
-    }
-    if let Ok(mut m) = CAPTURE.model.lock() {
-        if let Some(m) = m.as_mut() {
-            m.remove_generated(image);
-        }
-    }
+    let mut seen = FORM_SURFACES.get().unwrap_or_default();
+    let Some(i) = seen.iter().position(|&(i, _)| i == image) else { return };
+    seen.remove(i);
+    FORM_SURFACES.publish(seen);
+    with_model(false, |m| m.remove_generated(image));
 }
 
 /// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`, within
@@ -472,6 +968,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     let _ = BUILD.set(game.build);
     let _ = BACK_BUFFER.set(h::back_buffer(game.build).unwrap_or(0));
     let mut hooks: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
+    match crate::city_screen::native::install(*game) {
+        Ok(hook) => hooks.push(hook),
+        Err(error) => log::warn!("city work eligibility unavailable: {error}"),
+    }
     macro_rules! hook {
         ($module:ident, $site:expr, $handler:expr) => {
             hooks.push(Box::new(h::$module::install_at_start($site.0, $site.1, $handler)?));
@@ -553,6 +1053,31 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
         draw(c.canvas, c.sprite, || c.original())
     });
+    hook!(sprite_draw_scaled_a4, sites.sprite_draw_scaled_a4, |c| {
+        resized_blit(c.sprite, c.canvas, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, None);
+        scaled_draw(0, c.canvas, c.sprite, || c.original())
+    });
+    hook!(sprite_draw_scaled_a8, sites.sprite_draw_scaled_a8, |c| {
+        resized_blit(c.sprite, c.canvas, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, None);
+        scaled_draw(1, c.canvas, c.sprite, || c.original())
+    });
+    hook!(sprite_draw_scaled_colored, sites.sprite_draw_scaled_colored, |c| {
+        let shades = BUILD.get().and_then(|&b| blend_levels(b, c.flags)) == Some(&crate::ui::indices::SHADE_LEVELS[..]);
+        let path = with_model(false, |m| match m.sprite_source(c.sprite) { Some(crate::ui::Source::File { path, .. }) => Some(path.clone()), _ => None }).flatten();
+        if shades && (path.is_some() || h::flc_frame(c.sprite).is_some()) {
+            for indices in [crate::ui::indices::colored(path.as_deref().map_or(&[254, 255][..], crate::ui::indices::blank)), crate::ui::indices::colored_shades(), crate::ui::indices::colored_smoke()] {
+                resized_blit(c.sprite, c.canvas2, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, Some(indices));
+            }
+        } else {
+            resized_blit(c.sprite, c.canvas2, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, None);
+        }
+        scaled_draw(2, c.canvas2, c.sprite, || c.original())
+    });
+    hook!(sprite_draw_blend, sites.sprite_draw_blend, |c| {
+        if BLEND_WRAPPER_NATIVE.with(Cell::get) || SCALED_NATIVE.with(Cell::get) { return c.original(); }
+        on_map_blend(c.sprite, c.canvas, c.x, c.y, c.lut, [1, 1, 1], c.ct);
+        draw(c.canvas, c.sprite, || c.original())
+    });
     hook!(sprite_draw_opacity, sites.sprite_draw_opacity, |c| {
         let opacity = crate::ui::sprite_opacity(c.opacity);
         let (cx, cy) = obj::sprite_crop(c.sprite).map_or((0, 0), |p| (p.0, p.1));
@@ -606,6 +1131,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
+        audit_semantic(SemanticClass::PixelRead);
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
@@ -646,7 +1172,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         c.original();
         emit(Event::CompositeEnd);
     });
-    hook!(paint, sites.paint, |c| {
+    let paint_game = *game;
+    hook!(paint, sites.paint, move |c| {
+        refresh_original_drawing(paint_game);
         emit(Event::PaintBegin);
         let _painting = Painting::enter();
         updating(c.rect, || c.original());
@@ -658,23 +1186,42 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // (Asked for one form's part, it composes all of them unless the draw
     // list starts at a modal form.)
     let modal_root = h::modal_draw_root(game.build);
+    let compose_game = *game;
     hook!(compose_all, sites.compose_all, move |c| {
-        let all = c.form == 0 || modal_root.is_some_and(|at| inproc::Ptr32::<u32>::new(at).read().ok() == Some(0));
+        refresh_original_drawing(compose_game);
+        // m73 invalidates client canvases. Modal headings and frames are
+        // m80 draws straight onto the back buffer, so the first restored
+        // composition must include the complete screen rectangle too.
+        let full = !ORIGINAL_REFRESHING.with(Cell::get) && ORIGINAL_COMPOSE_ALL.swap(false, AcqRel);
+        if full { log::debug!("original renderer: composing complete restored screen"); }
+        let all = full || c.form == 0 || modal_root.is_some_and(|at| inproc::Ptr32::<u32>::new(at).read().ok() == Some(0));
         if !all || Painting::inside() {
-            return c.original();
+            return if full { c.original_with(0, 0) } else { c.original() };
         }
         emit(Event::PaintBegin);
         let _painting = Painting::enter();
-        updating(c.rect, || c.original());
+        updating(if full { 0 } else { c.rect }, || if full { c.original_with(0, 0) } else { c.original() });
         emit(Event::PaintEnd);
     });
     let back_buffer = h::back_buffer(game.build).unwrap_or(0);
+    let presenting = *game;
     hook!(present, sites.present, move |c| {
         // It draws the tooltip and the cursor onto the back buffer first.
+        let full = !ORIGINAL_REFRESHING.with(Cell::get) && !ORIGINAL_COMPOSE_ALL.load(Acquire)
+            && ORIGINAL_PRESENT_ALL.swap(false, AcqRel);
+        if full { log::debug!("original renderer: presenting complete restored screen"); }
+        let rect = if full { 0 } else { c.rect };
         emit(Event::PresentBegin);
-        updating(c.rect, || c.original());
+        updating(rect, || if full { c.original_with(0) } else { c.original() });
         size_of(back_buffer);
-        emit(Event::Present { rect: if c.rect == 0 { None } else { obj::rect(c.rect) } });
+        // (Read on this thread, as the screen is presented: the publisher
+        // composes the world it reads later only with a matching screen.)
+        let presented = presenting.view().ok().map(|v| crate::city_screen::Presented {
+            focus_city: presenting.focus_city().ok().flatten(),
+            camera: (v.camera_x, v.camera_y),
+        });
+        crate::city_screen::native::present(&presenting);
+        emit_present(if rect == 0 { None } else { obj::rect(rect) }, presented);
     });
     hook!(text_worker, sites.text_worker, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw, sites.text_draw, |c| with_text_canvas(c.image, || c.original()));
@@ -722,23 +1269,25 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             let nav = REPLAY_NAVIGATOR.load(Relaxed);
             let replay_terrain = nav != 0 && c.image == nav.wrapping_add(L::NAVIGATOR_DATA_PCX_1)
                 && BUILD.get().is_some_and(|&build| h::replay_navigator(build, nav));
-            if !(skipping() && replay_terrain) { c.original(); }
+            let skip = skipping() && replay_terrain;
+            if !skip { audit_map_original("navigator_terrain", 0, c.image, &[c.width, c.height]); }
+            audit_call(PixelClass::Replay, skip, || { c.original(); 0 });
         });
         hook!(navigator_tint, sites.tint, |c| {
             let tracked = replay_operation(c.navigator, crate::replay::Operation::Tint { x: c.x as i32, y: c.y as i32, color: c.color as u16 });
-            if !(tracked && skipping()) { c.original(); }
+            audit_call(PixelClass::Replay, tracked && skipping(), || { c.original(); 0 });
         });
         hook!(navigator_restore, sites.restore, |c| {
             let tracked = replay_operation(c.navigator, crate::replay::Operation::Restore { x: c.x as i32, y: c.y as i32 });
-            if !(tracked && skipping()) { c.original(); }
+            audit_call(PixelClass::Replay, tracked && skipping(), || { c.original(); 0 });
         });
         hook!(navigator_add_city, sites.add_city, |c| {
             let tracked = replay_operation(c.navigator, crate::replay::Operation::AddCity { x: c.x as i32, y: c.y as i32 });
-            if !(tracked && skipping()) { c.original(); }
+            audit_call(PixelClass::Replay, tracked && skipping(), || { c.original(); 0 });
         });
         hook!(navigator_erase_city, sites.erase_city, |c| {
             let tracked = replay_operation(c.navigator, crate::replay::Operation::EraseCity { x: c.x as i32, y: c.y as i32 });
-            if !(tracked && skipping()) { c.original(); }
+            audit_call(PixelClass::Replay, tracked && skipping(), || { c.original(); 0 });
         });
     }
     hook_lines(game, &mut hooks);
@@ -791,7 +1340,7 @@ fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result
             _ => c.original(),
         }
     })?));
-    hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| if skipping() { 0 } else { c.original() })?));
+    hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| audit_call(PixelClass::Present, skipping(), || c.original()))?));
     Ok(())
 }
 
@@ -802,16 +1351,15 @@ fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result
 /// caller is the first return address into the game's code on the stack
 /// (possibly a stale one).
 fn trace_pixel_access(base: u32) {
-    static SEEN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    thread_local! { static SEEN: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
     fn note(image: u32) {
         let Some(owner) = h::jgl_owner(image) else { return };
         if with_skipper(|s| s.was_skipped(owner) && !s.keeps(owner)) != Some(true) {
             return;
         }
         // Only the first time (the stack walk is slow).
-        match SEEN.lock() {
-            Ok(mut seen) if seen.len() < 256 && !seen.contains(&owner) => seen.push(owner),
-            _ => return,
+        if !SEEN.with_borrow_mut(|seen| seen.len() < 256 && !seen.contains(&owner) && { seen.push(owner); true }) {
+            return;
         }
         let caller = game_caller();
         log::warn!("game rendering: pixels of image {owner:#x} (drawn onto with drawing skipped) taken from {caller:#x}");
@@ -880,10 +1428,13 @@ struct Pen {
     width: i32,
 }
 
-static PENS: Mutex<Vec<(u32, Pen)>> = Mutex::new(Vec::new());
+thread_local! {
+    /// The line drawers' state, on the game's thread (which alone draws).
+    static PENS: std::cell::RefCell<Vec<(u32, Pen)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
 fn with_pen(renderer: u32, f: impl FnOnce(&mut Pen)) {
-    if let Ok(mut pens) = PENS.lock() {
+    PENS.with_borrow_mut(|pens| {
         let i = match pens.iter().position(|p| p.0 == renderer) {
             Some(i) => i,
             None => {
@@ -892,7 +1443,7 @@ fn with_pen(renderer: u32, f: impl FnOnce(&mut Pen)) {
             }
         };
         f(&mut pens[i].1);
-    }
+    });
 }
 
 /// Hooks the game's line drawer (redirected by C3X: hooked over its jump).
@@ -967,41 +1518,215 @@ fn line_points((x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> Vec<(i32, i32)> {
 /// Whether the skipped canvases (the map) are left out: while a game runs.
 /// Between games the title screen is drawn on the same canvas.
 pub fn set_skipping(on: bool) {
-    if let Ok(mut m) = CAPTURE.model.lock() {
-        if let Some(m) = m.as_mut() {
-            m.set_skipping(on);
-        }
-    }
+    // (On the publisher: the game's thread applies it with its next drawing.)
+    SKIPPING.store(if on { 2 } else { 1 }, Release);
 }
 
 /// The game starts redrawing the map (terrain over the old labels) into
 /// `map_renderer`, an image it then copies onto the map canvas: what both
 /// showed is replaced.
 pub fn map_redraw(map_renderer: u32) {
-    if let Ok(mut m) = CAPTURE.model.lock() {
-        if let Some(m) = m.as_mut() {
-            m.reset_underlays();
-            m.reset(map_renderer);
-        }
-    }
+    with_model(false, |m| {
+        m.reset_underlays();
+        m.reset(map_renderer);
+    });
 }
 
 /// An unscaled map-sprite blit onto an interface canvas (Top 5 Cities).
 /// The tracer excludes the main map pass, which the renderer draws itself.
 /// Returns whether the game's own drawing of this recorded blit is skipped.
-pub fn on_map_sprite(sprite: u32, canvas: u32, x: u32, y: u32, ct: u32) -> bool {
-    blit(sprite, canvas, x, y, true, ct);
+pub fn on_map_sprite(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], ct: u32) -> bool {
+    if scale[0] == scale[1] && scale[1] == scale[2] {
+        if !world_canvas(canvas) { blit(sprite, canvas, x, y, true, ct); }
+    } else {
+        resized_blit(sprite, canvas, x, y, scale, ct, None);
+    }
     skips(canvas, sprite)
+}
+
+/// A blend-table blit (`Sprite::draw_blend` through its scaled wrapper,
+/// the tracer's hook) onto an interface canvas: the shadows of resources
+/// and terrain buildings, e.g. in the tile information box's picture of the
+/// map. `table`: the blend tables. Returns whether the game's own drawing
+/// of it is skipped.
+pub fn on_map_blend(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, scale: [u32; 3], ct: u32) -> bool {
+    let levels = BUILD.get().and_then(|&b| blend_levels(b, table));
+    match levels {
+        Some(levels) => {
+            if !world_canvas(canvas) {
+                let indices = crate::ui::indices::blend(levels);
+                if scale[0] == scale[1] && scale[1] == scale[2] { indexed_blit(sprite, canvas, x, y, indices, None); }
+                else { resized_blit(sprite, canvas, x, y, scale, ct, Some(indices)); }
+            }
+            skips(canvas, sprite)
+        }
+        // A table not known here uses the ordinary sprite path.
+        _ => on_map_sprite(sprite, canvas, x, y, scale, ct),
+    }
+}
+
+/// The levels of the set of blend tables `table` is (the value of one of
+/// the game's pointers to them), if it is one.
+fn blend_levels(build: civ3_sys::Build, table: u32) -> Option<&'static [u8]> {
+    let t = h::blend_tables(build)?;
+    let read = |at: u32| inproc::Ptr32::<u32>::new(at).read().ok().filter(|&p| p != 0);
+    if table == 0 { None }
+    else if read(t.shadows) == Some(table) { Some(&crate::ui::indices::SHADOW_LEVELS) }
+    else if read(t.levels) == Some(table) { Some(&crate::ui::indices::SHADE_LEVELS) }
+    else { None }
+}
+
+/// A sprite drawn at (x, y) (its stored pixels at the crop offset), its
+/// palette indices as `indices` says.
+fn indexed_blit(sprite: u32, canvas: u32, x: u32, y: u32, indices: menu::screen::Indices, palette: Option<menu::screen::PaletteFrom>) {
+    if SCALED_NATIVE.with(Cell::get) { return; }
+    let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
+    emit(Event::IndexedBlit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette, indices });
 }
 
 /// A colour-table blit (the tracer's hook): unit animation frames drawn on
 /// interface canvases become unit pictures (§16.9). `canvas` is the
-/// destination (the blit's second canvas argument).
-pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32) {
+/// destination (the blit's second canvas argument); `table` its blend
+/// tables, `ct` its colour table.
+pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, ct: u32) {
+    if world_canvas(canvas) { return; }
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
         // The frame's image lies at its offset from (x, y), as for map
         // units (§10.3).
         let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
         emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), plain: false });
+        return;
+    }
+    // Through the shade tables (the territory borders in the tile
+    // information box): its colours, shades and the indices its file lost.
+    let shades = BUILD.get().and_then(|&b| blend_levels(b, table)) == Some(&crate::ui::indices::SHADE_LEVELS[..]);
+    let path = with_model(false, |m| match m.sprite_source(sprite) {
+        Some(crate::ui::Source::File { path, .. }) => Some(path.clone()),
+        _ => None,
+    }).flatten();
+    match path.filter(|_| shades) {
+        Some(path) => {
+            let palette = palette_from(sprite, ct).or_else(|| copied_civ_colors(ct));
+            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored(crate::ui::indices::blank(&path)), palette);
+            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored_shades(), None);
+            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored_smoke(), None);
+        }
+        None => blit(sprite, canvas, x, y, true, ct),
+    }
+}
+
+/// A colour table made from another with entries 64 and 65 of a civ's (the
+/// territory borders' owner colours, 0x4C3B87..0x4C3BEC): those of its
+/// `ntpNN.pcx`.
+fn copied_civ_colors(ct: u32) -> Option<menu::screen::PaletteFrom> {
+    if ct == 0 { return None; }
+    let entries = h::color_table_entries(ct, 64, 2)?;
+    let n = h::civ_table_with(*BUILD.get()?, 64, &entries)?;
+    Some(menu::screen::PaletteFrom { image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 64, count: 2 })
+}
+
+#[cfg(test)]
+mod blend_hook_tests {
+    use super::*;
+
+    #[test]
+    fn wrapper_guard_restores_nested_state_and_unwinds() {
+        assert!(!BLEND_WRAPPER_NATIVE.with(Cell::get));
+        blend_wrapper_original(|| {
+            assert!(BLEND_WRAPPER_NATIVE.with(Cell::get));
+            blend_wrapper_original(|| assert!(BLEND_WRAPPER_NATIVE.with(Cell::get)));
+            assert!(BLEND_WRAPPER_NATIVE.with(Cell::get));
+        });
+        assert!(!BLEND_WRAPPER_NATIVE.with(Cell::get));
+        assert!(std::panic::catch_unwind(|| blend_wrapper_original(|| panic!("native failure"))).is_err());
+        assert!(!BLEND_WRAPPER_NATIVE.with(Cell::get));
+    }
+}
+
+#[cfg(test)]
+mod present_snapshot_tests {
+    use super::*;
+    use civ3_sys::controls::{Control, ControlKind, TitleLayout};
+
+    fn staged(model: &mut UiModel, x: i32, label: &str) {
+        model.apply(Event::Loaded { image: 10, path: format!("{label}.pcx"), size: (8, 8) });
+        model.apply(Event::Sliced { sprite: 11, image: 10, rect: [0, 0, 8, 8] });
+        model.apply(Event::PresentBegin);
+        model.apply(Event::Fill { canvas: 999, rect: [x, 100, 120, 20], rgb: [255; 3], alpha: 255, clip: None });
+        model.apply(Event::Text { canvas: 999, run: TextRun { x: x + 4, y: 114, color: [0; 3], face: "No outlines".into(), height: -12, weight: 400, italic: false, underline: false, text: label.into(), backdrop: None } });
+    }
+
+    fn native(x: i32, model: &UiModel) -> NativeUi {
+        let state = scene::LookState { pointer: scene::PointerState::Normal, selected: false };
+        NativeUi {
+            modal_stack: [x as u32, 0, 0, 0],
+            controls: vec![Control { rect: [x, 100, 120, 20], kind: ControlKind::Slider { track: [x, 110, 100, 1], value: x }, id: 77 }],
+            title: Some(TitleLayout { origin: (x, 100), row_height: 20, first: 1 }),
+            military: vec![civ3_sys::controls::screens::UnitStrip { form: 50, canvas: 51, side: 0, row: 2, rect: [x, 100, 120, 20], left: x }],
+            status_row: Some((88, [x, 100, 120, 20])),
+            arts: vec![crate::looks::ControlArt { id: 77, select: scene::Select::None, canvas: 999, part: crate::looks::Part::Whole, state,
+                pieces: vec![vec![(state, model.sprite_source(11).unwrap().clone())]], text_offsets: vec![(state, (x, 0))], colors: vec![], selected_by_fields: false }],
+        }
+    }
+
+    #[test]
+    fn reader_refresh_before_the_first_present_has_no_commands_or_targets() {
+        let mut model = UiModel::default().with_screen(999);
+        staged(&mut model, 100, "new");
+        let mut capture = CommittedCapture::default();
+        let (view, changed) = capture.view(&model, false, None, |_| panic!("reader refresh sampled uncommitted controls"));
+        assert!(!changed);
+        assert!(view.model.committed_frame().draws.is_empty());
+        assert_eq!(*view.native, NativeUi::default());
+        assert!(view.model.sprite_source(11).is_none());
+    }
+
+    #[test]
+    fn commands_controls_and_sprite_sources_advance_only_at_the_same_present() {
+        let mut model = UiModel::default().with_screen(999);
+        let mut capture = CommittedCapture::default();
+        staged(&mut model, 100, "old");
+        model.apply(Event::Present { rect: None });
+        let old_native = native(100, &model);
+        let old_presented = Some(crate::city_screen::Presented { focus_city: Some(1), camera: (100, 100) });
+        let (old, changed) = capture.view(&model, true, old_presented, |_| old_native.clone());
+        assert!(changed);
+        let old_frame = old.model.committed_frame();
+        let old_sources = SnapshotSources(Some(std::sync::Arc::new(old)));
+
+        staged(&mut model, 200, "new");
+        let new_native = native(200, &model);
+        assert_ne!(new_native, old_native);
+        let new_presented = Some(crate::city_screen::Presented { focus_city: Some(2), camera: (200, 100) });
+        let (refresh, changed) = capture.view(&model, false, new_presented, |_| panic!("WANT_VIEW read live controls"));
+        assert!(!changed);
+        assert_eq!(refresh.model.committed_frame(), old_frame);
+        assert_eq!(*refresh.native, old_native);
+        assert_eq!(refresh.presented, old_presented);
+        assert_eq!(refresh.model.sprite_source(11).cloned(), old_sources.get(&[11])[0]);
+        assert_ne!(refresh.model.sprite_source(11), model.sprite_source(11));
+
+        model.apply(Event::Present { rect: None });
+        let (new, changed) = capture.view(&model, true, new_presented, |_| new_native.clone());
+        assert!(changed);
+        assert_ne!(new.model.committed_frame(), old_frame);
+        assert_eq!(*new.native, new_native);
+        assert_eq!(new.presented, new_presented);
+        assert_eq!(new.model.sprite_source(11), model.sprite_source(11));
+        assert_ne!(old_sources.get(&[11])[0], new.model.sprite_source(11).cloned(), "an older rendering packet keeps its own sprite mapping");
+    }
+
+    #[test]
+    fn a_metadata_only_present_is_a_new_publication() {
+        let mut model = UiModel::default().with_screen(999);
+        let mut capture = CommittedCapture::default();
+        staged(&mut model, 100, "same");
+        model.apply(Event::Present { rect: None });
+        let (old, _) = capture.view(&model, true, None, |model| native(100, model));
+        model.apply(Event::Present { rect: None });
+        let (new, changed) = capture.view(&model, true, None, |model| native(200, model));
+        assert!(changed, "metadata-only updates must wake the publisher");
+        assert_eq!(old.model.committed_frame(), new.model.committed_frame());
+        assert_ne!(old.native, new.native, "native metadata participates in the publisher's unchanged key");
     }
 }

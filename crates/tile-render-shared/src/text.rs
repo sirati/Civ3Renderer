@@ -64,10 +64,11 @@ pub const SMALL_EM: i32 = 12;
 /// How far a glyph of `em64` 64ths of a pixel at zoom `n/d` is widened (see
 /// [`SMALL_EM`]), in fixed-point units.
 pub fn darkening(em64: u32, n: u32, d: u32) -> i32 {
-    let em = (if em64 > 1 << 14 { 1 << 14 } else { em64 }) as i32;
-    let (n, d) = (n as i32, if d == 0 { 1 } else { d as i32 });
-    let at_zoom = em * n * TEXT_FIXED / (64 * d);
-    let short = SMALL_EM * TEXT_FIXED - at_zoom;
+    let em = if em64 > 1 << 14 { 1 << 14 } else { em64 };
+    let d = d.clamp(1, 65535);
+    let n = n.min(65535);
+    let at_zoom = mul_div_rem(em * n, TEXT_FIXED as u32, 64 * d).0.min((SMALL_EM * TEXT_FIXED) as u32);
+    let short = SMALL_EM * TEXT_FIXED - at_zoom as i32;
     if short > 0 { short / 24 } else { 0 }
 }
 
@@ -196,31 +197,91 @@ pub fn floor_div(a: i32, b: i32) -> i32 {
     if a >= 0 { a / b } else { -((-a + b - 1) / b) }
 }
 
+/// Exact product/division with 32-bit shader arithmetic. The quotient
+/// saturates when it does not fit. Ordinary UI positions use the fast path.
+fn mul_div_rem(a: u32, b: u32, d: u32) -> (u32, u32) {
+    if b == 0 { return (0, 0); }
+    if a <= u32::MAX / b { return (a * b / d, a * b % d); }
+    // Form the product as two words without requiring shaderInt64.
+    let (a0, a1, b0, b1) = (a & 65535, a >> 16, b & 65535, b >> 16);
+    let t = a0 * b0;
+    let low = t & 65535;
+    let t = a1 * b0 + (t >> 16);
+    let middle = t & 65535;
+    let high = t >> 16;
+    let t = a0 * b1 + middle;
+    let mut remainder = a1 * b1 + high + (t >> 16);
+    let mut product = (t << 16) | low;
+    if remainder >= d { return (u32::MAX, 0); }
+    let mut quotient = 0;
+    // Keep all 32 division steps explicit. SPIR-V-to-MSL loop exits lose
+    // the final quotient/remainder even when returned in the last step.
+    macro_rules! bit {
+        (more) => { bit!(); product <<= 1; };
+        () => {
+            let carry = remainder >> 31;
+            remainder = (remainder << 1) | (product >> 31);
+            quotient <<= 1;
+            if carry != 0 || remainder >= d {
+                remainder = remainder.wrapping_sub(d);
+                quotient |= 1;
+            }
+        };
+    }
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!(more);
+    bit!(more); bit!(more); bit!(more); bit!();
+    (quotient, remainder)
+}
+
+/// Signed rational scaling, rounded down and saturated for distant clips.
+fn scaled_length(v: i32, n: u32, d: u32) -> i32 {
+    let (q, r) = mul_div_rem(v.unsigned_abs(), n, d.max(1));
+    if v < 0 {
+        if q >= 1 << 31 { i32::MIN } else { -(q as i32) - i32::from(r != 0) }
+    } else { q.min(i32::MAX as u32) as i32 }
+}
+
+/// A half-open native clip edge under inverse-nearest sampling. A target
+/// pixel p belongs to [lo, hi) when floor(p*d/n) does, so both edges use
+/// ceil(edge*n/d), including negative coordinates and distant clips.
+fn scaled_clip_edge(v: i32, n: u32, d: u32) -> i32 {
+    let (q, r) = mul_div_rem(v.unsigned_abs(), n, d.max(1));
+    if v < 0 {
+        if q >= 1 << 31 { i32::MIN } else { -(q as i32) }
+    } else {
+        if q >= i32::MAX as u32 { i32::MAX } else { q as i32 + i32::from(r != 0) }
+    }
+}
+
 /// A 1:1 length `v` (pixels) at zoom `n/d` in fixed-point units, rounded
-/// down; `None` if it is that far (65536 pixels) off.
+/// down; `None` if it is that far (65536 pixels) off. Ratios up to 65535
+/// support fitted panels such as 239/256 without 64-bit shader integers.
 pub fn fixed_at_zoom(v: i32, n: u32, d: u32) -> Option<i32> {
-    let (n, d) = (n as i32, d as i32);
-    if v > 1 << 20 || v < -(1 << 20) || n > 255 || d > 255 || n < 1 || d < 1 {
+    if v > 1 << 20 || v < -(1 << 20) || n > 65535 || d > 65535 || n < 1 || d < 1 {
         return None;
     }
-    let p = v * n;
-    let q = floor_div(p, d);
-    if q > 1 << 16 || q < -(1 << 16) {
-        return None;
-    }
-    Some(q * TEXT_FIXED + (p - q * d) * TEXT_FIXED / d)
+    let fixed = scaled_length(v * TEXT_FIXED, n, d);
+    if fixed < -(1 << 16) * TEXT_FIXED || fixed >= ((1 << 16) + 1) * TEXT_FIXED { None } else { Some(fixed) }
 }
 
 /// The font-units-to-fixed-point factor of an em of `em64` 64ths of a
 /// pixel at zoom `n/d` with `upem` units per em (at most [`TEXT_MAX_EM`]
 /// pixels per em).
 pub fn scale_of(em64: u32, n: u32, d: u32, upem: u32) -> i32 {
-    let upem = if upem == 0 { 1 } else { upem };
+    if n == 0 || d == 0 || n > 65535 || d > 65535 { return 0; }
+    // TrueType units-per-em is a 16-bit field. Keep generated faces within
+    // that range too, so the combined denominator remains one shader word.
+    let upem = upem.clamp(1, 65535);
     // em64·F·64 = em pixels · F · 2^12; then · n / (upem · d).
     let em64 = if em64 > 1 << 14 { 1 << 14 } else { em64 };
     let a = em64 * TEXT_FIXED as u32 * 64;
-    let (q, r) = (a / upem, a % upem);
-    let s = (q * n + r * n / upem) / d;
+    let s = mul_div_rem(a, n, upem * d).0;
     let most = (TEXT_MAX_EM as u32 * TEXT_FIXED as u32) << SCALE_SHIFT;
     let most = most / upem;
     (if s > most { most } else { s }) as i32
@@ -285,20 +346,20 @@ pub fn bounds(words: &[u32], p: &GlyphPlace) -> (i32, i32, i32, i32) {
     (floor_div(left, f), floor_div(p.y - y1 - 1, f), floor_div(right, f) + 1, floor_div(p.y - y0 + 1, f) + 1)
 }
 
-/// The covered length of each of seven subpixels along one row.
-struct Row {
-    c: [i32; 7],
+/// The covered length of each subpixel in a contiguous row window.
+struct Row<const N: usize> {
+    c: [i32; N],
     /// Crossings right of every window: each adds a window's width (or takes
     /// it away) from all.
     full: i32,
 }
 
-impl Row {
+impl<const N: usize> Row<N> {
     /// A crossing at `x` (from the first window's left edge) entering
     /// (`enter`) or leaving the glyph.
     fn cross(&mut self, x: i32, enter: bool) {
         let mut j = 0;
-        while j < 7 {
+        while j < N {
             let v = clamp(x - j as i32 * SUB, 0, SUB);
             self.c[j] += if enter { -v } else { v };
             j += 1;
@@ -310,7 +371,7 @@ impl Row {
 /// < y2`) crosses height `y`: by halving the curve, then on the chord.
 fn crossing(mut x0: i32, mut y0: i32, mut x1: i32, mut y1: i32, mut x2: i32, mut y2: i32, y: i32) -> i32 {
     let mut i = 0;
-    while i < BISECT {
+    loop {
         let (ax, ay) = ((x0 + x1) >> 1, (y0 + y1) >> 1);
         let (bx, by) = ((x1 + x2) >> 1, (y1 + y2) >> 1);
         let (mx, my) = ((ax + bx) >> 1, (ay + by) >> 1);
@@ -320,8 +381,12 @@ fn crossing(mut x0: i32, mut y0: i32, mut x1: i32, mut y1: i32, mut x2: i32, mut
             (x0, y0, x1, y1) = (mx, my, bx, by);
         }
         i += 1;
+        // Keep the result on the final iteration. Naga's SPIR-V-to-MSL
+        // loop exit otherwise observes the previous curve subdivision.
+        if i == BISECT {
+            return x0 + (y - y0) * (x2 - x0) / (y2 - y0);
+        }
     }
-    x0 + (y - y0) * (x2 - x0) / (y2 - y0)
 }
 
 /// One curve's point `i` in fixed point from the pen (y up, slanted).
@@ -332,9 +397,9 @@ fn point(words: &[u32], curve: u32, i: u32, scale: i32, flags: u32) -> (i32, i32
     (x + slant(y, flags), y)
 }
 
-/// The row at height `y` (fixed point, up from the pen) across the seven
+/// The row at height `y` (fixed point, up from the pen) across `N`
 /// subpixels whose first starts at `left` (from the pen).
-fn row(words: &[u32], p: &GlyphPlace, y: i32, left: i32, out: &mut Row) {
+fn row<const N: usize>(words: &[u32], p: &GlyphPlace, y: i32, left: i32, out: &mut Row<N>) {
     let g = p.glyph;
     let bands = word(words, g + 5);
     let height = signed(words, g + 6);
@@ -352,7 +417,7 @@ fn row(words: &[u32], p: &GlyphPlace, y: i32, left: i32, out: &mut Row) {
     }
     let band = p.face + word(words, g + 7) + 2 * b;
     let (list, count) = (p.face + word(words, band), word(words, band + 1));
-    let right = left + 7 * SUB;
+    let right = left + N as i32 * SUB;
     let mut i = 0;
     while i < count {
         let c = p.face + word(words, list + i);
@@ -382,17 +447,17 @@ fn row(words: &[u32], p: &GlyphPlace, y: i32, left: i32, out: &mut Row) {
     }
 }
 
-/// The seven subpixels' coverage of viewport pixel (`px`, `py`), summed
-/// over the rows (each of [`TEXT_ROWS`] at most `SUB`); subpixel 0 is two
-/// left of the pixel's red one.
-fn subpixels(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [i32; 7] {
-    let mut total = [0i32; 7];
-    let left = px * TEXT_FIXED - 2 * SUB - p.x;
+/// A window of `N` subpixels' coverage of viewport pixel (`px`, `py`),
+/// summed over the rows (each of [`TEXT_ROWS`] at most `SUB`). `first` is
+/// the first subpixel relative to the pixel's red one.
+fn subpixels<const N: usize>(words: &[u32], p: &GlyphPlace, px: i32, py: i32, first: i32) -> [i32; N] {
+    let mut total = [0i32; N];
+    let left = px * TEXT_FIXED + first * SUB - p.x;
     let mut r = 0;
     while r < TEXT_ROWS {
         // Rows at the middles of equal strips, y up from the pen.
         let below = py * TEXT_FIXED + (2 * r + 1) * TEXT_FIXED / (2 * TEXT_ROWS) - p.y;
-        let mut row_cov = Row { c: [0; 7], full: 0 };
+        let mut row_cov = Row { c: [0; N], full: 0 };
         if p.flags & TEXT_BAR != 0 {
             if below >= p.bar_top && below < p.bar_top + p.bar_h {
                 row_cov.cross(-left, true);
@@ -402,7 +467,7 @@ fn subpixels(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [i32; 7] {
             row(words, p, -below, left, &mut row_cov);
         }
         let mut j = 0;
-        while j < 7 {
+        while j < N {
             total[j] += clamp(row_cov.c[j] + row_cov.full * SUB, 0, SUB) * row_weight(r);
             j += 1;
         }
@@ -445,7 +510,7 @@ pub fn boost_of(c8: u32) -> u32 {
 /// The coverage of viewport pixel (`px`, `py`) per channel (red, green,
 /// blue), 0..=255, before the contrast boost.
 pub fn linear_coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [u32; 3] {
-    let s = subpixels(words, p, px, py);
+    let s = subpixels::<7>(words, p, px, py, -2);
     let mut out = [0u32; 3];
     let full = 96 * ROW_TOTAL * SUB;
     let mut c = 0;
@@ -475,22 +540,51 @@ pub fn coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32, color: u32) -> 
     out
 }
 
+/// One channel of [`coverage`], without evaluating the other channels.
+/// The LCD filter's outer taps are zero, so only the three subpixels
+/// around this channel can affect it. Keeping their exact covered lengths
+/// also narrows the row's crossing window without changing the filter.
+pub fn channel_coverage(words: &[u32], p: &GlyphPlace, px: i32, py: i32, color: u32, channel: u32) -> u32 {
+    let s = subpixels::<3>(words, p, px, py, channel as i32 - 1);
+    // Each nonzero tap is 32/96. Cancel that common factor after adding
+    // the same rounding bias as linear_coverage; no precision is lost.
+    let full = 3 * ROW_TOTAL * SUB;
+    let linear = (((s[0] + s[1] + s[2]) * 255 + full / 2) / full) as u32;
+    boosted(linear, boost_of((color >> (16 - 8 * channel)) & 0xFF))
+}
+
+/// All three channels of [`linear_coverage`] with a shared five-subpixel window.
+/// Their three nonzero LCD taps overlap; the outside zero taps need no
+/// covered length or curve crossing.
+pub fn linear_coverage_all_channels(words: &[u32], p: &GlyphPlace, px: i32, py: i32) -> [u32; 3] {
+    let s = subpixels::<5>(words, p, px, py, -1);
+    let full = 3 * ROW_TOTAL * SUB;
+    let channel = |sum: i32| ((sum * 255 + full / 2) / full) as u32;
+    [channel(s[0] + s[1] + s[2]), channel(s[1] + s[2] + s[3]), channel(s[2] + s[3] + s[4])]
+}
+
+/// All colour channels with shared curve crossings and the exact contrast
+/// boost. Linear coverage is already an integer byte before this boost.
+pub fn coverage_all_channels(words: &[u32], p: &GlyphPlace, px: i32, py: i32, color: u32) -> [u32; 3] {
+    let c = linear_coverage_all_channels(words, p, px, py);
+    [boosted(c[0], boost_of((color >> 16) & 0xFF)), boosted(c[1], boost_of((color >> 8) & 0xFF)), boosted(c[2], boost_of(color & 0xFF))]
+}
+
 /// Keyed text (`TEXT_KEYED`): the colour drawn at a pixel of `coverage`,
 /// text in `color` blended onto `key` and kept in 15 bits, if it differs
 /// from the key there (else nothing is drawn).
 pub fn keyed(coverage: [u32; 3], color: u32, key: u32) -> Option<[u32; 3]> {
-    let mut out = [0u32; 3];
-    let mut differs = false;
-    let mut c = 0;
-    while c < 3 {
-        let shift = 16 - 8 * c as u32;
+    let channel = |c: u32, shift: u32| {
         let (k, t) = ((key >> shift) & 0xFF, (color >> shift) & 0xFF);
-        let five = (k * (255 - coverage[c]) + t * coverage[c]) / 255 >> 3;
-        differs |= five != k >> 3;
-        out[c] = (five << 3) | (five >> 2);
-        c += 1;
-    }
-    if differs { Some(out) } else { None }
+        let five = (k * (255 - c) + t * c) / 255 >> 3;
+        ((five << 3) | (five >> 2), five != k >> 3)
+    };
+    // Keep the fixed three-channel result outside a loop. SPIR-V-to-MSL
+    // loop exits can lose the final flag or the final array element.
+    let (r, dr) = channel(coverage[0], 16);
+    let (g, dg) = channel(coverage[1], 8);
+    let (b, db) = channel(coverage[2], 0);
+    if dr || dg || db { Some([r, g, b]) } else { None }
 }
 
 /// How far a glyph instance's clip rectangle reaches at zoom `n/d`, in
@@ -502,7 +596,13 @@ pub fn clip_at_zoom(g: &TextGlyph, base: (i32, i32), n: u32, d: u32, downscale: 
     if g.flags & FREE_CLIP == 0 {
         return None;
     }
-    let s = |v: i32, b: i32| floor_div((crate::shrunk(v, downscale) - b) * n as i32, d as i32);
+    let s = |v: i32, b: i32| {
+        let v = crate::shrunk(v, downscale);
+        let relative = if b > 0 && v < i32::MIN + b { i32::MIN }
+            else if b < 0 && v > i32::MAX + b { i32::MAX }
+            else { v - b };
+        scaled_clip_edge(relative, n, d)
+    };
     Some([s(g.clip[0], base.0), s(g.clip[1], base.1), s(g.clip[2], base.0), s(g.clip[3], base.1)])
 }
 
@@ -514,6 +614,75 @@ pub fn on_screen(g: &TextGlyph) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_clip_edges_match_independent_inverse_nearest_pixel_membership() {
+        for (n, d) in [(1, 1), (3, 2), (2, 3), (2, 1), (1, 2), (239, 256)] {
+            for (origin, shift) in [((0, 0), (0, 0)), ((7, 11), (3, 5)), ((17, 5), (-11, 9)), ((-17, -11), (3, -5))] {
+                let base = (origin.0 - shift.0, origin.1 - shift.1);
+                for downscale in [1, 2, 3] {
+                    let g = TextGlyph { flags: FREE_CLIP | FREE_SCREEN, clip: [-23, -17, 29, 101], ..Default::default() };
+                    let got = clip_at_zoom(&g, base, n, d, downscale).unwrap();
+                    let mut expected = [0; 4];
+                    for i in 0..4 {
+                        let v = (i64::from(g.clip[i]) / i64::from(downscale)) - i64::from(if i % 2 == 0 { base.0 } else { base.1 });
+                        let p = v * i64::from(n);
+                        expected[i] = (p.div_euclid(i64::from(d)) + i64::from(p.rem_euclid(i64::from(d)) != 0)) as i32;
+                    }
+                    assert_eq!(got, expected, "zoom {n}/{d}, origin{origin:?}, shift{shift:?}, downscale{downscale}");
+                    for p in -200..200i64 {
+                        let native = (p * i64::from(d)).div_euclid(i64::from(n));
+                        let lo = (i64::from(g.clip[0]) / i64::from(downscale)) - i64::from(base.0);
+                        let hi = (i64::from(g.clip[2]) / i64::from(downscale)) - i64::from(base.0);
+                        assert_eq!(p >= i64::from(got[0]) && p < i64::from(got[2]), native >= lo && native < hi);
+                    }
+                }
+            }
+        }
+        for (v, n, d, expected) in [(i32::MIN, 65535, 1, i32::MIN), (i32::MAX, 65535, 1, i32::MAX), (-1, 2, 3, 0), (1, 2, 3, 1)] {
+            assert_eq!(scaled_clip_edge(v, n, d), expected);
+        }
+    }
+
+    #[test]
+    fn shader_word_products_match_wide_integer_division_without_overflow() {
+        for a in [0, 1, 65535, 65536, 1 << 24, 100_663_296, u32::MAX] {
+            for b in [1, 239, 256, 4095, 65535, u32::MAX] {
+                for d in [1, 256, 4096, 65535, u32::MAX] {
+                    let product = u64::from(a) * u64::from(b);
+                    let quotient = product / u64::from(d);
+                    let expected = if quotient > u64::from(u32::MAX) { (u32::MAX, 0) }
+                        else { (quotient as u32, (product % u64::from(d)) as u32) };
+                    assert_eq!(mul_div_rem(a, b, d), expected, "{a} * {b} / {d}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fitted_panel_ratios_keep_exact_positions_metrics_and_large_clips() {
+        for (n, d) in [(239, 256), (957, 1024), (4095, 4096), (65534, 65535)] {
+            for v in [-1048576, -8192, -448, -1, 0, 1, 448, 8192, 1048576] {
+                let expected = (i64::from(v) * i64::from(n) * i64::from(TEXT_FIXED)).div_euclid(i64::from(d));
+                let pixels = expected.div_euclid(i64::from(TEXT_FIXED));
+                let expected = (-(1 << 16)..=1 << 16).contains(&pixels).then_some(expected as i32);
+                assert_eq!(fixed_at_zoom(v, n, d), expected, "{v} at {n}/{d}");
+            }
+            for em in [1, 12 * 64, 256 * 64] {
+                let exact = u64::from(em) * TEXT_FIXED as u64 * 64 * u64::from(n) / (2048 * u64::from(d));
+                assert_eq!(scale_of(em, n, d, 2048), exact as i32);
+                let at_zoom = u64::from(em) * u64::from(n) * TEXT_FIXED as u64 / (64 * u64::from(d));
+                let short = (i64::from(SMALL_EM * TEXT_FIXED) - at_zoom as i64).max(0);
+                assert_eq!(darkening(em, n, d), (short / 24) as i32);
+            }
+            let g = TextGlyph { flags: FREE_CLIP, clip: [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24], ..Default::default() };
+            let clip = clip_at_zoom(&g, (448, 156), n, d, 1).unwrap();
+            assert!(clip[0] < 0 && clip[1] < 0 && clip[2] > 65536 && clip[3] > 65536, "distant clip edges stay outside the visible panel");
+        }
+        assert_eq!(fixed_at_zoom(-8192, 65535, 1), None);
+        assert_eq!(fixed_at_zoom(8192, 65535, 1), None);
+        assert_eq!(scale_of(256 * 64, 65535, 1, 1), (TEXT_MAX_EM * TEXT_FIXED) << SCALE_SHIFT);
+    }
 
     #[test]
     fn the_lcd_filter_is_normalized_and_colour_balanced() {
@@ -553,5 +722,7 @@ mod tests {
         assert_eq!(keyed([0; 3], 0, 0xFF00FF), None);
         assert_eq!(keyed([255; 3], 0, 0xFF00FF), Some([0, 0, 0]));
         assert_eq!(keyed([128, 128, 128], 0, 0xFF00FF), Some([123, 0, 123]));
+        // The last channel alone can differ, as at a glyph's LCD fringe.
+        assert_eq!(keyed([0, 0, 8], 0, 0xFF00FF), Some([255, 0, 247]));
     }
 }

@@ -91,8 +91,37 @@ use crate::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use crate::monitor::MonitorHandle;
 use crate::window::{Window, WindowAttributes};
 
+/// The accessibility pointer size factor (System Settings, Accessibility,
+/// Display, Pointer size), normally 1 to 4; 0 when unset or unreadable.
+/// Any thread.
+///
+/// Custom cursor images are in physical pixels on macOS too: an image of N
+/// pixels is shown N display pixels wide (N / backing scale points, at the
+/// main screen's scale when the cursor is made on the main thread).
+pub fn accessibility_cursor_size() -> f64 {
+    crate::platform_impl::accessibility_cursor_size()
+}
+
 /// Additional methods on [`Window`] that are specific to MacOS.
 pub trait WindowExtMacOS {
+    /// Confine the pointer to a content-area rectangle, excluding holes.
+    ///
+    /// Rectangles are `[x, y, width, height]` in physical window pixels,
+    /// including on Retina displays. Movement cannot cross an excluded
+    /// rectangle, even when a single event crosses the whole rectangle.
+    /// A width or height of one holds that axis at a single physical pixel.
+    ///
+    /// This uses public CoreGraphics APIs scoped to the active window. It
+    /// needs no global event tap or Accessibility permission. Losing focus
+    /// or closing the window releases the pointer. `None` removes a custom
+    /// confinement but leaves a separate `CursorGrabMode::Locked` intact.
+    /// The pointer must already be inside the requested region.
+    fn set_cursor_confinement(
+        &self,
+        bounds: Option<[i32; 4]>,
+        exclusions: &[[i32; 4]],
+    ) -> Result<(), crate::error::ExternalError>;
+
     /// Returns whether or not the window is in simple fullscreen mode.
     fn simple_fullscreen(&self) -> bool;
 
@@ -173,6 +202,15 @@ pub trait WindowExtMacOS {
 }
 
 impl WindowExtMacOS for Window {
+    #[inline]
+    fn set_cursor_confinement(
+        &self,
+        bounds: Option<[i32; 4]>,
+        exclusions: &[[i32; 4]],
+    ) -> Result<(), crate::error::ExternalError> {
+        self.window.maybe_wait_on_main(|w| w.set_cursor_confinement(bounds, exclusions))
+    }
+
     #[inline]
     fn simple_fullscreen(&self) -> bool {
         self.window.maybe_wait_on_main(|w| w.simple_fullscreen())
@@ -433,6 +471,48 @@ pub trait EventLoopBuilderExtMacOS {
     ///
     /// The default behavior is to ignore other applications and activate when launched.
     fn with_activate_ignoring_other_apps(&mut self, ignore: bool) -> &mut Self;
+
+    /// Attach to the `NSApplication` a host already created and runs on the
+    /// main thread (e.g. Wine's, for a native library inside a Wine
+    /// program), rather than owning one. The event loop then does not
+    /// become the application's delegate, never runs, stops or terminates
+    /// the application and never closes windows it did not create; it sets
+    /// the activation policy only if one is given, and the default menu only
+    /// if the host has none. Building fails if no application runs yet.
+    /// Start it with [`EventLoopExtMacOSAttached::run_app_attached`].
+    fn with_attached_application(&mut self, attached: bool) -> &mut Self;
+}
+
+/// Running an event loop attached to a host's application (see
+/// [`EventLoopBuilderExtMacOS::with_attached_application`]).
+pub trait EventLoopExtMacOSAttached<T: 'static> {
+    /// Starts handling events for `app` on the host's running application
+    /// and returns at once (the host's run loop drives it). `app` is dropped
+    /// after [`ApplicationHandler::exiting`], once the event loop exits.
+    /// Fails if the event loop was not built attached.
+    fn run_app_attached<A: crate::application::ApplicationHandler<T> + 'static>(
+        self,
+        app: A,
+    ) -> Result<(), crate::error::EventLoopError>;
+}
+
+impl<T: 'static> EventLoopExtMacOSAttached<T> for crate::event_loop::EventLoop<T> {
+    fn run_app_attached<A: crate::application::ApplicationHandler<T> + 'static>(
+        self,
+        mut app: A,
+    ) -> Result<(), crate::error::EventLoopError> {
+        self.event_loop.run_attached(move |event, event_loop| {
+            crate::event_loop::dispatch_event_for_app(&mut app, event_loop, event)
+        })
+    }
+}
+
+/// Whether the process already has a running `NSApplication` to attach to
+/// (see [`EventLoopBuilderExtMacOS::with_attached_application`]). Does not
+/// create one. Always `false` off the main thread.
+pub fn host_application_running() -> bool {
+    objc2_foundation::MainThreadMarker::new()
+        .is_some_and(crate::platform_impl::host_application_running)
 }
 
 impl<T> EventLoopBuilderExtMacOS for EventLoopBuilder<T> {
@@ -451,6 +531,12 @@ impl<T> EventLoopBuilderExtMacOS for EventLoopBuilder<T> {
     #[inline]
     fn with_activate_ignoring_other_apps(&mut self, ignore: bool) -> &mut Self {
         self.platform_specific.activate_ignoring_other_apps = ignore;
+        self
+    }
+
+    #[inline]
+    fn with_attached_application(&mut self, attached: bool) -> &mut Self {
+        self.platform_specific.attached = attached;
         self
     }
 }

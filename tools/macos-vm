@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$script_dir/macos-vm.py" "$@"
+fi
+exec nix shell nixpkgs#python3 -c python3 "$script_dir/macos-vm.py" "$@"

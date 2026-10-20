@@ -1,0 +1,10 @@
+[package]
+name = "pointer-fallback"
+description = "Portable window pointer grabbing and positioning"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+pointer-api = { path = "../pointer-api" }
+winit.workspace = true

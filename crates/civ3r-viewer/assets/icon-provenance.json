@@ -1,0 +1,37 @@
+{
+  "exe_sha256": "66d0ae91de6f4a2376e03aa74eb29a8256f02108ca3a4c024a4857337bc45ee6",
+  "groups": [
+    {
+      "path": [
+        14,
+        125,
+        1033
+      ],
+      "entries": [
+        {
+          "width": 32,
+          "height": 32,
+          "colors": 16,
+          "reserved": 0,
+          "planes": 1,
+          "bits": 4,
+          "bytes": 744,
+          "id": 1
+        }
+      ]
+    }
+  ],
+  "source": "Civilization III Complete/Conquests/Civ3Conquests.exe",
+  "resource_group": 125,
+  "resource_icon": 1,
+  "language": 1033,
+  "width": 32,
+  "height": 32,
+  "source_bits_per_pixel": 4,
+  "png_sha256": "bd0bc503c55ea68d53d471694a35cd1b129e75a31f8bf9704f19974ed5273afc",
+  "rgba_sha256": "6fbb8e4a5066160380c721f9ca864c26c40d2c0f0e191313a34daa50c0b08e6a",
+  "opaque_pixels": 1024,
+  "transparent_pixels": 0,
+  "distinct_rgba_colors": 7,
+  "conversion": "Original 4-bit BGR palette converted to RGBA; original one-bit AND mask controls alpha. No resampling or redrawing."
+}

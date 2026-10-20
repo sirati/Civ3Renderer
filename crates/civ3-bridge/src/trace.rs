@@ -10,7 +10,9 @@
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::cell::RefCell;
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use civ3_sys::hooks::{draw_tiles, sprite_draw_on_map, sprite_draw_on_map_blend, sprite_draw_with_color_table};
 use civ3_sys::sprites::{SpriteRef, identify_canonical};
@@ -32,6 +34,7 @@ pub struct Draw {
     pub kind: &'static str,
 }
 
+#[derive(Clone)]
 struct State {
     /// The redraw in progress: map renderer, draws, and the time of the
     /// last draw.
@@ -45,7 +48,21 @@ struct State {
 /// Cap on recorded draws per redraw.
 const MAX_DRAWS: usize = 20_000;
 
-static STATE: Mutex<State> = Mutex::new(State { frame: None, previous: None, depth: 0 });
+thread_local! {
+    /// The recording, owned by the game's thread (the only one drawing).
+    static STATE: RefCell<State> = const { RefCell::new(State { frame: None, previous: None, depth: 0 }) };
+}
+/// The request server wants a copy of the recording: the game's thread
+/// publishes one with its next draw and clears this.
+static WANT_FRAMES: AtomicBool = AtomicBool::new(false);
+/// That copy, with when it was made.
+static FRAMES: civ3r_sync::Latest<(std::time::Instant, State)> = civ3r_sync::Latest::new();
+
+fn publish_if_wanted() {
+    if WANT_FRAMES.swap(false, Ordering::AcqRel) {
+        FRAMES.publish((std::time::Instant::now(), STATE.with_borrow(State::clone)));
+    }
+}
 /// The running build, for resolving sprites of global arrays.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
 
@@ -55,7 +72,7 @@ pub static GAME_MAP_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 /// Whether map sprites are not to be blitted: the game's map rendering is
 /// off and a map redraw is in progress.
 fn map_blits_off() -> bool {
-    GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) && STATE.lock().is_ok_and(|s| s.depth > 0)
+    GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) && STATE.with_borrow(|s| s.depth > 0)
 }
 
 /// Calls seen, for diagnostics.
@@ -71,9 +88,8 @@ pub struct Tracer {
 
 /// Records a draw and reports whether it belongs to the main map pass.
 fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) -> bool {
-    let mut in_map = true;
-    if let Ok(mut s) = STATE.lock() {
-        in_map = s.depth > 0;
+    let in_map = STATE.with_borrow_mut(|s| {
+        let in_map = s.depth > 0;
         if let Some((_, frame, at)) = s.frame.as_mut() {
             // Only map sprites say the redraw is still going: other blits
             // (UI, unit flags) run continuously.
@@ -88,58 +104,88 @@ fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind
             let size = civ3_sys::sprites::size(sprite).unwrap_or((0, 0));
             frame.push(Draw { sprite: resolved, sprite_addr: sprite, x: x as i32, y: y as i32, size, params, kind });
         }
-    }
+        in_map
+    });
+    publish_if_wanted();
     in_map
 }
 
+/// Text runs the game's thread drew, in order, for [`recent_texts`]: the
+/// hook only sends, readers merge them into [`RECENT_TEXT`].
+static NEW_TEXT: LazyLock<civ3r_sync::Mailbox<(std::time::Instant, TextRun)>> = LazyLock::new(civ3r_sync::Mailbox::new);
 /// Text the game drew recently, newest last.
-static RECENT_TEXT: Mutex<std::collections::VecDeque<(std::time::Instant, TextRun)>> =
-    Mutex::new(std::collections::VecDeque::new());
+static RECENT_TEXT: civ3r_sync::Latest<std::collections::VecDeque<(std::time::Instant, TextRun)>> = civ3r_sync::Latest::new();
 
 /// How long text stays "recent": the game redraws what is on screen more
 /// often than this.
 const TEXT_WINDOW: std::time::Duration = std::time::Duration::from_millis(500);
 
-/// Fonts text was drawn in (logged once each).
-static FONTS_SEEN: Mutex<Vec<inproc::gdi::LogFont>> = Mutex::new(Vec::new());
+thread_local! {
+    /// Fonts text was drawn in (logged once each), on the game's thread.
+    static FONTS_SEEN: RefCell<Vec<inproc::gdi::LogFont>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Adds `run`, drawn at `at`, to `recent`: a run replaces earlier ones at
+/// the same position, older ones expire.
+fn remember(recent: &mut std::collections::VecDeque<(std::time::Instant, TextRun)>, at: std::time::Instant, run: TextRun) {
+    while recent.front().is_some_and(|(t, _)| at.saturating_duration_since(*t) > TEXT_WINDOW) {
+        recent.pop_front();
+    }
+    recent.retain(|(_, r)| !(r.x == run.x && r.y == run.y));
+    if recent.len() < 4096 {
+        recent.push_back((at, run));
+    }
+}
 
 fn record_text(call: &hooks::text_out::Call) {
+    crate::ui_trace::audit_semantic(crate::ui_trace::SemanticClass::TextRun);
     let len = (call.len as i32).clamp(0, 1024) as usize;
     let Ok(bytes) = inproc::Ptr32::<u8>::new(call.text).read_array(len) else { return };
     // Windows-1252, read as Latin-1 (the glyph set covers the same codes).
     let text: String = bytes.iter().map(|&b| b as char).collect();
     let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
-    if let Ok(mut seen) = FONTS_SEEN.lock()
-        && !seen.contains(&font)
-    {
+    if FONTS_SEEN.with_borrow_mut(|seen| !seen.contains(&font) && { seen.push(font.clone()); true }) {
         log::info!("text font {font:?}");
-        seen.push(font.clone());
     }
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
     let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text, backdrop: None };
     crate::ui_trace::on_text(&run);
     // The semantic notice reader owns this text in UI and text-only modes.
     if crate::unit_notices::drawing() { return; }
-    if let Ok(mut recent) = RECENT_TEXT.lock() {
+    NEW_TEXT.send((std::time::Instant::now(), run));
+    // Unread (no reader in full UI mode): keep only the recent ones.
+    if NEW_TEXT.len() > 8192 {
         let now = std::time::Instant::now();
-        while recent.front().is_some_and(|(t, _)| now.duration_since(*t) > TEXT_WINDOW) {
-            recent.pop_front();
-        }
-        recent.retain(|(_, r)| !(r.x == run.x && r.y == run.y));
-        if recent.len() < 4096 {
-            recent.push_back((now, run));
-        }
+        let runs: Vec<_> = NEW_TEXT.drain().filter(|(t, _)| now.duration_since(*t) <= TEXT_WINDOW).collect();
+        runs.into_iter().rev().take(4096).rev().for_each(|r| NEW_TEXT.send(r));
     }
 }
 
 /// The text runs currently on screen (drawn within the last half second),
 /// in drawing order; a run replaces earlier ones at the same position.
 pub fn recent_texts() -> Vec<TextRun> {
+    merge_new_text();
     let now = std::time::Instant::now();
     RECENT_TEXT
-        .lock()
+        .load()
         .map(|r| r.iter().filter(|(t, _)| now.duration_since(*t) <= TEXT_WINDOW).map(|(_, r)| r.clone()).collect())
         .unwrap_or_default()
+}
+
+fn merge_new_text() {
+    let new: Vec<_> = NEW_TEXT.drain().collect();
+    if new.is_empty() {
+        return;
+    }
+    // Two readers may merge at once: each merges its own runs into the
+    // newest list, in the order drawn (their times only grow).
+    RECENT_TEXT.update(|old| {
+        let mut recent = old.cloned().unwrap_or_default();
+        let mut runs: Vec<_> = recent.drain(..).chain(new.iter().cloned()).collect();
+        runs.sort_by_key(|(t, _)| *t);
+        runs.into_iter().for_each(|(t, run)| remember(&mut recent, t, run));
+        Some(recent)
+    });
 }
 
 fn request_path() -> PathBuf {
@@ -149,24 +195,25 @@ fn request_path() -> PathBuf {
 /// The text import is redirected before the game's LoadLibraryA returns.
 /// Keep its guard process-wide; the later tracer setup may discover the
 /// same module concurrently and must not patch the import twice.
-static TEXT_HOOK: Mutex<Option<hooks::text_out::Installed>> = Mutex::new(None);
+static TEXT_HOOK: inproc::loader::InstallOnce = inproc::loader::InstallOnce::new();
 
 /// Installs jgl's text capture synchronously, before its first draw. Safe
 /// during early DLL setup: this only reads and patches an existing import,
 /// without loading a library or waiting for another initialization thread.
 /// Returns whether the module imports TextOutA; an installed hook is reused.
 pub(crate) fn hook_jgl_text(base: u32) -> Result<bool, inproc::hook::HookError> {
-    let mut installed = TEXT_HOOK.lock().unwrap_or_else(|e| e.into_inner());
-    if installed.is_some() { return Ok(true); }
-    let Some(slot) = inproc::pe::import_slot(base, "GDI32.dll", "TextOutA")? else { return Ok(false); };
-    *installed = Some(hooks::text_out::install_slot(slot, |call| {
-        record_text(call);
-        // Measuring text remains available even when its mirrored pixel
-        // drawing is skipped; GetTextExtentPoint32 is not redirected.
-        if crate::ui_trace::skips_text() { 1 } else { call.original() }
-    })?);
-    log::info!("tracing text (jgl.dll TextOutA, synchronous import hook)");
-    Ok(true)
+    TEXT_HOOK.run(|| {
+        let Some(slot) = inproc::pe::import_slot(base, "GDI32.dll", "TextOutA")? else { return Ok(false); };
+        // Stays for the life of the process.
+        std::mem::forget(hooks::text_out::install_slot(slot, |call| {
+            record_text(call);
+            // Measuring text remains available even when its mirrored pixel
+            // drawing is skipped; GetTextExtentPoint32 is not redirected.
+            if crate::ui_trace::skips_text() { 1 } else { call.original() }
+        })?);
+        log::info!("tracing text (jgl.dll TextOutA, synchronous import hook)");
+        Ok(true)
+    })
 }
 
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
@@ -178,9 +225,15 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
             // Top 5 Cities also draws through this entry, onto its form's
             // canvas at identity scale. JGL receives those blits directly,
             // bypassing the ordinary Sprite::draw hooks.
-            let skip_ui = !in_map && call.p4 != 0 && call.p4 == call.p5 && call.p5 == call.p6
-                && crate::ui_trace::on_map_sprite(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, call.p7);
-            if map_blits_off() || skip_ui { 0 } else { call.original() }
+            //8060's lazy branch ignores scale/crop. Keep its file load;
+            // the hooked PCX read records the source, and its hooked draw
+            // captures the ordinary copy before suppressing native pixels.
+            let file_source = civ3_sys::ui_hooks::obj::sprite_loads_file(call.sprite);
+            let skip_ui = !file_source && !in_map
+                && crate::ui_trace::on_map_sprite(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, [call.p4, call.p5, call.p6], call.p7);
+            let skip = !file_source && (map_blits_off() || skip_ui);
+            if !skip { crate::ui_trace::audit_map_original("map_sprite", call.sprite, call.map_renderer, &[call.pixel_x, call.pixel_y, call.p4, call.p5, call.p6, call.p7]); }
+            crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Map, skip, || call.original())
         })?),
         None => {
             log::warn!("no Sprite_draw_on_map site for {:?}; tracing disabled", game.build);
@@ -189,24 +242,25 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     };
     let blend = match hooks::sprite_draw_on_map_blend_site(game.build) {
         Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_at_start(addr, prologue, |call| {
-            record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
-            if map_blits_off() { 0 } else { call.original() }
+            let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
+            let skip_ui = !in_map && crate::ui_trace::on_map_blend(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, call.table, [call.p5, call.p6, call.p7], call.p8);
+            let skip = map_blits_off() || skip_ui;
+            if !skip { crate::ui_trace::audit_map_original("map_blend", call.sprite, call.map_renderer, &[call.pixel_x, call.pixel_y, call.table, call.p5, call.p6, call.p7, call.p8]); }
+            crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Map, skip, || crate::ui_trace::blend_wrapper_original(|| call.original()))
         })?),
         None => None,
     };
     // Resolve the sprite against the map renderer of the redraw in progress.
     let colored = match hooks::sprite_draw_with_color_table_site(game.build) {
         Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_at_start(addr, prologue, |call| {
-            let mr = STATE.lock().ok().and_then(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
+            let mr = STATE.with_borrow(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
             record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
-            crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y);
+            crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y, call.table, call.p6);
             // Inside a map redraw like the map's other blits; elsewhere a
             // unit picture the mirror recorded.
-            if map_blits_off() && crate::ui_trace::skipping() || crate::ui_trace::skips_colored(call.sprite, call.canvas2) {
-                0
-            } else {
-                call.original()
-            }
+            let skip = map_blits_off() && crate::ui_trace::skipping() || crate::ui_trace::skips_colored(call.sprite, call.canvas2);
+            if !skip { crate::ui_trace::audit_map_original("map_colored", call.sprite, call.canvas2, &[call.pixel_x, call.pixel_y, call.canvas, call.table, call.p6]); }
+            crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Map, skip, || call.original())
         })?),
         None => None,
     };
@@ -222,37 +276,51 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     }
     let draw_tiles = draw_tiles::install_slot(hooks::draw_tiles_slot(game.build), move |call| {
         DRAW_TILES_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        {
-            let mut s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        let first = STATE.with_borrow_mut(|s| {
             s.depth += 1;
-            if s.depth == 1 {
-                crate::ui_trace::map_redraw(call.map_renderer);
+            s.depth == 1
+        });
+        if first {
+            crate::ui_trace::map_redraw(call.map_renderer);
+            STATE.with_borrow_mut(|s| {
                 if let Some((mr, draws, _)) = s.frame.take() {
                     s.previous = Some((mr, draws));
                 }
                 s.frame = Some((call.map_renderer, Vec::new(), std::time::Instant::now()));
-            }
+            });
         }
         // With the game's map rendering switched off its sprites are not
         // blitted (see `map_blits_off`), but the pass still runs: it also
         // draws the city labels the interface mirror shows.
         call.original();
-        STATE.lock().unwrap_or_else(|e| e.into_inner()).depth -= 1;
+        STATE.with_borrow_mut(|s| s.depth -= 1);
+        publish_if_wanted();
     })?;
-    std::thread::spawn(move || serve_requests(game));
+    // (A waiting actor: on the bridge's runtime, not a thread of its own.)
+    if !crate::runtime::spawn(serve_requests(game)) {
+        log::warn!("trace: no runtime for the request server");
+    }
     Ok(Tracer { _draw_tiles: draw_tiles, _sprite: sprite, _blend: blend, _colored: colored })
 }
 
 /// Answers trace requests with the latest redraw, once it has been quiet
 /// for a moment (so it is complete).
-fn serve_requests(game: Civ3) {
+async fn serve_requests(game: Civ3) {
+    // When the current request was first seen: only a copy of the recording
+    // the game's thread made after that answers it.
+    let mut asked = None;
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        crate::ui_trace::serve_pixel_audit();
         if !request_path().exists() {
+            asked = None;
             continue;
         }
-        let frame = {
-            let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+        let asked = *asked.get_or_insert_with(std::time::Instant::now);
+        WANT_FRAMES.store(true, Ordering::Release);
+        let copy = FRAMES.load().filter(|c| c.0 >= asked);
+        let frame = copy.as_ref().and_then(|copy| {
+            let s = &copy.1;
             match (&s.frame, &s.previous) {
                 (Some((mr, draws, at)), _) if s.depth == 0 && at.elapsed() > std::time::Duration::from_millis(300) => {
                     Some((*mr, draws.clone()))
@@ -262,7 +330,7 @@ fn serve_requests(game: Civ3) {
                 (_, Some((mr, draws))) => Some((*mr, draws.clone())),
                 _ => None,
             }
-        };
+        });
         // No map on screen (title screen, menus): text only, after a moment.
         let frame = frame.or_else(|| {
             let waited = std::fs::metadata(request_path()).and_then(|m| m.modified()).ok()?.elapsed().ok()?;
@@ -275,6 +343,7 @@ fn serve_requests(game: Civ3) {
             Err(e) => log::error!("writing trace: {e}"),
         }
         let _ = std::fs::remove_file(request_path());
+        WANT_FRAMES.store(false, Ordering::Release);
     }
 }
 
@@ -282,6 +351,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     let mut out = String::new();
     let districts = game.map().map(|map| crate::districts::read(game, &map)).unwrap_or_default();
     let _ = writeln!(out, "# civ3-bridge trace: map_renderer {map_renderer:#x}");
+    let _ = writeln!(out, "# native_audio {:?}", civ3_sys::audio_init::diagnostics());
     for (name, i, path) in civ3_sys::sprites::sheet_files(map_renderer) {
         let _ = writeln!(out, "file {name} {i} {path}");
     }
@@ -416,24 +486,30 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
     }
     match game.drawn_units() {
-        Ok(units) => {
-            let _ = writeln!(out, "# unit id x y civ type damage moves container state on_top px py direction animation frame visible experience army_member army_size moving");
+        Ok(mut units) => {
+            let _ = crate::unit_views::copy_captured_movement(game, &mut units);
+            let _ = writeln!(out, "# unit id x y civ type damage moves container state on_top px py direction animation frame visible experience army_member army_size moving leader_kind max_move_points");
             let line = |kind: &str, u: &civ3_sys::DrawnUnit| {
                 format!(
-                    "{kind} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+                    "{kind} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}",
                     u.id, u.x, u.y, u.civ, u.unit_type, u.damage, u.moves, u.container, u.state, u.always_on_top as u8,
                     u.pixel.0, u.pixel.1, u.direction, u.animation, u.frame, u.visible as u8, u.experience,
-                    u.army_member, u.army_size, u.moving as u8
+                    u.army_member, u.army_size, u.moving as u8, u.leader_kind, u.max_move_points.unwrap_or(-1)
                 )
             };
             for u in &units {
                 let _ = writeln!(out, "{}", line("unit", u));
             }
-            // The members armies show.
+            // The members of the armies (the one each shows among them).
+            let armies: Vec<i32> = units.iter().filter(|u| u.army_member >= 0).map(|u| u.id).collect();
+            let mut members = game.units_in(&armies).unwrap_or_default();
             for u in units.iter().filter(|u| u.army_member >= 0) {
-                if let Ok(Some(m)) = game.unit(u.army_member) {
-                    let _ = writeln!(out, "{}", line("army_unit", &m));
+                if !members.iter().any(|m| m.id == u.army_member) {
+                    members.extend(game.unit(u.army_member).ok().flatten());
                 }
+            }
+            for m in &members {
+                let _ = writeln!(out, "{}", line("army_unit", m));
             }
         }
         Err(e) => log::warn!("reading units: {e}"),
@@ -572,6 +648,29 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         Some(m) => writeln!(out, "ui_image_mask {} {} {}", m.at.0, m.at.1, m.path),
                         None => Ok(()),
                     }
+                }
+                crate::ui::ScreenDraw::Indexed { path, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3], palette, indices } => {
+                    if let Some(resize) = indices.resize {
+                        let (w, h) = resize.size;
+                        let [sx, sy] = resize.sample_step;
+                        let _ = writeln!(out, "ui_resized_image {x} {y} 1 {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {w} {h} {sx} {sy} {path}");
+                    } else {
+                        let _ = writeln!(out, "ui_image {x} {y} 1 {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}");
+                    }
+                    if let Some(p) = palette { let _ = writeln!(out, "ui_image_palette {} {} {}", p.first, p.count, p.image); }
+                    let transparent = indices.transparent.iter().map(u8::to_string).collect::<Vec<_>>().join(",");
+                    let shade = indices.shade.iter().map(|(i, k)| format!("{i}:{k}")).collect::<Vec<_>>().join(",");
+                    let _ = writeln!(out, "ui_image_indices {} {}", if transparent.is_empty() { "-" } else { &transparent }, if shade.is_empty() { "-" } else { &shade });
+                    if let Some(frame) = indices.frame { let _ = writeln!(out, "ui_image_frame {frame}"); }
+                    if let Some(p) = &indices.palette_alpha {
+                        writeln!(out, "ui_image_palette_alpha {} {} {} {} {} {}", p.first, p.count, p.skip[0], p.skip[1], p.skip[2], p.source)
+                    } else { Ok(()) }
+                }
+                crate::ui::ScreenDraw::ResizedImage { path, rect: [rx, ry, rw, rh], x, y, size: (w,h), sample_step:[sx,sy], keyed, clip:[c0,c1,c2,c3], mask,palette,opacity } => {
+                    let _ = writeln!(out,"ui_resized_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {w} {h} {sx} {sy} {path}",*keyed as u8);
+                    if *opacity !=255 { let _=writeln!(out,"ui_image_opacity {opacity}"); }
+                    if let Some(p)=palette { let _=writeln!(out,"ui_image_palette {} {} {}",p.first,p.count,p.image); }
+                    match mask { Some(m)=>writeln!(out,"ui_image_mask {} {} {}",m.at.0,m.at.1,m.path),None=>Ok(()) }
                 }
                 crate::ui::ScreenDraw::Fill { rect: [x, y, w, h], rgb: [r, g, b], alpha, clip: [c0, c1, c2, c3] } => {
                     writeln!(out, "ui_fill {x} {y} {w} {h} {r} {g} {b} {c0} {c1} {c2} {c3} {alpha}")

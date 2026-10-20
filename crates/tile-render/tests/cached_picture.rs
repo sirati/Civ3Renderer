@@ -91,10 +91,9 @@ fn cached(
         CLEAR,
         present,
     );
-    (
-        shown,
-        tile_render::gpu::read_texture(&gpu.device, &gpu.queue, encoder, &target),
-    )
+    let image = tile_render::gpu::read_texture(&gpu.device, &gpu.queue, encoder, &target);
+    renderer.controls_submitted();
+    (shown, image)
 }
 
 fn assert_same(got: &RgbaImage, want: &RgbaImage, what: &str) {

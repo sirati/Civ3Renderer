@@ -1,46 +1,33 @@
 //! Alt-mode edits of the game's native sliders. Private window messages
 //! put every write and native notification on the game's UI thread.
 
-use std::collections::HashMap;
 use civ3_sys::sliders::Slider;
 use scene::SliderAction;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Request { id: u64, action: SliderAction, value: i32 }
 
+/// Requests waiting for their private message, handed to the game's thread
+/// without a lock (`civ3r_sync::Posted`): consecutive previews of one
+/// slider share a message, the latest value winning.
 #[derive(Default)]
-struct Requests {
-    next: u32,
-    requests: HashMap<u32, Request>,
-    preview: Option<u32>,
-}
+struct Requests(civ3r_sync::Posted<Request>);
 
 impl Requests {
-    fn barrier(&mut self) { self.preview = None; }
+    fn barrier(&self) { self.0.barrier(); }
 
-    fn push(&mut self, request: Request) -> (u32, bool) {
-        if request.action == SliderAction::Preview
-            && let Some(token) = self.preview
-            && let Some(previous) = self.requests.get_mut(&token)
-            && previous.id == request.id
-        {
-            *previous = request;
-            return (token, false);
-        }
-        self.barrier();
-        loop {
-            self.next = self.next.wrapping_add(1).max(1);
-            if !self.requests.contains_key(&self.next) { break; }
-        }
-        let token = self.next;
-        self.requests.insert(token, request);
-        if request.action == SliderAction::Preview { self.preview = Some(token); }
-        (token, true)
+    fn push(&self, request: Request) -> (u32, bool) {
+        let key = (request.action == SliderAction::Preview).then(|| (request.id as u32) ^ ((request.id >> 32) as u32).rotate_left(16));
+        self.0.push(request, key)
     }
 
-    fn take(&mut self, token: u32) -> Option<Request> {
-        if self.preview == Some(token) { self.preview = None; }
-        self.requests.remove(&token)
+    /// The message for `token` was not posted.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn retract(&self, token: u32) { self.0.retract(token); }
+
+    /// On the game's thread: the requests up to `token`'s message.
+    fn take(&self, token: u32, inbox: &mut civ3r_sync::Inbox<Request>) -> Vec<Request> {
+        self.0.take(token, inbox)
     }
 }
 
@@ -74,6 +61,10 @@ impl Transaction {
             self.original = driver.read(request.id, true);
             return;
         }
+        if request.action == SliderAction::Step {
+            self.step(request, driver);
+            return;
+        }
         let Some(original) = self.original.filter(|old| u64::from(old.identity.address) == request.id) else { return };
         if request.action == SliderAction::Cancel {
             self.cancel(driver);
@@ -84,8 +75,23 @@ impl Transaction {
         match request.action {
             SliderAction::Preview => driver.set(original, original.exact_at(request.value)),
             SliderAction::Commit => self.original = None,
-            SliderAction::Begin | SliderAction::Cancel => unreachable!(),
+            SliderAction::Begin | SliderAction::Cancel | SliderAction::Step => unreachable!(),
         }
+    }
+
+    /// An arrow key on a selected slider: `request.value` arrow-button
+    /// steps from its current value. Inside an open edit of the same
+    /// control Cancel still restores the entry value; an edit of another
+    /// control is restored first.
+    fn step(&mut self, request: Request, driver: &mut impl Driver) {
+        if self.original.is_some_and(|old| u64::from(old.identity.address) != request.id) {
+            self.cancel(driver);
+        }
+        self.validate(driver);
+        let Some(current) = driver.read(request.id, true) else { return };
+        if self.original.is_some_and(|old| !old.same_control(current)) { return; }
+        let exact = current.stepped(request.value);
+        if exact != current.exact { driver.set(current, exact); }
     }
 }
 
@@ -94,7 +100,8 @@ pub use live::{barrier, handle_message, install, post};
 
 #[cfg(windows)]
 mod live {
-    use std::sync::{Mutex, OnceLock};
+    use std::cell::{Cell, RefCell};
+    use std::sync::{LazyLock, OnceLock};
     use std::sync::atomic::{AtomicBool, Ordering};
     use civ3_sys::{Build, Civ3};
     use inproc::message::Message;
@@ -103,13 +110,14 @@ mod live {
 
     struct Live { game: Civ3, message: u32 }
     static LIVE: OnceLock<Live> = OnceLock::new();
-    static STATE: Mutex<Option<State>> = Mutex::new(None);
+    /// Filled by the publisher, taken by the game's thread (no lock).
+    static REQUESTS: LazyLock<Requests> = LazyLock::new(Requests::default);
     static DISPATCHING: AtomicBool = AtomicBool::new(false);
-
-    #[derive(Default)]
-    struct State {
-        requests: Requests,
-        transaction: Transaction,
+    thread_local! {
+        /// Received requests whose messages are still queued.
+        static INBOX: RefCell<civ3r_sync::Inbox<Request>> = RefCell::new(civ3r_sync::Inbox::default());
+        /// The edit in progress, owned by the game's thread.
+        static TRANSACTION: Cell<Transaction> = const { Cell::new(Transaction { original: None }) };
     }
 
     pub fn install(game: Civ3) -> Result<(), String> {
@@ -118,7 +126,6 @@ mod live {
         let message = inproc::message::register("civ3-renderer/native-slider/v1");
         if message == 0 { return Err("registering native slider message failed".into()); }
         LIVE.set(Live { game, message }).map_err(|_| "native sliders installed twice".to_owned())?;
-        *STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(State::default());
         Ok(())
     }
 
@@ -126,16 +133,14 @@ mod live {
         let Some(live) = LIVE.get() else { return };
         if id > u64::from(u32::MAX) || !crate::world_input::ready(window) { return; }
         crate::world_input::barrier();
-        let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(state) = state.as_mut() else { return };
-        let (token, post) = state.requests.push(Request { id, action, value });
-        if post && !window.post_message(live.message, token) { state.requests.take(token); }
+        let (token, post) = REQUESTS.push(Request { id, action, value });
+        if post && !window.post_message(live.message, token) { REQUESTS.retract(token); }
     }
 
     /// Keep preview coalescing on its own side of keys, buttons and other
     /// input already posted to the game's queue.
     pub fn barrier() {
-        if let Some(state) = STATE.lock().unwrap_or_else(|e| e.into_inner()).as_mut() { state.requests.barrier(); }
+        REQUESTS.barrier();
     }
 
     struct Native { game: Civ3 }
@@ -155,8 +160,9 @@ mod live {
         }
     }
 
-    /// Called first by the shared game-window interceptor. No state lock
-    /// survives a native notification, which may dispatch modal messages.
+    /// Called first by the shared game-window interceptor. The transaction
+    /// is taken out while native notifications (which may dispatch modal
+    /// messages) run.
     pub fn handle_message(message: Message) -> Option<isize> {
         let live = LIVE.get()?;
         let private = message.id == live.message;
@@ -172,23 +178,19 @@ mod live {
         struct Dispatch;
         impl Drop for Dispatch { fn drop(&mut self) { DISPATCHING.store(false, Ordering::Release); } }
         let _dispatch = Dispatch;
-        let (mut transaction, request) = {
-            let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
-            let state = state.as_mut()?;
-            let request = if private {
-                let token = message.wparam as u32;
-                state.requests.take(token)
-            } else { state.requests.barrier(); None };
-            (std::mem::take(&mut state.transaction), request)
-        };
+        let requests = if private {
+            let token = message.wparam as u32;
+            INBOX.with_borrow_mut(|inbox| REQUESTS.take(token, inbox))
+        } else { REQUESTS.barrier(); Vec::new() };
+        let mut transaction = TRANSACTION.take();
         let mut driver = Native { game: live.game };
-        if let Some(request) = request { transaction.apply(request, &mut driver); }
+        if !requests.is_empty() { requests.into_iter().for_each(|request| transaction.apply(request, &mut driver)); }
         else if matches!(message.id, 0x0008 | 0x0010 | 0x0082 | 0x0100 | 0x0104 | 0x0201 | 0x0204 | 0x0207) {
             // Restore before a foreign click/key can close or replace the
             // form. Alt key-up and mouse-up do not cancel an edit.
             transaction.cancel(&mut driver);
         } else { transaction.validate(&mut driver); }
-        if let Some(state) = STATE.lock().unwrap_or_else(|e| e.into_inner()).as_mut() { state.transaction = transaction; }
+        TRANSACTION.set(transaction);
         private.then_some(0)
     }
 }

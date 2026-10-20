@@ -23,6 +23,10 @@ pub(super) struct AppState {
     activation_policy: Option<NSApplicationActivationPolicy>,
     default_menu: bool,
     activate_ignoring_other_apps: bool,
+    /// The application belongs to a host that created and runs it (see
+    /// `EventLoopBuilderExtMacOS::with_attached_application`): never set
+    /// its delegate, run, stop or terminate it, nor close its windows.
+    attached: bool,
     run_loop: RunLoop,
     event_handler: EventHandler,
     stop_on_launch: Cell<bool>,
@@ -79,11 +83,13 @@ impl ApplicationDelegate {
         activation_policy: Option<NSApplicationActivationPolicy>,
         default_menu: bool,
         activate_ignoring_other_apps: bool,
+        attached: bool,
     ) -> Retained<Self> {
         let this = mtm.alloc().set_ivars(AppState {
             activation_policy,
             default_menu,
             activate_ignoring_other_apps,
+            attached,
             run_loop: RunLoop::main(mtm),
             event_handler: EventHandler::new(),
             stop_on_launch: Cell::new(false),
@@ -172,6 +178,9 @@ impl ApplicationDelegate {
     }
 
     pub fn get(mtm: MainThreadMarker) -> Retained<Self> {
+        if let Some(delegate) = ATTACHED.with(|attached| attached.borrow().clone()) {
+            return delegate;
+        }
         let app = NSApplication::sharedApplication(mtm);
         let delegate =
             unsafe { app.delegate() }.expect("a delegate was not configured on the application");
@@ -181,6 +190,51 @@ impl ApplicationDelegate {
         } else {
             panic!("tried to get a delegate that was not the one Winit has registered")
         }
+    }
+
+    /// Keeps this delegate for [`Self::get`] without making it the
+    /// application's delegate (an attached event loop).
+    pub(super) fn attach(this: &Retained<Self>) {
+        ATTACHED.with(|attached| *attached.borrow_mut() = Some(this.clone()));
+    }
+
+    pub fn is_attached(&self) -> bool {
+        self.ivars().attached
+    }
+
+    /// Starts an attached event loop inside the host's running application:
+    /// what `applicationDidFinishLaunching:` does for an owned one, short of
+    /// replacing a menu the host already has.
+    pub fn start_attached(
+        &self,
+        handler: impl FnMut(Event<HandlePendingUserEvents>, &RootActiveEventLoop) + 'static,
+    ) {
+        self.ivars().event_handler.set_forever(handler);
+        self.ivars().is_launched.set(true);
+        let mtm = MainThreadMarker::from(self);
+        let app = NSApplication::sharedApplication(mtm);
+        if let Some(activation_policy) = self.ivars().activation_policy {
+            app.setActivationPolicy(activation_policy);
+        }
+        // SAFETY: a plain getter on the main thread.
+        if self.ivars().default_menu && unsafe { app.mainMenu() }.is_none() {
+            menu::initialize(&app);
+        }
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(self.ivars().activate_ignoring_other_apps);
+        self.ivars().waker.borrow_mut().start();
+        self.set_is_running(true);
+        self.dispatch_init_events();
+    }
+
+    /// Ends an attached event loop: `LoopExiting`, then the handler (and the
+    /// windows it owns) is dropped. The host's application keeps running.
+    pub fn detach(&self) {
+        if self.is_running() {
+            self.internal_exit();
+        }
+        self.ivars().waker.borrow_mut().stop();
+        self.ivars().event_handler.clear();
     }
 
     /// Place the event handler in the application delegate for the duration
@@ -391,6 +445,10 @@ impl ApplicationDelegate {
 
         self.handle_event(Event::AboutToWait);
 
+        if self.exiting() && self.ivars().attached {
+            self.detach();
+            return;
+        }
         if self.exiting() {
             let app = NSApplication::sharedApplication(mtm);
             stop_app_immediately(&app);
@@ -414,6 +472,12 @@ impl ApplicationDelegate {
 
 #[derive(Debug)]
 pub(crate) struct HandlePendingUserEvents;
+
+thread_local! {
+    /// The delegate of an attached event loop (main thread only), which is
+    /// not the application's delegate.
+    static ATTACHED: RefCell<Option<Retained<ApplicationDelegate>>> = const { RefCell::new(None) };
+}
 
 /// Returns the minimum `Option<Instant>`, taking into account that `None`
 /// equates to an infinite timeout, not a zero timeout (so can't just use

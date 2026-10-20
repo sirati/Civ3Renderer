@@ -205,12 +205,39 @@ pub(crate) struct PlatformSpecificEventLoopAttributes {
     pub(crate) activation_policy: Option<ActivationPolicy>,
     pub(crate) default_menu: bool,
     pub(crate) activate_ignoring_other_apps: bool,
+    pub(crate) attached: bool,
 }
 
 impl Default for PlatformSpecificEventLoopAttributes {
     fn default() -> Self {
-        Self { activation_policy: None, default_menu: true, activate_ignoring_other_apps: true }
+        Self {
+            activation_policy: None,
+            default_menu: true,
+            activate_ignoring_other_apps: true,
+            attached: false,
+        }
     }
+}
+
+/// Whether the process's shared application exists and runs (a host's,
+/// before attaching to it). Does not create it.
+pub(crate) fn host_application_running(_mtm: MainThreadMarker) -> bool {
+    extern "C" {
+        /// AppKit's global for `+[NSApplication sharedApplication]`, null
+        /// until something created the application.
+        static NSApp: Option<&'static NSApplication>;
+    }
+    // SAFETY: on the main thread (`_mtm`), which is the only one AppKit
+    // writes this global on; a plain load of a pointer-sized value.
+    let app = unsafe { NSApp };
+    // SAFETY: a plain getter on the main thread.
+    app.is_some_and(|app| unsafe { app.isRunning() })
+}
+
+thread_local! {
+    /// Keeps an attached event loop's panic state alive (its observers
+    /// hold it weakly); main thread only.
+    static ATTACHED_PANIC_INFO: Cell<Option<Rc<PanicInfo>>> = const { Cell::new(None) };
 }
 
 impl<T> EventLoop<T> {
@@ -219,6 +246,12 @@ impl<T> EventLoop<T> {
     ) -> Result<Self, EventLoopError> {
         let mtm = MainThreadMarker::new()
             .expect("on macOS, `EventLoop` must be created on the main thread!");
+
+        // An attached event loop never creates the application: that would
+        // make it ours, not the host's.
+        if attributes.attached && !host_application_running(mtm) {
+            return Err(EventLoopError::NotSupported(crate::error::NotSupportedError::new()));
+        }
 
         // Initialize the application (if it has not already been).
         let app = NSApplication::sharedApplication(mtm);
@@ -234,11 +267,17 @@ impl<T> EventLoop<T> {
             activation_policy,
             attributes.default_menu,
             attributes.activate_ignoring_other_apps,
+            attributes.attached,
         );
 
-        autoreleasepool(|_| {
-            app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-        });
+        if attributes.attached {
+            // The host's delegate stays.
+            ApplicationDelegate::attach(&delegate);
+        } else {
+            autoreleasepool(|_| {
+                app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            });
+        }
 
         // Override `sendEvent:` on the application to forward to our application state.
         override_send_event(&app);
@@ -311,6 +350,21 @@ impl<T> EventLoop<T> {
             })
         });
 
+        Ok(())
+    }
+
+    /// Starts handling events in the host's running application and returns
+    /// at once; the handler lives until the event loop exits.
+    pub fn run_attached<F>(self, handler: F) -> Result<(), EventLoopError>
+    where
+        F: FnMut(Event<T>, &RootWindowTarget) + 'static,
+    {
+        if !self.delegate.is_attached() || self.delegate.is_running() {
+            return Err(EventLoopError::NotSupported(crate::error::NotSupportedError::new()));
+        }
+        let handler = map_user_event(handler, self.receiver.clone());
+        ATTACHED_PANIC_INFO.with(|kept| kept.set(Some(self.panic_info.clone())));
+        autoreleasepool(|_| self.delegate.start_attached(handler));
         Ok(())
     }
 
@@ -451,6 +505,13 @@ pub fn stop_app_on_panic<F: FnOnce() -> R + UnwindSafe, R>(
             {
                 let panic_info = panic_info.upgrade().unwrap();
                 panic_info.set_panic(e);
+            }
+            let delegate = ApplicationDelegate::get(mtm);
+            if delegate.is_attached() {
+                // Not the host's application to stop: this event loop ends.
+                tracing::error!("an attached event loop's handler panicked; detaching it");
+                delegate.detach();
+                return None;
             }
             let app = NSApplication::sharedApplication(mtm);
             stop_app_immediately(&app);

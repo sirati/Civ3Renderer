@@ -69,7 +69,7 @@ pub struct FontStyle {
 /// is no such routine (not Windows) or it fails.
 pub fn measure(font: &FontStyle, text: &str) -> Option<i32> {
     let spec = gdi_text::FontSpec { face: font.face.clone(), height: font.height, weight: font.weight, italic: font.italic, quality: 0 };
-    let bytes: Vec<u8> = text.chars().map(|c| u8::try_from(c as u32).unwrap_or(b'?')).collect();
+    let bytes: Vec<u8> = text.chars().map(gdi_text::windows_1252_byte).collect();
     gdi_text::text_extent(&spec, &bytes).ok()
 }
 
@@ -111,23 +111,43 @@ fn sheet_heights(dir: Option<std::path::PathBuf>, font: &FontStyle) -> Vec<i32> 
 /// lacks noted once), with GDI the height asked for. Text at other zooms is
 /// drawn from the face's outlines, so only the game's own sizes are needed.
 pub fn available_height(font: &FontStyle) -> i32 {
-    use std::collections::HashMap;
-    use std::sync::Mutex;
+    use civ3r_sync::Latest;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
     let wanted = font.height.abs().max(1);
     if !from_sheets() {
         return wanted;
     }
-    // The sheets per face and style, listed once; the sizes reported.
-    static SHEETS: Mutex<Option<HashMap<String, Vec<i32>>>> = Mutex::new(None);
-    static NOTED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+    // The sheets per face and style, listed once; the sizes reported. Both
+    // grow copy-on-write: a race lists a style twice, the first kept.
+    static SHEETS: Latest<HashMap<String, Arc<Vec<i32>>>> = Latest::new();
+    static NOTED: Latest<HashSet<String>> = Latest::new();
     let style = cache_stem(&FontStyle { height: 0, ..font.clone() });
-    let resolved = {
-        let mut sheets = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
-        let heights = sheets.get_or_insert_with(HashMap::new).entry(style).or_insert_with(|| sheet_heights(cache_dir(), font));
-        nearest_height(heights, wanted)
-    };
+    let heights = SHEETS.load().and_then(|m| m.get(&style).cloned()).unwrap_or_else(|| {
+        let heights = Arc::new(sheet_heights(cache_dir(), font));
+        SHEETS.update(|old| {
+            let mut map = old.cloned().unwrap_or_default();
+            map.entry(style.clone()).or_insert_with(|| heights.clone());
+            Some(map)
+        });
+        heights
+    });
+    let resolved = nearest_height(&heights, wanted);
     let asked = cache_stem(&FontStyle { height: font.height.abs(), ..font.clone() });
-    if resolved != Some(font.height.abs()) && NOTED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(asked.clone()) {
+    let mut first = false;
+    if resolved != Some(font.height.abs()) && !NOTED.load().is_some_and(|n| n.contains(&asked)) {
+        // The committed run of `update` decides, so one caller logs.
+        NOTED.update(|old| {
+            first = !old.is_some_and(|n| n.contains(&asked));
+            first.then(|| {
+                let mut noted = old.cloned().unwrap_or_default();
+                noted.insert(asked.clone());
+                noted
+            })
+            .or_else(|| old.cloned())
+        });
+    }
+    if first {
         match resolved {
             Some(h) => log::info!("font {asked}: no glyph sheet of that size, drawn at the nearest, {h} pixels"),
             None => log::warn!("font {asked}: no glyph sheets of this face and style (run tools/gen-civ3-fonts)"),
@@ -215,14 +235,20 @@ pub fn glyph_sizes(files: &GameFiles, font: &FontStyle) -> Result<BTreeMap<char,
     if !from_sheets() {
         // (Rasterising them is slow, and the same in every colour: once a
         // style.)
-        type Sizes = std::collections::HashMap<(Vec<std::path::PathBuf>, FontStyle), BTreeMap<char, (u32, u32)>>;
-        static MADE: std::sync::Mutex<Option<Sizes>> = std::sync::Mutex::new(None);
+        // Grown copy-on-write; a race rasterises a style twice.
+        type Sizes = std::collections::HashMap<(Vec<std::path::PathBuf>, FontStyle), std::sync::Arc<BTreeMap<char, (u32, u32)>>>;
+        static MADE: civ3r_sync::Latest<Sizes> = civ3r_sync::Latest::new();
         let key = (files.roots().to_vec(), font.clone());
-        if let Some(sizes) = MADE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&key)) {
-            return Ok(sizes.clone());
+        if let Some(sizes) = MADE.load().as_ref().and_then(|m| m.get(&key)) {
+            return Ok((**sizes).clone());
         }
         let sizes: BTreeMap<char, (u32, u32)> = load(files, font, [0; 3])?.glyphs.into_iter().map(|(c, g)| (c, (g.image.width, g.image.height))).collect();
-        MADE.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(key, sizes.clone());
+        let shared = std::sync::Arc::new(sizes.clone());
+        MADE.update(|old| {
+            let mut made = old.cloned().unwrap_or_default();
+            made.insert(key.clone(), shared.clone());
+            Some(made)
+        });
         return Ok(sizes);
     }
     let font = &FontStyle { height: available_height(font), ..font.clone() };

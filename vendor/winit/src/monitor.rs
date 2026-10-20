@@ -126,6 +126,18 @@ impl MonitorHandle {
         self.inner.position()
     }
 
+    /// Returns the usable desktop origin and size in physical screen pixels.
+    ///
+    /// On macOS this excludes the Dock and menu bar. Other platforms fall
+    /// back to the full monitor bounds when no work-area query is provided.
+    #[inline]
+    pub fn work_area(&self) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+        #[cfg(target_os = "macos")]
+        { self.inner.work_area() }
+        #[cfg(not(target_os = "macos"))]
+        { (self.position(), self.size()) }
+    }
+
     /// The monitor refresh rate used by the system.
     ///
     /// Return `Some` if succeed, or `None` if failed, which usually happens when the monitor

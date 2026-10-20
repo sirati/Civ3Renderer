@@ -101,6 +101,32 @@ impl EventHandler {
         // soundness.
     }
 
+    /// Sets the handler for good (an attached event loop, which does not
+    /// return to its caller), until [`Self::clear`].
+    pub(crate) fn set_forever(
+        &self,
+        handler: impl FnMut(Event<HandlePendingUserEvents>, &RootActiveEventLoop) + 'static,
+    ) {
+        match self.inner.try_borrow_mut().as_deref_mut() {
+            Ok(data @ None) => *data = Some(EventHandlerData { handler: Box::new(handler) }),
+            Ok(Some(_)) => unreachable!("tried to set handler while another was already set"),
+            Err(_) => unreachable!("tried to set handler that is currently in use"),
+        }
+    }
+
+    /// Drops a handler set by [`Self::set_forever`] (not while it runs).
+    pub(crate) fn clear(&self) {
+        let handler = match self.inner.try_borrow_mut().as_deref_mut() {
+            Ok(data) => data.take(),
+            Err(_) => {
+                tracing::error!("tried to clear handler that is currently in use");
+                None
+            },
+        };
+        // Dropped outside the borrow: dropping windows may send events.
+        drop(handler);
+    }
+
     pub(crate) fn in_use(&self) -> bool {
         self.inner.try_borrow().is_err()
     }

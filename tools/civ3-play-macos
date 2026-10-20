@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Development entry point. tools/build-macos installs the Rust executable.
+set -euo pipefail
+c3r_runtime=${CIV3R_HOME:-$HOME/Library/Application Support/civ3r}
+c3r_launcher=${CIV3R_LAUNCHER_BIN:-$c3r_runtime/bin/civ3-play-macos}
+if [ ! -x "$c3r_launcher" ]; then
+  printf 'civ3-play-macos: no Rust launcher at %s; run tools/build-macos first\n' "$c3r_launcher" >&2
+  exit 1
+fi
+exec "$c3r_launcher" "$@"

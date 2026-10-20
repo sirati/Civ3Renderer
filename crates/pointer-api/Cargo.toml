@@ -1,0 +1,6 @@
+[package]
+name = "pointer-api"
+description = "Display-independent pointer backend contracts in physical window pixels"
+edition.workspace = true
+license.workspace = true
+version.workspace = true

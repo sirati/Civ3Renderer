@@ -96,10 +96,13 @@ pub fn point_in_surface((x, y): (i32, i32), scale: f64) -> (f64, f64) {
     ((x as f64 + 0.5) / scale, (y as f64 + 0.5) / scale)
 }
 
-/// The surface pixel window pixel `p` lies in.
+/// The surface pixel holding the middle of window pixel `p` (physical):
+/// the one containing [`point_in_surface`]`(p)`, where a pointer hinted to
+/// `p` lands. At fractional scales a window pixel can straddle two surface
+/// pixels, so this is not always the one its top-left corner lies in.
 pub fn pixel_in_surface((x, y): (i32, i32), scale: f64) -> (i32, i32) {
-    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
-    ((x as f64 / scale).floor() as i32, (y as f64 / scale).floor() as i32)
+    let (x, y) = point_in_surface((x, y), scale);
+    (x.floor() as i32, y.floor() as i32)
 }
 
 /// Why there are no pointer constraints for a window.
@@ -168,5 +171,18 @@ mod tests {
         assert_eq!(pixel_in_surface((-1, 0), 2.0), (-1, 0));
         // A nonsensical scale is taken as 1.
         assert_eq!(pixel_in_surface((7, 8), 0.0), (7, 8));
+        // 1201 covers 800.67..801.33 at 1.5; its middle is 801.0.
+        assert_eq!(pixel_in_surface((1201, 1200), 1.5), (801, 800));
+    }
+
+    #[test]
+    fn a_hinted_pointer_lands_in_the_pixel_it_is_counted_in() {
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0] {
+            for x in -40..4000 {
+                let (px, _) = pixel_in_surface((x, 0), scale);
+                let (hx, _) = point_in_surface((x, 0), scale);
+                assert!(hx >= px as f64 && hx < px as f64 + 1.0, "{scale}: {x}");
+            }
+        }
     }
 }

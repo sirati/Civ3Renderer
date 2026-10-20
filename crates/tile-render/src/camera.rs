@@ -67,6 +67,41 @@ pub struct Camera {
     pub downscale: u32,
     /// Category bits hidden in this camera. Category zero is always visible.
     pub hidden_categories: u32,
+    /// How UI background sprites are sampled where the view draws them
+    /// larger or smaller than their art.
+    pub background_sampling: BackgroundSampling,
+    /// Which data slots the view draws its layers from
+    /// (`TileWorld::bind`): [`crate::world::SHARED_BINDING`], every layer
+    /// from its own records, or a binding of the world's that draws some
+    /// from slots (e.g. a fog of war of its own). Views of one binding
+    /// share its slots; a binding the world does not have is the shared one.
+    pub binding: u32,
+}
+
+/// How a scaled view samples sprites with the explicit UI background role
+/// (`tile_render_shared::SAMPLING_UI_BACKGROUND`). Other sprites and views
+/// at 1:1 keep their ordinary nearest samples.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum BackgroundSampling {
+    /// One deterministic source texel, weighted by the scaled footprint.
+    #[default]
+    Dither,
+    /// Box filtering when shrinking; bilinear colour when magnifying.
+    /// Transparent neighbours are omitted; nominal alpha stays unchanged.
+    Interpolate,
+    /// The nominal nearest texel.
+    Nearest,
+}
+
+impl BackgroundSampling {
+    /// `FrameParams::background_sampling`.
+    pub fn code(self) -> u32 {
+        match self {
+            Self::Dither => tile_render_shared::BACKGROUND_DITHER,
+            Self::Interpolate => tile_render_shared::BACKGROUND_INTERPOLATE,
+            Self::Nearest => tile_render_shared::BACKGROUND_NEAREST,
+        }
+    }
 }
 
 impl Camera {
@@ -87,7 +122,14 @@ impl Camera {
             hairline: false,
             downscale: 1,
             hidden_categories: 0,
+            background_sampling: BackgroundSampling::Dither,
+            binding: crate::world::SHARED_BINDING,
         }
+    }
+
+    /// User filters together with the annotation layout for this world scale.
+    pub fn effective_hidden_categories(&self) -> u32 {
+        tile_render_shared::categories_at_downscale(self.hidden_categories, self.downscale)
     }
 
     /// Whether the view is scaled (zoom other than 1).
@@ -95,12 +137,76 @@ impl Camera {
         self.zoom.0.max(1) != self.zoom.1.max(1)
     }
 
-    /// Viewport size in world pixels (rounded up): the picture drawn at
-    /// zoom 1 and then scaled to the viewport, by nearest pixel. At most
-    /// [`MAX_SOURCE`] each way (a view zoomed out further shows less).
+    /// This view drawn into a canvas `k` times as large each way (one shown
+    /// 1:1 rather than in `k`×`k` boxes, `Present::at_target`): its
+    /// rectangle, target clip and zoom `k` times larger, its world and its
+    /// screen sprites' own coordinates as they were. Art drawn at zoom 1
+    /// shows exactly as the boxes showed it where the view's zoom is whole;
+    /// what a view draws at its zoom (zoomed art: text from outlines) is
+    /// drawn at the target's resolution. A view stacked on another keeps its
+    /// origin (in that view's zoom-1 picture). An unscaled view without a
+    /// world of its own (an interface) is drawn at its new zoom straight
+    /// into the canvas (`hairline`, which only matters below zoom 1), as it
+    /// was drawn straight into the smaller one: what is below shows where
+    /// it draws nothing.
+    pub fn boxed(&self, k: u32) -> Camera {
+        let k = k.max(1);
+        let ki = k as i32;
+        let clip = self.target_clip.map(|c| c.map(|v| v.saturating_mul(ki)));
+        if k == 1 {
+            return *self;
+        }
+        if self.stacked {
+            return Camera { target_clip: clip, ..*self };
+        }
+        let (n, d) = (self.zoom.0.max(1) as u64 * k as u64, self.zoom.1.max(1) as u64);
+        let g = gcd(n, d);
+        let origin = (self.origin.0.saturating_mul(ki), self.origin.1.saturating_mul(ki));
+        let (sx, sy) = self.screen_shift;
+        Camera {
+            zoom: ((n / g) as u32, (d / g) as u32),
+            origin,
+            viewport: (self.viewport.0.saturating_mul(k), self.viewport.1.saturating_mul(k)),
+            screen_shift: (sx + origin.0 - self.origin.0, sy + origin.1 - self.origin.1),
+            target_clip: clip,
+            hairline: self.hairline || (!self.cells && !self.is_scaled()),
+            ..*self
+        }
+    }
+
+    /// Viewport size in world pixels (rounded up), however large: what the
+    /// view shows of its world.
+    pub fn world_size(&self) -> (u32, u32) {
+        let (n, d) = (self.zoom.0.max(1) as u64, self.zoom.1.max(1) as u64);
+        let side = |v: u32| (v as u64 * d).div_ceil(n).min(i32::MAX as u64 / 4) as u32;
+        (side(self.viewport.0), side(self.viewport.1))
+    }
+
+    /// The picture drawn at zoom 1 and then scaled to the viewport, by
+    /// nearest pixel: [`Camera::world_size`], at most [`MAX_SOURCE`] each
+    /// way. A view whose world does not fit is drawn at its zoom straight
+    /// into the target instead (`placements`).
     pub fn source_size(&self) -> (u32, u32) {
-        let (n, d) = (self.zoom.0.max(1), self.zoom.1.max(1));
-        ((self.viewport.0 * d).div_ceil(n).min(MAX_SOURCE), (self.viewport.1 * d).div_ceil(n).min(MAX_SOURCE))
+        let (w, h) = self.world_size();
+        (w.min(MAX_SOURCE), h.min(MAX_SOURCE))
+    }
+
+    /// Whether the view is drawn at its zoom straight into the target from
+    /// its start rather than from a picture at zoom 1 (which shows the same,
+    /// `hairline` aside): a world shown at half size or smaller, whose
+    /// picture would hold at least 4 times the pixels the target shows (a
+    /// fitted preview: some 80 times as many), or one too large for a
+    /// picture ([`MAX_SOURCE`]).
+    pub fn drawn_at_zoom(&self) -> bool {
+        let (w, h) = self.world_size();
+        self.cells && self.is_scaled() && (2 * self.zoom.0.max(1) as u64 <= self.zoom.1.max(1) as u64 || w > MAX_SOURCE || h > MAX_SOURCE)
+    }
+
+    /// The zoom its picture is copied into its rectangle at: its own, or
+    /// for one [`Camera::drawn_at_zoom`] (a picture of one background
+    /// pixel) one that shows that pixel everywhere.
+    pub(crate) fn picture_zoom(&self) -> (u32, u32) {
+        if self.drawn_at_zoom() { (u32::MAX, 1) } else { (self.zoom.0.max(1), self.zoom.1.max(1)) }
     }
 
     /// The target pixels of the view inside a target of `size`.
@@ -115,10 +221,14 @@ impl Camera {
     /// The source picture's texel (see [`Camera::source_size`]) shown at
     /// target pixel `p` of the view.
     pub fn source_texel(&self, (px, py): (u32, u32)) -> (u32, u32) {
+        if self.drawn_at_zoom() {
+            return (0, 0);
+        }
         let (n, d) = (self.zoom.0.max(1), self.zoom.1.max(1));
         let (sw, sh) = self.source_size();
         let rel = |p: u32, o: i32| (p as i32 - o).max(0) as u32;
-        ((rel(px, self.origin.0) * d / n).min(sw - 1), (rel(py, self.origin.1) * d / n).min(sh - 1))
+        let back = |p: u32, o: i32, s: u32| (rel(p, o) as u64 * d as u64 / n as u64).min(s as u64 - 1) as u32;
+        (back(px, self.origin.0, sw), back(py, self.origin.1, sh))
     }
 
     /// `zoom_art`: see `FrameParams::zoom_art`; `scaled_at`: drawn at its zoom
@@ -128,7 +238,7 @@ impl Camera {
     /// (`TileWorld::offset_reach`, world pixels), on top of the overhang.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn frame_params(&self, grid: &Grid, color: ColorModel, frame: u32, pass: &Pass, view: u32, zoom_art: u32, scaled_at: Option<(i32, i32)>, reach: (u32, u32, u32, u32)) -> FrameParams {
-        let (ew, eh) = self.source_size();
+        let (ew, eh) = self.world_size();
         // The grid at the view's scale.
         let n = self.downscale.max(1);
         let r = |v: u32| v.div_ceil(n);
@@ -147,10 +257,18 @@ impl Camera {
         let top = self.y - ob as i32 - sy;
         let bottom = self.y + eh as i32 + ot as i32;
 
-        let first_col = left.div_euclid(col_step);
-        let last_col = right.div_euclid(col_step);
-        let first_row = top.div_euclid(sy);
-        let last_row = bottom.div_euclid(sy);
+        // Nonwrapping cells outside the grid are rejected by wrap_cell in
+        // the shader. Do not submit those degenerate instances, especially
+        // for a tiny preview with a tall letterbox and conservative overhang.
+        // Keep every wrapped copy, and retain the original sprite overhang
+        // and offset reach before intersecting with the actual grid.
+        let bounded = |first: i32, last: i32, size: u32, wraps: bool| {
+            if size == 0 { (0, -1) }
+            else if wraps { (first, last) }
+            else { (first.max(0), last.min(size.min(i32::MAX as u32) as i32 - 1)) }
+        };
+        let (first_col, last_col) = bounded(left.div_euclid(col_step), right.div_euclid(col_step), grid.cols, grid.wrap_x);
+        let (first_row, last_row) = bounded(top.div_euclid(sy), bottom.div_euclid(sy), grid.rows, grid.wrap_y);
         FrameParams {
             viewport_w: self.viewport.0,
             viewport_h: self.viewport.1,
@@ -170,8 +288,8 @@ impl Camera {
             cull_y1: self.cull.map_or(0, |c| c.3),
             first_col,
             first_row,
-            cols: (last_col - first_col + 1) as u32,
-            rows: (last_row - first_row + 1) as u32,
+            cols: (last_col - first_col + 1).max(0) as u32,
+            rows: (last_row - first_row + 1).max(0) as u32,
             grid: grid_params,
             origin_x: self.origin.0 - self.screen_shift.0,
             origin_y: self.origin.1 - self.screen_shift.1,
@@ -185,10 +303,15 @@ impl Camera {
             descending: pass.descending as u32,
             named_palettes: 0,
             corner_cuts: 0,
-            hidden_categories: self.hidden_categories,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
+            hidden_categories: self.effective_hidden_categories(),
+            background_sampling: self.background_sampling.code(),
+            // (Set where the world's tables are known.)
+            layer_table: 0,
+            quantized_float: 0,
+            host_tick_ms: 0,
+            _host_reserved0: 0,
+            _host_reserved1: 0,
+            _host_reserved2: 0,
         }
     }
 }
@@ -199,17 +322,56 @@ mod tests {
     use crate::world::Layout;
 
     #[test]
+    fn tiny_nonwrapping_preview_bounds_candidates_without_shrinking_sprite_overhang() {
+        // The Rise of Rome preview after 1012x632 -> 1280x678 resize.
+        // Its 1024-pixel menu leaves a 252x678 world at downscale 32.
+        let grid = Grid { cols: 70, rows: 142, layout: Layout::Staggered, wrap_x: false, wrap_y: false, step: (64, 32) };
+        let camera = Camera { x: 6, y: -300, downscale: 32, overhang: (128, 128, 128, 128), ..Camera::new((276, 743)) };
+        let pass = Pass { first: 0, count: 76, descending: false };
+        let p = camera.frame_params(&grid, ColorModel::Direct, 0, &pass, 0, 0, None, (0, 0, 0, 0));
+        assert_eq!((p.first_col, p.first_row, p.cols, p.rows), (0, 0, 70, 142));
+        assert_eq!(p.cols * p.rows * pass.count, 755_440);
+        assert_eq!(camera.overhang, (128, 128, 128, 128));
+        let wrapped = Grid { wrap_x: true, wrap_y: true, ..grid };
+        let all = camera.frame_params(&wrapped, ColorModel::Direct, 0, &pass, 0, 0, None, (0, 0, 0, 0));
+        assert_eq!((all.first_col, all.first_row, all.cols, all.rows), (-32, -429, 135, 1001));
+        assert_eq!(all.cols * all.rows * pass.count, 10_270_260);
+        for grid in [Grid { wrap_x: true, ..grid }, Grid { wrap_y: true, ..grid }] {
+            let p = camera.frame_params(&grid, ColorModel::Direct, 0, &pass, 0, 0, None, (0, 0, 0, 0));
+            assert_eq!((p.first_col, p.cols), if grid.wrap_x { (all.first_col, all.cols) } else { (0, 70) });
+            assert_eq!((p.first_row, p.rows), if grid.wrap_y { (all.first_row, all.rows) } else { (0, 142) });
+        }
+    }
+
+    #[test]
+    fn nonwrapping_empty_intersections_have_zero_cells_and_keep_interface_parameters() {
+        let grid = Grid { cols: 2, rows: 3, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (16, 16) };
+        for (x, y) in [(-1000, 0), (1000, 0), (0, -1000), (0, 1000)] {
+            let camera = Camera { x, y, screen_shift: (5, 7), ..Camera::new((40, 30)) };
+            let p = camera.frame_params(&grid, ColorModel::Direct, 0, &Pass::default(), 0, 0, None, (0, 0, 0, 0));
+            assert_eq!(p.cols * p.rows, 0);
+            assert_eq!((p.origin_x, p.origin_y), (-5, -7));
+            assert_eq!((p.camera_x, p.camera_y, p.viewport_w, p.viewport_h), (x, y, 40, 30));
+        }
+        for wrap_x in [false, true] {
+            let grid = Grid { cols: 0, wrap_x, ..grid };
+            let p = Camera::new((40, 30)).frame_params(&grid, ColorModel::Direct, 0, &Pass::default(), 0, 0, None, (0, 0, 0, 0));
+            assert_eq!(p.cols, 0);
+        }
+    }
+
+    #[test]
     fn target_clip_scissors_do_not_move_camera_or_stacked_sampling_origins() {
         let clip = [64, 19, 131, 87];
         let camera = Camera { origin: (13, 9), target_clip: Some(clip), cells: false, ..Camera::new((180, 120)) };
-        let p = placements(&[camera], |_| None);
+        let p = placements(&[camera], |_, _, _| None);
         assert_eq!(p[0].drawn.origin, (13, 9));
         assert_eq!(p[0].rect, [13, 9, 180, 120]);
         assert_eq!(p[0].scissor, [64, 19, 67, 68]);
         assert_eq!(camera.target_rect((240, 160)).count(), 67 * 68);
         let head = Camera { zoom: (3, 2), ..camera };
         let child = Camera { origin: (7, 11), stacked: true, target_clip: Some([80, 0, 200, 77]), cells: false, ..Camera::new((150, 110)) };
-        let p = placements(&[head, child], |_| None);
+        let p = placements(&[head, child], |_, _, _| None);
         assert_eq!(p[0].scaled.origin, (13, 9));
         assert_eq!(p[0].scaled_scissor, clip);
         assert_eq!(p[1].scaled.origin, (13, 9));
@@ -289,6 +451,10 @@ impl Placement {
     }
 }
 
+fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a.max(1) } else { gcd(b, a % b) }
+}
+
 /// `v·n/d` rounded down, and up.
 fn floor_mul(v: i32, n: u32, d: u32) -> i32 {
     (v as i64 * n as i64).div_euclid(d as i64) as i32
@@ -300,7 +466,7 @@ fn ceil_mul(v: i32, n: u32, d: u32) -> i32 {
 /// Where in the source texture each scaled group's picture goes (rows at
 /// most `MAX_SOURCE` wide), and how each view is drawn. `first_zoomed`: the
 /// first pass that zoomed sprites made for a zoom follow, if there are any.
-pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -> Option<usize>) -> Vec<Placement> {
+pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32), u32, &Camera) -> Option<usize>) -> Vec<Placement> {
     let (mut x, mut y, mut row) = (0, 0, 0);
     let mut out: Vec<Placement> = Vec::with_capacity(cameras.len());
     let mut head: Option<(Camera, Option<[u32; 4]>)> = None;
@@ -323,7 +489,13 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
                 }
             },
             _ if c.is_scaled() => {
-                let (w, h) = c.source_size();
+                // A view without a world drawn at its zoom from its start
+                // (below) never uses its picture: none is set aside for it
+                // (nor for the views stacked on it, drawn so too).
+                let unused = !c.cells && (c.hairline || c.target_clip.is_some());
+                // One drawn at its zoom that shows a world keeps a pixel of
+                // background, copied over its rectangle (`picture_zoom`).
+                let (w, h) = if unused { (0, 0) } else if c.drawn_at_zoom() { (1, 1) } else { c.source_size() };
                 if x + w > MAX_SOURCE {
                     (x, y, row) = (0, y + row, 0);
                 }
@@ -360,8 +532,8 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
         };
         // (The group's picture's zoom-1 pixels, mapped to the target.)
         let (n, d) = (group.zoom.0.max(1), group.zoom.1.max(1));
-        let (sw, sh) = group.source_size();
-        let local = [local[0].max(0), local[1].max(0), local[2].min(sw as i32), local[3].min(sh as i32)];
+        let (sw, sh) = group.world_size();
+        let local =[local[0].max(0), local[1].max(0), local[2].min(sw as i32), local[3].min(sh as i32)];
         let (ox, oy) = group.origin;
         let mut scaled_scissor = [
             ox + ceil_mul(local[0], n, d).max(0),
@@ -385,8 +557,8 @@ pub(crate) fn placements(cameras: &[Camera], first_zoomed: impl Fn((u32, u32)) -
             None => None,
             Some(_) if scaling => Some(0),
             Some(_) => {
-                let zoomed = first_zoomed((n, d)).filter(|_| art).map(|p| 2 * p + 1);
-                let from = if c.hairline || target_clip.is_some() { Some(0) } else { zoomed };
+                let zoomed = first_zoomed((n, d), i as u32, c).filter(|_| art).map(|p| 2 * p + 1);
+                let from = if c.hairline || target_clip.is_some() || c.drawn_at_zoom() { Some(0) } else { zoomed };
                 scaling = from.is_some();
                 from
             }

@@ -85,38 +85,47 @@ const FLI_COPY: u16 = 16;
 /// `file`, from its header and the headers of its chunks (their bodies are
 /// skipped, not read).
 pub fn dimensions(file: &mut (impl std::io::Read + std::io::Seek)) -> Result<(u32, u32, usize), FlcError> {
+    let layout = read_layout(file, true)?;
+    Ok((layout.width, layout.height, layout.frames))
+}
+
+/// Read only the file header and each top-level chunk's six-byte header.
+/// Chunk bodies are skipped by seeking. The complete 128-byte header keeps
+/// Civilization III's direction/block/anchor and timing extension fields.
+/// Like [`layout`], this counts every physical frame chunk, including ring
+/// frames beyond the count stated in the header; it does not decode pixels.
+/// The reader must represent a whole file and support seeking to its end.
+pub fn layout_reader(file: &mut (impl std::io::Read + std::io::Seek)) -> Result<Layout, FlcError> {
+    read_layout(file, false)
+}
+
+fn read_layout(file: &mut (impl std::io::Read + std::io::Seek), check_depth: bool) -> Result<Layout, FlcError> {
     use std::io::SeekFrom;
+    file.seek(SeekFrom::Start(0)).map_err(|_| FlcError::NotFlc)?;
     let mut header = [0u8; 128];
     file.read_exact(&mut header).map_err(|_| FlcError::NotFlc)?;
     let word = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]);
     let magic = word(4);
-    if magic != FLC_MAGIC && magic != FLI_MAGIC {
-        return Err(FlcError::NotFlc);
-    }
+    if magic != FLC_MAGIC && magic != FLI_MAGIC { return Err(FlcError::NotFlc); }
     let (width, height, depth) = (word(8) as u32, word(10) as u32, word(12));
-    if depth != 8 && depth != 0 {
-        return Err(FlcError::Depth(depth));
-    }
+    // dimensions historically validates depth; layout exposes metadata even
+    // for depths the pixel decoder does not support. Keep both contracts.
+    if check_depth && depth != 8 && depth != 0 { return Err(FlcError::Depth(depth)); }
     let len = file.seek(SeekFrom::End(0)).map_err(|_| FlcError::Truncated)?;
     let mut at = match u32::from_le_bytes(header[80..84].try_into().unwrap()) {
-        off if magic == FLC_MAGIC && off != 0 => off as u64,
+        off if magic == FLC_MAGIC && off != 0 => u64::from(off),
         _ => 128,
     };
     let mut frames = 0;
-    // As `decode` walks them: every frame chunk is a frame.
-    while at + 6 <= len {
+    while at.checked_add(6).is_some_and(|end| end <= len) {
         let mut chunk = [0u8; 6];
         file.seek(SeekFrom::Start(at)).and_then(|_| file.read_exact(&mut chunk)).map_err(|_| FlcError::Truncated)?;
-        let size = u32::from_le_bytes(chunk[..4].try_into().unwrap()) as u64;
-        if size < 6 {
-            return Err(FlcError::Truncated);
-        }
-        if u16::from_le_bytes([chunk[4], chunk[5]]) == FRAME_CHUNK {
-            frames += 1;
-        }
-        at += size;
+        let size = u64::from(u32::from_le_bytes(chunk[..4].try_into().unwrap()));
+        if size < 6 { return Err(FlcError::Truncated); }
+        frames += usize::from(u16::from_le_bytes([chunk[4], chunk[5]]) == FRAME_CHUNK);
+        at = at.checked_add(size).ok_or(FlcError::Truncated)?;
     }
-    Ok((width, height, frames))
+    Ok(Layout { width, height, frames, header })
 }
 
 /// What [`decode`] tells of a file without decoding its frames: its size,
@@ -362,4 +371,150 @@ fn delta_fli(c: &mut Reader, canvas: &mut [u8], width: usize) -> Result<(), FlcE
         y += 1;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod layout_reader_tests {
+    use super::*;
+    use std::io::{Cursor, Read, Seek, SeekFrom};
+
+    struct Count<R> { inner: R, bytes: usize, reads: Vec<(u64, usize)>, short: usize }
+    impl<R: Read + Seek> Read for Count<R> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let at = self.inner.stream_position()?;
+            let limit = out.len().min(self.short);
+            let n = self.inner.read(&mut out[..limit])?;
+            self.bytes += n; self.reads.push((at, n)); Ok(n)
+        }
+    }
+    impl<R: Seek> Seek for Count<R> {
+        fn seek(&mut self, at: SeekFrom) -> std::io::Result<u64> { self.inner.seek(at) }
+    }
+
+    fn sample(magic: u16, first: u32, chunks: &[(u16, usize)]) -> Vec<u8> {
+        let mut bytes = vec![0; 128];
+        bytes[4..6].copy_from_slice(&magic.to_le_bytes());
+        bytes[6..8].copy_from_slice(&1u16.to_le_bytes());
+        bytes[8..10].copy_from_slice(&49u16.to_le_bytes());
+        bytes[10..12].copy_from_slice(&31u16.to_le_bytes());
+        bytes[12..14].copy_from_slice(&8u16.to_le_bytes());
+        bytes[16..20].copy_from_slice(&73u32.to_le_bytes());
+        bytes[80..84].copy_from_slice(&first.to_le_bytes());
+        bytes[0x62..0x6c].copy_from_slice(&[3, 0, 7, 0, 9, 0, 240, 0, 240, 0]);
+        if magic == FLC_MAGIC && first > 128 { bytes.resize(first as usize, 0xA5); }
+        for &(kind, size) in chunks {
+            bytes.extend_from_slice(&(size as u32).to_le_bytes());
+            bytes.extend_from_slice(&kind.to_le_bytes());
+            bytes.resize(bytes.len() + size - 6, 0xCD);
+        }
+        bytes
+    }
+
+    fn spans(bytes: &[u8]) -> Vec<(u64, u64)> {
+        let magic = u16::from_le_bytes(bytes[4..6].try_into().unwrap());
+        let offset = u32::from_le_bytes(bytes[80..84].try_into().unwrap());
+        let mut at = if magic == FLC_MAGIC && offset != 0 { offset as usize } else { 128 };
+        let mut spans = vec![(0, 128)];
+        while at + 6 <= bytes.len() {
+            spans.push((at as u64, at as u64 + 6));
+            at += u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+        }
+        spans
+    }
+
+    fn assert_reads_only_headers<R>(reader: &Count<R>, bytes: &[u8]) {
+        let allowed = spans(bytes);
+        assert_eq!(reader.bytes as u64, allowed.iter().map(|(a, b)| b - a).sum::<u64>());
+        assert!(reader.reads.iter().all(|&(at, n)| allowed.iter().any(|&(a, b)| at >= a && at + n as u64 <= b)), "pixel/palette chunk body was read");
+    }
+
+    #[test]
+    fn seeks_prefixes_ring_frames_and_all_civ3_header_extensions_without_payload_reads() {
+        for magic in [FLC_MAGIC, FLI_MAGIC] {
+            for first in [0, 128, 256] {
+                let bytes = sample(magic, first, &[(0xF100, 400_000), (FRAME_CHUNK, 1_000_000), (FRAME_CHUNK, 700_000)]);
+                let expected = layout(&bytes).unwrap();
+                assert_eq!(expected.frames, 2, "physical frames exceed declared count1");
+                let mut reader = Count { inner: Cursor::new(&bytes), bytes: 0, reads: Vec::new(), short: usize::MAX };
+                assert_eq!(layout_reader(&mut reader).unwrap(), expected);
+                assert_reads_only_headers(&reader, &bytes);
+                assert_eq!(reader.bytes, 146);
+                assert_eq!(dimensions(&mut Cursor::new(&bytes)).unwrap(), (49, 31, 2));
+            }
+        }
+    }
+
+    #[test]
+    fn exact_short_reads_and_legacy_truncation_validation_match_full_byte_layout() {
+        let bytes = sample(FLC_MAGIC, 256, &[(FRAME_CHUNK, 500), (0xF100, 80), (FRAME_CHUNK, 300)]);
+        let mut reader = Count { inner: Cursor::new(&bytes), bytes: 0, reads: Vec::new(), short: 1 };
+        assert_eq!(layout_reader(&mut reader).unwrap(), layout(&bytes).unwrap());
+        assert_reads_only_headers(&reader, &bytes);
+        // Preserve existing metadata validation, including partial trailing
+        // headers and declared bodies extending past EOF. Pixel validation
+        // belongs to decode; metadata readers never pretend to decode them.
+        for end in 0..bytes.len() {
+            let actual = layout_reader(&mut Cursor::new(&bytes[..end])).map_err(|e| e.to_string());
+            let expected = layout(&bytes[..end]).map_err(|e| e.to_string());
+            assert_eq!(actual, expected, "truncated at{end}");
+        }
+        let mut bad = sample(FLC_MAGIC, 0, &[(FRAME_CHUNK, 6)]);
+        bad[128..132].copy_from_slice(&5u32.to_le_bytes());
+        assert!(matches!(layout_reader(&mut Cursor::new(&bad)), Err(FlcError::Truncated)));
+        bad[4..6].copy_from_slice(&0u16.to_le_bytes());
+        assert!(matches!(layout_reader(&mut Cursor::new(&bad)), Err(FlcError::NotFlc)));
+    }
+
+    #[test]
+    fn chunk_header_disappearing_after_length_probe_is_reported_truncated() {
+        struct Vanished(Cursor<Vec<u8>>);
+        impl Read for Vanished {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                let left = 130usize.saturating_sub(self.0.position() as usize);
+                let n = out.len().min(left);
+                self.0.read(&mut out[..n])
+            }
+        }
+        impl Seek for Vanished {
+            fn seek(&mut self, at: SeekFrom) -> std::io::Result<u64> { self.0.seek(at) }
+        }
+        let bytes = sample(FLC_MAGIC, 0, &[(FRAME_CHUNK, 6)]);
+        assert!(matches!(layout_reader(&mut Vanished(Cursor::new(bytes))), Err(FlcError::Truncated)));
+    }
+
+    #[test]
+    fn dimensions_keeps_depth_validation_while_layout_preserves_opaque_header_metadata() {
+        let mut bytes = sample(FLC_MAGIC, 0, &[(FRAME_CHUNK, 6)]);
+        bytes[12..14].copy_from_slice(&16u16.to_le_bytes());
+        assert_eq!(layout_reader(&mut Cursor::new(&bytes)).unwrap(), layout(&bytes).unwrap());
+        assert!(matches!(dimensions(&mut Cursor::new(&bytes)), Err(FlcError::Depth(16))));
+    }
+
+    #[test]
+    #[ignore = "requires read-only CIV3_INSTALL assets"]
+    fn real_flcs_match_full_byte_layout_and_read_only_chunk_headers() {
+        let files = crate::GameFiles::complete(std::env::var("CIV3_INSTALL").expect("CIV3_INSTALL"));
+        let names = [
+            "Art/Units/Artillery/ArtilleryAttackA.flc", "Art/Units/Artillery/ArtilleryDefault.flc",
+            "Art/Units/Artillery/ArtilleryRun.flc", "Art/Units/Artillery/ArtilleryDeath.flc",
+            "Art/Units/Artillery/ArtilleryFortify.flc", "Art/Units/Artillery/ArtilleryFidget.flc",
+            "Art/Units/Worker Modern Times/WorkerModernRun.flc", "Art/Units/Worker Modern Times/WorkerModernRoad.flc",
+            "Art/Animations/Cursor/Cursor.flc", "Art/Animations/SDI/Laser.flc", "Art/Animations/SAM/SamAttackA.flc",
+            "Art/Flics/BS_A01.flc", "Art/Flics/Al_c01.flc",
+        ];
+        let (mut full, mut bounded, mut frames) = (0, 0, 0);
+        for name in names {
+            let path = files.resolve(name).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            let expected = layout(&bytes).unwrap();
+            let mut reader = Count { inner: std::fs::File::open(&path).unwrap(), bytes: 0, reads: Vec::new(), short: usize::MAX };
+            let actual = layout_reader(&mut reader).unwrap();
+            assert_eq!(actual, expected, "{name}");
+            assert_reads_only_headers(&reader, &bytes);
+            full += bytes.len(); bounded += reader.bytes; frames += actual.frames;
+            eprintln!("{name}: full={} bounded={} frames={}", bytes.len(), reader.bytes, actual.frames);
+        }
+        eprintln!("FLC read-only parity:13files {frames}frames full={full}bytes bounded={bounded}bytes");
+        assert!(bounded * 20 < full);
+    }
 }

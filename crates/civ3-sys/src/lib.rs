@@ -14,23 +14,30 @@
 #![deny(unsafe_code)]
 
 pub mod ai_camera_focus;
+pub mod audio_init;
 pub mod build;
 pub mod c3x;
 pub mod c3x_layout;
 pub mod city_label;
 pub mod clean_map;
 pub mod control_art;
+pub mod combat_speed;
 pub mod controls;
 pub mod cursor;
 pub mod hooks;
 pub mod layout;
+pub mod lit_orders;
 pub mod menus;
 pub mod map_messages;
 pub mod modal;
 pub mod native_camera;
+pub mod camera_arrival;
+pub mod native_redraw;
+pub mod preferences;
 pub mod sprites;
 pub mod sliders;
 pub mod targeting;
+pub mod city_work;
 pub mod ui_hooks;
 pub mod unit_views;
 pub mod world;

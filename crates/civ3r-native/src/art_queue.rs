@@ -1,42 +1,53 @@
 //! Native art jobs and the whole description they belong to.
 
-use std::collections::VecDeque;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex};
 
+use civ3r_sync::{Latest, Mailbox};
 use scene::wire::Assets;
 
+/// Pushed on the game's thread, popped by the art thread. Pushing never
+/// waits: the art thread parks rather than waiting in the channel, and is
+/// unparked by each push.
 pub(super) struct ArtQueue {
-    next: Mutex<VecDeque<Assets>>,
-    ready: Condvar,
+    // lock-free: `LazyLock` only makes the channel on first use.
+    next: LazyLock<Mailbox<Assets>>,
+    /// The thread waiting in `pop`.
+    popper: Latest<std::thread::Thread>,
     newest_whole: AtomicU64,
 }
 
 impl ArtQueue {
     pub const fn new() -> Self {
-        Self { next: Mutex::new(VecDeque::new()), ready: Condvar::new(), newest_whole: AtomicU64::new(0) }
+        Self { next: LazyLock::new(Mailbox::new), popper: Latest::new(), newest_whole: AtomicU64::new(0) }
     }
 
     pub fn push(&self, a: Assets) {
-        let mut next = self.next.lock().unwrap_or_else(|e| e.into_inner());
         if self.superseded(a.generation) {
             return;
         }
         if !a.append {
+            // What waits before it is dropped by `pop` as superseded.
             self.newest_whole.store(a.generation, Ordering::Release);
-            next.clear();
         }
-        next.push_back(a);
-        self.ready.notify_one();
+        self.next.send(a);
+        if let Some(t) = self.popper.load() {
+            t.unpark();
+        }
     }
 
     pub fn pop(&self) -> Assets {
-        let mut next = self.next.lock().unwrap_or_else(|e| e.into_inner());
+        let me = std::thread::current();
+        if self.popper.load().is_none_or(|t| t.id() != me.id()) {
+            self.popper.publish(me);
+        }
         loop {
-            if let Some(a) = next.pop_front() {
-                return a;
+            while let Some(a) = self.next.try_recv() {
+                if !self.superseded(a.generation) {
+                    return a;
+                }
             }
-            next = self.ready.wait(next).unwrap_or_else(|e| e.into_inner());
+            std::thread::park();
         }
     }
 
@@ -47,11 +58,10 @@ impl ArtQueue {
     }
 
     /// Publishes a result only if no newer whole has arrived, even if it
-    /// arrived during the last file load or atlas packing. This check and
-    /// publication share the queue lock with `push`, so a newer request
-    /// cannot slip between them. The callback must not use the queue.
+    /// arrived during the last file load or atlas packing. A newer whole
+    /// pushed after the check is published after this, by the same thread,
+    /// so it still ends up the viewer's.
     pub fn with_current(&self, generation: u64, publish: impl FnOnce()) -> bool {
-        let _next = self.next.lock().unwrap_or_else(|e| e.into_inner());
         if self.superseded(generation) {
             false
         } else {
@@ -84,7 +94,21 @@ mod tests {
         assert_eq!(queue.pop().generation, 4);
         // A late addition of the old whole cannot enter the new queue.
         queue.push(job(2, true));
-        assert!(queue.next.lock().unwrap().is_empty());
+        assert!(queue.next.is_empty());
+    }
+
+    #[test]
+    fn a_parked_art_thread_wakes_for_each_push() {
+        let queue = ArtQueue::new();
+        std::thread::scope(|s| {
+            let q = &queue;
+            let art = s.spawn(move || (1..=20).map(|_| q.pop().generation).collect::<Vec<_>>());
+            for generation in 1..=20 {
+                std::thread::sleep(std::time::Duration::from_micros(300));
+                queue.push(job(generation, true));
+            }
+            assert_eq!(art.join().unwrap(), (1..=20).collect::<Vec<_>>());
+        });
     }
 
     #[test]

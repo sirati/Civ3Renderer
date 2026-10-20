@@ -8,16 +8,22 @@ use objc2::runtime::{AnyObject, Sel};
 use objc2::{declare_class, msg_send_id, mutability, sel, ClassType, DeclaredClass};
 use objc2_app_kit::{
     NSApplication, NSCursor, NSEvent, NSEventPhase, NSResponder, NSTextInputClient,
-    NSTrackingRectTag, NSView, NSViewFrameDidChangeNotification,
+    NSMenuDidBeginTrackingNotification, NSMenuDidEndTrackingNotification,
+    NSTrackingRectTag, NSView, NSViewFrameDidChangeNotification, NSEventType,
 };
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSCopying,
     NSMutableAttributedString, NSNotFound, NSNotificationCenter, NSObject, NSObjectProtocol,
-    NSPoint, NSRange, NSRect, NSSize, NSString, NSUInteger,
+    NSNotification, NSPoint, NSRange, NSRect, NSSize, NSString, NSUInteger,
 };
 
 use super::app_state::ApplicationDelegate;
 use super::cursor::{default_cursor, invisible_cursor};
+use super::cursor_confinement::{locked_position, PointerState, Region};
+use super::monitor::flip_window_screen_coordinates;
+use super::{app, cursor_system};
+use crate::error::ExternalError;
+use crate::window::CursorGrabMode;
 use super::event::{
     code_to_key, code_to_location, create_key_event, event_mods, lalt_pressed, ralt_pressed,
     scancode_to_physicalkey, KeyEventExtra,
@@ -114,6 +120,7 @@ pub struct ViewState {
     app_delegate: Retained<ApplicationDelegate>,
 
     cursor_state: RefCell<CursorState>,
+    pointer_state: RefCell<PointerState>,
     ime_position: Cell<NSPoint>,
     ime_size: Cell<NSSize>,
     modifiers: Cell<Modifiers>,
@@ -162,6 +169,27 @@ declare_class!(
             true
         }
 
+        #[method(menuDidBeginTracking:)]
+        fn menu_did_begin_tracking(&self, _notification: &NSNotification) {
+            let suspend = self.ivars().pointer_state.borrow_mut().begin_menu(self.window().isKeyWindow());
+            if suspend {
+                let _ = self.release_pointer();
+                app::clear_mouse_warps();
+                self.reset_modifiers();
+                // AppKit owns pointer/keyboard input during native menu
+                // tracking even though its content window remains key.
+                self.queue_event(WindowEvent::Focused(false));
+            }
+        }
+
+        #[method(menuDidEndTracking:)]
+        fn menu_did_end_tracking(&self, _notification: &NSNotification) {
+            let resume = self.ivars().pointer_state.borrow_mut().end_menu();
+            if resume && self.window().isKeyWindow() {
+                self.queue_event(WindowEvent::Focused(true));
+            }
+        }
+
         #[method(viewDidMoveToWindow)]
         fn view_did_move_to_window(&self) {
             trace_scope!("viewDidMoveToWindow");
@@ -178,7 +206,7 @@ declare_class!(
         }
 
         #[method(frameDidChange:)]
-        fn frame_did_change(&self, _event: &NSEvent) {
+        fn frame_did_change(&self, _notification: &NSNotification) {
             trace_scope!("frameDidChange:");
             if let Some(tracking_rect) = self.ivars().tracking_rect.take() {
                 self.removeTrackingRect(tracking_rect);
@@ -794,6 +822,7 @@ impl WinitView {
         let this = mtm.alloc().set_ivars(ViewState {
             app_delegate: app_delegate.retain(),
             cursor_state: Default::default(),
+            pointer_state: Default::default(),
             ime_position: Default::default(),
             ime_size: Default::default(),
             modifiers: Default::default(),
@@ -811,6 +840,10 @@ impl WinitView {
         let this: Retained<Self> = unsafe { msg_send_id![super(this), init] };
 
         this.setPostsFrameChangedNotifications(true);
+        // SAFETY: WinitView is MainThreadOnly. All three selectors are
+        // declared on this class and accept one notification object. The
+        // notification center zeroes selector observers when they deallocate
+        // on our supported macOS versions, so it cannot call a dropped view.
         let notification_center = unsafe { NSNotificationCenter::defaultCenter() };
         unsafe {
             notification_center.addObserver_selector_name_object(
@@ -818,7 +851,13 @@ impl WinitView {
                 sel!(frameDidChange:),
                 Some(NSViewFrameDidChangeNotification),
                 Some(&this),
-            )
+            );
+            notification_center.addObserver_selector_name_object(
+                &this, sel!(menuDidBeginTracking:), Some(NSMenuDidBeginTrackingNotification), None,
+            );
+            notification_center.addObserver_selector_name_object(
+                &this, sel!(menuDidEndTracking:), Some(NSMenuDidEndTrackingNotification), None,
+            );
         }
 
         *this.ivars().input_source.borrow_mut() = this.current_input_source();
@@ -1058,6 +1097,122 @@ impl WinitView {
         });
     }
 
+    /// Release only a grab owned by this view, including before AppKit
+    /// dispatches focus loss to the application's event queue.
+    pub(super) fn release_pointer(&self) -> Result<(), ExternalError> {
+        let mut state = self.ivars().pointer_state.borrow_mut();
+        if state.disassociated() {
+            cursor_system::associate(true)?;
+            state.release();
+        }
+        Ok(())
+    }
+
+    fn detach_pointer(&self) -> Result<(), ExternalError> {
+        cursor_system::associate(false)?;
+        Ok(())
+    }
+
+    pub(super) fn set_cursor_grab(&self, mode: CursorGrabMode) -> Result<(), ExternalError> {
+        if mode == CursorGrabMode::None {
+            return self.release_pointer();
+        }
+        if !self.window().isKeyWindow() || self.ivars().pointer_state.borrow().menu_depth > 0 {
+            return Err(ExternalError::Ignored);
+        }
+        if mode == CursorGrabMode::Confined {
+            let size = self.frame().size;
+            let scale = self.scale_factor();
+            return self.set_cursor_confinement(Some([0, 0, (size.width * scale) as i32, (size.height * scale) as i32]), &[]);
+        }
+        let size = self.frame().size;
+        let scale = self.scale_factor();
+        let at = self.pointer_position();
+        let position = locked_position(at, (size.width * scale, size.height * scale))
+            .ok_or(ExternalError::Ignored)?;
+        self.detach_pointer()?;
+        {
+            let mut state = self.ivars().pointer_state.borrow_mut();
+            state.locked = true;
+            state.region = None;
+            state.position = position;
+        }
+        if position != at {
+            if let Err(error) = self.warp_pointer(position) {
+                let _ = self.release_pointer();
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn pointer_position(&self) -> (f64, f64) {
+        // SAFETY: this MainThreadOnly view retains its live WinitWindow;
+        // this typed AppKit getter takes no pointers or caller-owned storage.
+        let window_point = unsafe { self.window().mouseLocationOutsideOfEventStream() };
+        let at = self.convertPoint_fromView(window_point, None);
+        let scale = self.scale_factor();
+        (at.x * scale, at.y * scale)
+    }
+
+    pub(super) fn set_cursor_confinement(&self, bounds: Option<[i32; 4]>, exclusions: &[[i32; 4]]) -> Result<(), ExternalError> {
+        let Some(bounds) = bounds else {
+            if self.ivars().pointer_state.borrow().region.is_some() {
+                self.release_pointer()?;
+            }
+            return Ok(());
+        };
+        if !self.window().isKeyWindow() || self.ivars().pointer_state.borrow().menu_depth > 0 {
+            return Err(ExternalError::Ignored);
+        }
+        let region = Region::new(bounds, exclusions).ok_or(ExternalError::Ignored)?;
+        if self.ivars().pointer_state.borrow().region.as_ref() == Some(&region) {
+            return Ok(());
+        }
+        let at = self.pointer_position();
+        if !region.contains(at) {
+            // Do not teleport when a moving zoom box covers the pointer.
+            self.release_pointer()?;
+            return Err(ExternalError::Ignored);
+        }
+        self.detach_pointer()?;
+        let mut state = self.ivars().pointer_state.borrow_mut();
+        state.position = at;
+        state.locked = false;
+        state.region = Some(region);
+        Ok(())
+    }
+
+    /// Physical view pixels to screen points, with only one Retina
+    /// conversion. AppKit handles displays with different scale factors.
+    pub(super) fn warp_pointer(&self, physical: (f64, f64)) -> Result<(), ExternalError> {
+        let scale = self.scale_factor();
+        // A zero-size rectangle carries the same point through AppKit's
+        // affine coordinate transforms using its safe typed rect methods.
+        let view = NSRect::new(NSPoint::new(physical.0 / scale, physical.1 / scale), NSSize::new(0.0, 0.0));
+        let window = self.convertRect_toView(view, None);
+        let screen = flip_window_screen_coordinates(self.window().convertRectToScreen(window));
+        // SAFETY: this getter runs on the view's AppKit main thread and
+        // returns a value, without storing or dereferencing a caller pointer.
+        let before = unsafe { NSEvent::mouseLocation() };
+        let before = flip_window_screen_coordinates(NSRect::new(before, NSSize::new(0.0, 0.0)));
+        cursor_system::warp((screen.x, screen.y))?;
+        app::record_mouse_warp((before.x, before.y), (screen.x, screen.y));
+        let outside = self.ivars().pointer_state.borrow().region.as_ref().is_some_and(|region| !region.contains(physical));
+        if outside {
+            self.release_pointer()?;
+        }
+        let mut state = self.ivars().pointer_state.borrow_mut();
+        state.position = physical;
+        // Apple's CGAssociateMouseAndMouseCursorPosition contract permits
+        // CGWarpMouseCursorPosition while detached. Preserve that raw lock.
+        // Free-pointer warps reassociate to avoid the known post-warp pause.
+        if !state.disassociated() {
+            cursor_system::associate(true)?;
+        }
+        Ok(())
+    }
+
     fn mouse_motion(&self, event: &NSEvent) {
         let window_point = unsafe { event.locationInWindow() };
         let view_point = self.convertPoint_fromView(window_point, None);
@@ -1075,13 +1230,37 @@ impl WinitView {
             }
         }
 
-        let view_point = LogicalPosition::new(view_point.x, view_point.y);
+        let scale = self.scale_factor();
+        let mut position = LogicalPosition::new(view_point.x, view_point.y).to_physical::<f64>(scale);
+        // SAFETY: AppKit supplied a live NSEvent to this main-thread
+        // callback. Its typed scalar type getter has no additional state.
+        let motion = matches!(unsafe { event.r#type() }, NSEventType::MouseMoved | NSEventType::LeftMouseDragged | NSEventType::RightMouseDragged | NSEventType::OtherMouseDragged);
+        let next = {
+            let mut state = self.ivars().pointer_state.borrow_mut();
+            if let Some(region) = &state.region {
+                let delta = if motion { app::mouse_delta(event) } else { (0.0, 0.0) };
+                let next = region.advance(state.position, (delta.0 * scale, delta.1 * scale));
+                let changed = next != state.position;
+                state.position = next;
+                position = crate::dpi::PhysicalPosition::new(next.0, next.1);
+                changed.then_some(next)
+            } else {
+                None
+            }
+        };
+        if let Some(next) = next {
+            if let Err(error) = self.warp_pointer(next) {
+                // A failed warp must not leave an invisible global grab.
+                tracing::warn!("releasing cursor confinement after warp failure: {error}");
+                let _ = self.release_pointer();
+            }
+        }
 
         self.update_modifiers(event, false);
 
         self.queue_event(WindowEvent::CursorMoved {
             device_id: DEVICE_ID,
-            position: view_point.to_physical(self.scale_factor()),
+            position,
         });
     }
 }

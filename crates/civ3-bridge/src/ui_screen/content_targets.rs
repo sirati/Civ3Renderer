@@ -11,6 +11,30 @@ pub fn content_anchors(frame: &Frame, fonts: &Fonts, controls: &[Control], targe
     annotate(frame, controls, targets, |run| fonts.ink_bounds(run));
 }
 
+/// The military advisor's unit columns that hold a drawn unit icon
+/// (`units_32.pcx` on its canvas within a column strip).
+pub fn military_unit_controls(frame: &Frame, strips: &[civ3_sys::controls::screens::UnitStrip]) -> Vec<Control> {
+    let mut out = Vec::new();
+    for strip in strips {
+        let Some((_, range)) = frame.form_draws.iter().find(|(c, _)| *c == strip.canvas) else { continue };
+        let icons = frame.draws.get(range.clone()).unwrap_or(&[]).iter().filter_map(|d| {
+            let (path, x, y, w, h, clip) = match d {
+                ScreenDraw::Image { path, rect, x, y, clip, opacity, .. } if *opacity != 0 => (path, *x, *y, rect[2], rect[3], *clip),
+                ScreenDraw::ResizedImage { path, x, y, size: (w, h), clip, opacity, .. } if *opacity != 0 => (path, *x, *y, *w, *h, *clip),
+                _ => return None,
+            };
+            if !path.to_ascii_lowercase().replace('/', "\\").ends_with("units_32.pcx") {
+                return None;
+            }
+            let [cl, ct, cr, cb] = clip;
+            let r = intersection([x, y, w, h], [cl, ct, cr, cb])?;
+            intersection(r, [strip.rect[0], strip.rect[1], strip.rect[0] + strip.rect[2], strip.rect[1] + strip.rect[3]])
+        });
+        out.extend(civ3_sys::controls::screens::unit_columns(strip, icons));
+    }
+    out
+}
+
 fn intersection([x, y, w, h]: [i32; 4], [l, t, r, b]: [i32; 4]) -> Option<[i32; 4]> {
     let (left, top) = (x.max(l), y.max(t));
     let (right, bottom) = (x.saturating_add(w).min(r), y.saturating_add(h).min(b));
@@ -53,7 +77,18 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
                         }
                     }
                 }
-                ScreenDraw::Text { run, clip: text_clip } => {
+                ScreenDraw::ResizedImage { path, x, y, size: (dw, dh), clip: image_clip, opacity, .. }
+                    if *opacity != 0 && *dw <= h.saturating_mul(2) && *dh <= h.saturating_mul(2)
+                        && !path.to_ascii_lowercase().contains("background") => {
+                    if let Some(r) = intersection([*x, *y, *dw, *dh], *image_clip).and_then(|r| intersection(r, clip)) {
+                        if icon.is_none_or(|old| (r[0], -(r[2] as i64 * r[3] as i64)) < (old[0], -(old[2] as i64 * old[3] as i64))) {
+                            icon = Some(r);
+                        }
+                    }
+                }
+                // (Text whose baseline is a line or more away from the row
+                // has no ink in it: not measured.)
+                ScreenDraw::Text { run, clip: text_clip } if (clip[1] - 2 * run.height.abs().max(16)..clip[3] + 2 * run.height.abs().max(16)).contains(&run.y) => {
                     if let Some(r) = text_bounds(run).and_then(|r| intersection(r, *text_clip)).and_then(|r| intersection(r, clip)) {
                         if text.is_none_or(|old| (r[0] + r[2], r[1]) > (old[0] + old[2], old[1])) {
                             text = Some(r);
@@ -63,6 +98,9 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
                 _ => {}
             }
         }
+        // An advisor's speech box is all panel art: its words hold content.
+        use civ3_sys::controls::advisors::{CELL_SPEECH, cell_kind};
+        let icon = icon.filter(|_| cell_kind(control.id) != Some(CELL_SPEECH));
         target.anchor = if let Some([x, y, w, h]) = icon {
             Some([x + w - 1, y + h - 1])
         } else if let Some([x, y, w, h]) = text {
@@ -184,4 +222,51 @@ mod tests {
         annotate(&Frame::default(), &[control], &mut got, |_| None);
         assert_eq!(got[0].anchor, Some([419, 215]));
     }
+    #[test]
+    fn scaled_unit_list_icon_anchors_to_its_visible_destination_corner() {
+        let controls = [row(0, 20, false)];
+        let frame = Frame { draws: vec![
+            ScreenDraw::ResizedImage { path: "Art/units32.pcx".into(), rect: [0,0,240,240], x:22, y:22,
+                size:(31,31), sample_step:[500000,500000], keyed:true, clip:[0,0,1024,768], mask:None,palette:None,opacity:255 },
+            label("Unit",100,60),
+        ], form_draws: vec![(FORM+4+civ3_sys::layout::BASE_FORM_DATA_CANVAS,0..2)], ..Default::default() };
+        let mut targets = targets(&controls);
+        annotate(&frame, &controls, &mut targets, bounds);
+        assert_eq!(targets[0].anchor, Some([52,52]));
+    }
+
+    #[test]
+    fn domestic_advisor_cells_point_at_their_icon_or_words() {
+        use civ3_sys::controls::advisors::{CELL_CITY, CELL_PRODUCTION, CELL_SPEECH, cell_id};
+        let cell = |kind, rect| Control { rect, kind: ControlKind::Button, id: cell_id(FORM, kind, 0) };
+        let controls = [cell(CELL_CITY, [96, 305, 145, 37]), cell(CELL_PRODUCTION, [811, 306, 114, 34]), cell(CELL_SPEECH, [812, 117, 191, 123])];
+        let image = |path: &str, x, y, w, h| ScreenDraw::Image { path: path.into(), rect: [0, 0, w, h], x, y, keyed: true,
+            clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
+        let draws = vec![
+            label("Rome", 111, 341),
+            image("art/city screen/buildings-small.pcx", 864, 309, 27, 26),
+            label("Wealth", 895, 335),
+            image("Art/Advisors/dialogbox.pcx", 804, 108, 206, 132),
+            label("More", 969, 244),
+        ];
+        let frame = Frame { form_draws: vec![(FORM + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, 0..draws.len())], draws, ..Default::default() };
+        let mut got = targets(&controls);
+        annotate(&frame, &controls, &mut got, bounds);
+        assert_eq!(got.iter().map(|t| t.anchor).collect::<Vec<_>>(), [Some([138, 335]), Some([890, 334]), Some([996, 236])]);
+    }
+
+    #[test]
+    fn military_unit_columns_come_from_drawn_unit_icons_only() {
+        use civ3_sys::controls::screens::UnitStrip;
+        let canvas = FORM + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
+        let strip = UnitStrip { form: FORM, canvas, side: 0, row: 2, rect: [631, 600, 346, 45], left: 631 };
+        let image = |path: &str, x| ScreenDraw::Image { path: path.into(), rect: [0, 0, 32, 32], x, y: 606, keyed: true,
+            clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 };
+        let draws = vec![image("Art/units_32.pcx", 633), image("Art\\Units_32.PCX", 633 + 64), image("Art/other.pcx", 633 + 32)];
+        let frame = Frame { form_draws: vec![(canvas, 0..draws.len())], draws, ..Default::default() };
+        let got = military_unit_controls(&frame, &[strip]);
+        assert_eq!(got.iter().map(|c| (c.rect, c.id as u32 & 0xFFF)).collect::<Vec<_>>(), [([632, 600, 32, 45], 0x200), ([696, 600, 32, 45], 0x202)]);
+        assert!(military_unit_controls(&Frame::default(), &[strip]).is_empty());
+    }
+
 }

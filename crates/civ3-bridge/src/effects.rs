@@ -100,8 +100,13 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &r
         let chunk = units::frame_chunk(file, e.direction, e.frame);
         let at = (e.pixel.0 - volcano_shift(world, e) * if view.zoomed_out { 2 } else { 1 }, e.pixel.1);
         let (list, after_pass) = if e.animation == DEATH { (&mut over, units_pass) } else { (&mut under, under_units) };
-        for (kind, scale_den) in [("EffectShadow", 16), ("EffectArt", 0)] {
+        for (kind, scale_den) in [("EffectShadow", 16), ("EffectArt", 0), ("EffectSmoke", 0)] {
             let Some((set, _)) = compiled.set(&format!("{kind}@{}/{chunk}", file.path)) else { continue };
+            if kind == "EffectSmoke" {
+                let Some(id) = compiled.sets.frame(set, 0) else { continue };
+                let sprite = &compiled.atlas.sprites[id.0 as usize];
+                if sprite.blank & tile_render::BLANK_EMPTY != 0 { continue; }
+            }
             list.push(scene::FreeSprite {
                 set: set.raw(),
                 x: at.0,
@@ -111,13 +116,14 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &r
                 phase: 0,
                 ticks_per_frame: 1,
                 scale_den,
+                blend: if kind == "EffectSmoke" { scene::SpriteBlend::PaletteAlpha256 } else { scene::SpriteBlend::Alpha },
                 tint: 0,
                 zoom_art: 0,
                 zoom: (0, 0),
                 zoom_offset: (0, 0),
                 clip: None,
                 not_in_view: None,
-                glyph: None,
+                glyph: None, solid: None,
                 palette: 0,
                 // Animated effects are independent of the game's map-detail
                 // flags, including while Clean Map is enabled.
@@ -238,19 +244,26 @@ mod tests {
         let mut scene = Scene::empty(scene::WorldShape::default(), compiled.layers.len());
         place(&world, &Civ3View::default(), &mut art, &compiled, &mut scene);
         let (units_pass, _) = units::unit_passes(&compiled);
-        assert_eq!(scene.sprites.len(), 2);
+        assert_eq!(scene.sprites.len(), 3);
         assert_eq!((scene.sprites[0].scale_den, scene.sprites[1].scale_den), (16, 0));
+        assert_eq!(scene.sprites[2].blend, scene::SpriteBlend::PaletteAlpha256);
         assert!(scene.sprites.iter().all(|s| s.after_pass == units_pass && (s.x, s.y) == (192, 96)));
         // Its art: indexed in the file's palette, smoke translucent.
         let (set, _) = compiled.set("EffectArt@Art/Animations/Trajectory/miss.flc/11").unwrap();
         let sprite = compiled.atlas.sprites[compiled.sets.frame(set, 0).unwrap().0 as usize];
         let row = &compiled.atlas.palettes[sprite.palette as usize * tile_render::PALETTE_SIZE as usize..][..256];
         let alpha = |i: usize| (row[i] >> 24) as u8;
-        assert_eq!(alpha(224), needed.smoke[0][3]);
+        assert_eq!(alpha(224), 0, "ordinary effect art excludes the native-alpha ramp");
+        let (smoke_set, _) = compiled.set("EffectSmoke@Art/Animations/Trajectory/miss.flc/11").unwrap();
+        let smoke = compiled.atlas.sprites[compiled.sets.frame(smoke_set, 0).unwrap().0 as usize];
+        assert_eq!(compiled.atlas.palettes[smoke.palette as usize * tile_render::PALETTE_SIZE as usize + 224] >> 24, u32::from(needed.smoke[0][3]));
         assert_eq!((alpha(200), alpha(255)), (255, 0));
         // Every view draws the same world sprites, including a view whose
         // zoom differs from the game's and the game's half-size map.
-        let tiles = tile_viewer::scene_world(&compiled, &scene);
+        let mut tiles = tile_viewer::scene_world(&compiled, &scene);
+        // The ordinary art/shadow geometry retains this independent oracle.
+        // Native smoke uses the captured-table GPU goldens, not CPU rendering.
+        tiles.free.retain(|s| s.blend != tile_render::Blend::NativePaletteAlpha);
         let reference = tile_render::reference::render;
         for (zoom, downscale) in [((1, 1), 1), ((2, 1), 1), ((1, 2), 1), ((1, 1), 2)] {
             let camera = tile_render::Camera { zoom, downscale, ..tile_render::Camera::new((512, 384)) };
@@ -268,10 +281,11 @@ mod tests {
             ini: "Art/Animations/Disorder/Disorder.ini".into(), ..world.effects[0].clone()
         });
         place(&world, &Civ3View::default(), &mut art, &compiled, &mut scene);
-        assert_eq!(scene.sprites.len(), 5);
-        assert!(scene.sprites[..2].iter().all(|s| s.after_pass < units_pass));
-        assert_eq!(scene.sprites[2], marker);
-        assert!(scene.sprites[3..].iter().all(|s| s.after_pass == units_pass));
+        let marker_at = scene.sprites.iter().position(|s| *s == marker).unwrap();
+        assert!((2..=3).contains(&marker_at), "ordinary under-effect parts plus optional nonempty smoke");
+        assert_eq!(scene.sprites.len(), marker_at + 1 + 3);
+        assert!(scene.sprites[..marker_at].iter().all(|s| s.after_pass < units_pass));
+        assert!(scene.sprites[marker_at + 1..].iter().all(|s| s.after_pass == units_pass));
         let empty = crate::assets::compile(base, files()).unwrap();
         let mut waiting = Scene::empty(scene::WorldShape::default(), empty.layers.len());
         place(&world, &Civ3View::default(), &mut art, &empty, &mut waiting);

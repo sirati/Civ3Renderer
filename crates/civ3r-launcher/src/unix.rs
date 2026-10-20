@@ -1,0 +1,1448 @@
+mod owned_debuggers;
+mod wine_compat;
+
+use crate::startup::{Progress, Update, stage};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    fs::{self, DirBuilder, File, OpenOptions},
+    io::{self, Write},
+    net::SocketAddr,
+    os::unix::{
+        fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, symlink},
+        process::{CommandExt, ExitStatusExt},
+    },
+    path::{Path, PathBuf},
+    process::{Child, Command, ExitStatus, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+const START_TIMEOUT: Duration = Duration::from_secs(60);
+const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+const HELP: &str = "Usage: civ3-play-macos --game /path/to/Conquests [options]
+  --game PATH          Existing Conquests directory. Assets stay in place.
+  --wine PATH          Wine executable, or use CIV3R_WINE.
+  --prefix PATH        Private Wine prefix, or use WINEPREFIX.
+  --window             Open a window instead of fullscreen.
+  --scale N            Override desktop scale, at least 1.
+  --map                Enable only the original map pixels for diagnostics.
+  --show-game-window   Show the original window; its pixels stay disabled.
+  --compare            Draw the original game beside the native viewer.
+  --compare-game       Alias for --compare.
+  --compatibility-fallback
+                       Allow native game recovery after viewer loss.
+  --separate-viewer    Draw in a separate native viewer process (the former
+                       mode, for comparison) instead of inside the game's
+                       process. The default elsewhere than on macOS.
+  --in-process         Draw inside the game's process (the default on macOS).
+  --help               Show this help.
+On macOS the renderer runs inside the game's Wine process: Wine loads the
+builtin civ3r_native.dll and its native unixlib from CIV3R_NATIVE_DIR
+(default ~/Library/Application Support/civ3r/native, laid out as
+i386-windows/civ3r_native.dll and <arch>-unix/civ3r_native.so).
+The separate viewer and Windows IFC23.dll are installed in
+~/Library/Application Support/civ3r/bin, or selected with
+CIV3R_VIEWER_BIN and CIV3R_BRIDGE. Game assets are never installed by this tool.";
+
+/// Wine's directory of native unixlibs for this host (`get_so_dir`).
+const UNIX_DIR: &str = if cfg!(target_arch = "aarch64") {
+    "aarch64-unix"
+} else {
+    "x86_64-unix"
+};
+const NATIVE_DLL: &str = "civ3r_native.dll";
+const NATIVE_SO: &str = "civ3r_native.so";
+
+struct Options {
+    home: PathBuf,
+    viewer: PathBuf,
+    /// The builtin DLL and unixlib of the in-process renderer.
+    native: PathBuf,
+    /// The former separate viewer process instead of the in-process one.
+    separate_viewer: bool,
+    bridge: PathBuf,
+    wine: OsString,
+    prefix: PathBuf,
+    game: PathBuf,
+    scale: Option<OsString>,
+    font_cache: Option<OsString>,
+    game_render: OsString,
+    fullscreen: bool,
+    map: bool,
+    show_game: bool,
+}
+
+fn environment(name: &str) -> Option<OsString> {
+    env::var_os(name).filter(|value| !value.is_empty())
+}
+
+impl Options {
+    fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Option<Self>> {
+        let home = environment("CIV3R_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(environment("HOME").unwrap_or_default())
+                    .join("Library/Application Support/civ3r")
+            });
+        let mut result = Self {
+            viewer: environment("CIV3R_VIEWER_BIN")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("bin/civ3r-viewer")),
+            native: environment("CIV3R_NATIVE_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("native")),
+            // (Linux has its own in-process path, tools/civ3-native.)
+            separate_viewer: !cfg!(target_os = "macos"),
+            bridge: environment("CIV3R_BRIDGE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("bin/IFC23.dll")),
+            wine: environment("CIV3R_WINE")
+                .or_else(|| environment("WINE"))
+                .unwrap_or_else(|| "wine".into()),
+            prefix: environment("WINEPREFIX")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("wine-prefix")),
+            game: environment("CIV3R_GAME")
+                .map(PathBuf::from)
+                .unwrap_or_default(),
+            scale: environment("CIV3R_SCALE"),
+            font_cache: env::var_os("CIV3R_FONT_CACHE"),
+            game_render: environment("CIV3R_GAME_RENDER").unwrap_or_else(|| "off".into()),
+            fullscreen: true,
+            map: false,
+            show_game: false,
+            home,
+        };
+        let mut args = args.into_iter();
+        while let Some(arg) = args.next() {
+            match arg.to_str() {
+                Some("--help" | "-h" | "help") => {
+                    println!("{HELP}");
+                    return Ok(None);
+                }
+                Some("--game" | "--wine" | "--prefix" | "--scale") => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| format!("{} needs a value", arg.to_string_lossy()))?;
+                    match arg.to_str() {
+                        Some("--game") => result.game = value.into(),
+                        Some("--wine") => result.wine = value,
+                        Some("--prefix") => result.prefix = value.into(),
+                        Some("--scale") => result.scale = Some(value),
+                        _ => unreachable!(),
+                    }
+                }
+                Some("--window") => result.fullscreen = false,
+                Some("--map") => result.map = true,
+                Some("--show-game-window") => result.show_game = true,
+                Some("--compare" | "--compare-game") => result.game_render = "on".into(),
+                Some("--compatibility-fallback") => result.game_render = "compat".into(),
+                Some("--separate-viewer") => result.separate_viewer = true,
+                Some("--in-process") => result.separate_viewer = false,
+                _ => return Err(format!("unknown option {}", arg.to_string_lossy()).into()),
+            }
+        }
+        match result.game_render.to_str() {
+            Some("on" | "compare") => {
+                result.map = true;
+                result.show_game = true;
+            }
+            Some("off" | "compat" | "compatibility") => (),
+            _ => {
+                return Err(
+                    "CIV3R_GAME_RENDER must be off, on, compare, compat or compatibility".into(),
+                );
+            }
+        }
+        if let Some(scale) = &result.scale {
+            if !valid_scale(scale) {
+                return Err("--scale must be a number at least 1".into());
+            }
+        }
+        Ok(Some(result))
+    }
+}
+
+fn valid_scale(value: &OsStr) -> bool {
+    let Some(value) = value.to_str() else {
+        return false;
+    };
+    let mut parts = value.split('.');
+    let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    digits(parts.next().unwrap_or_default())
+        && parts.next().is_none_or(digits)
+        && parts.next().is_none()
+        && value
+            .parse::<f64>()
+            .is_ok_and(|value| value.is_finite() && value >= 1.0)
+}
+
+fn executable(path: &Path) -> bool {
+    fs::metadata(path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+fn resolve_command(command: &OsStr) -> Result<PathBuf> {
+    let path = Path::new(command);
+    if path.components().count() > 1 {
+        if executable(path) {
+            return Ok(path.canonicalize()?);
+        }
+    } else if let Some(paths) = env::var_os("PATH") {
+        for directory in env::split_paths(&paths) {
+            let candidate = directory.join(path);
+            if executable(&candidate) {
+                return Ok(candidate.canonicalize()?);
+            }
+        }
+    }
+    Err(format!("no Wine executable at {}", path.display()).into())
+}
+
+// Resolve existing parents before creating anything, so a runtime or prefix
+// alias cannot cause writes into the original installation.
+fn writable_destination(path: &Path) -> Result<PathBuf> {
+    match path.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let name = path
+                .file_name()
+                .ok_or("use a normalized writable directory path")?;
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            Ok(writable_destination(parent)?.join(name))
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn no_symlink(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "writable private path must not be a symlink: {}",
+            path.display()
+        )
+        .into()),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn link_if_missing(source: &Path, destination: &Path) -> Result<()> {
+    match fs::symlink_metadata(destination) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            symlink(source, destination)?;
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// A launch owns only this directory, never a stale lock or another session.
+struct InstallLock(PathBuf);
+impl InstallLock {
+    fn claim(home: &Path) -> Result<Self> {
+        let path = home.join("launch.lock");
+        DirBuilder::new()
+            .mode(0o700)
+            .create(&path)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::AlreadyExists {
+                    format!("another launch owns {}", path.display())
+                } else {
+                    format!("cannot claim {}: {error}", path.display())
+                }
+            })?;
+        let lock = Self(path);
+        fs::write(lock.0.join("pid"), format!("{}\n", std::process::id()))?;
+        Ok(lock)
+    }
+}
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.0.join("pid"));
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+fn random_hex() -> Result<String> {
+    let mut bytes = [0; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("cannot create secure session token: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+struct Session(PathBuf);
+impl Session {
+    fn create(home: &Path) -> Result<Self> {
+        let path = home.join(format!("session.{}", random_hex()?));
+        DirBuilder::new().mode(0o700).create(&path)?;
+        let session = Self(path);
+        let mut token = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(session.0.join("token"))?;
+        writeln!(token, "{}", random_hex()?)?;
+        Ok(session)
+    }
+    fn path(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+impl Drop for Session {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.path("token"));
+        let _ = fs::remove_file(self.path("ready"));
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+struct TemporaryFile(PathBuf);
+impl Drop for TemporaryFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn original_dll(game: &Path) -> Result<PathBuf> {
+    for name in ["ifc23_orig.dll", "IFC23.dll", "ifc23.dll"] {
+        let path = game.join(name);
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+    Err("the original IFC23.dll is missing".into())
+}
+
+fn scratch_file(name: &OsStr) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("tmp"))
+}
+
+fn history_file(name: &OsStr) -> bool {
+    name.eq_ignore_ascii_case("CampaignRecord.hof") || name.eq_ignore_ascii_case("HighScores.cv3")
+}
+
+/// Upgrade links created by older launchers without following them for writes.
+/// Validate every legacy target and read every history seed before mutation.
+fn prepare_private_state(private: &Path, game: &Path) -> Result<()> {
+    let mut scratch_links = Vec::new();
+    match fs::read_dir(private) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let name = entry.file_name();
+                if (scratch_file(&name) || history_file(&name)) && entry.file_type()?.is_symlink() {
+                    if fs::read_link(entry.path())? != game.join(&name) {
+                        return Err(format!(
+                            "untrusted private state symlink: {}",
+                            entry.path().display()
+                        )
+                        .into());
+                    }
+                    if scratch_file(&name) {
+                        scratch_links.push(entry.path());
+                    }
+                }
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    let mut histories = Vec::new();
+    for entry in fs::read_dir(game)? {
+        let entry = entry?;
+        if !history_file(&entry.file_name()) {
+            continue;
+        }
+        let destination = private.join(entry.file_name());
+        match fs::symlink_metadata(&destination) {
+            Ok(metadata) if !metadata.file_type().is_symlink() => continue,
+            Ok(_) => (), // Validated as an owned legacy link above.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+        histories.push((destination, fs::read(entry.path())?));
+    }
+    fs::create_dir_all(private)?;
+    for (destination, bytes) in histories {
+        // Rename replaces only the link itself, never its original-game target.
+        let temporary_path = private.join(format!(".history.{}", random_hex()?));
+        let mut output = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&temporary_path)?;
+        let temporary = TemporaryFile(temporary_path);
+        output.write_all(&bytes)?;
+        drop(output);
+        fs::rename(&temporary.0, destination)?;
+    }
+    for path in scratch_links {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+/// Atomically replaces renderer-owned `name` in the private game with a copy
+/// of `source`, even when it was a symlink.
+fn install_copy(private: &Path, source: &Path, name: &str) -> Result<()> {
+    let temporary_path = private.join(format!("{name}.{}", random_hex()?));
+    let mut output = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&temporary_path)?;
+    let temporary = TemporaryFile(temporary_path);
+    io::copy(&mut File::open(source)?, &mut output)?;
+    drop(output);
+    fs::rename(&temporary.0, private.join(name))?;
+    Ok(())
+}
+
+fn private_install(home: &Path, game: &Path, bridge: &Path) -> Result<PathBuf> {
+    let private_install = home.join("game/Civilization III Complete");
+    let private = private_install.join("Conquests");
+    for path in [
+        home.join("game"),
+        private_install.clone(),
+        private.clone(),
+        private.join("Saves"),
+        private.join("Saves/Auto"),
+        private.join("conquests.ini"),
+        private.join("Conquests.ini"),
+        private.join("civ3-bridge.log"),
+        private.join("LSANS.fot"),
+    ] {
+        no_symlink(&path)?;
+    }
+    if private == game {
+        return Err("supply the original game, not the private install".into());
+    }
+    let original = original_dll(game)?;
+    let private_original = private.join("ifc23_orig.dll");
+    match fs::symlink_metadata(&private_original) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            if fs::read_link(&private_original)? != original {
+                return Err(
+                    "private install belongs to another game; use another CIV3R_HOME".into(),
+                );
+            }
+        }
+        Ok(_) => return Err("unexpected original DLL in the private install".into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    prepare_private_state(&private, game)?;
+    fs::create_dir_all(private.join("Saves/Auto"))?;
+    let source = game.parent().ok_or("game directory has no parent")?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        if entry.path() != game {
+            link_if_missing(&entry.path(), &private_install.join(entry.file_name()))?;
+        }
+    }
+    for entry in fs::read_dir(game)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if !private_game_file(&name) {
+            link_if_missing(&entry.path(), &private.join(name))?;
+        }
+    }
+    match fs::read_dir(game.join("Saves")) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                if entry.file_name() != "Auto" {
+                    link_if_missing(
+                        &entry.path(),
+                        &private.join("Saves").join(entry.file_name()),
+                    )?;
+                }
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    link_if_missing(&original, &private_original)?;
+    install_copy(&private, bridge, "IFC23.dll")?;
+    let ini = private.join("conquests.ini");
+    if !ini.exists() {
+        let bytes = if game.join("conquests.ini").is_file() {
+            fs::read(game.join("conquests.ini"))?
+        } else {
+            b"[Conquests]\nKeepRes=1\nPlayIntro=0\n".to_vec()
+        };
+        let mut output = OpenOptions::new().create_new(true).write(true).open(ini)?;
+        output.write_all(&bytes)?;
+    }
+    Ok(private)
+}
+
+// Only files generated or overwritten by a game session are private.
+// conquests.biq and conquests.mb are immutable original rules inputs and must
+// remain accessible through the ordinary read-only asset links.
+fn private_game_file(name: &OsStr) -> bool {
+    scratch_file(name)
+        || history_file(name)
+        || name.to_str().is_some_and(|name| {
+            matches!(
+                name,
+                "IFC23.dll"
+                    | "ifc23.dll"
+                    | "ifc23_orig.dll"
+                    | "civ3r_native.dll"
+                    | "conquests.ini"
+                    | "Conquests.ini"
+                    | "Saves"
+                    | "civ3-bridge.log"
+                    | "LSANS.fot"
+            ) || name.starts_with("civ3-trace")
+        })
+}
+
+/// The group leader stays unreaped until all group signals have been sent.
+/// Its reserved PID prevents an unrelated group from reusing this group ID.
+struct ManagedChild(Child, Option<owned_debuggers::OwnedDebuggers>);
+impl ManagedChild {
+    fn spawn_wine(command: &mut Command) -> Result<Self> {
+        let debuggers = owned_debuggers::OwnedDebuggers::new(command)?;
+        Ok(Self(command.spawn()?, Some(debuggers)))
+    }
+
+    fn group(&self) -> rustix::process::Pid {
+        rustix::process::Pid::from_raw(self.0.id() as i32)
+            .expect("a spawned Unix child has a positive pid")
+    }
+
+    fn status(&self) -> io::Result<Option<ExitStatus>> {
+        use rustix::process::{WaitId, WaitIdOptions, waitid};
+        let status = waitid(
+            WaitId::Pid(self.group()),
+            WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
+        )?;
+        // WNOWAIT observes termination without consuming the owned child.
+        Ok(status.map(|status| {
+            let raw = status
+                .exit_status()
+                .map(|code| code << 8)
+                .unwrap_or_else(|| status.terminating_signal().unwrap_or(1));
+            ExitStatus::from_raw(raw)
+        }))
+    }
+}
+impl ManagedChild {
+    fn stop_group(&mut self) {
+        let group = self.group();
+        // No code outside this guard can reap its private Child. If an external
+        // SIGCHLD handler nevertheless consumed it, do not signal a stale ID.
+        if self.status().is_err_and(|error| {
+            error.raw_os_error() == Some(rustix::io::Errno::CHILD.raw_os_error())
+        }) {
+            return;
+        }
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::TERM);
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while Instant::now() < deadline {
+            if self.status().ok().flatten().is_some() {
+                // Let helpers react to TERM before the final bounded cleanup.
+                thread::sleep(POLL_INTERVAL);
+                break;
+            }
+            thread::sleep(POLL_INTERVAL);
+        }
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        // This is deliberately the only consuming wait in the guard. No group
+        // signal is permitted after this releases the leader's reserved PID.
+        let _ = self.0.wait();
+    }
+}
+
+impl Drop for ManagedChild {
+    fn drop(&mut self) {
+        self.stop_group();
+        // The original leader may already be reaped here. Detached helpers
+        // are signaled only by their independent, identity-stable handles.
+        if let Some(debuggers) = &self.1 { debuggers.stop(); }
+    }
+}
+
+fn output_log(path: &Path) -> Result<(File, File)> {
+    // Do not follow a planted log symlink or overwrite a previous session log.
+    let file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)?;
+    Ok((file.try_clone()?, file))
+}
+
+/// FEX's switch for 64-bit x87 emulation (ignored where no FEX runs).
+const FEX_X87: &str = "FEX_X87REDUCEDPRECISION";
+
+/// Civ III's music is MP3 decoded with x87 code on sound.dll's thread. FEX
+/// emulates x87's 80-bit format in software by default, which takes that
+/// thread a whole core on Apple silicon; it then falls behind and DirectSound
+/// replays its stale ring (the music loops a short piece). Windows runs x87
+/// at 53-bit precision anyway, so 64-bit emulation loses nothing. An explicit
+/// setting wins.
+fn fex_x87_reduced_precision(explicit: Option<OsString>) -> OsString {
+    explicit.unwrap_or_else(|| "1".into())
+}
+
+/// Hadron's switch for Apple silicon's hardware x86 memory ordering (TSO)
+/// on the game process's threads. Its Wine and FEX call
+/// `thread_set_x86_64_compat` per thread; without the loader's entitlement
+/// that fails and FEX keeps emulating. Ignored where no Hadron runs.
+const HARDWARE_TSO: &str = "HADRON_HARDWARE_TSO";
+
+/// The game, Wine's 32-bit ntdll (heap, critical sections, wait queues) and
+/// the bridge are x86 code relying on x86 ordering, with several threads.
+/// FEX's default emulation orders plain loads and stores only, not vector
+/// or memcpy accesses, and costs barriers on every access; hardware TSO is
+/// both complete and cheaper. Hadron leaves it opt-in because it also slows
+/// native code on those threads (Metal drivers in-process). Our renderer,
+/// also in-process, draws on the process's main thread and threads of its
+/// own, none of them a game thread. An explicit setting wins.
+fn hardware_tso(explicit: Option<OsString>) -> OsString {
+    explicit.unwrap_or_else(|| "1".into())
+}
+
+fn configure(command: &mut Command, options: &Options, prefix: &Path, settings: &Path) {
+    command.process_group(0);
+    command
+        .env("WINEPREFIX", prefix)
+        .env("CIV3R_SETTINGS", settings)
+        .env(
+            "WGPU_BACKEND",
+            environment("WGPU_BACKEND").unwrap_or_else(|| "metal".into()),
+        );
+    if let Some(scale) = &options.scale {
+        command.env("CIV3R_SCALE", scale);
+    }
+    if let Some(cache) = &options.font_cache {
+        command.env("CIV3R_FONT_CACHE", cache);
+    }
+}
+
+fn initialize_registry(
+    wine: &wine_compat::Runtime,
+    options: &Options,
+    prefix: &Path,
+    settings: &Path,
+    private: &Path,
+    log: &Path,
+    signal: &AtomicUsize,
+) -> Result<Option<i32>> {
+    let base = private
+        .parent()
+        .ok_or("private game directory has no parent")?;
+    let conquests = windows_path(private)?;
+    let ptw = windows_path(&base.join("civ3PTW"))?;
+    let base = format!("{}\\", windows_path(base)?);
+    let values = [
+        (
+            r"HKLM\Software\Infogrames\Conquests",
+            "Install_Path",
+            "REG_SZ",
+            conquests.as_str(),
+        ),
+        (
+            r"HKLM\Software\Infogrames\Conquests",
+            "Complete_Version",
+            "REG_DWORD",
+            "1",
+        ),
+        (
+            r"HKLM\Software\Infogrames\Civ3PTW",
+            "Install_Path",
+            "REG_SZ",
+            ptw.as_str(),
+        ),
+        (
+            r"HKLM\Software\Infogrames\Civ3PTW",
+            "Gold_Version",
+            "REG_DWORD",
+            "1",
+        ),
+        (
+            r"HKLM\Software\Infogrames Interactive\Civilization III",
+            "Install_Path",
+            "REG_SZ",
+            base.as_str(),
+        ),
+    ];
+    // Every `wine reg.exe` boots the prefix's services and costs seconds, so
+    // write only values the saved registry lacks. Wine saves system.reg when
+    // its server exits; a stale or unreadable file just means writing again.
+    let saved = fs::read_to_string(prefix.join("system.reg")).unwrap_or_default();
+    let values: Vec<_> = values
+        .into_iter()
+        .filter(|(key, name, kind, value)| !registered_32(&saved, key, name, kind, value))
+        .collect();
+    if values.is_empty() {
+        return Ok(None);
+    }
+    let (output, _) = output_log(log)?;
+    let deadline = Instant::now() + START_TIMEOUT;
+    for (key, name, kind, value) in values {
+        let interrupted = signal.load(Ordering::Relaxed);
+        if interrupted != 0 {
+            return Ok(Some(interrupted as i32));
+        }
+        let mut command = wine.command();
+        configure(&mut command, options, prefix, settings);
+        command
+            .args([
+                "reg.exe", "add", key, "/v", name, "/t", kind, "/d", value, "/f", "/reg:32",
+            ])
+            .current_dir(private)
+            .stdin(Stdio::null())
+            .stdout(output.try_clone()?)
+            .stderr(output.try_clone()?);
+        let child = ManagedChild::spawn_wine(&mut command)?;
+        loop {
+            let interrupted = signal.load(Ordering::Relaxed);
+            if interrupted != 0 {
+                return Ok(Some(interrupted as i32));
+            }
+            if let Some(status) = child.status()? {
+                if !status.success() {
+                    return Err(format!(
+                        "Wine registry initialization failed for {name}; see {}",
+                        log.display()
+                    )
+                    .into());
+                }
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "Wine registry initialization timed out; see {}",
+                    log.display()
+                )
+                .into());
+            }
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+    Ok(None)
+}
+
+/// Whether a 64-bit prefix's saved `system.reg` already holds this value in
+/// the 32-bit registry view that `reg.exe /reg:32` writes. Anything this
+/// does not recognise (other hives, escaped characters) counts as missing.
+fn registered_32(saved: &str, key: &str, name: &str, kind: &str, value: &str) -> bool {
+    let Some(key) = key.strip_prefix(r"HKLM\Software\") else {
+        return false;
+    };
+    let plain = |text: &str| text.chars().all(|c| (' '..='~').contains(&c));
+    if !plain(key) || !plain(name) || !plain(value) {
+        return false;
+    }
+    let escape = |text: &str| text.replace('\\', r"\\").replace('"', "\\\"");
+    let header = format!("[{}]", escape(&format!(r"Software\Wow6432Node\{key}")));
+    let expected = match kind {
+        "REG_SZ" => format!("\"{}\"", escape(value)),
+        "REG_DWORD" => match value.parse::<u32>() {
+            Ok(number) => format!("dword:{number:08x}"),
+            Err(_) => return false,
+        },
+        _ => return false,
+    };
+    let entry = format!("\"{}\"=", escape(name));
+    let mut lines = saved.lines();
+    while let Some(line) = lines.next() {
+        let Some(rest) = line.get(header.len()..) else {
+            continue;
+        };
+        if !line[..header.len()].eq_ignore_ascii_case(&header)
+            || !(rest.is_empty() || rest.starts_with(' '))
+        {
+            continue;
+        }
+        return lines
+            .take_while(|line| !line.starts_with('['))
+            .filter_map(|line| {
+                let head = line.get(..entry.len())?;
+                head.eq_ignore_ascii_case(&entry)
+                    .then(|| &line[entry.len()..])
+            })
+            .any(|found| found == expected);
+    }
+    false
+}
+
+fn ready_address(path: &Path) -> Result<Option<String>> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.len() == 0 => return Ok(None),
+        Ok(metadata) if metadata.len() > 128 => {
+            return Err("native viewer published an invalid address".into());
+        }
+        Ok(_) => (),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    let value = fs::read_to_string(path)?;
+    let value = value.trim();
+    let address: SocketAddr = value
+        .parse()
+        .map_err(|_| "native viewer published an invalid address")?;
+    if !address.ip().is_loopback() || address.port() == 0 {
+        return Err("native viewer must listen on a nonzero loopback address".into());
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn windows_path(path: &Path) -> Result<String> {
+    let path = path
+        .to_str()
+        .ok_or("Wine game path must contain valid Unicode")?;
+    Ok(format!("Z:{}", path.replace('/', "\\")))
+}
+
+/// Run the launcher. All filesystem and process operations use safe Rust APIs.
+/// Only renderer-owned files and new game state are written to the private home.
+pub fn launch(
+    args: impl IntoIterator<Item = OsString>,
+    progress: Option<Progress>,
+    signal: Arc<AtomicUsize>,
+) -> Result<i32> {
+    let Some(mut options) = Options::parse(args)? else {
+        return Ok(0);
+    };
+    if options.game.as_os_str().is_empty() {
+        return Err("supply the existing game with --game or CIV3R_GAME".into());
+    }
+    if !options.game.join("Civ3Conquests.exe").is_file() {
+        return Err(format!("no Civ3Conquests.exe in {}", options.game.display()).into());
+    }
+    if !options.game.join("conquests.biq").is_file() {
+        return Err(format!(
+            "no required rules file conquests.biq in {}",
+            options.game.display()
+        )
+        .into());
+    }
+    let native_dll = options.native.join("i386-windows").join(NATIVE_DLL);
+    let native_so = options.native.join(UNIX_DIR).join(NATIVE_SO);
+    if options.separate_viewer {
+        if !executable(&options.viewer) {
+            return Err(format!("no native viewer at {}", options.viewer.display()).into());
+        }
+        options.viewer = options.viewer.canonicalize()?;
+    } else {
+        for file in [&native_dll, &native_so] {
+            if !file.is_file() {
+                return Err(format!(
+                    "no in-process renderer at {} (or use --separate-viewer)",
+                    file.display()
+                )
+                .into());
+            }
+        }
+        options.native = options.native.canonicalize()?;
+    }
+    if !options.bridge.is_file() {
+        return Err(format!("no renderer bridge at {}", options.bridge.display()).into());
+    }
+    options.game = options.game.canonicalize()?;
+    options.bridge = options.bridge.canonicalize()?;
+    let wine = resolve_command(&options.wine)?;
+    options.home = writable_destination(&options.home)?;
+    // Wine and the native asset worker share the generated Windows glyph data.
+    // Native font loading translates Z: paths to the corresponding Unix path.
+    if options.font_cache.is_none() {
+        options.font_cache = Some(windows_path(&options.home.join("fonts"))?.into());
+    }
+    options.prefix = writable_destination(&options.prefix)?;
+    let source = options
+        .game
+        .parent()
+        .ok_or("game directory has no parent")?;
+    if options.home.starts_with(source) || options.prefix.starts_with(source) {
+        return Err(
+            "private runtime and Wine prefix must be outside the original game installation".into(),
+        );
+    }
+    fs::create_dir_all(&options.home)?;
+    let _lock = InstallLock::claim(&options.home)?;
+    let private = private_install(&options.home, &options.game, &options.bridge)?;
+    if !options.separate_viewer {
+        // Wine loads a builtin DLL only if a copy is on the Windows search
+        // path too; the one it maps is WINEDLLPATH's.
+        install_copy(
+            &private,
+            &options.native.join("i386-windows").join(NATIVE_DLL),
+            NATIVE_DLL,
+        )?;
+    }
+    fs::create_dir_all(options.prefix.join("dosdevices"))?;
+    let prefix = options.prefix.canonicalize()?;
+    link_if_missing(Path::new("/"), &prefix.join("dosdevices/z:"))?;
+    let logs = options.home.join("logs");
+    no_symlink(&logs)?;
+    fs::create_dir_all(&logs)?;
+    let session = Session::create(&options.home)?;
+    let wine_runtime = wine_compat::Runtime::prepare(&wine, &session.0)?;
+    let wine = &wine_runtime;
+    let time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let log = logs.join(format!("session-{time}-{}", std::process::id()));
+    let viewer_log = log.with_extension("viewer.log");
+    let wine_log = log.with_extension("wine.log");
+    let settings = environment("CIV3R_SETTINGS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| options.home.join("settings.toml"));
+    if let Some(progress) = &progress {
+        let _ = progress.send(Update::Logs(format!(
+            "Wine: {}\nRenderer: {}\nBridge: {}\nRegistry: {}",
+            wine_log.display(),
+            viewer_log.display(),
+            private.join("civ3-bridge.log").display(),
+            log.with_extension("registry.log").display()
+        )));
+    }
+    stage(
+        &progress,
+        "Preparing Wine prefix and registry",
+        "Checking installation paths. Missing registry values need Wine services to start, usually after an update or moved install.",
+    );
+    if let Some(status) = initialize_registry(
+        &wine,
+        &options,
+        &prefix,
+        &settings,
+        &private,
+        &log.with_extension("registry.log"),
+        &signal,
+    )? {
+        return Ok(status);
+    }
+    let menu_ready = session.path("menu-ready");
+    stage(
+        &progress,
+        "Starting Wine",
+        "Starting Windows services and loading the game executable.",
+    );
+    let mut overrides = OsString::from("ifc23=n,b;mscoree,mshtml=;");
+    let (stdout, stderr) = output_log(&wine_log)?;
+    let mut command = wine.command();
+    configure(&mut command, &options, &prefix, &settings);
+    let viewer = if options.separate_viewer {
+        let (viewer, address) =
+            match start_viewer(&options, &prefix, &settings, &session, &viewer_log, &signal)? {
+                Started::Running(viewer, address) => (viewer, address),
+                Started::Interrupted(status) => return Ok(status),
+            };
+        let token = fs::read_to_string(session.path("token"))?;
+        command
+            .env("CIV3R_VIEWER_ADDR", address)
+            .env("CIV3R_VIEWER_TOKEN", token.trim())
+            .env(
+                "CIV3R_VIEWER",
+                if options.fullscreen {
+                    "external-fullscreen"
+                } else {
+                    "external"
+                },
+            );
+        println!(
+            "civ3-play-macos: native viewer log {}",
+            viewer_log.display()
+        );
+        Some(viewer)
+    } else {
+        let mut path = options.native.clone().into_os_string();
+        if let Some(more) = environment("WINEDLLPATH") {
+            path.push(":");
+            path.push(more);
+        }
+        overrides.push("civ3r_native=b;");
+        command.env("WINEDLLPATH", path).env(
+            "CIV3R_VIEWER",
+            if options.fullscreen {
+                "native-fullscreen"
+            } else {
+                "native"
+            },
+        );
+        println!(
+            "civ3-play-macos: renderer inside the game's process; its log is in the game log and {}",
+            wine_log.display()
+        );
+        None
+    };
+    overrides.push(environment("WINEDLLOVERRIDES").unwrap_or_default());
+    command
+        .arg(windows_path(&private.join("Civ3Conquests.exe"))?)
+        .current_dir(&private)
+        .env(
+            "CIV3R_GAME_WINDOW",
+            if options.show_game { "show" } else { "hide" },
+        )
+        .env("CIV3R_GAME_MAP", if options.map { "on" } else { "off" })
+        .env("CIV3R_GAME_RENDER", &options.game_render)
+        .env("WINEDLLOVERRIDES", overrides)
+        .env(FEX_X87, fex_x87_reduced_precision(environment(FEX_X87)))
+        .env(HARDWARE_TSO, hardware_tso(environment(HARDWARE_TSO)))
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr);
+    println!(
+        "civ3-play-macos: game log {}",
+        private.join("civ3-bridge.log").display()
+    );
+    command.env("CIV3R_STARTUP_READY_FILE", &menu_ready);
+    let bridge_log = private.join("civ3-bridge.log");
+    let bridge_before = fs::metadata(&bridge_log)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    let game = ManagedChild::spawn_wine(&mut command)?;
+    stage(
+        &progress,
+        "Waiting for the game",
+        if cfg!(target_arch = "aarch64") {
+            "Wine may be translating x86 code to ARM64. A first launch after an update can take minutes. Waiting for the bridge and renderer."
+        } else {
+            "Wine is loading the game. Waiting for the bridge and renderer."
+        },
+    );
+    let mut bridge_seen = false;
+    let mut menu_seen = false;
+    let follow_viewer = !matches!(
+        options.game_render.to_str(),
+        Some("compat" | "compatibility")
+    );
+    // A dying game drops its viewer connection, so the viewer may exit cleanly
+    // before Wine has finished tearing the game down. Give the game this long
+    // to report its own status before treating the viewer exit as a user quit.
+    let mut viewer_gone: Option<Instant> = None;
+    loop {
+        if !bridge_seen
+            && fs::metadata(&bridge_log)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .is_some_and(|modified| Some(modified) != bridge_before)
+        {
+            bridge_seen = true;
+            stage(
+                &progress,
+                "Loading renderer and game art",
+                "The game bridge is writing its log. Waiting for the first complete menu to be presented.",
+            );
+        }
+        if !menu_seen && menu_ready.is_file() {
+            menu_seen = true;
+            if let Some(progress) = &progress {
+                let _ = progress.send(Update::Ready);
+            }
+        }
+        let interrupted = signal.load(Ordering::Relaxed);
+        if interrupted != 0 {
+            return Ok(interrupted as i32);
+        }
+        let game_status = game.status()?;
+        let viewer_status = match &viewer {
+            Some(viewer) if follow_viewer => viewer.status()?,
+            _ => None,
+        };
+        if viewer_status.is_some() && viewer_gone.is_none() {
+            viewer_gone = Some(Instant::now() + STOP_TIMEOUT);
+        }
+        if game_status.is_some() || viewer_gone.is_some_and(|end| Instant::now() >= end) {
+            return match session_end(
+                game_status,
+                viewer_status,
+                menu_seen || menu_ready.is_file(),
+            ) {
+                Ending::Quit => {
+                    if game_status.is_none() {
+                        eprintln!("civ3-play-macos: native viewer closed; stopping owned game");
+                    }
+                    Ok(0)
+                }
+                Ending::GameFailed { status, code } => {
+                    let message = format!(
+                        "the game exited unexpectedly ({status}); see {} and {}",
+                        wine_log.display(),
+                        private.join("civ3-bridge.log").display()
+                    );
+                    eprintln!("civ3-play-macos: {message}");
+                    if let Some(progress) = &progress {
+                        let _ = progress.send(Update::Failure(message));
+                    }
+                    Ok(code)
+                }
+                Ending::ViewerFailed => Err(format!(
+                    "native viewer failed; stopping owned game; see {}",
+                    viewer_log.display()
+                )
+                .into()),
+            };
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
+enum Started {
+    Running(ManagedChild, String),
+    Interrupted(i32),
+}
+
+/// Starts the separate viewer process and waits for its address.
+fn start_viewer(
+    options: &Options,
+    prefix: &Path,
+    settings: &Path,
+    session: &Session,
+    viewer_log: &Path,
+    signal: &AtomicUsize,
+) -> Result<Started> {
+    let (stdout, stderr) = output_log(viewer_log)?;
+    let mut viewer = Command::new(&options.viewer);
+    configure(&mut viewer, options, prefix, settings);
+    viewer
+        .args([
+            OsStr::new("--listen"),
+            OsStr::new("127.0.0.1:0"),
+            OsStr::new("--token-file"),
+        ])
+        .env("CIV3R_STARTUP_READY_FILE", session.path("menu-ready"))
+        .arg(session.path("token"))
+        .arg("--ready-file")
+        .arg(session.path("ready"))
+        .arg("--wine-prefix")
+        .arg(prefix)
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr);
+    let viewer = ManagedChild(viewer.spawn()?, None);
+    let deadline = Instant::now() + START_TIMEOUT;
+    let address = loop {
+        let interrupted = signal.load(Ordering::Relaxed);
+        if interrupted != 0 {
+            return Ok(Started::Interrupted(interrupted as i32));
+        }
+        if viewer.status()?.is_some() {
+            eprint!("{}", fs::read_to_string(viewer_log).unwrap_or_default());
+            return Err("native viewer failed to start".into());
+        }
+        if let Some(address) = ready_address(&session.path("ready"))? {
+            break address;
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "native viewer startup timed out; see {}",
+                viewer_log.display()
+            )
+            .into());
+        }
+        thread::sleep(POLL_INTERVAL);
+    };
+    Ok(Started::Running(viewer, address))
+}
+
+/// How a game session ended, as far as the launcher can tell.
+#[derive(Debug, PartialEq)]
+enum Ending {
+    /// The game quit cleanly, or the user closed the viewer while it ran.
+    Quit,
+    /// The game crashed or failed; `code` is the launcher's exit code.
+    GameFailed { status: String, code: i32 },
+    /// The viewer failed while the game was still running.
+    ViewerFailed,
+}
+
+/// The game's own status wins: a viewer that exits because the game dropped
+/// its connection must not hide the game's failure. `None` means still running.
+fn session_end(game: Option<ExitStatus>, viewer: Option<ExitStatus>, menu_ready: bool) -> Ending {
+    match (game, viewer) {
+        (Some(status), _) if status.success() && !menu_ready => Ending::GameFailed {
+            status: "exit code 0 before the first complete menu appeared".into(),
+            code: 1,
+        },
+        (Some(status), _) if status.success() => Ending::Quit,
+        (Some(status), _) => match (status.code(), status.signal()) {
+            (Some(code), _) => Ending::GameFailed {
+                status: format!("exit code {code}"),
+                code,
+            },
+            (None, Some(signal)) => Ending::GameFailed {
+                status: format!("killed by signal {signal}"),
+                code: 128 + signal,
+            },
+            (None, None) => Ending::GameFailed {
+                status: format!("{status}"),
+                code: 1,
+            },
+        },
+        (None, Some(status)) if !status.success() => Ending::ViewerFailed,
+        (None, _) => Ending::Quit,
+    }
+}
+
+// Failures are displayed by the native startup window when a display is available.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_game_exit_before_a_menu_is_a_startup_failure() {
+        let ok = ExitStatus::from_raw(0);
+        assert_eq!(
+            session_end(Some(ok), None, false),
+            Ending::GameFailed {
+                status: "exit code 0 before the first complete menu appeared".into(),
+                code: 1,
+            }
+        );
+        assert_eq!(
+            session_end(Some(ok), Some(ok), false),
+            Ending::GameFailed {
+                status: "exit code 0 before the first complete menu appeared".into(),
+                code: 1,
+            }
+        );
+        assert_eq!(session_end(Some(ok), None, true), Ending::Quit);
+        // A closed viewer while the game is still alive is the user's close.
+        assert_eq!(session_end(None, Some(ok), false), Ending::Quit);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn managed_child_cleans_an_escaped_debugger_and_preserves_shared_and_unmarked_roles() {
+        use std::io::{BufRead, BufReader};
+        struct ChildGuard(Child);
+        impl Drop for ChildGuard { fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); } }
+        struct FixtureDir(PathBuf);
+        impl Drop for FixtureDir {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(self.0.join("winedbg"));
+                let _ = fs::remove_file(self.0.join("wineserver"));
+                let _ = fs::remove_dir(&self.0);
+            }
+        }
+        let target = env::var_os("CARGO_TARGET_DIR").map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"));
+        fs::create_dir_all(&target).unwrap();
+        let fixture = FixtureDir(target.join(format!("owned-debugger-fixture-{}", random_hex().unwrap())));
+        DirBuilder::new().mode(0o700).create(&fixture.0).unwrap();
+        let executable = fixture.0.join("winedbg");
+        let status = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+            .arg("--edition=2024")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/owned-debugger.rs"))
+            .arg("-o").arg(&executable).env("TMPDIR", &fixture.0).status().unwrap();
+        assert!(status.success());
+        fs::hard_link(&executable, fixture.0.join("wineserver")).unwrap();
+        let mut command = Command::new(&executable);
+        command.env("CIV3R_CLEANUP_FIXTURE_ROLE", "parent")
+            .env("WINEPREFIX", "same-prefix-fixture").process_group(0).stdout(Stdio::piped());
+        let mut child = ManagedChild::spawn_wine(&mut command).unwrap();
+        let marker = command.get_envs().find(|(key, _)| *key == "CIV3R_SESSION_TOKEN")
+            .and_then(|(_, value)| value).unwrap().to_owned();
+        let mut unmarked = ChildGuard(Command::new(&executable).args(["--auto", "1", "2"])
+            .env("CIV3R_CLEANUP_FIXTURE_ROLE", "leaf").env("WINEPREFIX", "same-prefix-fixture")
+            .env_remove("CIV3R_SESSION_TOKEN").stdout(Stdio::null()).spawn().unwrap());
+        let mut shared = ChildGuard(Command::new(fixture.0.join("wineserver")).args(["--auto", "272", "528"])
+            .env("CIV3R_CLEANUP_FIXTURE_ROLE", "leaf").env("WINEPREFIX", "same-prefix-fixture")
+            .env("CIV3R_SESSION_TOKEN", marker).stdout(Stdio::null()).spawn().unwrap());
+        let stdout = child.0.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(std::result::Result::ok) {
+                if line == "DETACHED_DEBUGGER_READY" { let _ = tx.send(()); break; }
+            }
+        });
+        rx.recv_timeout(Duration::from_secs(5)).expect("detached fixture did not start");
+        let escaped = child.1.as_ref().unwrap().processes().unwrap();
+        assert_eq!(escaped.len(), 1, "shared marked server and unmarked debugger must be excluded");
+        drop(child);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !escaped[0].exited().unwrap() {
+            assert!(Instant::now() < deadline, "escaped debugger survived ManagedChild drop");
+            thread::yield_now();
+        }
+        assert!(unmarked.0.try_wait().unwrap().is_none(), "unmarked same-prefix debugger must survive");
+        assert!(shared.0.try_wait().unwrap().is_none(), "marked shared wineserver role must survive");
+    }
+
+    #[test]
+    fn cancellation_releases_the_owned_process_group() {
+        let cancel = Arc::new(AtomicUsize::new(0));
+        let worker_cancel = cancel.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            let mut command = Command::new("sleep");
+            command.arg("30").process_group(0);
+            let child = ManagedChild(command.spawn().unwrap(), None);
+            tx.send(child.group()).unwrap();
+            while worker_cancel.load(Ordering::Relaxed) == 0 {
+                thread::sleep(POLL_INTERVAL);
+            }
+            drop(child);
+        });
+        let group = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        cancel.store(143, Ordering::Relaxed);
+        worker.join().unwrap();
+        assert_eq!(
+            rustix::process::kill_process_group(group, rustix::process::Signal::TERM).unwrap_err(),
+            rustix::io::Errno::SRCH
+        );
+    }
+
+    #[test]
+    fn status_peek_keeps_leader_reserved_until_group_cleanup() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "exit 7"]).process_group(0);
+        let child = ManagedChild(command.spawn().unwrap(), None);
+        let group = child.group();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while child.status().unwrap().is_none() {
+            assert!(Instant::now() < deadline, "test child did not exit");
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(child.status().unwrap().unwrap().code(), Some(7));
+        let options = rustix::process::WaitIdOptions::EXITED
+            | rustix::process::WaitIdOptions::NOHANG
+            | rustix::process::WaitIdOptions::NOWAIT;
+        assert!(
+            rustix::process::waitid(rustix::process::WaitId::Pid(group), options)
+                .unwrap()
+                .is_some(),
+            "status must not reap the group leader"
+        );
+        drop(child);
+        assert_eq!(
+            rustix::process::waitid(rustix::process::WaitId::Pid(group), options).unwrap_err(),
+            rustix::io::Errno::CHILD
+        );
+    }
+
+    #[test]
+    fn session_end_reports_game_failures_over_viewer_exit() {
+        let ok = ExitStatus::from_raw(0);
+        let code5 = ExitStatus::from_raw(5 << 8);
+        let segv = ExitStatus::from_raw(11);
+        assert_eq!(session_end(Some(ok), None, true), Ending::Quit);
+        assert_eq!(session_end(Some(ok), Some(code5), true), Ending::Quit);
+        assert_eq!(session_end(None, Some(ok), true), Ending::Quit);
+        assert_eq!(session_end(None, None, true), Ending::Quit);
+        assert_eq!(session_end(None, Some(code5), true), Ending::ViewerFailed);
+        let failed = Ending::GameFailed {
+            status: "exit code 5".into(),
+            code: 5,
+        };
+        assert_eq!(session_end(Some(code5), None, true), failed);
+        assert_eq!(session_end(Some(code5), Some(ok), true), failed);
+        assert_eq!(
+            session_end(Some(segv), Some(ok), true),
+            Ending::GameFailed {
+                status: "killed by signal 11".into(),
+                code: 139,
+            }
+        );
+    }
+
+    #[test]
+    fn scale_rejects_nonfinite_and_shell_numeric_extensions() {
+        for value in [
+            "", "0", "0.5", "-1", "NaN", "inf", "1e2", "2.", ".5", "1.2.3", " 2",
+        ] {
+            assert!(!valid_scale(OsStr::new(value)), "{value}");
+        }
+        for value in ["1", "2", "1.5", "1.000", "002"] {
+            assert!(valid_scale(OsStr::new(value)), "{value}");
+        }
+    }
+    #[test]
+    fn fex_x87_defaults_to_reduced_precision_unless_set() {
+        assert_eq!(fex_x87_reduced_precision(None), "1");
+        assert_eq!(fex_x87_reduced_precision(Some("0".into())), "0");
+    }
+
+    #[test]
+    fn hardware_tso_defaults_on_unless_set() {
+        assert_eq!(hardware_tso(None), "1");
+        assert_eq!(hardware_tso(Some("0".into())), "0");
+    }
+
+    #[test]
+    fn saved_32_bit_registry_values_are_recognised() {
+        let saved = r#"WINE REGISTRY Version 2
+
+[Software\\Wow6432Node\\Infogrames\\Conquests] 1792408986
+#time=1dd5fbc365e65f6
+"Complete_Version"=dword:00000001
+"Install_Path"="Z:\\Users\\a b\\Conquests"
+
+[Software\\Infogrames\\Civ3PTW] 1792408990
+"Gold_Version"=dword:00000001
+"#;
+        let key = r"HKLM\Software\Infogrames\Conquests";
+        let path = r"Z:\Users\a b\Conquests";
+        assert!(registered_32(saved, key, "Install_Path", "REG_SZ", path));
+        assert!(registered_32(
+            saved,
+            key,
+            "Complete_Version",
+            "REG_DWORD",
+            "1"
+        ));
+        assert!(!registered_32(
+            saved,
+            key,
+            "Complete_Version",
+            "REG_DWORD",
+            "2"
+        ));
+        assert!(!registered_32(
+            saved,
+            key,
+            "Install_Path",
+            "REG_SZ",
+            r"Z:\Other"
+        ));
+        assert!(!registered_32(saved, key, "Missing", "REG_SZ", path));
+        // Only the 32-bit view counts, and a value must be in its own key.
+        let ptw = r"HKLM\Software\Infogrames\Civ3PTW";
+        assert!(!registered_32(saved, ptw, "Gold_Version", "REG_DWORD", "1"));
+        assert!(!registered_32(
+            saved,
+            r"HKLM\Software\Infogrames",
+            "Install_Path",
+            "REG_SZ",
+            path
+        ));
+        assert!(!registered_32("", key, "Install_Path", "REG_SZ", path));
+        assert!(!registered_32(
+            saved,
+            key,
+            "Install_Path",
+            "REG_SZ",
+            "Z:\\ü"
+        ));
+    }
+
+    #[test]
+    fn wine_path_preserves_spaces_and_backslash_converts_only_separators() {
+        assert_eq!(
+            windows_path(Path::new("/Users/Test Name/遊戲/Conquests.exe")).unwrap(),
+            "Z:\\Users\\Test Name\\遊戲\\Conquests.exe"
+        );
+    }
+}
