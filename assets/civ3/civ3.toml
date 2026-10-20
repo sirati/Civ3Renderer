@@ -1510,6 +1510,99 @@ only = [9]
 anchor_marks = [228, 152, 24]
 group = "Viewer@capture"
 
+# The game's wait cursor: it has none of its own (cursor.pcx cell 12 is
+# the "NEW UNIT" arrow; its executables hold no cursors); while busy it
+# shows the system's IDC_WAIT (32514), under Wine the hourglass of Wine's
+# user32.dll, read from there (clear where the system has none).
+#
+# The scenario preview's loading indicator (civ3-bridge `preview`): the
+# wait cursor 8x as large (nearest pixel, exact), centred on its anchor,
+# kept at its size in a world shown smaller.
+[images.viewer_loading]
+source = "system-cursor:32514/32"
+
+[sheets.viewer_loading]
+image = "viewer_loading"
+cell = [32, 32]
+grid = [1, 1]
+resize = [256, 256]
+anchor = [-128, -128]
+scaling = "keep"
+group = "Viewer@loading"
+
+# The viewer's "Game appears busy / stuck" panel (tile-viewer
+# `host_status`), styled as the bridge's "Press CTRL" hint: a piece of the
+# popup parchment, framed in (72, 52, 24), with the wait cursor (see
+# `viewer_loading`) pulsing at its left and an accent line along its bottom
+# in the text's colour (orange busy, red stuck).
+[images.viewer_busy_panel]
+source = "Art/PopUpandMenuBackground.pcx"
+indexed = false
+transparent = []
+
+[sheets.viewer_busy_panel]
+image = "viewer_busy_panel"
+cell = [320, 36]
+grid = [1, 1]
+anchor = [0, 0]
+scaling = "keep"
+group = "Viewer@busy_panel"
+
+[images.viewer_busy]
+source = "system-cursor:32514/32"
+
+[sheets.viewer_busy]
+image = "viewer_busy"
+cell = [32, 32]
+grid = [1, 1]
+anchor = [-16, -16]
+scaling = "keep"
+group = "Viewer@busy"
+
+[images.viewer_busy_edge_h]
+source = "solid:72,52,24,255:320x1"
+
+[sheets.viewer_busy_edge_h]
+image = "viewer_busy_edge_h"
+cell = [320, 1]
+grid = [1, 1]
+anchor = [0, 0]
+scaling = "keep"
+group = "Viewer@busy_edge_h"
+
+[images.viewer_busy_edge_v]
+source = "solid:72,52,24,255:1x36"
+
+[sheets.viewer_busy_edge_v]
+image = "viewer_busy_edge_v"
+cell = [1, 36]
+grid = [1, 1]
+anchor = [0, 0]
+scaling = "keep"
+group = "Viewer@busy_edge_v"
+
+[images.viewer_busy_accent]
+source = "solid:160,64,0,255:320x2"
+
+[sheets.viewer_busy_accent]
+image = "viewer_busy_accent"
+cell = [320, 2]
+grid = [1, 1]
+anchor = [0, 0]
+scaling = "keep"
+group = "Viewer@busy_accent"
+
+[images.viewer_stuck_accent]
+source = "solid:176,0,0,255:320x2"
+
+[sheets.viewer_stuck_accent]
+image = "viewer_stuck_accent"
+cell = [320, 2]
+grid = [1, 1]
+anchor = [0, 0]
+scaling = "keep"
+group = "Viewer@stuck_accent"
+
 # The Preferences' roles picture (assets/civ3/preferences.toml, art
 # `unit_icon`, `mouse_icon`): the Warrior's 32x32 unit icon (Art/Units/
 # units_32.pcx cell 6, its art 17x30 at (207, 2)) for the view following the
@@ -1637,7 +1730,7 @@ source = "glyphs:255,255,255,255:0,0,0,176:1"
 [sheets.viewer_glyphs1]
 image = "viewer_glyphs1"
 cell = [6, 9]
-grid = [24, 1]
+grid = [34, 1]
 group = "Viewer@glyphs1"
 
 [images.viewer_glyphs2]
@@ -1646,7 +1739,7 @@ source = "glyphs:255,255,255,255:0,0,0,176:2"
 [sheets.viewer_glyphs2]
 image = "viewer_glyphs2"
 cell = [12, 18]
-grid = [24, 1]
+grid = [34, 1]
 group = "Viewer@glyphs2"
 
 [images.viewer_glyphs3]
@@ -1655,7 +1748,7 @@ source = "glyphs:255,255,255,255:0,0,0,176:3"
 [sheets.viewer_glyphs3]
 image = "viewer_glyphs3"
 cell = [18, 27]
-grid = [24, 1]
+grid = [34, 1]
 group = "Viewer@glyphs3"
 
 [images.viewer_glyphs4]
@@ -1664,7 +1757,7 @@ source = "glyphs:255,255,255,255:0,0,0,176:4"
 [sheets.viewer_glyphs4]
 image = "viewer_glyphs4"
 cell = [24, 36]
-grid = [24, 1]
+grid = [34, 1]
 group = "Viewer@glyphs4"
 
 # §4: passes. 1: vertices (terrain, flood plains); 2: rivers touching

@@ -370,6 +370,15 @@ impl Biq {
         text.split(';').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect()
     }
 
+    /// The civilizations (`RACE` indices) a human may choose (`GAME`: the
+    /// playable civ count at 8, the list from 12). Empty: the scenario
+    /// lists none, and the game lets every one be chosen (0x5E22B0).
+    pub fn playable_races(&self) -> Vec<i32> {
+        let Some(game) = self.recs("GAME").into_iter().next() else { return Vec::new() };
+        let playable = game.i32(8).clamp(0, 256) as usize;
+        (0..playable).map(|k| game.i32(12 + 4 * k)).collect()
+    }
+
     /// Whether every player knows the whole map from the start (`GAME`:
     /// *Reveal entire map*, a byte after the plague and flag settings that
     /// follow the search folders).

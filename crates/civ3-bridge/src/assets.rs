@@ -140,6 +140,52 @@ mod tests {
         assert_eq!(anchor("Viewer@cursors/9"), (32, 32, -16, -16));
         assert_eq!(anchor("Viewer@cursors/14"), (32, 32, -15, -16));
         assert_eq!(compiled.sets_with_prefix("Viewer@capture/").map(|(n, _)| n).collect::<Vec<_>>(), ["Viewer@capture/9"]);
+        // The busy indicator's art (tile-viewer `host_status`): the wait
+        // cursor centred on its anchor, the parchment from its corner.
+        use tile_viewer::host_status as hs;
+        assert_eq!(anchor(hs::ICON_SPRITE), (32, 32, -16, -16));
+        assert_eq!(anchor(hs::PANEL_SPRITE), (320, 36, 0, 0));
+        // Drawn: framed parchment, the accent line in the text's colour, at
+        // the anchor's scale.
+        let mut previous_height = 0;
+        for (n, state, accent) in [(1, hs::Responsiveness::Busy, hs::BUSY_COLOR), (2, hs::Responsiveness::Stuck, hs::STUCK_COLOR)] {
+            let (window, at) = ((800, 600), [0, 0, 149 * n, 54 * n]);
+            let a = hs::Anchor::Beside(at, (n as u32, 1));
+            let (camera, sprites) = hs::compose(&compiled, state, a, window, 0.0, 0).unwrap();
+            let mut world = compiled.world(1, 1, false, false);
+            world.color = tile_render::ColorModel::Direct;
+            world.free = sprites;
+            let picture = tile_render::reference::render_views(&world, &compiled.atlas, &[camera], window, 0, [0; 4]);
+            // Camera origin is not the panel's origin: the overlay may
+            // use a window camera and absolute screen commands. Check the
+            // rendered geometry, including any optional cursor ornament.
+            let mut bounds = (window.0, window.1, 0, 0);
+            for y in 0..window.1 {
+                for x in 0..window.0 {
+                    if picture.get(x, y)[3] != 0 {
+                        bounds = (bounds.0.min(x), bounds.1.min(y), bounds.2.max(x + 1), bounds.3.max(y + 1));
+                    }
+                }
+            }
+            let (x, y, right, bottom) = bounds;
+            assert!(right > x && bottom > y, "the warning is visible");
+            assert_eq!(x, (at[0] + at[2] + hs::GAP * n) as u32, "right of the actual controls at their UI scale");
+            assert!(y < (at[1] + at[3]) as u32 && bottom > at[1] as u32, "beside the controls when space allows");
+            assert!(right <= window.0 && bottom <= window.1, "kept in the window");
+            assert!((0..at[3] as u32).all(|cy| (0..at[2] as u32).all(|cx| picture.get(cx, cy)[3] == 0)), "the controls remain unobscured");
+            assert_eq!(picture.get(x, y + 5), [72, 52, 24, 255], "the frame");
+            assert_eq!(picture.get(x + 2, bottom - 3)[..3], accent, "the accent along the bottom");
+            let inside = picture.get(x + 2, y + 2);
+            assert!(inside[3] == 255 && inside[0] > 180 && inside[1] > 170, "parchment: {inside:?}");
+            assert_eq!(picture.get(x - 1, y + 5)[3], 0, "nothing left of it");
+            assert!(bottom - y > previous_height, "the larger UI scale makes a taller warning");
+            previous_height = bottom - y;
+            let mut without_text = world.clone();
+            without_text.free.retain(|s| s.text.is_none());
+            let background = tile_render::reference::render_views(&without_text, &compiled.atlas, &[camera], window, 0, [0; 4]);
+            let text_pixels = picture.pixels.iter().zip(&background.pixels).filter(|(a, b)| a != b).count();
+            assert!(text_pixels > 20 * n as usize, "the warning has readable text, not just a frame and cursor");
+        }
     }
 
     /// A compile no longer wanted ends at the next sheet it loads.

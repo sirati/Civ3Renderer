@@ -5,7 +5,7 @@
 #
 # Values (`civ3_bridge::prefs` fills them in): `tab` ("civ3", "resolution",
 # "layout"), every control of `viewer_settings::controls` by its key
-# (`layout.split`, `resolution.menu_scale`, `layout.screens.F1`, ...,
+# (`layout.split`, `resolution.scale_menus`, `resolution.menu_scale_percent`, ...,
 # `layout.orientation` "vertical" or "horizontal"), and
 # `resolution.realised` / `resolution.window`, the rendered and the window
 # size as "W×H", `resolution.effective` the pixel scale in effect ("×3",
@@ -213,6 +213,33 @@ generated = "panes:60,48,24,255:100x60:horizontal11"
 size = [100, 60]
 icons = [{ art = "unit_icon_small", at = [50, 15] }, { art = "mouse_icon_small", at = [50, 45] }]
 
+# Where screens and popups go (60x40 window glyphs, `rects:`): the
+# window, the split's divider, the screen's place filled (a floating box
+# over the divider), per orientation (`layout.orientation`).
+[art.place_vertical_Floating]
+generated = "rects:60x40;60,48,24,255:0,0,60,1;60,48,24,255:0,39,60,1;60,48,24,255:0,0,1,40;60,48,24,255:59,0,1,40;60,48,24,255:30,1,1,38;60,48,24,255:17,10,26,20;0,0,0,0:18,11,24,18;60,48,24,120:18,11,24,18"
+size = [60, 40]
+
+[art.place_vertical_LeftOrBottom]
+generated = "rects:60x40;60,48,24,255:0,0,60,1;60,48,24,255:0,39,60,1;60,48,24,255:0,0,1,40;60,48,24,255:59,0,1,40;60,48,24,255:30,1,1,38;60,48,24,120:2,2,27,36"
+size = [60, 40]
+
+[art.place_vertical_RightOrTop]
+generated = "rects:60x40;60,48,24,255:0,0,60,1;60,48,24,255:0,39,60,1;60,48,24,255:0,0,1,40;60,48,24,255:59,0,1,40;60,48,24,255:30,1,1,38;60,48,24,120:32,2,26,36"
+size = [60, 40]
+
+[art.place_horizontal_Floating]
+generated = "rects:60x40;60,48,24,255:0,0,60,1;60,48,24,255:0,39,60,1;60,48,24,255:0,0,1,40;60,48,24,255:59,0,1,40;60,48,24,255:1,20,58,1;60,48,24,255:17,10,26,20;0,0,0,0:18,11,24,18;60,48,24,120:18,11,24,18"
+size = [60, 40]
+
+[art.place_horizontal_LeftOrBottom]
+generated = "rects:60x40;60,48,24,255:0,0,60,1;60,48,24,255:0,39,60,1;60,48,24,255:0,0,1,40;60,48,24,255:59,0,1,40;60,48,24,255:1,20,58,1;60,48,24,120:2,22,56,16"
+size = [60, 40]
+
+[art.place_horizontal_RightOrTop]
+generated = "rects:60x40;60,48,24,255:0,0,60,1;60,48,24,255:0,39,60,1;60,48,24,255:0,0,1,40;60,48,24,255:59,0,1,40;60,48,24,255:1,20,58,1;60,48,24,120:2,2,56,17"
+size = [60, 40]
+
 # ---------------------------------------------------------------- panel
 
 [panels.preferences]
@@ -255,7 +282,7 @@ normal = "button"
 hover = "button_hover"
 selected = "button_selected"
 
-# Our tabs cover the game's panels (its OK button stays).
+# Our tabs cover the game's panels (its Accept and Cancel buttons stay).
 [[panels.preferences.items]]
 image = "cover"
 at = [49, 79]
@@ -333,31 +360,37 @@ at = [90, 245]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
-text = "Fractional scales of each part, on top of the pixel scale."
+text = "Menu size can follow the window. Game frame and map keep their own scales."
 style = "label"
 at = [90, 270]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
-text = "Menus"
+checkbox = "resolution.scale_menus"
+at = [90, 306]
+size = [160, 23]
+text = "Scale menus"
 style = "label"
-at = [90, 310]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
-slider = "resolution.menu_scale"
+slider = "resolution.menu_scale_percent"
 at = [260, 305]
 size = [408, 23]
 normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
-min = 0.5
-max = 3.0
-step = 0.05
-decimals = 2
-text = "{value}×"
+min = 25.0
+max = 100.0
+step = 1.0
+decimals = 0
+text = "{value}%"
 style = "label"
 show_if = "tab=resolution"
+enable_if = "resolution.scale_menus"
 
 [[panels.preferences.items]]
 text = "Game frame"
@@ -404,11 +437,11 @@ show_if = "tab=resolution"
 [[panels.preferences.items]]
 image = "section"
 at = [70, 445]
-size = [882, 80]
+size = [882, 200]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
-text = "Display"
+text = "Graphics"
 style = "heading"
 at = [90, 455]
 show_if = "tab=resolution"
@@ -416,7 +449,7 @@ show_if = "tab=resolution"
 [[panels.preferences.items]]
 checkbox = "display.show_fps"
 at = [90, 488]
-size = [440, 16]
+size = [160, 16]
 normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
@@ -425,9 +458,144 @@ style = "label"
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
+checkbox = "display.fps_detailed"
+at = [280, 488]
+size = [250, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Detailed CPU/GPU timing"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "CPU measures frame build time. GPU gap includes pacing, presentation and uploads."
+style = "caption"
+at = [90, 512]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Scaled menu backgrounds"
+style = "label"
+at = [560, 458]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+choice = "resolution.background_sampling"
+value = "Dither"
+at = [560, 483]
+size = [120, 26]
+text = "Dither"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+choice = "resolution.background_sampling"
+value = "Interpolate"
+at = [686, 483]
+size = [120, 26]
+text = "Smooth"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+choice = "resolution.background_sampling"
+value = "Nearest"
+at = [812, 483]
+size = [120, 26]
+text = "Nearest"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Cursor size"
+style = "label"
+at = [90, 533]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+choice = "display.cursor_size"
+value = "system"
+at = [260, 528]
+size = [80, 26]
+text = "System"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+repeat = ["24", "32", "48", "64", "96", "128", "192"]
+spacing = [66, 0]
+choice = "display.cursor_size"
+value = "{item}"
+at = [348, 528]
+size = [58, 26]
+text = "{item}"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+checkbox = "display.vsync"
+at = [90, 571]
+size = [160, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "VSync"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+checkbox = "display.limit_fps"
+at = [280, 571]
+size = [180, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Limit FPS"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+slider = "display.fps_limit"
+at = [500, 568]
+size = [320, 23]
+enable_if = "display.limit_fps"
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 30
+max = 480
+step = 1
+decimals = 0
+text = "{value} FPS"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "VSync follows the display refresh. Limit FPS caps every frame, including input updates."
+style = "caption"
+at = [90, 610]
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
 text = "Oversized menus: hold the middle mouse button and drag to reach hidden controls."
 style = "label"
-at = [90, 550]
+at = [90, 665]
 show_if = "tab=resolution"
 
 # ------------------------------------------------ Layout, left column
@@ -826,7 +994,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 image = "section"
 at = [540, 86]
-size = [424, 596]
+size = [424, 328]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -847,109 +1015,105 @@ style = "caption"
 at = [730, 96]
 show_if = "tab=layout & layout.orientation=horizontal"
 
+# One place for every screen, advisor, dialog and popup.
 [[panels.preferences.items]]
-repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
-spacing = [0, 31]
-text = "{item}"
+text = "All screens and popups"
 style = "label"
 at = [552, 120]
-size = [60, 26]
+size = [398, 22]
 valign = "middle"
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
-spacing = [0, 31]
-choice = "layout.screens.{item}"
+choice = "layout.screen_place"
 value = "Floating"
-at = [616, 120]
-size = [110, 26]
-text = "Floating"
-style = "button"
+at = [552, 146]
+size = [100, 48]
+icon = "place_{layout.orientation}_Floating"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.screen_fixed.{item}"
+show_if = "tab=layout"
 
 [[panels.preferences.items]]
-repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
-spacing = [0, 31]
-choice = "layout.screens.{item}"
+choice = "layout.screen_place"
 value = "LeftOrBottom"
-at = [732, 120]
-size = [110, 26]
-text = "Left"
-style = "button"
+at = [658, 146]
+size = [100, 48]
+icon = "place_{layout.orientation}_LeftOrBottom"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.orientation=vertical & layout.screen_fixed.{item}"
+show_if = "tab=layout"
 
 [[panels.preferences.items]]
-repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
-spacing = [0, 31]
-choice = "layout.screens.{item}"
+choice = "layout.screen_place"
 value = "RightOrTop"
-at = [848, 120]
-size = [110, 26]
-text = "Right"
-style = "button"
+at = [764, 146]
+size = [100, 48]
+icon = "place_{layout.orientation}_RightOrTop"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
-show_if = "tab=layout & layout.orientation=vertical & layout.screen_fixed.{item}"
+show_if = "tab=layout"
 
 [[panels.preferences.items]]
-repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
-spacing = [0, 31]
-choice = "layout.screens.{item}"
-value = "LeftOrBottom"
-at = [732, 120]
-size = [110, 26]
-text = "Bottom"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout & layout.orientation=horizontal & layout.screen_fixed.{item}"
+repeat = ["Floating", "Left", "Right"]
+spacing = [106, 0]
+text = "{item}"
+style = "caption"
+at = [552, 197]
+size = [100, 14]
+align = "center"
+show_if = "tab=layout & layout.orientation=vertical"
 
 [[panels.preferences.items]]
-repeat = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "City", "Palace", "Spy", "Menu", "Help"]
-spacing = [0, 31]
-choice = "layout.screens.{item}"
-value = "RightOrTop"
-at = [848, 120]
-size = [110, 26]
-text = "Top"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout & layout.orientation=horizontal & layout.screen_fixed.{item}"
+repeat = ["Floating", "Bottom", "Top"]
+spacing = [106, 0]
+text = "{item}"
+style = "caption"
+at = [552, 197]
+size = [100, 14]
+align = "center"
+show_if = "tab=layout & layout.orientation=horizontal"
 
+# Floating with menus in the mouse view: where the menu and popups go.
 [[panels.preferences.items]]
 text = "Mouse view"
 style = "label"
-at = [616, 461]
-size = [342, 26]
+at = [872, 146]
+size = [86, 48]
 valign = "middle"
-show_if = "tab=layout & layout.menu_follows_pointer"
+show_if = "tab=layout & layout.screen_place=Floating & layout.menu_follows_pointer"
+
+[[panels.preferences.items]]
+text = "Context menus and the tile info box open at the click."
+style = "caption"
+at = [552, 216]
+show_if = "tab=layout"
 
 [[panels.preferences.items]]
 checkbox = "layout.menu_follows_pointer"
-at = [552, 520]
+at = [552, 240]
 size = [398, 16]
 normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
 text = "Open menus in mouse view"
 style = "label"
+enable_if = "layout.screen_place=Floating"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "With Floating: the menu and popups open in the mouse's view."
+style = "caption"
+at = [552, 262]
 show_if = "tab=layout"
 
 # Menu list movement is independent of the world-map movement setting.
 [[panels.preferences.items]]
 checkbox = "input.smooth_menu_scrolling"
-at = [552, 548]
+at = [552, 290]
 size = [398, 16]
 normal = "check_off"
 hover = "check_hover"
@@ -961,12 +1125,12 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Captured mouse sensitivity"
 style = "label"
-at = [552, 580]
+at = [552, 322]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 slider = "input.capture_sensitivity"
-at = [552, 602]
+at = [552, 344]
 size = [300, 23]
 normal = "track"
 knob = "knob"
@@ -982,7 +1146,35 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Only changes the captured world cursor."
 style = "caption"
-at = [552, 640]
+at = [552, 382]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Combat animation speed"
+style = "label"
+at = [552, 420]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+slider = "animation.combat_speed"
+at = [552, 446]
+size = [300, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 1
+max = 4
+step = 0.25
+decimals = 2
+text = "{value}x"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Fighting animations only. Sound keeps its normal pitch and timing."
+style = "caption"
+at = [552, 484]
+size = [398, 36]
 show_if = "tab=layout"
 
 # Each map view can follow Civ III or choose its own detail.
@@ -1569,3 +1761,67 @@ normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
 show_if = "tab=clean_map"
+
+# Renderer edits are a draft until the game's own round Accept button (or
+# Enter) accepts them. Its X button (or Escape) cancels; the bridge asks
+# before a changed draft is discarded (`civ3_bridge::prefs`).
+
+[art.dialog_shade]
+fill = [0, 0, 0]
+alpha = 128
+
+[panels.preferences_discard]
+size = [1024, 768]
+anchor = "top-left"
+
+[[panels.preferences_discard.items]]
+image = "dialog_shade"
+at = [0, 0]
+size = [1024, 768]
+
+[[panels.preferences_discard.items]]
+image = "cover"
+at = [160, 206]
+size = [704, 356]
+
+[[panels.preferences_discard.items]]
+text = "Discard settings changes?"
+style = "heading"
+at = [190, 226]
+
+[[panels.preferences_discard.items]]
+text = "These settings changes have not been accepted."
+style = "label"
+at = [190, 260]
+
+[[panels.preferences_discard.items]]
+repeat = ["0", "1", "2", "3", "4", "5"]
+spacing = [0, 25]
+text = "{dialog.change{item}}"
+style = "label"
+at = [190, 292]
+
+[[panels.preferences_discard.items]]
+text = "Discard these changes? Y discards. N, Enter or Escape keeps editing."
+style = "label"
+at = [190, 458]
+
+[[panels.preferences_discard.items]]
+choice = "dialog.action"
+value = "discard"
+at = [404, 506]
+size = [160, 32]
+text = "Yes, discard"
+style = "button"
+normal = "button"
+hover = "button_hover"
+
+[[panels.preferences_discard.items]]
+choice = "dialog.action"
+value = "keep"
+at = [590, 506]
+size = [244, 32]
+text = "No, keep editing"
+style = "button"
+normal = "button"
+hover = "button_hover"

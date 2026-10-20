@@ -40,7 +40,7 @@ class LauncherGpuTests(unittest.TestCase):
             )
             fake_wine.chmod(0o755)
             env = os.environ.copy()
-            for key in ("CIV3R_HOME", "CIV3R_SETTINGS", "CIV3R_NATIVE_DIR", "CIV3R_SCALE",
+            for key in ("CIV3R_GAME_RENDER", "CIV3R_GAME_MAP", "CIV3R_GAME_WINDOW", "CIV3R_HOME", "CIV3R_SETTINGS", "CIV3R_NATIVE_DIR", "CIV3R_SCALE",
                         "WINE", "WINEPREFIX", "TILE_RENDER_ADAPTER", "VK_DRIVER_FILES",
                         "VK_ICD_FILENAMES", "VK_LOADER_DEBUG", "__NV_PRIME_RENDER_OFFLOAD",
                         "__VK_LAYER_NV_optimus", "__EGL_VENDOR_LIBRARY_FILENAMES",
@@ -103,6 +103,34 @@ class LauncherGpuTests(unittest.TestCase):
         self.assertEqual(env["TILE_RENDER_ADAPTER"], "custom gpu")
         self.assertEqual(env["VK_DRIVER_FILES"], env["CIV3R_VK_DRIVER_FILES"])
 
+
+    def test_default_and_diagnostics_window_keep_legacy_pixels_disabled(self):
+        for args in [(),('--show-game-window',)]:
+            with self.subTest(args=args):
+                env=self.launch(*args)
+                self.assertEqual(env['CIV3R_GAME_RENDER'],'off')
+                self.assertEqual(env['CIV3R_GAME_MAP'],'off')
+
+    def test_comparison_and_compatibility_are_explicit_modes(self):
+        for option in ['--compare','--compare-game']:
+            with self.subTest(option=option):
+                env=self.launch(option)
+                self.assertEqual(env['CIV3R_GAME_RENDER'],'on')
+                self.assertEqual(env['CIV3R_GAME_MAP'],'on')
+                self.assertEqual(env['CIV3R_GAME_WINDOW'],'show')
+        env=self.launch('--compatibility-fallback')
+        self.assertEqual(env['CIV3R_GAME_RENDER'],'compat')
+        self.assertEqual(env['CIV3R_GAME_MAP'],'off')
+
+    def test_explicit_render_environment_and_last_mode_option_are_preserved(self):
+        env=self.launch(inherited={'CIV3R_GAME_RENDER':'on'})
+        self.assertEqual(env['CIV3R_GAME_RENDER'],'on')
+        env=self.launch('--compare','--compatibility-fallback')
+        self.assertEqual(env['CIV3R_GAME_RENDER'],'compat')
+        self.assertEqual(env['CIV3R_GAME_MAP'],'off')
+        env=self.launch('--map')
+        self.assertEqual(env['CIV3R_GAME_RENDER'],'off')
+        self.assertEqual(env['CIV3R_GAME_MAP'],'on')
 
 if __name__ == "__main__":
     unittest.main()

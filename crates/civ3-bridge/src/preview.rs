@@ -10,7 +10,7 @@
 //! see; no player's highlights, no active unit.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use civ3_assets::biq::{Biq, Map, Owner, Player, Rules};
 
@@ -45,17 +45,15 @@ pub enum PreviewError {
 /// The game's own rules (`Conquests/conquests.biq`), for scenarios without
 /// theirs; read once.
 fn default_rules(install: &Path) -> Result<Arc<Rules>, PreviewError> {
-    static RULES: OnceLock<Mutex<Option<Arc<Rules>>>> = OnceLock::new();
-    let cell = RULES.get_or_init(|| Mutex::new(None));
-    let mut slot = cell.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(r) = slot.as_ref() {
+    // (A failed read is tried again; two threads racing read the same.)
+    static RULES: OnceLock<Arc<Rules>> = OnceLock::new();
+    if let Some(r) = RULES.get() {
         return Ok(r.clone());
     }
     let path = install.join("Conquests").join("conquests.biq");
     let biq = Biq::open(&path).map_err(|e| PreviewError::Read(path.clone(), e))?;
     let rules = Arc::new(biq.rules().ok_or_else(|| PreviewError::Rules(format!("{path:?} has none")))?);
-    *slot = Some(rules.clone());
-    Ok(rules)
+    Ok(RULES.get_or_init(|| rules).clone())
 }
 
 /// The file `name` (as the game passed it: absolute, or relative to its
@@ -93,7 +91,7 @@ pub fn load(install: &Path, name: &str) -> Result<Preview, PreviewError> {
         None => default_rules(install)?,
     };
     let players = biq.players();
-    let revealed = crate::revealed::revealed(&map, &players, biq.map_visible());
+    let revealed = crate::revealed::revealed(&map, &players, &biq.playable_races(), biq.map_visible());
     let world = world(&map, &players, &rules, &revealed);
     let area = area(&map, &revealed);
     Ok(Preview { file: name.to_owned(), world: Arc::new(world), scenario_folder: scenario_folder(install, &path), search_folders: biq.search_folders(), area })
@@ -334,11 +332,20 @@ pub struct Selected {
     pub at: Option<std::time::Instant>,
 }
 
-static SELECTED: Mutex<Selected> = Mutex::new(Selected { number: 0, file: None, at: None });
+/// Written only by the game's thread (its Load Scenario hook).
+static SELECTED: civ3r_sync::Latest<Selected> = civ3r_sync::Latest::new();
+
+/// The next selection after the latest, of `file`, loaded now.
+fn select(file: Option<String>) -> Selected {
+    let number = SELECTED.load().map_or(0, |s| s.number) + 1;
+    let s = Selected { number, file, at: Some(std::time::Instant::now()) };
+    SELECTED.publish(s.clone());
+    s
+}
 
 /// The file the Load Scenario screen last highlighted.
 pub fn selected() -> Selected {
-    SELECTED.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    SELECTED.get().unwrap_or(Selected { number: 0, file: None, at: None })
 }
 
 /// Follows the Load Scenario screen's preview loads
@@ -355,11 +362,8 @@ pub fn install(game: &civ3_sys::Civ3) {
         let result = call.original();
         let name = inproc::Ptr32::<u8>::new(call.path).read_array(260).ok().map(|b| b.iter().take_while(|&&c| c != 0).map(|&c| c as char).collect::<String>());
         log::info!("scenario preview: the game loaded {name:?} in {} ms ({result})", started.elapsed().as_millis());
-        let job = {
-            let mut s = SELECTED.lock().unwrap_or_else(|e| e.into_inner());
-            *s = Selected { number: s.number + 1, file: name.filter(|n| !n.is_empty()), at: Some(std::time::Instant::now()) };
-            Job { number: s.number, file: s.file.clone() }
-        };
+        let s = select(name.filter(|n| !n.is_empty()));
+        let job = Job { number: s.number, file: s.file };
         // (The preview thread starts on it at once, if it runs.)
         ask_now(job);
         result
@@ -379,9 +383,8 @@ pub struct Current {
     pub number: u64,
     pub preview: Preview,
     pub labels: Arc<LabelItems>,
-    /// The art its units need, in its art folders (none until the preview
-    /// thread has resolved it: meanwhile the world shows with the art there
-    /// is).
+    /// The art its units need, in its art folders. The optional world stays
+    /// hidden until this art and its labels are available in adopted assets.
     pub needed: Option<Arc<crate::units::Needed>>,
 }
 
@@ -390,11 +393,61 @@ impl Current {
     pub fn folders(&self) -> (Option<String>, Vec<String>) {
         (self.preview.scenario_folder.clone(), self.preview.search_folders.clone())
     }
+
+    /// Whether the resolved preview art exists in adopted assets. The caller
+    /// also checks that those assets were compiled for this scenario's folders.
+    /// Missing optional art never delays the menu or the available preview terrain.
+    pub fn art_ready(&self, compiled: &render_desc::Compiled, fonts: &crate::text::Fonts) -> bool {
+        let Some(needed) = &self.needed else { return false };
+        let units = needed.files.iter().all(|(path, (file, colors))| {
+            let frame_ready = |k| {
+                compiled.set_available(&format!("UnitShadow@{path}/{k}"))
+                    && compiled.set_available(&format!("UnitSmoke@{path}/{k}"))
+                    && colors.iter().all(|color| {
+                        let kind = color.art_kind();
+                        compiled.set_available(&format!("UnitArt@{path}{kind}/{k}")) && compiled.palette(&color.palette()).is_some()
+                    })
+            };
+            match needed.stills.get(path) {
+                Some(frames) => frames.iter().copied().all(frame_ready),
+                None => (0..file.chunks).all(frame_ready),
+            }
+        });
+        let plain = needed.plain.iter().all(|(path, file)| (0..file.chunks).all(|k| compiled.set_available(&format!("Flc@{path}/{k}"))));
+        let effects = needed.effects.iter().all(|(path, file)| (0..file.chunks).all(|k| {
+            compiled.set_available(&format!("EffectArt@{path}/{k}")) && compiled.set_available(&format!("EffectShadow@{path}/{k}")) && compiled.set_available(&format!("EffectSmoke@{path}/{k}"))
+        }));
+        units && plain && effects && self.labels_ready(compiled, fonts)
+    }
+
+    fn labels_ready(&self, compiled: &render_desc::Compiled, fonts: &crate::text::Fonts) -> bool {
+        crate::ui_screen::readiness(self.labels.iter().flat_map(|(_, items)| items.iter()), fonts, compiled, false) == crate::ui_screen::Readiness::Ready
+    }
+
+    /// What of it the screen draws now (`own_art`: the art of its own
+    /// folders is being made, see `live`). The world goes out as soon as
+    /// it is made, in whatever art is there (the previous scenario's or the
+    /// game's terrain); nothing waits for art. Its labels once their glyphs
+    /// are there; its units once their art is resolved in its folders (until
+    /// then, and where their sprites are not made yet, nothing in their
+    /// place). Each part comes in as its art lands.
+    pub fn drawn(&self, own_art: bool, compiled: &render_desc::Compiled, fonts: &crate::text::Fonts) -> Drawn {
+        let units = own_art && self.needed.is_some();
+        Drawn { labels: units && !self.labels.is_empty() && self.labels_ready(compiled, fonts), units }
+    }
+}
+
+/// What of a preview the screen draws ([`Current::drawn`]): the world
+/// always, its labels and its units once there.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Drawn {
+    pub labels: bool,
+    pub units: bool,
 }
 
 /// What the preview thread sends back.
 enum Made {
-    /// The world (first, to show at once).
+    /// The world first, for preparing its labels and art before publication.
     World { number: u64, result: Result<Preview, String>, took: std::time::Duration },
     /// Then its city labels (their text measured).
     Labels { number: u64, labels: LabelItems, took: std::time::Duration },
@@ -406,6 +459,16 @@ enum Made {
 struct Job {
     number: u64,
     file: Option<String>,
+}
+
+impl Job {
+    /// Hook and publisher enqueue concurrently; arrival order is not selection order.
+    fn newest(mut self, queued: &mut tokio::sync::mpsc::UnboundedReceiver<Job>) -> Self {
+        while let Ok(job) = queued.try_recv() {
+            if job.number >= self.number { self = job; }
+        }
+        self
+    }
 }
 
 /// Makes the preview of `job` (in `install`): the world first, then its
@@ -448,69 +511,81 @@ fn make(install: &Path, job: &Job, superseded: &dyn Fn() -> bool, send: &mut dyn
 /// How the Load Scenario hook asks the preview thread for the scenario the
 /// game just loaded (once the thread runs): its latest job and its queue.
 #[allow(clippy::type_complexity)]
-static ASKER: Mutex<Option<(Arc<std::sync::atomic::AtomicU64>, std::sync::mpsc::Sender<Job>)>> = Mutex::new(None);
+static ASKER: civ3r_sync::Latest<(Arc<std::sync::atomic::AtomicU64>, tokio::sync::mpsc::UnboundedSender<Job>)> = civ3r_sync::Latest::new();
 
 /// Asks the preview thread for `job` at once (none running: the publisher
 /// asks when it sees the selection).
 #[cfg(windows)]
 fn ask_now(job: Job) {
-    if let Some((latest, jobs)) = ASKER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        latest.store(job.number, std::sync::atomic::Ordering::Release);
-        let _ = jobs.send(job);
+    if let Some(asker) = ASKER.load() {
+        let (latest, jobs) = &*asker;
+        // A publisher snapshot can lag a newer native hook. Never let its
+        // submission cancel the newer selection that is already running.
+        if latest.fetch_max(job.number, std::sync::atomic::Ordering::AcqRel) <= job.number {
+            let _ = jobs.send(job);
+        }
     }
 }
 
 /// The thread making previews: the latest job only.
 struct Worker {
     latest: Arc<std::sync::atomic::AtomicU64>,
-    jobs: std::sync::mpsc::Sender<Job>,
+    // (tokio: the game thread's send never touches a lock, even with the
+    // worker parked in its receive.)
+    jobs: tokio::sync::mpsc::UnboundedSender<Job>,
     made: std::sync::mpsc::Receiver<Made>,
 }
 
 impl Worker {
     fn start(install: PathBuf) -> std::io::Result<Worker> {
         let latest = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let (jobs, job_rx) = std::sync::mpsc::channel::<Job>();
+        let (jobs, mut job_rx) = tokio::sync::mpsc::unbounded_channel::<Job>();
         let (made_tx, made) = std::sync::mpsc::channel();
         let newest = latest.clone();
         std::thread::Builder::new().name("civ3r-preview".into()).spawn(move || {
-            while let Ok(mut job) = job_rx.recv() {
+            // (Bounded sleeps, not a parked receive: `crate::BOUNDED_WAIT`.)
+            while let Some(mut job) = crate::recv_bounded(&mut job_rx, std::time::Duration::from_millis(5)) {
                 // (Of those waiting, the latest.)
-                while let Ok(j) = job_rx.try_recv() {
-                    job = j;
-                }
+                job = job.newest(&mut job_rx);
                 let superseded = || newest.load(std::sync::atomic::Ordering::Acquire) != job.number;
                 if superseded() {
                     continue;
                 }
                 let mut gone = false;
-                make(&install, &job, &superseded, &mut |m| gone |= made_tx.send(m).is_err());
+                make(&install, &job, &superseded, &mut |m| {
+                    gone |= made_tx.send(m).is_err();
+                    // (The publisher shows it at once.)
+                    crate::presenter::WAKE.ring();
+                });
                 if gone {
                     break;
                 }
             }
         })?;
-        *ASKER.lock().unwrap_or_else(|e| e.into_inner()) = Some((latest.clone(), jobs.clone()));
+        ASKER.publish((latest.clone(), jobs.clone()));
         Ok(Worker { latest, jobs, made })
     }
 
-    fn ask(&self, job: Job) {
-        self.latest.store(job.number, std::sync::atomic::Ordering::Release);
-        let _ = self.jobs.send(job);
+    fn ask(&self, job: Job) -> bool {
+        if self.latest.fetch_max(job.number, std::sync::atomic::Ordering::AcqRel) > job.number {
+            return true;
+        }
+        self.jobs.send(job).is_ok()
     }
 }
 
 /// The scenario previewed: the one the Load Scenario screen last loaded,
 /// made ready on a thread of its own (`civ3r-preview`): reading the file,
 /// making its world and labels, resolving its unit art. The publisher only
-/// asks and takes what is ready, never waits: the world shown meanwhile is
-/// the one before (none for a while after the screen opens); a newer
-/// selection supersedes what is being made (it stops between stages).
+/// asks and takes what is ready, never waits. A newer selection clears the
+/// optional world and supersedes what is being made. Closing the screen
+/// discards staged results and cancels work between stages.
 #[derive(Default)]
 pub struct Previews {
+    /// Open menu status is separate from native generation0 before its first hook.
+    active: bool,
     worker: Option<Worker>,
-    /// The selection asked for, and the latest preview made for it (or
-    /// before it).
+    /// The selection asked for, and the latest preview made for it.
     asked: u64,
     current: Option<Current>,
     /// Its unit art, to be taken (`take_art`).
@@ -523,6 +598,9 @@ pub struct Previews {
     /// (`ArtSchedule::asked`) whose build brings its own art.
     loaded_at: Option<std::time::Instant>,
     published: bool,
+    /// Whether a scene with the menu showing the selection asked for went
+    /// out ([`Previews::menu_published`]).
+    menu_out: bool,
     art_from: Option<u64>,
 }
 
@@ -530,34 +608,89 @@ impl Previews {
     /// The world of the scenario the screen shows now, as far as it is
     /// ready (`None`: none, or one without a map of its own).
     pub fn update(&mut self, install: &Path) -> Option<&Current> {
-        let Selected { number, file, at } = selected();
-        if number != self.asked {
-            self.asked = number;
-            (self.loaded_at, self.published, self.art_from) = (at, false, None);
+        let selection = selected();
+        self.select(&selection);
+        self.receive();
+        // A failed worker must not leave a closed sender installed forever.
+        // Retry the current selection too, not just the next native click.
+        if self.asked != 0 {
             if self.worker.is_none() {
                 match Worker::start(install.to_path_buf()) {
                     Ok(w) => self.worker = Some(w),
                     Err(e) => log::error!("scenario preview: no thread for it: {e}"),
                 }
             }
-            // (Unless the hook asked for it already.)
-            if let Some(w) = self.worker.as_ref().filter(|w| w.latest.load(std::sync::atomic::Ordering::Acquire) != number) {
-                w.ask(Job { number, file });
+            if let Some(w) = self.worker.as_ref().filter(|w| w.latest.load(std::sync::atomic::Ordering::Acquire) != selection.number) {
+                if !w.ask(Job { number: selection.number, file: selection.file }) {
+                    log::warn!("scenario preview: worker closed, retrying the current selection");
+                    self.worker = None;
+                }
             }
-        }
-        for made in std::mem::take(&mut self.early) {
-            self.take(made);
-        }
-        while let Some(made) = self.worker.as_ref().and_then(|w| w.made.try_recv().ok()) {
-            self.take(made);
         }
         self.current.as_ref()
     }
 
+    /// Drain only this worker's stages. A disconnected worker is retired;
+    /// the next update starts a fresh channel and resubmits the selection.
+    fn receive(&mut self) {
+        for made in std::mem::take(&mut self.early) { self.take(made); }
+        loop {
+            let Some(worker) = &self.worker else { break };
+            match worker.made.try_recv() {
+                Ok(made) => self.take(made),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    log::warn!("scenario preview: worker exited, retrying the current selection");
+                    self.worker = None;
+                    break;
+                }
+            }
+        }
+    }
+
+    fn select(&mut self, selection: &Selected) -> bool {
+        self.active = true;
+        if selection.number == self.asked {
+            return false;
+        }
+        self.asked = selection.number;
+        self.current = None;
+        self.art = None;
+        (self.loaded_at, self.published, self.art_from, self.menu_out) = (selection.at, false, None, false);
+        true
+    }
+
+    /// The screen closed. No retained preview or late worker reply may
+    /// bring its optional world back over the title or another menu.
+    pub fn close(&mut self) {
+        self.active = false;
+        if let Some(worker) = &self.worker {
+            worker.latest.store(0, std::sync::atomic::Ordering::Release);
+            while worker.made.try_recv().is_ok() {}
+        }
+        self.asked = 0;
+        self.current = None;
+        self.art = None;
+        self.early.clear();
+        (self.loaded_at, self.published, self.art_from, self.menu_out) = (None, false, None, false);
+    }
+
     fn take(&mut self, made: Made) {
+        let number = match &made { Made::World { number, .. } | Made::Labels { number, .. } | Made::Art { number, .. } => *number };
+        if !self.active || number < self.asked { return; }
+        // The native hook can start and finish a newer selection while the
+        // publisher still holds an older selected() snapshot. Keep those
+        // stages until the next update observes that selection. Dropping
+        // them loses the only result, since Worker.latest already matches.
+        if number > self.asked {
+            let queued = self.early.first().map(|made| match made { Made::World { number, .. } | Made::Labels { number, .. } | Made::Art { number, .. } => *number });
+            if queued.is_some_and(|queued| queued > number) { return; }
+            if queued.is_some_and(|queued| queued < number) { self.early.clear(); }
+            log::debug!("scenario preview: staging generation {number} until publisher observes it (currently {})", self.asked);
+            self.early.push(made);
+            return;
+        }
         match made {
-            // (A preview for an older selection: gone by.)
-            Made::World { number, .. } | Made::Labels { number, .. } | Made::Art { number, .. } if number != self.asked => {}
             Made::World { number, result, took } => {
                 self.art = None;
                 self.current = match result {
@@ -600,15 +733,12 @@ impl Previews {
         }
     }
 
-    /// Waits at most `timeout` for the preview thread to send something (the
-    /// publisher's pause between its rounds: it goes on at once when a
-    /// preview stage is ready; without the thread, the whole pause).
+    /// Waits at most `timeout` for something to show (the publisher's pause
+    /// between its rounds): it goes on at once when a preview stage is
+    /// ready (the preview thread rings `presenter::WAKE`), as when the game
+    /// presents a new frame or input arrives.
     pub fn wait(&mut self, timeout: std::time::Duration) {
-        match self.worker.as_ref().map(|w| w.made.recv_timeout(timeout)) {
-            Some(Ok(made)) => self.early.push(made),
-            Some(Err(std::sync::mpsc::RecvTimeoutError::Timeout)) => {}
-            _ => std::thread::sleep(timeout),
-        }
+        crate::presenter::WAKE.wait(timeout);
     }
 
     /// The unit art the preview thread resolved for the preview shown, in
@@ -626,6 +756,26 @@ impl Previews {
     /// How long since the game loaded the scenario shown, in milliseconds.
     fn since_loaded(&self) -> u128 {
         self.loaded_at.map_or(0, |t| t.elapsed().as_millis())
+    }
+
+    /// A scene with the screen's menu went out (with whatever preview).
+    pub fn menu_published(&mut self) {
+        self.menu_out = true;
+    }
+
+    /// The selection asked for (`Selected::number`).
+    pub fn asked(&self) -> u64 {
+        self.asked
+    }
+
+    /// Whether the menu showing the selection asked for went out.
+    pub fn menu_shown(&self) -> bool {
+        self.menu_out
+    }
+
+    /// Whether the selection asked for was made at least `rest` ago.
+    pub fn rested(&self, rest: std::time::Duration) -> bool {
+        self.loaded_at.is_none_or(|t| t.elapsed() >= rest)
     }
 
     /// A scene with the scenario's world went out (scene `seq`).
@@ -699,9 +849,77 @@ pub fn place_label(sprites: &mut [scene::FreeSprite], (x, y): (i32, i32), n: u32
     }
 }
 
+/// Whether a preview's art is still coming (`ready`: all of it there):
+/// its unit art still resolved on its thread (`resolving`), its own art
+/// not asked for yet (`asking`: the menu not shown or rested yet, or what
+/// it needs not in the art), or art being built or adopted (`building`).
+/// Art that never arrives (left out, failed) does not keep it loading.
+pub fn loading(ready: bool, resolving: bool, asking: bool, building: bool) -> bool {
+    !ready && (resolving || asking || building)
+}
+
+/// The set of the preview's loading indicator: the wait cursor the game
+/// shows (the system's `IDC_WAIT`, as `civ3_assets::syscursor` reads it;
+/// the game has no wait cursor art) 8x as large.
+pub const LOADING_SET: &str = "Viewer@loading/0";
+
+/// The loading indicator over a preview world whose art is still coming:
+/// in the middle of its `area` (world pixels at full size, the part the
+/// viewer fits beside the screen), over all of the world (under the
+/// menus, which are views of their own), at its own size in a world shown
+/// smaller (the set keeps its size, centred on its anchor). None without
+/// its art in the description.
+pub fn loading_indicator(area: [i32; 4], compiled: &render_desc::Compiled) -> Option<scene::FreeSprite> {
+    let (set, _) = compiled.set(LOADING_SET)?;
+    Some(scene::FreeSprite { set: set.raw(), x: area[0] + area[2] / 2, y: area[1] + area[3] / 2, after_pass: u32::MAX, ..Default::default() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The indicator shows while any of the preview's art is still coming
+    /// and goes once it is all there, or once nothing more can come.
+    #[test]
+    fn a_preview_loads_until_its_art_is_there_or_nothing_more_comes() {
+        // Its units' art resolved on its thread, its art not asked for yet,
+        // or being built: loading.
+        assert!(loading(false, true, false, false));
+        assert!(loading(false, false, true, false));
+        assert!(loading(false, false, false, true));
+        // All there: done, whatever else is being built.
+        assert!(!loading(true, false, false, true));
+        // Missing optional art after the builds ended: not loading forever.
+        assert!(!loading(false, false, false, false));
+    }
+
+    /// The loading indicator: the wait cursor, 256x256 (32x32 at 8x,
+    /// nearest pixel) centred on its anchor, in the middle of the area
+    /// shown, on top of the world; none without its art.
+    #[test]
+    fn the_loading_indicator_is_the_wait_cursor_8x_in_the_middle() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
+        let compiled = crate::assets::compile(crate::assets::BUILTIN_DESC, crate::assets::game_files(&install, None, &[])).unwrap();
+        let s = loading_indicator([100, 40, 800, 600], &compiled).unwrap();
+        assert_eq!((s.x, s.y, s.screen, s.after_pass, s.category), (500, 340, false, u32::MAX, 0));
+        let id = compiled.sets.frame(compiled.set(LOADING_SET).unwrap().0, 0).unwrap();
+        let sprite = compiled.atlas.sprites[id.0 as usize];
+        assert_eq!((sprite.width, sprite.height, sprite.anchor_x, sprite.anchor_y), (256, 256, -128, -128));
+        assert_eq!(sprite.scaling, tile_render::KEEP_SIZE);
+        // The cursor cell's pixels, each an 8x8 block (an integer factor:
+        // nearest pixel is exact).
+        let page = &compiled.atlas.pages[sprite.page as usize];
+        let at = |x: u32, y: u32| page.get(sprite.atlas_x + x, sprite.atlas_y + y);
+        let opaque = (0..256u32).flat_map(|y| (0..256u32).map(move |x| (x, y))).filter(|&(x, y)| {
+            assert_eq!(at(x, y), at(x / 8 * 8, y / 8 * 8), "pixel ({x}, {y})");
+            at(x, y)[3] != 0
+        }).count();
+        // (Its pixels where the system has the cursor: Wine's hourglass.)
+        let files = crate::assets::game_files(&install, None, &[]);
+        if civ3_assets::syscursor::find(&civ3_assets::syscursor::user32_candidates(files.roots()), 32514, 32).is_ok() {
+            assert!(opaque > 64 * 100, "the hourglass: {opaque} pixels");
+        }
+    }
 
     #[test]
     fn a_label_keeps_its_size_beside_its_city_in_a_world_shown_smaller() {
@@ -711,6 +929,263 @@ mod tests {
         // 2 below it, as at full size.
         let (cx, cy) = ((64 * 7 + 64) / 8, (32 * 25 + 64) / 8);
         assert_eq!((s[0].x / 8, s[0].y / 8), (cx - 30, cy + 2));
+    }
+
+    fn made_world(number: u64) -> Made {
+        Made::World {
+            number,
+            result: Ok(Preview {
+                file: format!("{number}.biq"), world: Arc::default(), scenario_folder: None, search_folders: Vec::new(), area: [0, 0, 128, 64],
+            }),
+            took: std::time::Duration::ZERO,
+        }
+    }
+
+    fn made_art(number: u64) -> Made {
+        Made::Art {
+            number, art: Box::new(crate::units::UnitArt::new(civ3_assets::GameFiles::with_roots(Vec::new()))),
+            needed: Default::default(), took: std::time::Duration::ZERO,
+        }
+    }
+
+    fn selection(number: u64) -> Selected {
+        Selected { number, file: Some(format!("{number}.biq")), at: Some(std::time::Instant::now()) }
+    }
+
+    #[test]
+    fn late_stale_enqueue_cannot_discard_the_newest_queued_scenario() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(Job { number: 3, file: selection(3).file }).unwrap();
+        tx.send(Job { number: 2, file: selection(2).file }).unwrap();
+        let picked = Job { number: 1, file: selection(1).file }.newest(&mut rx);
+        assert_eq!(picked.number, 3, "selection generation, not enqueue arrival, defines latest");
+    }
+
+    #[test]
+    fn stale_publisher_submission_never_cancels_newer_native_selection() {
+        let (jobs, mut jobs_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_made_tx, made) = std::sync::mpsc::channel();
+        let latest = Arc::new(std::sync::atomic::AtomicU64::new(3));
+        let worker = Worker { latest: latest.clone(), jobs, made };
+        assert!(worker.ask(Job { number: 2, file: selection(2).file }));
+        assert_eq!(latest.load(std::sync::atomic::Ordering::Acquire), 3);
+        assert!(jobs_rx.try_recv().is_err(), "stale A/B jobs must not overtake native C");
+        assert!(worker.ask(Job { number: 4, file: selection(4).file }));
+        assert_eq!(jobs_rx.try_recv().unwrap().number, 4);
+        drop(jobs_rx);
+        assert!(!worker.ask(Job { number: 5, file: selection(5).file }), "failed worker submission must be observable");
+    }
+
+    #[test]
+    fn future_stage_storage_keeps_only_latest_generation() {
+        let mut previews = Previews::default(); previews.select(&selection(1));
+        previews.take(made_world(2)); previews.take(made_art(2));
+        previews.take(made_world(3)); previews.take(made_art(2)); previews.take(made_art(3));
+        assert_eq!(previews.early.len(), 2, "future scenario worlds must not accumulate while publisher lags");
+        previews.select(&selection(3)); previews.receive();
+        assert_eq!(previews.current.as_ref().unwrap().number, 3);
+        assert!(previews.take_art().is_some());
+    }
+
+    #[test]
+    fn first_hook_result_survives_open_menu_with_generation_zero_snapshot() {
+        let mut previews = Previews::default();
+        assert!(!previews.select(&Selected { number: 0, file: None, at: None }));
+        previews.take(made_world(1)); previews.take(made_art(1));
+        previews.select(&selection(1)); previews.receive();
+        assert_eq!(previews.current.as_ref().unwrap().number, 1);
+        assert!(previews.take_art().is_some());
+        previews.close();
+        previews.take(made_world(2));
+        assert!(previews.early.is_empty() && previews.current.is_none(), "closed menus reject even future generations");
+    }
+
+    #[test]
+    fn hook_can_finish_newer_selection_before_publisher_samples_it() {
+        let mut previews = Previews::default();
+        previews.select(&selection(1));
+        // The hook has already selected B and its worker finished. The
+        // publisher still holds A's selected() snapshot for this round.
+        previews.take(made_world(2)); previews.take(made_art(2));
+        assert!(previews.current.is_none());
+        previews.select(&selection(2));
+        previews.receive();
+        assert_eq!(previews.current.as_ref().map(|c| c.number), Some(2), "future stages must survive until publisher observes the native selection");
+        assert!(previews.take_art().is_some());
+    }
+
+    #[test]
+    fn disconnected_worker_is_retired_so_the_same_selection_can_restart() {
+        let (jobs, jobs_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (made_tx, made) = std::sync::mpsc::channel();
+        let latest = Arc::new(std::sync::atomic::AtomicU64::new(7));
+        let mut previews = Previews { worker: Some(Worker { latest, jobs, made }), ..Default::default() };
+        previews.select(&selection(7));
+        previews.take(made_world(7));
+        drop(jobs_rx);
+        drop(made_tx); // A failed/exited worker, including cancellation failure.
+        previews.receive();
+        assert!(previews.worker.is_none(), "closed worker must be restartable without another selection or game restart");
+        assert!(!previews.select(&selection(7)), "native selection itself has not changed");
+        // A replacement owns a fresh result channel. It can finish this same
+        // selection even if the previous worker failed after its World stage.
+        let (jobs, _jobs_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (made_tx, made) = std::sync::mpsc::channel();
+        previews.worker = Some(Worker { latest: Arc::new(std::sync::atomic::AtomicU64::new(0)), jobs, made });
+        assert!(previews.worker.as_ref().unwrap().ask(Job { number: 7, file: selection(7).file }));
+        made_tx.send(made_world(7)).unwrap(); made_tx.send(made_art(7)).unwrap();
+        previews.receive();
+        assert_eq!(previews.current.as_ref().unwrap().number, 7);
+        assert!(!previews.art_pending());
+        assert!(previews.take_art().is_some());
+    }
+
+    #[test]
+    fn rapid_abc_out_of_order_stages_revisits_failure_and_title_resume_recover() {
+        let mut previews = Previews::default();
+        // A, B and C are highlighted before any worker stage finishes.
+        for number in 1..=3 { assert!(previews.select(&selection(number))); }
+        previews.take(made_world(2)); previews.take(made_art(2));
+        previews.take(made_world(1));
+        assert!(previews.current.is_none());
+        previews.take(made_world(3));
+        previews.take(made_art(1)); // Cold A art arrives after C's world.
+        assert!(previews.art_pending());
+        previews.take(made_art(3));
+        assert_eq!(previews.current.as_ref().unwrap().number, 3);
+        assert!(previews.take_art().is_some());
+        // Revisit the same file, with a fresh native selection generation.
+        let mut revisit = selection(4); revisit.file = selection(1).file;
+        previews.select(&revisit);
+        previews.take(Made::World { number: 4, result: Err("canceled/read failed".into()), took: std::time::Duration::ZERO });
+        assert!(previews.current.is_none());
+        let mut retry = selection(5); retry.file = revisit.file;
+        previews.select(&retry);
+        previews.take(made_art(3)); previews.take(made_world(4));
+        previews.take(made_world(5)); previews.take(made_art(5));
+        assert_eq!(previews.current.as_ref().unwrap().number, 5);
+        assert!(!previews.art_pending());
+        previews.close(); // Return to title while optional work is late.
+        previews.take(made_world(5)); previews.take(made_art(5));
+        assert!(previews.current.is_none() && previews.take_art().is_none());
+        assert!(previews.select(&retry)); // Resume without another native load.
+        previews.take(made_world(5)); previews.take(made_art(5));
+        assert_eq!(previews.current.as_ref().unwrap().number, 5);
+        assert!(previews.take_art().is_some());
+    }
+
+    #[test]
+    fn a_pending_or_failed_selection_cannot_keep_an_older_preview_or_its_art() {
+        let mut previews = Previews::default();
+        assert!(previews.select(&selection(1)));
+        previews.take(made_world(1));
+        previews.take(made_art(1));
+        assert!(previews.current.is_some() && previews.art.is_some());
+        assert!(previews.select(&selection(2)));
+        assert!(previews.current.is_none() && previews.art.is_none());
+        previews.take(made_world(1));
+        previews.take(made_art(1));
+        assert!(previews.current.is_none() && previews.art.is_none(), "late stages belong to the old selection");
+        previews.take(Made::World { number: 2, result: Err("no map".into()), took: std::time::Duration::ZERO });
+        assert!(previews.current.is_none() && previews.art.is_none());
+        previews.select(&selection(3));
+        previews.take(made_world(3));
+        assert_eq!(previews.current.as_ref().map(|c| c.number), Some(3));
+        assert!(previews.art_pending());
+    }
+
+    #[test]
+    fn closing_the_scenario_menu_cancels_work_and_rejects_late_stages() {
+        let (jobs, _jobs_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (made_tx, made) = std::sync::mpsc::channel();
+        let latest = Arc::new(std::sync::atomic::AtomicU64::new(1));
+        let worker = Worker { latest: latest.clone(), jobs, made };
+        let mut previews = Previews { worker: Some(worker), ..Default::default() };
+        previews.select(&selection(1));
+        previews.take(made_world(1));
+        previews.take(made_art(1));
+        previews.early.push(made_world(1));
+        made_tx.send(made_art(1)).unwrap();
+        previews.close();
+        assert_eq!(latest.load(std::sync::atomic::Ordering::Acquire), 0);
+        assert!(previews.early.is_empty() && previews.current.is_none() && previews.take_art().is_none());
+        assert!(previews.worker.as_ref().unwrap().made.try_recv().is_err());
+        previews.take(made_world(1));
+        previews.take(made_art(1));
+        assert!(previews.current.is_none() && previews.take_art().is_none());
+        assert!(previews.select(&selection(1)), "reopening may ask for the same native selection again");
+    }
+
+    #[test]
+    fn optional_preview_art_can_remain_unavailable_while_the_menu_is_complete() {
+        use crate::ui_screen::{Item, Publication};
+        struct Images;
+        impl render_desc::ImageLoader for Images {
+            fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+                Ok(vec![tile_render::RgbaImage::from_fn(1, 1, |_, _| [255; 4])])
+            }
+            fn palette(&self, _: &str, _: &toml::Table) -> Result<Vec<[u8; 4]>, String> {
+                Ok(vec![[255; 4]; 256])
+            }
+        }
+        let menu = Item::Element(menu::screen::Element::Fill {
+            rect: [0, 0, 32, 32], rgb: [0, 8, 0], alpha: 255, clip: [0, 0, 32, 32],
+        }, false);
+        let mut screen_art = menu::screen::ScreenArt::default();
+        let mut fonts = crate::text::Fonts::default();
+        let files = civ3_assets::GameFiles::with_roots(Vec::new());
+        crate::ui_screen::add_art([&menu], &mut screen_art, &mut fonts, &files);
+        let source = format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n{}", crate::ui_screen::description(&screen_art));
+        let (mut compiled, mut growing) = render_desc::Description::parse(&source).unwrap().compile_growing(&Images, 64, false).unwrap();
+        let mut previews = Previews::default();
+        previews.select(&selection(1));
+        previews.take(made_world(1));
+        let current = previews.current.as_mut().unwrap();
+        assert!(!current.art_ready(&compiled, &fonts), "its art is not ready before art resolution (the world is drawn meanwhile: `drawn`)");
+        let file = crate::units::AnimFile { path: "unit.flc".into(), frames_per_direction: 1, chunks: 2, size: (1, 1), anchor: (0, 0) };
+        current.needed = Some(Arc::new(crate::units::Needed {
+            files: [(file.path.clone(), (file, [crate::units::Recolor::civ(0)].into()))].into(),
+            stills: [("unit.flc".into(), [1].into())].into(), ..Default::default()
+        }));
+        assert!(!current.art_ready(&compiled, &fonts));
+        for building in [false, true] {
+            assert!(matches!(crate::ui_screen::publication([&menu].into_iter(), &fonts, &compiled, building, (320, 200)), Publication::Complete));
+        }
+        // A prepared preview has only its selected still frame. Unused frames
+        // do not prevent publication, and a failed or missing body does.
+        let preview_art = r#"
+[palettes."ntp@0"]
+source = "solid:255,255,255,255:1x1"
+[images.unit]
+source = "solid:255,255,255,255:1x1"
+[sheets.body]
+image = "unit"
+cell = [1, 1]
+group = "UnitArt@unit.flc"
+first_index = 1
+[sheets.shadow]
+image = "unit"
+cell = [1, 1]
+group = "UnitShadow@unit.flc"
+first_index = 1
+[sheets.smoke]
+image = "unit"
+cell = [1, 1]
+group = "UnitSmoke@unit.flc"
+first_index = 1
+"#;
+        let growth = growing.grow(&compiled, preview_art, &Images).unwrap();
+        compiled.apply(&growth);
+        assert!(current.art_ready(&compiled, &fonts));
+        current.labels = Arc::new(vec![((0, 0), vec![Item::Element(menu::screen::Element::Fill {
+            rect: [0, 0, 8, 8], rgb: [255, 255, 255], alpha: 255, clip: [0, 0, 8, 8],
+        }, false)])]);
+        assert!(current.art_ready(&compiled, &fonts), "solid labels need no adopted art");
+        current.labels = Arc::new(vec![((0, 0), vec![Item::Element(menu::screen::Element::Sprite {
+            name: "missing label".into(), at: (0, 0), clip: [0, 0, 8, 8], scale_den: 0, palette: String::new(),
+        }, false)])]);
+        assert!(!current.art_ready(&compiled, &fonts), "optional image labels need adopted art too");
+        assert!(matches!(crate::ui_screen::publication([&menu].into_iter(), &fonts, &compiled, false, (320, 200)), Publication::Complete));
     }
 
     fn install() -> Option<PathBuf> {
@@ -759,23 +1234,100 @@ mod tests {
         let w = &p.world;
         let bit = 1u32 << w.player;
         let explored = w.tiles.iter().filter(|t| t.explored & bit != 0).count();
-        assert_eq!(explored, 3178);
+        // The five civs a human may play only (3178 with the computer's
+        // three: `revealed::tests`).
+        assert_eq!(explored, 2274);
         assert!(w.tiles.iter().filter(|t| t.explored & bit != 0).all(|t| w.visible_now(t)));
         assert!(w.tiles.iter().filter(|t| t.explored & bit == 0).all(|t| !w.visible_now(t)));
         // Units on tiles seen only.
         assert!(w.units.iter().all(|u| w.tile(u.x, u.y).is_some_and(|t| w.visible_now(t))));
         let mut env = crate::city_labels::FileEnv::new(Box::new(crate::assets::game_files(&install, None, &[])));
-        // Every city a label (all of them are the players', and explored);
-        // one on a tile not explored none.
-        assert_eq!(labels(w, &mut env).len(), w.cities.len());
+        // A label for every city explored (the playable civs'), none for
+        // the computer's only civs' unexplored ones; one on a tile not
+        // explored none.
+        let known = |w: &Civ3World| w.cities.iter().filter(|c| w.tile(c.x, c.y).is_some_and(|t| t.explored & bit != 0)).count();
+        assert!(known(w) < w.cities.len());
+        assert_eq!(labels(w, &mut env).len(), known(w));
         let mut hidden = (**w).clone();
-        let (x, y) = (hidden.cities[0].x, hidden.cities[0].y);
-        let i = hidden.index(x, y);
+        let c = w.cities.iter().find(|c| w.tile(c.x, c.y).is_some_and(|t| t.explored & bit != 0)).unwrap();
+        let i = hidden.index(c.x, c.y);
         hidden.tiles[i].explored = 0;
-        assert_eq!(labels(&hidden, &mut env).len(), w.cities.len() - 1);
-        // The area: the tiles revealed (columns 4..139, rows 6..134) and a
+        assert_eq!(labels(&hidden, &mut env).len(), known(w) - 1);
+        // The area: the tiles revealed (columns 4..139, rows 49..120; with
+        // the computer's civs rows 6..134) and a
         // tile around.
-        assert_eq!(p.area, [64 * 4 - 64, 32 * 6 - 64, 64 * 134 + 128 + 128, 32 * 127 + 64 + 128]);
+        assert_eq!(p.area, [64 * 4 - 64, 32 * 49 - 64, 64 * 134 + 128 + 128, 32 * 71 + 64 + 128]);
+    }
+
+    /// The world of a scenario is drawn as soon as it is made: with the
+    /// game's own art only (its folders' art, its labels and its units not
+    /// grown yet), its cells are there, its units and labels not (nothing
+    /// in their place), and its labels come in two layouts once there.
+    #[test]
+    fn a_preview_world_is_drawn_before_its_art_is_grown() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
+        let p = load(&install, "Conquests\\2 Rise of Rome.biq").unwrap();
+        let mut previews = Previews::default();
+        previews.select(&selection(1));
+        previews.take(Made::World { number: 1, result: Ok(p), took: std::time::Duration::ZERO });
+        let current = previews.current.clone().unwrap();
+        assert!(previews.art_pending());
+        let compiled = crate::assets::compile(crate::assets::BUILTIN_DESC, crate::assets::game_files(&install, None, &[])).unwrap();
+        let fonts = crate::text::Fonts::default();
+        assert!(!current.art_ready(&compiled, &fonts));
+        assert_eq!(current.drawn(false, &compiled, &fonts), Drawn::default());
+        let mapper = crate::scene_map::Mapper::new(&compiled);
+        let scene = scene_with(&current.preview.world, 8, &mapper, None, &compiled, &LabelItems::new(), &fonts);
+        assert!(scene.shape.cols > 0 && scene.layers.iter().any(|l| l.values.iter().any(|&v| v != 0)));
+        assert!(scene.sprites.is_empty(), "no units or labels before their art");
+        assert_eq!(scene.view(crate::scene_map::GAME_VIEW).map(|v| v.view.downscale), Some(8));
+        // Its unit art resolved for the scenario's folders: the units are
+        // drawn as far as their sprites are there.
+        let mut art = crate::units::UnitArt::new(crate::assets::game_files(&install, current.preview.scenario_folder.as_deref(), &current.preview.search_folders));
+        let with_units = scene_with(&current.preview.world, 8, &mapper, Some(&mut art), &compiled, &LabelItems::new(), &fonts);
+        assert_eq!(with_units.layers.len(), scene.layers.len());
+    }
+
+    /// What the publisher does for a preview when only the menu changed
+    /// (a new highlight): before, the world's scene was made again every
+    /// round; now it is kept (`live`'s preview memo). Prints the times
+    /// (`cargo test -- --ignored --nocapture preview_timings`).
+    #[test]
+    #[ignore]
+    fn preview_timings() {
+        let Some(install) = install() else { return eprintln!("no Civ III install, skipped") };
+        let compiled = crate::assets::compile(crate::assets::BUILTIN_DESC, crate::assets::game_files(&install, None, &[])).unwrap();
+        let mapper = crate::scene_map::Mapper::new(&compiled);
+        let fonts = crate::text::Fonts::default();
+        for name in ["1 Mesopotamia", "2 Rise of Rome", "4 Middle Ages", "8 Napoleonic Europe", "9 WWII European Front 6 ", "9 WWII in the Pacific"] {
+            let t = std::time::Instant::now();
+            let p = load(&install, &format!("Conquests\\{name}.biq")).unwrap();
+            let loaded = t.elapsed();
+            let n = downscale(p.area, (1280 - 640, 720));
+            let t = std::time::Instant::now();
+            let made = scene_with(&p.world, n, &mapper, None, &compiled, &LabelItems::new(), &fonts);
+            let built = t.elapsed();
+            let mut memo: Option<(u64, scene::Scene)> = Some((1, made));
+            let t = std::time::Instant::now();
+            let kept = memo.as_mut().filter(|(k, _)| *k == 1).map(|(_, s)| s.clone());
+            let reused = t.elapsed();
+            assert!(kept.is_some());
+            // The game thread's part of a selection: a publication and a send.
+            let worker = Worker::start(install.clone()).unwrap();
+            let t = std::time::Instant::now();
+            {
+                let s = select(Some(format!("Conquests\\{name}.biq")));
+                worker.ask(Job { number: s.number, file: s.file });
+            }
+            let hook = t.elapsed();
+            eprintln!(
+                "{name}: worker load {} ms; publisher scene per round before {:.2} ms, kept after {:.3} ms; hook {:.3} ms",
+                loaded.as_millis(),
+                built.as_secs_f64() * 1e3,
+                reused.as_secs_f64() * 1e3,
+                hook.as_secs_f64() * 1e3
+            );
+        }
     }
 
     #[test]
@@ -854,7 +1406,8 @@ mod tests {
         assert!(seen[last_world..].iter().all(|s| s.1 == 15), "{seen:?}");
         assert!(seen.len() < 3 * names.len(), "{seen:?}");
         // And the publisher's side: the selection asked for is the one shown.
-        let mut p = Previews { worker: Some(worker), asked: 20, ..Default::default() };
+        let mut p = Previews { worker: Some(worker), ..Default::default() };
+        p.select(&selection(20));
         p.worker.as_ref().unwrap().ask(job(19, "2 Rise of Rome.biq"));
         p.worker.as_ref().unwrap().ask(job(20, "Intro3 New Alliances.biq"));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -957,22 +1510,48 @@ pub fn scene(
     labels: &LabelItems,
     fonts: &crate::text::Fonts,
 ) -> scene::Scene {
+    scene_with(world, n, mapper, Some(art), compiled, labels, fonts)
+}
+
+/// [`scene`], its units only with `art` (none: their art not resolved
+/// yet; the world is drawn without them, in the art the description has).
+/// The labels are laid out twice where `n` is not 2: for the world shown
+/// `n` times smaller (fitted beside the screen) and for the half-size world
+/// the viewer explores it at (the game's zoomed-out view), each shown only
+/// at its own scale (`CATEGORY_NOT_HALF_RESOLUTION`, `CATEGORY_HALF_RESOLUTION`).
+#[allow(clippy::too_many_arguments)]
+pub fn scene_with(
+    world: &Civ3World,
+    n: u32,
+    mapper: &crate::scene_map::Mapper,
+    art: Option<&mut crate::units::UnitArt>,
+    compiled: &render_desc::Compiled,
+    labels: &LabelItems,
+    fonts: &crate::text::Fonts,
+) -> scene::Scene {
     let view = view(world);
     let mut scene = mapper.scene(world, &view, (0, 0), 0);
     unexplored_black(world, compiled, &mut scene);
-    crate::units::place(world, &view, art, compiled, None, &mut crate::units::UnitMemory::default(), &mut scene);
+    if let Some(art) = art {
+        crate::units::place(world, &view, art, compiled, None, &mut crate::units::UnitMemory::default(), &mut scene);
+    }
+    let n = n.max(1);
     let game_view = &mut scene.view_mut(crate::scene_map::GAME_VIEW).view;
-    (game_view.downscale, game_view.cull) = (n.max(1), None);
+    (game_view.downscale, game_view.cull) = (n, None);
     // (Their text drawn from outlines at the zoom the viewer shows it at.)
     scene.zooms = crate::ui_screen::outline_zooms(compiled);
     let outlines = !scene.zooms.is_empty();
+    let layouts: &[(u32, u32)] = if n == 2 { &[(2, 0)] } else { &[(n, tile_render::CATEGORY_NOT_HALF_RESOLUTION), (2, tile_render::CATEGORY_HALF_RESOLUTION)] };
     for (tile, items) in labels {
-        let mut sprites: Vec<scene::FreeSprite> = crate::ui_screen::sprites(items, fonts, compiled, crate::ui_screen::under_pass(compiled), outlines)
-            .into_iter()
-            .map(|s| scene::FreeSprite { screen: false, clip: None, category: viewer_settings::clean_map::CITIES, ..s })
-            .collect();
-        place_label(&mut sprites, *tile, n);
-        scene.sprites.extend(sprites);
+        let sprites = crate::ui_screen::sprites(items, fonts, compiled, crate::ui_screen::under_pass(compiled), outlines);
+        for &(at, layout) in layouts {
+            let mut sprites: Vec<scene::FreeSprite> = sprites
+                .iter()
+                .map(|s| scene::FreeSprite { screen: false, clip: None, category: viewer_settings::clean_map::CITIES | layout, ..s.clone() })
+                .collect();
+            place_label(&mut sprites, *tile, at);
+            scene.sprites.extend(sprites);
+        }
     }
     scene
 }

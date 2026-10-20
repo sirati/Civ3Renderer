@@ -125,9 +125,14 @@ pub struct Civ3Unit {
     pub y: i32,
     pub civ: i32,
     pub unit_type: i32,
+    /// Native LeaderKind (2 selects scientific leader art).
+    pub leader_kind: i32,
     pub experience: i32,
     pub damage: i32,
     pub moves: i32,
+    /// Game-thread Unit::get_max_move_points, including army/civ/mod bonuses.
+    /// None for cold previews and old traces without this calculated stat.
+    pub max_move_points: Option<i32>,
     pub container: i32,
     pub state: i32,
     pub always_on_top: bool,
@@ -192,7 +197,8 @@ pub struct Civ3World {
     pub outposts: Vec<(i32, i32)>,
     /// Drawn units, in drawing order.
     pub units: Vec<Civ3Unit>,
-    /// The members armies show (not drawn themselves).
+    /// The members of the armies drawn (not drawn themselves; each with
+    /// its army as `container`), among them the one each army shows.
     pub army_members: Vec<Civ3Unit>,
     /// Civilopedia keys of unit types (`PRTO_...`) and eras (`ERAS_...`).
     pub unit_type_keys: Vec<String>,
@@ -614,6 +620,13 @@ impl Trace {
                         opacity: 255,
                     });
                 }
+                Some("ui_resized_image") if f.len() >= 17 => {
+                    let v=(1..16).map(|k|n(k).map(|v|v as i32)).collect::<Result<Vec<_>,_>>()?;
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::ResizedImage {
+                        path:f[16..].join(" "),rect:[v[7],v[8],v[9],v[10]],x:v[0],y:v[1],size:(v[11],v[12]),
+                        sample_step:[v[13] as u32,v[14] as u32],keyed:v[2]!=0,clip:[v[3],v[4],v[5],v[6]],mask:None,palette:None,opacity:255,
+                    });
+                }
                 Some("ui_surface") if f.len() >= 12 => {
                     let v = (1..12).map(|k| n(k)).collect::<Result<Vec<_>, _>>()?;
                     t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Surface {
@@ -643,21 +656,55 @@ impl Trace {
                     let range = n(1)? as usize..n(2)? as usize;
                     t.ui.get_or_insert_with(Default::default).underlay_draws.push(range);
                 }
+                Some("ui_image_indices") if f.len() >= 3 => {
+                    let transparent = if f[1] == "-" { Some(Vec::new()) } else { f[1].split(',').map(|s| s.parse::<u8>().ok()).collect::<Option<Vec<_>>>() };
+                    let shade = if f[2] == "-" { Some(Vec::new()) } else {
+                        f[2].split(',').map(|pair| {
+                            let (index, level) = pair.split_once(':')?;
+                            let (index, level) = (index.parse::<u8>().ok()?, level.parse::<u8>().ok()?);
+                            (level <= 16).then_some((index, level))
+                        }).collect::<Option<Vec<_>>>()
+                    };
+                    if let (Some(transparent), Some(shade), Some(draw)) = (transparent, shade, t.ui.as_mut().and_then(|u| u.draws.last_mut())) {
+                        let indices = menu::screen::Indices { transparent, shade, ..Default::default() };
+                        match draw {
+                            crate::ui::ScreenDraw::Image { path, rect, x, y, clip, palette, .. } => {
+                                *draw = crate::ui::ScreenDraw::Indexed { path: path.clone(), rect: *rect, x: *x, y: *y, clip: *clip, palette: palette.clone(), indices };
+                            }
+                            crate::ui::ScreenDraw::ResizedImage { path, rect, x, y, clip, palette, size, sample_step, .. } => {
+                                let indices = menu::screen::Indices { resize: Some(menu::screen::IndexedResize { size: (size.0 as u32, size.1 as u32), sample_step: *sample_step }), ..indices };
+                                *draw = crate::ui::ScreenDraw::Indexed { path: path.clone(), rect: *rect, x: *x, y: *y, clip: *clip, palette: palette.clone(), indices };
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Some("ui_image_frame") if f.len() == 2 => {
+                    if let (Ok(frame), Some(crate::ui::ScreenDraw::Indexed { indices, .. })) = (f[1].parse::<u32>(), t.ui.as_mut().and_then(|u| u.draws.last_mut())) { indices.frame = Some(frame); }
+                }
+                Some("ui_image_palette_alpha") if f.len() >= 7 => {
+                    let values = f[1..6].iter().map(|v| v.parse::<u8>().ok()).collect::<Option<Vec<_>>>();
+                    if let (Some(v), Some(crate::ui::ScreenDraw::Indexed { indices, .. })) = (values, t.ui.as_mut().and_then(|u| u.draws.last_mut())) {
+                        if v[1] > 0 && u16::from(v[0]) + u16::from(v[1]) <= 256 {
+                            indices.palette_alpha = Some(menu::screen::PaletteAlpha { source: f[6..].join(" "), first: v[0], count: v[1], skip: [v[2], v[3], v[4]] });
+                        }
+                    }
+                }
                 Some("ui_image_opacity") if f.len() >= 2 => {
                     let value = n(1)?.clamp(0, 255) as u8;
-                    if let Some(crate::ui::ScreenDraw::Image { opacity, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
+                    if let Some(crate::ui::ScreenDraw::Image { opacity, .. } | crate::ui::ScreenDraw::ResizedImage { opacity, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
                         *opacity = value;
                     }
                 }
                 Some("ui_image_palette") if f.len() >= 4 => {
                     let (first, count) = (n(1)? as u32, n(2)? as u32);
-                    if let Some(crate::ui::ScreenDraw::Image { palette, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
+                    if let Some(crate::ui::ScreenDraw::Image { palette, .. } | crate::ui::ScreenDraw::ResizedImage { palette, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
                         *palette = Some(menu::screen::PaletteFrom { image: f[3..].join(" "), first, count });
                     }
                 }
                 Some("ui_image_mask") if f.len() >= 4 => {
                     let at = (n(1)? as i32, n(2)? as i32);
-                    if let Some(crate::ui::ScreenDraw::Image { mask, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
+                    if let Some(crate::ui::ScreenDraw::Image { mask, .. } | crate::ui::ScreenDraw::ResizedImage { mask, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
                         *mask = Some(crate::ui::Mask { path: f[3..].join(" "), at });
                     }
                 }
@@ -786,6 +833,8 @@ impl Trace {
                         army_member: Some(at(17)).filter(|&m| m >= 0 && v.len() > 17),
                         army_size: at(18),
                         moving: at(19) != 0,
+                        leader_kind: at(20),
+                        max_move_points: v.get(21).copied().filter(|&n| n >= 0).map(|n| n as i32),
                     };
                     if kind == "unit" {
                         t.world.units.push(unit);
@@ -965,4 +1014,36 @@ mod navigator_trace_tests {
         }
         assert!(Trace::parse("navigator_modes 1").is_err());
     }
+    #[test]
+    fn indexed_ui_trace_retains_palette_transparency_and_blend_levels() {
+        let trace = Trace::parse("ui_image 20 30 1 0 0 1024 768 8 4 48 49 Art/shadow with spaces.pcx\nui_image_palette 64 2 Art/ntp03.pcx\nui_image_indices 0,1,255 248:8,249:10\n").unwrap();
+        assert!(matches!(&trace.ui.unwrap().draws[..], [crate::ui::ScreenDraw::Indexed { path, rect: [8, 4, 48, 49], x: 20, y: 30, palette: Some(palette), indices, .. }]
+            if path == "Art/shadow with spaces.pcx" && palette.first == 64 && palette.count == 2 && palette.image == "Art/ntp03.pcx"
+                && indices.transparent == [0, 1, 255] && indices.shade == [(248, 8), (249, 10)]));
+        let trace = Trace::parse("ui_image 20 30 1 0 0 1024 768 8 4 48 49 shadow.pcx\nui_image_indices - 248:8\n").unwrap();
+        assert!(matches!(&trace.ui.unwrap().draws[..], [crate::ui::ScreenDraw::Indexed { indices, .. }] if indices.transparent.is_empty() && indices.shade == [(248, 8)]));
+    }
+
+    #[test]
+    fn resized_indexed_and_smoke_trace_metadata_preserve_native_rules_and_old_defaults() {
+        let text = "ui_resized_image 20 30 1 21 31 25 33 8 4 9 5 5 3 117964 109226 Art/smoke with spaces.pcx\nui_image_palette 64 2 Art/ntp03.pcx\nui_image_indices 0,1,255 -\nui_image_frame 17\nui_image_palette_alpha 224 16 0 0 255 Art/Explosion Palette.pcx\n";
+        let trace = Trace::parse(text).unwrap();
+        let crate::ui::ScreenDraw::Indexed { indices, palette, rect, .. } = &trace.ui.unwrap().draws[0] else { panic!("indexed resized trace") };
+        assert_eq!(*rect, [8, 4, 9, 5]);
+        assert_eq!(indices.resize, Some(menu::screen::IndexedResize { size: (5, 3), sample_step: [117964, 109226] }));
+        assert_eq!(indices.frame, Some(17));
+        assert_eq!(indices.palette_alpha.as_ref().unwrap(), &menu::screen::PaletteAlpha { source: "Art/Explosion Palette.pcx".into(), first: 224, count: 16, skip: [0, 0, 255] });
+        assert_eq!(palette.as_ref().unwrap().first, 64);
+        let old = Trace::parse("ui_image 0 0 1 0 0 8 8 0 0 8 8 old.pcx\nui_image_indices - 248:8\n").unwrap();
+        assert!(matches!(&old.ui.unwrap().draws[0], crate::ui::ScreenDraw::Indexed { indices, .. } if indices.frame.is_none() && indices.resize.is_none() && indices.palette_alpha.is_none() && indices.shade == [(248, 8)]));
+    }
+
+    #[test]
+    fn resized_ui_trace_retains_sampler_palette_mask_and_paths_with_spaces() {
+        let trace=Trace::parse("ui_resized_image 20 30 1 0 0 1024 768 8 4 49 49 31 31 100352 100352 Art/icon with spaces.pcx\nui_image_opacity 128\nui_image_palette 0 64 Art/palette file.pcx\nui_image_mask 2 3 Art/mask file.pcx").unwrap();
+        let draw=&trace.ui.unwrap().draws[0];
+        assert!(matches!(draw,crate::ui::ScreenDraw::ResizedImage { path,rect:[8,4,49,49],size:(31,31),sample_step:[100352,100352],opacity:128,palette:Some(p),mask:Some(m),.. }
+            if path=="Art/icon with spaces.pcx" && p.image=="Art/palette file.pcx" && p.count==64 && m.path=="Art/mask file.pcx" && m.at==(2,3)));
+    }
+
 }

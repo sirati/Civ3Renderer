@@ -15,21 +15,31 @@ The tile is at `+0x18/+0x1C`; `+0x24` moves an overlapping message
 down by half a tile. The font pointer is at `+8`, the foreground at `+0x14`,
 and the shadow at `+0x10`.
 
-The lifetime byte is `+0x26`. The byte at `+4` only controls the initial
+The alive byte is `+0x26`. The byte at `+4` only controls the initial
 input pause and clears before the message disappears. Neither that pause
 byte nor the engine-camera visibility byte at `+0x25` determines whether a
 renderer view should show a notice. Removal clears `+0x26` and the first
-text byte, so no time-based cache can leave old text behind or extend it.
+text byte. The creation timestamp is at `+0x168`, and the duration in
+milliseconds is at `+0x16C`.
 
-Removal still runs with original pixel rendering disabled. At `0x4EF3B6`,
-the animator skips the optional `MapMessage::draw` call when the message is
-outside the engine camera, but continues at `0x4EF3DA`. There it always reads
-`timeGetTime`, compares the timestamp at `+0x168` and duration at `+0x16C`,
-and calls removal at `0x4EF3F7` once expired. This is in the animator's
-update/draw pass, outside the visibility-gated pixel draw. Renderer-off mode
-suppresses blits, fills and TextOut output, not this animator pass; the
-notice hook also calls the original draw unconditionally. Thus hiding the
-original map pixels does not suspend expiry or leave the alive byte set.
+The game's animator normally expires these records, but stale alive records
+must not keep plates visible. The publisher deduplicates text and tile,
+restarts a notice only when its slot or creation timestamp changes, keeps
+one notice per tile, and limits the total to eight. Another message on a
+tile replaces the previous one. Valid durations up to five seconds come
+from the game; missing or unreasonable durations use 2.5 seconds. The
+renderer's own refusal messages use the same tracker and last 2.5 seconds.
+Removing a game or modal record also removes its visible notice.
+
+Each telling gets an increasing serial and a generic scene sprite lifetime.
+The viewer measures its duration with its own monotonic clock, independently
+of incoming scenes. This also expires notices while the publisher cannot
+read a world snapshot or stops progressing. Repeated scenes with the same
+serial do not restart the timer, and an expired serial cannot reappear.
+Expiry masks only that notice's world sprite range in the derived render
+list. Canonical scene clips remain intact, so a new telling can show the
+same art again with a lifetime-only update. Unrelated sprites and the
+indices used by interface looks and overlays stay intact.
 
 The plate and its text become world sprites above units and fog. Their font
 metrics and GDI font come from the original font object. The plate keeps
@@ -53,10 +63,13 @@ mirror and recent text fallback to prevent a duplicate screen-space copy.
 5. Wait for expiry without further input. Both copies must disappear. Open
    a menu after expiry and confirm no old warning reappears.
 6. Trigger another message in the reused slot. Confirm it replaces the old
-   text. Trigger overlapping notices and check their vertical separation.
+   text. Spam the same exhausted unit fifty times. Check that one plate remains
+   and expires after the last click. Trigger notices on separate tiles and
+   confirm they each appear once, with at most eight visible at once.
 7. Hide units through B's Clean Map override only. Its notice must hide in B
    while remaining present in A.
 
 The automated tests cover record lifetime, slot reuse, Windows-1252 text,
-placement at both engine zooms, overlapping notices, and world-sprite
+placement at both engine zooms, deduplication, caps, expiry without new
+scenes, stale-serial replay, and world-sprite
 routing and category metadata. The live sequence above needs a game run.

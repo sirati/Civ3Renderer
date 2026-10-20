@@ -1,5 +1,4 @@
-//! When to build the render art wanted, and when to hold a scene back
-//! meanwhile.
+//! When to build newly requested render art.
 //!
 //! New art is wanted whenever the game shows something the art does not
 //! have yet (a unit, a font, a region of a screen's art). A new screen asks
@@ -9,8 +8,7 @@
 //! it started.
 //! [`ArtSchedule::screen_pending`] distinguishes a pending screen request
 //! from a completed request whose art could not be compiled. Publication
-//! also checks actual visible-item readiness (`crate::ui_screen`), rather
-//! than releasing an incomplete valid screen after a timeout.
+//! reports visible-item readiness without delaying committed UI commands.
 
 use std::time::{Duration, Instant};
 
@@ -22,15 +20,16 @@ pub struct Timing {
     pub quiet: Duration,
     /// …or the first request waited this long.
     pub wait_max: Duration,
-    /// Longest a scene is held back for missing screen art.
-    pub hold_max: Duration,
+    /// A request for visible screen art starts once none came this long.
+    /// It starts immediately so independently arriving sprites appear promptly.
+    pub screen_quiet: Duration,
 }
 
 impl Timing {
     /// Art that grows (`crate::art`): an addition costs only its own art,
     /// so it starts once the requests of a frame or two are in.
     pub const GROWING: Timing =
-        Timing { gap: Duration::ZERO, quiet: Duration::from_millis(35), wait_max: Duration::from_millis(150), hold_max: Duration::from_secs(4) };
+        Timing { gap: Duration::ZERO, quiet: Duration::from_millis(35), wait_max: Duration::from_millis(150), screen_quiet: Duration::ZERO };
 }
 
 #[derive(Debug)]
@@ -46,13 +45,11 @@ pub struct ArtSchedule {
     first_wanted: Option<Instant>,
     last_wanted: Option<Instant>,
     last_done: Option<Instant>,
-    /// Since when screen art has been missing.
-    missing_since: Option<Instant>,
 }
 
 impl ArtSchedule {
     pub fn new(timing: Timing) -> Self {
-        Self { timing, asked: 0, covered: 0, screen_asked: 0, running: None, first_wanted: None, last_wanted: None, last_done: None, missing_since: None }
+        Self { timing, asked: 0, covered: 0, screen_asked: 0, running: None, first_wanted: None, last_wanted: None, last_done: None }
     }
 
     /// New art is wanted (`screen`: for what the game's screen shows).
@@ -62,7 +59,6 @@ impl ArtSchedule {
         self.last_wanted = Some(now);
         if screen {
             self.screen_asked = self.asked;
-            self.missing_since.get_or_insert(now);
         }
     }
 
@@ -71,8 +67,8 @@ impl ArtSchedule {
         self.asked > self.running.unwrap_or(self.covered)
     }
 
-    /// Whether a screen-art request has not completed yet. Unlike `hold`,
-    /// this never expires, and unrelated map requests cannot extend it.
+    /// Whether a screen-art request has not completed yet. This drives
+    /// retries, never publication, and unrelated map requests cannot extend it.
     pub fn screen_pending(&self) -> bool {
         self.screen_asked > self.covered
     }
@@ -94,7 +90,8 @@ impl ArtSchedule {
             return None;
         }
         let settled = self.last_wanted.is_some_and(|t| now.duration_since(t) >= self.timing.quiet)
-            || self.first_wanted.is_some_and(|t| now.duration_since(t) >= self.timing.wait_max);
+            || self.first_wanted.is_some_and(|t| now.duration_since(t) >= self.timing.wait_max)
+            || (self.screen_asked > self.covered && self.last_wanted.is_some_and(|t| now.duration_since(t) >= self.timing.screen_quiet));
         let rested = self.last_done.is_none_or(|t| now.duration_since(t) >= self.timing.gap);
         if !(settled && rested) {
             return None;
@@ -113,19 +110,12 @@ impl ArtSchedule {
         }
         self.covered = self.covered.max(token);
         self.last_done = Some(now);
-        if self.screen_asked <= self.covered {
-            self.missing_since = None;
-        }
         if self.pending() && self.first_wanted.is_none() {
             self.first_wanted = self.last_wanted;
         }
     }
 
-    /// Whether to hold the scene back: the screen's art is not built yet
-    /// (for at most `hold_max`).
-    pub fn hold(&self, now: Instant) -> bool {
-        self.screen_asked > self.covered && self.missing_since.is_some_and(|t| now.duration_since(t) < self.timing.hold_max)
-    }
+
 }
 
 #[cfg(test)]
@@ -136,7 +126,7 @@ mod tests {
         gap: Duration::from_millis(500),
         quiet: Duration::from_millis(70),
         wait_max: Duration::from_millis(300),
-        hold_max: Duration::from_secs(4),
+        screen_quiet: Duration::from_millis(70),
     };
 
     fn ms(t0: Instant, n: u64) -> Instant {
@@ -185,31 +175,37 @@ mod tests {
     }
 
     #[test]
-    fn missing_screen_art_holds_the_scene_until_built_or_too_long() {
+    fn a_replacement_whole_atlas_keeps_missing_screen_art_pending() {
         let t0 = Instant::now();
-        let mut s = ArtSchedule::new(Timing { gap: Duration::ZERO, ..T });
-        // Map art (a unit) does not hold anything back.
-        s.want(t0, false);
-        assert!(!s.hold(t0));
-        let token = s.start(ms(t0, 100)).unwrap();
-        s.done(ms(t0, 150), token);
-        // A screen's art does, until a rebuild covering it ends.
-        s.want(ms(t0, 200), true);
-        assert!(s.hold(ms(t0, 200)));
-        let token = s.start(ms(t0, 300)).unwrap();
-        s.want(ms(t0, 310), false);
-        assert!(s.hold(ms(t0, 400)));
-        s.done(ms(t0, 500), token);
-        assert!(!s.hold(ms(t0, 500)));
-        // Never built (too slow): shown anyway after hold_max.
-        s.want(ms(t0, 1000), true);
-        assert!(s.hold(ms(t0, 4999)));
-        assert!(!s.hold(ms(t0, 5000)));
-        assert!(s.screen_pending(), "real request readiness does not expire with the legacy timer");
-        let token = s.start(ms(t0, 6000)).unwrap();
-        s.want(ms(t0, 6010), false);
-        s.done(ms(t0, 6100), token);
-        assert!(!s.screen_pending(), "pending map work cannot retain a terminally failed screen request");
-        assert!(s.pending());
+        let mut schedule = ArtSchedule::new(Timing::GROWING);
+        schedule.want(t0, true);
+        let first = schedule.start(ms(t0, 40)).unwrap();
+        // A scenario's optional atlas supersedes the first whole build, but
+        // it also carries every mandatory menu item the first had promised.
+        schedule.want(ms(t0, 50), true);
+        schedule.done(ms(t0, 60), first);
+        assert!(schedule.screen_pending());
+        let replacement = schedule.start(ms(t0, 100)).unwrap();
+        assert!(schedule.screen_pending());
+        schedule.done(ms(t0, 200), replacement);
+        assert!(!schedule.screen_pending());
+    }
+
+    #[test]
+    fn pending_screen_requests_track_completion_independently_of_map_requests() {
+        let t0 = Instant::now();
+        let mut schedule = ArtSchedule::new(Timing { gap: Duration::ZERO, ..T });
+        schedule.want(t0, false);
+        assert!(!schedule.screen_pending());
+        let token = schedule.start(ms(t0, 100)).unwrap();
+        schedule.done(ms(t0, 150), token);
+        schedule.want(ms(t0, 200), true);
+        assert!(schedule.screen_pending());
+        let token = schedule.start(ms(t0, 300)).unwrap();
+        schedule.want(ms(t0, 310), false);
+        assert!(schedule.screen_pending());
+        schedule.done(ms(t0, 500), token);
+        assert!(!schedule.screen_pending(), "map work cannot retain a completed screen request");
+        assert!(schedule.pending());
     }
 }

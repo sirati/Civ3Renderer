@@ -2,13 +2,17 @@
 //! of the builtin DLL `civ3r_native.dll`. The game-side driver (a 32-bit
 //! Windows DLL in the same process) sends render assets and scenes and
 //! collects input through `__wine_unix_call`; this side runs the tile
-//! viewer natively (Wayland, Vulkan) on a thread of its own.
+//! viewer natively: on Linux (Wayland, Vulkan) on a thread of its own, on
+//! macOS (AppKit, Metal) on the process's main thread, in the
+//! `NSApplication` Wine's Mac driver runs there (the game's threads are
+//! Wine's, never the main one). Everything else is the same on both.
 //!
 //! Calls (argument structs are plain data, see [`Assets`], [`Publish`],
 //! [`TakeInput`]):
 //! 0. assets: compile a render description; starts the viewer on first use
 //! 1. publish: a batch of scene updates (`scene::wire`)
-//! 2. input: take the viewer's queued input (`scene::wire`)
+//! 2. input: take the viewer's queued input (`scene::wire`), waiting for
+//!    some if asked to ([`LIMIT_INPUT_WAIT`])
 //! 3. log: take this side's log lines (`log_lines`), for the driver's log
 //! 4. status: the latest art generation the viewer has been given
 //! 5. limits: the renderer's limits ([`Limits`]), e.g. for the driver's
@@ -19,7 +23,7 @@ use wine_unixlib::Buffer32;
 
 pub mod log_lines;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod art_queue;
 
 /// Call 0. `data`: `scene::wire::encode_assets`; `flags` bit 0: fullscreen.
@@ -45,6 +49,8 @@ pub struct Publish {
 pub struct TakeInput {
     pub out: Buffer32,
     pub len: u32,
+    /// Input: with none queued, how many milliseconds to wait for some
+    /// (at most a second; [`LIMIT_INPUT_WAIT`]). 0 for the log.
     pub _pad: u32,
 }
 
@@ -87,13 +93,18 @@ pub const CALL_UPLOADED: u32 = 6;
 /// [`Limits::_pad`] advertises that [`CALL_UPLOADED`] exists. Check this
 /// before dispatching the extra call against an older native library.
 pub const LIMIT_UPLOADED: u32 = 1;
+/// [`Limits::_pad`] advertises that [`CALL_INPUT`] waits for input as long
+/// as [`TakeInput::_pad`] asks (older libraries return at once).
+pub const LIMIT_INPUT_WAIT: u32 = 2;
 
-#[cfg(target_os = "linux")]
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod unix_side {
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, LazyLock, OnceLock};
 
     use civ3_assets::GameFiles;
+    use civ3r_sync::{Latest, Mailbox};
     use civ3_assets::loader::Civ3Loader;
     use scene::Driver;
     use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_DEVICE_BUSY, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};
@@ -104,18 +115,57 @@ mod unix_side {
     struct Viewer {
         driver: Driver,
         assets: tile_viewer::Assets,
-        /// Input taken but not yet delivered (the caller's buffer was too
-        /// small).
-        pending: Vec<scene::Input>,
     }
 
-    static VIEWER: Mutex<Option<Viewer>> = Mutex::new(None);
+    /// Set once the viewer runs. Everything in it is shared without locks
+    /// (the driver's channels and counters, the art's hand-off).
+    static VIEWER: OnceLock<Viewer> = OnceLock::new();
 
-    /// The publish calls' profile, if kept (made at the first call).
-    static PROFILE: Mutex<Option<Option<tile_viewer::profile::Profile>>> = Mutex::new(None);
+    /// Input taken but not yet delivered (the caller's buffer was too
+    /// small); each call takes it whole (see [`take_all`]).
+    static INPUT_PENDING: Latest<Vec<scene::Input>> = Latest::new();
 
-    /// Lines for the driver's log (`CALL_LOG`); at most this many wait.
-    static FOR_DRIVER: Mutex<crate::log_lines::LogQueue> = Mutex::new(crate::log_lines::LogQueue::new(1000));
+    thread_local! {
+        /// The publish calls' profile, if kept (made at the first call).
+        /// lock-free: per calling thread, which is the game's publisher.
+        static PROFILE: std::cell::RefCell<Option<Option<tile_viewer::profile::Profile>>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Lines for the driver's log (`CALL_LOG`), sent from any thread and
+    /// folded by `take_log` (`log_lines::LogQueue`, at most `LOG_CAP`
+    /// lines). Beyond `LOG_RAW_CAP` unread lines the oldest are dropped
+    /// and counted in `LOG_DROPPED`.
+    static FOR_DRIVER: LazyLock<Mailbox<crate::log_lines::LogLine>> = LazyLock::new(Mailbox::new);
+    static LOG_DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    const LOG_CAP: usize = 1000;
+    const LOG_RAW_CAP: usize = 10 * LOG_CAP;
+
+    /// Everything in `slot`, which is then empty: a concurrent caller
+    /// finds nothing there rather than waiting.
+    fn take_all<T: Clone>(slot: &Latest<Vec<T>>) -> Vec<T> {
+        slot.take().map(Arc::unwrap_or_clone).unwrap_or_default()
+    }
+
+    /// Puts what `take_all` gave back, before anything put back meanwhile.
+    fn put_back<T: Clone>(slot: &Latest<Vec<T>>, mine: Vec<T>) {
+        if !mine.is_empty() {
+            slot.update(|now| Some(mine.iter().chain(now.into_iter().flatten()).cloned().collect()));
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn undelivered_items_are_put_back_in_order_and_never_lost() {
+        let slot = Latest::new();
+        put_back(&slot, vec![1, 2]);
+        let mine = take_all(&slot);
+        // Another caller took and returned newer items meanwhile.
+        assert!(take_all(&slot).is_empty());
+        put_back(&slot, vec![3]);
+        put_back(&slot, mine);
+        assert_eq!(take_all(&slot), [1, 2, 3]);
+        assert!(take_all(&slot).is_empty());
+    }
 
     /// Logs to standard error (`RUST_LOG`, default `info`) and, from `info`
     /// up, for the driver's log.
@@ -132,7 +182,10 @@ mod unix_side {
             }
             if record.level() <= log::Level::Info {
                 let line = crate::log_lines::LogLine { level: record.level(), target: record.target().to_owned(), message: record.args().to_string() };
-                FOR_DRIVER.lock().unwrap_or_else(|e| e.into_inner()).push(line);
+                while FOR_DRIVER.len() >= LOG_RAW_CAP && FOR_DRIVER.try_recv().is_some() {
+                    LOG_DROPPED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                FOR_DRIVER.send(line);
             }
         }
 
@@ -170,8 +223,10 @@ mod unix_side {
     }
 
     /// The art compiled so far, to be grown (`render_desc::Growing`): its
-    /// tables (the pixels go to the viewer) and how it grows.
-    static ART: Mutex<Option<(render_desc::Compiled, render_desc::Growing)>> = Mutex::new(None);
+    /// tables (the pixels go to the viewer) and how it grows. Owned by the
+    /// art thread; the first, compiled before it starts, is handed over here.
+    type Art = (render_desc::Compiled, render_desc::Growing);
+    static FIRST_ART: LazyLock<Mailbox<Art>> = LazyLock::new(Mailbox::new);
 
     /// The art of `a` (a whole description) compiled, kept to be grown.
     fn compile(a: &scene::wire::Assets, stop: &dyn Fn() -> bool) -> Result<(render_desc::Compiled, render_desc::Growing), String> {
@@ -203,9 +258,8 @@ mod unix_side {
 
     /// The growth of the art by `a` (an addition), applied to the tables
     /// kept.
-    fn grow(a: &scene::wire::Assets, stop: &dyn Fn() -> bool) -> Result<render_desc::Growth, String> {
+    fn grow(a: &scene::wire::Assets, stop: &dyn Fn() -> bool, art: &mut Option<Art>) -> Result<render_desc::Growth, String> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
-        let mut art = ART.lock().unwrap_or_else(|e| e.into_inner());
         let Some((compiled, growing)) = art.as_mut() else { return Err("no art to grow".into()) };
         let started = std::time::Instant::now();
         let growth = growing.grow(compiled, &a.description, &render_desc::StopWhen::new(Civ3Loader::new(files), stop)).map_err(|e| e.to_string())?;
@@ -241,7 +295,7 @@ mod unix_side {
 
     pub fn limits(args: &mut Limits) -> Status {
         log_init();
-        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED };
+        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT };
         STATUS_SUCCESS
     }
 
@@ -257,13 +311,17 @@ mod unix_side {
         static STARTED: std::sync::Once = std::sync::Once::new();
         let mut result = Ok(());
         STARTED.call_once(|| {
-            result = wine_unixlib::unix::spawn_native("civ3r-native-art", || loop {
+            result = wine_unixlib::unix::spawn_native("civ3r-native-art", || { let mut art: Option<Art> = None; loop {
                 let a = NEXT.pop();
+                // Sent before the viewer was set, so before any job.
+                for first in FIRST_ART.drain() {
+                    art = Some(first);
+                }
                 let stop = || NEXT.superseded(a.generation);
-                let viewer = || VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|v| v.assets.clone());
+                let viewer = || VIEWER.get().map(|v| v.assets.clone());
                 let started = std::time::Instant::now();
                 let result = if a.append {
-                    grow(&a, &stop).map(|g| {
+                    grow(&a, &stop, &mut art).map(|g| {
                         NEXT.with_current(a.generation, || {
                             if let Some(assets) = viewer() {
                                 assets.grow_with_reserve(Arc::new(g), a.generation, 0, a.reserve);
@@ -275,7 +333,7 @@ mod unix_side {
                         let tables = c.without_pixels();
                         let mut retired = None;
                         let accepted = NEXT.with_current(a.generation, || {
-                            retired = ART.lock().unwrap_or_else(|e| e.into_inner()).replace((tables, growing));
+                            retired = art.replace((tables, growing));
                             if let Some(assets) = viewer() {
                                 assets.set_with_reserve(Arc::new(c), a.generation, 0, a.reserve);
                             }
@@ -294,7 +352,7 @@ mod unix_side {
                 }
                 // (Done with it, compiled or not: the bridge waits for no more.)
                 PROCESSED.fetch_max(a.generation, std::sync::atomic::Ordering::Release);
-            })
+            }})
             .map(drop);
         });
         result?;
@@ -306,14 +364,14 @@ mod unix_side {
     static PROCESSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     pub fn status(args: &mut ArtStatus) -> Status {
-        let given = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.latest());
+        let given = VIEWER.get().map_or(0, |v| v.assets.latest());
         let generation = given.max(PROCESSED.load(std::sync::atomic::Ordering::Acquire));
         (args.generation_lo, args.generation_hi) = (generation as u32, (generation >> 32) as u32);
         STATUS_SUCCESS
     }
 
     pub fn uploaded(args: &mut ArtStatus) -> Status {
-        let generation = VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |v| v.assets.uploaded_generation());
+        let generation = VIEWER.get().map_or(0, |v| v.assets.uploaded_generation());
         (args.generation_lo, args.generation_hi) = (generation as u32, (generation >> 32) as u32);
         STATUS_SUCCESS
     }
@@ -329,7 +387,7 @@ mod unix_side {
             }
         };
         // A running viewer gets new art when it is compiled.
-        if VIEWER.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        if VIEWER.get().is_some() {
             return match compile_later(a) {
                 Ok(()) => STATUS_SUCCESS,
                 Err(e) => {
@@ -346,7 +404,7 @@ mod unix_side {
         let generation = a.generation;
         let compiled = match compile(&a, &|| false) {
             Ok((c, growing)) => {
-                *ART.lock().unwrap_or_else(|e| e.into_inner()) = Some((c.without_pixels(), growing));
+                FIRST_ART.send((c.without_pixels(), growing));
                 Arc::new(c)
             }
             Err(e) => {
@@ -354,13 +412,13 @@ mod unix_side {
                 return STATUS_UNSUCCESSFUL;
             }
         };
-        let mut viewer = VIEWER.lock().unwrap_or_else(|e| e.into_inner());
         let (driver, display) = scene::connect();
         let quit = display.input_sender();
         let assets = tile_viewer::Assets::new(compiled.clone());
         assets.set(compiled, generation);
         let config = tile_viewer::ViewerConfig {
             title: "Civ III (native renderer)".into(),
+            native_thread_init: Some(wine_unixlib::unix::block_native_signals),
             size: (1024, 768),
             fullscreen: args.flags & 1 != 0,
             // (As `civ3_bridge::scene_map::OVERHANG`: tall art above and
@@ -369,27 +427,70 @@ mod unix_side {
             ..Default::default()
         };
         let a = assets.clone();
-        let started = wine_unixlib::unix::spawn_native("civ3r-native-viewer", move || {
-            struct QuitWhenStopped(scene::InputSender);
-            impl Drop for QuitWhenStopped { fn drop(&mut self) { let _ = self.0.send(scene::Input::Quit); } }
-            let _quit = QuitWhenStopped(quit);
-            if let Err(e) = tile_viewer::run(config, a, display) {
-                log::error!("civ3r-native: viewer: {e}");
-            }
-        });
+        let started = start_viewer(config, a, display, QuitWhenStopped(quit));
         if let Err(e) = started {
             log::error!("civ3r-native: starting the viewer: {e}");
             return STATUS_UNSUCCESSFUL;
         }
         log::info!("civ3r-native: viewer started");
-        *viewer = Some(Viewer { driver, assets, pending: Vec::new() });
+        if VIEWER.set(Viewer { driver, assets }).is_err() {
+            // (Only with concurrent first calls; the first viewer stays.)
+            log::warn!("civ3r-native: a second viewer was started");
+        }
         STATUS_SUCCESS
+    }
+
+    /// Tells the driver the viewer is gone when dropped, however it ends.
+    struct QuitWhenStopped(scene::InputSender);
+    impl Drop for QuitWhenStopped {
+        fn drop(&mut self) {
+            let _ = self.0.send(scene::Input::Quit);
+        }
+    }
+
+    /// The viewer on a native thread of its own (Wayland and Vulkan take
+    /// any thread).
+    #[cfg(target_os = "linux")]
+    fn start_viewer(config: tile_viewer::ViewerConfig, assets: tile_viewer::Assets, display: scene::Display, quit: QuitWhenStopped) -> std::io::Result<()> {
+        wine_unixlib::unix::spawn_native("civ3r-native-viewer", move || {
+            let _quit = quit;
+            if let Err(e) = tile_viewer::run(config, assets, display) {
+                log::error!("civ3r-native: viewer: {e}");
+            }
+        })
+        .map(drop)
+    }
+
+    /// The viewer in Wine's `NSApplication` on the main thread (AppKit's
+    /// windows live there only); its frames and events run there, between
+    /// the Mac driver's. Wine starts its application when the game makes
+    /// its first window, normally long before the first art.
+    #[cfg(target_os = "macos")]
+    fn start_viewer(config: tile_viewer::ViewerConfig, assets: tile_viewer::Assets, display: scene::Display, quit: QuitWhenStopped) -> std::io::Result<()> {
+        let config = tile_viewer::ViewerConfig { application_icon: application_icon(), ..config };
+        tile_viewer::start_in_host_application(config, assets, display, std::time::Duration::from_secs(120), Box::new(move |end| {
+            let _quit = quit;
+            match end {
+                Ok(()) => log::info!("civ3r-native: viewer closed"),
+                Err(e) => log::error!("civ3r-native: viewer: {e}"),
+            }
+        }));
+        Ok(())
+    }
+
+    /// The original game's icon for the Dock (the game's own window, which
+    /// would give Wine's application its icon, stays hidden).
+    #[cfg(target_os = "macos")]
+    fn application_icon() -> Option<application_icon::ApplicationIcon> {
+        application_icon::ApplicationIcon::from_png(include_bytes!("../../civ3r-viewer/assets/civ3-conquests-icon.png"))
+            .map_err(|e| log::warn!("civ3r-native: application icon: {e}"))
+            .ok()
     }
 
     /// `STATUS_DEVICE_BUSY` while the viewer has not taken the last batch:
     /// the bridge folds this one into its next.
     pub fn publish(args: &mut Publish) -> Status {
-        if VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|v| v.driver.busy()) {
+        if VIEWER.get().is_some_and(|v| v.driver.busy()) {
             return STATUS_DEVICE_BUSY;
         }
         let started = std::time::Instant::now();
@@ -398,18 +499,18 @@ mod unix_side {
         let decoding = std::time::Instant::now();
         let decoded = scene::wire::decode_updates(&bytes);
         // Where the time goes (`TILE_VIEWER_PROFILE=1`).
-        let mut profile = PROFILE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(p) = profile.get_or_insert_with(|| tile_viewer::profile::env_on("TILE_VIEWER_PROFILE").then(|| tile_viewer::profile::Profile::new("native publish", std::time::Duration::from_secs(5)))) {
-            p.round_start();
-            p.add("read", read);
-            p.add("decode", decoding.elapsed());
-            p.count("bytes", bytes.len());
-            p.round_end();
-            if let Some(report) = p.report() {
-                log::info!("{report}");
+        PROFILE.with_borrow_mut(|profile| {
+            if let Some(p) = profile.get_or_insert_with(|| tile_viewer::profile::env_on("TILE_VIEWER_PROFILE").then(|| tile_viewer::profile::Profile::new("native publish", std::time::Duration::from_secs(5)))) {
+                p.round_start();
+                p.add("read", read);
+                p.add("decode", decoding.elapsed());
+                p.count("bytes", bytes.len());
+                p.round_end();
+                if let Some(report) = p.report() {
+                    log::info!("{report}");
+                }
             }
-        }
-        drop(profile);
+        });
         let updates = match decoded {
             Ok(u) => u,
             Err(e) => {
@@ -417,7 +518,7 @@ mod unix_side {
                 return STATUS_INVALID_PARAMETER;
             }
         };
-        match VIEWER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        match VIEWER.get() {
             Some(v) => {
                 v.driver.send(updates);
                 STATUS_SUCCESS
@@ -427,45 +528,64 @@ mod unix_side {
     }
 
     pub fn input(args: &mut TakeInput) -> Status {
-        let mut viewer = VIEWER.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(v) = viewer.as_mut() else {
+        let Some(v) = VIEWER.get() else {
             args.len = 0;
             return STATUS_SUCCESS;
         };
-        v.pending.extend(v.driver.take_input());
-        let bytes = scene::wire::encode_input(&v.pending);
+        let mut pending = take_all(&INPUT_PENDING);
+        pending.extend(v.driver.take_input());
+        if pending.is_empty() && args._pad > 0 {
+            pending = v.driver.wait_input(std::time::Duration::from_millis(args._pad.min(1000).into()));
+        }
+        let bytes = scene::wire::encode_input(&pending);
         args.len = bytes.len() as u32;
         if bytes.len() > args.out.len as usize {
+            put_back(&INPUT_PENDING, pending);
             return STATUS_BUFFER_TOO_SMALL;
         }
         if wine_unixlib::unix::write(args.out, &bytes).is_err() {
+            put_back(&INPUT_PENDING, pending);
             return STATUS_INVALID_PARAMETER;
         }
-        v.pending.clear();
         STATUS_SUCCESS
     }
 
     /// Lines kept for the driver's log until it has room for them all.
-    static LOG_PENDING: Mutex<Vec<crate::log_lines::LogLine>> = Mutex::new(Vec::new());
+    static LOG_PENDING: Latest<Vec<crate::log_lines::LogLine>> = Latest::new();
+
+    /// What the loggers sent since the last call, folded as `LogQueue`
+    /// folds them, with a note of the lines dropped unread.
+    fn new_log_lines() -> Vec<crate::log_lines::LogLine> {
+        let mut queue = crate::log_lines::LogQueue::new(LOG_CAP);
+        let dropped = LOG_DROPPED.swap(0, std::sync::atomic::Ordering::Relaxed);
+        if dropped > 0 {
+            queue.push(crate::log_lines::LogLine { level: log::Level::Warn, target: "civ3r_native".into(), message: format!("({dropped} log lines dropped)") });
+        }
+        for line in FOR_DRIVER.drain() {
+            queue.push(line);
+        }
+        queue.take()
+    }
 
     pub fn take_log(args: &mut TakeLog) -> Status {
-        let mut pending = LOG_PENDING.lock().unwrap_or_else(|e| e.into_inner());
-        pending.extend(FOR_DRIVER.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let mut pending = take_all(&LOG_PENDING);
+        pending.extend(new_log_lines());
         let bytes = crate::log_lines::encode(&pending);
         args.len = bytes.len() as u32;
         if bytes.len() > args.out.len as usize {
+            put_back(&LOG_PENDING, pending);
             return STATUS_BUFFER_TOO_SMALL;
         }
         if wine_unixlib::unix::write(args.out, &bytes).is_err() {
+            put_back(&LOG_PENDING, pending);
             return STATUS_INVALID_PARAMETER;
         }
-        pending.clear();
         STATUS_SUCCESS
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use unix_side::{assets, input, limits, publish, status, take_log, uploaded};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded];

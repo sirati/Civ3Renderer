@@ -13,11 +13,20 @@
 //! 204, none of them marked).
 //!
 //! The preview shows what a nation that does not exist would know if it
-//! had every player's start: the tiles any player has explored, those any
-//! player's cities or units see now not fogged. A scenario whose players
-//! have nothing yet (their places are the game's choice when it starts)
-//! reveals nothing that way. Its unexplored tiles stay black until the game
-//! generates the starting positions.
+//! had the start of every civ a human may play: the tiles any of them has
+//! explored, those their cities or units see now not fogged. The others'
+//! (the computer's only, the barbarians') stay unknown. A scenario whose
+//! players have nothing yet (their places are the game's choice when it
+//! starts) reveals nothing that way. Its unexplored tiles stay black until
+//! the game generates the starting positions (and the preview frames the
+//! whole map).
+//!
+//! Which civs a human may play, as the game's civ selection decides
+//! (0x585480..0x585527; `LEAD` in memory: human flag +8, race +0x58): one
+//! the scenario's playable list (`GAME`) holds, or any if the list is
+//! empty (0x5E22B0), and that no `LEAD` player of it is the computer's
+//! (*Human player* unset). `TILE` holds no reveal bits per civ or player:
+//! the start is the cities' and units' (above).
 
 use civ3_assets::biq::{Map, Owner, Player};
 
@@ -69,21 +78,38 @@ fn around(map: &Map, (x, y): (i32, i32), r: i32, mut f: impl FnMut(usize)) {
     }
 }
 
-/// What the scenario's players (`players`) have revealed at its start
-/// (`map_visible`: the scenario reveals the entire map).
-pub fn revealed(map: &Map, players: &[Player], map_visible: bool) -> Revealed {
+/// Whether a human may play civilization `race` (see the module docs):
+/// `playable` the scenario's list (`Biq::playable_races`, empty: all).
+/// Never the barbarians (0).
+pub fn race_playable(race: i32, players: &[Player], playable: &[i32]) -> bool {
+    race > 0 && (playable.is_empty() || playable.contains(&race)) && !players.iter().any(|p| p.race == race && !p.human)
+}
+
+/// Whether what `owner` owns is a human-playable civ's: a player's own, or
+/// its civilization's (a civilization no player plays only in a scenario
+/// without players).
+pub fn playable_owner(owner: Owner, players: &[Player], playable: &[i32]) -> bool {
+    match owner {
+        // (A player whose civ is random or the human's choice, race < 0,
+        // may be the human's if its flag says so.)
+        Owner::Player(p) => usize::try_from(p)
+            .ok()
+            .and_then(|p| players.get(p))
+            .is_some_and(|p| p.human && (p.race < 0 || race_playable(p.race, players, playable))),
+        Owner::Race(r) => (players.is_empty() || players.iter().any(|p| p.race == r)) && race_playable(r, players, playable),
+        Owner::None | Owner::Barbarians => false,
+    }
+}
+
+/// What the scenario's human-playable civs (`players`, `playable`: see
+/// [`playable_owner`]) have revealed at its start (`map_visible`: the
+/// scenario reveals the entire map).
+pub fn revealed(map: &Map, players: &[Player], playable: &[i32], map_visible: bool) -> Revealed {
     let n = map.tiles.len();
     if map_visible {
         return Revealed { explored: vec![true; n], in_sight: vec![true; n] };
     }
-    // (What a player owns: its own, or its civilization's; not the
-    // barbarians'.)
-    let races: Vec<i32> = players.iter().map(|p| p.race).collect();
-    let a_player = |o: Owner| match o {
-        Owner::Player(p) => (0..players.len() as i32).contains(&p),
-        Owner::Race(r) => races.contains(&r),
-        Owner::None | Owner::Barbarians => false,
-    };
+    let a_player = |o: Owner| playable_owner(o, players, playable);
     let mut explored = vec![false; n];
     let mut in_sight = vec![false; n];
     for c in map.cities.iter().filter(|c| a_player(c.owner)) {
@@ -182,24 +208,24 @@ mod tests {
     fn units_see_the_eight_tiles_around_and_cities_beyond_their_borders() {
         let mut m = map(40, 40, 0);
         m.units.push(unit(Owner::Race(3), 10, 10));
-        let r = revealed(&m, &[player(3)], false);
+        let r = revealed(&m, &[player(3)], &[], false);
         assert_eq!(count(&r.explored), 9);
         assert!(r.explored[((9 * 40 + 11) / 2) as usize] && r.explored[((10 * 40 + 12) / 2) as usize]);
         // A city of border level 1 (the tiles around it): 21 tiles, its
         // work area; level 2: radius 3 (45: no corners), as the game reveals.
         let mut m = map(40, 40, 0);
         m.cities.push(city(Owner::Player(0), 20, 20, 1));
-        assert_eq!(count(&revealed(&m, &[player(3)], false).explored), 21);
+        assert_eq!(count(&revealed(&m, &[player(3)], &[], false).explored), 21);
         m.cities[0].border_level = 2;
-        assert_eq!(count(&revealed(&m, &[player(3)], false).explored), 45);
+        assert_eq!(count(&revealed(&m, &[player(3)], &[], false).explored), 45);
         // The barbarians' and nobody's reveal nothing; a map without
         // anyone's reveals nothing; one the scenario reveals, all seen.
         let mut m = map(40, 40, 0);
         m.units.push(unit(Owner::Barbarians, 10, 10));
         m.units.push(unit(Owner::Race(7), 20, 10));
-        let r = revealed(&m, &[player(3)], false);
+        let r = revealed(&m, &[player(3)], &[], false);
         assert!(!r.explored.contains(&true) && !r.in_sight.contains(&true));
-        let r = revealed(&m, &[player(3)], true);
+        let r = revealed(&m, &[player(3)], &[], true);
         assert!(r.explored.iter().chain(&r.in_sight).all(|&e| e));
     }
 
@@ -207,7 +233,7 @@ mod tests {
     fn what_is_revealed_wraps_round_the_map() {
         let mut m = map(40, 20, 1);
         m.units.push(unit(Owner::Player(0), 0, 10));
-        let r = revealed(&m, &[player(1)], false);
+        let r = revealed(&m, &[player(1)], &[], false);
         // (39, 9) and (38, 10) are next to (0, 10) across the edge.
         assert!(r.explored[((9 * 40 + 39) / 2) as usize] && r.explored[((10 * 40 + 38) / 2) as usize]);
         assert_eq!(count(&r.explored), 9);
@@ -252,18 +278,104 @@ mod tests {
         path.is_file().then(|| Biq::open(&path).unwrap())
     }
 
+    /// What each owner of `map` reveals alone (any owner counted), keyed by
+    /// owner: the per-civ start the preview unites.
+    fn by_owner(map: &Map, players: &[Player]) -> Vec<(Owner, Vec<bool>)> {
+        let mut owners: Vec<Owner> = Vec::new();
+        for o in map.cities.iter().map(|c| c.owner).chain(map.units.iter().map(|u| u.owner)) {
+            if !owners.contains(&o) {
+                owners.push(o);
+            }
+        }
+        let everyone: Vec<Player> = players.iter().map(|p| Player { human: true, ..p.clone() }).collect();
+        owners
+            .into_iter()
+            .map(|o| {
+                let alone = Map {
+                    cities: map.cities.iter().filter(|c| c.owner == o).cloned().collect(),
+                    units: map.units.iter().filter(|u| u.owner == o).cloned().collect(),
+                    ..map.clone()
+                };
+                (o, revealed(&alone, &everyone, &[], false).explored)
+            })
+            .collect()
+    }
+
     #[test]
-    fn the_real_scenarios_reveal_what_their_players_start_with() {
+    fn only_the_civs_a_human_may_play_reveal() {
+        // Race 3 the computer's only (LEAD human flag unset), race 5 not in
+        // the playable list, race 4 a human's: only race 4's units reveal.
+        let mut m = map(40, 40, 0);
+        m.units.push(unit(Owner::Race(3), 10, 10));
+        m.units.push(unit(Owner::Race(5), 20, 10));
+        m.units.push(unit(Owner::Race(4), 30, 30));
+        m.units.push(unit(Owner::Player(2), 10, 30));
+        m.units.push(unit(Owner::Barbarians, 20, 20));
+        let ai = Player { human: false, ..player(3) };
+        let players = [ai.clone(), player(4), player(5)];
+        let r = revealed(&m, &players, &[3, 4, 6], false);
+        assert_eq!(count(&r.explored), 9);
+        assert!(r.explored[((30 * 40 + 30) / 2) as usize] && !r.explored[((10 * 40 + 10) / 2) as usize]);
+        assert!(!r.explored[((10 * 40 + 20) / 2) as usize] && !r.explored[((30 * 40 + 10) / 2) as usize]);
+        // No playable list: every civ but the computer's (and the
+        // barbarians) may be played; a player whose civ is chosen at the
+        // start (race < 0) is the human's if flagged so.
+        let r = revealed(&m, &players, &[], false);
+        assert_eq!(count(&r.explored), 27);
+        let chosen = [ai, player(4), player(-3)];
+        assert!(playable_owner(Owner::Player(2), &chosen, &[4]));
+        assert!(!playable_owner(Owner::Player(0), &chosen, &[3, 4]));
+        assert!(!playable_owner(Owner::Race(0), &[], &[]) && playable_owner(Owner::Race(9), &[], &[]));
+        // A playable civ with nothing revealed: none; the preview frames
+        // the whole map then (`preview::area`).
+        let mut m = map(40, 40, 0);
+        m.units.push(unit(Owner::Race(3), 10, 10));
+        let r = revealed(&m, &players, &[], false);
+        assert!(!r.explored.contains(&true) && revealed_box(&m, &r.explored).is_none());
+    }
+
+    #[test]
+    fn the_real_scenarios_reveal_what_their_playable_civs_start_with() {
         let Some(rome) = scenario("2 Rise of Rome.biq") else { return eprintln!("no Civ III install, skipped") };
+        // (Scenario, revealed by all players, by the playable civs only.)
+        let cases = [
+            ("1 Mesopotamia.biq", 231, 231),
+            ("2 Rise of Rome.biq", 3178, 2274),
+            ("3 Fall of Rome.biq", 2825, 729),
+            ("4 Middle Ages.biq", 1964, 1505),
+            ("5 Mesoamerica.biq", 135, 135),
+            ("6 Age of Discovery.biq", 565, 544),
+            ("7 Sengoku - Sword of the Shogun.biq", 0, 0),
+            ("8 Napoleonic Europe.biq", 3640, 3640),
+            ("9 WWII European Front 6 .biq", 32768, 32768),
+            ("Intro2 The Three Sisters.biq", 84, 84),
+            ("MP1vAll3.biq", 656, 160),
+        ];
+        for (name, before, after) in cases {
+            let Some(biq) = scenario(name) else { continue };
+            let (map, players, playable) = (biq.map().unwrap(), biq.players(), biq.playable_races());
+            if biq.map_visible() {
+                // (Napoleonic Europe: everyone knows all of it.)
+                let r = revealed(&map, &players, &playable, true);
+                assert_eq!((count(&r.explored), count(&r.explored)), (before, after), "{name}");
+                continue;
+            }
+            let r = revealed(&map, &players, &playable, false);
+            assert_eq!(r.explored, r.in_sight);
+            // The union of the playable civs' starts, none of the others'.
+            let mut union = vec![false; map.tiles.len()];
+            for (owner, seen) in by_owner(&map, &players) {
+                if playable_owner(owner, &players, &playable) {
+                    union.iter_mut().zip(&seen).for_each(|(u, s)| *u |= s);
+                }
+            }
+            assert_eq!(r.explored, union, "{name}");
+            let everyone: Vec<Player> = players.iter().map(|p| Player { human: true, ..p.clone() }).collect();
+            let all = count(&revealed(&map, &everyone, &[], false).explored);
+            assert_eq!((all, count(&r.explored)), (before, after), "{name}");
+        }
         let map = rome.map().unwrap();
-        assert!(!rome.map_visible());
-        let r = revealed(&map, &rome.players(), false);
-        // Measured at turn 1: the eight players have explored 3232 tiles
-        // between them, round the Mediterranean; this makes 3178, 3177 of
-        // them the same (`Tile.Explored` of the game's eight civs).
-        let n = count(&r.explored);
-        assert_eq!(n, 3178);
-        assert_eq!(r.explored, r.in_sight);
+        let r = revealed(&map, &rome.players(), &rome.playable_races(), false);
         // Rome (47, 67), border level 3: radius 4 explored.
         let i = |x: i32, y: i32| ((y * map.width + x) / 2) as usize;
         assert!(r.explored[i(47, 67)] && r.explored[i(47 + 4, 67 + 4)] && r.explored[i(47 + 2, 67 - 4)]);
@@ -275,14 +387,8 @@ mod tests {
         let Some(pacific) = scenario("9 WWII in the Pacific.biq") else { return };
         assert!(pacific.map_visible());
         let map = pacific.map().unwrap();
-        let r = revealed(&map, &pacific.players(), pacific.map_visible());
+        let r = revealed(&map, &pacific.players(), &pacific.playable_races(), pacific.map_visible());
         assert!(r.explored.iter().all(|&e| e));
         assert_eq!(revealed_box(&map, &r.explored), Some(TileBox { x: 0, y: 0, w: map.width, h: map.height }));
-        // Sengoku has nobody on its map yet. No tile is known before the
-        // game generates its starting positions.
-        let Some(sengoku) = scenario("7 Sengoku - Sword of the Shogun.biq") else { return };
-        let map = sengoku.map().unwrap();
-        let r = revealed(&map, &sengoku.players(), sengoku.map_visible());
-        assert!(!r.explored.contains(&true) && !r.in_sight.contains(&true));
     }
 }

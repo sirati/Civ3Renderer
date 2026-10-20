@@ -154,6 +154,31 @@ pub fn text_extent(font: &FontSpec, text: &[u8]) -> Result<i32, GdiError> {
     MeasureDc::new(font)?.extent(text)
 }
 
+pub fn text_layout(font: &FontSpec, text: &[u8]) -> Result<crate::TextLayout, GdiError> {
+    let measure = MeasureDc::new(font)?;
+    let mut cumulative = vec![0; text.len()];
+    let mut size = SIZE { cx: 0, cy: 0 };
+    let mut metrics: TEXTMETRICW = unsafe { std::mem::zeroed() };
+    // SAFETY: the selected font/DC and the byte/output buffers outlive both
+    // calls; cumulative contains one output slot per ANSI byte.
+    unsafe {
+        if GetTextExtentExPointA(measure.dc, text.as_ptr(), text.len() as i32,
+            i32::MAX, std::ptr::null_mut(), cumulative.as_mut_ptr(), &mut size) == 0 {
+            return Err(GdiError::Call("GetTextExtentExPointA"));
+        }
+        if GetTextMetricsW(measure.dc, &mut metrics) == 0 {
+            return Err(GdiError::Call("GetTextMetricsW"));
+        }
+    }
+    let mut pen = 0;
+    let advances = cumulative.into_iter().map(|next| {
+        let advance = next - pen;
+        pen = next;
+        advance
+    }).collect();
+    Ok(crate::TextLayout { advances, ascent: metrics.tmAscent, descent: metrics.tmDescent, underline: underline(measure.dc, &metrics) })
+}
+
 pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> Result<crate::Font, GdiError> {
     let cell = font.height.abs() * 3;
     let mut canvas = Canvas::new(font, (cell * 2, cell))?;
@@ -172,7 +197,20 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
         // The pen advance as text output places it (of the first of two, so
         // no end-of-string adjustment applies).
         let twice: Vec<u16> = units.iter().chain(units).copied().collect();
-        let advance = canvas.advances(&twice).first().copied().unwrap_or(0);
+        let mut advance = canvas.advances(&twice).first().copied().unwrap_or(0);
+        if advance == 0 {
+            // GCP can leave lpDx at zero for glyphs missing from the selected
+            // face, even though TextOutW draws a fallback glyph. Keep that
+            // glyph's native width so the generated cache does not overlap
+            // following text. Zero-width controls still measure as zero.
+            let mut fallback = SIZE { cx: 0, cy: 0 };
+            // SAFETY: `units` and `fallback` outlive the call; the selected
+            // font and DC belong to `canvas`.
+            if unsafe { GetTextExtentPoint32W(canvas.dc, units.as_ptr(), units.len() as i32, &mut fallback) } == 0 {
+                return Err(GdiError::Call("GetTextExtentPoint32W"));
+            }
+            advance = fallback.cx;
+        }
         let light = canvas.draw(units, origin, 0xFF_FFFF, 0);
         let dark: Vec<[u8; 3]> = canvas.draw(units, origin, 0, 0xFF_FFFF).into_iter().map(|p| p.map(|c| 255 - c)).collect();
         let (w, h) = canvas.size;
@@ -197,16 +235,16 @@ pub fn render_glyphs(font: &FontSpec, chars: impl IntoIterator<Item = char>) -> 
             light: crop(&light),
         });
     }
-    Ok(crate::Font { ascent: metrics.tmAscent, underline: underline(&canvas, &metrics), glyphs: out })
+    Ok(crate::Font { ascent: metrics.tmAscent, underline: underline(canvas.dc, &metrics), glyphs: out })
 }
 
 /// GDI's underline: centred on `otmsUnderscorePosition` (up from the
 /// baseline), `otmsUnderscoreSize` thick; one row under the baseline if
 /// the font has no outline metrics.
-fn underline(canvas: &Canvas, metrics: &TEXTMETRICW) -> (i32, i32) {
+fn underline(dc: HDC, metrics: &TEXTMETRICW) -> (i32, i32) {
     let mut otm: OUTLINETEXTMETRICW = unsafe { std::mem::zeroed() };
     // SAFETY: writes at most `size_of::<OUTLINETEXTMETRICW>()` bytes into `otm`.
-    let n = unsafe { GetOutlineTextMetricsW(canvas.dc, size_of::<OUTLINETEXTMETRICW>() as u32, &mut otm) };
+    let n = unsafe { GetOutlineTextMetricsW(dc, size_of::<OUTLINETEXTMETRICW>() as u32, &mut otm) };
     if n == 0 {
         return (1.min(metrics.tmDescent), 1);
     }

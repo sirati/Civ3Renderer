@@ -18,6 +18,14 @@ pub fn windows_1252_char(c: char) -> char {
 }
 
 
+/// Encodes one game character. Byte-valued keys retain their ANSI byte;
+/// Unicode Windows-1252 punctuation maps back to the same byte.
+pub fn windows_1252_byte(c: char) -> u8 {
+    u8::try_from(c as u32).ok().or_else(|| {
+        (0x80u8..=0x9f).find(|&byte| windows_1252_char(char::from(byte)) == c)
+    }).unwrap_or(b'?')
+}
+
 /// A font request, as `CreateFontW` takes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FontSpec {
@@ -138,6 +146,26 @@ pub fn text_extent(font: &FontSpec, text: &[u8]) -> Result<i32, GdiError> {
     }
 }
 
+/// Final pen advances and underline geometry, without rasterising glyphs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextLayout {
+    pub advances: Vec<i32>,
+    pub ascent: i32,
+    pub descent: i32,
+    pub underline: (i32, i32),
+}
+
+/// Measures a complete ANSI text run in one GDI call. No pixels are drawn.
+pub fn text_layout(font: &FontSpec, text: &[u8]) -> Result<TextLayout, GdiError> {
+    #[cfg(windows)]
+    return win::text_layout(font, text);
+    #[cfg(not(windows))]
+    {
+        let _ = (font, text);
+        Err(GdiError::Unsupported)
+    }
+}
+
 /// Renders `chars` one by one with `font`. Byte-valued keys use
 /// Windows-1252 when drawn through GDI's Unicode API; returned glyphs keep
 /// the original keys so sheets and ANSI text retain their byte positions.
@@ -170,5 +198,17 @@ mod tests {
         assert_eq!(super::paint(&dark, &light, [255, 255, 255]), [[0; 4], [180, 170, 160, 180], [255; 4]]);
         // A colour in between: per channel in between.
         assert_eq!(super::paint(&dark, &light, [255, 0, 0])[1], [180, 120, 140, 180]);
+    }
+}
+
+#[cfg(test)]
+mod ansi_layout_tests {
+    #[test]
+    fn unicode_punctuation_and_raw_game_keys_encode_to_the_same_bytes() {
+        for byte in 0u8..=255 {
+            assert_eq!(super::windows_1252_byte(char::from(byte)), byte);
+            assert_eq!(super::windows_1252_byte(super::windows_1252_char(char::from(byte))), byte);
+        }
+        assert_eq!("’…€".chars().map(super::windows_1252_byte).collect::<Vec<_>>(), [0x92, 0x85, 0x80]);
     }
 }

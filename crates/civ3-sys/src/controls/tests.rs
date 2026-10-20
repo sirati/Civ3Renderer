@@ -185,7 +185,7 @@ fn a_list_box_shows_its_entries_and_scrolls_with_the_wheel() {
     // The list: the wheel moves it an entry (20 px).
     let lists: Vec<&Control> = c.iter().filter(|c| matches!(c.kind, ControlKind::List { .. })).collect();
     assert_eq!(lists.len(), 1);
-    assert_eq!(lists[0].kind, ControlKind::List { scroll: [100, 100, 200, 160], step: 20 });
+    assert_eq!(lists[0].kind, ControlKind::List { scroll: [104, 100, 192, 160], step: 20 });
     assert_eq!((lists[0].rect, lists[0].id), ([100, 100, 200, 160], f as u64));
     // All shown, or no wheel: its entries only.
     list(&mut m, f, WHEEL, ROWS, 8, 0, 8);

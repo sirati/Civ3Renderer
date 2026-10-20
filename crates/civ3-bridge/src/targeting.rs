@@ -100,7 +100,11 @@ pub fn active(mode: i32) -> bool {
     (1..MODES).contains(&mode)
 }
 
-fn go_to(mode: i32) -> bool {
+/// Whether `mode` is a move's (one unit's or a stack's go-to, its target
+/// showing the turns): the viewer shows the cursor tile by tile for it
+/// (`scene::Interface::snap_to_tiles`). Air units' rebase (0xA, 0x13) is
+/// not one.
+pub fn go_to(mode: i32) -> bool {
     mode == GO_TO || mode == STACK_GO_TO
 }
 
@@ -244,6 +248,9 @@ pub fn sprites(world: &Civ3World, zoomed_out: bool, art: &mut crate::units::Unit
         if let Some((name, palette)) = crate::units::cursor_sprite(world, art, compiled, MARKER_FRAME) {
             out.extend(free(compiled, &name, centre(to), under_units).map(|s| scene::FreeSprite { palette, ..s }));
         }
+        if let Some(name) = crate::units::cursor_smoke_sprite(world, art, compiled, MARKER_FRAME) {
+            out.extend(free(compiled, &name, centre(to), under_units).map(|s| scene::FreeSprite { blend: scene::SpriteBlend::PaletteAlpha256, ..s }));
+        }
     }
     if let Some((x, y)) = framed(world) {
         out.extend(free(compiled, TARGET_SET, (64 * x, 32 * y), under_units));
@@ -350,8 +357,8 @@ pub use live::{install, latest_path, on_game_thread};
 /// change).
 #[cfg(windows)]
 mod live {
-    use std::cell::Cell;
-    use std::sync::{Mutex, OnceLock};
+    use std::cell::{Cell, RefCell};
+    use std::sync::OnceLock;
     use std::time::{Duration, Instant};
 
     use civ3_sys::Civ3;
@@ -377,7 +384,12 @@ mod live {
     type Key = (u32, (i32, i32), (i32, i32), i32);
 
     static LIVE: OnceLock<Live> = OnceLock::new();
-    static LATEST: Mutex<Option<(Key, Instant, Option<GotoPath>)>> = Mutex::new(None);
+    thread_local! {
+        /// What the last path was found for and when (on the game's thread).
+        static FOUND: RefCell<Option<(Key, Instant, Option<GotoPath>)>> = const { RefCell::new(None) };
+    }
+    /// The path last found, for the publisher.
+    static LATEST: civ3r_sync::Latest<GotoPath> = civ3r_sync::Latest::new();
 
     pub fn install(game: Civ3) -> Result<(), String> {
         let sites = t::sites(game.build).ok_or_else(|| format!("no path finder sites for {:?}", game.build))?;
@@ -401,7 +413,7 @@ mod live {
 
     /// The path last found, if it is still about the game's state.
     pub fn latest_path() -> Option<GotoPath> {
-        LATEST.lock().ok()?.as_ref()?.2.clone()
+        LATEST.get()
     }
 
     /// Finds the path the game shows now, if it changed (on the game's
@@ -417,27 +429,28 @@ mod live {
         let used = t::moves_used(unit).unwrap_or(0);
         let key = (unit, targeting.start, to, used);
         let now = Instant::now();
-        if let Ok(latest) = LATEST.lock()
-            && latest.as_ref().is_some_and(|(k, at, _)| {
+        if FOUND.with_borrow(|latest| latest.as_ref().is_some_and(|(k, at, _)| {
                 let elapsed = now.duration_since(*at);
                 (*k == key && elapsed < REFRESH) || (k.0 == key.0 && elapsed < MIN_REFRESH)
-            })
-        {
+            })) {
             return;
         }
         let path = find(live, unit, targeting.start, to, used);
-        if let Ok(mut latest) = LATEST.lock() {
+        FOUND.with_borrow_mut(|latest| {
             if latest.as_ref().is_none_or(|(_, _, p)| *p != path) {
                 log::debug!("go-to path from {:?} to {to:?}: {path:?}", targeting.start);
+                match &path {
+                    Some(p) => LATEST.publish(p.clone()),
+                    None => LATEST.clear(),
+                }
             }
             *latest = Some((key, now, path));
-        }
+        });
     }
 
     fn clear() {
-        if let Ok(mut latest) = LATEST.lock() {
-            *latest = None;
-        }
+        FOUND.set(None);
+        LATEST.clear();
     }
 
     /// 0x4E4350: the path finder from `from` to `to` for the unit, with the
@@ -469,6 +482,37 @@ mod live {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mission_validity_controls_both_the_target_frame_and_cursor() {
+        use civ3_sys::cursor::GameCursor;
+
+        // Mission groups from Main_Screen_Form::check_action_target at
+        // 0x4DC360: drop, bombard, airlift, rebase, precision and recon.
+        for mode in [4, 6, 7, 15, 16, 8, 10, 19, 11, 17, 22] {
+            let mut world = Civ3World::default();
+            world.targeting.mode = mode;
+            world.targeting.pointer_tile = Some((12, 8));
+            // Move between valid and invalid targets while the game's real
+            // pointer stays on a button. Both visuals must follow validity.
+            for valid in [true, false, true] {
+                world.targeting.target_ok = valid;
+                assert_eq!(framed(&world), valid.then_some((12, 8)), "mode {mode}");
+                let cursor = crate::cursor::targeting(Some(GameCursor::System), mode, valid, true);
+                let cell = if valid { mode as u32 } else { crate::cursor::NOT_HERE };
+                assert_eq!(cursor, Some(GameCursor::Sprite(cell)), "mode {mode}");
+                assert!(!go_to(mode), "mission {mode} must not request tile snapping");
+                assert_eq!(crate::cursor::targeting(Some(GameCursor::System), mode, valid, false), Some(GameCursor::System));
+            }
+        }
+    }
+
+    #[test]
+    fn only_single_and_stack_moves_request_tile_snapping() {
+        let moves: Vec<_> = (-1..=0x18).filter(|&mode| go_to(mode)).collect();
+        assert_eq!(moves, [1, 0x12]);
+        assert!(!go_to(0x7f00)); // IDC_ARROW while no command waits.
+    }
 
     #[test]
     fn turns_count_this_turns_moves_first() {

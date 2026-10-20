@@ -2,10 +2,11 @@
 //! operations in a fixed-size queue and never rasterizes the replay itself.
 
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicU64, Ordering},
-    mpsc,
 };
+#[cfg(test)]
+use std::sync::mpsc;
 
 use crate::{
     replay::{Operation, ReplayMap},
@@ -25,18 +26,16 @@ pub struct Picture {
 #[derive(Default)]
 struct Output {
     revision: AtomicU64,
-    picture: Mutex<Picture>,
+    picture: civ3r_sync::Latest<Picture>,
 }
 
 impl Output {
+    /// On the worker (the only writer). Readers only clone an Arc.
     fn publish(&self, map: Option<&ReplayMap>) {
-        // Conversion happens before taking the publication lock. Readers
-        // only clone an Arc; navigator hooks never take this lock.
         let pixels = map.map(|map| (map.size(), Arc::from(map.rgba())));
-        let mut picture = self.picture.lock().unwrap_or_else(|e| e.into_inner());
-        picture.revision += 1;
-        picture.pixels = pixels;
-        self.revision.store(picture.revision, Ordering::Release);
+        let revision = self.revision.load(Ordering::Acquire) + 1;
+        self.picture.publish(Picture { revision, pixels });
+        self.revision.store(revision, Ordering::Release);
     }
 }
 
@@ -49,10 +48,11 @@ enum Command {
 }
 
 /// All replay image construction, updates and conversion belong to this
-/// worker. The bounded channel applies backpressure if playback outruns it,
-/// preserving every operation without retaining a growing history.
+/// worker. The game's thread only sends (never waits for the worker, even
+/// when playback outruns it); the worker applies every operation, in
+/// batches of at most `capacity` between publications.
 pub struct ReplayThread {
-    send: mpsc::SyncSender<Command>,
+    send: tokio::sync::mpsc::UnboundedSender<Command>,
     output: Arc<Output>,
 }
 
@@ -67,12 +67,13 @@ impl ReplayThread {
         read_world: impl Fn() -> Result<Civ3World, String> + Send + 'static,
         capacity: usize,
     ) -> std::io::Result<Self> {
-        let (send, receive) = mpsc::sync_channel(capacity);
+        let (send, mut receive) = tokio::sync::mpsc::unbounded_channel();
         let output = Arc::new(Output::default());
         let publish = output.clone();
         std::thread::Builder::new().name("civ3r-replay".into()).spawn(move || {
             let mut map = None;
-            while let Ok(first) = receive.recv() {
+            // (Bounded sleeps, not a parked receive: `crate::BOUNDED_WAIT`.)
+            while let Some(first) = crate::recv_bounded(&mut receive, std::time::Duration::from_millis(10)) {
                 let mut next = Some(first);
                 // Publish at least once per bounded batch even when a long
                 // fast-forward keeps feeding operations continuously.
@@ -115,13 +116,7 @@ impl ReplayThread {
     }
 
     fn command(&self, command: Command) -> bool {
-        let start = std::time::Instant::now();
-        let sent = self.send.send(command).is_ok();
-        let took = start.elapsed();
-        if took > std::time::Duration::from_millis(4) {
-            log::debug!("replay queue backpressure: {} us", took.as_micros());
-        }
-        sent
+        self.send.send(command).is_ok()
     }
 
     pub fn init(&self, size: (u32, u32)) -> bool {
@@ -137,11 +132,7 @@ impl ReplayThread {
         self.output.revision.load(Ordering::Acquire)
     }
     pub fn picture(&self) -> Picture {
-        self.output
-            .picture
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        self.output.picture.get().unwrap_or_default()
     }
 
     #[cfg(test)]

@@ -108,8 +108,9 @@ impl ArtJob {
                 } else {
                     built
                 };
-                // (Given up: what was there is not what additions are made for.)
-                if built.as_ref().is_err_and(|e| e.to_string().contains(crate::assets::STOPPED)) {
+                // A failed whole description cannot leave the preceding table
+                // available to additions made for the failed replacement.
+                if built.is_err() {
                     *state = None;
                 }
                 built.map(|(c, growing)| {
@@ -145,7 +146,14 @@ impl ArtThread {
         let (jobs, job_rx) = std::sync::mpsc::channel::<ArtJob>();
         let (done_tx, done) = std::sync::mpsc::channel();
         std::thread::Builder::new().name("civ3r-art".into()).spawn(move || {
-            for job in job_rx {
+            // (A bounded wait: under Wine/FEX on macOS a parked thread's
+            // wake-up was seen lost, which left jobs queued forever.)
+            loop {
+                let job = match job_rx.recv_timeout(crate::BOUNDED_WAIT) {
+                    Ok(job) => job,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
                 if done_tx.send(job.run(&mut state)).is_err() {
                     break;
                 }
@@ -215,6 +223,16 @@ mod tests {
         assert!(matches!(got[0].built, Ok(Built::Whole(_))));
         assert!(matches!(&got[1].built, Err(e) if e.contains(crate::assets::STOPPED)), "the second stops");
         assert!(matches!(&got[2].built, Ok(Built::Growth(g)) if g.is_empty()), "an addition to it adds nothing");
+    }
+
+    #[test]
+    fn a_failed_replacement_does_not_grow_the_previous_table() {
+        let mut state = None;
+        assert!(matches!(job(Work::Whole(BASE.into()), 1).run(&mut state).built, Ok(Built::Whole(_))));
+        assert!(job(Work::Whole("invalid toml [".into()), 2).run(&mut state).built.is_err());
+        assert!(state.is_none());
+        let addition = job(Work::Addition(BASE.into()), 3).run(&mut state);
+        assert!(matches!(addition.built, Ok(Built::Growth(g)) if g.is_empty()));
     }
 
     #[test]

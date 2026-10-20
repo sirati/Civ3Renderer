@@ -125,3 +125,78 @@ This loses scroll and tab state, so the mirror should hold the last frame while 
   - After sentry or wait, the game does not pick the next unit while the menu is open.
   - `can_perform_command` refuses sentry and fortify for a unit with no moves left.
 - Not done: redrawing the open advisor; the city screen (approach (c)); attacks.
+
+## v2 as built: the city screen too, through (a)
+
+Approach (a) turned out to be safe for the city screen as well, so (c) was not needed. The city screen gives orders to the units in it the same way: at 0x422810 and 0x4228B5 it calls `Unit_select` and `issue_command` while it is open, and then redraws itself through vtable +0x58 (`City_Form::draw`, 0x419770). The forms acting is allowed under are now Advisor_GUI, the Civilopedia and City_Form (0x7409C0). The gate is otherwise unchanged: depth 1, opened from the human-turn loop, outside an animation, not a network game, no action already running.
+
+### Virtual map input under a screen
+
+The private-message path (`docs/world-input.md`) runs from the screen's own pump, because the modal loop dispatches the game window's messages. `crate::world_input` used to drop events while a modal form was open. Under an allowed screen it now handles them like this:
+
+| Input | Under a screen |
+|---|---|
+| Move | The native hover, so the pointer tile, go-to target and path preview update. |
+| Left press, nothing armed | `Select`: `find_visible_unit` + `Unit_select`, with no camera move. |
+| Left press, go-to armed | If the tile holds no foreign unit or city, the native left click (`perform_action_on_tile`). The unit then walks the shown path (see below). |
+| Right press, nothing armed | `GoTo`: `perform_action_on_tile(1)`. A neighbouring tile is moved to at once; a far tile sets the order. |
+| Right button, a command armed | The native right button, which cancels it. |
+| Releases, middle button | Nothing. |
+| G (`WorldKey` 0x47) and drag previews | `issue_command(0x10, unit)` after `can_perform_command`. The map's `handle_key_down` returns at once while City_Form is shown (0x4E06C5), so the key itself does nothing there. |
+| The other allowlisted keys | As in v1. |
+
+Native left and right map handlers are never called with nothing armed, and double clicks are never passed on. The reasons:
+- A double click zooms into a city (`City_zoom_to` from 0x4EAE60), which would open a second city screen inside the first.
+- The right button opens the context menu or the Civilopedia (0x4EB540). Opening the Civilopedia from under itself would re-enter the open form.
+- A single left click on a city tile starts a 250 ms timer (0x4EB529 → 0x4EE650) that later calls `bring_tile_into_view`. Under the city screen, offline, that moves the game camera.
+
+After every action under City_Form the screen is redrawn with `City_Form::draw`, as the screen itself does after ordering one of its units. Its garrison list, for example, shows units moving in or out.
+
+### Go-to walking
+
+The human-turn loop does not walk a go-to by itself. `Unit::can_act_now` (0x5BE680) requires state 0, so `update_while_active` is never reached for a unit in state 0x10.
+
+Under a screen the unit therefore walks the path the game's path finder showed (`targeting::GotoPath`):
+- One tile per pass of the screen's loop. Each step is `perform_action_on_tile(GO_TO, next tile)` next to the unit, which moves it at once with the game's own rules and animation.
+- The walk stops when the unit is out of move points, blocked, no longer selected, or at a foreign unit or city. The far order is then given again from where it stopped, and the game walks the rest on later turns.
+- The pump is woken with `WM_NULL` between steps.
+
+### Feedback
+
+A refused press puts a map notice at its tile for 2.5 s. It uses the font and colours of the game's own notice records (`unit_notices::synthetic`), so every view shows it. The texts:
+
+| Situation | Notice |
+|---|---|
+| Diplomacy | Not during diplomacy |
+| Another dialog, such as the quit prompt | Not while this window is open |
+| A popup over the screen | Close the dialog first |
+| An attack | Close the screen to attack |
+| Nothing selected | Select a unit first |
+| Another targeting command armed | Close the screen for this order |
+
+Empty tiles and animations give no notice.
+
+### Not done, and why
+
+- **Attacks.** Combat under a screen could capture or raze cities and change what the open screen shows, for example an advisor's cached lists. A press on a foreign unit or city is refused with a notice.
+- **Diplomacy.** A move can open contact, make war or start negotiations, which would change the open deal under the player. Map input is refused there with a notice.
+- **The context menu, tile information and the Civilopedia from the map.** These open with the right button or a double click. Under a screen the right button sends the selected unit instead.
+- **Redrawing advisors.** Advisor_GUI caches its lists, so an advisor still shows the state from when it opened.
+- **Choosing the next unit.** As in v1, the game picks the next unit only once the screen closes.
+
+### Viewer and the capture hint
+
+The bridge now sends the "Press CTRL" hint view while a screen is open over the map (`interface_parts::capture_hint_shown`). Before, it was sent only together with the corner buttons, and those are hidden under a screen. The viewer draws the hint at the captured world pane's top-left in both kinds of layout:
+- with a placed panel, as before;
+- with `ui=pane`, where the whole game window is fitted into A. This case is new.
+
+### Seen in the game (PCGames + C3X, Wine, QA copy of `2024 Rom C XXIV`)
+
+Tested with a stand-in external viewer that sends `Input::World*`, with Rome's city screen open:
+- Unit 103 was selected in another city.
+- It was moved one tile east.
+- With G, the 6-tile path to a third city was shown, and a click picked it as the destination.
+- The unit walked 2 tiles. Its move points were then used up, and the order kept state 0x10.
+- The city screen was then still in use: its production list opened and closed, and Escape closed it. Afterwards the game selected its next unit as usual.
+- With the domestic advisor (F1) open, the same select, move and walked go-to worked.
+- A press on a Portuguese tile was refused with a notice, which showed in the scene and expired. So was a press made while the quit prompt was open.

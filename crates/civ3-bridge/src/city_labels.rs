@@ -570,11 +570,27 @@ mod tests {
         assert_eq!(labels.len(), 1);
         // The frame lines at screen y 574 (the camera's y is 772): 154 wide, with the star's box.
         let draws = labels[0].draws((-1920, -772), [0, 0, 1920, 1080]);
-        let fills: Vec<[i32; 4]> = draws.iter().filter_map(|d| if let ScreenDraw::Fill { rect, alpha: 255, rgb: [0, 0, 0], .. } = d { Some(*rect) } else { None }).collect();
         // The text "Rome (Roman) :  10" is 18 characters (108 pixels here): a plate of 120, centred on x 960.
-        assert_eq!(fills[0], [960 - 60 - 24, 574, 144 + 24, 1]);
-        assert_eq!(fills.len(), 4);
-        let shades: Vec<_> = draws.iter().filter_map(|d| if let ScreenDraw::Fill { rect, alpha, .. } = d { Some((*rect, *alpha)) } else { None }).filter(|(_, a)| *a != 255).collect();
+        let frame: Vec<_> = labels[0].items.iter().filter_map(|op| match op {
+            LabelOp::Line { from, to, rgb, width } => Some(((from.0 - 1920, from.1 - 772), (to.0 - 1920, to.1 - 772), *rgb, *width)),
+            _ => None,
+        }).collect();
+        assert_eq!(frame, [
+            ((876, 574), (1044, 574), BLACK, 1),
+            ((876, 574), (876, 595), BLACK, 1),
+            ((1044, 574), (1044, 595), BLACK, 1),
+            ((876, 595), (1044, 595), BLACK, 1),
+        ]);
+        // Native Windows smooths a one-pixel frame across two half-covered
+        // rows; Wine uses an opaque row. Verify both rules explicitly.
+        let top = &labels[0].items[0];
+        for (smooth, rect, alpha) in [(false, [876, 574, 168, 1], 255), (true, [876, 573, 168, 2], 127)] {
+            let line = top.draws_with((-1920, -772), [0, 0, 1920, 1080], smooth);
+            assert!(matches!(&line[..], [ScreenDraw::Fill { rect: actual, rgb: BLACK, alpha: actual_alpha, .. }] if *actual == rect && *actual_alpha == alpha));
+        }
+        let shades: Vec<_> = labels[0].items.iter().filter(|op| matches!(op, LabelOp::Fill { alpha, .. } if *alpha != 255))
+            .flat_map(|op| op.draws((-1920, -772), [0, 0, 1920, 1080]))
+            .filter_map(|d| if let ScreenDraw::Fill { rect, alpha, .. } = d { Some((rect, alpha)) } else { None }).collect();
         assert_eq!(shades[0], ([900, 574, 120, 10], 127));
         // The separator, the production plate, the size box, the star's box.
         assert_eq!(shades[1], ([900, 584, 120, 1], 191));

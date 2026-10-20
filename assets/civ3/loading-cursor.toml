@@ -1,0 +1,32 @@
+# Game cursor frames shared by the loading bar and the OS pointer accessory.
+# The final FLC closing delta is excluded from both displayed sequences.
+[images.viewer_loading_cursor]
+source = "Art/Animations/Cursor/Cursor.flc"
+indexed = false
+transparent = [255]
+
+[sheets.viewer_loading_cursor]
+image = "viewer_loading_cursor"
+cell = [93, 46]
+grid = [1, 1]
+all_frames = true
+only = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+anchor = [-46, -23]
+group = "Viewer@loading_cursor_frame"
+
+[sheets.viewer_loading_bar]
+image = "viewer_loading_cursor"
+cell = [93, 46]
+grid = [1, 1]
+all_frames = true
+only = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+anchor = [0, 0]
+group = "Viewer@loading_bar_frame"
+resize = [46, 23]
+
+[sets."Viewer@loading_cursor/0"]
+frames = ["Viewer@loading_cursor_frame/0", "Viewer@loading_cursor_frame/1", "Viewer@loading_cursor_frame/2", "Viewer@loading_cursor_frame/3", "Viewer@loading_cursor_frame/4", "Viewer@loading_cursor_frame/5", "Viewer@loading_cursor_frame/6", "Viewer@loading_cursor_frame/7", "Viewer@loading_cursor_frame/8", "Viewer@loading_cursor_frame/9", "Viewer@loading_cursor_frame/10", "Viewer@loading_cursor_frame/11", "Viewer@loading_cursor_frame/12", "Viewer@loading_cursor_frame/13", "Viewer@loading_cursor_frame/14", "Viewer@loading_cursor_frame/15", "Viewer@loading_cursor_frame/16", "Viewer@loading_cursor_frame/17", "Viewer@loading_cursor_frame/18", "Viewer@loading_cursor_frame/19", "Viewer@loading_cursor_frame/20", "Viewer@loading_cursor_frame/21", "Viewer@loading_cursor_frame/22", "Viewer@loading_cursor_frame/23", "Viewer@loading_cursor_frame/24", "Viewer@loading_cursor_frame/25", "Viewer@loading_cursor_frame/26", "Viewer@loading_cursor_frame/27", "Viewer@loading_cursor_frame/28", "Viewer@loading_cursor_frame/29"]
+
+[sets."Viewer@loading_bar/0"]
+frames = ["Viewer@loading_bar_frame/0", "Viewer@loading_bar_frame/1", "Viewer@loading_bar_frame/2", "Viewer@loading_bar_frame/3", "Viewer@loading_bar_frame/4", "Viewer@loading_bar_frame/5", "Viewer@loading_bar_frame/6", "Viewer@loading_bar_frame/7", "Viewer@loading_bar_frame/8", "Viewer@loading_bar_frame/9", "Viewer@loading_bar_frame/10", "Viewer@loading_bar_frame/11", "Viewer@loading_bar_frame/12", "Viewer@loading_bar_frame/13", "Viewer@loading_bar_frame/14", "Viewer@loading_bar_frame/15", "Viewer@loading_bar_frame/16", "Viewer@loading_bar_frame/17", "Viewer@loading_bar_frame/18", "Viewer@loading_bar_frame/19", "Viewer@loading_bar_frame/20", "Viewer@loading_bar_frame/21", "Viewer@loading_bar_frame/22", "Viewer@loading_bar_frame/23", "Viewer@loading_bar_frame/24", "Viewer@loading_bar_frame/25", "Viewer@loading_bar_frame/26", "Viewer@loading_bar_frame/27", "Viewer@loading_bar_frame/28", "Viewer@loading_bar_frame/29"]
+

@@ -7,7 +7,7 @@ version.workspace = true
 
 [lib]
 name = "civ3r_native"
-# cdylib: the unixlib (x86_64 Linux); rlib: the argument structs for the
+# cdylib: the unixlib (x86_64 Linux, ARM64 macOS); rlib: the argument structs for the
 # Windows-side driver.
 crate-type = ["cdylib", "rlib"]
 
@@ -17,9 +17,13 @@ bytemuck.workspace = true
 scene = { path = "../scene" }
 log.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 civ3-assets = { path = "../civ3-assets" }
+civ3r-sync = { path = "../civ3r-sync" }
 render-desc = { path = "../render-desc" }
 tile-viewer = { path = "../tile-viewer" }
 tile-render.workspace = true
 env_logger.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+application-icon = { path = "../application-icon" }

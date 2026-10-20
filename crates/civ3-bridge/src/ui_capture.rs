@@ -1,6 +1,13 @@
 //! Process-lifetime UI capture, installed before the game's first drawing.
+//!
+//! No locks: preparation and restoration are small atomic state machines.
+//! The only waits are at startup, while one thread (the game's load
+//! callback or the late-injection worker) prepares capture and another
+//! arrives: the latter yields until the outcome is published, exactly once
+//! per process. Afterwards every check is a single atomic load.
 
-use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::ui::UiModel;
 
@@ -20,20 +27,57 @@ impl CapturePoint {
     }
 }
 
+/// Puts `state` back to `to` if the owner unwinds, so that waiters go on.
+struct Release<'a> { state: &'a AtomicU8, from: u8, to: u8 }
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        let _ = self.state.compare_exchange(self.from, self.to, Ordering::AcqRel, Ordering::Acquire);
+    }
+}
+
+const IDLE: u8 = 0;
+const BUSY: u8 = 1;
+const FAILED: u8 = 2;
+
 /// Coordinate suppression with successful capture and viewer startup.
 /// Restoration is permanent and serializes against concurrent activation.
 pub(crate) struct OriginalDrawing {
-    failed: Mutex<bool>,
+    /// IDLE, FAILED (restored for good), or BUSY while one of the three
+    /// operations runs its callback.
+    state: AtomicU8,
     skipping: AtomicBool,
 }
 
 impl OriginalDrawing {
     pub(crate) const fn new() -> Self {
-        Self { failed: Mutex::new(false), skipping: AtomicBool::new(false) }
+        Self { state: AtomicU8::new(IDLE), skipping: AtomicBool::new(false) }
+    }
+
+    /// Runs `f` (given whether restoration happened) with no other of
+    /// these operations running; `f` says whether restoration is now done.
+    fn serialized<R>(&self, f: impl FnOnce(bool) -> (R, bool)) -> R {
+        let failed = loop {
+            match self.state.compare_exchange(IDLE, BUSY, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break false,
+                Err(FAILED) if self.state.compare_exchange(FAILED, BUSY, Ordering::AcqRel, Ordering::Acquire).is_ok() => break true,
+                Err(_) => std::thread::yield_now(),
+            }
+        };
+        let release = Release { state: &self.state, from: BUSY, to: if failed { FAILED } else { IDLE } };
+        let (result, now_failed) = f(failed);
+        std::mem::forget(release);
+        self.state.store(if failed || now_failed { FAILED } else { IDLE }, Ordering::Release);
+        result
     }
 
     pub(crate) fn failed(&self) -> bool {
-        *self.failed.lock().unwrap_or_else(|e| e.into_inner())
+        loop {
+            match self.state.load(Ordering::Acquire) {
+                BUSY => std::thread::yield_now(),
+                state => return state == FAILED,
+            }
+        }
     }
 
     pub(crate) fn skipping(&self) -> bool {
@@ -41,69 +85,118 @@ impl OriginalDrawing {
     }
 
     pub(crate) fn activate(&self, capture_ready: bool, game_draws: bool, configure: impl FnOnce(bool)) {
-        let failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
-        if *failed { return }
-        let skip = capture_ready && !game_draws;
-        configure(skip);
-        self.skipping.store(skip, Ordering::Relaxed);
+        self.serialized(|failed| {
+            if !failed {
+                let skip = capture_ready && !game_draws;
+                configure(skip);
+                self.skipping.store(skip, Ordering::Relaxed);
+            }
+            ((), false)
+        });
     }
 
     /// Apply map-only policy without overwriting concurrent full capture
     /// activation or permanent restoration. Used by early DLL setup too.
     pub(crate) fn map_policy(&self, explicit: bool, configure: impl FnOnce(bool)) {
-        let failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
-        configure(!*failed && (explicit || self.skipping()));
+        self.serialized(|failed| {
+            configure(self.skipping() || (!failed && explicit));
+            ((), false)
+        });
     }
 
-    pub(crate) fn restore(&self, restore: impl FnOnce()) {
-        let mut failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
-        *failed = true;
-        self.skipping.store(false, Ordering::Relaxed);
-        restore();
+    pub(crate) fn restore(&self, allow_native: bool, restore: impl FnOnce()) -> bool {
+        self.serialized(|_| {
+            if !allow_native { return (false, true) }
+            self.skipping.store(false, Ordering::Relaxed);
+            restore();
+            (true, true)
+        })
     }
 }
+
+const WAITING: u8 = 0;
+const PREPARING: u8 = 1;
+const READY: u8 = 2;
+const STARTUP_FAILED: u8 = 3;
 
 /// Capture ownership and the result of the normal game's first load.
 /// A failed normal callback may return into unrecorded game execution, so
 /// no later callback or worker may turn that failure into complete capture.
-enum Installation<T> {
-    Waiting,
-    Ready(T),
-    StartupFailed(String),
-}
-
+///
+/// The model it makes goes to the thread that draws ([`UiCapture::take_model`]):
+/// only that thread changes it; others read its published snapshots.
 pub(crate) struct UiCapture<T> {
-    installed: Mutex<Installation<T>>,
+    /// WAITING, PREPARING (one caller owns preparation), READY or
+    /// STARTUP_FAILED (with `failure`).
+    state: AtomicU8,
+    failure: OnceLock<String>,
     ready: AtomicBool,
-    pub(crate) model: Mutex<Option<UiModel>>,
+    /// Whether the model was made (it is kept across a failed late retry).
+    made: AtomicBool,
+    model: civ3r_sync::Mailbox<UiModel>,
+    /// Installed hooks stay for the life of the process.
+    _hooks: std::marker::PhantomData<fn() -> T>,
 }
 
 impl<T> UiCapture<T> {
-    pub(crate) const fn new() -> Self {
-        Self { installed: Mutex::new(Installation::Waiting), ready: AtomicBool::new(false), model: Mutex::new(None) }
+    pub(crate) fn new() -> Self {
+        Self {
+            state: AtomicU8::new(WAITING),
+            failure: OnceLock::new(),
+            ready: AtomicBool::new(false),
+            made: AtomicBool::new(false),
+            model: civ3r_sync::Mailbox::new(),
+            _hooks: std::marker::PhantomData,
+        }
     }
 
     pub(crate) fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
     }
 
+    /// Whether a model was made (it may still wait for its thread).
+    #[cfg(test)]
+    pub(crate) fn made(&self) -> bool {
+        self.made.load(Ordering::Acquire)
+    }
+
+    /// The model made by preparation, for the thread that applies drawing
+    /// to it (once; `None` before and after).
+    pub(crate) fn take_model(&self) -> Option<UiModel> {
+        self.model.try_recv()
+    }
+
+    /// The settled state: waits while another caller prepares (startup).
+    fn settled(&self) -> u8 {
+        loop {
+            match self.state.load(Ordering::Acquire) {
+                PREPARING => std::thread::yield_now(),
+                state => return state,
+            }
+        }
+    }
+
+    fn failure(&self) -> String {
+        self.failure.get().cloned().unwrap_or_default()
+    }
+
     /// Workers check this before any disabled-viewer shortcut. Restoring
     /// original drawing must never hide an earlier normal-startup gap.
     pub(crate) fn status(&self) -> Result<bool, String> {
-        match &*self.installed.lock().unwrap_or_else(|e| e.into_inner()) {
-            Installation::Waiting => Ok(false),
-            Installation::Ready(_) => Ok(true),
-            Installation::StartupFailed(error) => Err(error.clone()),
+        match self.settled() {
+            READY => Ok(true),
+            STARTUP_FAILED => Err(self.failure()),
+            _ => Ok(false),
         }
     }
 
     /// The actual worker entry decision. Check failure before intentional
-    /// disablement, under the same lock that publishes normal startup.
+    /// disablement, after any preparation in progress published its outcome.
     pub(crate) fn worker_needs_capture(&self, enabled: impl FnOnce() -> bool) -> Result<bool, String> {
-        match &*self.installed.lock().unwrap_or_else(|e| e.into_inner()) {
-            Installation::StartupFailed(error) => Err(error.clone()),
-            Installation::Ready(_) => Ok(false),
-            Installation::Waiting => Ok(enabled()),
+        match self.settled() {
+            STARTUP_FAILED => Err(self.failure()),
+            READY => Ok(false),
+            _ => Ok(enabled()),
         }
     }
 
@@ -118,41 +211,45 @@ impl<T> UiCapture<T> {
         hooks: impl FnOnce(&S) -> Result<T, String>,
     ) -> Result<bool, String> {
         if !point.allowed() { return Ok(false) }
-        let mut installed = self.installed.lock().unwrap_or_else(|e| e.into_inner());
-        match &*installed {
-            Installation::Ready(_) => return Ok(false),
-            Installation::StartupFailed(error) => return Err(error.clone()),
-            Installation::Waiting => {},
+        loop {
+            match self.state.compare_exchange(WAITING, PREPARING, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(READY) => return Ok(false),
+                Err(STARTUP_FAILED) => return Err(self.failure()),
+                Err(_) => std::thread::yield_now(),
+            }
         }
+        let release = Release { state: &self.state, from: PREPARING, to: WAITING };
         let result = (|| {
             let setup = setup()?;
-            {
-                let mut state = self.model.lock().unwrap_or_else(|e| e.into_inner());
-                state.get_or_insert_with(|| {
-                    let mut model = model(&setup);
-                    // The title uses the map canvas before the publisher
-                    // can identify a running game. Preserve startup copies.
-                    model.set_skipping(false);
-                    model
-                });
+            if !self.made.swap(true, Ordering::AcqRel) {
+                let mut model = model(&setup);
+                // The title uses the map canvas before the publisher
+                // can identify a running game. Preserve startup copies.
+                model.set_skipping(false);
+                // Sent before hooks can emit events.
+                self.model.send(model);
             }
-            // Release the model lock before hooks can emit events.
             hooks(&setup)
         })();
+        std::mem::forget(release);
         match result {
             Ok(hooks) => {
-                *installed = Installation::Ready(hooks);
+                std::mem::forget(hooks);
                 self.ready.store(true, Ordering::Release);
+                self.state.store(READY, Ordering::Release);
                 Ok(true)
             }
             Err(error) => {
                 if matches!(point, CapturePoint::LoadCallback) {
                     let error = format!("normal startup UI capture failed: {error}; an uncaptured execution gap prevents later recovery");
-                    *installed = Installation::StartupFailed(error.clone());
+                    let _ = self.failure.set(error.clone());
+                    self.state.store(STARTUP_FAILED, Ordering::Release);
                     Err(error)
                 } else {
                     // A separately identified late injection has no normal
                     // startup callback to preserve. Do not publish readiness.
+                    self.state.store(WAITING, Ordering::Release);
                     Err(error)
                 }
             }
@@ -184,8 +281,27 @@ mod tests {
             .with_screen(900)
     }
 
+    thread_local! {
+        /// The model as the drawing thread owns it: this test's thread, for
+        /// the capture at the address kept with it.
+        static MODEL: std::cell::RefCell<Option<(usize, UiModel)>> = const { std::cell::RefCell::new(None) };
+    }
+
+    fn with_model<T, R>(capture: &UiCapture<T>, f: impl FnOnce(&mut Option<UiModel>) -> R) -> R {
+        let id = capture as *const UiCapture<T> as usize;
+        MODEL.with_borrow_mut(|slot| {
+            if slot.as_ref().is_none_or(|(owner, _)| *owner != id) {
+                *slot = capture.take_model().map(|m| (id, m));
+            }
+            let mut model = slot.take().map(|(_, m)| m);
+            let result = f(&mut model);
+            *slot = model.map(|m| (id, m));
+            result
+        })
+    }
+
     fn emit<T>(capture: &UiCapture<T>, event: Event) {
-        if let Some(model) = capture.model.lock().unwrap().as_mut() { model.apply(event) }
+        with_model(capture, |m| if let Some(model) = m.as_mut() { model.apply(event) })
     }
 
     fn startup_title<T>(capture: &UiCapture<T>) {
@@ -204,7 +320,12 @@ mod tests {
     }
 
     fn shown<T>(capture: &UiCapture<T>) -> Frame {
-        capture.model.lock().unwrap().as_ref().unwrap().shown_frame()
+        with_model(capture, |m| {
+            let model = m.as_ref().unwrap();
+            let frame = model.shown_frame();
+            assert_eq!(model.snapshot().shown_frame(), frame, "another thread composes the same screen from a snapshot");
+            frame
+        })
     }
 
     fn assert_title(frame: &Frame) {
@@ -227,16 +348,16 @@ mod tests {
         let capture = UiCapture::new();
         capture.install(CapturePoint::LoadCallback, title_model, || Ok::<_, String>(())).unwrap();
         startup_title(&capture);
-        capture.model.lock().unwrap().as_mut().unwrap().add_generated(701);
+        with_model(&capture, |m| m.as_mut().unwrap().add_generated(701));
         // Retained canvas content changes after presenting. The shown Arc
         // snapshot must continue showing the title until another present.
         emit(&capture, Event::Fill { canvas: 400, rect: [0, 0, 1920, 1080], rgb: [1, 2, 3], alpha: 255, clip: None });
         let before = shown(&capture);
-        let stats = capture.model.lock().unwrap().as_ref().unwrap().stats();
+        let stats = with_model(&capture, |m| m.as_ref().unwrap().stats());
         capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || Ok::<_, String>(())).unwrap();
         assert_eq!(shown(&capture), before);
         assert_title(&before);
-        let mut state = capture.model.lock().unwrap();
+        with_model(&capture, |state| {
         let model = state.as_mut().unwrap();
         assert_eq!(model.stats(), stats);
         assert!(matches!(model.sprite_source(20), Some(Source::File { path, .. }) if path == "Art/Title.pcx"));
@@ -248,6 +369,7 @@ mod tests {
         model.apply(Event::Composite { canvas: 401, vtable: 1, origin: (0, 0), size: (10, 10), clip: [0, 0, 10, 10], keyed: false });
         model.apply(Event::PaintEnd);
         assert!(matches!(&model.frame().draws[..], [ScreenDraw::Surface { image: 701, .. }]));
+        });
     }
 
     #[test]
@@ -256,7 +378,7 @@ mod tests {
         for point in [CapturePoint::DllMain, CapturePoint::Worker { graphics_initialized: false }] {
             assert_eq!(capture.install(point, || panic!("capture before CRT/C3X"), || panic!("hooks under loader lock")), Ok::<_, String>(false));
             assert!(!capture.ready());
-            assert!(capture.model.lock().unwrap().is_none());
+            assert!(!capture.made());
         }
         assert_eq!(capture.install(CapturePoint::Worker { graphics_initialized: true }, title_model, || Ok::<_, String>(())), Ok(true));
     }
@@ -296,7 +418,7 @@ mod tests {
         // The callback has returned. The game initializes its baked title
         // while the rolled-back hooks are absent. No repaint occurs later.
         if active.load(Ordering::Relaxed) { startup_title(&capture); }
-        let before = capture.model.lock().unwrap().as_ref().unwrap().stats();
+        let before = with_model(&capture, |m| m.as_ref().unwrap().stats());
         assert!(shown(&capture).draws.is_empty());
         for point in [CapturePoint::Worker { graphics_initialized: true }, CapturePoint::LoadCallback] {
             let retry = capture.prepare(point, || Ok(()), |_| panic!("replaced partial model"), |_| {
@@ -306,12 +428,12 @@ mod tests {
             assert_eq!(retry, Err(failure.clone()));
             assert_eq!(capture.status(), Err(failure.clone()));
             assert!(!capture.ready() && !active.load(Ordering::Relaxed));
-            assert_eq!(capture.model.lock().unwrap().as_ref().unwrap().stats(), before);
+            assert_eq!(with_model(&capture, |m| m.as_ref().unwrap().stats()), before);
             assert!(shown(&capture).draws.is_empty(), "uncaptured title was never reconstructed");
         }
         let drawing = OriginalDrawing::new();
         drawing.activate(capture.ready(), false, |skip| assert!(!skip));
-        drawing.restore(|| {});
+        drawing.restore(true, || {});
         // Exercise the same worker entry decision as prepare_worker,
         // including the drawing-restored enabled=false case.
         assert!(drawing.failed());
@@ -326,7 +448,7 @@ mod tests {
             let result = capture.prepare(CapturePoint::LoadCallback, || Err::<(), _>(error.into()), |_| panic!("model before preparation"), |_| panic!("hooks before preparation"));
             let failure = result.unwrap_err();
             assert!(failure.contains(error));
-            assert!(!capture.ready() && capture.model.lock().unwrap().is_none());
+            assert!(!capture.ready() && !capture.made());
             for point in [CapturePoint::LoadCallback, CapturePoint::Worker { graphics_initialized: true }] {
                 assert_eq!(capture.prepare(point, || panic!("retried failed normal preparation"), |_: &()| title_model(), |_| Ok(())), Err(failure.clone()));
             }
@@ -378,7 +500,7 @@ mod tests {
         worker.join().unwrap();
         assert!(matches!(premature, Err(mpsc::RecvTimeoutError::Timeout)), "worker bypassed serialized preparation: {premature:?}");
         assert_eq!(status.recv_timeout(timeout).unwrap(), Err(failure));
-        assert!(!capture.ready() && capture.model.lock().unwrap().is_none());
+        assert!(!capture.ready() && !capture.made());
     }
 
     #[test]
@@ -454,13 +576,24 @@ mod tests {
         policy.join().unwrap();
         assert!(matches!(premature, Err(mpsc::RecvTimeoutError::Timeout)), "map policy bypassed activation: {premature:?}");
         assert!(drawing.skipping() && map_off.load(Ordering::Relaxed));
-        drawing.restore(|| map_off.store(false, Ordering::Relaxed));
+        drawing.restore(true, || map_off.store(false, Ordering::Relaxed));
         drawing.map_policy(true, |off| map_off.store(off, Ordering::Relaxed));
         assert!(!drawing.skipping() && !map_off.load(Ordering::Relaxed));
         // Explicit UI=off inspection still works before viewer failure.
         let drawing = OriginalDrawing::new();
         drawing.map_policy(true, |off| assert!(off));
         assert!(!drawing.skipping());
+    }
+
+    #[test]
+    fn replacement_failure_cannot_enable_native_pixels_or_run_recovery_callback() {
+        let drawing = OriginalDrawing::new();
+        drawing.activate(true, false, |skip| assert!(skip));
+        assert!(!drawing.restore(false, || panic!("default recovery callback ran")));
+        assert!(drawing.failed() && drawing.skipping());
+        drawing.activate(true, true, |_| panic!("failed replacement reenabled pixel rendering"));
+        assert!(drawing.skipping());
+        drawing.map_policy(false, |off| assert!(off));
     }
 
     #[test]
@@ -475,7 +608,7 @@ mod tests {
         assert!(!drawing.skipping());
         drawing.activate(true, false, |skip| assert!(skip));
         assert!(drawing.skipping());
-        drawing.restore(|| {});
+        drawing.restore(true, || {});
         assert!(drawing.failed());
         assert!(!drawing.skipping());
         drawing.activate(true, false, |_| panic!("failed viewer reactivated suppression"));

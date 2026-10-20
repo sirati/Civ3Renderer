@@ -25,6 +25,12 @@ pub const OVERHANG: (u32, u32, u32, u32) = (128, 128, 128, 128);
 pub const GAME_VIEW: u32 = 0;
 /// The city screen's view of the city's surroundings (while it is open).
 pub const CITY_VIEW: u32 = 1;
+/// The binding of [`CITY_VIEW`] (`scene::View::binding`): the city screen's
+/// fog of war, in slots of the fog layers ([`CITY_FOG_SLOTS`]), while every
+/// other view keeps the player's (docs/per-view-layers.md).
+pub const CITY_BINDING: u32 = 1;
+/// The slots of the city screen's fog: (layer, slot id).
+pub const CITY_FOG_SLOTS: [(&str, u32); 2] = [("fog", 1), ("fog_edge", 2)];
 /// The game's frame (its main screen's panels and buttons), over every
 /// view (no world of its own).
 pub const INTERFACE_VIEW: u32 = 254;
@@ -77,7 +83,15 @@ impl<'a> Mapper<'a> {
 
     /// [`Mapper::put`], the layer's indexed sprites through named palette `palette`.
     fn put_in(&self, scene: &mut Scene, layer: &str, col: u32, row: u32, sprite: Option<String>, palette: u32) {
-        let (Some(index), Some(sprite)) = (self.compiled.layer_index(layer), sprite) else { return };
+        if let Some((index, value)) = self.value(layer, sprite, palette) {
+            scene.set(index, col, row, value);
+        }
+    }
+
+    /// The layer's index and the value drawing `sprite` on it (through
+    /// named palette `palette`), unless it draws nothing.
+    fn value(&self, layer: &str, sprite: Option<String>, palette: u32) -> Option<(usize, u32)> {
+        let (Some(index), Some(sprite)) = (self.compiled.layer_index(layer), sprite) else { return None };
         let mut cache = self.cache.borrow_mut();
         let value = *cache.entry((index, sprite, palette)).or_insert_with_key(|(_, s, p)| {
             self.compiled.value_in(layer, s, *p).unwrap_or_else(|| {
@@ -85,9 +99,7 @@ impl<'a> Mapper<'a> {
                 0
             })
         });
-        if value != 0 {
-            scene.set(index, col, row, value);
-        }
+        (value != 0).then_some((index, value))
     }
 
     /// Builds the scene for `world` with the game's view (`view`, in a
@@ -133,8 +145,9 @@ impl<'a> Mapper<'a> {
                 self.put(&mut scene, "flood_plain", col, row, river.flood_plain);
                 let layer = if river.under_objects { "rivers_under" } else { "rivers_over" };
                 self.put(&mut scene, layer, col, row, river.river);
-                // (The fog of war is drawn there, measured.)
-                self.put(&mut scene, "fog", col, row, rules::fog(world, x, y - 1));
+                // (The fog of war is drawn there, measured: the player's;
+                // a city screen's in slots of its own, `city_fog`.)
+                self.put(&mut scene, "fog", col, row, rules::fog_with(world, None, x, y - 1));
                 // Tile layers.
                 if tile.is_none() {
                     continue;
@@ -193,7 +206,8 @@ impl<'a> Mapper<'a> {
                 }
             }
         }
-        self.edge_fog(&mut scene, world);
+        self.edge_fog(&mut scene, world, None);
+        self.city_fog(&mut scene, world);
         scene
     }
 
@@ -202,7 +216,8 @@ impl<'a> Mapper<'a> {
     /// side belongs to a vertex the tile grid cannot represent. Store it in
     /// the adjacent edge cell with an offset, so it also repeats correctly
     /// on maps that wrap vertically without changing the map's dimensions.
-    fn edge_fog(&self, scene: &mut Scene, world: &Civ3World) {
+    /// As the city screen of city `focus` shows it (`None`: the player's).
+    fn edge_fog(&self, scene: &mut Scene, world: &Civ3World, focus: Option<i32>) {
         if scene.shape.cols == 0 { return; }
         let Some(layer) = self.compiled.layer_index("fog_edge").filter(|_| !world.wrap_x) else { return };
         for row in 0..scene.shape.rows {
@@ -211,8 +226,44 @@ impl<'a> Mapper<'a> {
             } else {
                 (scene.shape.cols - 1, world.width, 128)
             };
-            self.put(scene, "fog_edge", col, row, rules::fog(world, vx, row as i32 - 1));
+            self.put(scene, "fog_edge", col, row, rules::fog_with(world, focus, vx, row as i32 - 1));
             scene.set_offset(layer, col, row, (dx, 0));
+        }
+    }
+
+    /// The open city screen's fog of war (its city's own tiles lit, the
+    /// rest of its radius dimmed; `rules::fog`) for [`CITY_VIEW`] only:
+    /// the fog layers' cells as it shows them, in slots bound to
+    /// [`CITY_BINDING`], where they differ from the player's fog, which
+    /// every other view keeps. None without a city in focus. (Only the fog
+    /// differs: the city screen shows the player's world otherwise.)
+    fn city_fog(&self, scene: &mut Scene, world: &Civ3World) {
+        let Some(focus) = world.focus_city.filter(|&id| world.city(id).is_some()) else { return };
+        let layers: Vec<(usize, u32)> = CITY_FOG_SLOTS.iter().filter_map(|&(name, slot)| self.compiled.layer_index(name).map(|l| (l, slot))).collect();
+        // The fog layers alone, as the city screen shows them.
+        let mut lit = Scene { shape: scene.shape, layers: vec![scene::LayerCells::default(); scene.layers.len()], ..Default::default() };
+        let n = (scene.shape.cols * scene.shape.rows) as usize;
+        for &(l, _) in &layers {
+            let own = &scene.layers[l];
+            lit.layers[l] = scene::LayerCells { values: vec![0; n], phases: own.phases.as_ref().map(|_| vec![0; n]), offsets: own.offsets.as_ref().map(|_| vec![(0, 0); n]) };
+        }
+        for row in 0..scene.shape.rows {
+            for col in 0..scene.shape.cols {
+                let (x, y) = (2 * col as i32 + (row as i32 & 1), row as i32);
+                self.put(&mut lit, "fog", col, row, rules::fog_with(world, Some(focus), x, y - 1));
+            }
+        }
+        self.edge_fog(&mut lit, world, Some(focus));
+        let mut binding = scene::Binding { id: CITY_BINDING, slots: Vec::new() };
+        for (l, id) in layers {
+            let cells = std::mem::take(&mut lit.layers[l]);
+            if cells != scene.layers[l] {
+                scene.slots.push(scene::LayerSlot { id, layer: l as u32, cells });
+                binding.slots.push((l as u32, id));
+            }
+        }
+        if !binding.slots.is_empty() {
+            scene.bindings.push(binding);
         }
     }
 }
@@ -230,12 +281,15 @@ pub fn from_zoomed_out(sprites: &mut [scene::FreeSprite]) {
 
 /// The city screen is open: the game view is hidden (the screen covers it)
 /// and the city's surroundings show in `rect` (window pixels: x, y, w, h)
-/// as the game frames them (its camera at `camera`), with the map labels.
+/// through a camera at `camera` (the window's top-left, full-size world
+/// pixels: `city_screen::camera`), with the map labels. The city screen
+/// always shows the world at its normal size (`City_Form_open` forces the
+/// normal zoom), whatever the game view was.
 pub fn city_view(scene: &mut Scene, camera: (i32, i32), [x, y, w, h]: [i32; 4]) {
     let game = scene.view_mut(GAME_VIEW);
     game.view.interface_only = true;
     let labels = std::mem::take(&mut game.overlay);
-    let downscale = game.view.downscale;
+    let downscale = 1;
     let city = scene.view_mut(CITY_VIEW);
     city.view = View {
         camera_x: camera.0 + x,
@@ -244,6 +298,8 @@ pub fn city_view(scene: &mut Scene, camera: (i32, i32), [x, y, w, h]: [i32; 4]) 
         viewport: (w as u32, h as u32),
         origin: (x, y),
         downscale,
+        // Its own fog of war (`Mapper::city_fog`).
+        binding: CITY_BINDING,
         ..Default::default()
     };
     city.overlay = labels;
@@ -373,6 +429,59 @@ mod edge_fog_tests {
         fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<RgbaImage>, String> {
             Ok(vec![RgbaImage::from_fn(1152, 576, |_, _| [9, 0, 0, 255])])
         }
+    }
+
+    #[test]
+    fn a_city_screen_in_one_view_leaves_the_players_fog_in_every_other() {
+        use crate::world::Civ3City;
+        let compiled = fog_description().compile(&FakeFog, 1024).unwrap();
+        let mapper = Mapper::new(&compiled);
+        // Everything seen by player 1; the city at (8, 8) owns the tiles
+        // west of x = 8.
+        let mut world = Civ3World { player: 1, width: 20, height: 20, wrap_x: true, ..Default::default() };
+        world.tiles = (0..10 * 20).map(|i| Civ3Tile { explored: 2, visibility: 2, owner: if (i % 10) * 2 < 8 { 1 } else { 0 }, ..Default::default() }).collect();
+        world.cities.push(Civ3City { id: 0, x: 8, y: 8, civ: 1, ..Default::default() });
+        let plain = mapper.scene(&world, &Civ3View::default(), (640, 320), 0);
+        assert!(plain.slots.is_empty() && plain.bindings.is_empty(), "no screen of its own: one fog, shared");
+        world.focus_city = Some(0);
+        let mut open = mapper.scene(&world, &Civ3View::default(), (640, 320), 0);
+        let camera = crate::city_screen::camera((8, 8), (1280, 640));
+        city_view(&mut open, camera, [100, 50, 640, 320]);
+        // Every view but the city screen's: the player's fog, unchanged.
+        assert_eq!(open.layers, plain.layers);
+        assert_eq!(open.view(GAME_VIEW).unwrap().view.binding, 0);
+        assert_eq!(open.view(CITY_VIEW).unwrap().view.binding, CITY_BINDING);
+        // The city screen's: the game's city-screen fog, in a slot.
+        let fog = compiled.layer_index("fog").unwrap();
+        assert_eq!(open.bindings, [scene::Binding { id: CITY_BINDING, slots: vec![(fog as u32, CITY_FOG_SLOTS[0].1)] }], "the edge fog does not differ on a map that wraps");
+        let slot = &open.slots[0];
+        for row in 0..open.shape.rows {
+            for col in 0..open.shape.cols {
+                let (x, y) = (2 * col as i32 + (row as i32 & 1), row as i32);
+                let want = rules::fog(&world, x, y - 1).map_or(0, |s| compiled.value("fog", &s).unwrap());
+                assert_eq!(slot.cells.values[(row * open.shape.cols + col) as usize], want, "({col}, {row})");
+            }
+        }
+        // Drawn: a view of the city binding shows the city's fog, one of
+        // the shared binding (the second pane, B) the player's.
+        let map = tile_viewer::scene_world(&compiled, &open);
+        let cameras = tile_viewer::scene_cameras(&open, (1280, 640), OVERHANG);
+        let city = cameras[open.views.iter().position(|v| v.id == CITY_VIEW).unwrap()];
+        let b = Camera { binding: tile_render::SHARED_BINDING, ..city };
+        let render = |map: &tile_render::TileWorld, camera: &Camera| tile_render::reference::render(map, &compiled.atlas, camera, 0, [192, 160, 128, 255]);
+        let player = render(&tile_viewer::scene_world(&compiled, &plain), &b);
+        assert_eq!(render(&map, &b).as_bytes(), player.as_bytes(), "B's fog equals the normal fog");
+        let mut old = plain.clone();
+        old.layers[fog] = slot.cells.clone();
+        let city_fog = render(&tile_viewer::scene_world(&compiled, &old), &b);
+        assert_ne!(city_fog.as_bytes(), player.as_bytes());
+        assert_eq!(render(&map, &city).as_bytes(), city_fog.as_bytes(), "A shows the city screen's dimming");
+        // A map that does not wrap: the edge fog's slot too.
+        world.wrap_x = false;
+        let open = mapper.scene(&world, &Civ3View::default(), (640, 320), 0);
+        assert_eq!(open.slots.iter().map(|s| s.id).collect::<Vec<_>>(), [1, 2]);
+        world.focus_city = None;
+        assert_eq!(open.layers, mapper.scene(&world, &Civ3View::default(), (640, 320), 0).layers);
     }
 
     #[test]

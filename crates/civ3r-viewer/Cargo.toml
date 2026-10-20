@@ -1,0 +1,22 @@
+[package]
+name = "civ3r-viewer"
+description = "Standalone native renderer host for a Windows game process"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+application-icon = { path = "../application-icon" }
+civ3r-sync = { path = "../civ3r-sync" }
+crossbeam-channel = "0.5"
+viewer-transport = { path = "../viewer-transport" }
+scene = { path = "../scene" }
+civ3-assets = { path = "../civ3-assets" }
+render-desc = { path = "../render-desc" }
+tile-viewer = { path = "../tile-viewer" }
+tile-render.workspace = true
+env_logger.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+image.workspace = true

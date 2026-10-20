@@ -7,7 +7,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::Arc;
+
+use civ3r_sync::Latest;
+
+/// A directory's entries: lowercased name and path.
+type Listing = Arc<Vec<(String, PathBuf)>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileError {
@@ -18,9 +23,11 @@ pub enum FileError {
 }
 
 /// The search roots of an installation, highest priority first.
+#[derive(Clone)]
 pub struct GameFiles {
     roots: Vec<PathBuf>,
-    dir_cache: Mutex<HashMap<PathBuf, Vec<(String, PathBuf)>>>,
+    /// Listings read so far; grown copy-on-write, so readers never wait.
+    dir_cache: Arc<Latest<HashMap<PathBuf, Listing>>>,
 }
 
 impl GameFiles {
@@ -38,7 +45,7 @@ impl GameFiles {
     }
 
     pub fn with_roots(roots: Vec<PathBuf>) -> Self {
-        Self { roots, dir_cache: Mutex::new(HashMap::new()) }
+        Self { roots, dir_cache: Arc::new(Latest::new()) }
     }
 
     /// Puts `dir` (e.g. a scenario's search folder) before all other roots.
@@ -76,14 +83,24 @@ impl GameFiles {
         if exact.exists() {
             return Some(exact);
         }
-        let mut cache = self.dir_cache.lock().unwrap();
-        let entries = cache.entry(dir.to_owned()).or_insert_with(|| {
-            std::fs::read_dir(dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|e| (e.file_name().to_string_lossy().to_lowercase(), e.path()))
-                .collect()
+        let cached = self.dir_cache.load().and_then(|m| m.get(dir).cloned());
+        let entries = cached.unwrap_or_else(|| {
+            // Two threads missing at once both list the directory; the
+            // first listing stored is kept.
+            let listing: Listing = Arc::new(
+                std::fs::read_dir(dir)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| (e.file_name().to_string_lossy().to_lowercase(), e.path()))
+                    .collect(),
+            );
+            self.dir_cache.update(|old| {
+                let mut map = old.cloned().unwrap_or_default();
+                map.entry(dir.to_owned()).or_insert_with(|| listing.clone());
+                Some(map)
+            });
+            listing
         });
         let lower = name.to_lowercase();
         entries.iter().find(|(n, _)| *n == lower).map(|(_, p)| p.clone())
@@ -105,6 +122,18 @@ fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clones_share_listings_but_keep_search_roots_independent() {
+        let files = GameFiles::with_roots(vec![PathBuf::from("base")]);
+        let mut scenario = files.clone();
+        scenario.push_front(PathBuf::from("scenario"));
+        assert_eq!(files.roots(), &[PathBuf::from("base")]);
+        assert_eq!(scenario.roots(), &[PathBuf::from("scenario"), PathBuf::from("base")]);
+        assert!(Arc::ptr_eq(&files.dir_cache, &scenario.dir_cache));
+        files.dir_cache.publish(HashMap::from([(PathBuf::from("base"), Arc::new(vec![("art".into(), PathBuf::from("base/Art"))]))]));
+        assert_eq!(scenario.child(Path::new("base"), "ART"), Some(PathBuf::from("base/Art")));
+    }
 
     #[test]
     fn resolves_case_insensitively_with_priority() {

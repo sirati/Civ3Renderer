@@ -439,8 +439,14 @@ fn in_city_view(world: &Civ3World, city: &crate::world::Civ3City, x: i32, y: i32
 /// explored (§16.8). The city screen shows the map so, dimmed around the
 /// city's tiles.
 pub fn fog(world: &Civ3World, vx: i32, vy: i32) -> Option<String> {
+    fog_with(world, world.focus_city, vx, vy)
+}
+
+/// [`fog`] as the city screen of city `focus` shows it (`None`: the
+/// player's own fog, which every other view shows meanwhile).
+pub fn fog_with(world: &Civ3World, focus: Option<i32>, vx: i32, vy: i32) -> Option<String> {
     let bit = 1u32 << (world.player & 31);
-    let focus = world.focus_city.and_then(|id| world.city(id));
+    let focus = focus.and_then(|id| world.city(id));
     let digit = |x: i32, y: i32| world.tile(x, y).map(|t| match focus {
         Some(c) if in_city_view(world, c, x, y, t) => 2,
         None if world.visible_now(t) => 2,

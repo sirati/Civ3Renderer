@@ -6,6 +6,7 @@ use civ3_assets::fonts::FontStyle;
 use civ3_sys::map_messages::Message;
 use menu::screen::Element;
 use crate::{text::TextRun, ui_screen::Item};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
@@ -30,6 +31,141 @@ pub fn read(game: &civ3_sys::Civ3) -> Vec<Notice> {
             box_height: metrics.box_height,
         })
     }).collect()
+}
+
+/// A notice of the renderer's own at `tile` (`crate::modal`: why a press
+/// was not acted on), in the font and colours of the first of the game's
+/// notice records that has them (shown or not).
+#[cfg(windows)]
+pub fn synthetic(game: &civ3_sys::Civ3, tile: (i32, i32), text: &str) -> Option<Notice> {
+    use inproc::Ptr32;
+    use civ3_sys::map_messages::{COUNT, FIRST, STRIDE};
+    let first = game.addrs.main_screen_form.checked_add(FIRST)?;
+    let (font_at, color, shadow, metrics) = (0..COUNT as u32).find_map(|k| {
+        let word = |at: u32| Ptr32::<u32>::new(first + k * STRIDE as u32 + at).read().ok();
+        let font_at = word(8)?;
+        Some((font_at, word(0x14)?, word(0x10)?, civ3_sys::map_messages::font(font_at)?))
+    })?;
+    let font = inproc::gdi::font(metrics.handle)?;
+    Some(Notice {
+        message: Message { slot: usize::MAX, tile, text: text.into(), font: font_at, color, shadow, below: false, started: 0, duration: 0 },
+        font: FontStyle { face: font.face, height: font.height.abs(), weight: font.weight, italic: font.italic },
+        underline: font.underline,
+        baseline: metrics.baseline,
+        box_height: metrics.box_height,
+    })
+}
+
+/// How long a game notice shows when its record gives no usable duration,
+/// and the longest one may show.
+const DEFAULT_FOR: Duration = Duration::from_millis(2500);
+const LONGEST: Duration = Duration::from_secs(5);
+/// The most notices shown at once (the most recently told).
+pub const CAP: usize = 8;
+
+/// What is shown of the game's and the renderer's notices: one per tile,
+/// at most [`CAP`], each for its own time on the publisher's clock.
+///
+/// Every press on an exhausted unit makes the game add another record, and
+/// a record is only freed by the game's animator. Mirroring the records
+/// one-to-one stacked a plate per press, and records the animator did not
+/// get to stayed forever. Here a notice told again only restarts its time,
+/// and it goes when its time is up whatever the game's records still say.
+#[derive(Default)]
+pub struct Shown {
+    /// The game's records seen last round: (slot, started, tile, text).
+    seen: std::collections::HashSet<(usize, u32, (i32, i32), String)>,
+    shown: Vec<Showing>,
+    ours_seen: std::collections::HashSet<(Instant, (i32, i32), String)>,
+    serial: u64,
+}
+
+struct Showing {
+    notice: Notice,
+    told: Instant,
+    until: Instant,
+    serial: u64,
+    duration_ms: u32,
+}
+
+impl Shown {
+    /// The notices to show at `now`, from the game's live records and the
+    /// renderer's own (with when they were told).
+    pub fn update(&mut self, now: Instant, game: Vec<Notice>, ours: Vec<(Instant, Notice)>) -> Vec<Notice> {
+        let key = |n: &Notice| (n.message.tile, n.message.text.clone());
+        let mut alive = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
+        for n in game {
+            let m = &n.message;
+            let id = (m.slot, m.started, m.tile, m.text.clone());
+            alive.insert(key(&n));
+            if !self.seen.contains(&id) {
+                let lasts = Some(Duration::from_millis(m.duration.into())).filter(|d| !d.is_zero() && *d <= LONGEST).unwrap_or(DEFAULT_FOR);
+                self.tell(n, now, now + lasts);
+            }
+            seen.insert(id);
+        }
+        self.seen = seen;
+        let mut ours_seen = std::collections::HashSet::new();
+        for (at, n) in ours {
+            alive.insert(key(&n));
+            let id = (at, n.message.tile, n.message.text.clone());
+            // Polling is not another command. Evicted modal notices must
+            // not compete for a slot again every publisher round.
+            if !self.ours_seen.contains(&id) && now < at + crate::modal::NOTICE_FOR {
+                self.tell(n, at, at + crate::modal::NOTICE_FOR);
+            }
+            ours_seen.insert(id);
+        }
+        self.ours_seen = ours_seen;
+        // (Gone when the game or `crate::modal` dropped it, too.)
+        self.shown.retain(|s| now < s.until && alive.contains(&key(&s.notice)));
+        self.shown.iter().map(|s| s.notice.clone()).collect()
+    }
+
+    /// In the same order as `update`'s notices. Only another telling gets
+    /// another serial, so unrelated scene updates cannot restart expiry.
+    pub fn lifetimes(&self) -> Vec<(u64, u32)> {
+        self.shown.iter().map(|s| (s.serial, s.duration_ms)).collect()
+    }
+
+    fn tell(&mut self, notice: Notice, told: Instant, until: Instant) {
+        self.serial += 1;
+        let serial = self.serial;
+        let duration_ms = until.saturating_duration_since(told).as_millis() as u32;
+        let m = &notice.message;
+        match self.shown.iter().position(|s| s.notice.message.tile == m.tile) {
+            // The same notice again: it stays where it is, for longer.
+            Some(i) if self.shown[i].notice.message.text == m.text => {
+                let s = &mut self.shown[i];
+                s.told = s.told.max(told);
+                if told >= s.told {
+                    s.serial = serial;
+                    s.duration_ms = duration_ms;
+                }
+                s.until = s.until.max(until);
+            }
+            // Another on the same tile replaces it, unless older.
+            Some(i) => {
+                if told >= self.shown[i].told {
+                    self.shown[i] = Showing { notice: Self::alone(notice), told, until, serial, duration_ms };
+                }
+            }
+            None => {
+                self.shown.push(Showing { notice: Self::alone(notice), told, until, serial, duration_ms });
+                if self.shown.len() > CAP {
+                    let oldest = (0..self.shown.len()).min_by_key(|&i| self.shown[i].told).unwrap();
+                    self.shown.remove(oldest);
+                }
+            }
+        }
+    }
+
+    /// One per tile: never displaced below another.
+    fn alone(mut notice: Notice) -> Notice {
+        notice.message.below = false;
+        notice
+    }
 }
 
 const ALL: [i32; 4] = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
@@ -85,14 +221,9 @@ fn color(word: u32) -> [u8; 3] {
 
 /// These must remain world sprites, above units and fog, with the units'
 /// per-view Clean Map category. They must not become an interface overlay.
-pub fn sprites(items: &[Item], fonts: &crate::text::Fonts, compiled: &render_desc::Compiled, outlines: bool, zoomed_out: bool) -> Vec<scene::FreeSprite> {
-    let mut out = crate::ui_screen::sprites(items, fonts, compiled, u32::MAX, outlines);
-    for s in &mut out {
-        s.screen = false;
-        s.clip = None;
-        s.category = viewer_settings::clean_map::UNITS;
-    }
-    if zoomed_out { crate::scene_map::from_zoomed_out(&mut out); }
+pub fn sprites(items: &crate::world_items::WorldItems, fonts: &crate::text::Fonts, compiled: &render_desc::Compiled, outlines: bool) -> Vec<scene::FreeSprite> {
+    let mut out = items.sprites(fonts, compiled, u32::MAX, outlines);
+    for s in &mut out { s.category |= viewer_settings::clean_map::UNITS; }
     out
 }
 
@@ -122,7 +253,7 @@ mod tests {
     use super::*;
     fn notice() -> Notice {
         Notice {
-            message: Message { slot: 1, tile: (100, 40), text: "This unit has already moved".into(), font: 1, color: 0x8000_7FFF, shadow: 0x8000_0000, below: false },
+            message: Message { slot: 1, tile: (100, 40), text: "This unit has already moved".into(), font: 1, color: 0x8000_7FFF, shadow: 0x8000_0000, below: false, started: 1000, duration: 2000 },
             font: FontStyle { face: "Lucida Sans".into(), height: 14, weight: 0, italic: false },
             underline: false, baseline: 10, box_height: 14,
         }
@@ -190,21 +321,135 @@ mod tests {
         let items = items(&[n], false, [8, 16, 24], &mut width);
         let mut art = menu::screen::ScreenArt::default();
         let Item::Element(plate, _) = &items[0] else { panic!() };
-        assert!(art.add(std::slice::from_ref(plate)));
+        assert!(!art.add(std::slice::from_ref(plate)), "a GPU solid plate needs no sprite art");
         let desc = format!("[grid]\nlayout = \"staggered\"\nstep = [64, 32]\n{}", crate::ui_screen::description(&art));
         let compiled = render_desc::Description::parse(&desc).unwrap().compile_layout(&NoFiles, 256).unwrap();
         let fonts = crate::text::Fonts::default();
-        let normal = sprites(&items[..1], &fonts, &compiled, false, false);
-        let out = sprites(&items[..1], &fonts, &compiled, false, true);
-        assert!(!normal.is_empty());
-        for (normal, out) in normal.iter().zip(&out) {
-            assert!(!normal.screen);
-            assert_eq!(normal.clip, None);
-            assert_eq!(normal.not_in_view, None, "all independent views may draw this notice");
-            assert_eq!(normal.category, viewer_settings::clean_map::UNITS);
-            assert_eq!(normal.after_pass, u32::MAX);
-            assert_eq!((out.x, out.y), (normal.x * 2, normal.y * 2));
+        let layouts = crate::world_items::WorldItems::new(true, |reduced| {
+            super::items(std::slice::from_ref(&notice()), reduced, [8, 16, 24], &mut width).into_iter().take(1).collect()
+        });
+        let out = sprites(&layouts, &fonts, &compiled, false);
+        assert_eq!(out.len(), 2);
+        for downscale in [1, 2, 1] {
+            let camera = tile_render::Camera { downscale, ..tile_render::Camera::new((100, 100)) };
+            let selected: Vec<_> = out.iter().filter(|s| s.category & camera.effective_hidden_categories() == 0).collect();
+            assert_eq!(selected.len(), 1);
+            let selected = selected[0];
+            assert!(!selected.screen && selected.clip.is_none());
+            assert_eq!(selected.not_in_view, None, "all independent views may draw this notice");
+            assert_ne!(selected.category & viewer_settings::clean_map::UNITS, 0);
+            assert_eq!(selected.after_pass, u32::MAX);
+            let expected = super::items(std::slice::from_ref(&notice()), downscale > 1, [8, 16, 24], &mut width);
+            let Item::Element(Element::Fill { rect, .. }, _) = expected[0] else { panic!() };
+            assert_eq!((selected.x / downscale as i32, selected.y / downscale as i32), (rect[0], rect[1]));
+            let solid = selected.solid.expect("notice plates are GPU rectangle commands");
+            assert_eq!((solid.width, solid.height), (rect[2] as u32, rect[3] as u32));
         }
+    }
+
+    fn record(slot: usize, tile: (i32, i32), text: &str, started: u32) -> Notice {
+        let mut n = notice();
+        n.message = Message { slot, tile, text: text.into(), below: slot % 2 == 1, started, duration: 2000, ..n.message };
+        n
+    }
+
+    #[test]
+    fn spamming_one_notice_shows_it_once_for_longer() {
+        let t0 = Instant::now();
+        let mut shown = Shown::default();
+        let mut records = Vec::new();
+        let mut out = Vec::new();
+        // 50 presses 100 ms apart, each a new game record (the game's slots
+        // fill; none is ever freed).
+        for k in 0..50u32 {
+            records.push(record(k as usize, (10, 20), "This unit has already moved", 1000 + k * 100));
+            out = shown.update(t0 + Duration::from_millis(k as u64 * 100), records.clone(), Vec::new());
+            assert_eq!(out.len(), 1, "press {k}");
+            assert!(!out[0].message.below, "it stays where it was");
+        }
+        // Lasts from the last press, not the first.
+        let last = t0 + Duration::from_millis(4900);
+        assert_eq!(shown.update(last + Duration::from_millis(1990), records.clone(), Vec::new()).len(), 1);
+        assert_eq!(out[0].message.text, "This unit has already moved");
+        assert!(shown.update(last + Duration::from_millis(2000), records.clone(), Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn notices_go_on_time_even_if_the_game_never_frees_them() {
+        let t0 = Instant::now();
+        let mut shown = Shown::default();
+        let stuck = vec![record(0, (10, 20), "a", 5), record(1, (12, 20), "b", 6)];
+        let ours = |at| vec![(at, record(usize::MAX, (14, 20), "Close the screen to attack", 0))];
+        assert_eq!(shown.update(t0, stuck.clone(), ours(t0)).len(), 3);
+        // Only the clock moves: the game's records stay as they were.
+        for ms in [500, 1999] {
+            assert_eq!(shown.update(t0 + Duration::from_millis(ms), stuck.clone(), ours(t0)).len(), 3);
+        }
+        assert_eq!(shown.update(t0 + Duration::from_millis(2000), stuck.clone(), ours(t0)).len(), 1);
+        assert!(shown.update(t0 + crate::modal::NOTICE_FOR, stuck.clone(), ours(t0)).is_empty());
+        assert!(shown.update(t0 + Duration::from_secs(60), stuck, Vec::new()).is_empty(), "stuck records do not come back");
+        // A record that a duration is unusable for still goes.
+        let mut forever = record(3, (1, 1), "x", 9);
+        forever.message.duration = u32::MAX;
+        let t1 = t0 + Duration::from_secs(61);
+        assert_eq!(shown.update(t1, vec![forever.clone()], Vec::new()).len(), 1);
+        assert!(shown.update(t1 + DEFAULT_FOR, vec![forever], Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn different_notices_on_different_units_each_show_once_and_are_capped() {
+        let t0 = Instant::now();
+        let mut shown = Shown::default();
+        let records: Vec<_> = (0..3).flat_map(|i| [record(2 * i, (2 * i as i32, 0), "moved", 1), record(2 * i + 1, (2 * i as i32, 0), "moved", 2)]).collect();
+        let out = shown.update(t0, records.clone(), Vec::new());
+        assert_eq!(out.iter().map(|n| n.message.tile).collect::<Vec<_>>(), [(0, 0), (2, 0), (4, 0)]);
+        // The game freeing one removes its copy at once.
+        assert_eq!(shown.update(t0, records[2..].to_vec(), Vec::new()).len(), 2);
+        // Another notice on a tile replaces the one there.
+        let other = record(9, (2, 0), "other", 3);
+        let out = shown.update(t0, [&records[2..], &[other][..]].concat(), Vec::new());
+        assert_eq!(out.iter().map(|n| (n.message.tile, n.message.text.as_str())).collect::<Vec<_>>(), [((2, 0), "other"), ((4, 0), "moved")]);
+        // Many tiles at once: the newest CAP.
+        let many: Vec<_> = (0..20).map(|i| record(i, (2 * i as i32, 10), "m", 100 + i as u32)).collect();
+        let mut shown = Shown::default();
+        for k in 1..=many.len() {
+            shown.update(t0 + Duration::from_millis(k as u64), many[..k].to_vec(), Vec::new());
+        }
+        let out = shown.update(t0 + Duration::from_millis(30), many, Vec::new());
+        assert_eq!(out.len(), CAP);
+        assert!(out.iter().all(|n| n.message.tile.0 >= 2 * (20 - CAP as i32)));
+    }
+
+    #[test]
+    fn unchanged_modal_notices_do_not_evict_newer_game_notices() {
+        let t0 = Instant::now();
+        let mut shown = Shown::default();
+        let ours = vec![(t0, record(usize::MAX, (100, 0), "modal", 0))];
+        assert_eq!(shown.update(t0, Vec::new(), ours.clone()).len(), 1);
+        let initial = shown.lifetimes();
+        shown.update(t0, Vec::new(), ours.clone());
+        assert_eq!(shown.lifetimes(), initial, "polling does not renew viewer lifetime");
+        let game: Vec<_> = (0..CAP).map(|i| record(i, (2 * i as i32, 0), "game", i as u32)).collect();
+        let t1 = t0 + Duration::from_millis(10);
+        let first = shown.update(t1, game.clone(), ours.clone());
+        assert_eq!(first.len(), CAP);
+        assert!(first.iter().all(|n| n.message.text == "game"));
+        assert_eq!(shown.update(t1, game, ours), first);
+    }
+
+    #[test]
+    fn another_telling_renews_viewer_lifetime_even_when_text_and_tile_match() {
+        let t0 = Instant::now();
+        let mut shown = Shown::default();
+        let n = record(0, (10, 20), "moved", 1);
+        let first = shown.update(t0, vec![n.clone()], Vec::new());
+        let lease = shown.lifetimes();
+        assert_eq!(shown.update(t0, vec![n.clone()], Vec::new()), first);
+        assert_eq!(shown.lifetimes(), lease);
+        let mut restarted = n;
+        restarted.message.started += 1;
+        assert_eq!(shown.update(t0 + Duration::from_secs(1), vec![restarted], Vec::new()), first);
+        assert!(shown.lifetimes()[0].0 > lease[0].0);
     }
 
     #[test]

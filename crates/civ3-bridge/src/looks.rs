@@ -91,7 +91,7 @@ fn draw_color(d: &ScreenDraw) -> Option<[u8; 3]> {
 
 /// Whether `d` draws the image region `s`.
 fn draws_region(d: &ScreenDraw, s: &Source) -> bool {
-    matches!(d, ScreenDraw::Image { path, rect, .. } if is_region(path, *rect, s))
+    matches!(d, ScreenDraw::Image { path, rect, .. } | ScreenDraw::ResizedImage { path, rect, .. } if is_region(path, *rect, s))
 }
 
 impl ControlArt {
@@ -149,7 +149,7 @@ impl ControlArt {
         let mut out = draws.to_vec();
         for d in &mut out {
             match d {
-                ScreenDraw::Image { path, rect, .. } => {
+                ScreenDraw::Image { path, rect, .. } | ScreenDraw::ResizedImage { path, rect, .. } => {
                     let Some((_, to)) = swaps.iter().find(|(from, _)| is_region(path, *rect, from)) else { continue };
                     let Source::File { path: p, rect: r, .. } = to else { return None };
                     if r[2] != rect[2] || r[3] != rect[3] {
@@ -173,7 +173,7 @@ impl ControlArt {
     /// part, the last draw of its art within its rectangle.
     fn own(&self, draws: &[ScreenDraw]) -> Option<Vec<ScreenDraw>> {
         let at = |d: &ScreenDraw| match d {
-            ScreenDraw::Image { x, y, .. } | ScreenDraw::Flc { x, y, .. } | ScreenDraw::Surface { x, y, .. } => (*x, *y),
+            ScreenDraw::Image { x, y, .. } | ScreenDraw::ResizedImage { x, y, .. } | ScreenDraw::Flc { x, y, .. } | ScreenDraw::Surface { x, y, .. } | ScreenDraw::Indexed { x, y, .. } => (*x, *y),
             ScreenDraw::Fill { rect, .. } => (rect[0], rect[1]),
             ScreenDraw::Text { run, .. } => (run.x, run.y),
         };
@@ -192,6 +192,11 @@ impl ControlArt {
                     ScreenDraw::Image { rect, x: ix, y: iy, clip, .. } => {
                         let (l, t) = ((*ix).max(clip[0]).max(x), (*iy).max(clip[1]).max(y));
                         let (r, b) = ((ix + rect[2]).min(clip[2]).min(x + w), (iy + rect[3]).min(clip[3]).min(y + h));
+                        r > l && b > t
+                    }
+                    ScreenDraw::ResizedImage { size: (dw, dh), x: ix, y: iy, clip, .. } => {
+                        let (l, t) = ((*ix).max(clip[0]).max(x), (*iy).max(clip[1]).max(y));
+                        let (r, b) = ((ix + dw).min(clip[2]).min(x + w), (iy + dh).min(clip[3]).min(y + h));
                         r > l && b > t
                     }
                     _ => false,

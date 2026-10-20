@@ -185,7 +185,7 @@ fn focus_move_unit(game: Civ3, policy: Policy, unit: u32, target: (i32, i32)) {
     let source = unit_tile(unit);
     let source_visible = !target_visible && source.is_some_and(|source| policy.tile_visible(game, unit, player, source));
     match choose_move_focus(owner, player, prefs, enemy, target_visible, detected, source_visible, detected) {
-        Some(FocusEndpoint::Target) => crate::native_camera::request_tile(game, target),
+        Some(FocusEndpoint::Target) => { crate::native_camera::request_tile(game, target); },
         Some(FocusEndpoint::Source) => if let Some(source) = source { crate::native_camera::request_tile(game, source); },
         None => (),
     }
@@ -197,19 +197,18 @@ fn focus_bombard(game: Civ3, policy: Policy, unit: u32, target: (i32, i32)) {
     // A visible hit is a combat event even when movement-following is off.
     // Focusing this already visible target does not expose a hidden shooter.
     if prefs & P_ANIMATE_BATTLES != 0 && tile_visible_to_player(game, target, player).ok() == Some(true) {
-        crate::native_camera::request_tile(game, target);
+        let source = visible_endpoint(game, policy, unit, player);
+        if let Some(serial) = crate::native_camera::request_combat(game, target, source) {
+            let arrived = crate::camera_arrival::wait(serial);
+            crate::native_camera::finish_combat(serial);
+            log::debug!("bombard camera {serial}: {}", if arrived { "accepted camera frame with complete area" } else { "viewer unavailable, simulation continues" });
+        }
+        if source.is_some() { crate::combat_speed::visible_combat_ready(game, unit, 0); }
     } else if let Some(source) = unit_tile(unit) {
         // Shared vision grants the unit's position, not an unseen bombard
         // destination. With hit focus disabled, follow only the shooter.
         focus_move_unit(game, policy, unit, source);
     }
-}
-
-fn focus_combat_endpoint(game: Civ3, policy: Policy, unit: u32, player: i32) -> bool {
-    if let Some(tile) = visible_endpoint(game, policy, unit, player) {
-        crate::native_camera::request_tile(game, tile);
-        true
-    } else { false }
 }
 
 /// Install all semantic hooks as one transaction. Callers must `forget` the
@@ -226,6 +225,8 @@ pub fn install(game: Civ3) -> Result<(unit_move::Installed, unit_bombard::Instal
     };
     let movement_policy = policy;
     let movement = unit_move::install_at_start(s.unit_move.0, s.unit_move.1, move |call| {
+        let _camera = crate::camera_arrival::combat_scope();
+        let _speed = crate::combat_speed::combat_scope();
         if !crate::native_camera::active() { return call.original(); }
         let target = (call.tile_x as i32, call.tile_y as i32);
         let no_op = unit_tile(call.unit) == Some(target);
@@ -234,6 +235,8 @@ pub fn install(game: Civ3) -> Result<(unit_move::Installed, unit_bombard::Instal
     })?;
     let bombard_policy = policy;
     let bombard = match unit_bombard::install_at_start(s.unit_bombard.0, s.unit_bombard.1, move |call| {
+        let _camera = crate::camera_arrival::combat_scope();
+        let _speed = crate::combat_speed::combat_scope();
         if crate::native_camera::active() { focus_bombard(game, bombard_policy, call.unit, (call.tile_x as i32, call.tile_y as i32)); }
         call.original();
     }) {
@@ -243,13 +246,25 @@ pub fn install(game: Civ3) -> Result<(unit_move::Installed, unit_bombard::Instal
     let combat_policy = policy;
     let combat = match combat_visibility::install_at_start(s.combat_visibility.0, s.combat_visibility.1, move |call| {
         let result = call.original();
-        if !crate::native_camera::active() || (result & 0xff) == 0 { return result; }
-        let Ok(player) = player_civ(game) else { return result; };
-        // Native param_3 can bypass its own tile gate. We still require one
-        // visible/detected endpoint, while allowing either side to be ours.
-        if !focus_combat_endpoint(game, combat_policy, call.defender, player) {
-            focus_combat_endpoint(game, combat_policy, call.attacker, player);
+        if (result & 0xff) == 0 { return result; }
+        if crate::native_camera::active() && crate::camera_arrival::first_visible_event(call.attacker, call.defender) {
+            if let Ok(player) = player_civ(game) {
+                // Keep native animation legality, detection and tile visibility.
+                // Include both legal endpoints so a fight straddling an edge
+                // cannot begin with one of its units still clipped.
+                let defender = visible_endpoint(game, combat_policy, call.defender, player);
+                let attacker = visible_endpoint(game, combat_policy, call.attacker, player);
+                if let Some(first) = defender.or(attacker) {
+                    let other = defender.and(attacker);
+                    if let Some(serial) = crate::native_camera::request_combat(game, first, other) {
+                        let arrived = crate::camera_arrival::wait(serial);
+                        crate::native_camera::finish_combat(serial);
+                        log::debug!("combat camera {serial}: {}", if arrived { "accepted camera frame with complete area" } else { "viewer unavailable, simulation continues" });
+                    }
+                }
+            }
         }
+        crate::combat_speed::visible_combat_ready(game, call.attacker, call.defender);
         result
     }) {
         Ok(h) => h,

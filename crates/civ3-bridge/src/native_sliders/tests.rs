@@ -120,7 +120,9 @@ fn begin_on_another_slider_restores_the_first_before_editing_the_second() {
 
 #[test]
 fn pending_previews_coalesce_without_crossing_a_commit_or_foreign_input() {
-    let mut queue = Requests::default();
+    let queue = Requests::default();
+    let mut inbox = civ3r_sync::Inbox::default();
+    let only = |taken: Vec<Request>| { assert_eq!(taken.len(), 1, "{taken:?}"); taken[0] };
     let (first, post) = queue.push(request(SliderAction::Preview, 0));
     assert!(post);
     for value in 1..10_000 { assert_eq!(queue.push(request(SliderAction::Preview, value)), (first, false)); }
@@ -130,9 +132,92 @@ fn pending_previews_coalesce_without_crossing_a_commit_or_foreign_input() {
     let (commit, _) = queue.push(request(SliderAction::Commit, 0));
     let (after_commit, post) = queue.push(request(SliderAction::Preview, 30_000));
     assert!(post && after_commit != after_key);
-    assert_eq!(queue.take(first).unwrap().value, 9_999);
-    assert_eq!(queue.take(after_key).unwrap().value, 20_000);
-    assert_eq!(queue.take(commit).unwrap().action, SliderAction::Commit);
-    assert_eq!(queue.take(after_commit).unwrap().value, 30_000);
-    assert!(queue.take(first).is_none());
+    assert_eq!(only(queue.take(first, &mut inbox)).value, 9_999);
+    assert_eq!(only(queue.take(after_key, &mut inbox)).value, 20_000);
+    assert_eq!(only(queue.take(commit, &mut inbox)).action, SliderAction::Commit);
+    assert_eq!(only(queue.take(after_commit, &mut inbox)).value, 30_000);
+    assert!(queue.take(first, &mut inbox).is_empty());
+}
+
+#[test]
+fn arrow_steps_move_one_native_unit_clamp_and_stay_inside_an_open_edit() {
+    let mut driver = Fake::new();
+    driver.current = Some(slider(0x10000, 1));
+    let mut transaction = Transaction::default();
+    // Outside an edit: a whole change through the native notification.
+    transaction.apply(request(SliderAction::Step, -1), &mut driver);
+    transaction.apply(request(SliderAction::Step, -10), &mut driver);
+    assert_eq!(driver.writes, [0], "clamped at the minimum, no write at the end");
+    transaction.apply(request(SliderAction::Step, i32::MAX), &mut driver);
+    transaction.apply(request(SliderAction::Step, 1), &mut driver);
+    assert_eq!(driver.writes, [0, 2_000_003]);
+    // Inside an Alt edit Cancel restores what Begin read.
+    transaction.apply(request(SliderAction::Begin, 0), &mut driver);
+    transaction.apply(request(SliderAction::Step, -10), &mut driver);
+    assert_eq!(driver.current.unwrap().exact, 1_999_993);
+    transaction.apply(request(SliderAction::Cancel, 0), &mut driver);
+    assert_eq!(driver.current.unwrap().exact, 2_000_003);
+    // A hidden control takes no step.
+    driver.accessible = false;
+    transaction.apply(request(SliderAction::Step, -1), &mut driver);
+    assert_eq!(driver.current.unwrap().exact, 2_000_003);
+}
+
+#[test]
+fn a_step_on_another_slider_restores_the_open_edit_first() {
+    let mut driver = Fake::new();
+    let mut transaction = Transaction::default();
+    transaction.apply(request(SliderAction::Begin, 0), &mut driver);
+    transaction.apply(request(SliderAction::Preview, 0), &mut driver);
+    transaction.apply(Request { id: 0x20000, ..request(SliderAction::Step, 1) }, &mut driver);
+    assert_eq!(driver.writes, [0, 1_000_001]);
+    assert!(transaction.original.is_none());
+}
+
+#[test]
+fn steps_are_never_coalesced_and_keep_their_queue_order() {
+    let queue = Requests::default();
+    let mut inbox = civ3r_sync::Inbox::default();
+    let (first, post) = queue.push(request(SliderAction::Step, 1));
+    let (second, post2) = queue.push(request(SliderAction::Step, 1));
+    assert!(post && post2 && first != second);
+    assert_eq!(queue.take(second, &mut inbox).iter().map(|r| r.action).collect::<Vec<_>>(), [SliderAction::Step, SliderAction::Step]);
+}
+
+#[test]
+fn an_arrow_before_the_next_tick_restores_a_hidden_native_sliders_exact_entry_value() {
+    use scene::{Button, Input, Interactable, InteractableKind, Scene, View, ViewState};
+    use tile_viewer::{layout::Layout, snap::{Rates, SnapInput}};
+    let mut scene = Scene {
+        views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
+        interactables: vec![Interactable { id: 0x10000, rect: [100, 100, 220, 24], anchor: None, alt_right_click: false,
+            kind: InteractableKind::Slider { track: [110, 112, 200, 1], value: 500_000 } }],
+        ..Default::default()
+    };
+    let rates = Rates::default();
+    let mut layout = Layout::default();
+    layout.frame(&scene, (800, 600), (0, 0, 0, 0), vec![], None);
+    let mut snap = SnapInput::default();
+    for down in [true, false] { snap.route(Input::Key { vk: 0x12, down, text: None }, &mut layout, &scene, 0.0, rates); }
+    snap.tick(&mut layout, &scene, 1.0, rates);
+    let mut driver = Fake::new();
+    let mut transaction = Transaction::default();
+    let deliver = |out: Vec<Input>, transaction: &mut Transaction, driver: &mut Fake| {
+        for input in out {
+            if let Input::Slider { id, action, value } = input { transaction.apply(Request { id, action, value }, driver); }
+        }
+    };
+    deliver(snap.route(Input::MouseButton { button: Button::Left, down: true, x: 0, y: 0 }, &mut layout, &scene, 1.0, rates), &mut transaction, &mut driver);
+    snap.motion((20.0, 0.0));
+    deliver(snap.tick(&mut layout, &scene, 1.1, rates), &mut transaction, &mut driver);
+    assert_ne!(driver.current.unwrap().exact, 1_000_001);
+    // The native slider still exists behind the new tab. Its exact original
+    // value must be restored, even though it is no longer a current target.
+    driver.accessible = false;
+    scene.interactables.clear();
+    let out = snap.route(Input::Key { vk: 0x25, down: true, text: None }, &mut layout, &scene, 1.2, rates);
+    assert!(!out.iter().any(|i| matches!(i, Input::Slider { action: SliderAction::Step | SliderAction::Commit, .. })), "{out:?}");
+    deliver(out, &mut transaction, &mut driver);
+    assert_eq!(driver.current.unwrap().exact, 1_000_001);
+    assert!(transaction.original.is_none());
 }

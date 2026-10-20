@@ -312,6 +312,7 @@ pub const UNIT_BODY_X: u32 = 8;
 pub const UNIT_BODY_Y: u32 = 12;
 pub const UNIT_BODY_CIVID: u32 = 24;
 pub const UNIT_BODY_UNITTYPEID: u32 = 36;
+pub const UNIT_BODY_LEADER_KIND: u32 = 472;
 pub const UNIT_BODY_DAMAGE: u32 = 48;
 pub const UNIT_BODY_MOVES: u32 = 52;
 pub const UNIT_BODY_CONTAINER_UNIT: u32 = 68;

@@ -142,12 +142,18 @@ pub struct ImprovementInfo {
 /// A unit as the animator draws it (docs §10).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct DrawnUnit {
+    /// Opaque native object identity, compared only across copied snapshots.
+    /// Raw memory reads never invoke the game to populate calculated stats.
+    pub native_address: u32,
+    /// Calculated only in the bridge's game-thread capture. Raw reads are None.
+    pub max_move_points: Option<i32>,
     pub id: i32,
     /// Tile.
     pub x: i32,
     pub y: i32,
     pub civ: i32,
     pub unit_type: i32,
+    pub leader_kind: i32,
     pub experience: i32,
     pub damage: i32,
     /// Move points used.
@@ -178,11 +184,14 @@ fn unit_record(bytes: &[u8; UNIT_RECORD_SIZE]) -> DrawnUnit {
     let field = |at: u32| i32::from_le_bytes(bytes[at as usize..at as usize + 4].try_into().unwrap());
     let anim = |at| field(L::UNIT_BODY_ANIMATION + at);
     DrawnUnit {
+        native_address: 0,
+        max_move_points: None,
         id: field(L::UNIT_BODY_ID),
         x: field(L::UNIT_BODY_X),
         y: field(L::UNIT_BODY_Y),
         civ: field(L::UNIT_BODY_CIVID),
         unit_type: field(L::UNIT_BODY_UNITTYPEID),
+        leader_kind: field(L::UNIT_BODY_LEADER_KIND),
         experience: field(L::UNIT_BODY_COMBAT_EXPERIENCE),
         damage: field(L::UNIT_BODY_DAMAGE),
         moves: field(L::UNIT_BODY_MOVES),
@@ -732,7 +741,9 @@ impl Civ3 {
         // One checked copy keeps the animation fields together and avoids
         // a process-memory call for every scalar of every off-camera unit.
         let bytes: [u8; UNIT_RECORD_SIZE] = body.cast().read()?;
-        Ok(unit_record(&bytes))
+        let mut record = unit_record(&bytes);
+        record.native_address = body.raw().checked_sub(L::UNIT_BODY).unwrap_or(0);
+        Ok(record)
     }
 
     fn strings(&self, list: u32, count: u32, stride: u32, member: u32, len: usize) -> Result<Vec<String>, Civ3Error> {
@@ -792,6 +803,24 @@ impl Civ3 {
             let bytes: [u8; (L::UNIT_BODY_CONTAINER_UNIT + 4) as usize] = Ptr32::new(body).read()?;
             let f = |at: u32| i32::from_le_bytes(bytes[at as usize..at as usize + 4].try_into().unwrap());
             out.push((f(L::UNIT_BODY_X), f(L::UNIT_BODY_Y), f(L::UNIT_BODY_CONTAINER_UNIT)));
+        }
+        Ok(out)
+    }
+
+    /// The units inside the units `containers` (an army's members, docs
+    /// §10.11: their `Container_Unit` is the army).
+    pub fn units_in(&self, containers: &[i32]) -> Result<Vec<DrawnUnit>, Civ3Error> {
+        let list = Ptr32::<u8>::new(self.addrs.units);
+        let items: Ptr32<[u32; 2]> = list.offset::<Ptr32<[u32; 2]>>(L::CITIES_CITIES)?.read()?;
+        let last: i32 = list.offset::<i32>(L::CITIES_LASTINDEX)?.read()?;
+        let mut out = Vec::new();
+        if items.is_null() || containers.is_empty() { return Ok(out); }
+        for [_, body] in items.read_array(last.clamp(-1, 0xFFFF).saturating_add(1) as usize)? {
+            if body == 0 { continue; }
+            let container: i32 = Ptr32::<u8>::new(body).offset::<i32>(L::UNIT_BODY_CONTAINER_UNIT)?.read()?;
+            if container >= 0 && containers.contains(&container) {
+                out.push(Self::read_unit(Ptr32::new(body))?);
+            }
         }
         Ok(out)
     }
@@ -1276,7 +1305,7 @@ mod tests {
         let mut set = |at: u32, value: i32| bytes[at as usize..at as usize + 4].copy_from_slice(&value.to_le_bytes());
         for (at, value) in [
             (L::UNIT_BODY_ID, 71), (L::UNIT_BODY_X, 80), (L::UNIT_BODY_Y, 40),
-            (L::UNIT_BODY_CIVID, 2), (L::UNIT_BODY_UNITTYPEID, 9), (L::UNIT_BODY_COMBAT_EXPERIENCE, 3),
+            (L::UNIT_BODY_LEADER_KIND, 2), (L::UNIT_BODY_CIVID, 2), (L::UNIT_BODY_UNITTYPEID, 9), (L::UNIT_BODY_COMBAT_EXPERIENCE, 3),
             (L::UNIT_BODY_DAMAGE, 1), (L::UNIT_BODY_MOVES, 6), (L::UNIT_BODY_CONTAINER_UNIT, -1),
             (L::UNIT_BODY_UNITSTATE, 1), (L::UNIT_BODY_FIELD_1B0 + 4, 72), (L::UNIT_BODY_FIELD_1B0 + 8, 3),
             (L::UNIT_BODY_ANIMATION + L::FLC_ANIMATION_SUMMARY_PIXEL_LOC_X, 5177),
@@ -1289,7 +1318,7 @@ mod tests {
         bytes[L::UNIT_BODY_ALWAYS_ON_TOP as usize] = 1;
         bytes[(L::UNIT_BODY_ACTIVE + 1) as usize] = 1;
         assert_eq!(unit_record(&bytes), DrawnUnit {
-            id: 71, x: 80, y: 40, civ: 2, unit_type: 9, experience: 3, damage: 1, moves: 6,
+            native_address: 0, max_move_points: None, id: 71, x: 80, y: 40, civ: 2, unit_type: 9, leader_kind: 2, experience: 3, damage: 1, moves: 6,
             container: -1, state: 1, always_on_top: true, pixel: (5177,-24), direction: 8,
             animation: 2, frame: 17, visible: true, army_member: 72, army_size: 3, moving: true,
         });

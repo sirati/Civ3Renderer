@@ -48,7 +48,7 @@ fn hitmap(mem: &dyn Mem, pcx: u32) -> Option<(usize, usize, usize, Vec<u8>)> {
 
 /// Rectangles made of one palette index. The maps use 255 for areas that
 /// cannot be clicked. A missing or disabled choice has no pixels at all.
-fn regions(pixels: &[u8], width: usize, height: usize, stride: usize, last: u8) -> BTreeMap<u8, [i32; 4]> {
+pub(super) fn regions(pixels: &[u8], width: usize, height: usize, stride: usize, last: u8) -> BTreeMap<u8, [i32; 4]> {
     let mut best = BTreeMap::new();
     let mut active: BTreeMap<(u8, usize, usize), [i32; 4]> = BTreeMap::new();
     let keep = |best: &mut BTreeMap<u8, [i32; 4]>, index, rect: [i32; 4]| {

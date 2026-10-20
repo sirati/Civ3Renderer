@@ -32,6 +32,10 @@ pub struct Message {
     pub shadow: u32,
     /// A second overlapping message is displaced down by half a tile.
     pub below: bool,
+    /// When it was shown (`timeGetTime`, +0x168) and for how long (ms,
+    /// +0x16C). A new or restarted record has a new `started`.
+    pub started: u32,
+    pub duration: u32,
 }
 
 fn word(bytes: &[u8], at: usize) -> u32 {
@@ -53,6 +57,8 @@ pub fn decode(slot: usize, bytes: &[u8; STRIDE]) -> Option<Message> {
         color: word(bytes, 0x14),
         shadow: word(bytes, 0x10),
         below: bytes[0x24] != 0,
+        started: word(bytes, 0x168),
+        duration: word(bytes, 0x16C),
     })
 }
 
@@ -99,6 +105,8 @@ mod tests {
         b[0x18..0x1C].copy_from_slice(&42u32.to_le_bytes());
         b[0x1C..0x20].copy_from_slice(&24u32.to_le_bytes());
         b[0x68..0x7A].copy_from_slice(b"Unit already moved");
+        b[0x168..0x16C].copy_from_slice(&1000u32.to_le_bytes());
+        b[0x16C..0x170].copy_from_slice(&2000u32.to_le_bytes());
         b
     }
     #[test]
@@ -108,6 +116,7 @@ mod tests {
         assert_eq!(b[0x25], 0, "the engine can have an active notice outside A");
         let m = decode(7, &b).unwrap();
         assert_eq!((m.slot, m.tile, m.text.as_str()), (7, (42, 24), "Unit already moved"));
+        assert_eq!((m.started, m.duration), (1000, 2000));
     }
     #[test]
     fn removal_and_slot_reuse_never_keep_old_text() {

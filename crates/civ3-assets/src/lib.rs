@@ -15,6 +15,7 @@ pub mod fonts;
 #[cfg(feature = "render-desc")]
 pub mod loader;
 pub mod pcx;
+pub mod syscursor;
 
 pub use files::GameFiles;
 pub use pcx::Indexed;

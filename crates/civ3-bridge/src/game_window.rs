@@ -9,24 +9,24 @@
 //! is redirected at once, `jgl.dll` (the library that makes and paints the
 //! window, loaded by the executable later) as it loads.
 
-use std::sync::Mutex;
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::ui_capture::CapturePoint;
 
 /// What was done, for the log (most of it happens before there is one).
-static NOTES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static NOTES: LazyLock<civ3r_sync::Mailbox<String>> = LazyLock::new(civ3r_sync::Mailbox::new);
 
 /// `jgl.dll`'s base once it is redirected (0: not yet).
 static JGL: AtomicU32 = AtomicU32::new(0);
 
 fn note(s: String) {
-    NOTES.lock().unwrap_or_else(|e| e.into_inner()).push(s);
+    NOTES.send(s);
 }
 
 /// The notes so far, for the log.
 pub fn take_notes() -> Vec<String> {
-    std::mem::take(&mut *NOTES.lock().unwrap_or_else(|e| e.into_inner()))
+    NOTES.drain().collect()
 }
 
 /// Whether `jgl.dll` was redirected as it loaded.
@@ -124,7 +124,14 @@ fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, 
         match crate::ui_trace::prepare_at(base, point) {
             Ok(true) => note("UI capture installed before the game's first jgl use".into()),
             Ok(false) => {},
-            Err(e) => note(format!("early UI capture: {e}")),
+            Err(e) => {
+                note(format!("early UI capture: {e}"));
+                // This load callback is outside DllMain. Do not return into
+                // uncaptured legacy execution after replacement setup fails.
+                if point.allowed() && std::env::var_os("CIV3R_VIEWER").is_some() {
+                    crate::ui_trace::replacement_failed(&format!("early UI capture failed: {e}"));
+                }
+            },
         }
     }) { return; }
     if let Some(size) = scale {

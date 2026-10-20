@@ -89,8 +89,9 @@ mod tests {
         }], ..Default::default() };
         for pixel_scale in 1..=6 {
             for menu_scale in [0.5, 1.0] {
-                let plan = scaling::plan((3840, 2160), 2.0, scene.screen_size,
-                    &viewer_settings::Resolution { pixel_scale, menu_scale, ..Default::default() });
+                let mut plan = scaling::plan((3840, 2160), 2.0, scene.screen_size,
+                    &viewer_settings::Resolution { pixel_scale, ..Default::default() });
+                plan.menu.zoom = scaling::ratio(menu_scale);
                 let mut l = Layout::default();
                 l.driver_screen = Some(plan.screen);
                 let mut f = l.frame(&scene, plan.canvas(), (0, 0, 0, 0), vec![], None);

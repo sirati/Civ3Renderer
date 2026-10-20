@@ -21,6 +21,11 @@ game could drive the same renderer, with or without Civ III's art.
 | `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; panels of controls (choices, tabs, checkboxes, sliders) bound to named values, drawn as run-time screen elements and text; run-time screens (image regions, fills, clipped) |
 | `viewer-settings` | no | the viewer's own settings (resolution, layout, input) saved as TOML, and as named controls for a preferences screen |
 | `tile-viewer` | no | window that draws scenes and reports input |
+| `pointer-api`, `pointer-control` | no | physical-pixel pointer contract and backend selection |
+| `pointer-wayland`, `pointer-x11`, `pointer-windows`, `pointer-macos` | no | display-specific capture, barriers and pointer placement |
+| `pointer-fallback` | no | portable window grabs and warps used by the backends |
+| `viewer-transport` | no | bounded authenticated loopback transport for a separate native viewer |
+| `civ3r-viewer` | asset loader only | standalone native viewer, with Wine path mapping |
 | `civ3-assets` | format reader | PCX, FLC, INI readers; game file lookup; `render-desc` image loader |
 | `inproc` | no | safe abstractions for injected code: guarded memory reads, hooks, DLL entry |
 | `civ3-sys` | facts only | Civ III binary facts: build detection, addresses, generated struct layouts |
@@ -247,19 +252,22 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   upward at their lower boundary. Controls over a zoom area remain
   reachable. World magnifiers keep full-size artwork when Z zooms the
   game's map out. Ctrl+wheel over a zoom view changes its magnification.
-- **Screens**: the advisors F1-F8, the city screen, the palace, espionage,
-  the game menu and the Civilopedia (the bridge names the open one,
-  `scene::Interface`, docs §16.11) go over the window, or their actual
-  panel fills A or B as far as its aspect ratio allows (left or bottom,
-  right or top), one place per orientation. Both map views keep their own
-  cameras. The city panel's internal map follows its panel. The explicit
-  `ui=pane` shortcut still fits the entire game window. **Open menus in
-  mouse view** is enabled by default. The game menu, Preferences and generic
-  popups open in the view that held the mouse, including the captured world
-  cursor's view, and stay there until closed. Their UI keeps the selected
-  menu and pixel scale. Middle-drag inside that view to reach controls in
-  an oversized menu; the other view keeps showing its own world. Turn the
-  option off to use the Menu row's explicit placement.
+- **Screens**: one setting places every screen and popup: the advisors
+  F1-F8, the city screen, the palace, espionage, diplomacy, the game menu,
+  dialogs, popups and the Civilopedia (the bridge names the open one,
+  `scene::Interface`, docs §16.11). They go over the window (Floating), or
+  their actual panel fills A or B as far as its aspect ratio allows (left
+  or bottom, right or top), one place per orientation. Context menus and
+  the right-click tile information box are the exceptions: they open at
+  the click. Both map views keep their own cameras. The city panel's
+  internal map follows its panel. The explicit `ui=pane` shortcut still
+  fits the entire game window. **Open menus in mouse view** is enabled by
+  default and applies with Floating: the game menu, Preferences and
+  generic popups open in the view that held the mouse, including the
+  captured world cursor's view, and stay there until closed. Their UI
+  keeps the selected menu and pixel scale. Middle-drag inside that view to
+  reach controls in an oversized menu; the other view keeps showing its
+  own world. Turn the option off to float them over the whole window.
 - **Clean map**: the Clean map tab has separate A, B and Zoom columns.
   Game follows the game's Clean Map command and its thirteen preferences;
   Normal shows every category; Custom hides selected categories in that
@@ -461,7 +469,7 @@ second ring around foreign units by diplomacy: war, mutual defence,
 peace.
 
 The renderer's own settings (`viewer-settings`: pixel scale and
-fractional scales; split, zoom box, where each screen goes, roles, smooth
+fractional scales; split, zoom box, where screens and popups go, roles, smooth
 movement; the snapping cursor's update rate) are edited on tabs of the
 game's Preferences screen (`civ3_bridge::prefs`, docs §16.11): "CivIII" is
 the game's own screen, mirrored as before; "Resolution" and "Layout" are a
@@ -469,14 +477,19 @@ panel of the `menu` crate (`assets/civ3/preferences.toml`) laid over it,
 drawn from the game's art (its parchment buttons, checkboxes, slider bar
 and thumb) with the split pictures generated (`panes:` sources of the
 render description) and the game's font. Pointer input the panel takes
-never reaches the game; the game's OK button stays usable. A change is
-saved at once (`Settings::default_path()`: `$CIV3R_SETTINGS`, else
-`civ3r/settings.toml` under `$XDG_CONFIG_HOME`, `%APPDATA%` or
-`~/.config`; under Wine the bridge takes the Linux user's path, through
-the prefix's `Z:` drive, so that it and a native viewer share one file)
-and sent to the viewer (`scene::Update::Settings`, the wire carries them
-as TOML); the bridge sends its settings with the first scene, so the
-viewer follows the bridge's file even where it would find another.
+never reaches the game. Edits stay in a draft until Accept, so the menu
+size slider cannot resize its own dialog while it is being edited. Accept
+applies and saves once. Cancel or Escape asks before discarding changed
+renderer or native Civ III settings; No keeps the draft. The original
+audio controls also defer their sound changes until Accept. See
+[settings acceptance and cancellation](docs/settings-transactions.md).
+
+Accepted settings are saved at `Settings::default_path()` (`$CIV3R_SETTINGS`,
+else `civ3r/settings.toml` under `$XDG_CONFIG_HOME`, `%APPDATA%` or
+`~/.config`; under Wine the bridge uses the Unix user's path through the
+prefix's `Z:` drive). The bridge sends them to the viewer as TOML in
+`scene::Update::Settings`, starting with the first scene, so the native
+viewer follows the same accepted file.
 
 Resolution (`tile_viewer::scaling`, `civ3_bridge::game_size`): our
 rendering resolution is apart from the game's screen. The game's screen
@@ -486,18 +499,35 @@ interface is and where its input goes. The viewer draws the world itself
 at the window's size divided by the pixel scale n, a whole number, each
 rendered pixel an exact n×n box (nearest pixel, never fractional; what is
 left of the window, under n pixels, is a border). Auto, the default, is
-the desktop's scale rounded down (2 at 200 %, 1 at 150 %). A larger
+the desktop's scale rounded down (2 at 200 %, 1 at 150 %). Text is the
+exception: with `text=sharp` (the default) the frame is composed at the
+window's own resolution, art still in exact n×n boxes, and the game's
+text (Lucida Sans, the face the game installs) is drawn from its outlines
+at the size it shows on the window: its em times the menu or view zoom
+times n, at the game's pens and advances scaled. Menus and popups scaled
+by the menu scale or to fit get the same text at pixel scale 1; at 1:1
+the game's own glyph pixels are drawn as before
+(`tile_viewer::scaling::drawn`, `Camera::boxed`). A larger
 rendering resolution shows more of the world about the same middle, not
 the same world larger. The game's interface is drawn at its own pixels
 times the frame scale (the frame's panels, each kept at its side or
 corner: bottom-left, bottom-right, top-left) or the menu scale (menus,
-screens and popups, about the middle). Pointer input maps back through
-these same pieces. The world scale
-scales the world about the middle of the game's view. Menus retain the
-requested scale even when larger than the window. Hold the middle mouse
-button and drag an oversized menu to reach controls outside the window.
-These settings change live; the Resolution tab shows the rendering
-resolution. The system
+screens and popups, about the middle). With "Scale menus" off, menus use
+their native size; the title and Preferences always fit the visible
+canvas or assigned view, including at pixel scale ×3. With it on, "Menu
+size" selects 25–100% of the canvas height for a standard 1024×768 menu;
+width and aspect ratio can limit the result. The title and setup screens
+count as their 1024×768 menu, not the game's cleared full-window
+background, so at 100% they touch the top and bottom of the canvas
+(bars only at the sides) like other menus. Small popups use that same
+reference scale. Existing per-view advisor and City placement still
+applies. The defaults are off and 100%; old saved menu multipliers are
+removed without being interpreted as percentages. Pointer input and Alt
+targets use the same transforms as the pixels. The world scale scales the
+world about the middle of the game's view. Other oversized menus retain
+their native size with scaling off; hold the middle mouse button and drag
+to reach controls outside the window. Changes apply when Preferences is
+accepted. The Resolution tab shows the rendering resolution. The system
 pointer is the game's cursor art at the pixel scale (each of its pixels
 n×n, also over menus at a menu scale of their own), as are the cursors
 and markers the viewer draws.
@@ -553,6 +583,17 @@ vsync uses the display's refresh for animation and requests input frames
 immediately; mailbox and immediate draw without waiting for compositor
 redraw callbacks.
 
+The optional `fps_detailed` setting adds rolling one-second timing averages.
+`CPU build` is wall time spent preparing the accepted frame on the main
+thread and GPU worker. It excludes surface acquisition, queue submission,
+presentation and time waiting in the worker mailbox; it is not CPU usage.
+`GPU` spans the first to last timestamped render pass. `GPU gap ~` measures
+the interval between adjacent instrumented frames on the GPU clock. That
+interval includes pacing, presentation, uploads and other queue work, so it
+cannot identify time spent waiting for the CPU alone. GPU results arrive
+asynchronously without waiting for readback; unsupported or stale samples
+show `n/a`. The original `show_fps` counter remains available on its own.
+
 Profiling: `TILE_VIEWER_PROFILE=1` logs every 5 s where the viewer's frames
 go (CPU per step, GPU per view from timestamp queries, read back without
 waiting; `TILE_RENDER_GPU_TIMING=passes`: per render pass), how often the
@@ -569,6 +610,139 @@ brackets the first transfer with timestamp submissions, including driver
 initialization before the render passes; run it with
 `TILE_RENDER_GPU_TIMING=1 cargo run --release -p tile-render --example
 atlas_transfer_profile -- 2048 4096`.
+The GPU worker reports atlas-transfer work separately from main-thread work.
+GPU execution summaries give each delayed timestamp result its own sample;
+readback arrival intervals are not reported as GPU frame intervals.
+
+## Native macOS viewer
+
+For reusable test instances, snapshots and login instructions, see
+[the macOS VM guide](docs/macos-vm.md).
+
+The Windows game runs under Wine. The shipped launcher and viewer are native
+Rust executables. `civ3r-viewer` owns AppKit on its main thread and uses Metal
+by default. The macOS adapters use `objc2` for Objective-C framework bindings;
+shared application code uses safe Rust and the platform adapters contain the
+small unsafe contracts required by Apple APIs. No C or Objective-C application
+source or shell launcher is installed.
+The Windows bridge sends scenes and asset descriptions over an authenticated
+loopback connection. The native process loads the existing art directly.
+The renderer replaces the original map, UI and window pixel drawing by
+default. `--show-game-window` changes only visibility. `--compare` enables
+original pixels in a second window for comparison; `--map` enables only the
+original map pixels for diagnostics. `--compatibility-fallback` keeps normal
+replacement rendering while permitting original-renderer recovery after
+viewer loss. Without that option, closing or losing the viewer stops its
+owned game. A viewer that fails before game startup starts no game.
+
+The game still updates the data needed by its simulation and input handling.
+Hit-test masks, transparent-control masks and images the game reads back
+remain available. These semantic readbacks do not enable the original map,
+UI or window pixel output. The replacement renderer owns visible frames.
+
+`CIV3R_GAME_RENDER=off` is the default. Explicit `on` or `compare` selects
+comparison; `compat` or `compatibility` permits fallback. An explicit CLI
+mode overrides the environment. `--compare-game` is an alias for `--compare`.
+
+Build the Windows bridge on Linux:
+
+```sh
+nix develop -c cargo build --locked --release -p civ3-bridge --target i686-pc-windows-gnu
+```
+
+On macOS, from this source checkout with Rust and Apple's command-line tools:
+
+```sh
+CIV3R_BRIDGE=/path/to/ifc23.dll \
+CIV3R_FONT_CACHE_SOURCE=/path/to/generated/windows-fonts tools/build-macos
+"$HOME/Library/Application Support/civ3r/bin/civ3-play-macos" \
+  --game "/path/to/Civilization III Complete/Conquests" \
+  --wine /path/to/wine --window
+```
+
+The runtime also needs generated Windows GDI glyph sheets and their TOML
+metrics. `CIV3R_FONT_CACHE_SOURCE` installs the `Lucida_Sans-*.png` and
+`Lucida_Sans-*.toml` data from an existing cache into `CIV3R_HOME/fonts`,
+plus the cache manifest and provenance JSON when present.
+Generate that cache with `tools/gen-civ3-fonts` on the Windows build/test host;
+the macOS launcher does not regenerate it. This is required runtime data
+alongside the Rust executables. Original game assets remain in place.
+The launcher selects this private font directory for both Wine and the native
+viewer using a shared `Z:` path. An explicit `CIV3R_FONT_CACHE` is preserved.
+
+`tools/civ3-play` also selects this launcher on macOS. `CIV3R_HOME` changes
+the installation directory. The launcher links game assets, including the
+required original `conquests.biq` rules and its `conquests.mb` companion, into
+a private game directory and keeps its renderer DLL, settings, Wine prefix,
+logs and new saves there. It seeds the small initial game configuration and
+existing campaign/high-score histories into private files. Later launches preserve the
+private histories. Generated top-level `.tmp` files, including the load-side
+`bic__in_.tmp`, stay private. The launcher replaces its older direct-to-source
+temporary/history links without following those links for writes and rejects
+links to unrelated paths. Existing saves are linked for loading; use a
+read-only source mount to protect them against overwriting. Each private installation permits one active launch.
+The Rust launcher creates a private session token with operating-system
+randomness and cleans up owned process groups and session files on exit or
+interruption. It also initializes the game's 32-bit Wine install registry entries with the private install paths,
+so a new Wine prefix does not depend on a previous game installation. It has
+`forbid(unsafe_code)`.
+The shell/Python scripts in `tools/` are development and VM-management tools.
+
+To check launcher isolation and lifecycle behavior without a Mac:
+
+```sh
+nix develop -c cargo build --locked -p civ3r-launcher
+nix develop -c python3 tools/test-civ3-play-macos
+```
+
+Set `CARGO_TARGET_DIR` for both commands if build output lives elsewhere, or
+set `CIV3R_TEST_LAUNCHER` to the compiled `civ3-play-macos` executable.
+
+When building the rust-gpu compiler on the guest is impractical, set
+`TILE_RENDER_PRECOMPILED_SPV` to an absolute path to the SPIR-V module built
+from the same shader sources on Linux. The viewer embeds that module, so
+it is not required beside the installed executable. `CARGO_TARGET_DIR`
+selects the renderer build location. Without this override, the build uses
+rust-gpu's required nightly and compiler components, with its codegen backend
+cached per host user. Shader output stays under the selected target directory's
+`spirv-builder` subdirectory. A global Cargo `build.target-dir` setting is
+supported: the nested codegen build selects its own cache target instead of
+inheriting the renderer's locked target. This does not remove rust-gpu's
+platform toolchain requirements; the precompiled module remains the supported
+alternative when those requirements cannot be met in a macOS guest.
+
+The nested-target regression can run without a GPU or rust-gpu toolchain:
+
+```sh
+nix develop -c rustc --edition 2024 --test crates/tile-render/build_support.rs -o /tmp/c3r-build-support-test
+/tmp/c3r-build-support-test
+```
+
+Set `C3R_SHADER_BUILD_TEST_DIR` to keep its temporary, dependency-free Cargo
+fixtures on a chosen build volume. The test bounds both nested and outer builds
+and removes its fixture after success.
+
+The common pointer API uses physical window pixels for capture, placement,
+confinement bounds and excluded rectangles. Only its backend crates know
+the display APIs. Wayland uses compositor constraints and lock-and-hint
+placement. Windows uses ClipCursor plus layout warps for exclusions. X11
+uses window grabs and layout warps. macOS uses public CoreGraphics APIs,
+with AppKit releasing constraints when focus is lost or a native menu opens.
+
+A macOS VM without a Metal device can run the production shaders through
+SwiftShader Vulkan, then present their completed output through CoreGraphics:
+
+```sh
+export DYLD_LIBRARY_PATH=/path/to/software-vulkan
+export VK_DRIVER_FILES=/path/to/software-vulkan/vk_swiftshader_icd.json
+export WGPU_BACKEND=vulkan TILE_RENDER_ADAPTER=swiftshader
+export TILE_VIEWER_SOFTWARE_PRESENT=1
+```
+
+This mode uses bounded readback storage and software-renderer backpressure.
+It tests the native application and production rendering path, but does not
+measure Apple GPU performance. For the physical Apple ARM64/Metal setup,
+see [the TS Neo run guide](docs/macos-tsneo.md).
 
 ## Civilization III facts
 
@@ -590,26 +764,36 @@ the bridge sends it the render description and scenes and takes input
 back through `__wine_unix_call` (`wine-unixlib`, `scene::wire`). With
 `CIV3R_GAME_MAP=off` the game no longer draws its map at all.
 
-In native mode the game also skips the rest of its pixel work
-(`CIV3R_GAME_RENDER=off`, the default with `CIV3R_VIEWER=native*` unless
-`CIV3R_GAME_WINDOW=show`; `=on` keeps it, and in-process it is on unless
-set). The interface mirror records each drawing it hooks and then skips the
-game's own: sprite blits, image copies (`draw_onto`, `copy_*`, GDI's
+With any renderer backend the game skips its original pixel work by default
+(`CIV3R_GAME_RENDER=off`). Showing its window does not change this policy.
+Explicit `=on` enables comparison; `=compat` enables fallback recovery while
+keeping original pixels suppressed during renderer operation. The interface
+mirror records each drawing it hooks and then skips the game's own: sprite blits, image copies (`draw_onto`, `copy_*`, GDI's
 `StretchBlt` behind them), fills, lines (the game's and C3X's line drawer),
 translucent shades, `TextOutA` of the game's text functions, unit pictures
 the mirror shows as animation frames, and `present`'s `BitBlt` to the
 window; the map's blits go as with `CIV3R_GAME_MAP=off`. What decides what
 is drawn runs as before: forms redraw, compose and present, text is measured
 (`GetTextExtentPoint32`), animations and the map pass pick their frames and
-sprites, and the mirror follows all of it. Drawing goes on where the game
-reads its pixels back: images of palette indices (its maps of the regions
-under the mouse), the canvases of colour-keyed forms (a click on a
-transparent pixel of the HUD goes to the map), the minimap's images (built
+sprites, and the mirror follows all of it. The game retains semantic
+readbacks needed by its input and simulation: images of palette indices
+(its maps of the regions under the mouse), canvases of colour-keyed forms
+whose native hit tests read pixels (a click on a transparent HUD pixel goes
+to the map), the minimap's images (built
 from each other pixel by pixel), and any other image the game drew itself
-once it reads a pixel of it or cuts a sprite from it. Not skipped:
-blits the mirror does not hook (the scaled wrappers), FLC frame decoding,
-the minimap's per-pixel builders. The summary replay uses our terrain sampler
-and follows the game's tile tint, restore and city-marker operations. Its
+once it reads a pixel of it or cuts a sprite from it. These images are data
+inputs and do not restore original visible frames. FLC frame decoding and
+the minimap's per-pixel builders also remain active as required data work.
+The five known scaled sprite wrappers are hooked, including team discs,
+fog, colored animation frames, shadows and scaled interface icons. The
+interface mirror keeps each file icon's native crop, destination size,
+16.16 sampling, palette and mask through copies and clipping. Lazy file
+sources retain their source-loading callback; their nested pixel copy is
+captured and suppressed. The direct-call audit covers all 70 callers of
+these wrappers in the checked executable. Scaled generated surfaces and
+unknown indirect or modified-executable writers are outside that audit.
+The summary replay uses
+our terrain sampler and follows the game's tile tint, restore and city-marker operations. Its
 terrain rasterizer and pixel writers are skipped with game rendering off;
 its geometry and playback logic still run. `CIV3R_TRACE_PIXELS=1` logs any code
 taking the pixels of an image a skipped drawing went onto.
@@ -625,7 +809,9 @@ same way without `nix develop`. Run `tools/civ3-play setup` once: it takes
 the runtime libraries (vulkan-loader, wayland, libxkbcommon, libglvnd) from
 Wine's closure, keeps them as GC roots and adds a `.desktop` entry. Wine,
 the prefix and the native dir go under `~/.local/share/civ3r` (`wine-wow64`,
-`wine-civ3-wow64`, `native`). The game's map is off unless `--map`, the
+`wine-civ3-wow64`, `native`). Original pixels stay off by default. `--compare`
+shows the original renderer for comparison, `--map` enables only map pixels,
+and `--compatibility-fallback` permits original-renderer recovery. The
 renderer uses the Intel iGPU unless `--nvidia` (if that GPU cannot show
 the viewer's window, the renderer falls back to the default one and the
 launcher says so), and `--window` shows the viewer in a window. Explicit
@@ -640,7 +826,8 @@ The viewer is the only window: the game's own is a real window (input is
 posted to it; it asks for the focus and the pointer, which the bridge
 answers) but kept hidden from its start (`civ3_bridge::game_window`),
 so it is on no screen, task bar or switcher. `--show-game-window`
-(`CIV3R_GAME_WINDOW=show`) keeps it shown, for testing; the test tooling
+(`CIV3R_GAME_WINDOW=show`) keeps it shown for diagnostics without enabling
+original pixels; use `--compare` to see original rendering. The test tooling
 (`tools/civ3-session`, `tools/civ3-native`) shows it by default.
 
 On a scaled desktop the game runs at its logical size: `civ3-play` reads
