@@ -98,8 +98,9 @@ def markdown(text):
     return '\n'.join(out)
 
 
-agents = json.loads((ROOT / 'agent-index.json').read_text())
+tasks = json.loads((ROOT / 'agent-index.json').read_text())
 families = json.loads((ROOT / 'evidence/handover/creative-qa/acceptance-matrix.json').read_text())['acceptance_families']
+open_families = [family for family in families if 'continuation_task' in family]
 page = '''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Civ III renderer handover</title><style>
@@ -118,32 +119,34 @@ details{border-bottom:1px solid var(--border,GrayText);padding:.7rem 0}summary{c
 @media(max-width:600px){th,td{padding:.45rem}.detail{padding-left:.3rem;padding-right:.3rem}h1{font-size:1.5rem}}
 @media print{input,nav{display:none}details>*{display:block}.table-scroll{overflow:visible}a{color:inherit}}
 </style></head><body><main>
-<h1>Civ III renderer handover</h1><p class="muted">22 October 2026 · Implementation baseline 8106ae5 · 96 recovered agents · 85 acceptance families</p>
-<nav aria-label="Sections"><a href="#overview">Open and closed work</a><a href="#agents">All agents</a><a href="#acceptance">Acceptance</a><a href="#verification">Tests</a><a href="#backups">Restore</a></nav>
+<h1>Civ III renderer handover</h1><p class="muted">22 October 2026 · Implementation baseline 8106ae5 · Unfinished continuation tasks</p>
+<nav aria-label="Sections"><a href="#overview">Open and closed work</a><a href="#agents">Subagents to spawn</a><a href="#acceptance">Acceptance</a><a href="#verification">Tests</a><a href="#backups">Restore</a></nav>
 '''
 overview = (ROOT / 'README.md').read_text().split('\n', 1)[1]
 page += '<section id="overview">' + markdown(overview) + '</section>'
-page += '''<section id="agents"><h2>All recovered agents</h2><p>66 direct agents and 30 descendants. These are historical task identities, not current live handles. Open an entry for its work and disposition; the report link contains its retained final updates and transcript location. The <a href="subagents.md">full inventory</a> also links the inherited Claude task reports.</p>
-<label for="agent-search">Filter by task, work or status</label><input id="agent-search" type="search" placeholder="For example: audio, combat, camera or review" aria-controls="agent-list"><p id="agent-count" class="muted" aria-live="polite"></p><div id="agent-list">'''
-for a in agents:
-    name = a['agent_path'].removeprefix('/root/')
-    page += '<details data-filter><summary>' + html.escape(name) + '<span class="tag">depth ' + str(a['depth']) + '</span></summary><div class="detail"><p>' + html.escape(a['work']) + '</p><p>' + html.escape(a['disposition']) + '</p><p><a href="' + a['report'] + '">Retained reports and transcript location</a></p></div></details>'
-page += '</div></section><section id="acceptance"><h2>All acceptance families</h2><p>Retained ledger: 82 open, two failed performance goals, one VM-template family covered with scope limits. The overview supplies later corrections. <a href="acceptance.md">Expanded checklist with all evidence</a>.</p><label for="family-search">Filter requirements and next actions</label><input id="family-search" type="search" placeholder="For example: settings, glyphs, 240 or Metal" aria-controls="family-list"><p id="family-count" class="muted" aria-live="polite"></p><div id="family-list">'
-for f in families:
+page += '''<section id="agents"><h2>Subagents the successor must spawn</h2><p>Spawn a fresh subagent for each unfinished task below. Give it the brief, first action, completion condition and shared constraints. The parent must coordinate dependencies and reserve VM GUI/input and AMD measurement intervals. <a href="subagents.md">Full continuation instructions</a>.</p>
+<label for="agent-search">Filter unfinished tasks</label><input id="agent-search" type="search" placeholder="For example: audio, combat, camera or performance" aria-controls="agent-list"><p id="agent-count" class="muted" aria-live="polite"></p><div id="agent-list">'''
+for task in tasks:
+    page += '<details data-filter><summary>' + html.escape(task['title']) + '</summary><div class="detail"><p>' + html.escape(task['spawn_instruction']) + '</p><p>' + html.escape(task['brief']) + '</p><p>First action: ' + html.escape(task['first_step']) + '</p><p>Completion condition: ' + html.escape(task['done_when']) + '</p><p>Resources: ' + html.escape(task['resources']) + '</p>'
+    if task['depends_on']:
+        page += '<p>Dependent execution waits for: ' + html.escape(', '.join(task['depends_on'])) + '.</p>'
+    page += '<p><a href="subagents.md#' + task['task_name'] + '">Starting material and assigned acceptance rows</a></p></div></details>'
+page += '</div></section><section id="acceptance"><h2>Open acceptance families</h2><p>82 open families and two failed performance goals. Prepared macOS desktop template: All of this task has been done. <a href="acceptance.md">Expanded checklist and continuation assignments</a>.</p><label for="family-search">Filter requirements and next actions</label><input id="family-search" type="search" placeholder="For example: settings, glyphs, 240 or Metal" aria-controls="family-list"><p id="family-count" class="muted" aria-live="polite"></p><div id="family-list">'
+for f in open_families:
     page += '<details data-filter><summary>' + html.escape(f['id']) + '<span class="tag">' + html.escape(f['priority'] + ' · ' + f['acceptance_status'].replace('_', ' ')) + '</span></summary><div class="detail"><p>' + html.escape(f['requirement']) + '</p>'
     nt = f.get('next_test', {})
     if isinstance(nt, dict):
         page += '<ol>' + ''.join('<li>' + html.escape(s) + '</li>' for s in nt.get('actions', [])) + '</ol>'
         if nt.get('oracle'):
             page += '<p>Acceptance oracle: ' + html.escape(nt['oracle']) + '</p>'
-    page += '<p><a href="acceptance.md#' + f['id'] + '">Evidence and full test scope</a></p></div></details>'
+    page += '<p>Spawn the <code>' + html.escape(f['continuation_task']) + '</code> subagent to finish this work.</p><p><a href="acceptance.md#' + f['id'] + '">Full test scope</a></p></div></details>'
 page += '</div></section>'
 for name, ident in [('verification.md', 'verification'), ('backup-and-restore.md', 'backups')]:
     page += '<section id="' + ident + '">' + markdown((ROOT / name).read_text()) + '</section>'
-page += '''<p><a href="evidence-index.md">All preserved evidence</a> · <a href="state.json">Machine-readable state</a></p></main><script>
+page += '''<p><a href="evidence-index.md">Starting evidence for unfinished tasks</a> · <a href="state.json">Machine-readable state</a></p></main><script>
 function connect(inputId,listId,countId){const input=document.getElementById(inputId),list=document.getElementById(listId),rows=[...list.querySelectorAll('[data-filter]')],count=document.getElementById(countId);function update(){const q=input.value.toLocaleLowerCase().trim();let shown=0;for(const row of rows){const show=!q||row.textContent.toLocaleLowerCase().includes(q);row.hidden=!show;if(show)shown++;}count.textContent=shown+' of '+rows.length+' entries';}input.addEventListener('input',update);update();}
 connect('agent-search','agent-list','agent-count');connect('family-search','family-list','family-count');
 console.log('Handover entries',document.querySelectorAll('#agent-list details').length,document.querySelectorAll('#family-list details').length);
 </script></body></html>'''
 (ROOT / 'handover.html').write_text(page)
-print(f'Wrote handover.html, {len(page.encode())} bytes, {len(agents)} agents, {len(families)} acceptance families.')
+print(f'Wrote handover.html, {len(page.encode())} bytes, {len(tasks)} unfinished continuation tasks, {len(open_families)} open acceptance families.')

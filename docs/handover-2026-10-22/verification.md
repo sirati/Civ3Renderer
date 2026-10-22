@@ -37,6 +37,6 @@ The evidence contains aggregate host, Wine PE, Intel macOS CPU, native Windows a
 
 ## Handover checks
 
-The documentation task checks local document links, the 96-agent inventory, all 85 acceptance families, valid JSON, archive hashes, and Git backup restoration. It makes no renderer source changes and does not launch the game, VM or physical Neo app.
+The documentation task checks local document links, the 13 unfinished continuation tasks, all 85 acceptance families, valid JSON, archive hashes, and Git backup restoration. It makes no renderer source changes and does not launch the game, VM or physical Neo app.
 
 The offline HTML copy received static structure and link checks. Visual browser verification was unavailable. Two headless preview attempts returned "the browser exited unexpectedly"; the collaborative browser then failed to start with "Target page, context or browser has been closed".
