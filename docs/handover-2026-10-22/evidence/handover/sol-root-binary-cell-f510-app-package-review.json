@@ -1,0 +1,28 @@
+{
+  "reviewed_utc": "2026-10-20T18:49:53.892400+00:00",
+  "package_ready_sha256": "d2f4ba851adf3df86865c25335ca2b45a1fca29778280713a05da5f3bdba6b4c",
+  "source_ready_sha256": "bc90e99fc04e2659eb486ea96df83e8af4c31f5bda809b708defd86d981a75d0",
+  "candidate_source_manifest_sha256": "cfceb3fbb5c88100f1cd5d308f1486498f2e9d27e254b50c6358f7b39061b0cb",
+  "files_independently_verified": 675,
+  "scope": "Root read compiler driver, exact source/baseline overlay bindings, full guard inventory and balanced same-binary native1x App plan. Checked final ELF-mode/provenance correction and every package/source/shader hash. No compilation or runtime.",
+  "source_delta": {
+    "crates/tile-render/src/renderer.rs": "1de8e1ee06283aee1e276be4feb747f1143fd7b21f289afadc5f1f4703873f01",
+    "crates/tile-render/src/renderer/binary_cells.rs": "a83d3f54b01d5b7c0fd72c54290ab28999385e71a6fce0879df499ff45ee6be5",
+    "crates/tile-render/src/renderer/binary_cells/tests.rs": "91e7b9b1296e05d7162870f0575381230508bb91e7f3ca6cbaf606aa1e6dbba8"
+  },
+  "shader_pair_unchanged": true,
+  "decision": "Authorize isolated jobs1 Papa compiler stage only after final VM controls/USB restoration and the qualified shipping f510 baseline actualApp timing have concluded, and broker separately grants CPU. No priority over Neo deployment.",
+  "compiler_constraints": [
+    "nix develop, CARGO_INCREMENTAL0, private target and artifacts only",
+    "Native Linux viewer/unixlib plus complete retained lib/integration test inventory compiled, no GPU test execution",
+    "Viewer artifact must retain executable mode; raw bytes contain canonical full/fallback shaders exactly once",
+    "Explicit carried f510/f7b/9b artifact origins, protocol50 and rebuilt private source origins remain distinct"
+  ],
+  "further_gates": [
+    "Root post-build source/artifact review",
+    "Separate AMD GPU guard lease; report all off/on tests and existing6/7 failures, no inventory suppression",
+    "Only trimmed/certified/native1x mixed cases with activation evidence count for cell/free/text interleaving; generic free-only tests remain regression guards",
+    "Fresh ordinary full-UI App preflight, same-binary six balanced60s A/B arms with corrected1919,360 motion and host-load/tail metrics",
+    "No adoption, shipping, Metal or240 claim without subsequent evidence"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "reviewed_utc": "2026-10-20T13:10:58.233973+00:00",
+  "source_archive": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+  "scene_protocol": 49,
+  "files_verified": {
+    "civ3r-viewer": {
+      "sha256": "b7761da94dfa05562b0fbcb9c0c35112fc36f22edd6e5b8b6c8dcf07fea403c6",
+      "bytes": 15050032,
+      "full_and_fallback_embeds": 1,
+      "machine": "Apple ARM64 Mach-O"
+    },
+    "civ3-play-macos": {
+      "sha256": "d9d1e0f01cb9d80e981ee514cba8ed99008dc2ce918ea8b48d74e84a9e766955",
+      "bytes": 1460576,
+      "machine": "Apple ARM64 Mach-O"
+    },
+    "IFC23.dll": {
+      "sha256": "3e9d77f3a4f9b6f1335502c6eef94f279228ff8c8a7840028213555472643046",
+      "bytes": 33883710,
+      "full_and_fallback_embeds": 1,
+      "machine": "i686 PE"
+    },
+    "civ3r_native.so": {
+      "sha256": "569927bec434ac813a281b9ce4c90f292773bcd5c65774ecc2a48666ce4feca3",
+      "bytes": 14747024,
+      "full_and_fallback_embeds": 1,
+      "machine": "Apple ARM64 Mach-O"
+    },
+    "civ3r_native.dll": {
+      "sha256": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935",
+      "bytes": 1499547,
+      "machine": "i686 PE"
+    },
+    "civ3-app-macos": {
+      "sha256": "155e02f0d66859fc952570c3f576af4c09b847f381b2f219475dfecb4fc2050e",
+      "bytes": 567696,
+      "machine": "Apple ARM64 Mach-O"
+    },
+    "RUN.md": {
+      "sha256": "fb4f5df408b1da916d3cb355a3102c9a574a5a24181802e64d3567a76d12c26f",
+      "bytes": 8071
+    },
+    "icon.png": {
+      "sha256": "bd0bc503c55ea68d53d471694a35cd1b129e75a31f8bf9704f19974ed5273afc",
+      "bytes": 329
+    }
+  },
+  "shader_sha256": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+  "fallback_shader_sha256": "7ff6d943a54e7255df2cd160e7239aee067f89470156e5a50b3c1e5079857a5d",
+  "built_on": "papa (i686 mingw; aarch64-apple-darwin cross, SDK 26.5)",
+  "metadata_discloses_pending_validation": true,
+  "scope": "Independent local paired-runtime source/hash/machine/embeddedshader check. Remote installer and post-install hashes are separate release evidence; actual game UI/runtime not exercised by this check.",
+  "remote_record_review": {
+    "reviewed_utc": "2026-10-20T13:14:04.942950+00:00",
+    "installed_source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+    "installed_at_utc": "2026-10-20T13:07:54.527761+00:00",
+    "record_sha256": "20569502eab669d3af5f57337220f1638476db435d6497dc18349a3dd3510beb",
+    "verification_sha256": "744a218ee997f68507f927393f10f14d8dfe623273353d963129c9e61c346d5d",
+    "raw8_and_live5_hashes_match_local_manifest": true,
+    "app_path": "/Users/sirati/Applications/Civilization III.app",
+    "signature_and_icon_and_search_registration_passed": true,
+    "game_auto_launched": false,
+    "game_assets_copied": 0,
+    "remote_builds": 0,
+    "limitation": "Root independently matched the owner-collected remote read-only installation record to local artifacts; this does not prove runtime/UI execution."
+  }
+}

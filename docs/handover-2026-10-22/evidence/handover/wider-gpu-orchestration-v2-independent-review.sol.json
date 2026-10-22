@@ -1,0 +1,31 @@
+{
+  "reviewer": "/root/scenario_crash",
+  "scope": "Independent read-only review of final wider qualification v2; no build/GPU/VM/application execution",
+  "package_manifest": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification-v2/package-manifest.json",
+  "package_sha256": "6282804c6a21e64a6653c843a84437690c2ef763b57640893fe1513e4fb3f480",
+  "correction_report_sha256": "c8d99f503ec61b41d8aff08ef8c79d0bc421cbb77947417ae85abc5a33010422",
+  "tamper_report_sha256": "e253260fd6f99af0e95d4cf31549245ce9010a9cf9140d3e39fb0b12055248f8",
+  "verdict": "approved_source_orchestration_no_remaining_blocking_findings",
+  "original_blockers": {
+    "Q1": "Resolved. External package anchor verified before input/package-module import. Full source manifest/root acceptance/completion/evidence records, host commands, helper/interface/codegen inputs and complete retained workspace/external resolver inventories now checked. Inputs rechecked after build and at GPU completion.",
+    "Q2": "Resolved. Accepted completion/root/qualified manifest shader hashes agree and both shader files are hashed. All reused native embedding offsets checked against exact bytes. Build bindings require exact candidate pair; generated binaries must embed same bytes. GPU validates externally reviewed build digest plus output hashes/embeddings and rechecks executable immediately before each invocation.",
+    "Q3": "Resolved. Actual immutable8b archive/freeze/source manifests and670 source entries are hash checked, staged Cargo.toml and shader/shared source bound. Shared/font source identity with accepted candidate libraries enforced. All external/Cargo fixtures and retained guards hashed. Baseline host/source/fixture provenance recorded and externally reviewed build digest is required before GPU acceptance."
+  },
+  "additional_controls": [
+    "Fresh artifacts directory required before CPU execution. Exactly3 generated resolver libraries and required executable inventory bound; unexpected generated/retained resolver libraries reject.",
+    "True feature-disabled request_device overlay unchanged from reviewed original. Full/fallback shaders,23-case native/fallback inventory, expected baseline failure discrimination, tiny byte checks and regression guards unchanged.",
+    "Private-only outputs/caches retained. Original4348 package and all original files checked and preserved. No canonical/shared source edit or shader replacement.",
+    "GPU build binding cannot authenticate itself: --build-sha256 is mandatory and must come from separately reviewed CPU completion."
+  ],
+  "independent_execution": {
+    "command": "python3 build-missing.py --verify-only --package-sha256 6282804c6a21e64a6653c843a84437690c2ef763b57640893fe1513e4fb3f480",
+    "result": "passed, exit0; no child compiler/GPU/VM process",
+    "tamper_suite": "Read source and73-case report; did not rerun synthetic suite. Report hash and final package binding match."
+  },
+  "limits": [
+    "Approval covers orchestration source only. Actual CPU build, SPIRV validation, resulting command/log/output evidence and external build digest require review before a separate GPU grant.",
+    "Each fixture timeout remains120s;61serial invocations have a cumulative worst-case bound122minutes. Broker lease scheduling remains separate.",
+    "Numerical fixtures do not qualify application runtime, Metal/Wine/Windows, performance, deployment, or4K240FPS."
+  ],
+  "findings": []
+}

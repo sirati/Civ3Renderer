@@ -1,0 +1,262 @@
+{
+  "note": "Float32 CPU emulation over32valid biasedRGB555channel values; this does notreplace GPUoracle orperformance measurement",
+  "all32_equal": true,
+  "values": [
+    {
+      "stored": 16,
+      "fast_byte": 0,
+      "integer_byte": 0,
+      "equal": true,
+      "q_float": 0.0,
+      "before_write": 0.0
+    },
+    {
+      "stored": 17,
+      "fast_byte": 8,
+      "integer_byte": 8,
+      "equal": true,
+      "q_float": 1.0,
+      "before_write": 0.0313725508749485
+    },
+    {
+      "stored": 18,
+      "fast_byte": 16,
+      "integer_byte": 16,
+      "equal": true,
+      "q_float": 2.0,
+      "before_write": 0.062745101749897
+    },
+    {
+      "stored": 19,
+      "fast_byte": 24,
+      "integer_byte": 24,
+      "equal": true,
+      "q_float": 3.0,
+      "before_write": 0.0941176488995552
+    },
+    {
+      "stored": 20,
+      "fast_byte": 33,
+      "integer_byte": 33,
+      "equal": true,
+      "q_float": 4.0,
+      "before_write": 0.12941177189350128
+    },
+    {
+      "stored": 21,
+      "fast_byte": 41,
+      "integer_byte": 41,
+      "equal": true,
+      "q_float": 5.0,
+      "before_write": 0.16078431904315948
+    },
+    {
+      "stored": 22,
+      "fast_byte": 49,
+      "integer_byte": 49,
+      "equal": true,
+      "q_float": 6.0,
+      "before_write": 0.1921568661928177
+    },
+    {
+      "stored": 23,
+      "fast_byte": 57,
+      "integer_byte": 57,
+      "equal": true,
+      "q_float": 7.0,
+      "before_write": 0.2235294133424759
+    },
+    {
+      "stored": 24,
+      "fast_byte": 66,
+      "integer_byte": 66,
+      "equal": true,
+      "q_float": 8.0,
+      "before_write": 0.25882354378700256
+    },
+    {
+      "stored": 25,
+      "fast_byte": 74,
+      "integer_byte": 74,
+      "equal": true,
+      "q_float": 9.0,
+      "before_write": 0.29019609093666077
+    },
+    {
+      "stored": 26,
+      "fast_byte": 82,
+      "integer_byte": 82,
+      "equal": true,
+      "q_float": 10.0,
+      "before_write": 0.32156863808631897
+    },
+    {
+      "stored": 27,
+      "fast_byte": 90,
+      "integer_byte": 90,
+      "equal": true,
+      "q_float": 11.0,
+      "before_write": 0.3529411852359772
+    },
+    {
+      "stored": 28,
+      "fast_byte": 99,
+      "integer_byte": 99,
+      "equal": true,
+      "q_float": 12.0,
+      "before_write": 0.38823530077934265
+    },
+    {
+      "stored": 29,
+      "fast_byte": 107,
+      "integer_byte": 107,
+      "equal": true,
+      "q_float": 13.0,
+      "before_write": 0.41960784792900085
+    },
+    {
+      "stored": 30,
+      "fast_byte": 115,
+      "integer_byte": 115,
+      "equal": true,
+      "q_float": 14.0,
+      "before_write": 0.45098039507865906
+    },
+    {
+      "stored": 31,
+      "fast_byte": 123,
+      "integer_byte": 123,
+      "equal": true,
+      "q_float": 15.0,
+      "before_write": 0.48235294222831726
+    },
+    {
+      "stored": 32,
+      "fast_byte": 132,
+      "integer_byte": 132,
+      "equal": true,
+      "q_float": 16.0,
+      "before_write": 0.5176470875740051
+    },
+    {
+      "stored": 33,
+      "fast_byte": 140,
+      "integer_byte": 140,
+      "equal": true,
+      "q_float": 17.0,
+      "before_write": 0.5490196347236633
+    },
+    {
+      "stored": 34,
+      "fast_byte": 148,
+      "integer_byte": 148,
+      "equal": true,
+      "q_float": 18.0,
+      "before_write": 0.5803921818733215
+    },
+    {
+      "stored": 35,
+      "fast_byte": 156,
+      "integer_byte": 156,
+      "equal": true,
+      "q_float": 19.0,
+      "before_write": 0.6117647290229797
+    },
+    {
+      "stored": 36,
+      "fast_byte": 165,
+      "integer_byte": 165,
+      "equal": true,
+      "q_float": 20.0,
+      "before_write": 0.6470588445663452
+    },
+    {
+      "stored": 37,
+      "fast_byte": 173,
+      "integer_byte": 173,
+      "equal": true,
+      "q_float": 21.0,
+      "before_write": 0.6784313917160034
+    },
+    {
+      "stored": 38,
+      "fast_byte": 181,
+      "integer_byte": 181,
+      "equal": true,
+      "q_float": 22.0,
+      "before_write": 0.7098039388656616
+    },
+    {
+      "stored": 39,
+      "fast_byte": 189,
+      "integer_byte": 189,
+      "equal": true,
+      "q_float": 23.0,
+      "before_write": 0.7411764860153198
+    },
+    {
+      "stored": 40,
+      "fast_byte": 198,
+      "integer_byte": 198,
+      "equal": true,
+      "q_float": 24.0,
+      "before_write": 0.7764706015586853
+    },
+    {
+      "stored": 41,
+      "fast_byte": 206,
+      "integer_byte": 206,
+      "equal": true,
+      "q_float": 25.0,
+      "before_write": 0.8078431487083435
+    },
+    {
+      "stored": 42,
+      "fast_byte": 214,
+      "integer_byte": 214,
+      "equal": true,
+      "q_float": 26.0,
+      "before_write": 0.8392156958580017
+    },
+    {
+      "stored": 43,
+      "fast_byte": 222,
+      "integer_byte": 222,
+      "equal": true,
+      "q_float": 27.0,
+      "before_write": 0.8705882430076599
+    },
+    {
+      "stored": 44,
+      "fast_byte": 231,
+      "integer_byte": 231,
+      "equal": true,
+      "q_float": 28.0,
+      "before_write": 0.9058823585510254
+    },
+    {
+      "stored": 45,
+      "fast_byte": 239,
+      "integer_byte": 239,
+      "equal": true,
+      "q_float": 29.0,
+      "before_write": 0.9372549057006836
+    },
+    {
+      "stored": 46,
+      "fast_byte": 247,
+      "integer_byte": 247,
+      "equal": true,
+      "q_float": 30.0,
+      "before_write": 0.9686274528503418
+    },
+    {
+      "stored": 47,
+      "fast_byte": 255,
+      "integer_byte": 255,
+      "equal": true,
+      "q_float": 31.0,
+      "before_write": 1.0
+    }
+  ]
+}

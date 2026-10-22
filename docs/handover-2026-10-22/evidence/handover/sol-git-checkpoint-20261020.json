@@ -1,0 +1,12 @@
+{
+  "at_utc": "2026-10-20T19:16:48.569789+00:00",
+  "user_authorized_commit_and_backups": true,
+  "repository": "/home/sirati/devel/rust/civ3-renderer",
+  "commit": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+  "branch": "main",
+  "freeze_source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "frozen_source_files_verified": 673,
+  "working_tree_clean": true,
+  "origin": "/home/sirati/Projects/civ3-renderer-old",
+  "origin_status": "missing local repository; ls-remote failed. Offhost backups required."
+}

@@ -1,0 +1,26 @@
+{
+  "reviewed_utc": "2026-10-20T13:03:11.800041+00:00",
+  "source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+  "source_files_verified": 652,
+  "live_tree_matches_freeze": true,
+  "changes_from866": [
+    "Cargo.lock",
+    "crates/civ3-bridge/src/live.rs",
+    "crates/civ3-bridge/src/prefs.rs",
+    "crates/civ3r-launcher/src/unix.rs",
+    "crates/civ3r-launcher/src/unix/wine_compat.rs",
+    "crates/menu/src/panel.rs",
+    "crates/tile-render/src/timing.rs",
+    "crates/tile-render/tests/subpixel_coverage.rs",
+    "crates/tile-viewer/src/render_worker.rs",
+    "docs/macos-vm.md"
+  ],
+  "shader_and_shared_sources_identical_to866": true,
+  "isolated_candidates_excluded": true,
+  "scope": "Source-binding gate for user-requested immediate MacNeo publication. Full build/paired shader embeds, deployment checks and post-deployment runtime acceptance pending.",
+  "root_changes": {
+    "crates/tile-viewer/src/render_worker.rs": "96aeb44009e7cce8b6c736645428c501f50ee4c34cbf8f3dac58d2f1f3711feb",
+    "crates/tile-render/src/timing.rs": "cb348257f032099cd9a4590e4eefbee8092fdf7c2a91d24bc51a78b3ea9d2080",
+    "crates/civ3-bridge/src/live.rs": "2b1dfee7d167c54dc51c5176dbb2a816d3bdf37fab8c82ae92057ca672c81c40"
+  }
+}

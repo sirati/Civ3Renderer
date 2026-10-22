@@ -1,0 +1,175 @@
+{
+  "mode": "read-only audit; no commits/push/deletions/build/runtime/Nexus actions",
+  "repositories": [
+    {
+      "path": "/home/sirati/devel/rust/civ3-renderer",
+      "head": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+      "branch": "main",
+      "remotes": [
+        "origin\t/home/sirati/Projects/civ3-renderer-old (fetch)",
+        "origin\t/home/sirati/Projects/civ3-renderer-old (push)"
+      ],
+      "dirty_entries": [],
+      "dirty_count": 0
+    },
+    {
+      "path": "/mnt/datasets/c3r-wt/perf",
+      "head": "22cd2e4ece069f569ecc485ccbc91c04ffd824c5",
+      "branch": "perf",
+      "remotes": [
+        "origin\t/home/sirati/Projects/civ3-renderer-old (fetch)",
+        "origin\t/home/sirati/Projects/civ3-renderer-old (push)"
+      ],
+      "dirty_entries": [],
+      "dirty_count": 0
+    },
+    {
+      "path": "/mnt/datasets/c3r-wt/perf-baseline-reference",
+      "head": "921bf96edbf896f2e60fe8f51e91c658517cd74c",
+      "branch": "perf-baseline-reference",
+      "remotes": [
+        "origin\t/home/sirati/Projects/civ3-renderer-old (fetch)",
+        "origin\t/home/sirati/Projects/civ3-renderer-old (push)"
+      ],
+      "dirty_entries": [],
+      "dirty_count": 0
+    },
+    {
+      "path": "/mnt/datasets/c3r-wt/perf-final-preflight",
+      "head": "2c2a22f6697017b15ccec0aa946d3797fb0e796b",
+      "branch": "perf-final-preflight-22cd2e4",
+      "remotes": [
+        "origin\t/home/sirati/Projects/civ3-renderer-old (fetch)",
+        "origin\t/home/sirati/Projects/civ3-renderer-old (push)"
+      ],
+      "dirty_entries": [],
+      "dirty_count": 0
+    },
+    {
+      "path": "/mnt/datasets/c3r-wt/retire",
+      "head": "9e497cd901f13db3e61d9a3ecce120b4001fbe40",
+      "branch": "retire",
+      "remotes": [
+        "origin\t/home/sirati/Projects/civ3-renderer-old (fetch)",
+        "origin\t/home/sirati/Projects/civ3-renderer-old (push)"
+      ],
+      "dirty_entries": [],
+      "dirty_count": 0
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/fex",
+      "head": "0df84d3844bcdb87bb7d3f5b8fb0959cd009c038",
+      "branch": null,
+      "remotes": [
+        "o\thttps://github.com/FEX-Emu/FEX.git (fetch)",
+        "o\thttps://github.com/FEX-Emu/FEX.git (push)"
+      ],
+      "dirty_entries": [],
+      "dirty_count": 0
+    }
+  ],
+  "missing_registered_worktrees": [
+    "/mnt/datasets/c3r-build/perf-scratch/base",
+    "/tmp/c3r-zoom"
+  ],
+  "additional_git_scan": "Only release-1019/fex and four c3r-wt linked git markers found under c3r-build/c3r-wt, with cache/artifact/toolchain traversal excluded.",
+  "source_backup_roots": [
+    {
+      "root": "/mnt/datasets/c3r-build/binary-cell-blend-sol",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/binary-cell-blend-sol/source",
+        "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/source",
+        "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/source"
+      ],
+      "reason": "Private binary shader sources and actualApp f510 candidate; include root/recorded4k/actualapp harness scripts, patches, JSON bindings and phase state."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/wider-integer-sol",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/wider-integer-sol/source",
+        "/mnt/datasets/c3r-build/wider-integer-sol/compiler-qualified-checkpoint",
+        "/mnt/datasets/c3r-build/wider-integer-sol/retirement-review",
+        "/mnt/datasets/c3r-build/wider-integer-sol/stable-source-checkpoint",
+        "/mnt/datasets/c3r-build/wider-integer-sol/review-successor-checkpoint",
+        "/mnt/datasets/c3r-build/wider-integer-sol/uncompiled-format-expansion-prototype"
+      ],
+      "reason": "Private wider candidate and historical checkpoints; include source-only manifest, candidate patch, correction diff and qualification scripts/JSON. Do not imply shipping adoption."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/combat-diagnostics-army",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/base",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/candidate",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/check-source",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/successor",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/outcomes-successor",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator-successor",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator-successor2",
+        "/mnt/datasets/c3r-build/combat-diagnostics-army/f510-outcomes-rebind"
+      ],
+      "reason": "Private combat instrumentation/comparators, recipes, exact source/checkpoint manifests and scripts."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/combat-speed-sol",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/combat-speed-sol/windows-source"
+      ],
+      "reason": "Private Windows source snapshot and settings.py with source/evidence bindings."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/combat-recipe-army",
+      "existing_source_subpaths": [],
+      "reason": "Combat/RNG recipes and inspection scripts."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/launcher-cancel-sol",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/launcher-cancel-sol/source",
+        "/mnt/datasets/c3r-build/launcher-cancel-sol/proposal1",
+        "/mnt/datasets/c3r-build/launcher-cancel-sol/build1/source"
+      ],
+      "reason": "Exact reviewed cancellation patch/source identities, tested private source, gate scripts/results/cache provenance. Exclude build1/target-* compiler caches from source archive."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/quit-audio-sol",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/quit-audio-sol/audio-fix-proposal",
+        "/mnt/datasets/c3r-build/quit-audio-sol/audio-fix-proposal2",
+        "/mnt/datasets/c3r-build/quit-audio-sol/audio-fix-proposal3"
+      ],
+      "reason": "Historical and final Rust audio proposals, patches/source identities/reviews and native proof."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/release-1019",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/release-1019/mac"
+      ],
+      "reason": "Own installer/preparer/idle guard/Metal helper sources; root *.py/*.sh build/package/snapshot/signing scripts; all src-* source snapshots and artifacts/*/source.tar.gz + manifests/provenance. Preserve fex as separate repository; exclude target*,tmp*,SDK/toolchain from source-only archive."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/vm-audio-production-sol",
+      "existing_source_subpaths": [],
+      "reason": "Current production/cancellation/no-device preflight, atomic process helper, bounded runner/watchdog scripts and approved plan copies; preserve associated JSON/tar evidence."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/handover",
+      "existing_source_subpaths": [
+        "/mnt/datasets/c3r-build/handover/creative-qa"
+      ],
+      "reason": "Durable review/QA ledgers plus private harness and candidate source trees under creative-qa."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/macos-port",
+      "existing_source_subpaths": [],
+      "reason": "ACTIVE_STATE.md plus coordination/handover tooling, preserving source manifests without game assets."
+    },
+    {
+      "root": "/mnt/datasets/c3r-build/host-warning-fixture-sol",
+      "existing_source_subpaths": [],
+      "reason": "Source-only fixture correction and before/after validation bindings."
+    }
+  ],
+  "all_branch_note": "Main repository bundle --all includes clean linked worktree branches; it does not include separate FEX repository or non-Git private source trees.",
+  "fex_submodules": "16 gitlinks uninitialized in this checkout; no modified submodule working tree to capture."
+}

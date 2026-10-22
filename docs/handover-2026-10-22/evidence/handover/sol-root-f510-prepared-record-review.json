@@ -1,0 +1,11 @@
+{
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "scope": "Root checks prepared record against reviewed raw manifest/origins and release-owner remote signature/hash proof. No install or launch. Final remote rehash and actual active-process/lock checks remain part of promotion gate.",
+  "prepared_record_sha256": "2a278ab8ff8b7a7f2fbbdd37763f1c9fe3006ac685c1cd1c1ba31100b1ee54fa",
+  "record_and_raw_artifact_identity_verified": true,
+  "signed_files_verified_in_remote_evidence": 8,
+  "bundle_tree_and_deep_signature_verified_in_remote_evidence": true,
+  "live_3be_runtime_and_app_unchanged": true,
+  "Neo_game_launched": false,
+  "decision": "Staging records consistent. Final shipping cancellation and no-device causal lifecycle gates remain before idle transactional install."
+}

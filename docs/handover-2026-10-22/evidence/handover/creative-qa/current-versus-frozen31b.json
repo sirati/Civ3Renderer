@@ -1,0 +1,87 @@
+{
+  "observed_utc": "2026-10-20T10:55:16.867957+00:00",
+  "frozen_manifest": "/mnt/datasets/c3r-build/release-1019/artifacts/31b5951a200234422c73a7c8c8f8b97bea77424fc8c9a86d2580003553c3ef58/source-manifest.json",
+  "changed_manifest_files": [
+    {
+      "path": "crates/civ3-bridge/src/live.rs",
+      "frozen_sha256": "0e952a29887e6e3092efcf79844ff46000e80057c13b50744842603534f79f11",
+      "current_sha256": "93a4dcb9a2dcb74e3b3f7a363ad64ea36aaad44cfa38c606e515b40d4c9cbc95"
+    },
+    {
+      "path": "crates/civ3-bridge/src/native_sliders/tests.rs",
+      "frozen_sha256": "4a96e43d239d5554881041d3824d9711b4d5ac50a0b8058151216718313c4c85",
+      "current_sha256": "d63f3fed676f5e39e43f3ceab3d5d38d3383ddec0f708f5924b96572b1bc8e8f"
+    },
+    {
+      "path": "crates/civ3-bridge/src/trace.rs",
+      "frozen_sha256": "b426896a363e9fc39682cf0388da54b5158d9a8af4225891d326c288e03e5f3d",
+      "current_sha256": "ac6871dd107911524edeecef3c79354773597d3aa22131dd221e2959d4309611"
+    },
+    {
+      "path": "crates/civ3-bridge/src/unit_views.rs",
+      "frozen_sha256": "f302d306ce2c399706f50607d2fab8c59ba8e0193c90e5f2d0c749019973bff9",
+      "current_sha256": "6441118e45e46b75ad8b35bd531bcd9007903db7b47f3e3ed58be907ee3e426d"
+    },
+    {
+      "path": "crates/civ3-bridge/src/units.rs",
+      "frozen_sha256": "71f5fada521738b5b6449f4568fe57f61b45629b1a88494310bc893dc6eca62a",
+      "current_sha256": "a31be0e1f91c455a2f61aa3c80a60b35bda8523192a6c955c2a9cd29a6e652a2"
+    },
+    {
+      "path": "crates/civ3-bridge/src/world.rs",
+      "frozen_sha256": "b3fdd3dc4d7e649505389d01ed789e6105190f4aec3b3a43d0db1e47707ee765",
+      "current_sha256": "04e4ac00fed85bc3717e98da356db8882d8028cfcb662bd181668b816b7cf7f9"
+    },
+    {
+      "path": "crates/civ3-sys/src/world.rs",
+      "frozen_sha256": "a0c49c2c0611f251634ebf1478a2f103b508173199b32fbb7aa72c86f0841dcb",
+      "current_sha256": "fb418a17fac68d50662901ec77ba54257b7ef70f5fcd85fae2bba6fad1c88981"
+    },
+    {
+      "path": "crates/render-desc/src/lib.rs",
+      "frozen_sha256": "c96b71d1c3983779886b67c43a9f18b97339107fda476844ee98e9401e5edb3e",
+      "current_sha256": "a0d4b1e3074b85687afcb1945c3b6c1735d2a59d4cb3dc61fcda2906fd408f9e"
+    },
+    {
+      "path": "crates/tile-viewer/src/lib.rs",
+      "frozen_sha256": "6bcb3e535e0883cfcdaa6c2234c18697232b4e9c1d2871962e97fc25ff57dd49",
+      "current_sha256": "e58f16d749a665c8964694919dc3201f532722481e583e2d54c63faf51491b6d"
+    },
+    {
+      "path": "crates/tile-viewer/src/looks.rs",
+      "frozen_sha256": "d9c07d8384e2870ae5cd8a75861f2be28ab4d1cd946aec8112c491da70733093",
+      "current_sha256": "c681cd19c54243d3ef8173fe21860ffcbcc299c9adf79d4cb924c5652d8b6354"
+    },
+    {
+      "path": "crates/tile-viewer/src/render_worker.rs",
+      "frozen_sha256": "bedbb73424d4ec7b504da48437f000ef30e3d8727301ea9abcc5c3b7ce06a9a7",
+      "current_sha256": "b05ffbc4502e8ba52afa6f938b02fffbd561b9f75d950eeaed113ffc9ae243bc"
+    },
+    {
+      "path": "crates/tile-viewer/src/scene_prefix.rs",
+      "frozen_sha256": "a15f89ea7ff2f5577ad8584ac15e286d81dc25ebf9c79329e0522500414a0cca",
+      "current_sha256": "f949b43d9ef2be3ab7f9bafd2e8e2e53bf3b3f822c1714114c7b7f624c7ab33d"
+    },
+    {
+      "path": "crates/tile-viewer/src/snap.rs",
+      "frozen_sha256": "189aef49d63efbe4c2c1d39f0282ae2d67ae8eaac4da18d6dc501656947a7fd5",
+      "current_sha256": "a09de2f1878c406fb6fd5108726ed4df369c32b4a58573fae938e9bb300ce3b4"
+    },
+    {
+      "path": "crates/tile-viewer/src/snap/sliders.rs",
+      "frozen_sha256": "e197ba3f47e9170b65b9e2e0ff06d85ac0f62608d29b14ea53fbcce96a492327",
+      "current_sha256": "88cb9524480042339b97325f0bc4885c41b12419fad8c5d1bb144b1a7e8302ed"
+    },
+    {
+      "path": "crates/tile-viewer/src/ui_submission.rs",
+      "frozen_sha256": "2cf509fb66998b35d5e7b94bf497a3ea1e689cdd3f0f95da66ca3b97bfa96e99",
+      "current_sha256": "c798a45b070e707edf057cd760295670e817a758d7ef9e63f842f022a7e01b72"
+    },
+    {
+      "path": "docs/macos-vm.md",
+      "frozen_sha256": "61fc9aa98a9d9c1f484bb785d14b106b4e47aa52424a2b2271c95df03675eb2d",
+      "current_sha256": "e74f42dd5cc93bb7ca4d477e58e07f34041d92e6735d924d23ce6bbe9e8ba91d"
+    }
+  ],
+  "note": "Concurrent edits may continue. This is an audit observation, not a new freeze or test claim."
+}

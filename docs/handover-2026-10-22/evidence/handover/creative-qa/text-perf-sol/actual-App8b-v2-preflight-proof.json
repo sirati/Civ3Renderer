@@ -1,0 +1,172 @@
+{
+  "created_utc": "2026-10-20T16:31:05.025177+00:00",
+  "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1",
+  "measured_runtime_source": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "mode": {
+    "physical": [
+      3840,
+      2160
+    ],
+    "logical": [
+      3840,
+      2160
+    ],
+    "subpixel_dual": 0,
+    "tiles555": 1,
+    "glyph_cache": 1
+  },
+  "status": "Untimed loaded-game pointer-v2 preflight failed; no timed baseline or other case started",
+  "timing_measurement_started": false,
+  "qualified_motion": false,
+  "error": "relative input did not produce the requested world-camera direction",
+  "observed_primary_A_x": [
+    10048,
+    9751,
+    9708,
+    9708,
+    7179,
+    4484,
+    4435,
+    4435
+  ],
+  "observed_primary_A_label_x": [
+    -10048,
+    -9751,
+    -9708,
+    -9708,
+    -7179,
+    -4484,
+    -4435,
+    -4435
+  ],
+  "primary_label_anchor_consistent": true,
+  "positive_x_legs": 0,
+  "direction_reversals": 0,
+  "actual_pointer_coordinates_retained": false,
+  "diagnostic_counter_deltas": {
+    "timer_attempted_frames": 1447,
+    "timer_submitted_samples": 1447,
+    "timer_collected_samples": 1447,
+    "timer_readback_busy_frames": 0,
+    "timer_over_budget_frames": 0,
+    "timer_map_failed_frames": 0,
+    "timer_mapped_range_failed_frames": 0,
+    "full_submitted": 1447,
+    "reused_submitted": 0
+  },
+  "timing_coverage_qualification": "none; these are untimed endpoint deltas, not a matched submitted-frame cohort. The last worker report still had four submitted samples in flight. No FPS or full-coverage acceptance is claimed.",
+  "host_context": {
+    "before": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-host-before.json",
+    "after": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-host-after.json",
+    "load_before": "36.22 44.17 44.71 21/3569 2829228",
+    "load_after": "49.33 45.00 44.77 60/3411 2842795",
+    "scope": "Unrelated Python/QEMU/long-lived Civ3 remained. Not quiet-host qualification and no inferred hardware limit."
+  },
+  "runtime_carry": {
+    "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/6029-runtime-carry-binding.json",
+    "sha256": "5dd7ca6f3346500ea9c4af7625c6e4cca7b2e328ef0235d2d21e105a1dd6e43d",
+    "all_runtime_bytes_equal": true
+  },
+  "cleanup": {
+    "direct_children_forced": [],
+    "owned_descendants_signaled": [
+      {
+        "pid": 2806624,
+        "start": "46356601",
+        "cmd": "sway"
+      },
+      {
+        "pid": 2806809,
+        "start": "46356647",
+        "cmd": "wineserver"
+      },
+      {
+        "pid": 2806854,
+        "start": "46356660",
+        "cmd": "services.exe"
+      },
+      {
+        "pid": 2806858,
+        "start": "46356664",
+        "cmd": "winedevice.exe"
+      },
+      {
+        "pid": 2806868,
+        "start": "46356666",
+        "cmd": "plugplay.exe"
+      },
+      {
+        "pid": 2806963,
+        "start": "46356699",
+        "cmd": "svchost.exe"
+      },
+      {
+        "pid": 2806969,
+        "start": "46356701",
+        "cmd": "winedevice.exe"
+      },
+      {
+        "pid": 2807148,
+        "start": "46356739",
+        "cmd": "rpcss.exe"
+      },
+      {
+        "pid": 2807343,
+        "start": "46356812",
+        "cmd": "civ3-play-macos"
+      },
+      {
+        "pid": 2834077,
+        "start": "46385984",
+        "cmd": "c3r-qualificati"
+      }
+    ],
+    "direct_survivors": [],
+    "owned_descendant_survivors": [],
+    "all_owned_processes_absent": true,
+    "unrelated_processes_touched": false
+  },
+  "lease_released": true,
+  "application_release_accepted": false,
+  "release_blocker": "Loaded-game Quit failed in macOS VM",
+  "source_only_followup": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/source-only-proof.json",
+  "source_analysis_limit": "Wrong intended target is proven by frozen source; actual pointer delivery and a product fault are not established. Real Layout oracle compilation and target-only live A/B remain pending.",
+  "evidence": {
+    "runtime-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/runtime-binding.json",
+      "sha256": "a4e45736a6b636a3ba6adf8e443859238f5b14f59412005449d3eccc1aea8e5f"
+    },
+    "workload.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/workload.json",
+      "sha256": "a091c0143efa6403bfd84f3a2062d7a1368931c9f65842786d6d3d370b93e2d5"
+    },
+    "untimed-ww2-ready.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-ww2-ready.png",
+      "sha256": "7b606220b4d30009515dc719e93faa6fa7ee624a6634285eddbac560e2765e0b"
+    },
+    "untimed-ww2-world.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-ww2-world.png",
+      "sha256": "27d31bbe4766d2644e1922012776a6d0c44d599393530bf5619c19346a8df8d4"
+    },
+    "untimed-loaded-trace.txt": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-loaded-trace.txt",
+      "sha256": "0c6eb0b3162f8f31253df2391dc66880fd3d3336b6758a96446f3ba4107205d7"
+    },
+    "timed-input-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/timed-input-binding.json",
+      "sha256": "245ab609f726dd8a12587c5f540f1b48f6b16884d65768a3daa05cb46d7d411c"
+    },
+    "untimed-preflight-attempt.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-preflight-attempt.json",
+      "sha256": "470720305ab82b7a3e493ca19c607c16e2e0fe5c40d26485744fa59f39576f48"
+    },
+    "untimed-preflight-output.log": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/untimed-preflight-output.log",
+      "sha256": "932effd393d23d71de61bc581d47e9a2cfe98dd6932e7ee712b0e95469369fab"
+    },
+    "shutdown.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1/shutdown.json",
+      "sha256": "21cc8a580ba639f2ba4f59830646301e60983dd34406ad021f4692e434b77438"
+    }
+  }
+}

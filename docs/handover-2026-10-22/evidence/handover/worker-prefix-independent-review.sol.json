@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "reviewed_utc": "2026-10-20T11:04:56.382404+00:00",
+  "verdict": "approved_source_review_no_concrete_findings",
+  "scope": "Incremental growth prefix proof and Arc LookScene transaction sharing",
+  "assumptions": [
+    "Growth is made for the current atlas as documented by Compiled::apply and Atlas::grow; malformed growth first indices remain subject to existing debug assertion.",
+    "The approval is for the inspected apply mutation paths. Future methods that mutate old palettes, raw set words, font entries or descriptors must extend this proof."
+  ],
+  "proof_obligations": [
+    {
+      "field": "Sprite descriptors",
+      "argument": "Atlas::grow appends descriptors. Its only mutation of old descriptors is palette_bounds when palettes are appended. Helper snapshots and compares the old descriptor prefix in exactly that branch.",
+      "refs": [
+        "crates/tile-render/src/atlas.rs:354",
+        "crates/render-desc/src/lib.rs:2332"
+      ]
+    },
+    {
+      "field": "Palette rows and global named-palette base",
+      "argument": "apply calls Atlas::grow, which appends palette entries and never changes page_size or named_palettes. Existing palette values and global index base therefore remain unchanged; palette-bound effects are separately checked."
+    },
+    {
+      "field": "Raw numeric set records",
+      "argument": "SpriteSets::single and add append nonempty words; empty sets return shared ID zero without modifying words. No Growth operation overwrites old numeric records.",
+      "refs": [
+        "crates/tile-render/src/world.rs:103"
+      ]
+    },
+    {
+      "field": "Named sprite/set collisions",
+      "argument": "Helper rejects writes to existing sprite_ids and existing nonempty set names, including sprite-derived implicit sets. An old EMPTY alias is allowed only when the final explicit entry restores EMPTY. This matches final-state name semantics and does not expose a temporary mapping to readers."
+    },
+    {
+      "field": "Shared EMPTY blend",
+      "argument": "All empty sets share ID zero, so the final empty-set blend can affect untouched EMPTY aliases. Helper checks the last empty entry against the original blend whenever old EMPTY aliases exist."
+    },
+    {
+      "field": "Font names and outlines",
+      "argument": "apply only extends the fonts vector with cloned immutable Arc faces. Old names, numeric indices and Arc identities cannot change through this method."
+    },
+    {
+      "field": "Layer LUTs and named palette mappings",
+      "argument": "Growth may append layer values and replace a layer LUT entry for a set name. Submitted TileWorld owns its previous layer lookup table and resolved palette numbers, so this does not reinterpret old packets. Full preserves_render_prefix intentionally uses the same invariant."
+    },
+    {
+      "field": "Aliasing and memory budget",
+      "argument": "Helper mutates only worker-owned Compiled metadata. It calls the same apply implementation exactly once, after unchanged renderer atlas commit. No atlas preparation/admission/retirement or allowance is changed, and the full ArtCommitted metadata snapshot remains owned independently. Palette-only temporary descriptor copy is CPU metadata, not hidden GPU storage."
+    },
+    {
+      "field": "Arc LookScene",
+      "argument": "refresh_shared creates a new immutable Arc only when contents differ. Mapping capture/restore/activate share the exact candidate Arc; no in-place mutation of pending data was added. Existing ID/configuration and input-revision gates remain unchanged."
+    }
+  ],
+  "evidence": {
+    "owner_test_log": "/mnt/datasets/c3r-build/handover/worker-prefix-tests.log",
+    "log_results_inspected": {
+      "scene_prefix_cpu": 9,
+      "worker_cpu": 9,
+      "no_locks": 2
+    },
+    "differential_oracle": "Retained full preserves_render_prefix; fixtures cover aliases, named/EMPTY sets and blend, palette descriptor rewrites, 512 growth chunks, old LUT ownership.",
+    "independent_test_execution": false,
+    "gpu_execution": false,
+    "performance_claim": false
+  },
+  "source_sha256": {
+    "crates/render-desc/src/lib.rs": "a0d4b1e3074b85687afcb1945c3b6c1735d2a59d4cb3dc61fcda2906fd408f9e",
+    "crates/tile-render/src/atlas.rs": "bd31aaed96fdf62ea4a1a87fe9253b8f36456e343004870add64068b0f8540ce",
+    "crates/tile-render/src/world.rs": "54c8375d39fd6c507a42a979d2bd55a576777b9a108249afa1ed17213cda49a8",
+    "crates/tile-viewer/src/render_worker.rs": "b05ffbc4502e8ba52afa6f938b02fffbd561b9f75d950eeaed113ffc9ae243bc",
+    "crates/tile-viewer/src/scene_prefix.rs": "f949b43d9ef2be3ab7f9bafd2e8e2e53bf3b3f822c1714114c7b7f624c7ab33d",
+    "crates/tile-viewer/src/looks.rs": "c681cd19c54243d3ef8173fe21860ffcbcc299c9adf79d4cb924c5652d8b6354",
+    "crates/tile-viewer/src/ui_submission.rs": "c798a45b070e707edf057cd760295670e817a758d7ef9e63f842f022a7e01b72",
+    "crates/tile-viewer/src/lib.rs": "e58f16d749a665c8964694919dc3201f532722481e583e2d54c63faf51491b6d"
+  }
+}

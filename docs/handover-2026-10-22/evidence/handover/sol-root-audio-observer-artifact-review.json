@@ -1,0 +1,30 @@
+{
+  "reviewed_utc": "2026-10-20T16:57:23.340307+00:00",
+  "scope": "Independent artifact hash, objdump PE/export/import inspection and existing test/build logs. No new compilation/runtime.",
+  "DLL_sha256": "a850200e3c695e83ec72d5f9edd38cf57c9660cfe385d13b479482d990424d48",
+  "lib_sha256": "67c559c23de50788a1a6f489fb412a6748e71e34ba99fb2f8f07369ced436363",
+  "validator_sha256": "54bf97dacf52a58ab11fe036134d64a32275cda114c6ce635bcb27396d2d29b6",
+  "seven_original_IFC23_forwarders_verified": true,
+  "PE32_x86": true,
+  "imports": [
+    "api-ms-win-core-synch-l1-2-0.dll",
+    "bcryptprimitives.dll",
+    "advapi32.dll",
+    "api-ms-win-core-synch-l1-2-0.dll",
+    "gdi32.dll",
+    "kernel32.dll",
+    "psapi.dll",
+    "user32.dll",
+    "KERNEL32.dll",
+    "msvcrt.dll",
+    "NTDLL.dll",
+    "USERENV.dll",
+    "WS2_32.dll"
+  ],
+  "test_summaries": [
+    "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "objdump_sha256": "5b8fdd10eac868d4ab22f07d2e560fcf39fe9f1d036ce60ee474afc9083f70e8",
+  "source_validation": "Full source hash manifest validated by build owner; root source review separately recorded.",
+  "decision": "Bounded no-debugger VM observation permitted, with original-result passthrough and exact-token cleanup. Not a release artifact or causal fix."
+}

@@ -1,0 +1,24 @@
+{
+  "reviewed_utc": "2026-10-20T15:59:39.760261+00:00",
+  "source": "6029ebac6d27a6707db8639c69b043a3b6630768746cd01ff520a80699fa4dd3",
+  "base": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "files_verified": 670,
+  "source_archive_digest_verified": true,
+  "all_shared_hashes_match": true,
+  "only_changed_file": "crates/civ3-bridge/src/assets.rs",
+  "production_prefix_unchanged": true,
+  "all8_runtime_hashes_identical_to8b": true,
+  "explicit_original_artifact_origins_preserved": {
+    "civ3r-viewer": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "civ3-play-macos": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+    "IFC23.dll": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "civ3r_native.so": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "civ3r_native.dll": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "civ3-app-macos": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+    "RUN.md": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "icon.png": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205"
+  },
+  "scoped_fixture": "One old asset test updated to validate rendered warning geometry/text; Linux case passed, Wine before/after pending.",
+  "scope": "No production code/shader/protocol/ABI change. Every runtime byte is carried from already reviewed8b /9b; no fresh602 runtime compilation claim.",
+  "excluded": "Private world-table, overhang, binary-cell and wider-integer candidates remain outside shared/frozen source."
+}

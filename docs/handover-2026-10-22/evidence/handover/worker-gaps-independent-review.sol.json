@@ -1,0 +1,27 @@
+{
+  "review": "successor GPU frame gap and host-span diagnostics",
+  "baseline": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+  "source_sha256": "96aeb44009e7cce8b6c736645428c501f50ee4c34cbf8f3dac58d2f1f3711feb",
+  "blocking_findings": [],
+  "approved_invariants": [
+    "timer epoch observed before collect and before draw after current replacement sites",
+    "missing sample IDs do not generate gaps",
+    "late or duplicate samples cannot move anchor backwards",
+    "counter/stamp memory bounded",
+    "profiling-disabled path adds no clocks/formatting/allocations",
+    "JSON composition valid for real finite hardware period"
+  ],
+  "builds_or_gpu_runs": false,
+  "resolved_findings": [
+    {
+      "severity": "low",
+      "source": "render_worker.rs:876-907",
+      "issue": "surface acquire span omits all early-return error outcomes and records pseudo-acquire on bitmap path",
+      "effect": "slow failed acquisition samples disappear from per-span distribution, although draw(all) includes them",
+      "suggestion": "measure actual Some(surface).get_current_texture invocation before matching its outcome; do not add samples for bitmap None path"
+    }
+  ],
+  "findings": [],
+  "result": "approved",
+  "correction_review": "Actual get_current_texture call timed before matching success/error; bitmap None adds no sample; clock remains conditional on profiling."
+}

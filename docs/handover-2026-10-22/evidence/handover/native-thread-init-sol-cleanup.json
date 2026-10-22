@@ -1,0 +1,9 @@
+{
+  "path": "/mnt/datasets/c3r-build/native-thread-init-sol",
+  "allocated_bytes_reclaimed": 4107100160,
+  "files_removed": 5412,
+  "removed": true,
+  "frozen_source": "31b5951a200234422c73a7c8c8f8b97bea77424fc8c9a86d2580003553c3ef58",
+  "timestamp_utc": "2026-10-20T10:06:17.054912+00:00",
+  "retained": "Wine source audit, logs, manifests, handovers; release and VM targets untouched"
+}

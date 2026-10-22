@@ -1,0 +1,47 @@
+{
+  "status": "confirmed source cancellation defect, runtime sample consistent",
+  "frozen_source": "f7b0758996b7383537381cf71b5e58669014514ae06719eb222cddadbd1d802a",
+  "launcher_origin": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "unchanged_source_hashes": {
+    "crates/civ3r-launcher/src/startup.rs": "18710796c0b59943383aa9b93c47de713fb6db8602266c6257e4590b3b38b3d4",
+    "crates/civ3r-launcher/src/unix.rs": "9ab27dce114e3c16e1487b039b9fc690d2afae2562707dd625c59aa38bd1c03a",
+    "crates/civ3r-launcher/src/startup/gpu.rs": "990cc213051447ed33d350967209ccf4a836f8e9768406241da84ce6b6cd0990",
+    "crates/civ3r-launcher/Cargo.toml": "b40d57b9ad6824d6c26bbea1ba55ea2c6d1a5101e28eaf5f0d068031ed24436f"
+  },
+  "evidence_sha256": {
+    "/mnt/datasets/c3r-build/vm-audio-production-sol/title-A-complete-evidence/evidence/audio-production/title-A-launcher-after-deadline.sample.txt": "9ce274656a095baceb70e6d8a0fbfeed23b80d25ee069c02d5ced2102b8ce264",
+    "/mnt/datasets/c3r-build/vm-audio-production-sol/title-A-complete-evidence/evidence/audio-production/title-A-launcher-cleanup.json": "ff5f1789eb8d50a4ab46e355ca8656555cb7c0a2cdf15ba0f9deeb4b66967c3d",
+    "/mnt/datasets/c3r-build/vm-audio-production-sol/title-A-complete-evidence/evidence/audio-production/title-A-launcher-kill.json": "1e69acce2680bd6fb7f9f392a28bd7aedbd1b39ea0e91c4f16bb3f06a18e9f95",
+    "/mnt/datasets/c3r-build/vm-audio-production-sol/title-A-complete-evidence/evidence/app-1792517368-5764.log": "5e729e191075306e2d3320c734c4612b4f2f8da472f85f831db2fdb25788e616",
+    "/mnt/datasets/c3r-build/vm-audio-production-sol/title-A-complete-evidence/evidence/app-exit-code.txt": "e3b9c2844b5a5c2677b3a2279db2ec8487491dd9a23d6b22fac153391b3bb63c"
+  },
+  "sample_time": "2026-10-20 19:38:04.318 +0200",
+  "observed": [
+    "Main thread idle in NSApplication run, not joining child or blocked in GPU call.",
+    "No Rust lifecycle worker in sampled thread inventory. Remaining helpers are SwiftShader workers, NSEvent thread and work queue.",
+    "Launcher log reports game exited unexpectedly with exit code1. CAMetalLayer nil-device warnings recur around19:37:28 after game exit.",
+    "Four identity-pinned TERM requests returned0. Later pinned KILL returned0 and runner exit was137. Exact TERM/KILL timestamps are not contained in cleanup JSON; VM owner gave approximate times only."
+  ],
+  "source_cause": {
+    "unix.rs:811-819": "register_signals installs INT/TERM/HUP atomic-only handlers and discards unregister handles.",
+    "unix.rs:1066-1069": "Only lifecycle worker consumes the cancellation atomic in gameplay loop.",
+    "startup.rs:223-248": "Nonzero Finished with cancel0 retains failure UI and completed result, leaving loop alive.",
+    "startup.rs:258-259": "Main thread sleeps indefinitely under ControlFlow::Wait and has no cancellation event handler.",
+    "startup.rs:89-94": "Post-run cancellation+join is unreachable while retained failure UI stays alive."
+  },
+  "conclusion": "After lifecycle worker finishes with failure, TERM changes an atomic that has no remaining consumer and does not wake/dismiss UI. This explains repeated TERM having no effect without an owned-child cleanup deadlock. Sample cannot directly inspect Startup.result, but log, absent worker, and idle UI match this path.",
+  "minimal_proposal_for_root_review": [
+    "Add an event-driven signal bridge spanning the entire graphical launcher lifetime, including retained failure UI. Signal-safe handler must only write to a pipe/set atomics; normal reader thread sends winit Update::Interrupted(status).",
+    "Handle interruption on UI thread by setting shared cancel. If result already exists, replace retained result with Ok(interrupt_status) and exit loop immediately. If worker active, preserve current owned-process cleanup, then return interrupt status after Finished; cancellation must suppress retained error UI.",
+    "Own and close/unregister signal listener with RAII. Join its reader after close so normal Quit does not retain a helper. Keep headless behavior and status mapping INT130/TERM143/HUP129.",
+    "signal-hook iterator feature is currently disabled. Enabling iterator adds only its channel feature in signal-hook0.3.18, with no new dependency package. This is a proposed implementation option, not an applied change."
+  ],
+  "required_validation": [
+    "Pure state regression for failure then interrupt, interrupt then failure, and successful completion.",
+    "Fresh process regression: synthetic failing owned child, retained GUI failure event loop, actual identity-owned TERM, bounded launcher exit without KILL. Verify children gone and lock released.",
+    "Headless cancellation remains bounded and unrelated processes survive; no idle polling introduced.",
+    "Rebuild affected ARM/Intel/Linux launcher and starter only after root review; carry frozen production PE/native/shaders with exact origins."
+  ],
+  "secondary_observation": "No failure window visible in VM screenshot, and nil-device presentation warnings persist. Do not infer that the failure display rendered successfully merely because surface object exists. This UI issue is separate from the confirmed signal-handling omission.",
+  "mutations": "Review artifact only. No shared source edits, build, remote runtime, deployment or staging changes."
+}

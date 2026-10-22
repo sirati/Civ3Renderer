@@ -1,0 +1,119 @@
+{
+  "historical_spv": "/mnt/datasets/c3r-build/army-solid-artifacts/shader.spv",
+  "historical_spv_sha256": "67f3cefc9e905d7404baf63a3d0a3b54ca775bddc61612f52aa57c9b7de1ceb0",
+  "host_source_archive_sha256": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+  "externs": {
+    "tile_render": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libtile_render-4dea7c93239b56fe.rlib",
+      "sha256": "813d1d779b50722118995d00b9a251dccf602d4f102208f7ec40c324a0f93f4a"
+    },
+    "tile_render_shared": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libtile_render_shared-0f830e5036b3d32e.rlib",
+      "sha256": "5b01c2faf50ef2e87dc0216b53afd698075e72e29e8032230c49732136cac3a2"
+    },
+    "wgpu": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libwgpu-f7ae5644720e283f.rlib",
+      "sha256": "c6d3925c09dd0b248ce945cf446c92ced92761129904fe4758e1c2b6fe11f963"
+    },
+    "bytemuck": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libbytemuck-61e1ebcb3261fb82.rlib",
+      "sha256": "5eb38530376de51287f0e00f147577f4cfef4820a94aec71a45d7b99cab553bb"
+    },
+    "gpu_text": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libgpu_text-12992d7d1fd7a52c.rlib",
+      "sha256": "fe8c8eb0429228b9e04f833a95cfe61411416b5ac1ac6195a368fec60039f854"
+    },
+    "log": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/liblog-a192ab749ac50a2e.rlib",
+      "sha256": "cac0a8e86bcbc5adc44d43dc5ce09b59e5f72194a33b429e9da7429b505b7ff9"
+    },
+    "pollster": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libpollster-be34636bc9b9ef22.rlib",
+      "sha256": "e24c764703c65693d258a3379531428d811556f22b025a242b825885190f88ea"
+    },
+    "thiserror": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libthiserror-c10f79c6f736c691.rlib",
+      "sha256": "56f9d7e9b49fe2d677cbce66abdfea8fe4358262eeff986c02d6d9a309b4ea9b"
+    }
+  },
+  "library": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/libtile_render_historical_control.rlib",
+  "library_sha256": "608d4dda98c67034e872538fbe6440aefff245938da698ed894cc144cf05456c",
+  "library_compile_command": [
+    "rustc",
+    "--edition=2024",
+    "--crate-type",
+    "rlib",
+    "--crate-name",
+    "tile_render_historical_control",
+    "/mnt/datasets/c3r-build/release-1019/src-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/crates/tile-render/src/lib.rs",
+    "-L",
+    "dependency=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps",
+    "-o",
+    "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/libtile_render_historical_control.rlib",
+    "--extern",
+    "tile_render_shared=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libtile_render_shared-0f830e5036b3d32e.rlib",
+    "--extern",
+    "wgpu=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libwgpu-f7ae5644720e283f.rlib",
+    "--extern",
+    "bytemuck=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libbytemuck-61e1ebcb3261fb82.rlib",
+    "--extern",
+    "gpu_text=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libgpu_text-12992d7d1fd7a52c.rlib",
+    "--extern",
+    "log=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/liblog-a192ab749ac50a2e.rlib",
+    "--extern",
+    "pollster=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libpollster-be34636bc9b9ef22.rlib",
+    "--extern",
+    "thiserror=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libthiserror-c10f79c6f736c691.rlib"
+  ],
+  "library_compile_seconds": 0.7259020219789818,
+  "library_build_log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/historical-subpixel-control-build.log",
+  "library_build_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "repro_source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-repro.rs",
+  "repro_source_sha256": "b06762e65d4014e7b85257dc742bd7bb6821858f92682797f1308c8025d60e64",
+  "controls": {
+    "current": {
+      "executable": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-current",
+      "executable_sha256": "c3b30ac6f24825684ae2ae2d740ebc7efe5b5d5dda4e87811d296c3ada5d49af",
+      "command": [
+        "rustc",
+        "--edition=2024",
+        "--test",
+        "--crate-name",
+        "subpixel_wider_current",
+        "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-repro.rs",
+        "-L",
+        "dependency=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps",
+        "--extern",
+        "tile_render=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libtile_render-4dea7c93239b56fe.rlib",
+        "--extern",
+        "wgpu=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libwgpu-f7ae5644720e283f.rlib",
+        "-o",
+        "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-current"
+      ],
+      "build_log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-current-build.log",
+      "build_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "historical": {
+      "executable": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-historical",
+      "executable_sha256": "d6ced6f68320ba1f071b6d9e864dc7d68e7b789879f8cf7e17750fbff7caf8ea",
+      "command": [
+        "rustc",
+        "--edition=2024",
+        "--test",
+        "--crate-name",
+        "subpixel_wider_historical",
+        "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-repro.rs",
+        "-L",
+        "dependency=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps",
+        "--extern",
+        "tile_render=/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/libtile_render_historical_control.rlib",
+        "--extern",
+        "wgpu=/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/libwgpu-f7ae5644720e283f.rlib",
+        "-o",
+        "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-historical"
+      ],
+      "build_log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-wider-one-pixel-historical-build.log",
+      "build_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

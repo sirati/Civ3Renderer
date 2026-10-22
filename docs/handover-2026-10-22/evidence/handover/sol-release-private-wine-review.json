@@ -1,0 +1,53 @@
+{
+  "recorded_at_utc": "2026-10-20T12:04:18.704402+00:00",
+  "verdict": "Source-level design approved after unwind coverage and misplaced mutation fixes. Execution acceptance pending CPU/external-image tests and VM actual module path/hash proof.",
+  "source_hashes": {
+    "crates/civ3r-launcher/src/unix/wine_compat.rs": "cc453679569fb8450aad64c2cae301719bd8e256dc83a60fb331f46eb5ae7fcd",
+    "crates/civ3r-launcher/src/unix.rs": "27bf7c83869d5507c55d965edcc15057cbcf29d6822c784c2ec7717081632793"
+  },
+  "original_dll_sha256": "cbbf4d054d5488e19d82ea24e7c280c3408ee43b00fce708d1b559acada9d21e",
+  "independently_reconstructed_patched_sha256": "d0da82572f7cc2eb3a63a135bb9abe25427916badde18c99b75f547883510d22",
+  "patch": {
+    "return_rva": "0x1296",
+    "stub_rva": "0x1b00",
+    "stub_end": "0x1b0f",
+    "branch": "e96508000090",
+    "stub": "418b95c80000008ed24c87f441ff2e",
+    "text_virtual_size": "0xb0f",
+    "pdata_append": "[0x1b00,0x1b0f,0x5030] at0x4114",
+    "exception_directory_and_pdata_size": "0x120",
+    "sorted_nonoverlapping_unwind_entries": 24,
+    "changed_bytes": 27,
+    "changed_ranges": 6
+  },
+  "abi": "Loads saved32bit SegSs at context+0xc8 into volatileEDX and reloadsSS while still on original64bit stack,then executes exact original xchg rsp/r14 and farjump; EAX and all nonvolatiles preserved; no extra stack slots.",
+  "startup": "Runtime guard declared immediately after Session before initialize_registry; private executable used for registry and final game; child guard drops before runtime view, runtime before Session.",
+  "loading": "Copied native loader resolves sibling copied ntdll.so via executable realpath; ntdll dladdr realpath chooses private dll_dir ahead of WINEDLLPATH. Remaining dependency branches symlink to original. Actual mapped module paths require VM proof.",
+  "isolation": "Source Wine images opened read-only and exact SHA+length gated. Only642096 bytes copied,session-owned output files create_new/rename and mode0500/0400. No live memory patch or shipped prepatched DLL,assembly/C app code.",
+  "review_found_and_fixed": [
+    "New stub lacked original nonleaf unwind coverage",
+    "Unwind mutation block briefly inserted in generic reader,then moved solely to patched()"
+  ],
+  "review_activity": "Read-only source/PE analysis and in-memory reconstruction,no builds,GPU,guest operations,shared Wine writes or source edits",
+  "v2_followup": {
+    "source_sha256": "beae2e2d982a719cb2821805ed8cf5aa8ecd03fbb84fb32236d5f581936ff3f5",
+    "unix_source_sha256": "9ab27dce114e3c16e1487b039b9fc690d2afae2562707dd625c59aa38bd1c03a",
+    "source_verdict": "Child-local private-first DYLD_LIBRARY_PATH preserves inherited tail; both registry/game commands use Runtime::command; no global env change or separate-viewer contamination.",
+    "vendor_control_scope": "passed original-vendor compatibility control only",
+    "verdict_path": "/mnt/datasets/c3r-build/vm-qa31b-sol/vendor-offline-v2-verdict.json",
+    "verdict_sha256": "19f4798cc6de9ea1980ec9ad9fc4ba4d2df1b0d3cfb3ce1adb2c22b211b196a8",
+    "sustained_seconds": 246.308721862,
+    "selection": {
+      "one_private_ntdll": true,
+      "original_ntdll_mapped": false,
+      "private_wow64cpu_path": true,
+      "branch_hex": "e96508000090",
+      "stub_hex": "418b95c80000008ed24c87f441ff2e",
+      "file_hashes": {
+        "private_wow64cpu_sha256": "d0da82572f7cc2eb3a63a135bb9abe25427916badde18c99b75f547883510d22",
+        "original_wow64cpu_sha256": "cbbf4d054d5488e19d82ea24e7c280c3408ee43b00fce708d1b559acada9d21e"
+      }
+    },
+    "remaining_gate": "Current source native renderer/combined launcher VM runtime, separate from original-vendor control"
+  }
+}

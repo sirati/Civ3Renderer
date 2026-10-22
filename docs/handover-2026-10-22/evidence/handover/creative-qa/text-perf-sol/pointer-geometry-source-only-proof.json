@@ -1,0 +1,79 @@
+{
+  "base_source_archive_sha256": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "source": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/source",
+  "production_source_changed": false,
+  "status": "CPU oracle and fresh corrected-target-only actual native1x/dual0 motion preflight passed; no timing",
+  "oracle": {
+    "source": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/source/crates/tile-viewer/src/pan.rs",
+    "base_sha256": "b35f2fc5d75f030060edb185102ff16f795c64cb0d3280b22f4980a7f7dd4732",
+    "test_appended_sha256": "ca620745e94f3830e17cf98fbb8065a32c5bcf2e0c31ef0ec1eb838a3f9727ed",
+    "patch_sha256": "7da0d6f149bd887fe2e75de8c3d256ed187285125bea23881118473f13f481ca",
+    "meaning": "The identical actual Layout/pan oracle test expects positive primary camera motion and inverse-label anchoring for either the legacy or corrected input target. Legacy is expected to fail; corrected target is computed from actual pointer_walls/gap and expected to pass."
+  },
+  "fixture_wrapper": {
+    "path": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/preflight_geometry.py",
+    "sha256": "c2000da44336ba58243b79d9e8465e509387237f52f85d6bd64b44c8c1ecb893",
+    "scope": "Untimed preflight only; original motion gate and 3x96 relative escape pulses unchanged for causal target A/B. No launch, build, capture or timing entry point."
+  },
+  "known_geometry": {
+    "presented_main_pane": [
+      0,
+      0,
+      1920,
+      2160
+    ],
+    "open_divider_y": [
+      720,
+      1440
+    ],
+    "legacy_target": [
+      1918,
+      800
+    ],
+    "legacy_target_source_classification": "Hit::Divider, because divider hit band includes two A pixels where the middle third is open. pan_view_at returns None. Actual OS pointer position at failure was not logged.",
+    "corrected_target_pending_actual_oracle": [
+      1919,
+      360
+    ],
+    "separate_relative_traversal_hypothesis": {
+      "legacy_command_total": 288,
+      "left_x": 2,
+      "held_x": 1919,
+      "left_to_held_distance": 1917,
+      "margin": 16,
+      "command_budget": 1933,
+      "pulses_96": 21,
+      "selected": false,
+      "limit": "Command budget alone is not observed OS displacement. This hypothesis is independent of the proven wrong target."
+    }
+  },
+  "future_pointer_observation": {
+    "method": "Existing wayland-backend0.3.17 WAYLAND_DEBUG=client diagnostics at process launch, untimed only. Parse native Rust wl_pointer.motion surface coordinates.",
+    "backend_source": "/home/sirati/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wayland-backend-0.3.17/src/debug.rs",
+    "source_sha256": "642b19cb664e4e22c36dafa34c4dd03132f58d8e77fdf72ca805a7313e79cc23",
+    "limit": "No retained pointer-wire coordinates exist for the failed original attempt. Current old fixture/helper sources remain unchanged.",
+    "timing_followup_requirement": "Fresh ordinary run with WAYLAND_DEBUG unset and the corrected-target motion preflight repeated without wire logging before any timing. Never measure the wire diagnostic run."
+  },
+  "no_runtime_or_build_during_audio_controls": true,
+  "cpu_runner": {
+    "run-cpu.sh": "936c17058a23638e36c33d9be71c208fec213bff5b6942437a72b2dc766e4878",
+    "run-oracle-cases.py": "d039869c78999ac7059e60bfd34ba2e04c18618686fca2a884e5ce22230303d7"
+  },
+  "target_only_causal_AB": true,
+  "qualification_gate_changed": false,
+  "timed_runner_status": "Not changed. Existing old right target must be updated and bound only after live causal preflight validation.",
+  "cpu_oracle_proof": {
+    "path": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/cpu-oracle-proof.json",
+    "sha256": "a58e1264d5d6b9e26b571f9946ad66f02f8ae76c8ee49d3df3cd8487a72c98f6"
+  },
+  "initial_harness_failure": {
+    "path": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/initial-harness-main-view-error",
+    "reason": "fixed nonzero viewport prevented Layout native main-view recognition; corrected to actual driver default unbounded viewport; no production change"
+  },
+  "cpu_lease_released": true,
+  "live_proof": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-live-proof.json",
+    "sha256": "55f63ad0cc0bd9af5e097baff87b07d07e52464b84d52433b869a35edcf85a98"
+  },
+  "runtime_lease_released": true
+}

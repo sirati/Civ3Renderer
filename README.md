@@ -1,5 +1,7 @@
 # Civ3Renderer
 
+The [22 October 2026 handover](docs/handover-2026-10-22/README.md) records open and closed work, all recovered subagents, acceptance checks, and source backups. An [offline reading copy](docs/handover-2026-10-22/handover.html) is also available.
+
 A modern, GPU-driven renderer for tile worlds — and a driver that makes
 Civilization III: Conquests render its map through it.
 

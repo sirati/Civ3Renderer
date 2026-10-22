@@ -1,0 +1,44 @@
+{
+  "reviewed_utc": "2026-10-20T18:46:09.032687+00:00",
+  "scope": "Root independently inspected completed original vendor title screenshot and archived preflight/mapped-module proof/lsof/native log/exit/watchdog. No runtime or input by root.",
+  "vendor_visible_title": true,
+  "game_sha256": "66d0ae91de6f4a2376e03aa74eb29a8256f02108ca3a4c024a4857337bc45ee6",
+  "effective_original_IFC_sha256": "032c24f528881e25e24d0acf4571fd92e7976302e50474950c505a08ee490e4b",
+  "original_IFC_resolve": "/Users/c3r/civ3-assets/Conquests/ifc23_orig.dll",
+  "rust_game_renderer_modules_absent_in_mapped_and_loaded_evidence": true,
+  "real_no_output_endpoint": {
+    "raw": {
+      "SPAudioDataType": [
+        {
+          "_items": [],
+          "_name": "coreaudio_device"
+        }
+      ]
+    },
+    "output_fields": []
+  },
+  "natural_stock_afplay": {
+    "seconds": 0.10410251999999998,
+    "returncode": 1,
+    "stderr": "Error: AudioQueueStart failed (-66680)\n"
+  },
+  "normal_UI_action": "Native title Exit, actual natural Wine exit5 with known native audio fault",
+  "actual_fault": {
+    "address": "005F8CBF",
+    "read_address": "0x12"
+  },
+  "watchdog": {
+    "watchdog_seconds": 219.33566133099998,
+    "role": "vendor",
+    "exit_code_text": "5",
+    "exit_file_at_detection": false,
+    "natural_exit_file_before_cleanup": true,
+    "external_atomic_TERM": false,
+    "cleanup": [],
+    "exit_file_observed": true
+  },
+  "decision": "Matched vendor-only no-device causal control reproduced. Production branch/title/loaded normal-Quit and final USB restoration remain pending; no production acceptance or install inferred.",
+  "preflight_source_sha256": "c9796a6c71840b02706e3ca627ef16d7aecf71d3f7d27546afb1fbc6c22a80f4",
+  "evidence": "/mnt/datasets/c3r-build/vm-audio-production-sol/nodevice-retry-sequence/vendor-evidence",
+  "screenshot_sha256": "03ef0886f9baf7681a0b489ee62d1981fef73140de0c4737194c47aa10e7b159"
+}

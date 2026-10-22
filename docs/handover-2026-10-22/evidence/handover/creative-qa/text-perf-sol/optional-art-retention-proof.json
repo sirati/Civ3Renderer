@@ -1,0 +1,102 @@
+{
+  "base_source_sha256": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "base_source": "/mnt/datasets/c3r-build/release-1019/src-9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "candidate_source": "/mnt/datasets/c3r-build/world-tables-b41-sol/source",
+  "status": "private candidate compiled; CPU oracle/regression tests passed; no adoption or runtime/performance qualification",
+  "changed_files": {
+    "crates/tile-render/src/world.rs": {
+      "base_sha256": "8a2e275d5ecf1c6617ad9ea8f4bbd226653b8cf9d611bb1c1535904b82372338",
+      "candidate_sha256": "badd0f6a925bdd78eac935b87b3ff4b1a96fa80487a654463b00147eecc6331d"
+    },
+    "crates/tile-viewer/src/lib.rs": {
+      "base_sha256": "04cd00a4d70a3ac25ba93835e7478c2f55610d54de72e750b9a0e4bc1a7a0db0",
+      "candidate_sha256": "8a0282f3d67931e0731db738aa751d5f2fa735d4113f50d69dd575e97eb489bb"
+    },
+    "crates/tile-viewer/src/scene_prefix.rs": {
+      "base_sha256": "ad341804a0d0de3d05dab21c88426fe3a6934564e6e1e3fd3ae79fa001b17d25",
+      "candidate_sha256": "b7bd5645e4a76f22433e4f74c73f1f89f5540a9f461f0bbdae0f8ea7bdeab7e4"
+    },
+    "crates/tile-viewer/src/world_tables.rs": {
+      "base_sha256": null,
+      "candidate_sha256": "7f8f50806b689c97db2ae4240c356d6061f4a38400cfecc4ef59cfaa785c15cc"
+    }
+  },
+  "candidate_patch_sha256": "ed8eda3bda5dedef3dcdb20c22ce2e72dbfb3802885402fd11ba4f99e0784a16",
+  "candidate_source_manifest_sha256": "07c8605ef28902cfd421cb1baf34113f321794554c9a123e17fa107ec1046101",
+  "shader_inputs": "unchanged from corrected 9b",
+  "runtime_performance": "not measured; no 240 FPS acceptance; full GPU world replacement retained; separate pinned Scene-layer cloning cost remains",
+  "completed_utc": "2026-10-20T16:01:16.602652+00:00",
+  "cpu_lease": {
+    "broker": "/root/mac_fps_music",
+    "jobs": 1,
+    "target": "/mnt/datasets/c3r-build/world-tables-b41-sol/target",
+    "scope": "CPU build/tests while broker-owned VM gameplay runs; no GPU/runtime/performance timing",
+    "release": "all compile/test processes exited; explicit release sent after proof generation"
+  },
+  "tests": {
+    "world": {
+      "passed": 9,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/world-suite.log",
+      "sha256": "38a4eac2c3578ece93dca31ed0468e37f464b3941edabbb08f05680a3dab60e3"
+    },
+    "retention": {
+      "passed": 7,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/retention-suite.log",
+      "sha256": "07a60195ca80d55841b5bc605ea0c22fd014504259edb294f64528fe27ee19fb"
+    },
+    "prefix": {
+      "passed": 3,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/prefix-suite.log",
+      "sha256": "6e7697da4445bd4e388bc844afcdaaef7d9a1e6aff23fdc2186c20046dab26fe"
+    },
+    "recovery": {
+      "passed": 4,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/recovery-suite.log",
+      "sha256": "c1956afd115b9769ca2f75b889dce43886b4975823e79d728f9067452203a68e"
+    },
+    "adoption": {
+      "passed": 1,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/adoption-suite.log",
+      "sha256": "4ea0660dc75b7a558c2248b3e9a934ce45f4c7424dfaf240dd4576b1e1f70f19"
+    },
+    "dirty": {
+      "passed": 1,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/dirty-suite.log",
+      "sha256": "6ef8ad44c422479b5c200444e5b315c417503b074152067aa75ddee7a5de6ae5"
+    },
+    "mapping": {
+      "passed": 5,
+      "log": "/mnt/datasets/c3r-build/world-tables-b41-sol/mapping-suite.log",
+      "sha256": "a1613d3e11d0448d4e44b88999bdb51ab6ffccbb9a8821ce01880986a2919fed"
+    }
+  },
+  "tests_passed": 30,
+  "corrected_9b_predecessor_fix": {
+    "scene_file_sha256": "c6a9aa47ff38e7e4615ee1246a1c223d4dad81af22d2bf0a7c7d903d59d862ac",
+    "viewer_sections_exactly_equal_to_9b": {
+      "adopt_shown_scene": "b59e6ad27c516590c94b847040b56f0f3c21b5bb533ee9dfb533fee2dce908b7",
+      "rejected_snapshot_recovery_tests": "a4d9e349b0f0c7e797e81de822a0d79ac0aca42feeba4f40c692d5578f18d592"
+    }
+  },
+  "tested_binaries": {
+    "world-tests": {
+      "path": "/mnt/datasets/c3r-build/world-tables-b41-sol/evidence/world-tests",
+      "sha256": "8c6e1c543941e389a7b3fc244f3ccac8bd112e589f8d1656494ac017484fff27"
+    },
+    "viewer-tests": {
+      "path": "/mnt/datasets/c3r-build/world-tables-b41-sol/evidence/viewer-tests",
+      "sha256": "2ba094576ee02146e3c1eee314cb6561f8a16f002d43a48d930cad362e4cdf93"
+    }
+  },
+  "initial_iterations": {
+    "world_compile": "Explicit as_mut_slice added after Rust inferred Arc<[u8]> from the slice return type.",
+    "viewer_compile": "A fixture now resolves its set ID before mutably borrowing its LUT.",
+    "first_fixture_run": "The compiled description already owns a fallback font; the new font fixture now uses the appended font index rather than assuming index zero.",
+    "logs": {
+      "world-suite-initial-compile.log": "301bcef3c7074c3cdc71249b9b595a831abc45fe78e66e0212a0de6fc4aa3d86",
+      "retention-suite-initial-compile.log": "9c642337a5e8925229a933e0a6e4e4c8851f2801ab8d5473db104c7839371288",
+      "retention-suite-first-run.log": "c2d3348157ff8e26c348f74ecaeaf2f3f05919b1ff69a38c1dbbcf7e40805127"
+    }
+  },
+  "actual_8b_fixture_preparation": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App8b-v2-preparation.json"
+}

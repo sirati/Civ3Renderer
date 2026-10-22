@@ -1,0 +1,135 @@
+{
+  "kind": "wider GPU qualification source package v2",
+  "status": "Corrected source-only orchestration. Separate CPU/GPU broker grants required after baseline actualApp timing. No compiler or GPU executed.",
+  "original_package_manifest_sha256": "4348da7d92904f5ee51d6a39f2de5088503ceee6e6d4382d411e9d8326c9f0f0",
+  "files": {
+    "COMMANDS.md": {
+      "sha256": "5f11e4153cf0b4d5587a73ba8012942b53b7bcedb3013d186ab5cdec4af24b28",
+      "bytes": 5749
+    },
+    "baseline/source/Cargo.toml": {
+      "sha256": "a53903e9d12ed2039539d0d62cb2cac880b99b98dad9f95d3550b928428825f4",
+      "bytes": 181
+    },
+    "baseline/source/crates/tile-render-shaders/Cargo.lock": {
+      "sha256": "ff235ae8ee2c42003a4936fc8f8d1763f9f4cad2cfb751ccf9602b6286767797",
+      "bytes": 3501
+    },
+    "baseline/source/crates/tile-render-shaders/Cargo.toml": {
+      "sha256": "3a11f89d4bb39eca841d83f2c5143a5d0077c7148ceab2d618f6bf6fc95086ff",
+      "bytes": 427
+    },
+    "baseline/source/crates/tile-render-shaders/src/glyph_cache.rs": {
+      "sha256": "b136ddc56b78137abd07d49a5c185c5749c1af8e8be53b1f5827bd7d68e42676",
+      "bytes": 3134
+    },
+    "baseline/source/crates/tile-render-shaders/src/lib.rs": {
+      "sha256": "f48e1af4f006ca5dfb316eb1cd74f3a2330bb8fe8a94d94b2ca81b18d694f799",
+      "bytes": 46570
+    },
+    "baseline/source/crates/tile-render-shaders/src/text.rs": {
+      "sha256": "3648e58f388fad5550505d9a34906926b15d02995f92d89d0ae94a5c69e0c404",
+      "bytes": 13368
+    },
+    "baseline/source/crates/tile-render-shared/Cargo.toml": {
+      "sha256": "cfe1967bd9568cabf416a7696392acc382ec0f95ef1fc3e66b9609844bcb2543",
+      "bytes": 572
+    },
+    "baseline/source/crates/tile-render-shared/src/glyph_cache.rs": {
+      "sha256": "ff9d5cff6f3114abbbdd8c7d7cf8044e81b89a77dedacf13e5b77430f39faf33",
+      "bytes": 1860
+    },
+    "baseline/source/crates/tile-render-shared/src/lib.rs": {
+      "sha256": "0fe63dcf941daf52133b656420b3d1dc00aa12883e8c590321e04df45bac79a6",
+      "bytes": 52629
+    },
+    "baseline/source/crates/tile-render-shared/src/text.rs": {
+      "sha256": "a3929c2ff388df42bbd5afe4a2699e889a9c5c211fb20ee772a2475e6cdba243",
+      "bytes": 31120
+    },
+    "build-missing.py": {
+      "sha256": "aab15427ae28f30c3ecf3d5a411e3c4b4ec06cb5c29b25059199f786d8d20daa",
+      "bytes": 9978
+    },
+    "feature-off/source/tile-render/atlas.rs": {
+      "sha256": "84f74177c6a7fc084dba786f6fead5200687ab1e107f29f76dc541d6bc62cd19",
+      "bytes": 35637
+    },
+    "feature-off/source/tile-render/camera.rs": {
+      "sha256": "9a5e3e63808d3325c34f1c328f534f29131a28aee82dba38b82863ebd66aec3b",
+      "bytes": 28810
+    },
+    "feature-off/source/tile-render/gpu.rs": {
+      "sha256": "ee0fdae208658ffc37bee121bffdc6b513d3fc38861f50e08ebe451fe526e37e",
+      "bytes": 14112
+    },
+    "feature-off/source/tile-render/lib.rs": {
+      "sha256": "4b0de9949d5cc15abc1ee87276c0c5e966f765f8c637805f7d197a8cfafcc57c",
+      "bytes": 1928
+    },
+    "feature-off/source/tile-render/reference.rs": {
+      "sha256": "d7016979f59c33b072b3fee5847223abf21b0a52e739a45aa35ce305131d30d2",
+      "bytes": 34827
+    },
+    "feature-off/source/tile-render/renderer/glyph_cache/preparation_tests.rs": {
+      "sha256": "b7cc0e9852a6590e21a200ef80090a6179654cec29410bed4bd400106d30b6e1",
+      "bytes": 12284
+    },
+    "feature-off/source/tile-render/renderer/glyph_cache.rs": {
+      "sha256": "d78085ff622a9b45f0bed834974adf81f20aee9c94cf546a622e09243a7ae3af",
+      "bytes": 26138
+    },
+    "feature-off/source/tile-render/renderer/smoke.rs": {
+      "sha256": "1fa73d67db7821ab38cae504f0dbe7760b1d26267ad108ad88ac11c32b86b8cc",
+      "bytes": 19175
+    },
+    "feature-off/source/tile-render/renderer/wider/continuation.rs": {
+      "sha256": "c6558eca60f996fe9ccb5307e121bc3e63d8d6eab8fb3752d5882d9f0bb14faa",
+      "bytes": 38920
+    },
+    "feature-off/source/tile-render/renderer/wider/retirement.rs": {
+      "sha256": "06f8c60f7c5f9074dd38f0da8c0dcb7c1d85f9d60fe75921e772814bf47c277e",
+      "bytes": 7937
+    },
+    "feature-off/source/tile-render/renderer/wider.rs": {
+      "sha256": "217d3e849797bc6eb9adedfcdeadc557a2ab38ee3fa5e358e8820481f00ee8bd",
+      "bytes": 28132
+    },
+    "feature-off/source/tile-render/renderer.rs": {
+      "sha256": "960bdfd7d577d9554f5ee4bc62e606bc528810524cb15efb3f422ea61f4f809f",
+      "bytes": 171902
+    },
+    "feature-off/source/tile-render/timing.rs": {
+      "sha256": "cb348257f032099cd9a4590e4eefbee8092fdf7c2a91d24bc51a78b3ea9d2080",
+      "bytes": 19254
+    },
+    "feature-off/source/tile-render/world.rs": {
+      "sha256": "8a2e275d5ecf1c6617ad9ea8f4bbd226653b8cf9d611bb1c1535904b82372338",
+      "bytes": 57643
+    },
+    "inputs.json": {
+      "sha256": "311b3342f3a407581ae6d5be3f077ef6b194560fd534b6a7a085e5f8ee277d84",
+      "bytes": 22594
+    },
+    "oracles.json": {
+      "sha256": "2d892a18b74e0ad83bf9d75f40d503a725cdca8208184399ece89afe9d8d3d15",
+      "bytes": 3481
+    },
+    "provenance.py": {
+      "sha256": "8a66f3f8237de647c0695a64bdb7e51ab928543f79118a71ea0cc999fc3697c6",
+      "bytes": 12241
+    },
+    "resolver-inputs.json": {
+      "sha256": "d4888e79be3d379f2f9c01de096b3e64d5d8d8ad27388c67fd2627ea298c063b",
+      "bytes": 104189
+    },
+    "run-gpu.py": {
+      "sha256": "ad99192bd72d1631d62b96f344c73e17cee96f1e25641091586b8bdbf3299e55",
+      "bytes": 9736
+    },
+    "tamper-tests.py": {
+      "sha256": "d0caeff9be6fbae4d471537caca641a01ae2c4b41f687afc1dbf2eb2e8bbc0a6",
+      "bytes": 16112
+    }
+  }
+}

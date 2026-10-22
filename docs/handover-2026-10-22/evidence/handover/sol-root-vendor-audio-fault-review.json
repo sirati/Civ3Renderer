@@ -1,0 +1,23 @@
+{
+  "reviewed_utc": "2026-10-20T16:37:42.584816+00:00",
+  "scope": "Independent root review of vendor-only audio failure evidence, no new runtime.",
+  "files_sha256": {
+    "/mnt/datasets/c3r-build/vm-qab41-sol/audio-vendor-small-evidence/vendor/000-title.json": "9bdaa0036a152abf0c555b2a3a626829e8b270baf65108d8682518153682c1ce",
+    "/mnt/datasets/c3r-build/vm-qab41-sol/audio-vendor-small-evidence/vendor/001-bad-backend-before-destructor.json": "9603b72ef32259854cc1423fbbd4d62e62725de341877b1dd2796e188b8c0871",
+    "/mnt/datasets/c3r-build/vm-qab41-sol/audio-vendor-small-evidence/vendor-title.lsof.txt": "1a91691033215ddc7caceefdf76e027b8c90bc2d71ca12ef56fee4acf92777f5",
+    "/mnt/datasets/c3r-build/vm-qab41-sol/audio-vendor-small-evidence/vendor-preflight.json": "7056ddd71e3fd0ef4592d85e3e3f1a318bff1c1f09d8d25a28e0a6934aa42de2",
+    "/mnt/datasets/c3r-build/vm-qab41-sol/audio-vendor-small-evidence/vendor-armed-lldb.txt": "b87fd61e404f68b6a62d4f9e85d51b3172b279e9bf4d95cd50d6f6c0ec616878"
+  },
+  "findings": [
+    "Vendor fixture uses exact66d game, same private prefix/INI and original ifc23_orig.dll. lsof lists original IFC23 and no Rust native renderer or replacement IFC23.",
+    "At visible title, native initialization flag/module/master/wave-in/factories are zero but global MIDI backend is nonzero.",
+    "At normal Quit base-destructor entry original ECX is global MIDI wrapper0xCAAAD8; backend is the same title MIDI pointer0x024427F8 and its vtable is0. Raw return address is0x64A0CD.",
+    "This reproduces the destructor failure independently of our modules, on title Quit. It does not establish a successful loaded-game lifecycle or exclude separate regressions elsewhere."
+  ],
+  "pending": [
+    "Valid MIDI backend/vtable while sound DLL is still loaded, followed by failed master-wave init and native unload.",
+    "Only after valid-before-unload proof, review a minimal failed-init native cleanup-order correction.",
+    "Current replacement arm reached deadline while loading and is incomplete, not a newly captured native crash."
+  ],
+  "decision": "No destructor suppression or null-vtable workaround. Keep promotion blocked pending safe causal correction and usable successor lifecycle."
+}

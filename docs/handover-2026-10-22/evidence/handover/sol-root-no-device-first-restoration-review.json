@@ -1,0 +1,38 @@
+{
+  "reviewed_utc": "2026-10-20T18:30:12.858928+00:00",
+  "scope": "Root compared restoration JSON to pre-sequence host/guest snapshots and freshly SSH-rehashed private effective IFC/checked locks. No runtime launch or VM mutation.",
+  "exact_host_instance_and_live_argv_restored": true,
+  "fixture_file_hashes_and_resolves_compared": 11,
+  "read_only_assets_restored": true,
+  "unlocked_aqua": true,
+  "ram_cpu": [
+    "3221225472",
+    "8"
+  ],
+  "afplay": {
+    "seconds": 3.168159128,
+    "returncode": 0,
+    "stderr": ""
+  },
+  "cgroup": {
+    "memory.max": "9999998976",
+    "memory.high": "8999997440",
+    "memory.swap.max": "0"
+  },
+  "exact_marker_survivors": [],
+  "root_live_private_bridge_and_locks": {
+    "effective_IFC_sha256": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
+    "effective_IFC_resolve": "/Users/c3r/civ3r-qa-b41-sol/home/game/Civilization III Complete/Conquests/IFC23.dll",
+    "launch_lock_present": false,
+    "home_launch_lock_present": false
+  },
+  "decision": "First invalid no-device attempt fixture restoration accepted. Audio/game qualification remains unexercised; corrected retry watchdog under review.",
+  "evidence_sha256": {
+    "before-host-fixture.json": "0e3b20e426b0a5851f77e34582598e77d69d594ea14180d5eeac46af10106c7c",
+    "before-guest-fixture.json": "8c127551a32102a4191d29c0b85e499201491409ee4f46c43b5a69904307a1c3",
+    "restored-host-fixture.json": "f6a1f5522fb43d79a748be9423bb266ca7f407d330fa8f61c6a70e2b70966f88",
+    "restoration-guest-result.json": "97d57fea8fa22eefdd5d3e08e11676de158e4ce2c142d38fd5b54b3fe5d45097",
+    "restoration-cgroup.json": "282907be2bd57923a35ada2751d9c5f36a7ddc1aebdcb5e06a31f1db205b805f",
+    "restoration-marker-absence.json": "22f439b8fdb8e6f2b4686ec047cf39f8c1f8d6189af130673798de36485109a2"
+  }
+}

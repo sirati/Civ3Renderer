@@ -1,0 +1,25 @@
+{
+  "reviewed_at_utc": "2026-10-20T09:48:17.881428+00:00",
+  "source_archive_sha256": "60931ad49f18c0fb08a9ff2ed5710c6953f0f76f564837a8a6389deb4850ca9d",
+  "protocol": 48,
+  "tests_passed": 18,
+  "native_invocations": 6,
+  "failed": 0,
+  "backends_verified": [
+    "Vulkan SwiftShader",
+    "Dx12 WARP minimal compatibility"
+  ],
+  "gdi_metadata_regressions": 2,
+  "retained_test_binaries_and_text_hashes_verified": true,
+  "shader_embed_count_each": 1,
+  "log_sha256": {
+    "vulkan-procedural.log": "b39acf2e1139ff64fcb9b5f91173a19d05f5f3f57a5607766e46e070dc9f42e3",
+    "vulkan-controls.log": "a59ae267e0ded15361b4884cf11fd6cc8f018db745ee1b3720389043881d9140",
+    "dx12-procedural.log": "26862779ec72342396dab909cd5999c4303c0f474cb3df0eb689e8a04a6b319c",
+    "dx12-controls.log": "f21a4b3714078dca02f07a6dbe6206dcff0e1f2abe174b109e7b11b6037c4ec9",
+    "gdi-height-sign.log": "a75e73ef731686b9ad6f2f10c95aff1ad14ce7d9de7126aa95258b782665ffae",
+    "gdi-punctuation-pens.log": "ad6ed54731c3875066da881311af2ed0c34480f6c15c3337101b815348053f8f"
+  },
+  "source_verification": "630 files, no drift",
+  "scope": "Native Windows software-adapter numeric correctness and GDI metadata. No GUI or FPS claim."
+}

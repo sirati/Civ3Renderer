@@ -1,0 +1,16 @@
+{
+  "recorded_at_utc": "2026-10-20T07:54:20.948687+00:00",
+  "source_archive_sha256": "c1821306d709a83f385f46d92dd19f64a772dd9d7f298377c11b38e9ce166181",
+  "files_verified": 624,
+  "differences_from_ef962736": [
+    "crates/civ3-bridge/src/city_labels.rs",
+    "crates/civ3-bridge/src/text.rs",
+    "crates/civ3-bridge/src/ui_transaction.rs",
+    "crates/inproc/src/keyboard.rs",
+    "docs/macos-vm.md"
+  ],
+  "shader_source_unchanged": true,
+  "root_review": "The only production change is correct lfHeight conversion in both game text width cache paths. Other code deltas correct native test fixtures. Prior Mac CPU31 and unaffected rendering evidence remain bound by identical sources.",
+  "native_windows_affected_log": "/mnt/datasets/c3r-build/windows-vm-sol/evidence/patched-cpu-tests.log",
+  "native_windows_dx12_issue": "Under separate scratch diagnosis; no shader or renderer changes in this release."
+}

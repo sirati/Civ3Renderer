@@ -1,0 +1,18 @@
+{
+  "reviewed_utc": "2026-10-20T18:17:12.588694+00:00",
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "preparation_sha256": "64369487f5d763f359a546a31f035a0aa37932eb8a93440bf454abefe2e2dbef",
+  "runtime_and_geometry_hashes_verified": true,
+  "commands_reviewed": true,
+  "workload_current_load_verified": false,
+  "decision": "Authorize actual ordinary App launch, strong untimed preflight and then three60second timed repetitions only after VM no-device sequence has concluded, USB fixture restoration is verified, all CPU lanes released, and broker grants exclusive runtime/GPU timing lease. No Neo operations.",
+  "scope": "Root source/artifact binding and command review only. No runtime, motion, FPS or240 acceptance inferred.",
+  "conditions": [
+    "AMD RADV only; native3840x2160 internal and output, pixel_scale1 and reviewed geometry1919,360",
+    "Fresh screenshot/UI/native save summary and worker geometry before marking workload loaded; setup captures removed before timing",
+    "Strong actualApp bidirectional sustained movement with fixed B and inverse-label anchor",
+    "Zero replay/reused full submissions and no timing sample drops; retain each report window quantiles separately",
+    "Preserve host load/thermal/power telemetry, disclose unrelated work; do not terminate unrelated processes",
+    "Identity-owned cleanup after success or any failure, release lease; do not silently weaken failed oracle"
+  ]
+}

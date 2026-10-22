@@ -1,0 +1,80 @@
+{
+  "reviewed_utc": "2026-10-20T14:28:27.962497+00:00",
+  "scope": "Root independent readonlyPE callsite validation, not native runtime combat acceptance",
+  "source_sha256": "7f56508f8e4552a67dc09fcbc9b5c7771266e292cd5355ec31118b511406cedc",
+  "binaries": [
+    {
+      "binary": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Civ3Conquests-Unmodded.exe",
+      "sha256": "f5c72aa9460cfe2dcf0970108d4fb570b535e2861f4093713232b7122e7f8c0b",
+      "callsites": [
+        {
+          "site": "0x4a5a73",
+          "bytes": "e858a60400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a5b33",
+          "bytes": "e898a50400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a5c2a",
+          "bytes": "e8a1a40400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a677f",
+          "bytes": "e84c990400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a7244",
+          "bytes": "e8878e0400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a8398",
+          "bytes": "e8337d0400",
+          "target": "0x4f00d0"
+        }
+      ]
+    },
+    {
+      "binary": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Civ3Conquests.exe",
+      "sha256": "66d0ae91de6f4a2376e03aa74eb29a8256f02108ca3a4c024a4857337bc45ee6",
+      "callsites": [
+        {
+          "site": "0x4a5a73",
+          "bytes": "e858a60400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a5b33",
+          "bytes": "e898a50400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a5c2a",
+          "bytes": "e8a1a40400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a677f",
+          "bytes": "e84c990400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a7244",
+          "bytes": "e8878e0400",
+          "target": "0x4f00d0"
+        },
+        {
+          "site": "0x4a8398",
+          "bytes": "e8337d0400",
+          "target": "0x4f00d0"
+        }
+      ]
+    }
+  ],
+  "result": "all12 callsites exact, all target0x4F00D0"
+}

@@ -1,0 +1,37 @@
+Independent read-only comparator review, 2026-10-20
+
+Verdict: the finite outcome oracle and corrected flush/provenance wording are useful, but the configuration equality gate has a concrete acceptance gap. Do not describe this exact revision as enforcing every configuration difference outside combat_speed. No native capture or runtime acceptance was established by this review.
+
+Exact identities independently recomputed
+proof.json 98a6f8aeb2fe23d15ab239928a78b8cd3879bb98d1e87c498dc2680805430cfe
+compare.py 3b6de756983840826bf7c0ba9cdfe2c5f1007928a24496a901ec48e5c82364d7
+test_compare.py ce2dd8f94e31518842d5085cc7762b5efdb38af79096698a46e29dce78438aa4
+README.txt 2a8aa892ee37a32d2f10d6973beb74373be9dc097bdf89bc161c91c6352326c2
+f510 observer combat_diagnostics.rs dc5f09341215d9646a47c48fe02f8604426c544e17a9299fd4384cad0560ae58
+f510 observer combat_diagnostic_outcomes.rs a537602b3a29ccd9de672262616c3f79dbd226f23f171173e3ac8df3206826c6
+verification-manifest.json 8a5c11b7acf3a757fc3c146bab333c81c71e844f25fc4f227ba3f3e0f4163a35
+f510-combat-diagnostics.patch 1e70444bb10e6da761899987710d39a17276dbc7a1586dd7d1560a83c4b4de4c
+
+Sources reviewed
+/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator-successor/{compare.py,test_compare.py,README.txt,proof.json}
+/mnt/datasets/c3r-build/combat-diagnostics-army/f510-outcomes-rebind/overlay/crates/civ3-sys/src/{combat_diagnostics.rs,combat_diagnostic_outcomes.rs,combat_speed.rs}
+
+Finding 1, medium: compare.py:480 uses Python's ordinary dictionary equality for remaining TOML settings. Boolean true equals integer 1, false equals 0, and integer and float values can also compare equal. Thus a settings difference outside combat_speed can pass. Reproduction ran the existing complete Bindings.test_artifact_bytes_and_config_only_speed_difference with a temporary Path.write_text wrapper changing only config4.toml's foo=true to foo=1. The entire binding test still passed, including its initial compare_arms acceptance. This used temporary files and the test's existing synthetic identity-pin substitutions, with no source edits. Fix by recursively requiring equal types and values for remaining configuration leaves, or an explicitly reviewed settings equivalence policy. Add bool/int and int/float mismatch cases. This finding does not demonstrate acceptance of a specific real game's invalid configuration; it demonstrates the claimed comparator constraint is weaker than documented.
+
+Finding 2, low: semantic validation applies only to the selected capture. parse_log validates framing and typed payloads for all blocks, but bind_arm:470-471 calls qualify only for the selected block. A second unselected synthetic capture whose FightReturn has the wrong scope survives parse_log and the selected block still yields observed_native_outcome_and_rng_match. Explicitly qualifying that second block rejects 'unmatched native return'. README's broad assertion that boundary stacks and malformed blocks are validated across the whole file needs narrowing or a separate structural validation pass for all blocks. Selected failure-header checks may remain selected-only as documented. This gap does not bypass selected-scope qualification.
+
+Finding 3, low robustness: JSON has a byte bound but no explicit nesting bound. load_json_text accepts very deeply nested arrays until Python raises RecursionError, which main:495 does not catch. A 200001-byte JSON value containing 100000 nested arrays reproduced RecursionError under nixpkgs Python, below the 2MiB limit. Also load_json performs stat then unbounded read_text, unlike bound_bytes; concurrent growth of the arm specification can exceed the stated read bound. These fail/crash rather than establish a false match. Bound the arm snapshot read, constrain JSON nesting or convert recursion failures into a controlled rejection, and test them. Artifacts are streamed and can be arbitrarily large by design; their authenticity remains external.
+
+Reviewed properties that hold within the stated finite oracle
+- Numeric Rust Debug parser does not eval. Tokens, line length, sequence length and nesting are bounded; duplicates, unknown schemas, wrong integer widths and unsupported invalid native outcome variants reject. Logs have a 128MiB bound, blocks 8192 records, validated identities eight participants.
+- Selected boundary stack and sequential scope identifiers, immediate attacker/defender endpoint rows, pre/post seed and full rules DWORD, stable IDs and all ten copied fields are retained and compared. Preserve bit is required and the entire rule word is constant across the selected operation.
+- Pointer/ID association is checked in each arm. Only native participant pointers are substituted with validated stable IDs in outcome equality. Nonpointer command/fight arguments and absence reason/LastIndex remain compared. Timings, camera serials and pose observations are reported separately and do not imply a speed/idle/scanout verdict.
+- Each direct FightEnter defender must be Present and distinct from its attacker, with return identity retained. Same-scope ParticipantsReady identities must equal the direct fight identities. Both arms sharing a different C3X selected defender still reject. Visibility-only defender endpoints are conservatively insufficient. Exact simultaneous ID/address reuse remains an observer limitation.
+- Every observed participant must have one final snapshot. This is finite boundary/outcome equality, not whole-world equivalence or RNG call-count proof. Unit_move versus Unit_bombard remains dependent on trustworthy external command evidence because matching argument arrays do not distinguish them in this source format.
+- Capture, settings, gate and bridge logs are parsed/scanned from the same bounded bytes whose hash was checked. Stable artifact bytes are independently hash-checked; this is artifact identity, not evidence that a live process loaded them.
+- Native flush writes header before performing the current flush. previous_flush_failed is previous-state only. The successor correctly rejects the manual capture_flush_success field and any bound bridge flush-error text, and always labels current flush return, normal exit and persistence unobserved. Complete footer/count and hashes establish available data completeness only.
+- External true booleans, nonempty process_identity and hashed evidence files do not authenticate a runtime or fixture. README and report explicitly retain that trust boundary. This review does not promote those fields into authenticated native evidence.
+
+Validation
+nix shell nixpkgs#python3 -c env PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s /mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator-successor -v
+Result: 17 passed, 0 failed, 0.134 seconds. Existing tests cover both new reselection cases and bridge flush-error/manual success-field rejection. Extra pure probes reproduced the three findings above. No build, GPU, VM, native runtime, shared source mutation, or acceptance inference occurred.

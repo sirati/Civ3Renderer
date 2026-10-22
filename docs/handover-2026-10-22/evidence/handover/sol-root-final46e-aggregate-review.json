@@ -1,0 +1,38 @@
+{
+  "reviewed_at_utc": "2026-10-20T08:55:16.009149+00:00",
+  "source_archive_sha256": "46eec60b0f736fd994ac95f63cc82b50e8ee3bc0ed95451ce89b64fd9886f89b",
+  "all_bound_logs_and_artifacts_verified": true,
+  "test_summaries": {
+    "host.log": {
+      "passed": 1303,
+      "failed": 0,
+      "ignored": 11,
+      "suites": 78
+    },
+    "viewer-gpu-ignored.log": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 1
+    },
+    "wine-bridge-sys.log": {
+      "passed": 522,
+      "failed": 0,
+      "ignored": 1,
+      "suites": 2
+    },
+    "wine-inproc.log": {
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "suites": 2
+    },
+    "wine-camera.log": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 1
+    }
+  },
+  "scope": "Completed frozen46e only. New UI/frame/cursor worker source is a separate unfinished successor."
+}

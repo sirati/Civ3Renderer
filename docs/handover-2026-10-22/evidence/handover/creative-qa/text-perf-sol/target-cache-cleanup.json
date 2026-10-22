@@ -1,0 +1,50 @@
+{
+  "created_utc": "2026-10-20T19:11:00.693865+00:00",
+  "deletion_started_utc": "2026-10-20T19:10:59.585182+00:00",
+  "owner": "/root/text_perf_sol",
+  "authorization": "Root explicitly authorized deletion of only these two confirmed inactive private Cargo target caches.",
+  "deleted": {
+    "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/target": 3389648896,
+    "/mnt/datasets/c3r-build/world-tables-b41-sol/target": 3390521344
+  },
+  "reported_allocated_bytes_sum": 6780170240,
+  "prechecks": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/target-cache-cleanup-prechecks.json",
+    "sha256": "10157a06dd7bc5081de0340cbee673583a57cca10082fd43a74a9d0fa26282fc",
+    "checks": {
+      "world_candidate_and_all30_test_logs_and_retained_binaries_verified": true,
+      "geometry_source_and_retained_actual_oracle_binary_and_logs_verified": true,
+      "fixture_v3_all32_tested_source_and_log_hashes_unchanged": true,
+      "prepared_f510_baseline_and_helper_artifacts_independent_and_unchanged": true,
+      "no_accessible_active_process_reference_to_cache_paths": true
+    },
+    "no_accessible_active_references": true,
+    "reference_search": "rg of handover and top-level/one-level build scripts found only the historical completed world-table CPU lease target entry; private run-cpu.sh files name these as rebuild outputs, not pinned upcoming compiler inputs. No new compiler grant is active during disk freeze.",
+    "process_scan_limit": "Permission-denied foreign process fields were not inspected; all accessible process paths/environment/maps/fds were checked."
+  },
+  "fs_immediately_before": {
+    "available_bytes": 873819381760,
+    "free_bytes": 942133125120,
+    "total_bytes": 4000785104896
+  },
+  "fs_immediately_after": {
+    "available_bytes": 873819381760,
+    "free_bytes": 942133125120,
+    "total_bytes": 4000785104896
+  },
+  "observed_available_bytes_delta": 0,
+  "observed_free_bytes_delta": 0,
+  "reclaim_attribution_limit": "du counts allocated file blocks, including reflink-shared extents. Filesystem deltas are concurrent observations; shared blocks and other activity prevent treating the sum as uniquely reclaimed physical bytes.",
+  "preservation": {
+    "files_rehashed_unchanged": 1401,
+    "symlinks_unchanged": 2,
+    "retained_test_executables_unchanged": true,
+    "all_sources_logs_patches_and_proofs_unchanged": true,
+    "fixture_v3_32_tested_source_unchanged": true,
+    "prepared_f510_all_evidence_bindings_rehashed_unchanged": true,
+    "prepared_f510_proof_sha256": "64369487f5d763f359a546a31f035a0aa37932eb8a93440bf454abefe2e2dbef"
+  },
+  "runtime_build_or_neo_operations": false,
+  "upcoming_compiler_input": "No pinned upcoming compiler input found. Preserved private run-cpu.sh scripts use these paths only as rebuild outputs; a future gated rebuild would recreate its target.",
+  "status": "Only the two exact authorized cache directories removed; preserved evidence and prepared shipping baseline verified."
+}

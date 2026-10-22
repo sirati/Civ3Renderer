@@ -1,0 +1,24 @@
+{
+  "reviewed_utc": "2026-10-20T15:40:24.666978+00:00",
+  "execution": {
+    "started_at_utc": "2026-10-20T15:37:47.325634+00:00",
+    "elapsed_seconds": 2.476839875,
+    "executable": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/metal-probe-8b08b0bb/c3r-metal-offscreen-probe",
+    "executed_sha256": "bf7f77b520e3b9c0fe7b1ea13d0d4bb56f4cc76c6282c9f50cf349dea6881b56",
+    "external_deadline_seconds": 10,
+    "timed_out": false,
+    "exit_code": 0,
+    "stdout": "{\"status\":\"passed\",\"backend\":\"Metal\",\"arch\":\"aarch64\",\"targets\":4,\"largest_target\":[96,64],\"clip_pixels\":108,\"sampling_pixels\":256,\"elapsed_ms\":1478,\"shader_sha256\":\"43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4\",\"fallback_sha256\":\"bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281\"}\n",
+    "stderr": "C3R_METAL_PROBE_ADAPTER AdapterInfo { name: \"Apple A18 Pro\", vendor: 0, device: 0, device_type: IntegratedGpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: Metal, subgroup_min_size: 4, subgroup_max_size: 64, transient_saves_memory: Some(true), limit_bucket: None } features=Features { features_wgpu: FeaturesWGPU(0x0), features_webgpu: FeaturesWebGPU(TIMESTAMP_QUERY | DUAL_SOURCE_BLENDING) }\n",
+    "scope": "Four tiny native Metal offscreen assertions; no game/Wine/window or general runtime acceptance"
+  },
+  "evidence_sha256": {
+    "metal-8b-refined-preflight.json": "eb67b21228f924cf370824683ad20c6fb77b54f0f849a161837c33e8d90abb7c",
+    "metal-8b-execution.json": "425218301a611cccbc6fbe7f9e16933c3c27b43196946d6658a3de5493dfef76",
+    "metal-8b-cleanup.json": "b4d25f0e8669367828072414f69e2acb8209f455a37a89f1acd68a79550e7545"
+  },
+  "root_source_review": "sol-root-metal-probe-review.json",
+  "root_source_carry_to8b": "sol-root-8b-freeze-review.json",
+  "scope": "Native ARM64 Metal offscreen tinyclip/sampling correctness only. Not a game launch, launcher surface/lifecycle check, performance test or full native App acceptance.",
+  "disposition": "PASS scoped Metal assertions, services left untouched; game remains stopped."
+}

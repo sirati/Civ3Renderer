@@ -1,0 +1,155 @@
+{
+  "created_utc": "2026-10-20T18:13:59.455430+00:00",
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "source_entries": 673,
+  "source_tree": "/mnt/datasets/c3r-build/release-1019/src-f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "source_archive_reverified": true,
+  "source_manifest_reverified_all_entries": true,
+  "scene_protocol": 50,
+  "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1",
+  "prepared_only": true,
+  "runtime_started": false,
+  "compilation_started": false,
+  "gpu_or_vm_started": false,
+  "neo_operations": false,
+  "fixture": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/fixture-v3",
+  "fixture_cpu_proof": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-policy-proof.json",
+    "sha256": "aae9deb137ed13392aaf565a577d025768b1ba9d57b08fde1dbfb00317ce5a45",
+    "tests": 32,
+    "all_tested_source_bytes_unchanged": true
+  },
+  "geometry_source_hashes_match_reviewed_oracle": {
+    "crates/tile-viewer/src/layout.rs": "23b6931628cba1070d9f24129a5a281f0d09c320b52945198a1c3eeeee0f831a",
+    "crates/tile-viewer/src/pan.rs": "b35f2fc5d75f030060edb185102ff16f795c64cb0d3280b22f4980a7f7dd4732"
+  },
+  "points": {
+    "left": [
+      2,
+      800
+    ],
+    "right": [
+      1919,
+      360
+    ],
+    "center": [
+      960,
+      800
+    ]
+  },
+  "mode": {
+    "pixel_scale": 1,
+    "canvas": [
+      3840,
+      2160
+    ],
+    "surface": [
+      3840,
+      2160
+    ],
+    "subpixel_dual": 0,
+    "tiles555": 1,
+    "glyph_cache": 1
+  },
+  "runtime_artifact_hashes": {
+    "launcher": "080e66897a9c18c703f02a95be13a462395927ac04d466e71f8484178c9dcb6d",
+    "viewer": "e69b29ec06a41c5945095468f29c4a70739618cbcf6b0a2d208a2c49aad85cd3",
+    "unixlib": "694c667412df04eee9fd6d649e77c7f1ff1c8bc211af3cadbdb294de92f4779e",
+    "bridge": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
+    "shim": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935",
+    "shader": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+    "shader_fallback": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
+    "source_manifest": "1dc82c3ed34006053257338612496e73dbb13275e80c06e68b5b664b08b6ca9a"
+  },
+  "artifact_origins": {
+    "launcher": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+    "viewer": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "unixlib": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "bridge": "f7b0758996b7383537381cf71b5e58669014514ae06719eb222cddadbd1d802a",
+    "shim": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205"
+  },
+  "fresh_linux_launcher_matches_canonical_runtime": true,
+  "gpu_timing_ring": 32,
+  "game_assets_copied": false,
+  "workload": {
+    "path": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Saves/WW2.SAV",
+    "bytes": 684111,
+    "sha256": "6c1405206c2ece1c03d7b58bcc8ccfe586eb485d451168f562cddd11a0134632",
+    "copied": false,
+    "current_load_verified": false,
+    "expected_summary": {
+      "difficulty": "Monarch",
+      "nation": "Germans",
+      "date": "Week24,1941AD"
+    },
+    "historical_same_save_native_dimensions": [
+      256,
+      256
+    ],
+    "historical_same_save_wrap": [
+      false,
+      false
+    ],
+    "verification_required": "Fresh actual f510 main menu, saved-game summary and full world/interface screenshots plus worker geometry. Do not turn current_load_verified true from historical evidence."
+  },
+  "timing_plan": {
+    "repetitions": 3,
+    "seconds_each": 60,
+    "period_seconds": 5,
+    "requires_fresh_ordinary_preflight": true,
+    "requires_no_protocol_debug": true,
+    "requires_capture_processes_absent": true,
+    "full_ui_required": true,
+    "replay_or_reused_frames_allowed": 0,
+    "strong_motion_required": "Same primary world camera must move in every complete observed report interval, with at least 2 positive and 2 negative legs, 3 direction reversals and a fixed inverse-label anchor. View B must stay fixed. First/last partial intervals remain unobserved.",
+    "host_load": "Preserve before/after CPU/memory/IO pressure/load and AMD clocks/power/temperature. Unrelated tasks remain untouched; disclose contention and do not infer a quiet-host hardware limit.",
+    "timing_accounting_limit": "GPU timestamp drop counters must stay zero and endpoint accounting must fit immutable ring32. This is endpoint/in-flight accounting, not a per-frame matched submitted cohort. Per-report quantiles are retained without averaging them into a global quantile.",
+    "gpu_waiting_for_cpu": "Not inferred from GPU gap, presentation interval or worker draw wall time."
+  },
+  "runtime_gates": [
+    "VM causal audio gates finish",
+    "USB restoration finishes",
+    "CPU lanes released",
+    "broker runtime grant",
+    "root actual launch authorization"
+  ],
+  "performance_or_release_accepted": false,
+  "evidence": {
+    "runtime-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/runtime-binding.json",
+      "sha256": "c82afbeb04c582edfaa9d893b4c40d4b761064bdd1f9130090486911b41dea10"
+    },
+    "state.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/state.json",
+      "sha256": "d85f5b4f82911f208ae5dc7908143ed3544be6a42ac89c61f301409e1b6a4d07"
+    },
+    "home/settings.toml": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/home/settings.toml",
+      "sha256": "2238a694cdd867e82d492186c6bdf4da1a7a38b3d498cd1363cee696527954dc"
+    },
+    "workload.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/workload.json",
+      "sha256": "9e5cf937f7ada7b09fae3c8cb71adf84bacb0fab5a91dc5ae7468caee0ba37de"
+    },
+    "release-status.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/release-status.json",
+      "sha256": "eb6d5beafb361b3e4bc3d41bd222ee1fdf67ec552f31eae8178d162db4de17e8"
+    },
+    "benchmark-commands.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/benchmark-commands.json",
+      "sha256": "3c8d087e73ba44a5dcefb10be6d923c407e57ec887f3750fc3f81688f82c3f9b"
+    },
+    "load-menu-actions.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/load-menu-actions.json",
+      "sha256": "1b8334c4b1f14b4be98eaccc75a89fef74b97d734cb5321db40566d4a5b049e0"
+    },
+    "summary-enter-actions.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/summary-enter-actions.json",
+      "sha256": "2cddb8fddb2187a48cb71080da15320a2a59c32fc66ac0629981436205a6a114"
+    },
+    "COMMANDS.md": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/COMMANDS.md",
+      "sha256": "77c958134f1c820bae25e1e66adcfa1b3ad3f120518a43b5a4063bef0d1563a7"
+    }
+  }
+}

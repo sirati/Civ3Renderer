@@ -1,0 +1,19 @@
+{
+  "reviewed_utc": "2026-10-20T18:13:32.413429+00:00",
+  "scope": "Root independent source review of binary-alpha cell pipeline candidate and hash-bound tests. No new execution, measured benefit or adoption.",
+  "source_manifest_sha256": "8a1756abff7a30de323675e53d0b160fd1e6fd733379a2e4196077c949b7cc2b",
+  "source_files_verified": 53,
+  "external_files_verified": 6,
+  "findings": [
+    "Eligibility certifies all LUT values, all animation frames and downscaled twins against current descriptor alpha metadata. Unknown/truncated records, overflowed ranges and non-Alpha blend modes decline.",
+    "Guard selects only native zoom1/downscale1/art0/unstacked/unscaled direct4/5 and non-float quantized paths. Internal source and wider modes retain existing pipelines.",
+    "Draw geometry, pass order and zero-alpha shader discard remain unchanged. Disabling destination blending for certified opaque-or-discard fragments is consistent with exact output requirements. No CPU pixel rendering, new shader, lock, pass or readback.",
+    "Atlas/palette/RGBA descriptor changes refresh the proof. Whole world/LUT/set changes reconstruct it. Existing source runs remain for reversibility.",
+    "Tests include independent integer expected pixels with transparent holes and following fog; mutable alpha, future animation/twin, queued control and feature-free cases. Recorded4K fixture adds actual cell layers/art but reconstructed viewport/geometry and omits UI/text/units."
+  ],
+  "decision": "No source blocker found in reviewed candidate. Keep isolated. Prebuilt 4K GPU parity, actualApp equivalence and measured end-to-end benefit remain required before promotion.",
+  "limitations": [
+    "Source review does not establish speedup. Historical unqualified 866 workload cannot supply actualApp acceptance.",
+    "Only certified native1x paths benefit; no generalized shader/Metal/performance claim."
+  ]
+}

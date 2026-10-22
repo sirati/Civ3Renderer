@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "generated_utc": "2026-10-20T13:12:59.542378+00:00",
+  "baseline_source": "31b5951a200234422c73a7c8c8f8b97bea77424fc8c9a86d2580003553c3ef58",
+  "source_delta_warning": "/mnt/datasets/c3r-build/handover/creative-qa/current-versus-frozen31b.json",
+  "execution_policy": "This artifact reconciles prior cases against separate owners execution. Results are scoped per case; partial and blocked remain open. Root coordinates owned resources; no new host changes,game-asset copies,Nexus changes or Mac builds.",
+  "cases": [
+    {
+      "id": "QA001-gameplay-soak",
+      "priority_rank": 1,
+      "acceptance_families": [
+        "save-load-input",
+        "platform-linux-dualstack",
+        "city-state-sync",
+        "regression-start-exit",
+        "scenario-generation"
+      ],
+      "venue": "Papa Wine actual existing installation",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Launch current successor through native dual-stack",
+        "Start/load existing game, move unit, end turn, open city and cycle100cities",
+        "Retire to title/newworld then quit; repeat10 cycles"
+      ],
+      "assertions": [
+        "Reach actual map and state transitions, beyond the title screen.",
+        "Same-process PE/native mappings verified",
+        "No stuck game despite local hover response",
+        "Bounded memory and all owned processes exit"
+      ],
+      "required_evidence": [
+        "Source, SPV and adapter identity",
+        "Scene/city/input timeline",
+        "Watchdog and process samples on stall",
+        "Before/after memory/process inventory",
+        "Owned screenshots at key states"
+      ],
+      "result": "partial_frozen31b_linux_map_pass_no_move_endturn_save_reload_soak",
+      "evidence": "/mnt/datasets/c3r-build/input-runtime31b-sol/results.md"
+    },
+    {
+      "id": "QA002-scenario-churn",
+      "priority_rank": 2,
+      "acceptance_families": [
+        "scenario-generation",
+        "preview-progressive",
+        "preview-human-visibility",
+        "preview-smear",
+        "scenario-memory"
+      ],
+      "venue": "Papa Wine actual existing scenarios",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Alternate scenarios with distinct art100 times including WW2Pacific",
+        "Use keys/mouse and cancel during delayed preview/whole/growth",
+        "Return title, selectnation and startmap"
+      ],
+      "assertions": [
+        "Selected row/menu responds immediately",
+        "No whole-screen MissingArt, stale map/country reveal, smeared columns or garbled text",
+        "Canceled generation never adopted; uploaded status eventually follows sentgeneration",
+        "Memory returns bounded plateau"
+      ],
+      "required_evidence": [
+        "Timestamped selection/epoch/upload log",
+        "Cursor/preview video or sequential screenshots",
+        "Watchdog allocator/publisher progress",
+        "Maximum resident bytes and stale-result counters"
+      ],
+      "result": "not_run_by_this_read_only_audit"
+    },
+    {
+      "id": "QA003-4k-perf-full",
+      "priority_rank": 3,
+      "acceptance_families": [
+        "performance-4k-dynamic",
+        "performance-delays",
+        "fps-counter-details",
+        "gpu-three-buffers"
+      ],
+      "venue": "Papa AMD RADV isolated performance interval",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Verify 3840 x 2160 actual target, adapter vendor, viewscales and sharptext setting",
+        "Warm 300 frames, then30-second forced full redraw pan/animation with world and labels; repeats3times",
+        "Repeat split/magnifier/UIlist/tooltip workloads with unchanged quality",
+        "Record cached flag and GPU completion timestamps for everyframe"
+      ],
+      "assertions": [
+        "Target sustained actual presentation>= 240 FPS where supported, report workload-specific failures",
+        "Report p50/p95/p99 CPU preparation/GPU execution/frame time and4.167 ms budget",
+        "Dynamic full redraw count equals expected redraw count; no cached/empty-frame substitution",
+        "No competing benchmark or NVIDIA adapter"
+      ],
+      "required_evidence": [
+        "Machine-readable per-frame IDs/timestamps/workload geometry",
+        "Cached and full-redraw counters",
+        "Exact adapter, driver, present mode, cap, output size and internal resolution",
+        "CPU profiling hotspots and wake-cause trace",
+        "Reference snapshots verifying nonblank and correct output"
+      ],
+      "result": "dynamic240_goal_failed_cached_control_not_goal",
+      "evidence": "/mnt/datasets/c3r-build/handover/sol-orchestrator-current.json"
+    },
+    {
+      "id": "QA004-4k-perf-static",
+      "priority_rank": 4,
+      "acceptance_families": [
+        "performance-4k-static",
+        "fps-counter-details"
+      ],
+      "venue": "Papa AMD RADV same isolated session",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Same 4K geometry and quality asQA003",
+        "Measure static menu and static map cached-output paths30 seconds",
+        "Explicit uncapped or Immediate presentation, or supported Mailbox; separately document vsync pacing"
+      ],
+      "assertions": [
+        "Report actual present count not draw attempts",
+        "Keep static results separately labelled from forced redraw",
+        "Do not call native monitor 60 Hz cap a renderer 240 FPS failure without offscreen or Immediate result"
+      ],
+      "required_evidence": [
+        "Per-frame times/cached status",
+        "Surfaceacquire/main CPU/GPU span",
+        "Raw timings and workload labels"
+      ],
+      "result": "dynamic240_goal_failed_cached_control_not_goal",
+      "evidence": "/mnt/datasets/c3r-build/handover/sol-orchestrator-current.json"
+    },
+    {
+      "id": "QA005-input-modal",
+      "priority_rank": 5,
+      "acceptance_families": [
+        "popup-freeze-dismiss",
+        "popup-tile-identity",
+        "slider-edit",
+        "alt-navigation",
+        "alt-f1-city",
+        "cursor-target-modes"
+      ],
+      "venue": "Papa Wine actual map/menu/control interaction",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Open tile popup far from the native camera",
+        "Try keyboard/drag/edge/Ctrlwheel/HUD/outsidepress; dismiss twice",
+        "Terrain Details after30 seconds; Alt navigate F1/city/slider",
+        "Try actual rebase/airlift validinvalid targets and stackhotkeys"
+      ],
+      "assertions": [
+        "No map scroll through the popup or queued extra Escape",
+        "Correct clicked tile and slider exact Cancel",
+        "Alt targets all requested UI classes",
+        "Actual native legality agrees with icon; only movement snaps"
+      ],
+      "required_evidence": [
+        "Input event timeline and actual tile and selection IDs",
+        "Mapped hit rectangle dump with screenshots",
+        "Native slider state before and after Cancel",
+        "Target mode and legality log"
+      ],
+      "result": "partial_actual31b_AltEsc_discard_1xaxes_66passed_cityCPUfixpassed_tab_predictionfix_pending",
+      "evidence": "/mnt/datasets/c3r-build/handover/tile-popup-menus.sol.md"
+    },
+    {
+      "id": "QA006-ui-first-frame",
+      "priority_rank": 6,
+      "acceptance_families": [
+        "ui-command-atomic",
+        "ui-settings-transactions",
+        "ui-c3x-modal",
+        "text-tooltip-fit",
+        "ui-menu-scale"
+      ],
+      "venue": "Papa Wine actual game and synthetic GPU fault harness",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Open cold tooltip and long text without optional image or font art ready",
+        "Change native controls before next Present and request WANT_VIEW",
+        "Delay the worker, resize, change settings and pointer, receive an old reply",
+        "Accept and Cancel Preferences and C3X modal from in-game and title"
+      ],
+      "assertions": [
+        "Background/finaltextpens/controltargets the same Present",
+        "No CPU pixel synthesis, art wait, or 150 ms incomplete release",
+        "Only matching ID and configuration activates image+mapping",
+        "Latest pointer and settings preserved and cancel exact"
+      ],
+      "required_evidence": [
+        "FrameID/Present, native geometry and source mapping trace",
+        "Synthetic delayed-reply regression output",
+        "First-frame screenshots at each transition",
+        "Settings and native audio before and after"
+      ],
+      "result": "not_run_by_this_read_only_audit"
+    },
+    {
+      "id": "QA007-cursor-gpu-delay",
+      "priority_rank": 7,
+      "acceptance_families": [
+        "cursor-os",
+        "cursor-captured",
+        "cursor-scale",
+        "gpu-worker-isolation",
+        "gpu-transactions"
+      ],
+      "venue": "Owned local viewer window with controllable synthetic worker delay",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Pause GPU acquisition, upload and completion while OS input continues",
+        "Change arrow/wait and invalid icons; complete cursor preparation",
+        "Exercise free, captured, Alt, edge and focus-loss modes then resize"
+      ],
+      "assertions": [
+        "Uncaptured pointer follows OS independent of the GPU",
+        "Icon source completion directly wakes main",
+        "No stale sprite IDs/extra physical cursor; exactly one pending frame",
+        "Resize rejects stale bitmap before any OS mutation"
+      ],
+      "required_evidence": [
+        "OS event, icon and main-thread timestamp trace",
+        "Worker block markers/Frame IDs",
+        "Screen recording or discretecaptures",
+        "Post-close process/resource inventory"
+      ],
+      "result": "not_run_by_this_read_only_audit"
+    },
+    {
+      "id": "QA008-mac-map",
+      "priority_rank": 8,
+      "acceptance_families": [
+        "platform-mac-dualstack",
+        "startup-window",
+        "save-load-input",
+        "city-state-sync"
+      ],
+      "venue": "Owned Intel macOS work VM with existing read-only assets",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Start exact successor through attached Wine AppKit",
+        "Move beyond the title to existing map, scenario, city, preferences andquit",
+        "Use only existing read-only game assets"
+      ],
+      "assertions": [
+        "SinglePID and native GPU worker preserved through gameplay",
+        "AppKit main-thread cursor responsive",
+        "No native signal-handler crash or TEB misuse",
+        "Bounded clean stop"
+      ],
+      "required_evidence": [
+        "vmmap/lsof/thread sample",
+        "Gameplay status/screenshots",
+        "Logs including initializer identity",
+        "Stop timing and signal-mask test results"
+      ],
+      "result": "unpatchedvendorfails_SSdiagnosticvendor_map_city_F1_passes_nativeproduction_runtime_pending",
+      "evidence": "/mnt/datasets/c3r-build/handover/mac-audio.sol.md"
+    },
+    {
+      "id": "QA009-smoke-gap",
+      "priority_rank": 9,
+      "acceptance_families": [
+        "smoke-resized-indexed",
+        "popup-resource-shadows",
+        "unit-animation"
+      ],
+      "venue": "Papa AMD RADV existing/synthetic indexed fixtures",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Before the fix isolate indices224..239/240..254",
+        "Compare originalnative colour table operation to renderer at 1x and resized fractions",
+        "Include shadow and cattle and explosion cases"
+      ],
+      "assertions": [
+        "Expected failure is documented before the fix",
+        "Correct smoke blend semantics instead oftransparent omission",
+        "Unscaled, resized and override-palette outputs agree with independent expected table"
+      ],
+      "required_evidence": [
+        "Actual source-index goldens",
+        "Numeric pixel differences",
+        "Operation metadata trace",
+        "Source/shader identity and before and after results"
+      ],
+      "result": "successor_source_fixed_native_table_and_RADV_numeric_passed_pending_finalfreeze"
+    },
+    {
+      "id": "QA010-movement-gap",
+      "priority_rank": 10,
+      "acceptance_families": [
+        "unit-movement-bonuses",
+        "unit-army"
+      ],
+      "venue": "Papa native-state fixtures and actual existing modgame",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Use road movement rate other than 3 plus civilization movement bonus",
+        "Compare mixed army vs ordinary units before and after movement"
+      ],
+      "assertions": [
+        "Native movement left and maximum moves together correct",
+        "No fixed-3 assumption for configurable rules"
+      ],
+      "required_evidence": [
+        "Native unit, member and rule records",
+        "Expected versus actual HUD state table",
+        "Focused tests plus actual screen"
+      ],
+      "result": "successor_source_fixed_targeted_tested_pending_new_spv_and_actual_runtime",
+      "evidence": "/mnt/datasets/c3r-build/army-acceptance-sol-evidence/"
+    },
+    {
+      "id": "QA011-views-and-magnifier",
+      "priority_rank": 11,
+      "acceptance_families": [
+        "split-independent",
+        "split-fog",
+        "magnifier-layout",
+        "magnifier-hit",
+        "city-labels-all",
+        "unit-visibility",
+        "window-hidpi"
+      ],
+      "venue": "Papa Wine existing map and owned nested compositor only",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Disjoint A and B cities/units; per-view hidden layers/fog",
+        "Cycle strip/floating/mouse magnifier ratios and heights",
+        "Capture, Ctrl release and recapture at map edge; task-switch outside the owned window"
+      ],
+      "assertions": [
+        "Every view independently correct",
+        "All city labels present; no A clipping B",
+        "No pointer warp outside the owned window; native-pixel DPI correct"
+      ],
+      "required_evidence": [
+        "Per-view camera, content and category inventory",
+        "Screenshots/synthetic bounds",
+        "Pointer-constraint callback trace",
+        "State before and after settings Cancel"
+      ],
+      "result": "not_run_by_this_read_only_audit"
+    },
+    {
+      "id": "QA012-platform-fidelity",
+      "priority_rank": 12,
+      "acceptance_families": [
+        "platform-windows",
+        "world-pixel-fidelity",
+        "preview-smear",
+        "text-native",
+        "gpu-no-cpu-render"
+      ],
+      "venue": "Existing Windows Vulkan+minimum WARP numericfixtures and Papa RADV",
+      "runnable_while_TSNeo_offline": true,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Rerun exact successor changed components only; carry unchanged evidence only with source and SPV proof",
+        "Independent signed-ceil, alpha, outline, indexed and solid manual goldens"
+      ],
+      "assertions": [
+        "Backend and adapter are explicit",
+        "No shared CPU-reference false positive",
+        "No all-zero/emptysprite accidentalpass",
+        "No runtimegameplay claim without actual gameplay"
+      ],
+      "required_evidence": [
+        "Component hash manifests",
+        "Independent golden output and GPU counts",
+        "Actual backend identity",
+        "Explicit fixture skip list"
+      ],
+      "result": "not_run_by_this_read_only_audit"
+    },
+    {
+      "id": "QA013-physical-acceptance",
+      "priority_rank": 13,
+      "acceptance_families": [
+        "platform-metal",
+        "audio-music",
+        "leader-blink",
+        "release-pairing",
+        "resolution-native"
+      ],
+      "venue": "PhysicalTS Neo afterreconnect",
+      "runnable_while_TSNeo_offline": false,
+      "preconditions": [
+        "Bind the exact frozen source and canonical shader to the logs.",
+        "Use only existing local or read-only game assets.",
+        "Use owned test state and settings; restore settings and stop owned processes.",
+        "Sol UI and screenshot inspection is authorized by the later user message."
+      ],
+      "steps": [
+        "Atomic paired deployment before tests, no Mac build",
+        "Actual Metal and FEX full game flow and long music track",
+        "Measure productionFPS/framepasscosts and first/warmstartup"
+      ],
+      "assertions": [
+        "A18 Metal identity not Intel SwiftShader",
+        "No music loops; timed leader frames have normal cadence",
+        "Correctall five binary source/protocol/shader; no unsupportedperformanceclaim"
+      ],
+      "required_evidence": [
+        "Installation backup and manifest",
+        "Actualprocess/thread/backendlog",
+        "Music CPU and audio timeline",
+        "Gameplay capture and shader frame times"
+      ],
+      "result": "not_run_by_this_read_only_audit"
+    }
+  ],
+  "scheduling": [
+    "RunQA001/002/005/006/011 on owned local Wine with existing assets; physical Mac being offline is not a blocker.",
+    "Coordinate exclusive AMD timing forQA003/004; never run GPU correctness suites concurrently with performance interval.",
+    "QA008 may reuse existing Intel work VM under shared 10 GB cap, with no new asset copies.",
+    "QA009/010 are confirmed source-gap discriminators, not only random fuzz.",
+    "QA013 is the sole physical-device-gated lane. Do not block every othercase on TS Neo."
+  ],
+  "final_freeze_remaining_cases": "/mnt/datasets/c3r-build/handover/creative-qa/final-freeze-cases.json",
+  "checkpoint866": "/mnt/datasets/c3r-build/handover/creative-qa/checkpoint866-reconciliation.json",
+  "historical_plan_scope": "Original13cases remain historical planning records. Current remaining executable acceptance is final-freeze-cases.json.",
+  "publication_candidate": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+  "actual_App866_dynamic_evidence": "/mnt/datasets/c3r-build/handover/creative-qa/actual-App866-dynamic-summary.json"
+}

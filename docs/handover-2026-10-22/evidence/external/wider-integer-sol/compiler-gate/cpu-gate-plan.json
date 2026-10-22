@@ -1,0 +1,13 @@
+{
+  "compiler": "jobs1; all outputs private; exact commands recorded",
+  "helper_tests": "source/crates/tile-render/build_dual_source.rs standalone Rust tests",
+  "host_ABI": "compile and run safe192-byte/host-clock/padding assertions against current freshly rebuilt shared rlib",
+  "renderer_CPU_prefix": "renderer::wider::",
+  "viewer_CPU_exact": [
+    "fps::tests::unavailable_gpu_packets_clear_stale_work_and_gaps_without_losing_cpu_samples",
+    "fps::tests::unavailable_transition_invalidates_the_cached_overlay_line_immediately",
+    "render_worker::profiling_tests::wider_worker_diagnostic_marks_gpu_work_and_gaps_unavailable",
+    "render_worker::profiling_tests::untimed_wider_interval_discards_old_samples_and_gap_anchor"
+  ],
+  "GPU_execution": false
+}

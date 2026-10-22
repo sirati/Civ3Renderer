@@ -1,0 +1,49 @@
+{
+  "reviewed_utc": "2026-10-20T15:45:26.633014+00:00",
+  "source": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "base": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "files": {
+    "civ3r-viewer": "9c7cd815c2243728be1484b6dd03ebe00b7b95b20b841e968a225cf4de9d5151",
+    "civ3-play-macos": "d7bef81932b76c6eb8432435f731b904d1566ec230a597ae402a663ca3c5979b",
+    "IFC23.dll": "0d6c1e6843d649f6e66e626f412c0fb8e57b389ddee77c82a15eef6777cdc739",
+    "civ3r_native.so": "3de5db8eb70f88c3c4da83ec004786cbde85404629fabbcf6ca2e83749875ab8",
+    "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935",
+    "civ3-app-macos": "1e406117521a885de1009d68c4ce03cbce39674939298457e7d5f38197e0d405",
+    "RUN.md": "208606a3b7652edb0b12ccc0cd32446002e9011379d2c3b3255dd156687a750c",
+    "icon.png": "bd0bc503c55ea68d53d471694a35cd1b129e75a31f8bf9704f19974ed5273afc"
+  },
+  "unchanged9b_artifacts": [
+    "IFC23.dll",
+    "civ3r_native.dll",
+    "civ3r_native.so",
+    "civ3r-viewer",
+    "icon.png"
+  ],
+  "headers": {
+    "civ3r-viewer": "ARM64 Mach-O",
+    "civ3-play-macos": "ARM64 Mach-O",
+    "civ3r_native.so": "ARM64 Mach-O",
+    "civ3-app-macos": "ARM64 Mach-O",
+    "IFC23.dll": "i686 PE",
+    "civ3r_native.dll": "i686 PE"
+  },
+  "shader_embed_counts": {
+    "IFC23.dll": {
+      "shader.spv": 1,
+      "shader-fallback.spv": 1
+    },
+    "civ3r_native.so": {
+      "shader.spv": 1,
+      "shader-fallback.spv": 1
+    },
+    "civ3r-viewer": {
+      "shader.spv": 1,
+      "shader-fallback.spv": 1
+    },
+    "civ3-play-macos": {
+      "shader.spv": 1,
+      "shader-fallback.spv": 1
+    }
+  },
+  "scope": "Independent raw artifact hashes, architecture and exact shader embeddings. Does not establish native launcher/runtime or performance acceptance."
+}

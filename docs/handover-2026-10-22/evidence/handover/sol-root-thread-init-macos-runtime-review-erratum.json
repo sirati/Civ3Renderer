@@ -1,0 +1,11 @@
+{
+  "recorded_utc": "2026-10-20T11:13:23.332933+00:00",
+  "supersedes_runtime_acceptance_only": "sol-root-thread-init-macos-runtime-review.json",
+  "preserved_results": "Historical75CPU tests, help probes, paired hashes and observed module/thread/shader integration remain valid.",
+  "correction": "Broader GUI found Program Error. All3 earlier startup logs contain stackoverflow. Historical empty remaining-owned-process list omitted3 orphanwinedbg descendants, subsequently verified and cleaned. This is failed actual gameplay acceptance.",
+  "vendor_control": "Original vendor game also faulted at about50seconds, without ourRust/native modules. Earlier118secondalive observation included pauseddebuggee and was not a healthcheck.32bitSP only364B belowStackBase, not actual1MiBstackexhaustion. Rootcause/fix pending.",
+  "evidence": [
+    "/mnt/datasets/c3r-build/vm-qa31b-sol/",
+    "/mnt/datasets/c3r-build/mac-audio-sol/"
+  ]
+}

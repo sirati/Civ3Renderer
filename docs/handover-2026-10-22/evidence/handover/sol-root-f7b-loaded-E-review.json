@@ -1,0 +1,28 @@
+{
+  "scope": "Healthy-audio loaded Mal3 lifecycle on Intel macOS VM, not failed-unwind or full gameplay acceptance",
+  "source": "f7b0758996b7383537381cf71b5e58669014514ae06719eb222cddadbd1d802a",
+  "production_pe_sha256": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
+  "save_sha256": "d6af1b185d858090c143f11fcc50f16a463b80c4d6dff4d288b5e81286e40216",
+  "native_summary": "Emperor Caesar of the Romans, 1050 BC",
+  "independently_inspected_image": "/mnt/datasets/c3r-build/vm-audio-production-sol/024-loaded-E-quit-dialog.png",
+  "image_finding": "Terrain, units, city art, HUD, minimap and native quit dialog are visible. Snapshot establishes loaded-map presence, not temporal/pixel invariance or broader input acceptance.",
+  "actual_exit_code_independently_read": 0,
+  "watchdog_independently_read": {
+    "seconds": 382.912837593,
+    "fatal_signature": null,
+    "external_atomic_TERM": false,
+    "cleanup": []
+  },
+  "complete_map_trace_independently_read": {
+    "installation": "Installed",
+    "initialized": 1,
+    "unwind_count": 0,
+    "first_midi_close_result": null,
+    "first_cleanup_result": null,
+    "module_and_midi_master_owners_live": true
+  },
+  "decision": "Healthy-audio loaded-game normal Quit passes. Failed-Wave unwind remains unexercised and unaccepted.",
+  "evidence": "/mnt/datasets/c3r-build/vm-audio-production-sol/loaded-E-verdict.json",
+  "remaining": "No-device causal qualification, final launcher cancellation runtime, idle Neo install and broader gameplay/performance gates",
+  "physical_Metal_or_240FPS_claim": false
+}

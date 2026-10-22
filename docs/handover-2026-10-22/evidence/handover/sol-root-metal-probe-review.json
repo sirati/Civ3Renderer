@@ -1,0 +1,22 @@
+{
+  "reviewed_utc": "2026-10-20T14:56:57.633161+00:00",
+  "exe_sha256": "bf7f77b520e3b9c0fe7b1ea13d0d4bb56f4cc76c6282c9f50cf349dea6881b56",
+  "source_sha256": "f0e8f61c9592f753517dd4d457f4be27184621f2a36267fff761cb5c3c4d07a2",
+  "exact_pair_embedded": {
+    "shader.spv": true,
+    "shader-fallback.spv": true
+  },
+  "source_review": [
+    "No unsafe code, game assets, Wine, window or subprocesses. GPU renderer generates4tinyoffscreenimages.",
+    "Hardware native AppleARM64 Metal assertions; shader clip boundary pixel40 versus41 and known bilinear samples are independent constants.",
+    "Host watchdog exits after9seconds; external execution must impose10seconds.",
+    "Synthetic atlas/font input construction is allowed diagnostic metadata, not CPU pixel rendering.",
+    "Probe links read-onlyb41renderer dependencies, whose rendering sources match9b; it does not accept9b application/CPU snapshot behavior."
+  ],
+  "execution_status": "not executed; no Neo connection",
+  "execution_preconditions": [
+    "reviewed priority successorVMresults",
+    "idle Neo installation and no automatic game launch",
+    "root explicit execution decision with external10second deadline"
+  ]
+}

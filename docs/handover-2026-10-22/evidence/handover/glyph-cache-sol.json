@@ -1,0 +1,128 @@
+{
+  "status": "implemented_numeric_and_dynamic_ab_verified_performance_goal_not_achieved",
+  "files": {
+    "crates/tile-render-shared/src/glyph_cache.rs": "ff9d5cff6f3114abbbdd8c7d7cf8044e81b89a77dedacf13e5b77430f39faf33",
+    "crates/tile-render/src/renderer/glyph_cache.rs": "864cc854201881175045c4e29240da1756d5c98940b7a0a1a4e0b451ae49ebaa",
+    "crates/tile-render/tests/glyph_cache.rs": "43a43f9b9de9c8ca154763f4aa654e1d89b12a1c6ea2a0a0e26e6c30084ff62b"
+  },
+  "design": {
+    "format": "RGBA8Uint exact linear coverage before live per-channel boost and composition",
+    "rasterization": "safe Rust GPU render pass, never CPU pixels",
+    "key": [
+      "owned Arc face identity",
+      "face-local glyph record",
+      "scale",
+      "bold/darkening",
+      "italic",
+      "baseline x phase modulo 96",
+      "baseline y phase modulo 96"
+    ],
+    "live": [
+      "color",
+      "contrast",
+      "keyed composition",
+      "destination",
+      "clip",
+      "view source placement"
+    ],
+    "bounds": {
+      "atlas_bytes": 16777216,
+      "readiness_bytes": 65536,
+      "max_entries": 16384,
+      "pinned_face_word_bytes": 67108864
+    },
+    "publication": "GPU readiness stamp after fill; every snapshot streams unique glyph fill jobs, warm VS culls already-ready entries, after-fill compute publishes exact-count stamps; text FS falls back on mismatch",
+    "cancellation": "each control snapshot streams all unique used entries, so canceled fills are repaired on next use",
+    "eviction": "between submitted batches only; no rectangle overwritten while current prepared controls remain",
+    "unsafe_added": false,
+    "protocol_changed": false
+  },
+  "toggles": [
+    "TILE_RENDER_GLYPH_CACHE=0",
+    "TILE_RENDER_GLYPH_CACHE_SIZE=16..2048, default 2048"
+  ],
+  "validation": {
+    "cpu_compile": "renderer owner reported tile-viewer check passed",
+    "focused_cpu_tests": {
+      "passed": 2,
+      "log": "/mnt/datasets/c3r-build/smoke-core-sol/cache-cpu-tests.log"
+    },
+    "independent_oracle_owner": "/root/text_fit_atomic_ui",
+    "shader_owner": "/root/text_perf_sol",
+    "performance": {
+      "path": "/mnt/datasets/c3r-build/perf240-sol/evidence/cache-v2/cache-summary.csv",
+      "runs_per_cell": 3,
+      "frames_per_run": 240,
+      "whole_frame_reuse": 0,
+      "pixel_scale2_pan_gpu_p50_ms": {
+        "threepass_procedural": 32.767,
+        "threepass_cache": 19.85476,
+        "dual_procedural": 25.6298,
+        "dual_cache": 19.60572
+      },
+      "scene_color_dual_procedural_gpu_p50_ms": 25.66212,
+      "scene_color_dual_cache_gpu_p50_ms": 19.888,
+      "native1x_gpu_p50_ms": "about13ms, no outline glyph entries in this workload",
+      "warm_cache_fill_ms": 0.002093,
+      "warm_cache_publish_ms": 0.00084,
+      "cpu_limits": "exploratory due unrelated host ML CPU load",
+      "target_4k_240fps_achieved": false
+    },
+    "nontext_smoke_gpu": {
+      "passed": 4,
+      "owner": "/root/tile_popup_render_shadow",
+      "scope": "no-font native palette behavior and empty ordinary allocation, not glyph shader coverage"
+    },
+    "independent_real_font_oracle": {
+      "dual-source": {
+        "cases": 375,
+        "pixels": 11274176,
+        "json_sha256": "cb9e207a546c0fe4291ccc205e0a263b22bc752a89f783feeb7aa0b999695bad"
+      },
+      "three-pass": {
+        "cases": 375,
+        "pixels": 11274176,
+        "json_sha256": "cb9e207a546c0fe4291ccc205e0a263b22bc752a89f783feeb7aa0b999695bad"
+      }
+    },
+    "immutable_source": "/mnt/datasets/c3r-build/text-perf-sol/source-cache-v2",
+    "source_manifest_sha256": "671a6746d7925fc18b958dc6ebc84c4f8c8edc27ae6a97ac8abfe4764b473514",
+    "shader_sha256": "a6c0df03eab40fd5c08eda9dfac9ac929c48629552e16895a61d1a7268c92ced",
+    "fallback_shader_sha256": "2c54027c3067c72ac7f651fc6ca5122fb4e636710b095f80e62b494aaebb9155",
+    "independent_binary_sha256": "1d20c810fa64c78c70ea236f21d7099743853bb86ceab4d71ee5427dcf8b232e",
+    "source_live_owned_module_comparison": "both owned modules match immutable v2 byte for byte",
+    "independent_oracle_root": "/mnt/datasets/c3r-build/glyph-oracle-sol/results-v2-r2",
+    "durable_regressions": {
+      "status": "passed",
+      "tests": 3,
+      "runtime_seconds": 0.45,
+      "adapter_selection": "TILE_RENDER_ADAPTER=radv WGPU_BACKEND=vulkan",
+      "validation": "WGPU_VALIDATION=1",
+      "production_source": "/mnt/datasets/c3r-build/text-perf-sol/source-cache-v2",
+      "source_manifest_sha256": "671a6746d7925fc18b958dc6ebc84c4f8c8edc27ae6a97ac8abfe4764b473514",
+      "test_source_sha256": "43a43f9b9de9c8ca154763f4aa654e1d89b12a1c6ea2a0a0e26e6c30084ff62b",
+      "binary_sha256": "5749ff867083d829fa5a2a0935897777a1c0d9b4133fab4fab4b0e93e5fb08b1",
+      "shaders": {
+        "cache-dual.spv": {
+          "path": "/mnt/datasets/c3r-build/text-perf-sol/cache-dual.spv",
+          "sha256": "a6c0df03eab40fd5c08eda9dfac9ac929c48629552e16895a61d1a7268c92ced",
+          "binary_occurrences": 1
+        },
+        "cache-fallback.spv": {
+          "path": "/mnt/datasets/c3r-build/text-perf-sol/cache-fallback.spv",
+          "sha256": "2c54027c3067c72ac7f651fc6ca5122fb4e636710b095f80e62b494aaebb9155",
+          "binary_occurrences": 1
+        }
+      },
+      "build": "Cargo compiled immutable v2 dependencies; final corrected test only relinked with rustc --test against those exact rlibs",
+      "logs": [
+        "build.log",
+        "run.log",
+        "relink.log",
+        "run-fixed.log"
+      ],
+      "first_run_failure": "eviction test fixture selected zoomed-only art at 1x, so no glyph was drawn. Changed fixture to ZoomArt::Any; production unchanged.",
+      "lease_released": true
+    }
+  }
+}

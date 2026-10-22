@@ -1,0 +1,25 @@
+{
+  "shader_sha256": "d0a2e242201bd96c1942673d18d24a5610d5b8572c0919fca246893579441405",
+  "executables": [
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-indexed-opaque555-host/debug/deps/indexed_matches_reference-3a41a33743677511",
+      "sha256": "549330ee589eeaf208fe7dbff14fa6da65deb89c61f9cd746fefbfbffe6ab162",
+      "candidate_spv_embedded_once": true
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-indexed-opaque555-host/debug/deps/indexed_palette_boundaries-2e956d3b33960d96",
+      "sha256": "94885c9b30850f1779bd28596424a9fa132fd065b5cfbd59af91b504a935ccac",
+      "candidate_spv_embedded_once": true
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-indexed-opaque555-host/debug/deps/output_decode-fd23815e2ade084e",
+      "sha256": "1a7e39afcc14ee5ea375677ffb062660fe7432a21bcd6e788d58eb103fac10ab",
+      "candidate_spv_embedded_once": true
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-indexed-opaque555-host/debug/deps/quantized_blending-f94b68d8d15d6fbb",
+      "sha256": "5155913a708424afe61e4ba6870a50b1e6603f51423a7e03634b68caf167546a",
+      "candidate_spv_embedded_once": true
+    }
+  ]
+}

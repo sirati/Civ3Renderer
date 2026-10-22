@@ -1,0 +1,41 @@
+{
+  "updated_utc": "2026-10-20T13:30:35.454597+00:00",
+  "status": "production patch source and numeric evidence independently accepted; durable portable regression integration delegated; successor testing still pending",
+  "patch_sha256": "168d9fa1e98d61c839e9a393843e1049f21c8cc78587902c1e7748455b9f20bc",
+  "source_changes": [
+    {
+      "path": "crates/tile-render/src/renderer.rs",
+      "before_sha256": "ff41f555ad55ee90560a50c426a46f762463c066d7ba7dfc0b96d5c02818ea1b",
+      "candidate_sha256": "ae171fb6aa18b56b79a4fc1ca072f78f536446091759ff5fc6dcc360767fe40b"
+    },
+    {
+      "path": "crates/tile-render/src/renderer/glyph_cache.rs",
+      "before_sha256": "864cc854201881175045c4e29240da1756d5c98940b7a0a1a4e0b451ae49ebaa",
+      "candidate_sha256": "e258310b33bc510593a01ee02a8efee5dde965faa7d3a809e622daeb7cbee404"
+    },
+    {
+      "path": "crates/tile-render/src/renderer/smoke.rs",
+      "before_sha256": "6a4e1acd57152f277aca4899e98637cb457f57b7478e2c3cf3cbc637cd7edb78",
+      "candidate_sha256": "ec2c8fca7b1a589ad415608780f17b63755106a1394e2e5228b51e967a0a64de"
+    }
+  ],
+  "provenance_sha256": "2fba45269d0f733b3e061cd2d8ccf8f0d97156c800a8af4cf59e3d137e787768",
+  "summary_sha256": "e32fc6d81db2cb61e98f48e90e96be53816064ffe0aed895e0ff4f03aba78392",
+  "archive_sha256": "bfe910b52d5b3e01f6615edb3ef736298018bc4d5571d2f48406bf765ec27530",
+  "verified_log_files": 25,
+  "verified_direct_dependencies": 7,
+  "independent_checks": [
+    "All retained evidence log and direct dependency hashes match provenance",
+    "All three original/candidate source hashes match binding",
+    "Test shim source hash matches",
+    "Compressed proof hash matches completion record; six executable hash bindings retained in provenance",
+    "14 exact image comparisons plus reference tolerance checks; six failing-before and7passing-after eligibility cases in each shader path",
+    "Production patch preserves global glyph metadata indices and slots; visibility predicate matches original shader art1 culling"
+  ],
+  "not_claimed": [
+    "Fresh full successor test acceptance",
+    "Application speedup",
+    "240FPS"
+  ],
+  "portability_requirement": "DurableGPU tests must use normal adapter policy, no hard RADV/Vulkan/dual assertions or absolute private paths."
+}

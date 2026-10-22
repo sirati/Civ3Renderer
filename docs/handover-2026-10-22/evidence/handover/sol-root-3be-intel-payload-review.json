@@ -1,0 +1,11 @@
+{
+  "reviewed_utc": "2026-10-20T13:22:58.334472+00:00",
+  "source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+  "target": "x86_64-apple-darwin",
+  "runtime_files_verified": 4,
+  "cpu_test_executables_verified": 8,
+  "paired_pe_files_verified": 2,
+  "viewer_and_native_paired_spv_embeds_each": 1,
+  "manifest_sha256": "6402e044abd4d252deda716738f3d471ae033eecae67b78d4080d9242d4b8398",
+  "scope": "Cross-compiled Intel payload integrity/type gate, not native macOS execution or UI acceptance."
+}

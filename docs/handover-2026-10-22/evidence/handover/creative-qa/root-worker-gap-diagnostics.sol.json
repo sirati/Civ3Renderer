@@ -1,0 +1,66 @@
+{
+  "updated_utc": "2026-10-20T13:18:59.392766+00:00",
+  "baseline": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+  "source_hashes": {
+    "crates/tile-viewer/src/render_worker.rs": "96aeb44009e7cce8b6c736645428c501f50ee4c34cbf8f3dac58d2f1f3711feb",
+    "crates/civ3-bridge/src/live.rs": "2b1dfee7d167c54dc51c5176dbb2a816d3bdf37fab8c82ae92057ca672c81c40",
+    "crates/tile-render/src/timing.rs": "cb348257f032099cd9a4590e4eefbee8092fdf7c2a91d24bc51a78b3ea9d2080"
+  },
+  "changes": [
+    "Worker records true timestamp gaps using already collected adjacent FrameStamp bounds. Missing or late results do not become idle estimates. Latest raw ticks are decimal strings to preserve precision. Timer enable/reset boundaries clear gap anchors.",
+    "Profile records wall time of actual surface acquisition including error outcomes, queue submit, and present enqueue separately. Bitmap presentation creates no fake acquisition sample. All added clocks/formatting run only with profiling.",
+    "Publisher skips Wine uploaded-generation query when optional preload is finished/off and no plan is pending. Planning and GPU atlas/backpressure limits remain intact. Actual queries get their own existing-profile span."
+  ],
+  "limitations": [
+    "GPU inter-frame gap includes compositor pacing, uploads and other queue work; it cannot isolate GPU waiting only for CPU.",
+    "These changes do not themselves prove or achieve 240 FPS and do not prove removal of historical18.65-second UI publisher stall.",
+    "ARM64 macOS native renderer and i686 bridge cross-compilation passed for3be. CPUsource-extraction2 and GPU32ring1 passed; full successor platform/runtime matrices remain pending."
+  ],
+  "independent_review": "/mnt/datasets/c3r-build/handover/worker-gaps-independent-review.sol.json",
+  "source_extracted_cpu_tests_prepared": "/mnt/datasets/c3r-build/root-worker-gaps-sol/",
+  "new_locks_or_waits": false,
+  "production_shader_changed": false,
+  "gpu_ring_change": "Readback ring4to32, fixed256KiB atfullquerybudget. Saturation/recovery32GPUregression passed onRADV; actualAppcoverage remainsunproved.",
+  "exact_source_cpu_tests": {
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "scope": "Only source-extracted CPU diagnostics functions/tests; full successor types and runtime remain build/test gates.",
+    "log_sha256": "697af7df3c4037bf1b2249750d30096686c6e63cc34192d9dc296d3e3a1ceb96",
+    "extraction": "/mnt/datasets/c3r-build/root-worker-gaps-sol/extraction.json"
+  },
+  "post3be_unapplied_cpu_encode_span": "/mnt/datasets/c3r-build/root-worker-gaps-sol/encode-span-followup.json",
+  "deployed_source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+  "gpu_ring_regression": {
+    "run_at_utc": "2026-10-20T13:18:28.209387+00:00",
+    "source_archive": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+    "executable_sha256": "882bd3a5f7af5faee877df6b047eb93404b8265c6832bbc07360f13731b3bff7",
+    "name": "timing::tests::queued_timed_encoders_keep_tokens_and_empty_encoders_break_adjacency",
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "capability_self_skipped": false,
+    "seconds": 0.11559270700672641,
+    "command": [
+      "/mnt/datasets/c3r-build/root-timing32-3be-sol/tile-render-3be-tests",
+      "--exact",
+      "timing::tests::queued_timed_encoders_keep_tokens_and_empty_encoders_break_adjacency",
+      "--nocapture"
+    ],
+    "selection": {
+      "TILE_RENDER_ADAPTER": "radv",
+      "VK_DRIVER_FILES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json",
+      "WGPU_BACKEND": "vulkan"
+    },
+    "ring_slots": 32,
+    "fixed_readback_bytes": 262144,
+    "asserted": [
+      "Three prepared unsubmitted encoders preserve frame tokens",
+      "Empty and over-query-budget frames cannot create false GPU gaps",
+      "32 samples fit before collection and the33rd drops without waiting",
+      "All32 are asynchronously collected and ring recovers; exact attempted/prepared/submitted/collected/drop counters match"
+    ],
+    "scope": "GPU diagnostic regression only. Does not prove full timing coverage in actualApp or240FPS.",
+    "log_sha256": "95cbb97246d9c0427d71517f8a6d56bca303bb26ce908d3896eaaebf48191db1"
+  }
+}

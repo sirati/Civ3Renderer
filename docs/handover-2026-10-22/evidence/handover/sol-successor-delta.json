@@ -1,0 +1,22 @@
+{
+  "crates/civ3-bridge/src/city_labels.rs": {
+    "frozen": "7d6143d1418b142dddf0cfd9c4be63697788ab8a0071fcec2a9a6b6f984109d7",
+    "current": "3f7eb5572b2b355d3a15a22493962c894a09cfd6f64f33b91481d2b203fdfde2"
+  },
+  "crates/civ3-bridge/src/text.rs": {
+    "frozen": "c8e9ec4b0b93121535eaab19548e2c05292e8dfdcbc26afa43ef0c7f2f7a77a3",
+    "current": "8aafeaa96033ff1e4abd593b2bf34dcb65e1e1f2d04d72f8a60af6ef49515b7c"
+  },
+  "crates/civ3-bridge/src/ui_transaction.rs": {
+    "frozen": "e67cec0ba01c0afdf3af81a3e94e2b9b948a71b6c6dae86e5c9cf378bbeacc89",
+    "current": "92b6c5b2f30a76613857c8a858403a8147bacf92f2d2ae44f4059ea701a894c1"
+  },
+  "crates/inproc/src/keyboard.rs": {
+    "frozen": "9287ff02dbb978c4585f732dd79c0c8dfb55506ad2aff113b1870e50bcb00087",
+    "current": "385af21069a25efeed012c5315a38184c46b3ee4047a5c1b84a999c7afbc0967"
+  },
+  "docs/macos-vm.md": {
+    "frozen": "4aeae6841dac085624964ed5e99f14d6028cc683ec76a3853847f44937974966",
+    "current": "d84759e66d6322c5f6f15027ffe47eb98d696568943505582d690a0aed99c535"
+  }
+}

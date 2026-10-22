@@ -1,0 +1,72 @@
+{
+  "created_utc": "2026-10-20T17:20:20.294765+00:00",
+  "status": "32 CPU-only tests pass; ready for separate fresh ordinary native1x launch and strong preflight; no runtime adoption or FPS claim",
+  "fixture": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/fixture-v3",
+  "historical_v2_unchanged": true,
+  "shared_geometry_policy": true,
+  "native1x_only": true,
+  "production_source_changed": false,
+  "runtime_or_gpu_started_for_fixture_v3": false,
+  "tests": {
+    "executed": 32,
+    "passed": 32,
+    "new_geometry_cases": 6,
+    "retained_regressions": 26,
+    "log": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/fixture-v3-tests.log",
+    "log_sha256": "8ad048288248852742b06dbe17cbda2bef6d813a4afee093d64a1801dd8558bb",
+    "scope": "CPU-only synthetic input/geometry control paths, RFB byte transport, parser/qualification/reset checks and owned process-cleanup regression. No App, compositor, Wine, VM or GPU launch.",
+    "initial_harness_failure": {
+      "log": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/fixture-v3-initial-missing-mock-state.log",
+      "sha256": "57e8208adb5597882b54c5a6a6756c92765a1d7c18b32e658d80a0ba805488df",
+      "disposition": "Target equality case reached final measurement cleanup but its mock state lacked the mocked Sway socket name. Added a dummy socket name; no policy or production change. Original failure preserved."
+    }
+  },
+  "policy_binding": {
+    "geometry.py": "32e11f91e3846f33f6ff084a1e7f8e2fa68329d8858f77d3314037b2c535b0fb",
+    "geometry-plan.json": "d0ac6f20775448aaa528c97ae0bdf3ef57bf9b5cc718862f04e3f9e18c7936e3",
+    "motion_policy.py": "8049055891e7d68af1ef1616428e7808c1fae82b36fd0bd875f0578bdda72d73",
+    "run_three.py": "138461380cba838a2cdd26b09a5d0525d64ba83dc521e7fe6b433e66057ae103"
+  },
+  "files_sha256": {
+    "qualify.py": "360b4d2cedb0d5896d0ebf987adab285c02c780b634d03acc75f503dcd1a02cf",
+    "input_only.py": "02d3f5a3197819643f4f61aad183e901676cba5371c64d5cc6b6178e7dbd030a",
+    "motion_policy.py": "8049055891e7d68af1ef1616428e7808c1fae82b36fd0bd875f0578bdda72d73",
+    "switch_to_direct_pointer.py": "a74e9230e124a3406118336a6054721c498637058c6f429c415263de2a430efa",
+    "run_three.py": "138461380cba838a2cdd26b09a5d0525d64ba83dc521e7fe6b433e66057ae103",
+    "test_fixture.py": "f2aa5d42f515b56c1d6b1b44b7285daeb1a12400af198d2ecdf352622ec6097c",
+    "geometry-plan.json": "d0ac6f20775448aaa528c97ae0bdf3ef57bf9b5cc718862f04e3f9e18c7936e3",
+    "geometry.py": "32e11f91e3846f33f6ff084a1e7f8e2fa68329d8858f77d3314037b2c535b0fb",
+    "test_geometry.py": "5c16f44a6a1ed4ada2d7e1125560e44f413b69ce62b9c620ea73e9e17d0958c4"
+  },
+  "source_patch_sha256": "42b69f6213d9312ca879bdbd73f746a677fcb9987b9b4a5882bad183d3f227c7",
+  "actual_Layout_cpu_proof": {
+    "path": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/cpu-oracle-proof.json",
+    "sha256": "a58e1264d5d6b9e26b571f9946ad66f02f8ae76c8ee49d3df3cd8487a72c98f6"
+  },
+  "target_only_live_proof": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-live-proof.json",
+    "sha256": "55f63ad0cc0bd9af5e097baff87b07d07e52464b84d52433b869a35edcf85a98"
+  },
+  "input_points": {
+    "left": [
+      2,
+      800
+    ],
+    "right": [
+      1919,
+      360
+    ],
+    "center": [
+      960,
+      800
+    ]
+  },
+  "escape_policy": {
+    "pulses": 3,
+    "dx": 96,
+    "cadence_s": 0.02
+  },
+  "next_gate": "Final release PE binding and VM lifecycle acceptance; then separate fresh ordinary launch with WAYLAND_DEBUG unset, repeat strong motion preflight, then explicitly granted timing. Scale2 requires its own Layout oracle.",
+  "cpu_lease_released": true,
+  "fps_or_release_accepted": false
+}

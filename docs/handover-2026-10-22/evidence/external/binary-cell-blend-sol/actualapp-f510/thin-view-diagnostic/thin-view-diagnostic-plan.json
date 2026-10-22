@@ -1,0 +1,137 @@
+{
+  "created_utc": "2026-10-20T20:13:25.615728+00:00",
+  "status": "source_only_ready_no_build_no_GPU_execution",
+  "purpose": "Attribute thin native1x v2-v5 GPU time without changing shipping code, CPU culling, painter order, camera geometry, attachment size or timing counter semantics.",
+  "approved_candidate_package": {
+    "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/package-ready.json",
+    "sha256": "d2f4ba851adf3df86865c25335ca2b45a1fca29778280713a05da5f3bdba6b4c"
+  },
+  "post_build_binding": {
+    "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/post-build-verification.json",
+    "sha256": "6da75bc59ce70235d2cee278f914346150c88f075f0058d6208dfab5970a82c8",
+    "runtime_manifest": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/runtime-manifest.json",
+    "runtime_manifest_sha256": "de74b017c468ca6902a8b1fe46ac285ae8a19bfb15d076c1ef9dc480838879b2"
+  },
+  "baseline_evidence": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json",
+    "sha256": "368ba6b77e41dbc54ba6642001da9f14c644a66917e71ce62b9287ed426eb012"
+  },
+  "timing_evidence": {
+    "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/authoritative-timing-windows.json",
+    "sha256": "1cea0954b2ba29c5a3edc70e3d827c66d9ca6d9b727b45eebc99a83cd092831c"
+  },
+  "camera_binding": {
+    "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/thin-view-camera-binding.json",
+    "sha256": "3a35cbe7e32789507e545ffe66cc6ca774f539669bb9ea5e1a42ba538fc63fcb"
+  },
+  "source_hashes": {
+    "crates/tile-render/src/renderer.rs": "427c3cad90717e5f1277095b9b979479cb6e8cc2cdae9aa2df0becd31f36f57b",
+    "crates/tile-render/src/camera.rs": "9a5e3e63808d3325c34f1c328f534f29131a28aee82dba38b82863ebd66aec3b",
+    "crates/tile-render/src/timing.rs": "cb348257f032099cd9a4590e4eefbee8092fdf7c2a91d24bc51a78b3ea9d2080",
+    "crates/tile-render/src/renderer/glyph_cache.rs": "2aff303f8a579182819019ebee56ce24e54a1f072992375d480e8a3b71cf1246",
+    "crates/tile-render-shaders/src/lib.rs": "f48e1af4f006ca5dfb316eb1cd74f3a2330bb8fe8a94d94b2ca81b18d694f799",
+    "crates/tile-render-shaders/src/text.rs": "3648e58f388fad5550505d9a34906926b15d02995f92d89d0ae94a5c69e0c404",
+    "crates/tile-render-shared/src/glyph_cache.rs": "ff9d5cff6f3114abbbdd8c7d7cf8044e81b89a77dedacf13e5b77430f39faf33",
+    "crates/tile-render-shared/src/lib.rs": "0fe63dcf941daf52133b656420b3d1dc00aa12883e8c590321e04df45bac79a6",
+    "crates/scene/src/lib.rs": "c6a9aa47ff38e7e4615ee1246a1c223d4dad81af22d2bf0a7c7d903d59d862ac",
+    "crates/scene/src/wire.rs": "0b61b3bbc6aa5110606a71d59d6a8b4c163143d08806667f5df5f898eaf831b1",
+    "crates/tile-viewer/src/render_worker.rs": "8bd2ecd7cba24b30823f7533b30ea2f3562f9402397d8698cddc404f329d3e3b"
+  },
+  "immutable_source_archive_sha256": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "canonical_shader_pair": {
+    "full": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+    "fallback": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281"
+  },
+  "adapter_required": {
+    "pci": "0000:72:00.0",
+    "vendor": "0x1002",
+    "device": "0x13c0",
+    "backend": "Vulkan/RADV",
+    "software": false
+  },
+  "same_attachment_contract": {
+    "target": [
+      3840,
+      2160
+    ],
+    "surface": [
+      3840,
+      2160
+    ],
+    "format": "same resolved target format as bound actualApp native1x run",
+    "present": "Immediate",
+    "load_store": "same LoadOp::Load/StoreOp::Store semantics and original clear/output outside tiny-view loop",
+    "no_resolve": "resolve_target remains None",
+    "camera_order": "retain full actual camera list and indices 0..17; only v2-v5 controls vary",
+    "timing": "GpuTimer labels/counters unchanged; report pass durations and increments separately; never sum p50s or call increments shader cost"
+  },
+  "controlled_axes": {
+    "free_eligible_counts": [
+      0,
+      0.25,
+      0.5,
+      1.0
+    ],
+    "text_eligible_counts": [
+      0,
+      0.25,
+      0.5,
+      1.0
+    ],
+    "glyph_metadata_modes": [
+      "full_source_metadata",
+      "reduced_source_metadata_same_geometry_axes",
+      "cache_disabled_procedural_fallback_if_supported"
+    ],
+    "matrix": "4x4 free/text matrix with glyph cache on, then text axis with cache off; v0/v1 and other cameras full UI/world; only diagnostic packet metadata/category masks vary for v2-v5; no renderer/shader/timing/culling source changes"
+  },
+  "arm_encoding": {
+    "free_axis": "Per-instance category masks make existing free_vs GPU wrong-category culls run while ranges remain populated. Preserve all records/order. If host coarse filtering skips a range, invalidate that arm and use contiguous ALL_VIEWS range with per-instance category masks.",
+    "text_axis": "Stable source-index prefixes of same glyph list, nonempty sentinel, original font/outlines; record metadata bytes and draw instance range.",
+    "glyph_cache_axis": "Separate untimed cache enabled/disabled controls; record fill/publish jobs, metadata bytes, ready-tag epoch; fresh process after reset/atlas replacement.",
+    "controls": "Prepare each immutable arm once and upload once; repeated frames update camera/control tick only; no CPU per-frame culling/repacking."
+  },
+  "required_measurements": {
+    "per_frame": "GPU frame span, v0/v1, v2/v3/v4/v5, increments separately, clear/output/glyph-fill/publish, inter-frame gap; CPU host encode and worker draw separately; p50/p95/p99/max per complete window.",
+    "counters": "Submitted/collected samples, drops, timer epoch, full submissions/reuse/replay, source counts, v2-v5 free/text ranges, metadata bytes, cache jobs/hits/entries/reset epoch.",
+    "GPU_side": "If AMD Vulkan tooling exposes pipeline statistics, record vertex/primitive/fragment invocations per pass. Otherwise unavailable; do not infer from elapsed spans.",
+    "host_load": "Retain AMD busy/clock/power and CPU/memory/IO pressure; not a quiet hardware limit."
+  },
+  "interpretation": {
+    "attachment_only": "Constant ~1.2ms with zero free/text and zero glyph metadata implicates render-pass/attachment/barrier cost; use same Load/Store zero-draw control.",
+    "free_text_scaling": "Monotonic timing with GPU-visible eligible count at fixed target points to vertex/fragment work; separate cache and metadata axes.",
+    "metadata_only": "Constant draw range with different metadata/cache timing points to metadata reads/fill; host upload remains separate.",
+    "no_causality": "If controls do not move timing, retain no isolated cause; do not patch from source inspection."
+  },
+  "correctness_requirements": [
+    "Attribution only, never shipping qualification.",
+    "Preserve camera IDs, shifts, world xy, clips, binding, painter order, category rules and full v0/v1 UI.",
+    "Full-scene off/on pixel/content check remains separate before adoption.",
+    "No CPU culling, locks, waits, shader edits, timing changes or attachment resizing.",
+    "Do not delete filler cameras or merge views.",
+    "Any order/content/timer/validation/adapter failure invalidates the arm."
+  ],
+  "execution_gates": [
+    "Root post-build artifact review complete.",
+    "Separate AMD-only GPU broker lease explicitly granted after priority audio/deploy work.",
+    "Fresh private diagnostic run; release GPU immediately; no VM/Neo/shipping operation.",
+    "Preserve raw logs/all failures; approved binary-cell package immutable."
+  ],
+  "not_ready_reasons": [
+    "No GPU lease granted.",
+    "No diagnostic build or run started.",
+    "No source/shader/package files modified."
+  ],
+  "cache_safety": {
+    "source_constraint": "glyph_cache State.submitted reset clears CPU entries/shelves but GPU ready buffer tags are not globally cleared; stale ready tags can alias after rectangle reuse.",
+    "diagnostic_rule": "Never reuse a glyph-cache process across atlas/layout reset, source replacement or cache-size change. Run each cache arm in a fresh process and record ready-tag epoch, reset count, atlas generation and entry count.",
+    "reuse_candidate_constraint": "A future shared metadata mapping must carry an explicit atlas/layout epoch or clear/invalidate GPU readiness before rectangle reuse. Camera-only changes cannot by themselves prove safe reuse when metadata visibility depends on view/category/clip/viewport.",
+    "source_lines": "glyph_cache.rs174-184, 262-331, 208-214; glyph_cache shared CacheGlyph ready_index/ready_tag"
+  },
+  "execution_ready": false,
+  "execution_blockers": [
+    "AMD-only GPU broker lease not granted",
+    "No diagnostic build or GPU run allowed yet",
+    "Root post-build review remains the gate before execution"
+  ]
+}

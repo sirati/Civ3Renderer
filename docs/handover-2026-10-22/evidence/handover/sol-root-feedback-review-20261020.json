@@ -1,0 +1,27 @@
+{
+  "updated_utc": "2026-10-20T14:13:09.930729+00:00",
+  "status": "independently verified new shader inputs/artifact hashes and glyph numerical evidence; full successor acceptance pending",
+  "critical_inputs": {
+    "crates/tile-render-shared/src/lib.rs": "0fe63dcf941daf52133b656420b3d1dc00aa12883e8c590321e04df45bac79a6",
+    "crates/tile-render-shaders/src/lib.rs": "f48e1af4f006ca5dfb316eb1cd74f3a2330bb8fe8a94d94b2ca81b18d694f799"
+  },
+  "binding_sha256": "a155dbbb388265d8a323ae08cb42bce65366c1fdf2b9d1799032d85c75a9d964",
+  "glyph_gpu": {
+    "executable_sha256": "8010b617892cfb186ae922e30f99c68b8dcb86cd8d73dc9c3daab561a314b45a",
+    "log_sha256": "8462ccd6c13203d619c573b6527c0dcb31e0d7ce9a158635b47ee8401015b503",
+    "exit": 0,
+    "native_cases": 7,
+    "feature_free_cases": 7
+  },
+  "root_reviews": {
+    "marker_text": "Accepted source: append smalltexttail, immutablefontoutlines reuse, mixedindex shifts and FrameKey text identity. GPUH+fallback proofreported, finalsourcehashrecord pendingowner.",
+    "settings_preview": "Firstreview identified logical/physical mismatch, missingfonts and heldEnter. Ownercorrected with48 renderedconfigs/96clicks plus9focusedtests. Source/GPUMetal acceptance pending.",
+    "atlas_reservation": "Per-epochhighwater dedup survives take_reserve, resets onnewwhole/recreatedactor. PendingArt retainscapacity through retry/failure; actor/inbox/budget18CPU passed.",
+    "emergency": "Reviewed before/after actualtop/vm logs; Metalconfirmed, peakepisodeunreproduced, cleanownedstopverified. NoCPUsoftware-renderer claim."
+  },
+  "not_claimed": [
+    "240FPS native4K",
+    "Full newprotocol50 runtime acceptance",
+    "Cause ofaudibleloop orentireallcoreepisode"
+  ]
+}

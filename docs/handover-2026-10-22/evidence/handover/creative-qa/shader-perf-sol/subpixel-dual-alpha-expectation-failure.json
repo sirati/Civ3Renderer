@@ -1,0 +1,26 @@
+{
+  "shader": "/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/shader.spv",
+  "shader_sha256": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+  "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/subpixel_coverage-109e22ef0cc77f21",
+  "executable_sha256": "25e2221e12bde6efdd1168a33d1f4394cbc65757854b5c86176fef8b9fa9cd2d",
+  "runs": [
+    {
+      "mode": "0",
+      "exit_code": 101,
+      "seconds": 0.6178196700057015,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-mode0-alpha-expectation-failure.log",
+      "log_sha256": "8ba2a3bf21045fd7c83bf756adf7411e28f6d148642d2b6f009d249be84148cb",
+      "capture": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-mode0-alpha-expectation-failure.rgba",
+      "capture_bytes": 10871248,
+      "capture_sha256": "e37f16061b620fb6415564cbf3676ebce7170dcae06035c89798e7c362d79751"
+    }
+  ],
+  "gpu_selection": {
+    "TILE_RENDER_ADAPTER": "radv",
+    "VK_DRIVER_FILES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json",
+    "VK_ICD_FILENAMES": null
+  },
+  "dual_source_feature_active": true,
+  "passed": false,
+  "finding": "Oracle expected alpha255 for quantized targets; RGB-only fallback correctly preserved clear alpha37. Test-only correction in shared source; frozen866 remains unchanged."
+}

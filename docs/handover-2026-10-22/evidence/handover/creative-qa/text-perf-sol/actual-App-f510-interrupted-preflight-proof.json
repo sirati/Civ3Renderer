@@ -1,0 +1,102 @@
+{
+  "created_utc": "2026-10-20T19:15:41.115711+00:00",
+  "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1",
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "status": "Interrupted at safe untimed main-menu boundary by new root backup/commit priority; no save loaded, no strong preflight and no timed arm.",
+  "plain_launch_observed": true,
+  "fresh_main_menu_visually_verified": true,
+  "save_loaded": false,
+  "workload_current_load_verified": false,
+  "strong_preflight_started": false,
+  "timing_started": false,
+  "performance_or_release_accepted": false,
+  "prelaunch_host_load": "61.19 42.43 32.50",
+  "unrelated_host_processes_touched": false,
+  "cleanup": {
+    "direct_children_forced": [],
+    "owned_descendants_signaled": [
+      {
+        "pid": 3864652,
+        "start": "47456099",
+        "cmd": "wineserver"
+      },
+      {
+        "pid": 3864658,
+        "start": "47456111",
+        "cmd": "services.exe"
+      },
+      {
+        "pid": 3864662,
+        "start": "47456117",
+        "cmd": "winedevice.exe"
+      },
+      {
+        "pid": 3864678,
+        "start": "47456124",
+        "cmd": "plugplay.exe"
+      },
+      {
+        "pid": 3864848,
+        "start": "47456294",
+        "cmd": "svchost.exe"
+      },
+      {
+        "pid": 3864856,
+        "start": "47456304",
+        "cmd": "winedevice.exe"
+      },
+      {
+        "pid": 3864900,
+        "start": "47456344",
+        "cmd": "rpcss.exe"
+      },
+      {
+        "pid": 3864926,
+        "start": "47456419",
+        "cmd": "civ3-play-macos"
+      },
+      {
+        "pid": 3865006,
+        "start": "47456636",
+        "cmd": "start.exe"
+      }
+    ],
+    "direct_survivors": [],
+    "owned_descendant_survivors": [],
+    "all_owned_processes_absent": true,
+    "unrelated_processes_touched": false
+  },
+  "runtime_lease_released": true,
+  "must_use_fresh_run_for_later_benchmark": true,
+  "next_gate": "Root backup clearance and new broker exclusive runtime grant. Preserve this interrupted attempt; do not restart its stale process state.",
+  "evidence": {
+    "untimed-main-menu.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/untimed-main-menu.png",
+      "sha256": "ab75c6f9644dfe23391d31a22b0015a9c1052a63dee85e2c3a0f86df24d0578c"
+    },
+    "untimed-host-before.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/untimed-host-before.json",
+      "sha256": "cecc6c325646bf5f45b7e13eafa7d3e3ff81b2b8100a611ec3838df0f9f722f2"
+    },
+    "plain-launch-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/plain-launch-binding.json",
+      "sha256": "ab8cd63438c546d1f2d60ce525dfe56d43fb5c3bc3fe8c65cabb082479273a45"
+    },
+    "state.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/state.json",
+      "sha256": "65c0433c644bec738c0ee714b83ea32878abf62254b5dcb1d0f9cf134a702660"
+    },
+    "shutdown.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/shutdown.json",
+      "sha256": "26db34b01b21cd19f6b3bd4f13176d6007c3548e32850588b95207b7b10c5e27"
+    },
+    "prelaunch/state.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/prelaunch/state.json",
+      "sha256": "d85f5b4f82911f208ae5dc7908143ed3544be6a42ac89c61f301409e1b6a4d07"
+    },
+    "prelaunch/runtime-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r1/prelaunch/runtime-binding.json",
+      "sha256": "c82afbeb04c582edfaa9d893b4c40d4b761064bdd1f9130090486911b41dea10"
+    }
+  }
+}

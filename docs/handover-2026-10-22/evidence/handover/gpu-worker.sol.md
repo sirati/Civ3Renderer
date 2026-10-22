@@ -1,0 +1,27 @@
+# GPU worker and independent native cursor
+
+Current shared source implements the requested thread separation. No commits, resets, Mac builds, GUI actions or screenshots were performed.
+
+`crates/tile-viewer/src/render_worker.rs` owns the wgpu instance, adapter, device, queue, surface configuration/acquisition, renderer, atlas preparation, world/marker uploads, encoding, submission, presentation, device polling and asynchronous diagnostic readback. The winit/AppKit main thread owns the native window, OS cursor, input/layout/scene metadata, and optional CPU softbuffer output. The only main-thread surface operation binds the native window handle to a worker-created instance; winit's macOS raw-handle API requires this. SurfaceNeeded and Worker.surface form a nonblocking handshake. Hardware Metal/Vulkan remains the default.
+
+The App integration owner is tile_popup_render_shadow. They retained a matching immutable UI/input transaction until Presented(id), with configuration revision rejection and input-state merging. Slider_arrow_keys owns the independent CPU cursor-art publication and main-thread OS icon lane. Normal OS cursor changes use received scene state and CPU art, without waiting for GPU initialization, atlas upload, acquisition, control slots or GPU completion.
+
+Frames, full art snapshots and configuration changes use bounded Latest slots. App admits one in-flight frame and coalesces driver updates. The worker takes envelopes rather than retaining the last request. Init is explicitly dropped after creation to release the original pixel atlas. Frame/world references are dropped before publishing a completion or waking main, preventing Arc::make_mut from cloning a large world merely because a completion callback ran promptly. Shutdown signals and wakes the worker without joining on the OS main thread.
+
+The worker's private ArtInbox mirrors main's ordered art snapshot, deduplicates generations and retains only bounded active transfer source references. Main remains the sole consumer of the publisher's destructive Added mailbox. Terminal atlas errors propagate to Failed instead of silently leaving a scene permanently pending. Whole replacement establishes a new compatibility boundary. Growth preserves the previous boundary only when scene_prefix::preserves_render_prefix proves old descriptors, palette words/base, sprite names and name-to-ID mappings, complete numeric set records, named sets/blends and font prefixes unchanged. Compatible optional growth cannot starve a complete UI packet. Incompatible growth and whole epochs reject stale packets.
+
+Surface Outdated reconfigures; Surface Lost requests a fresh native binding asynchronously. Bitmap reconfiguration returns Retry for an outstanding readback before replacing storage. Diagnostic bitmap output maps and polls entirely on the worker and sends completed pixels to main. There is no event-loop GPU wait.
+
+ArtCommitted progress replies coalesce in a Latest slot. Control replies retain sequence identities. A single publisher stores a committed reply watermark only after payload publication. Main-owned Reader captures that cutoff, stages future controls/latest metadata, and emits only the committed prefix in order. Both opposite FIFO/Latest interleavings and the partially published-envelope window have deterministic regressions. Driver/GPU callbacks enqueue scalar data to the worker and never concurrently publish UI replies.
+
+mac_fps_music restored worker profiling and correlates CPU/GPU timings by packet ID. CPU preparation includes accepted main preparation plus worker upload/encode/finish, excluding mailbox age, acquisition, submit and presentation. Preview_smear retained the small three-slot control buffers and restored async GPU completion latency signals. GPU callbacks retain scalar IDs and a mailbox, never a frame/world or a main-thread join dependency.
+
+## Validation
+
+Own target: /mnt/datasets/c3r-build/startup-progress-sol, nix develop, CARGO_INCREMENTAL=0, AMD RADV only. Final shader: /mnt/datasets/c3r-build/army-solid-artifacts/shader.spv, SHA256 67f3cefc9e905d7404baf63a3d0a3b54ca775bddc61612f52aa57c9b7de1ceb0.
+
+Ten focused render-worker tests passed. They cover blocked GPU versus latest cursor/wake processing, bounded frame replacement, nonjoining shutdown, CPU world release before wake, art progress coalescing and ordering, both ordered-reader race directions, publication cutoff, compatible optional-art admission, and Send ownership. The numerical headless test creates and uses GPU state on a different thread, asserts AMD on Linux, reads exactly sixteen 0x182838 pixels, rejects stale configuration/art, cancels pending bitmap output on resize, requests native surface replacement on loss, propagates binding failure, and detects a terminal atlas-budget error.
+
+Log: /mnt/datasets/c3r-build/handover/gpu-worker-sol-tests.log. No-lock scanner passed. The aarch64-apple-darwin tile-viewer cross-check passed on Papa, with the final short rerun after ordered-reader and compatibility changes recorded separately in gpu-worker-sol-macos-check.log. Native GUI appearance and Apple hardware runtime remain for the deployment/GUI owners.
+
+Updated the existing viewer-ownership paragraphs in docs/concurrency.md and preserved the renderer owner's Frame controls and GPU queue ordering subsection. The old private presentation backend remains unused source, not the hardware or diagnostic runtime path.

@@ -1,0 +1,18 @@
+{
+  "reviewed_utc": "2026-10-20T16:20:53.253990+00:00",
+  "candidate_patch_sha256": "ed8eda3bda5dedef3dcdb20c22ce2e72dbfb3802885402fd11ba4f99e0784a16",
+  "scope": "Private CPU packed-world retention candidate, source and existing test-log review only. No adoption or new execution.",
+  "findings": [
+    "Packed layer and slot regions use Arc copy-on-write. Metadata replacement copies tables and fonts but shares unchanged records with pinned worlds; writes detach only the affected region.",
+    "Retention requires matching atlas base, source predecessor/current sequence, compatible grid and record format, no full world invalidation and no untracked prefix record replacement. Leaving a prefix that may have omitted records forces full rebuild.",
+    "Table changes force full GPU world replacement and free-sprite refresh; ordinary cell/slot changes use existing delta paths. No shader, pixel renderer, lock or synchronization change.",
+    "Regression fixtures exercise real Mapping rollback, restored source with newer prepared world, re-adoption of consumed changes, same-sequence art growth, aliases, slots and prefix entry/restoration/exit. Corrected9b source-delta recovery remains in place.",
+    "Thirty CPU tests are verified by existing hash-bound logs. No material source issue found in reviewed paths."
+  ],
+  "pending": [
+    "GPU/app equivalence and complete platform compile checks.",
+    "Measured CPU benefit and memory/tail behavior with the actual app and latest metadata growth workload.",
+    "This does not remove separate pinned Scene-layer cloning or full GPU world upload cost."
+  ],
+  "decision": "Keep isolated until correctness and measured benefit justify promotion."
+}

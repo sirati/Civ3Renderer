@@ -1,0 +1,27 @@
+# Worker CPU prefix audit
+
+Successor source only. Frozen31b and60931 untouched. Parent authorized ownership of render-desc helper, render_worker growth commit, scene_prefix adversarial tests after measured cost.
+
+The previous growth commit cloned all Compiled metadata, applied a growth, and scanned all old descriptors/palettes/names/sets/fonts. It then separately cloned metadata for ArtCommitted. Release CPU microprofile confirmed metadata-clone/name-proof cost far exceeds growth application when art contains many named descriptors.
+
+Change: Compiled::apply_with_prefix_check checks only names written by Growth, preserves append-only numeric sets/fonts/palettes by the existing apply construction, and snapshots old descriptors only when palette append can rewrite their transparency bounds. It detects sprite aliases, explicit set replacement and shared EMPTY-set blend changes, including restoration by a final empty-set entry. Touched explicit sets use a bounded HashMap to avoid quadratic repeated-name checks. Existing full preserves_render_prefix remains an independent oracle in tests. Worker removes the full pre-apply metadata clone; ArtCommitted snapshot remains required and unchanged. No new locks, unsafe, packet/input transactions, memory limits or transfer allowance changes.
+
+Focused final validation in handover/worker-prefix-tests.log: scene_prefix tests9 passed, render_worker CPU tests9 passed (numeric GPU deliberately skipped final), no-locks2 passed. Includes512 growth chunks with repeated alias attacks, palette-bound rewrites and named/empty set combinations against the full oracle. Existing worker tests verify dropped frame ownership before main wake, coalescing, reply ordering and complete UI acceptance across optional art growth.
+
+CPU-only probe source is /mnt/datasets/c3r-build/worker-cpu-sol/probe. Release logs worker-prefix-before.log, worker-prefix-after.log and worker-prefix-comparison.log. Probe creates10k/50k/100k named descriptors then64 growth chunks of64 descriptors. It measures clone, apply and full proof independently, or incremental apply+check combined. Initial before p50 clone+scan were3.06/21.64/68.34ms; initial incremental combined p50 .028/.034/.034ms. Later same-binary serial comparison retained full p50/p95/p99 distributions; concurrent host work affects absolute tails. This is synthetic artstream CPU evidence, not real camera/presentation or steady240FPS proof. Actual dynamic artstream+camera240 measurement remains with mac_fps_music after baseline attribution.
+
+Audit conclusions: Wake's latched ring prevents an unconditional4ms frame throttle, and complete_frame drops Frame/World Arc before any completion wake, preserving unique main-owned TileWorld mutation. Layout/LookScene deep capture costs were handed to tile_popup_render_shadow; that owner measured and fixed shared LookScene storage separately.
+
+Coordination correction: an initial worker module filter briefly included its existing numeric GPU correctness test before the final command explicitly skipped it. Broad potential overlap10:51:42–10:55:40UTC was disclosed to mac_fps_music, who can repeat affected measurements. CPU comparison10:56:21–10:56:39UTC was also disclosed. All builds/profiles stopped upon exclusive-collection instruction. No performance result is claimed from those GPU tests.
+
+Independent reviewer scenario_crash subsequently approved the helper and integration with no findings. Durable mutation proof/source hashes are in handover/worker-prefix-independent-review.sol.json. No final4K240 claim. VM mmdevapi crash investigation now takes priority; audio owner owns symbol/source mapping, this agent supports native boundary audit.
+
+Native Wine boundary read-only support after VM crash evidence:
+- Three runtime logs, including60931, report stack overflow in mmdevapi. No attribution to the newly added initializer is justified by that chronology.
+- mac_audio_sol mapped exact Wine11 PE offsets to client_GetCurrentPadding and render_ReleaseBuffer immediately after wine_unix_call returns. That owner handles audio source/disassembly and controlled reproductions.
+- Verified exact Wine11 unixlib.h declares dispatcher NTSTATUS (WINAPI *)(u64,unsigned,void*), matching wine-unixlib pe.rs extern system. Native call table entries use extern C. No ABI/stack cleanup mismatch found.
+- Native dispatch copies POD arguments through guarded accessors and does not change TEB/signal state. Signal policy callback is restricted to viewer GPU/cursor/spawn_native children, not Wine call entry/return.
+- Audio API interception in repository is in civ3-sys/preferences.rs and applies original game audio functions on Preferences Accept; native GPU/art/viewer code has no direct mmdevapi/IAudio/waveout/dsound calls. No evidence preferences were open at fault.
+- Retained debugger sample covers winedbg, not the original crashing game thread. Distinct leaf return wrappers alone do not establish stack accumulation, TEB damage, or an audio recursion cause. Actual fault-thread SP, StackLimit and stack trace remain required.
+
+Correction to initial VM module attribution: audio owner resolved60931 fault to own Presenter::preload_ready just after a unixcall return, not mmdevapi. Both31b faults are mmdevapi return wrappers. A no-Rust/native vendor control also reproduces stack overflow after unixcall return, with ample32-bit stack space. Audio owner identified Wine's #SS-to-stack-overflow path and is testing mode-return/segment behavior. No production root cause or fix is claimed here.
