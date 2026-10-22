@@ -18,7 +18,6 @@
 //!
 //! `CIV3R_DETACHED_POPUPS=off` leaves the box modal, as before.
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::ui::Frame;
@@ -44,7 +43,7 @@ pub const MAX_KEPT: usize = 4;
 /// below the game's own popups (their canvases' addresses).
 pub const FIRST_VIEW: u32 = 0x1000;
 
-static KEPT: Mutex<Vec<Kept>> = Mutex::new(Vec::new());
+static KEPT: civ3r_sync::Latest<Vec<Kept>> = civ3r_sync::Latest::new();
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
 /// Whether the tile box is kept by the viewer rather than left modal.
@@ -62,31 +61,33 @@ pub fn enabled() -> bool {
 /// Keeps a popup's picture; its serial.
 pub fn keep(frame: Frame, rect: [i32; 4], anchor: scene::PopupAnchor, click: (i32, i32)) -> u64 {
     let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
-    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    if kept.len() >= MAX_KEPT {
-        kept.remove(0);
-    }
-    kept.push(Kept { serial, frame, rect, anchor, click });
+    let new = Kept { serial, frame, rect, anchor, click };
+    KEPT.update(|kept| {
+        let mut kept = kept.cloned().unwrap_or_default();
+        if kept.len() >= MAX_KEPT {
+            kept.remove(0);
+        }
+        kept.push(new.clone());
+        Some(kept)
+    });
     serial
 }
 
 /// The viewer closed popup `serial` (`scene::Input::CloseDetached`).
 pub fn close(serial: u64) {
-    KEPT.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| k.serial != serial);
+    KEPT.update(|kept| kept.map(|kept| kept.iter().filter(|k| k.serial != serial).cloned().collect()));
 }
 
 /// Every kept popup goes (a screen opened over the map, another game).
 pub fn close_all() {
-    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
-    if !kept.is_empty() {
+    if let Some(kept) = KEPT.take().filter(|kept| !kept.is_empty()) {
         log::info!("detached popups: {} closed (the map is no longer shown)", kept.len());
-        kept.clear();
     }
 }
 
 /// The popups kept now, oldest first (the `i`th in view `FIRST_VIEW + i`).
 pub fn kept() -> Vec<Kept> {
-    KEPT.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    KEPT.get().unwrap_or_default()
 }
 
 /// The scene's entry for the `index`th kept popup.
