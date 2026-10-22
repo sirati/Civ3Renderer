@@ -19,7 +19,7 @@
   "parent_independent_remote_hashes_verified": true,
   "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z",
   "game_launched": false,
-  "runtime_acceptance": "not exercised by installation",
+  "runtime_acceptance": "User reports native game window never appears; Intel macOS VM investigation underway; Neo unavailable.",
   "receipts": {
     "deployment-summary.json": {
       "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/deployment-summary.json",

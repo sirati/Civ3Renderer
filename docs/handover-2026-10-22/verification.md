@@ -42,3 +42,9 @@ The evidence contains aggregate host, Wine PE, Intel macOS CPU, native Windows a
 The handover checks local links, the actual unfinished tasks, current priorities, JSON and copied evidence hashes. The latest installation also has a separate parent review of six fresh remote hashes and the strict app signature, recorded in [deployment.json](deployment.json). No game launch or gameplay acceptance follows from installation verification.
 
 The offline reading copy receives static structure/link checks. Visual browser preview was unavailable because the headless browser exited unexpectedly and the collaborative browser could not start.
+
+## Scope of the macOS VM comparison
+
+The current missing-window investigation must exercise the normal app/starter path, including its default startup window. A visible renderer and usable game UI are required; help output, heartbeat logs and a CLI launch with bypass flags are insufficient.
+
+The Intel VM uses SwiftShader Vulkan and bitmap presentation, while Neo uses ARM64 Wine/FEX and Metal. The launcher also selects an Intel-only compatibility runtime in [wine_compat.rs](../../crates/civ3r-launcher/src/unix/wine_compat.rs). A successful Intel VM run narrows the problem but cannot identify ARM64 as the sole cause. Neo is unavailable and must not be contacted during this test.

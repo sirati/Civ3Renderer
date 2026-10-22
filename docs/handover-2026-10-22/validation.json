@@ -1,25 +1,16 @@
 {
   "checked_date": "2026-10-22",
-  "scope": "Current user priorities, unfinished-only subagent entries and installation record verified.",
-  "unfinished_continuation_tasks": 5,
-  "completed_task_statements": 12,
-  "historical_ledger_families": 85,
-  "assigned_checks": 10,
+  "scope": "Runtime failure recorded separately from installation; one VM agent active; no Neo contact permitted.",
+  "unfinished_continuation_tasks": 6,
+  "active_agents": 1,
   "evidence_records_verified": 13,
-  "markdown_links_verified": 59,
-  "html_links_verified": 49,
-  "html_sha256": "bba48418dc8e84c0d92bc9c431cf6c5101a02c164b01400f12eab56c3988784a",
-  "priorities": {
-    "combat_validation": "P1",
-    "audio_loaded": "P3",
-    "cpu_timing": "P3",
-    "performance_240": "P3",
-    "wider_color": "P4"
+  "markdown_links_verified": 62,
+  "html_sha256": "769eb020c3868a28507088ea3ff7a901b5b33d78bbf734232dcfea28460f76d5",
+  "runtime_verdict": "pending macOS VM test; user reports missing native window on Neo",
+  "priorities_preserved": {
+    "sound": "P3",
+    "fps240": "P3",
+    "six_seven_bit": "P4"
   },
-  "deployment_status": "installed_and_accepted",
-  "protocol": 50,
-  "independent_remote_hashes_verified": 6,
-  "strict_app_signature_verified": true,
-  "visual_preview": "Browser preview previously unavailable; static structure/links verified.",
-  "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39"
+  "visual_preview": "Previously unavailable; local links/JSON checked."
 }
