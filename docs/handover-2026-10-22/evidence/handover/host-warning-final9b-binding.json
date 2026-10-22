@@ -1,0 +1,90 @@
+{
+  "source_archive_sha256": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+  "fallback_sha256": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
+  "scene_protocol": 50,
+  "manifest": {
+    "path": "/mnt/datasets/c3r-build/release-1019/artifacts/9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205/host-test-executables.json",
+    "sha256": "17b95b2188d9eec2370c3d746de8be898ada226e41ed9e33976b9bd5cd59982b"
+  },
+  "files": {
+    "marker_text": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205/debug/deps/marker_text-0592c746dee7e067",
+      "sha256": "85c1093ba8437d7ad3f1f056f6d7962fe9cea17747ea69209d09e3e19c660654",
+      "shader_embed_count": 1,
+      "fallback_embed_count": 1,
+      "verified_sha256": "85c1093ba8437d7ad3f1f056f6d7962fe9cea17747ea69209d09e3e19c660654"
+    },
+    "host_status_pixels": {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205/debug/deps/host_status_pixels-97130e5d4143f418",
+      "sha256": "5b8af525311c008eed64bc4d5a16af1e3334c33b928d47d82e309c2365ab5cb9",
+      "shader_embed_count": 1,
+      "fallback_embed_count": 1,
+      "verified_sha256": "5b8af525311c008eed64bc4d5a16af1e3334c33b928d47d82e309c2365ab5cb9"
+    }
+  },
+  "gpu_env": {
+    "TILE_RENDER_ADAPTER": "radv",
+    "WGPU_BACKEND": "vulkan",
+    "WGPU_VALIDATION": "1",
+    "VK_DRIVER_FILES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json",
+    "VK_ICD_FILENAMES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json",
+    "DRI_PRIME": "pci-0000_72_00_0!"
+  },
+  "pci_device": {
+    "address": "0000:72:00.0",
+    "vendor": "0x1002",
+    "device": "0x13c0"
+  },
+  "status": "scoped GPU acceptance passed; broker GPU lease explicitly released",
+  "verified_source_archive_sha256": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "verified_shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+  "verified_fallback_sha256": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
+  "source_manifest_sha256": "02769d563b8386e0ac079728a84d168148ba26801d5d55a3cc1e191ba480daac",
+  "scoped_source": {
+    "crates/tile-render/src/renderer.rs": {
+      "sha256": "427c3cad90717e5f1277095b9b979479cb6e8cc2cdae9aa2df0becd31f36f57b",
+      "bytes": 166398
+    },
+    "crates/tile-render/tests/marker_text.rs": {
+      "sha256": "5cd9e8b06737e38cba9c220b73213d1c5ef7ecb38bf1013562fdc69d992e20af",
+      "bytes": 5262
+    },
+    "crates/tile-viewer/src/host_status.rs": {
+      "sha256": "ce5fb834924457ccd4963a182e121d217f403713fdebf6c5b74c636eb1db7f48",
+      "bytes": 26787
+    },
+    "crates/tile-viewer/tests/host_status_pixels.rs": {
+      "sha256": "f977a0448da9f90eb411ed3d049677ffc5f695e486f1013e9da49736028d3292",
+      "bytes": 2865
+    },
+    "crates/render-desc/src/fallback_font.rs": {
+      "sha256": "90f995147302ef1cce708368619187af1904a5aeb6b8662a945e6fb5017c11e5",
+      "bytes": 2772
+    },
+    "crates/tile-render-shared/src/text.rs": {
+      "sha256": "a3929c2ff388df42bbd5afe4a2699e889a9c5c211fb20ee772a2475e6cdba243",
+      "bytes": 31120
+    }
+  },
+  "results": {
+    "marker_text": {
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "log": "/mnt/datasets/c3r-build/handover/host-warning-final9b-marker-gpu.log",
+      "log_sha256": "1810aae0564bc013e90fb58e73a81f1f8247d1b04544973c9f90ecf93af6ee17",
+      "post_run_executable_sha256": "85c1093ba8437d7ad3f1f056f6d7962fe9cea17747ea69209d09e3e19c660654"
+    },
+    "host_status_pixels": {
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "log": "/mnt/datasets/c3r-build/handover/host-warning-final9b-status-gpu.log",
+      "log_sha256": "3829049bcf35aeba97316cd26cd98165ce347e66a6e10e0ddc201372cc6769de",
+      "post_run_executable_sha256": "5b8af525311c008eed64bc4d5a16af1e3334c33b928d47d82e309c2365ab5cb9"
+    }
+  },
+  "completed_utc": "2026-10-20T15:26:25.981245+00:00",
+  "scope": "final immutable9b existing marker_text and host_status_pixels only; no compilation/source edits; launcher CPU-to-GPU candidate excluded"
+}

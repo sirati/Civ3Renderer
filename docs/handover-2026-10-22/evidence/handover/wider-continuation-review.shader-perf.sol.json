@@ -1,0 +1,197 @@
+{
+  "reviewer": "/root/shader_perf_sol",
+  "scope": "Read-only wider666/777 continuation source review; no source edits, compiler invocation, SPIR-V build, GPU run, screenshot inspection, acceptance or performance claim.",
+  "source": "/mnt/datasets/c3r-build/wider-integer-sol/source",
+  "original_checkpoint": {
+    "manifest": "/mnt/datasets/c3r-build/wider-integer-sol/checkpoint-dde44b42/manifest.json",
+    "sha256": "ebaa676d45cc38edceb3318c7e6085f75bc50c891a0a8d0aeffb6e082abe3802",
+    "verified_files": 12,
+    "mismatches": [],
+    "continuation_sha256": "dde44b4292ec3b9003341367c724b1fb73664c6b52c0f5d2331b78166c36121b"
+  },
+  "procedural_checkpoint": {
+    "manifest": "/mnt/datasets/c3r-build/wider-integer-sol/continuation-procedural-checkpoint.json",
+    "sha256": "0fbd95190e8d7d8c7389dc812508bae081e4121ffa0f10230a99c7f2031270a2",
+    "verified_core_files": 8,
+    "core_mismatches": [],
+    "continuation_sha256": "39e7856380e7efcb3b76c30b269d9419bfdc446e8a71cbcffa5717caa5e69eb9",
+    "fixture_drift": {
+      "tests/continuation.rs": {
+        "manifest_sha256": "1e65f667628a36c00401c819e38a5fefb94d5e3b3fe7bd1020e021503f7b5590",
+        "observed_sha256": "0da0caaf34e42340c30dfd982373dee87b55eeca25e9f8394da558e548170478"
+      }
+    }
+  },
+  "findings": [
+    {
+      "id": "W1",
+      "status": "Corrected in procedural source checkpoint; runtime validation pending",
+      "problem": "One Prepare stage scanned all fonts/glyphs and uploaded scene-wide cache metadata/jobs outside the piece/visit budget.",
+      "original_references": [
+        "crates/tile-render/src/renderer/wider/continuation.rs:553",
+        "crates/tile-render/src/renderer/glyph_cache.rs:259",
+        "crates/tile-render/src/renderer/glyph_cache.rs:204"
+      ],
+      "correction": "Prepare stage/cache metadata path removed from continuation. Procedural per-piece outline shaders call shared exact GPU coverage and keyed composition. Legacy cached text is preserved as comparison control.",
+      "corrected_references": [
+        "crates/tile-render-shaders/src/wider.rs:205",
+        "crates/tile-render-shaders/src/wider.rs:234",
+        "crates/tile-render-shaders/src/wider.rs:255",
+        "crates/tile-render/src/renderer/wider.rs:534"
+      ]
+    },
+    {
+      "id": "W2",
+      "status": "Reported to owner and root; open at reviewed checkpoint",
+      "problem": "append_view scans arbitrarily many ineligible free runs before returning WiderFrame, outside WiderWorkBudget.",
+      "references": [
+        "crates/tile-render/src/renderer/wider/continuation.rs:390"
+      ],
+      "scenario": "Alternating run kinds/classes for a different view keep every run ineligible. Startup visits every run for each relevant view/pass.",
+      "suggestion": "Create a draw stage for a nonempty run list; let next_piece charge skipped runs against visits."
+    },
+    {
+      "id": "W3",
+      "status": "Reported to owner; open at reviewed checkpoint",
+      "problem": "Placement construction invokes zoomed_from filter/map/min over all first_zoomed metadata outside WiderWorkBudget.",
+      "references": [
+        "crates/tile-render/src/renderer/wider/continuation.rs:201",
+        "crates/tile-render/src/world.rs:1273"
+      ],
+      "scenario": "Distinct zoom/view/except/category tuples make the deduplicated first_zoomed list arbitrarily large. Each scaled view performs another full scan.",
+      "suggestion": "Budget placement metadata work or query a suitable index computed during source preparation. No scene rejection cap."
+    },
+    {
+      "id": "W4",
+      "status": "Reported to owner and root; open at reviewed checkpoint",
+      "problem": "Replacing mismatched private canvas/source pictures can omit GPU-live retired textures from combined resident-byte accounting.",
+      "references": [
+        "crates/tile-render/src/renderer/wider/continuation.rs:210",
+        "crates/tile-render/src/renderer.rs:3075",
+        "crates/tile-render/src/renderer/wider.rs:62",
+        "crates/tile-render/src/renderer.rs:1147"
+      ],
+      "scenario": "Submit a partial job, cancel, start at a different canvas size before completion, cancel again, then admit an atlas transfer. wgpu retains the old submitted texture while atlas_resident_bytes charges only current replacement storage.",
+      "bound": "Shared submission cap bounds the count of GPU-live retired workspaces; it does not charge their bytes to the advertised combined ceiling.",
+      "suggestion": "Track retired picture ownership/bytes by completion sequence and reap them after nonblocking completion service."
+    }
+  ],
+  "integration_requirements": [
+    {
+      "id": "I1",
+      "requirement": "Service completion callbacks externally while Backpressure prevents new submissions.",
+      "evidence": "wgpu30.0.1/src/api/queue.rs:306-317 explicitly requires queue.submit, instance.poll_all or device.poll elsewhere. advance polls once at entry, so callback-only scheduling cannot service a quiescent native runtime.",
+      "owner_response": "Production actor will retain its nonblocking device.poll each round, immediately continue after Advanced, and use bounded park only when enqueueing is blocked. API documentation will state external servicing obligation.",
+      "classification": "Integration requirement, not a confirmed deadlock in the existing periodically polling worker."
+    },
+    {
+      "id": "I2",
+      "requirement": "Finish an active immutable job while coalescing latest producer updates; do not cancel/restart every time new input arrives.",
+      "classification": "Production fairness acceptance remains pending worker integration."
+    },
+    {
+      "id": "I3",
+      "requirement": "Include continuation submissions in CPU/GPU profiling, or explicitly report GPU timing unavailable.",
+      "evidence": "All continuation passes/output pass currently receive no timing writes; Steps.timer is None at continuation.rs:685.",
+      "classification": "Current path cannot produce the required qualified GPU timing evidence."
+    }
+  ],
+  "source_reasoning": [
+    "WiderFrame moves and owns TileRenderer; supported callers cannot mutate world, atlas or controls during assembly.",
+    "One CompletionWindow remains in State across finish and cancellation. Its three outstanding slots therefore cover current and retired jobs together. fetch_max is valid for queue-ordered submissions.",
+    "Every advance submits its complete encoder before returning. After cancellation, later queue writes follow those commands by queue order.",
+    "Private canvas is composed separately from the previous published scratch. Output target is touched only after complete scene assembly. Cancel keeps published canvas/picture_bits.",
+    "Same-size private canvas and private source-picture reuse is safe by queue order. Published output samples composed scratch, not the source workspace.",
+    "DrawCursor preserves original cell-major layer order and original free-run order. Each instance finishes its disjoint snapshot tiles before the next instance.",
+    "Reach-cache or metadata-budget overflow uses conservative bounds instead of rejecting/skipping scenes. No painter-order omission was found in reviewed overflow paths.",
+    "atlas_preparer shares control buffers, but its existing documented contract prohibits assigning a world or rendering with it. This was not treated as a supported-use aliasing defect."
+  ],
+  "validation_limits": [
+    "Only source and manifest hashes were inspected. No fixture was executed.",
+    "The owner reports successful rustfmt parsing; this reviewer did not claim typecheck, shader acceptance or GPU correctness.",
+    "Fixture drift requires a fresh hash-bound checkpoint before compiler/GPU acceptance.",
+    "The separate binary-cell candidate remains isolated and unadopted.",
+    "Actual native 4K at 240 FPS on the AMD iGPU remains unverified."
+  ],
+  "followup_review": {
+    "checkpoint": "/mnt/datasets/c3r-build/wider-integer-sol/source-only-manifest.json",
+    "manifest_sha256": "2e119aae3611c9146e7229c49c72a49187571e232931ee0ef1c0b1343f8d9aeb",
+    "verified_files": {
+      "current_source": 16,
+      "frozen_changed_files": 16,
+      "mismatches": []
+    },
+    "scope": "Independent core source correction review only. Worker/overlay review is assigned to startup_progress_sol. No edits to candidate, compiler invocation or GPU work.",
+    "original_findings_status": {
+      "W1": "Closed in source: procedural per-piece text retains shared exact GPU math; compiler/GPU validation pending.",
+      "W2": "Closed in source: append_view checks list nonemptiness; next_piece charges run eligibility and exhausted-run transitions to visits.",
+      "W3": "Closed in source: initial placements gather at most32 camera queries, then advance scans each first_zoomed record once under visits; final placements use bounded query results.",
+      "W4": "Corrected lifecycle/accounting design in source; implementation has the visibility blocker below before it can compile."
+    },
+    "concrete_remaining_blockers": [
+      {
+        "id": "F1",
+        "severity": "compiler gate",
+        "references": [
+          "crates/tile-render/src/renderer/wider/retirement.rs:6",
+          "crates/tile-render/src/renderer/wider/retirement.rs:15",
+          "crates/tile-render/src/renderer/wider/retirement.rs:28",
+          "crates/tile-render/src/renderer/wider/retirement.rs:43",
+          "crates/tile-render/src/renderer/wider.rs:6",
+          "crates/tile-render/src/renderer.rs:739"
+        ],
+        "finding": "Retirement types, helper, fields and methods are declared pub(super), limited to renderer::wider. Re-exporting them outward to renderer and using ledger members there widens/accesses beyond their declared visibility. Make visibility consistent through crate::renderer. Source finding only; no compiler was run.",
+        "owner_notified": true,
+        "root_notified": true
+      },
+      {
+        "id": "F2",
+        "severity": "fixture gate",
+        "references": [
+          "crates/tile-render/tests/wider_integer_continuation.rs:320",
+          "crates/tile-render/src/world.rs:581"
+        ],
+        "finding": "The metadata-cache overflow fixture adds1025 layers, while unchanged TileWorld::add_layer asserts a maximum255. It will panic at layer256 before exercising reach-cache overflow. Use valid<=255 layers with multiple binding/downscale keys; do not raise the existing production limit for a test.",
+        "owner_notified": true,
+        "root_notified": true
+      }
+    ],
+    "core_reasoning": [
+      "ReachScan retains set/frame/partial reach across turns. Set headers and sprite identifiers each consume a visit; the same cell is retained until its reach resolves. Final cell inspection is separately charged. No repeated-prefix scan was found.",
+      "Missing/capped reach metadata continues to use a conservative viewport scissor. MAX_METADATA_VISITS and MAX_REACHES limit cached geometry, not accepted scenes or painter operations.",
+      "Each original instance completes all of its disjoint tiles before the cursor advances, preserving cell-major layer order, row direction, free-run order and final-only publication across yields.",
+      "PictureLedger keeps replaced private canvas/source/base resources and their byte charges until their recorded last-use completion. NeverSubmitted pictures can be dropped immediately.",
+      "Wider resources use the shared monotonic CompletionWindow sequence. Pending legacy retirement receives a callback only after controls_submitted confirms all older encoded work was submitted. Submitted live legacy pictures obtain a fence when actually retired.",
+      "Legacy tagging before resource replacement is conservative. Same-size reuse remains safe by queue ordering. No new CPU/GPU completion wait was found.",
+      "The callback API documentation now explicitly requires external nonblocking callback servicing while backpressured. Production integration remains independently unaccepted.",
+      "The unchanged first_zoomed construction uses repeated Vec::find. Its potential quadratic source preparation cost is disclosed by the owner and is outside this corrected continuation advance path."
+    ],
+    "acceptance": "Pending owner corrections, coherent typecheck/SPIR-V/GPU gates and separate worker review. No4K240FPS claim."
+  },
+  "successor_review": {
+    "manifest": "/mnt/datasets/c3r-build/wider-integer-sol/review-successor-checkpoint/manifest.json",
+    "manifest_sha256": "bc21ee6504aeb6fad67ebed80f0380bb6a74f0c7cf765242e48b1bd4df6ef872",
+    "frozen_files_verified": 16,
+    "visibility_fix": "F1 is corrected in source by consistent pub(in crate::renderer).",
+    "valid_scene_fix": "F2 is corrected in source.255 layers across five downscales produce1275 keys, and KEEP_SIZE plus placed-size assertions ensure every sprite remains visible.",
+    "remaining_fixture_gap": {
+      "id": "F3",
+      "reference": "crates/tile-render/tests/wider_integer_continuation.rs:313",
+      "finding": "Identical translucent white over white reaches a colour/alpha fixed point before1024 reaches. An implementation omitting uncached final251 operations can still satisfy the fixture. Add a visibly distinct final layer in the uncached region, with an exact expected colour/alpha, to detect missing or reordered overflow draws.",
+      "classification": "Qualification fixture weakness, not a newly identified production rendering defect.",
+      "owner_notified": true,
+      "root_notified": true
+    },
+    "production_core_review": "No additional ownership, queue-order, publication, bounded-scan or retired-byte admission defect found in the reviewed source. Compilation/SPIR-V/GPU validation remains required.",
+    "no_compile_or_GPU_work": true,
+    "worker_review": "Assigned separately to startup_progress_sol."
+  },
+  "focused_fixture_followup": {
+    "status": "F3 corrected in working source; successor freeze pending",
+    "external": "/mnt/datasets/c3r-build/wider-integer-sol/tests/continuation.rs",
+    "cargo": "/mnt/datasets/c3r-build/wider-integer-sol/source/crates/tile-render/tests/wider_integer_continuation.rs",
+    "sha256": "8543a3b70d4e0c2d59886a932884a1b1a5ad973bfc400cca681f1f938cfef9fb",
+    "review": "First254 layers are translucent white. The final layer selects opaque blue in the first four cameras and opaque red only in fifth-camera binding1/data slot. Fifth-camera final reach lies beyond the1024-entry cache. All sprites remain1x1 via KEEP_SIZE for downscales1..5. Expected final[255,0,0,255] differs if uncached draws, final red or entire fifth view are omitted, or red moves before white. Valid255-layer production limit is retained.",
+    "no_compile_or_GPU_execution": true
+  }
+}

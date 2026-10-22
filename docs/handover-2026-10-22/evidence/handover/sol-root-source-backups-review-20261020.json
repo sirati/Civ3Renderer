@@ -1,0 +1,22 @@
+{
+  "reviewed_utc": "2026-10-20T19:30:12.828668+00:00",
+  "main_commit": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+  "development_source_commit": "6162a7debb8adcc78eac147611eeb1539c7e78c8",
+  "private_source_files": 55602,
+  "complete_active_source_manifests_verified": {
+    "binary-cell-blend-sol/actualapp-f510/source": 675,
+    "release-1019/src-f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703": 673,
+    "wider-integer-sol/source": 679,
+    "combat-diagnostics-army/f510-outcomes-rebind/candidate": 676
+  },
+  "root_independent_remote_readback": "Both hosts main/dev refs and all4 bundle/archive SHA256 plus manifest/RESTORE/final-receipt SHA256 independently match. Owner separately restored bare mirrors and bundleverify/fsckfull passed on both.",
+  "hosts": {
+    "Papa_laptop": "/home/sirati/civ3r-source-backups/20261020T1918Z",
+    "Mac_Neo": "/Users/sirati/civ3r-source-backups/20261020T1918Z"
+  },
+  "origin_status": "Configured origin is missing localpath /home/sirati/Projects/civ3-renderer-old, so no push there. Verified offhost Git mirrors and bundles satisfy fallback backups.",
+  "main_tree_clean": true,
+  "main_f510_source_bytes_unchanged": true,
+  "decision": "Source commit/offhost backup priority complete. Release backup freeze for prior authorized renderer work under broker scheduling. Preserve backups outside scratch cleanup; commit and replicate new source checkpoints before future source cleanup.",
+  "receipt_sha256": "8f5c4b152222c718dd3dcc1ab6f08dceeee7b725ab22438da8ab699b3c86d7cb"
+}

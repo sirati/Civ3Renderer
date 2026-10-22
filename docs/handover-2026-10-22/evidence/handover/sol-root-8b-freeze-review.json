@@ -1,0 +1,62 @@
+{
+  "reviewed_utc": "2026-10-20T15:31:43.077211+00:00",
+  "source_archive_sha256": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "files": 670,
+  "all_frozen_file_size_hashes_verified": true,
+  "all_shared_file_hashes_match": true,
+  "base_source": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "only_delta": [
+    "Cargo.lock",
+    "crates/civ3r-launcher/Cargo.toml",
+    "crates/civ3r-launcher/src/startup.rs",
+    "crates/civ3r-launcher/src/startup/gpu.rs"
+  ],
+  "changed_files": {
+    "Cargo.lock": [
+      {
+        "sha256": "ab1620891fe86bcc751b0ac399773b73b2746d3dacad4f057ec505f5eb1b60d4",
+        "bytes": 97468
+      },
+      {
+        "sha256": "e3736f09ad43284789a885e106d77adfb4693686fb2a2d0aacf8144ddd159d31",
+        "bytes": 96458
+      }
+    ],
+    "crates/civ3r-launcher/Cargo.toml": [
+      {
+        "sha256": "fe4c5c5a5bb2bc4dba3aca07374b8ad95cc8e35649a3f58b2900952a381edf8b",
+        "bytes": 657
+      },
+      {
+        "sha256": "b40d57b9ad6824d6c26bbea1ba55ea2c6d1a5101e28eaf5f0d068031ed24436f",
+        "bytes": 610
+      }
+    ],
+    "crates/civ3r-launcher/src/startup.rs": [
+      {
+        "sha256": "5ae2672bfa048cda877f896dc2b195d5051965fdd4465f93c30144aad43c2dd2",
+        "bytes": 12515
+      },
+      {
+        "sha256": "18710796c0b59943383aa9b93c47de713fb6db8602266c6257e4590b3b38b3d4",
+        "bytes": 10576
+      }
+    ],
+    "crates/civ3r-launcher/src/startup/gpu.rs": [
+      null,
+      {
+        "sha256": "990cc213051447ed33d350967209ccf4a836f8e9768406241da84ce6b6cd0990",
+        "bytes": 10222
+      }
+    ]
+  },
+  "scene_protocol": 50,
+  "shader_pair_unchanged": [
+    "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+    "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281"
+  ],
+  "private_perf_prototypes_excluded": true,
+  "limits": "Source identities only. Affected launchers need rebuilt artifact and native lifecycle acceptance. Unchanged9b renderer/PE carry requires exact artifact hashes and explicit manifest mapping.",
+  "archive_digest_independently_verified": true,
+  "source_manifest_sha256": "d1c3e17187d94a84e1d45616ad4f13ac775500e78c4d23837325541c827c46a3"
+}

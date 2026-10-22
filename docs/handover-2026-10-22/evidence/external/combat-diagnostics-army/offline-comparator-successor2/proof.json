@@ -1,0 +1,85 @@
+{
+  "status": "isolated_comparator_successor2_ready_no_native_acceptance",
+  "parents_preserved": [
+    {
+      "directory": "/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator",
+      "proof_sha256": "11dbaf8ddcb15aace5a68cf46e411e2fc06c8624c75f65497c53bf73b8f60d1c",
+      "all_bound_source_and_proof_files_unchanged": true
+    },
+    {
+      "directory": "/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator-successor",
+      "proof_sha256": "98a6f8aeb2fe23d15ab239928a78b8cd3879bb98d1e87c498dc2680805430cfe",
+      "all_bound_source_and_proof_files_unchanged": true
+    }
+  ],
+  "source_files": {
+    "compare.py": "ad07842543aad40d2d25464c1420223464836b0a5b889edb24e4b59b268544ae",
+    "test_compare.py": "06171a0747618d8b85c134692a360f339116ed64d4248ce7be26e7c564323b8c",
+    "README.txt": "150f92d92fbfe595ed6b562ac959cbb50fd05154a436306c18f95a29da143ff0",
+    "arm-template.json": "ab940a27411a0282e653df194b73d676e6397c4b77a9853b72571948a35d849d",
+    "runtime-gate-template.json": "719e16243fe40a24154a0c337e7d9dc9c5ca8a33dd27de828d678f9b9264280b",
+    "tests.log": "fe31b21ab5433267631b5c34d660ab7a9d1d0bf6a656416a101a51082dc63769",
+    "SYNTHETIC-1x.log": "d7241331a3daadae48f484c0d161b41d0b21f0ea14ecfe3cf1607a666d7611ac",
+    "SYNTHETIC-4x.log": "b27f94da255dedc9303daea0f02bc9b9dc1f00d25047e9f000e08315af70ebc5",
+    "SYNTHETIC-oracle-proof.json": "b0461ccd3fb9f4a05312213e177eade3b4e8094295e88565312d9277be59aeb8",
+    "placeholder-cli-rejection.json": "f5fd3ce267b32a74f4a241c60d3e3962d64930fb1ea29e3ddfb39950c0c1195b",
+    "successor2.patch": "ce80ce7dd234ed0560246c6c532e3cc924ba31c3929c32e8568a5cbc56a81792"
+  },
+  "observer_source_format_unchanged": true,
+  "observer_binding": {
+    "combat_diagnostics.rs": "dc5f09341215d9646a47c48fe02f8604426c544e17a9299fd4384cad0560ae58",
+    "combat_diagnostic_outcomes.rs": "a537602b3a29ccd9de672262616c3f79dbd226f23f171173e3ac8df3206826c6",
+    "source_manifest_sha256": "8a5c11b7acf3a757fc3c146bab333c81c71e844f25fc4f227ba3f3e0f4163a35",
+    "patch_sha256": "1e70444bb10e6da761899987710d39a17276dbc7a1586dd7d1560a83c4b4de4c"
+  },
+  "independent_findings_bound": {
+    "path": "/mnt/datasets/c3r-build/handover/offline-comparator-successor-independent-sol.txt",
+    "sha256": "7a70e4381ee6480d6e267d772024c7faa861e61731a3e053d3f193170912dda4"
+  },
+  "corrections": [
+    {
+      "finding": "Outside-speed TOML bool/int and int/float equality could pass.",
+      "fix": "Recursive exact type+value comparison at complete remaining config gate. Full-binding tests reject true/1, false/0,1/1.0 and nested array bool/int."
+    },
+    {
+      "finding": "Unselected malformed native scope could survive framing parse despite whole-file validation wording.",
+      "fix": "Every block now passes native scope/endpoint/identity/final-participant structural checks. Harmless unselected no-fight block is allowed without requiring combat, preserve bit or fixed rules. Selected-only combat/header/preserve acceptance remains explicit."
+    },
+    {
+      "finding": "Stat then unbounded arm JSON read and deep JSON recursion escaped clean rejection.",
+      "fix": "All JSON uses bounded byte snapshots with max+1 read;64-level predecoder scan outside strings; decoder RecursionError becomes Invalid and CLI catches other recursion failures. Real growth-after-stat and200001-byte/100000-depth CLI regressions reject cleanly."
+    }
+  ],
+  "tests": {
+    "passed": 27,
+    "failed": 0,
+    "command": "python3 -m unittest discover -s offline-comparator-successor2 -v",
+    "scope": "pure synthetic parser/oracle and temporary-file binding tests only",
+    "new_test_groups": [
+      "Full-binding recursive TOML type mismatches",
+      "Harmless unselected noncombat and malformed unselected scopes/endpoints",
+      "Deep JSON clean CLI rejection, decoder recursion, read growth after stat, escaped brackets, duplicate/malformed JSON"
+    ]
+  },
+  "retained_invariants": [
+    "Explicit selected capture IDs",
+    "All scoped defender/outcome and boundary RNG/full-rule comparisons",
+    "Same-scope actual defender reselection rejection",
+    "No manual native-flush success assertion; computed complete byte/hash record integrity only",
+    "Current native flush return, normal exit and persistence explicitly unobserved",
+    "Trustworthy external runtime/save/rules/config/command fixture evidence remains required",
+    "No idle/viewer/scanout/exact-speed timing pass"
+  ],
+  "resource_limits": {
+    "json_nesting": 64,
+    "binding_snapshot_bytes": 2097152,
+    "log_snapshot_bytes": 134217728,
+    "records_per_capture": 8192
+  },
+  "no_claims": [
+    "No native game captures processed",
+    "No builds/GPU/VM/runtime operations",
+    "No shared or observer source/format edits",
+    "No runtime/shipping acceptance"
+  ]
+}

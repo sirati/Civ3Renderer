@@ -1,0 +1,14 @@
+{
+  "shader_sha256": "205615534df6338a51dc46e8a2d11591bfe6569aff9f081104da39fe8acd4e9f",
+  "toggle": "TILE_RENDER_TILES555=0 (generic),1 (specialized), read once per renderer",
+  "files": {
+    "crates/civ3-bridge/src/bin/perf240.rs": "7c2cfeda491c2ec25f4ed50b3b7cebda7bae52677e24cf44c54e9c908a9f6485",
+    "crates/tile-render/src/renderer.rs": "ca67dbf9030d479421eea8058ca79b78e1b057982e9e30b68a3a306a85be897e",
+    "crates/tile-render-shaders/src/lib.rs": "2a6191f60d40d13de95e2fe623ccdd73304c9245acfd856fb623a29487e05d24"
+  },
+  "binary": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/perf240-tiles555",
+    "sha256": "43a41dee8dc4ab3e63eb93084af97f909a62b21ccbb5e870856e13488b1b596a",
+    "shader_embedded_once": true
+  }
+}

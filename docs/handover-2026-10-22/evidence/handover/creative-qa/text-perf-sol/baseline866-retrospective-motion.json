@@ -1,0 +1,408 @@
+{
+  "scope": "CPU-only retrospective application of the strengthened motion predicate to immutable old observations. No App/GPU/compositor was started. Raw historical reports are unchanged.",
+  "fixture_source_sha256": "d2f6afbfe6a792c97ebf890ebef1039d4ab7b95fd5ee1a034077a5e9d08b9964",
+  "repetitions": [
+    {
+      "repetition": 1,
+      "ordered_primary_camera_x": [
+        6821,
+        5704,
+        4132,
+        3000,
+        1449,
+        301,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "primary_camera": {
+        "camera_index": 0,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            6821,
+            1800
+          ],
+          [
+            5704,
+            1800
+          ],
+          [
+            4132,
+            1800
+          ],
+          [
+            3000,
+            1800
+          ],
+          [
+            1449,
+            1800
+          ],
+          [
+            301,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": false,
+        "positive_x_legs": 0,
+        "negative_x_legs": 6,
+        "x_direction_reversals": 0,
+        "world_positions": [
+          [
+            0,
+            1800
+          ],
+          [
+            301,
+            1800
+          ],
+          [
+            1449,
+            1800
+          ],
+          [
+            3000,
+            1800
+          ],
+          [
+            4132,
+            1800
+          ],
+          [
+            5704,
+            1800
+          ],
+          [
+            6821,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            -6821,
+            -1800
+          ],
+          [
+            -5704,
+            -1800
+          ],
+          [
+            -4132,
+            -1800
+          ],
+          [
+            -3000,
+            -1800
+          ],
+          [
+            -1449,
+            -1800
+          ],
+          [
+            -301,
+            -1800
+          ],
+          [
+            0,
+            -1800
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            0,
+            0
+          ]
+        ],
+        "world_camera_changed": true,
+        "label_mapping_changed": true,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          0,
+          0
+        ],
+        "viewport": [
+          1920,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "sustained_motion_gate_passed": false,
+      "raw_full_submit_fps": 45.421564359309244,
+      "full_submitted": 2504,
+      "reuse": 0,
+      "gpu_samples": 2032,
+      "gpu_sample_coverage": 0.8115015974440895,
+      "immutable_historical_report": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-1/qualification.json"
+    },
+    {
+      "repetition": 2,
+      "ordered_primary_camera_x": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "primary_camera": {
+        "camera_index": 0,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": false,
+        "positive_x_legs": 0,
+        "negative_x_legs": 0,
+        "x_direction_reversals": 0,
+        "world_positions": [
+          [
+            0,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            0,
+            -1800
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            0,
+            0
+          ]
+        ],
+        "world_camera_changed": false,
+        "label_mapping_changed": false,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          0,
+          0
+        ],
+        "viewport": [
+          1920,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "sustained_motion_gate_passed": false,
+      "raw_full_submit_fps": 47.106447865233804,
+      "full_submitted": 2595,
+      "reuse": 0,
+      "gpu_samples": 2124,
+      "gpu_sample_coverage": 0.8184971098265896,
+      "immutable_historical_report": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-2/qualification.json"
+    },
+    {
+      "repetition": 3,
+      "ordered_primary_camera_x": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "primary_camera": {
+        "camera_index": 0,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ],
+          [
+            0,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": false,
+        "positive_x_legs": 0,
+        "negative_x_legs": 0,
+        "x_direction_reversals": 0,
+        "world_positions": [
+          [
+            0,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            0,
+            -1800
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            0,
+            0
+          ]
+        ],
+        "world_camera_changed": false,
+        "label_mapping_changed": false,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          0,
+          0
+        ],
+        "viewport": [
+          1920,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "sustained_motion_gate_passed": false,
+      "raw_full_submit_fps": 47.507533674617875,
+      "full_submitted": 2617,
+      "reuse": 0,
+      "gpu_samples": 2104,
+      "gpu_sample_coverage": 0.8039740160489109,
+      "immutable_historical_report": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-3/qualification.json"
+    }
+  ],
+  "all_three_fail_sustained_motion": true,
+  "pooled_dynamic_average": null,
+  "physical_scanout_verified": false
+}

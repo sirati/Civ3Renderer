@@ -1,0 +1,32 @@
+{
+  "recorded_at_utc": "2026-10-20T08:30:40.315473+00:00",
+  "review_status": "final_snapshot_verified_and_accepted",
+  "delta_from_7e5109df": {
+    "crates/tile-render-shaders/src/lib.rs": "81c569ec876b97e3826034a290d06479957bf69d728821ec34a5ea1532de2f0c",
+    "crates/tile-render-shaders/src/text.rs": "95d00f38678a685ca403c6f79b2d4892403ed300eb51224e2eca9d7252b5307f",
+    "crates/tile-render-shared/src/lib.rs": "6d25b759560f06b187943e793e168ff1880802bd84cf56bb5b79679ffcd455b2",
+    "crates/tile-render/src/camera.rs": "193766c7c98d8889159b6f06984f300dc428d3149fe181407dd16f872b7a2658",
+    "crates/tile-render/src/renderer.rs": "cfa75a93d6aa160bd4bc9ae5829c8c98d13e5c8a13fe85b9c7971b32c89059f3",
+    "crates/tile-render/tests/quantized_blending.rs": "f23d75531523771c540003a8d0083d9da563b0a0384467dbc53e2c3252acca3e"
+  },
+  "canonical_shader_sha256": "c1ae7f49a190658a9f579382035051041f062bdb3d15f401c76f4077bc8b18ab",
+  "canonical_shader_path": "/mnt/datasets/c3r-build/perf-agent/quantized-fallback.spv",
+  "cpu_reference_unchanged": true,
+  "adapter_scope": "Dx12, CPU, vendor0x1414/device0x8c, exact Microsoft Basic Render Driver name. Other adapters retain UNORM.",
+  "memory_review": "Retained FP16 texture bytes count at8bytes/texel, including direct atlas-transfer admission. Native and RADV rejection regression pass.",
+  "radv_checks": 77,
+  "native_windows_checks": 54,
+  "native_font_context": "Two unchanged density-guard loops completed using an existing guest Arial hardlink. Temporary59KB copied game font and Arial link removed. No game installation copied.",
+  "reviewed_paths": [
+    "indexed and RGBA colors",
+    "shade and alpha",
+    "outline and subpixel text",
+    "invert",
+    "source/base/cache/copy decode",
+    "reserved uniform field ABI sizes",
+    "resource admission"
+  ],
+  "remaining": "Paired build, final aggregate and TS Neo install. Physical device has been offline; no final Mac runtime/FPS claim.",
+  "source_archive_sha256": "46eec60b0f736fd994ac95f63cc82b50e8ee3bc0ed95451ce89b64fd9886f89b",
+  "source_files_verified": 624
+}

@@ -1,0 +1,47 @@
+{
+  "status": "Source-level design only. No implementation, build, adoption or numeric claim.",
+  "trigger": "Quantized color_bits6/7 only; existing RGB444/RGB555 and Direct pipelines remain unchanged.",
+  "precision_proof": [
+    "Keep the candidate effective RGBA16Float target and existing integer encoding bias1536, but disable fixed-function blending for every destination-dependent wider draw.",
+    "A fragment first reads a GPU snapshot of the destination, recovers integer q, computes the full per-instance result with u32 arithmetic, then emits float(1536+q).",
+    "For supported6/7 q is0..127. Every final stored integer1536..1663 is exactly representable in f32 and FP16. Both source packing and attachment conversion preserve it regardless of nearest/truncation. The rejected approach instead exported fractional premultiplied values before blending.",
+    "Current output_fs already decodes this encoding; the existing exact native palette entry demonstrates destination-dependent GPU composition with blend disabled."
+  ],
+  "integer_operations": {
+    "alpha": "(src_q*k + dst_q*(32-k))/32, after current integer alpha/opacity selection",
+    "subpixel_and_outline_text": "Apply the same formula independently with each RGB coverage byte converted by existing alpha_steps. Reuse exact GPU glyph coverage/cache helper; preserve destination alpha for RGB-only draws.",
+    "scale": "dst_q*num/den for num<den; preserve current skip semantics when num>=den.",
+    "invert": "((1<<bits)-1)-dst_q, computed before writing final stored value.",
+    "keyed_text_and_binary_alpha": "Opaque/key-discard draws need no snapshot. Use existing source sampling/key decisions and emit exact opaque stored values with blend disabled.",
+    "alpha_channel": "Preserve existing RGB-only alpha masks exactly. Ordinary source-over alpha needs its own explicit oracle across clear/source alpha bytes; do not infer byte-identical alpha rounding from the RGB integer proof."
+  },
+  "ordering": [
+    "Use the current cell-major instance sequence, including all layers of each cell and the existing descending order; draw a dependent instance only after copying its current destination.",
+    "For free/outline runs, retain instance order and current view/zoom/clip grouping. A whole-RGB wide shader can compute the existing independent channel operations in one draw.",
+    "CPU performs existing geometry/command scheduling only. Texture fetches, palette remapping, UI background filters, outline coverage and all pixel composition remain GPU-side.",
+    "End the current render pass, encode texture copy, then render the original instance with the existing vertex shader and blend None. Queue ordering supplies GPU resource barriers. No readback, CPU completion wait, sleep, lock or fence is added."
+  ],
+  "smallest_host_reuse": [
+    "Generalize renderer/smoke.rs destination capture for wider dependent draws; use its established pass splitting and explicit instance ordering.",
+    "Add wider fragment entries for tile/free source sampling and outline coverage, reusing existing sampling/coverage helpers and a separate snapshot bind group so text cache remains intact.",
+    "Retain the already reviewed fixed adapter/effective format separation and cached-picture encoding from the isolated candidate, but do not adopt it independently of the new composition path.",
+    "Use existing BLANK_BINARY metadata for a conservative opaque fast path; invalidate its classification on atlas/palette changes. Keyed text is already opaque or discarded. Start without optional batching."
+  ],
+  "bounded_snapshot_options": {
+    "minimum_code": "One full-target RGBA16Float snapshot, with copies restricted to conservative primitive bounds at the same coordinates. Only one immutable snapshot bind group and no per-instance origin upload are needed. Workspace cost is8*width*height bytes,63.3MiB at3840x2160; preflight it through existing GPU memory budget.",
+    "fixed_cap": "If a fixed allocation cap is required, use one128x128 RGBA16Float tile (128KiB). For every dependent primitive, visit intersected tiles in original order, copy just the primitive/tile rectangle to matching coordinates modulo128, then draw the same instance under the intersected scissor. Shader reads snapshot[pixel(frag)%128]. No per-draw uniform origin is needed.",
+    "safety": "Reuse a single snapshot texture within ordered GPU commands across prepared frames; immutable control slots retain their existing submission ownership. Allocate once, avoiding varying-size scratch retirement peaks.",
+    "cost": "Wider modes have extra GPU copies/render-pass boundaries and potentially many command records. Conservative binary/opaque pass proofs and existing raster/glyph bounds reduce work without changing order. A hard cap covering driver command-buffer memory also requires bounded encoder chunking at the owning submission layer; that is the remaining API consideration, not a pixel arithmetic issue."
+  },
+  "complete_scope_required": [
+    "A free-sprite-only fix is incomplete. Cell draws, procedural solids, scale, inversion, raster subpixel, outline/cache/annotation text, keyed text, per-view clipping, downscale/scaled sources and cached picture transitions must be covered.",
+    "Unknown primitive bounds must fall back to the existing viewport/scissor rather than skip a visible primitive.",
+    "The existing native RGB555 palette operation retains its own integer semantics and can reuse the same GPU snapshot machinery."
+  ],
+  "required_gates": [
+    "Strict all4..7 coverage/tint/destination oracle on RADV and Windows CPU backends, never inventory mode for acceptance.",
+    "Scale/invert/opacity/procedural/outline/keyed-text and alpha-channel oracles at6/7, including two ordered overlaps.",
+    "Three unsubmitted mixed-format worlds and retained-picture encoding tests, existing GPU/reference and glyph-cache checks as affected.",
+    "Bound snapshot/command memory, preserve cancellation/submission behavior, and requalify unchanged RGB555 performance after a coherent source-built shader union."
+  ]
+}

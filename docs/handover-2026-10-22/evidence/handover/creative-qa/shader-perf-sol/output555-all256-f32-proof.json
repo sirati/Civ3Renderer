@@ -1,0 +1,1286 @@
+{
+  "all256_equal": true,
+  "note": "CPU f32 emulation, GPU oracle pending",
+  "values": [
+    {
+      "source_byte": 0,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 1,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 2,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 3,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 4,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 5,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 6,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 7,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 8,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 9,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 10,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 11,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 12,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 13,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 14,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 15,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 16,
+      "decoded_byte": 0,
+      "fast_path": true
+    },
+    {
+      "source_byte": 17,
+      "decoded_byte": 8,
+      "fast_path": true
+    },
+    {
+      "source_byte": 18,
+      "decoded_byte": 16,
+      "fast_path": true
+    },
+    {
+      "source_byte": 19,
+      "decoded_byte": 24,
+      "fast_path": true
+    },
+    {
+      "source_byte": 20,
+      "decoded_byte": 33,
+      "fast_path": true
+    },
+    {
+      "source_byte": 21,
+      "decoded_byte": 41,
+      "fast_path": true
+    },
+    {
+      "source_byte": 22,
+      "decoded_byte": 49,
+      "fast_path": true
+    },
+    {
+      "source_byte": 23,
+      "decoded_byte": 57,
+      "fast_path": true
+    },
+    {
+      "source_byte": 24,
+      "decoded_byte": 66,
+      "fast_path": true
+    },
+    {
+      "source_byte": 25,
+      "decoded_byte": 74,
+      "fast_path": true
+    },
+    {
+      "source_byte": 26,
+      "decoded_byte": 82,
+      "fast_path": true
+    },
+    {
+      "source_byte": 27,
+      "decoded_byte": 90,
+      "fast_path": true
+    },
+    {
+      "source_byte": 28,
+      "decoded_byte": 99,
+      "fast_path": true
+    },
+    {
+      "source_byte": 29,
+      "decoded_byte": 107,
+      "fast_path": true
+    },
+    {
+      "source_byte": 30,
+      "decoded_byte": 115,
+      "fast_path": true
+    },
+    {
+      "source_byte": 31,
+      "decoded_byte": 123,
+      "fast_path": true
+    },
+    {
+      "source_byte": 32,
+      "decoded_byte": 132,
+      "fast_path": true
+    },
+    {
+      "source_byte": 33,
+      "decoded_byte": 140,
+      "fast_path": true
+    },
+    {
+      "source_byte": 34,
+      "decoded_byte": 148,
+      "fast_path": true
+    },
+    {
+      "source_byte": 35,
+      "decoded_byte": 156,
+      "fast_path": true
+    },
+    {
+      "source_byte": 36,
+      "decoded_byte": 165,
+      "fast_path": true
+    },
+    {
+      "source_byte": 37,
+      "decoded_byte": 173,
+      "fast_path": true
+    },
+    {
+      "source_byte": 38,
+      "decoded_byte": 181,
+      "fast_path": true
+    },
+    {
+      "source_byte": 39,
+      "decoded_byte": 189,
+      "fast_path": true
+    },
+    {
+      "source_byte": 40,
+      "decoded_byte": 198,
+      "fast_path": true
+    },
+    {
+      "source_byte": 41,
+      "decoded_byte": 206,
+      "fast_path": true
+    },
+    {
+      "source_byte": 42,
+      "decoded_byte": 214,
+      "fast_path": true
+    },
+    {
+      "source_byte": 43,
+      "decoded_byte": 222,
+      "fast_path": true
+    },
+    {
+      "source_byte": 44,
+      "decoded_byte": 231,
+      "fast_path": true
+    },
+    {
+      "source_byte": 45,
+      "decoded_byte": 239,
+      "fast_path": true
+    },
+    {
+      "source_byte": 46,
+      "decoded_byte": 247,
+      "fast_path": true
+    },
+    {
+      "source_byte": 47,
+      "decoded_byte": 255,
+      "fast_path": true
+    },
+    {
+      "source_byte": 48,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 49,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 50,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 51,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 52,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 53,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 54,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 55,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 56,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 57,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 58,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 59,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 60,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 61,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 62,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 63,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 64,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 65,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 66,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 67,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 68,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 69,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 70,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 71,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 72,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 73,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 74,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 75,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 76,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 77,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 78,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 79,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 80,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 81,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 82,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 83,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 84,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 85,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 86,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 87,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 88,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 89,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 90,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 91,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 92,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 93,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 94,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 95,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 96,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 97,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 98,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 99,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 100,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 101,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 102,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 103,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 104,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 105,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 106,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 107,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 108,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 109,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 110,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 111,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 112,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 113,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 114,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 115,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 116,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 117,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 118,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 119,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 120,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 121,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 122,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 123,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 124,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 125,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 126,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 127,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 128,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 129,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 130,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 131,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 132,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 133,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 134,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 135,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 136,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 137,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 138,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 139,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 140,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 141,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 142,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 143,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 144,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 145,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 146,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 147,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 148,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 149,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 150,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 151,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 152,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 153,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 154,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 155,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 156,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 157,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 158,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 159,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 160,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 161,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 162,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 163,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 164,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 165,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 166,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 167,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 168,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 169,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 170,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 171,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 172,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 173,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 174,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 175,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 176,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 177,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 178,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 179,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 180,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 181,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 182,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 183,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 184,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 185,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 186,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 187,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 188,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 189,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 190,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 191,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 192,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 193,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 194,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 195,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 196,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 197,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 198,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 199,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 200,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 201,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 202,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 203,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 204,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 205,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 206,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 207,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 208,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 209,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 210,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 211,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 212,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 213,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 214,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 215,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 216,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 217,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 218,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 219,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 220,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 221,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 222,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 223,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 224,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 225,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 226,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 227,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 228,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 229,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 230,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 231,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 232,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 233,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 234,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 235,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 236,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 237,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 238,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 239,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 240,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 241,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 242,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 243,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 244,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 245,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 246,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 247,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 248,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 249,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 250,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 251,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 252,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 253,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 254,
+      "decoded_byte": 255,
+      "fast_path": false
+    },
+    {
+      "source_byte": 255,
+      "decoded_byte": 255,
+      "fast_path": false
+    }
+  ]
+}

@@ -1,0 +1,540 @@
+{
+  "reviewed_utc": "2026-10-20T15:46:04.516351+00:00",
+  "source": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "local_compiler_artifact_records": {
+    "intel": [
+      {
+        "target": "build-script-build",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/build.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/wgpu-hal-fd7ddd400e2c415b/build-script-build"
+        ]
+      },
+      {
+        "target": "wgpu_hal",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwgpu_hal-c14c48c5a9b35107.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwgpu_hal-c14c48c5a9b35107.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/build.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/tile-render-4c321c401b2d24f3/build-script-build"
+        ]
+      },
+      {
+        "target": "tile_render_shared",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render-shared/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render_shared-bd2d5eb41ba1457d.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render_shared-bd2d5eb41ba1457d.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/build.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/winit-ee1b2b6c8ba427da/build-script-build"
+        ]
+      },
+      {
+        "target": "gpu_text",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/gpu-text/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libgpu_text-805dd6b9b71f5ab3.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libgpu_text-805dd6b9b71f5ab3.rmeta"
+        ]
+      },
+      {
+        "target": "winit",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwinit-ba9f4601f9798b18.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwinit-ba9f4601f9798b18.rmeta"
+        ]
+      },
+      {
+        "target": "tile_render",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render-f4b830a77dd430cc.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render-f4b830a77dd430cc.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_process",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-process/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_process-f9da0d69a18df676.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_process-f9da0d69a18df676.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_launcher",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/libciv3r_launcher.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_launcher-7f4450eef9550b64.rmeta"
+        ]
+      },
+      {
+        "target": "civ3-app-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/bin/civ3-app-macos.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/civ3-app-macos",
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/civ3-app-macos"
+        ]
+      },
+      {
+        "target": "civ3-play-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/main.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/civ3-play-macos",
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/civ3-play-macos"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/build.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/wgpu-hal-fd7ddd400e2c415b/build-script-build"
+        ]
+      },
+      {
+        "target": "wgpu_hal",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwgpu_hal-c14c48c5a9b35107.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwgpu_hal-c14c48c5a9b35107.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/build.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/tile-render-4c321c401b2d24f3/build-script-build"
+        ]
+      },
+      {
+        "target": "tile_render_shared",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render-shared/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render_shared-bd2d5eb41ba1457d.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render_shared-bd2d5eb41ba1457d.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/build.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/winit-ee1b2b6c8ba427da/build-script-build"
+        ]
+      },
+      {
+        "target": "gpu_text",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/gpu-text/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libgpu_text-805dd6b9b71f5ab3.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libgpu_text-805dd6b9b71f5ab3.rmeta"
+        ]
+      },
+      {
+        "target": "winit",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwinit-ba9f4601f9798b18.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libwinit-ba9f4601f9798b18.rmeta"
+        ]
+      },
+      {
+        "target": "tile_render",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render-f4b830a77dd430cc.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libtile_render-f4b830a77dd430cc.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_process",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-process/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_process-f9da0d69a18df676.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_process-f9da0d69a18df676.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_launcher",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_launcher-7f4450eef9550b64.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/libciv3r_launcher-7f4450eef9550b64.rmeta"
+        ]
+      },
+      {
+        "target": "civ3-app-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/bin/civ3-app-macos.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/civ3_app_macos-d69a9f6d650a061a",
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/civ3_app_macos-d69a9f6d650a061a"
+        ]
+      },
+      {
+        "target": "civ3-play-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/main.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/civ3_play_macos-ea82bd40448e709d",
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/civ3_play_macos-ea82bd40448e709d"
+        ]
+      },
+      {
+        "target": "civ3r_launcher",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/lib.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/civ3r_launcher-8cca1a99648c1693",
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-intel-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/x86_64-apple-darwin/release/deps/civ3r_launcher-8cca1a99648c1693"
+        ]
+      }
+    ],
+    "arm64": [
+      {
+        "target": "build-script-build",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/build.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/wgpu-hal-fd7ddd400e2c415b/build-script-build"
+        ]
+      },
+      {
+        "target": "wgpu_hal",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwgpu_hal-ba1d6888e5997581.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwgpu_hal-ba1d6888e5997581.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/build.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/tile-render-4c321c401b2d24f3/build-script-build"
+        ]
+      },
+      {
+        "target": "tile_render_shared",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render-shared/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render_shared-946127163a334041.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render_shared-946127163a334041.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/build.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/winit-ee1b2b6c8ba427da/build-script-build"
+        ]
+      },
+      {
+        "target": "gpu_text",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/gpu-text/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libgpu_text-289c1bd1cac4e276.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libgpu_text-289c1bd1cac4e276.rmeta"
+        ]
+      },
+      {
+        "target": "winit",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwinit-15f94c8596d06d96.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwinit-15f94c8596d06d96.rmeta"
+        ]
+      },
+      {
+        "target": "tile_render",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render-8acc1415b94aea88.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render-8acc1415b94aea88.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_process",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-process/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_process-e2cc0ea2a2321f15.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_process-e2cc0ea2a2321f15.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_launcher",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/lib.rs",
+        "executable": null,
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/libciv3r_launcher.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_launcher-bddeaefe366631d1.rmeta"
+        ]
+      },
+      {
+        "target": "civ3-app-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/bin/civ3-app-macos.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/civ3-app-macos",
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/civ3-app-macos"
+        ]
+      },
+      {
+        "target": "civ3-play-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/main.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/civ3-play-macos",
+        "phase": "launcher",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/civ3-play-macos"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/build.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/wgpu-hal-fd7ddd400e2c415b/build-script-build"
+        ]
+      },
+      {
+        "target": "wgpu_hal",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/wgpu-hal/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwgpu_hal-ba1d6888e5997581.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwgpu_hal-ba1d6888e5997581.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/build.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/tile-render-4c321c401b2d24f3/build-script-build"
+        ]
+      },
+      {
+        "target": "tile_render_shared",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render-shared/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render_shared-946127163a334041.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render_shared-946127163a334041.rmeta"
+        ]
+      },
+      {
+        "target": "build-script-build",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/build.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/release/build/winit-ee1b2b6c8ba427da/build-script-build"
+        ]
+      },
+      {
+        "target": "gpu_text",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/gpu-text/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libgpu_text-289c1bd1cac4e276.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libgpu_text-289c1bd1cac4e276.rmeta"
+        ]
+      },
+      {
+        "target": "winit",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/vendor/winit/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwinit-15f94c8596d06d96.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libwinit-15f94c8596d06d96.rmeta"
+        ]
+      },
+      {
+        "target": "tile_render",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/tile-render/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render-8acc1415b94aea88.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libtile_render-8acc1415b94aea88.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_process",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-process/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_process-e2cc0ea2a2321f15.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_process-e2cc0ea2a2321f15.rmeta"
+        ]
+      },
+      {
+        "target": "civ3r_launcher",
+        "fresh": true,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/lib.rs",
+        "executable": null,
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_launcher-bddeaefe366631d1.rlib",
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/libciv3r_launcher-bddeaefe366631d1.rmeta"
+        ]
+      },
+      {
+        "target": "civ3-app-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/bin/civ3-app-macos.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/civ3_app_macos-5bb86af749c7d3d5",
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/civ3_app_macos-5bb86af749c7d3d5"
+        ]
+      },
+      {
+        "target": "civ3-play-macos",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/main.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/civ3_play_macos-959b8387d0e18a90",
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/civ3_play_macos-959b8387d0e18a90"
+        ]
+      },
+      {
+        "target": "civ3r_launcher",
+        "fresh": false,
+        "source_path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/crates/civ3r-launcher/src/lib.rs",
+        "executable": "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/civ3r_launcher-54bbba7d97f7d4bc",
+        "phase": "launcher-tests",
+        "filenames": [
+          "/mnt/datasets/c3r-build/release-1019/target-mac-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/aarch64-apple-darwin/release/deps/civ3r_launcher-54bbba7d97f7d4bc"
+        ]
+      }
+    ]
+  },
+  "origins_and_all_rawhashes_verified": true,
+  "scope": "Cargo output independently proves affected runtime/startup targets and CPU testtargets rebuilt freshfalse from8b; unchanged production renderer/PE retains explicit9b origin."
+}

@@ -1,0 +1,35 @@
+{
+  "reviewed_utc": "2026-10-20T15:27:38.122274+00:00",
+  "base_source": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "candidate_lock_sha256": "e3736f09ad43284789a885e106d77adfb4693686fb2a2d0aacf8144ddd159d31",
+  "added_packages": [],
+  "removed_packages": [
+    [
+      "ctor",
+      "0.10.1",
+      "registry+https://github.com/rust-lang/crates.io-index"
+    ],
+    [
+      "dtor",
+      "0.8.1",
+      "registry+https://github.com/rust-lang/crates.io-index"
+    ],
+    [
+      "fastrand",
+      "2.5.0",
+      "registry+https://github.com/rust-lang/crates.io-index"
+    ],
+    [
+      "tiny-xlib",
+      "0.2.5",
+      "registry+https://github.com/rust-lang/crates.io-index"
+    ]
+  ],
+  "changed_package_dependencies": [
+    "civ3r-launcher",
+    "softbuffer"
+  ],
+  "retained_package_identity_checksum_fields_unchanged": true,
+  "tile_render_transitive_lock_packages_unchanged": 207,
+  "scope": "Only exact Cargo-required launcher/softbuffer feature pruning is approved. No waiver for other lock differences. Shader source/helper/standalone lock/toolchain identities remain separately required. No new shader compilation is claimed."
+}

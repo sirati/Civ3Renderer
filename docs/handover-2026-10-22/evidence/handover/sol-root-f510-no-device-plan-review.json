@@ -1,0 +1,23 @@
+{
+  "reviewed_utc": "2026-10-20T18:10:21.857925+00:00",
+  "scope": "Root independently read full final preflight/bootstrap/plan, compared requested delta and checked pinned final f510 manifest identities. Static check only; no profile change or launch by root.",
+  "sha256": {
+    "no-device-preflight.py": "d9703e1613c4a3d0414ec2bb20073bbd8ed0ba0dcba46804707ecc233c48c1f1",
+    "run-no-device-vendor.sh": "1ac02b6fa428d894c1bb260db6f8443704c3af18963de73c53e397f43275853f",
+    "no-device-plan.md": "dc1546102cf4013bac3734c694e50aca02c5dd87a851d8fa49de55c7a17e75c4"
+  },
+  "decision": "Authorize brokered supported no-device qualification in owned work VM, vendor first, then production title and Mal3. Abort on unrelated prerequisite failure or unexercised causal branch. Always restore USB-null fixture and verify fresh afplay0.",
+  "required": [
+    "Sole runtime/GPU lease and clean managed stop before either audio profile transition",
+    "Fresh per-arm checked exit0 plus JSON passed true preflight with immutable source/result",
+    "Actual natural vendor outcome and no Rust modules, no forced Wave return",
+    "Fresh production on-demand full trace: unwind_count>0, first close/cleanup Some(0), all module/owners0 and factories cleared",
+    "Visible title/loaded map and ordinary Quit0 without external signals or leftovers",
+    "Restoration of profile, config, INI, assets/save/runtime hashes and cgroup/RAM plus fresh native audio success"
+  ],
+  "known_limits": [
+    "No-device stock afplay must fail naturally, never timeout",
+    "Healthy count0 controls and cancellation143 are separate and cannot prove unwind",
+    "VM bitmap renderer and nil-device launcher warnings do not qualify native ARM Metal performance"
+  ]
+}

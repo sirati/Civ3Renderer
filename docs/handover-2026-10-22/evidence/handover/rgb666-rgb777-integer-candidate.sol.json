@@ -1,0 +1,222 @@
+{
+  "task": "Complete isolated viable integer GPU RGB666/RGB777 candidate including bounded continuation and actual production GPU-worker caller",
+  "agent": "/root/glyph_cache_sol",
+  "updated_utc": "2026-10-20T18:56:30.916781+00:00",
+  "status": "CPU/compiler-qualified private candidate. Fresh full/fallback SPV, strict validation/reflection, host/test typecheck and selected CPU tests passed. GPU correctness/performance/adoption remain unqualified.",
+  "directory": "/mnt/datasets/c3r-build/wider-integer-sol",
+  "source_base": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "implementation": {
+    "GPU_pixel_work": "All RGB/alpha arithmetic, atlas/indexed/remap/background sampling, outline coverage and pixel composition remain Rust GPU shaders. Host code visits geometry and submits commands.",
+    "encoding": "Existing RGBA8Unorm q+16 and existing float-adapter RGBA16Float1536+q. Shared192-byte FrameParams source unchanged. No blend-dependent fractional RGB exports in6/7.",
+    "fixed_workspace": "One128x128 snapshot. One reusable private canvas/source set per active job. Previous published canvas stays unchanged until final output submission.",
+    "scene_complexity": "No diagnostic scene-rejection caps. Geometry, cell/layer/free painter order and descending passes complete through a resumable cursor. No per-piece lists.",
+    "planning": "Fixed cameras/passes only. first_zoomed metadata and reach set/frame lookups resume under visits. Reaches cache at1024 and metadata at65536 use conservative viewport fallback on overflow.",
+    "text": "Continuation uses exact procedural GPU outline/keyed entries per glyph piece; it never prepares the global glyph-cache metadata list. Legacy cache helper remains for comparisons.",
+    "ownership": "WiderFrame consumes TileRenderer. Renderer, world, atlas, buffers and immutable control packet remain inaccessible for mutation until finish/cancel. No full-world triplication.",
+    "submission": "Default turn budget128 pieces/2048 visits; caller can choose tiny quotas. A shared completion window allows at most3 bounded chunks across current and retired jobs. Callbacks update atomics and wake actor. No blocking poll/wait.",
+    "callback_service": "Actor must keep nonblocking device.poll(Poll) service active during backpressure. wgpu callbacks are not delivered automatically.",
+    "publication": "Output target acquired only after all scene composition. No partial Presented/Bitmap. finish returns renderer after final submit; cancel preserves old published picture and returns reusable private scratch.",
+    "residency": "Live published/source/base/spare and replaced GPU-live pictures enter combined resident accounting. Legacy encoded-but-unsubmitted pictures retire only after controls_submitted following actual submission. Ordinary live submissions allocate no retirement fence or callback.",
+    "caller": "Production tile-viewer render_worker uses continuation for Quantized{bits:6|7}; pins one Arc<Frame>, keeps newest future Frame/Art/Config in Latest, defers art/timing mutations, cancels on config/surface invalidation and forces world rebuild. Ready turns continue without the existing4ms actor park.",
+    "timing": "Surface acquisition is a separate host profile sample and excluded from worker_prepare. CPU preparation sums setup and active continuation turns. Periodic worker diagnostics continue after Published and explicitly mark continuation GPU work/gaps unavailable; stale timer counters are null.",
+    "legacy": "Borrowed-encoder render_layered remains exact but is not queued-command bounded for6/7. Default direct/RGB444/RGB555 skip wider plan/workspace allocation. Source-exact tile555_fs and output_fs are unchanged.",
+    "setup_limit": "Once-per-frame set_world/update/free/marker/patch preparation scales with scene input and remains outside continuation composition quotas. first_zoomed construction may be quadratic. No whole-frame CPU-latency bound follows from chunk budgets."
+  },
+  "completed_source_work": [
+    "Integer6/7 composition with source sampling, independent alpha handling and existing formats/ABI.",
+    "Owned full-scene continuation and actual production worker caller; no old scene-rejection caps.",
+    "Bounded first_zoomed/reach/run/cell metadata scans and per-instance procedural GPU text.",
+    "Shared3-chunk submission window across cancellation/finish; reusable private canvases and final-only target publication.",
+    "Retirement accounting for live/replaced scratch/source/base/spare pictures through actual last GPU use; lazy legacy callbacks avoid per-frame allocation.",
+    "Explicit unavailable GPU timing and gap state; frame-marker text cannot pin stale GPU timing.",
+    "Source-only adversarial fixtures installed as automatic Cargo test targets, plus actual headless worker lifecycle fixture.",
+    "Independent local source review fixes and16 parse checks. All48 baseline core files rehashed unchanged; shared ABI and legacy555/output function source unchanged."
+  ],
+  "source_checks": {
+    "parse_only_files": 17,
+    "external_strict_test_functions": 23,
+    "cargo_fixture_targets": 4,
+    "changed_files": 17,
+    "new_files": 8,
+    "base_core_files_rehashed_unmutated": 48,
+    "base_core_files_unchanged_in_candidate": 42,
+    "shared_ABI_source_unchanged": true,
+    "legacy_tile555_and_output_functions_source_unchanged": true,
+    "host_compilation": true,
+    "fresh_SPV": true,
+    "GPU_execution": false,
+    "shipping_source_mutated": false,
+    "preserved_reviewed_manifest_sha256": "2e119aae3611c9146e7229c49c72a49187571e232931ee0ef1c0b1343f8d9aeb",
+    "successor_delta_files": [
+      "crates/tile-render/tests/wider_integer_continuation.rs"
+    ],
+    "compiler_gate_status": "Completed and explicitly released; no GPU/runtime grant",
+    "previous_successor_manifest_sha256": "bc21ee6504aeb6fad67ebed80f0380bb6a74f0c7cf765242e48b1bd4df6ef872",
+    "strict_SPIRV_validation": true,
+    "host_and_reflected_ABI": true
+  },
+  "strict_fixtures": {
+    "white_over_white": "6 independent tiny white controls for6/7, ordinary/subpixel one/two overlaps",
+    "operations": "Independent4/5/6/7 arithmetic/alpha/opacity/scale/invert/native palette/cell-major/descending controls",
+    "text_operations": "Existing test-only CPU reference validates two global fonts, ordinary/keyed outline text, fractional zoom/view/clip order",
+    "continuation": "12 complete-scene/atomic publication/cancel/reuse/shared-window/metadata/run/glyph/resize/retirement tests. Reach overflow respects255 layers, uses five visible downscale keys and selects final opaque red only in fifth binding, so omitted/reordered uncached work is observable. Large-LUT one-visit yields and65536 fallback retain exact alpha146 control.",
+    "worker": "Actual State.begin_wider/advance_wider with one-piece budget, final-only exact black4x4/white8x8 Bitmap, retained future inputs, resize cancellation/rebuild and frame release before wake",
+    "CPU_units": "Lazy retirement submission tags, window/cursor progression, scan cursors, timing availability, mailbox retention and timer floor."
+  },
+  "remaining": [
+    "Fresh immutable8b tiny failing-before control and candidate tiny passing-after under separate AMD GPU/compiler grants.",
+    "Strict numeric/alpha/painter/text/continuation/residency/cancellation/worker/full-fallback and direct/444/555 GPU controls.",
+    "Coherent application Cargo build/review and native platform translation/runtime gates.",
+    "Qualified actual application native1x4K AMD iGPU performance measurement against240FPS."
+  ],
+  "adjacent_unresolved": [
+    "world::first_zoomed construction uses Vec::find and may be quadratic with many distinct metadata keys; unchanged pending measurement to avoid an unmeasured RGB555 regression."
+  ],
+  "not_claimed": [
+    "GPU pixel correctness",
+    "Metal or WARP runtime correctness",
+    "Coherent full application Cargo build/runtime",
+    "4K/240FPS",
+    "Shipping adoption"
+  ],
+  "evidence": {
+    "source-only-manifest.json": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/source-only-manifest.json",
+      "sha256": "8e4ba72d60b63135a76dfcc83ab327a8aa8d095185abfdd56d9a54d4db0db9f6"
+    },
+    "candidate.patch": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/candidate.patch",
+      "sha256": "dda254dbe5be576232584f62845aab22c23590717907a3e90edcf6812c6a0f4c"
+    },
+    "bounded-continuation-design.json": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/bounded-continuation-design.json",
+      "sha256": "234f56226f312f7d0a0d2f22480c16c0f2e8e0cc1239c51b230d30a93f5bde74"
+    },
+    "qualification-plan.json": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/qualification-plan.json",
+      "sha256": "a3727dd0a3a8c9836356fde403a07920ec630614a79acc97633f343b04973b7e"
+    },
+    "parse-results.json": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/parse-results.json",
+      "sha256": "f5aa8bb012ceffeba0f75f0b01d2ed5dd1fa779765f3168f539a159602dadbce"
+    },
+    "legacy-shader-unchanged.json": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/legacy-shader-unchanged.json",
+      "sha256": "1b384b5e8e92ca8f8caa0b1b75add7ea2598612542b1e00620a72b963886defc"
+    },
+    "review-corrections.json": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/review-corrections.json",
+      "sha256": "d10eb618679d102dd59cbe75b41dbb62520791f8e32adcaa204a4e35ece58faa"
+    }
+  },
+  "independent_prior_review": "/mnt/datasets/c3r-build/handover/wider-continuation-review.shader-perf.sol.json",
+  "corrected_independent_review_findings": [
+    "Retirement types/members use pub(in crate::renderer), matching parent access and reexports.",
+    "Reach overflow fixture respects255 layers and uses five distinct camera downscales with KEEP_SIZE sprites checked visibly1x1, yielding1275 real reach keys.",
+    "Wider worker excludes get_current_texture wait from worker_prepare and profiles surface acquisition separately.",
+    "Wider Published restores periodic NativeDiagnostics with explicit unavailable GPU work/gaps and no stale timer stats.",
+    "WiderWorkBudget docs explicitly exclude caller-side scene packing/uploads before job creation.",
+    "Overflow fixture ends blue in first four cameras and opaque red only in fifth binding. Its final uncached red layer must draw last; skipping uncached keys, skipping the final view, or reordering cannot pass through saturation."
+  ],
+  "baseline_setup_limit": "Once-per-frame set_world/update/free/marker/patch preparation scales with scene input and remains outside continuation composition quotas. first_zoomed construction may be quadratic. No whole-frame CPU-latency bound follows from chunk budgets.",
+  "focused_fixture_review": {
+    "reviewer": "/root/shader_perf_sol",
+    "source_sha256": "8543a3b70d4e0c2d59886a932884a1b1a5ad973bfc400cca681f1f938cfef9fb",
+    "result": "Source review passes for valid255-layer/slot-binding/visible-art and observable final uncached painter-order correction. No compiler/GPU execution."
+  },
+  "compiler_gate": {
+    "path": "/mnt/datasets/c3r-build/wider-integer-sol/compiler-gate/completion.json",
+    "sha256": "fce9e50911832955ca0c170858709afabd8e13a5686c7e5cfda9d1dc55b5b0a4"
+  },
+  "compiler_results": {
+    "workspace_libraries_rebuilt_from_current_source": 15,
+    "workspace_source_files_hashed": 127,
+    "retained_external_libraries_hashed": 17,
+    "unit_crates_typechecked": [
+      "tile-render",
+      "tile-viewer"
+    ],
+    "candidate_GPU_integration_targets_typechecked_and_linked": 4,
+    "scope": "All workspace ancestors rebuilt from current source using hashed coherent cached external dependencies read-only. Full application Cargo build and platform runtime remain separate.",
+    "CPU_tests": {
+      "shader_helper_tests": 5,
+      "renderer_continuation_retirement_tests": 10,
+      "viewer_timing_tests": 4,
+      "failed": 0,
+      "ignored": 0,
+      "host_ABI_assertion": "192 bytes,41 reflected members, host_tick_ms176, scalar pads180/184/188"
+    },
+    "strict_SPIRV_validation": "Both full/fallback spirv-val --target-env vulkan1.2 exit0; exact four wider entrypoints present; ABI reflection matches both variants."
+  },
+  "compiler_fixes": {
+    "updated_utc": "2026-10-20T18:13:34.814996+00:00",
+    "granted_manifest_sha256": "457cbaf6340e9f2f9195f8979ca333db60115c462c3025cda8c77b57bd45c094",
+    "typecheck_failure": "host attempt2 E0063 in existing test-only Steps initialization, missing newly added wider_plan",
+    "fix": "Test helper explicitly selects wider_plan: None; production paths unchanged. Removed the unused checked-world borrow in continuation.",
+    "changed_files": {
+      "crates/tile-render/src/renderer/glyph_cache/preparation_tests.rs": {
+        "before_sha256": "dfc3c3f15d07d9561326170af7a6938b631d8e7c9bc31196db80eeafe47ed2f2",
+        "after_sha256": "b7cc0e9852a6590e21a200ef80090a6179654cec29410bed4bd400106d30b6e1"
+      },
+      "crates/tile-render/src/renderer/wider/continuation.rs": {
+        "before_sha256": "93182abc26f83a9efc2ca1ffb6eddcdb91b8fa40167d639d4ff8ea2a1bb9d6fd",
+        "after_sha256": "c6558eca60f996fe9ccb5307e121bc3e63d8d6eab8fb3752d5882d9f0bb14faa"
+      }
+    },
+    "shader_sources_unchanged_since_granted_checkpoint": true,
+    "failure_log": "/mnt/datasets/c3r-build/wider-integer-sol/compiler-gate/typecheck-tests-tile_render-attempt-2.log"
+  },
+  "shaders": {
+    "shader.spv": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/compiler-gate/artifacts/shader.spv",
+      "bytes": 589932,
+      "sha256": "3425d63c9d94fde105992d2a5d12a26cb0dcd6bf774574578dd4da66066b9f46"
+    },
+    "shader-fallback.spv": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/compiler-gate/artifacts/shader-fallback.spv",
+      "bytes": 589668,
+      "sha256": "aa2c2db9b272d4f35e1f80f567a41430ee66ef97dbf8825f227aaa8167c31a58"
+    }
+  },
+  "gpu_qualification_package": {
+    "manifest": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification-v2/package-manifest.json",
+    "sha256": "6282804c6a21e64a6653c843a84437690c2ef763b57640893fe1513e4fb3f480",
+    "commands": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification-v2/COMMANDS.md",
+    "status": "Independent and root source-orchestration review accepted. Private jobs1 CPU build conditionally authorized only after final VM restoration and shipping f510 actualApp timing, subject to separate broker grant. No current compiler/GPU grant.",
+    "CPU_only_validation": {
+      "report": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification-v2-tamper-results.json",
+      "sha256": "e253260fd6f99af0e95d4cf31549245ce9010a9cf9140d3e39fb0b12055248f8",
+      "cases": 73,
+      "child_processes": 0,
+      "all_passed": true,
+      "final_uncached_real_input_audit": "passed",
+      "qualified_source_files_verified": 679,
+      "immutable_baseline_source_files_verified": 670,
+      "resolver_inputs_verified": 652
+    },
+    "correction_report": {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification-v2-correction-report.json",
+      "sha256": "c8d99f503ec61b41d8aff08ef8c79d0bc421cbb77947417ae85abc5a33010422"
+    },
+    "mandatory_external_anchors": [
+      "--package-sha256 from independent source-package review",
+      "GPU --build-sha256 from independently reviewed CPU completion"
+    ],
+    "supersedes_original_manifest_sha256": "4348da7d92904f5ee51d6a39f2de5088503ceee6e6d4382d411e9d8326c9f0f0",
+    "independent_review": {
+      "path": "/mnt/datasets/c3r-build/handover/wider-gpu-orchestration-v2-independent-review.sol.json",
+      "sha256": "8d55339ddd885b6008085ba0061686638b0572c1b27f4ab486c131380039ad1a"
+    },
+    "root_review": {
+      "path": "/mnt/datasets/c3r-build/handover/sol-root-wider-v2-orchestration-review.json",
+      "sha256": "b78317138b62ab2805cca8d096970382e5bffa7190ca7cf3e8e382497132c86e"
+    },
+    "post_CPU_gate": "Root must review actual command/log/output evidence and approve external build-bindings digest before any separate AMD GPU grant."
+  },
+  "gpu_qualification_package_original_preserved": {
+    "manifest": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification/package-manifest.json",
+    "sha256": "4348da7d92904f5ee51d6a39f2de5088503ceee6e6d4382d411e9d8326c9f0f0",
+    "commands": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification/COMMANDS.md",
+    "status": "Ready source package only. Separate CPU preparation and AMD GPU grants are required after baseline actualApp timing. No compiler/GPU/runtime execution during package preparation."
+  }
+}

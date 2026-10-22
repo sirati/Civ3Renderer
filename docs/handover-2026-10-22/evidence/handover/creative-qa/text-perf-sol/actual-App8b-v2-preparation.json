@@ -1,0 +1,81 @@
+{
+  "created_utc": "2026-10-20T15:54:54.509754+00:00",
+  "owner": "/root/text_perf_sol",
+  "source": "8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe",
+  "artifact_provenance": "8b launcher; renderer artifacts carried from corrected 9b as bound by canonical 8b runtime manifest",
+  "status": "prepared only; no App/compositor/Wine/GPU/VM process started; quiet native4K lease still required",
+  "runs": [
+    {
+      "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v2-r1",
+      "pixel_scale": 1,
+      "subpixel_dual": 0,
+      "timing_ring_limit": 32,
+      "runtime_binding_sha256": "a4e45736a6b636a3ba6adf8e443859238f5b14f59412005449d3eccc1aea8e5f",
+      "state_sha256": "629b8470e1cde9a849008fb212b2db422038f9b888e86e192b27816e572fc0d6",
+      "started": false
+    },
+    {
+      "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual1-v2-r1",
+      "pixel_scale": 1,
+      "subpixel_dual": 1,
+      "timing_ring_limit": 32,
+      "runtime_binding_sha256": "75c313f871c14b19cc2b2537937dc492e89d2d5095f4d24400f8fa79052befeb",
+      "state_sha256": "ec8f1daa76edf2914dd3fd6bd9547a97db1f064e81412dd0dc805a2fce2d9911",
+      "started": false
+    },
+    {
+      "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native2-dual0-v2-r1",
+      "pixel_scale": 2,
+      "subpixel_dual": 0,
+      "timing_ring_limit": 32,
+      "runtime_binding_sha256": "378516594ad12aeb8e7ac096ac436b0a0565def894606bec98c2adf917a172f1",
+      "state_sha256": "61785a42aeac2a4a9a2e444cf780b33675f09f48db5ae82c558ed46386dea2fa",
+      "started": false
+    },
+    {
+      "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native2-dual1-v2-r1",
+      "pixel_scale": 2,
+      "subpixel_dual": 1,
+      "timing_ring_limit": 32,
+      "runtime_binding_sha256": "af9674b9a18809997f86a5c8b4a0c7721412f58a2e574313fa4453f7ce3467e6",
+      "state_sha256": "f67ba3736915ae622b54ca5356bdb9f83af2242a16f219d644ed567ce11491cf",
+      "started": false
+    }
+  ],
+  "pointer_v2_capabilities": {
+    "protocol_version": 2,
+    "input_backend": "wayland_virtual_pointer",
+    "capture_backend": "none",
+    "actions": [
+      "move",
+      "motion",
+      "down",
+      "up"
+    ],
+    "output": [
+      3840,
+      2160
+    ]
+  },
+  "helper_sha256": "25b7a6040e20bd35757c17dc32252a829e9b814423781983bbb0fa0e6ce32cc9",
+  "fixture_sources_unchanged_from_v2_tested_binding": true,
+  "workload": {
+    "path": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Saves/WW2.SAV",
+    "sha256": "6c1405206c2ece1c03d7b58bcc8ccfe586eb485d451168f562cddd11a0134632",
+    "bytes": 684111,
+    "copied": false,
+    "live_loaded_identity": "not yet verified on 8b"
+  },
+  "pending": [
+    "new exclusive native GPU/runtime GO after VM workload stops",
+    "untimed actual 8b menu/save and complete UI verification",
+    "pointer-v2 barrier release and sustained bidirectional preflight",
+    "matched reset before every measured repetition",
+    "three 60-second repetitions per mode with full timing accounting and no capture processes"
+  ],
+  "canonical_expected_artifact_hashes_verified": true,
+  "paired_shaders": {
+    "shader": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+    "shader_fallback": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "observed_utc": "2026-10-20T12:08:10.853215+00:00",
+  "source_sha256": "31a6590d4ecde7c239412e53b5f2d2dcb126cb713a944c972a400add89d0b785",
+  "finding": "HeapCreate failure fell back to shared game process heap while retaining HEAP_NO_SERIALIZE. The Rust-only guard did not serialize native game callers, allowing heap corruption.",
+  "change": "No process-heap fallback; return allocation failure or an already-published private race winner. Guard null handles before alloc/realloc; deallocation uses existing owning handle.",
+  "independent_review": "/root/army_units confirmed the hazard and reviewed root fix without findings.",
+  "tests": "New injected private-creation failure across normal/overaligned and zeroed paths, plus failed creator seeing genuine private winner. Windows/Wine execution and existing cross-thread-free regression pending broker release.",
+  "performance_claim": "None. This is a correctness fix on exceptional allocation path, not proof of steady-frame speedup."
+}

@@ -1,0 +1,15 @@
+{
+  "created_at_utc": "2026-10-20T20:31:00Z",
+  "bundle": "development-source-current.bundle",
+  "bundle_sha256": "7c6c204751b0f0835ccc57db01adf528c2527eabd102949145da42fb7d3c173a",
+  "bundle_bytes": 18263629,
+  "heads": {
+    "refs/heads/main": "6162a7debb8adcc78eac147611eeb1539c7e78c8",
+    "refs/heads/checkpoints/loaded-owner-driver-20261020": "ce5e104270258e207e16c3a8cf7a0ff5336c41d5"
+  },
+  "destinations": {
+    "papa": "/home/sirati/civ3r-source-backups/20261020T1918Z",
+    "neo": "/Users/sirati/civ3r-source-backups/20261020T1918Z"
+  },
+  "verification": "bundle list-heads and git bundle verify against each destination development-source.git passed"
+}

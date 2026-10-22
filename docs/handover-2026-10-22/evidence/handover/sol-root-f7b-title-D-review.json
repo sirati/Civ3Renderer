@@ -1,0 +1,27 @@
+{
+  "scope": "Exact f7b production PE on Intel macOS VM, healthy-audio title lifecycle only",
+  "source": "f7b0758996b7383537381cf71b5e58669014514ae06719eb222cddadbd1d802a",
+  "production_pe_sha256": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
+  "preflight_source_sha256": "583df0ac4d8d1dc2b64f98714d64fbd70bef3973175325ebd4938ac14b6f8fd6",
+  "preflight_review": "Root reviewed fail-closed per-check/subprocess/JSON gates, canonical Intel/PE identities, private executable and read-only mount/save links, exact marker survivor scan, unlocked Aqua, VM RAM/cgroup and native audio. Per-arm marker-only template substitution is exact and fresh source/result archived.",
+  "visible_title_independently_inspected": "/mnt/datasets/c3r-build/vm-audio-production-sol/012-title-D-loading.png",
+  "image_finding": "Complete Civilization III Conquests title, menu and background are visible in the native-renderer window. No split map views applied to title.",
+  "actual_exit_code": 0,
+  "watchdog": {
+    "seconds": 125.803857169,
+    "fatal_signature": null,
+    "external_atomic_TERM": false,
+    "cleanup": []
+  },
+  "independently_read_complete_trace": {
+    "installation": "Installed",
+    "initialized": 1,
+    "unwind_count": 0,
+    "first_midi_close_result": null,
+    "first_cleanup_result": null,
+    "module_and_midi_master_owners_live": true
+  },
+  "decision": "Healthy-audio normal title Quit passes. Causal failed-Wave correction branch unexercised, not accepted by this control.",
+  "remaining": ["loaded Mal3 lifecycle", "production failed-unwind count/results/clean-state proof", "launcher cancellation correction and real graphical lifecycle", "idle Neo install", "broader gameplay and 240FPS"],
+  "limitations": "GPU-less VM uses explicit SwiftShader/bitmap path. No physical ARM Metal, audible output, performance or full gameplay acceptance. Initial title-A remains timed out and title-C remains invalid setup."
+}

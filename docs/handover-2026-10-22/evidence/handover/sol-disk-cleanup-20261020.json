@@ -1,0 +1,105 @@
+{
+  "at_utc": "2026-10-20T19:07:15.045977+00:00",
+  "authorized_by": "User requested cleanuptrash because diskfull",
+  "removed": [
+    {
+      "path": "/home/sirati/devel/rust/civ3-renderer/target",
+      "kind": "untracked obsolete local Cargo build cache",
+      "allocated_bytes_before": 2990936064
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/macos-port/target/debug/incremental",
+      "kind": "obsolete disposable incremental compiler cache; no resolver rlibs/test executables/source/evidence removed",
+      "allocated_bytes_before": 4390391808,
+      "filesystem_free_delta": 0
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/macos-port/target/i686-pc-windows-gnu/debug/incremental",
+      "kind": "obsolete disposable incremental compiler cache; no resolver rlibs/test executables/source/evidence removed",
+      "allocated_bytes_before": 3554000896,
+      "filesystem_free_delta": 47599616
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-7055148cf5c47a28d6ccb8cf3fa1e6b484fa582cbe7069877227b0c5999c35bf",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 2334109696,
+      "predeletion_exclusive_extent_bytes": 2287816704
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-7055148cf5c47a28d6ccb8cf3fa1e6b484fa582cbe7069877227b0c5999c35bf",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 871890944,
+      "predeletion_exclusive_extent_bytes": 836939776
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 2153766912,
+      "predeletion_exclusive_extent_bytes": 2106892288
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 894988288,
+      "predeletion_exclusive_extent_bytes": 857124864
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 923881472,
+      "predeletion_exclusive_extent_bytes": 84393984
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 2157309952,
+      "predeletion_exclusive_extent_bytes": 198225920
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340",
+      "kind": "reviewed obsolete compiler cache; runtime/test artifacts retained elsewhere",
+      "allocated_bytes_before": 896528384,
+      "predeletion_exclusive_extent_bytes": 85876736
+    }
+  ],
+  "free_bytes_before": 757323829248,
+  "free_bytes_after": 760324718592,
+  "preserved": [
+    "all source checkouts and user changes",
+    "game assets",
+    "Nexus",
+    "current frozen releases, test executables, evidence and pinned resolver dependencies",
+    "VM images and snapshots"
+  ],
+  "updated_utc": "2026-10-20T19:12:12.349028+00:00",
+  "removed_allocated_bytes_total": 21167804416,
+  "release_cache_cleanup": {
+    "inventory": "/mnt/datasets/c3r-build/handover/release-cache-cleanup-inventory.sol.json",
+    "free_bytes_before": 868995526656,
+    "free_bytes_after": 868995526656,
+    "estimated_reclaimable_exclusive_bytes": 6457270272,
+    "note": "Btrfs shared extents and asynchronous accounting mean cache du size is not physical reclaimed size."
+  },
+  "additional_owner_cleanup": {
+    "evidence": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/target-cache-cleanup.json",
+    "sha256": "a4c24213b2d4fe0e37768cb6811a8ff98d10964fefe782c43e3a457459e16514",
+    "allocated_bytes_removed": 6780170240,
+    "retained_files_rehashed_unchanged": 1401,
+    "immediate_unique_physical_reclamation_not_claimed": true
+  },
+  "final_storage": {
+    "/home/sirati": {
+      "free_bytes": 1145120665600,
+      "total_bytes": 3935761698816
+    },
+    "/mnt/datasets": {
+      "free_bytes": 874344345600,
+      "total_bytes": 4000785104896
+    }
+  },
+  "other_hosts": {
+    "Neo": "read-only SSH:335GiB available,Trash empty; no deletion needed",
+    "Linux_laptop": "SSH timedout, no remote cleanup performed"
+  },
+  "total_allocated_build_output_removed_bytes_including_owner": 27947974656
+}

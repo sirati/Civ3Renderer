@@ -1,0 +1,68 @@
+{
+  "shader": "/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/shader.spv",
+  "shader_sha256": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+  "executable": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-coverage-inventory-oracle",
+  "executable_sha256": "79d71bed470b2b37f052509aefb9f3c2466652cd3e3a50bbdb8e9afe366fe506",
+  "runs": [
+    {
+      "mode": "0",
+      "exit_code": 0,
+      "seconds": 2.4197969660162926,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-mode0.log",
+      "log_sha256": "2040be9af56af76ffef62e859fe68b2ca9f83782dee42345154dd44c26d341fd",
+      "capture": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-mode0.rgba",
+      "capture_bytes": 78211344
+    },
+    {
+      "mode": "1",
+      "exit_code": 0,
+      "seconds": 2.367745573981665,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-mode1.log",
+      "log_sha256": "2152c65650779e2f5b51deb27c364f9dd981ca2962ea57320d18cb4e353fceb3",
+      "capture": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-mode1.rgba",
+      "capture_bytes": 78211344
+    }
+  ],
+  "gpu_selection": {
+    "TILE_RENDER_ADAPTER": "radv",
+    "VK_DRIVER_FILES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json",
+    "VK_ICD_FILENAMES": null
+  },
+  "dual_source_feature_active": true,
+  "identical_bytes": true,
+  "pixels_compared": 19552836,
+  "capture_sha256": [
+    "8ee63b53736699a01aba99aed43141d5386027e01538b4dc68122edacb56c248",
+    "8ee63b53736699a01aba99aed43141d5386027e01538b4dc68122edacb56c248"
+  ],
+  "higher_depth_integer_inventory": [
+    {
+      "mode": "0",
+      "bits": 6,
+      "mismatched_pixels": 61325,
+      "status": "open fidelity finding"
+    },
+    {
+      "mode": "0",
+      "bits": 7,
+      "mismatched_pixels": 134041,
+      "status": "open fidelity finding"
+    },
+    {
+      "mode": "1",
+      "bits": 6,
+      "mismatched_pixels": 61325,
+      "status": "open fidelity finding"
+    },
+    {
+      "mode": "1",
+      "bits": 7,
+      "mismatched_pixels": 134041,
+      "status": "open fidelity finding"
+    }
+  ],
+  "higher_depth_integer_exact": false,
+  "independent_rgb444_rgb555_exact": true,
+  "fallback_dual_exact_passed": true,
+  "all_supported_depths_exact": false
+}

@@ -1,0 +1,17 @@
+{
+  "baseline_source": "31b5951a200234422c73a7c8c8f8b97bea77424fc8c9a86d2580003553c3ef58",
+  "notes": [
+    "isolated Tiles555 experiment, canonical output and generic fragment unchanged",
+    "no shared production Tiles555 edits yet"
+  ],
+  "files": {
+    "crates/tile-render-shaders/src/lib.rs": "2a6191f60d40d13de95e2fe623ccdd73304c9245acfd856fb623a29487e05d24",
+    "crates/tile-render/src/renderer.rs": "9cf32e9e0293625a3d40455fe286d5270dd9309488c4daef28e5e74f5e3f9ace",
+    "crates/tile-render/tests/indexed_palette_boundaries.rs": "aba4a12671a1c61f14b0b5ea498dfcb2e09bb6ff48fe904043829827aefd4d74",
+    "crates/tile-render/tests/output_decode.rs": "2fcbd436986fdd4630f9e56de26cbf124eb5cd2d18c02a3f6708a6ef2a34285b"
+  },
+  "shader": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/tiles555.spv",
+    "sha256": "205615534df6338a51dc46e8a2d11591bfe6569aff9f081104da39fe8acd4e9f"
+  }
+}

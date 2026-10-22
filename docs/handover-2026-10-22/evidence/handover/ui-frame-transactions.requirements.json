@@ -1,0 +1,41 @@
+{
+  "updated_at_utc": "2026-10-20T10:21:31.532658+00:00",
+  "user_requirements": [
+    "UI ready means complete render commands and final layout submitted for one frame; not all sprite pixels loaded",
+    "Missing or failed sprite must not hide whole UI",
+    "No rendering or composition on CPU; existing GPU shader path remains primary",
+    "Three small frame-control slots only; do not triple world or atlases",
+    "No blocking CPU/GPU wait for controls or detailed timing",
+    "Detailed frame counter provides CPU preparation time, delayed GPU render span and accurately labelled inter-frame GPU gap",
+    "Uncaptured cursor is the OS cursor with our art; no GPU/frame completion dependency for icon updates",
+    "GPU calls run on a separate worker; OS input/cursor thread must never wait for GPU work"
+  ],
+  "implementation_owners": {
+    "text_fit_atomic_ui": "committed capture and final GDI layout metadata independent of glyph sheets",
+    "tile_popup_render_shadow": "same-epoch metadata compatibility, per-reference noops, successful-frame input mapping",
+    "army_units": "typed procedural solid rectangles without atlas dependency; scene protocol48",
+    "preview_smear": "three control slots, queued submission reuse and sync audit",
+    "mac_fps_music": "detailed frame timing option with asynchronous ordered results",
+    "release_deploy_sol": "final46e now; successor only when complete and paired"
+  },
+  "root_acceptance_checks": [
+    "Interrupted capture keeps prior committed UI; first incomplete capture stays hidden",
+    "Missing sprite omits itself without numeric ID0/old-LUT alias",
+    "Procedural background and text first appear in same completed capture",
+    "Character positions and Preferences geometry stable before and after font sheet arrival",
+    "Three differing queued control snapshots preserve their own outputs; fourth cannot overwrite unsubmitted slots",
+    "Acquisition failure preserves prior input mapping; next successful matching frame commits new mapping",
+    "Timestamp results handle out-of-order ring completion, skipped samples, and mode changes without blocking",
+    "Current shader and all5 runtime files plus starter pair from immutable source; deploy before full aggregate per standing authorization",
+    "OS cursor updates and icon completion wake while GPU worker is blocked; captured/Alt behavior retained",
+    "Native controls/title/status/look recipes sampled at same game-thread Present as committed drawings"
+  ],
+  "release_state": "Corrected31b protocol48 completed and1933aggregate/75DarwinCPU+actualsameprocessVMmenu smoke validated. PhysicalTSNeo installation blockedoffline. No uncompleted source/test work in this scope; no map/visual/Metal runtime claim.",
+  "current_final_evidence": {
+    "sol-root-thread-init-freeze-review.json": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-freeze-review.json",
+    "sol-root-thread-init-artifact-review.json": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-artifact-review.json",
+    "sol-root-thread-init-aggregate-review.json": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-aggregate-review.json",
+    "sol-root-thread-init-native-carry-review.json": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-native-carry-review.json",
+    "sol-root-thread-init-macos-runtime-review.json": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-macos-runtime-review.json"
+  }
+}

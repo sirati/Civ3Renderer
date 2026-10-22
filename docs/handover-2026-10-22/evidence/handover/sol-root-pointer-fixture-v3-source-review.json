@@ -1,0 +1,16 @@
+{
+  "scope": "Read-only source review of fixture-v3; no test, runtime or FPS claim",
+  "directory": "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/fixture-v3",
+  "decision": "No source blocker found for brokered CPU checks followed by fresh plain-launch actual-App preflight. Timing must follow successful preflight and bind the selected final runtime.",
+  "reviewed_behavior": [
+    "A single native1 geometry plan supplies preflight, reset, CLI measurement defaults, run_three and PointerDriver. The corrected right target is1919,360 and retains the original three96-pixel relative escape pulses.",
+    "Plan validation binds a successful actual Layout oracle, immutable live-target proof and exact layout/pan source hashes. Scale2 and changed primary-pane/presentation geometry are rejected.",
+    "Legacy explicit timing targets are rejected before state lookup or input. WAYLAND_DEBUG is removed at launch and fresh matching launch evidence is required for preflight/reset/timing.",
+    "A fresh interior reset and matching current camera/label mapping are required per repetition. Acceptance still requires sustained bidirectional actual primary-world motion, inverse-label consistency and complete GPU timestamp coverage.",
+    "CPU tests exercise real input entry points with mocked transport and clock; they do not by themselves prove actual pointer placement, live motion or FPS. Fresh unlogged runtime preflight remains required."
+  ],
+  "prepared_tests": 6,
+  "tests_executed_by_this_review": 0,
+  "production_edits": false,
+  "remaining": ["brokered CPU tests", "fresh plain-launch preflight", "three sustained-motion4K repetitions with runtime identity", "240FPS goal evaluation"]
+}

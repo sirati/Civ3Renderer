@@ -1,0 +1,30 @@
+{
+  "reviewed_utc": "2026-10-20T16:53:35.694466+00:00",
+  "scope": "Root independently read existing actual8b untimed corrected-target evidence, no new runtime.",
+  "artifact_origin": "8b launcher, carried9b renderer/PE; byte-identical6029 runtime",
+  "files_sha256": {
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v3geom-r1/geometry-preflight-attempt.json": "881495320553cf1aedfb576518e3430a8352259beaa7a78b70476f8c025e9148",
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final8b-native1-dual0-v3geom-r1/shutdown.json": "09d81cd6dbfde6bd8cb928b219dd1e6695e98c360d910f160b1a52883ad49a39",
+    "/mnt/datasets/c3r-build/pointer-v3-geometry-sol/cpu-oracle-proof.json": "a58e1264d5d6b9e26b571f9946ad66f02f8ae76c8ee49d3df3cd8487a72c98f6"
+  },
+  "result": {
+    "corrected_target": [
+      1919,
+      360
+    ],
+    "relative_pulses_unchanged": 3,
+    "relative_pulse_dx": 96,
+    "A_positive_legs": 5,
+    "A_negative_legs": 6,
+    "A_direction_reversals": 3,
+    "inverse_label_anchor": true,
+    "B_unchanged": true,
+    "owned_cleanup": true
+  },
+  "limits": [
+    "Untimed direction/barrier preflight only. Full-window motion_in_each_window is false over this preflight that includes neutral waits; it is not a sustained timed workload pass.",
+    "No pointer-wire events parsed, so no assertion of actual OS pointer coordinates.",
+    "WAYLAND_DEBUG was diagnostic-only. Ordinary preflight and timed worker must share the corrected geometry with logging removed before FPS measurement.",
+    "No release/UI completeness, maximum isolated performance, or240FPS claim."
+  ]
+}

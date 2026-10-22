@@ -1,0 +1,482 @@
+{
+  "source_archive_sha256": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+  "shader_sha256": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+  "fallback_sha256": "7ff6d943a54e7255df2cd160e7239aee067f89470156e5a50b3c1e5079857a5d",
+  "host_manifest": "/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/host-test-executables.json",
+  "runs": [
+    {
+      "name": "tile_render",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/tile_render-71d8d64acb13f26e",
+      "executable_sha256": "9a2971ecbcbc4347d5debcc77bd25ddf640e59b25b436eb710f34c2224302a6b",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/tile_render-71d8d64acb13f26e",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 36,
+        "failed": 0,
+        "ignored": 1
+      },
+      "ignored_lines": [
+        "test renderer::smoke::native_capture_test::native_palette_matches_all_captured_game_table_entries ... ignored, requires explicit captured native RGB555 tables and original ExplosionPalette PCX"
+      ],
+      "seconds": 1.1680692810332403,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/tile_render-union-package.log",
+      "log_sha256": "7c681f9bafaffd7407e77fe8a31847fdf48ed727eb8c4f7bb304995ae2ac7c47"
+    },
+    {
+      "name": "atlas_transfers",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/atlas_transfers-3feb231e4a3d10da",
+      "executable_sha256": "ac9adeb23c2eba8199eab66d9fe7ac5409a41af9105d72cfb603f604ddcc6179",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/atlas_transfers-3feb231e4a3d10da",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.9191255160258152,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/atlas_transfers-union-package.log",
+      "log_sha256": "03c4b9091be0447b914796a2230a39afa19b0f172e3f3fee2ec704ce897653e8"
+    },
+    {
+      "name": "build_dual_source",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/build_dual_source-6c7ecfb8b1676e52",
+      "executable_sha256": "bc7e15f3708e88b96c20cd242d5be627823b7fc5ef89c2fb9fbc25788e6c547e",
+      "shader_embed_count": 0,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/build_dual_source-6c7ecfb8b1676e52",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.0037303679855540395,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/build_dual_source-union-package.log",
+      "log_sha256": "9426872864b866e8d5ab2a0adff338f983749003fae83485ef0e6078bc107d16"
+    },
+    {
+      "name": "cached_picture",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/cached_picture-8ca8406fd40a411b",
+      "executable_sha256": "3c66a7b72d487cbba0c6b21e8182f107e2fe3b1e025865279a794ac49d27dae8",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/cached_picture-8ca8406fd40a411b",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.7657110890140757,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/cached_picture-union-package.log",
+      "log_sha256": "ead366d770bf5581e0e95fd7199e34c9001047a88874d18eea9a9fb50d6f399d"
+    },
+    {
+      "name": "control_frames",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/control_frames-ed8918af47e00e1b",
+      "executable_sha256": "3265874b3b5ed997a324946ac7e5166f5757979082c6f9c2446181a0741a6fd2",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/control_frames-ed8918af47e00e1b",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.2144378310185857,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/control_frames-union-package.log",
+      "log_sha256": "7106609ce777c9a5bfd7723f989b59c5943c5ac12ccd5355aa87de02badf3dfb"
+    },
+    {
+      "name": "fitted_preview",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/fitted_preview-daa31f4e4b2cd053",
+      "executable_sha256": "7fc6fdc38a17fce3ccdadcb032a5e781cd2568c665691bc98b18bc6fa5005c1d",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/fitted_preview-daa31f4e4b2cd053",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 3.927431364019867,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/fitted_preview-union-package.log",
+      "log_sha256": "bf5adf8e1e074ccc444597bbd0ba760876fb2fc6855e47b19e7b27301a3ae8cb"
+    },
+    {
+      "name": "glyph_cache",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/glyph_cache-d2d2253510765f0d",
+      "executable_sha256": "86d76e3874d34e9d9ffb101002b566416380eb5a852c9c35456ea3bda7bd0e0e",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/glyph_cache-d2d2253510765f0d",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 1.580213999026455,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/glyph_cache-union-package.log",
+      "log_sha256": "66f7712d3b9d02d5f09e2caef3cb26408dfb4e39b2490b8cf56e49d0124e4cfc"
+    },
+    {
+      "name": "gpu_matches_reference",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/gpu_matches_reference-7b2d7789fbb6657c",
+      "executable_sha256": "02f402aba452b5d5d0e9b953d2b1b253ac36b7dea0ca6149a04beb891563b741",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/gpu_matches_reference-7b2d7789fbb6657c",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 38,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 17.232481128012296,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/gpu_matches_reference-union-package.log",
+      "log_sha256": "ac6dbb333ce414aa65fded518c5aef277b476b910fb75c7f75b06b988bf2ca29"
+    },
+    {
+      "name": "indexed_matches_reference",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/indexed_matches_reference-9b8cf7c4f8f7a9c4",
+      "executable_sha256": "ef711e9835dc4dcb00e8cdda0a3b5f7b2509f6bfdba222cc5fd0b16a5990f403",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/indexed_matches_reference-9b8cf7c4f8f7a9c4",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 4.94884126400575,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/indexed_matches_reference-union-package.log",
+      "log_sha256": "00fd32143620bc05713b2912c5aa417fda10653bd6168cb680e4ab312c5716cc"
+    },
+    {
+      "name": "indexed_palette_boundaries",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/indexed_palette_boundaries-fb5d976ccfda2965",
+      "executable_sha256": "36723989a5dfbb631cbd27f1bdd3d010febc18a941c880793e12db34c7944092",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/indexed_palette_boundaries-fb5d976ccfda2965",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.21486895700218156,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/indexed_palette_boundaries-union-package.log",
+      "log_sha256": "0732fa19790c681ec3bc6acd456b4a2247ce267dd7bc3124aa1cad388d5544e8"
+    },
+    {
+      "name": "mutable_art",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/mutable_art-d2c693af5b1f4211",
+      "executable_sha256": "3a5967496b6dcfa4745450ef91f4c3fd1a508e7b59bb67c21fdfb4dad6c7e533",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/mutable_art-d2c693af5b1f4211",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 11,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.8683885229984298,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/mutable_art-union-package.log",
+      "log_sha256": "1fb5ec3674650f4561a903cccb8d627e37a16b079a5e4e011825cf0840804de0"
+    },
+    {
+      "name": "output_decode",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/output_decode-1a33021b9d8f78dc",
+      "executable_sha256": "a04e7031ebba7bdf6ed5e63fc571aecc2a3c422d2f36e0bb90c4b93e64a2238b",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/output_decode-1a33021b9d8f78dc",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.26483777101384476,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/output_decode-union-package.log",
+      "log_sha256": "8a4eda9cd70a6cc67942112fb585f82f990b45b5ed125db6156ef3980ca949cc"
+    },
+    {
+      "name": "per_view_layers",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/per_view_layers-e7bc64df0aad00c0",
+      "executable_sha256": "7d83d282e932695e2750ff620493095f06b7221507d144f130cd307e454727e2",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/per_view_layers-e7bc64df0aad00c0",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 3.298356488987338,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/per_view_layers-union-package.log",
+      "log_sha256": "6cc7836f05acac7e1e837391f205090e903e3bf995aa7be900c328f842256a40"
+    },
+    {
+      "name": "procedural_solids",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/procedural_solids-4c6f8b55ee81e65c",
+      "executable_sha256": "100a9169b66b80b6eb280c203711dca1b470d191e09c6ef6fd216065fec24053",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/procedural_solids-4c6f8b55ee81e65c",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.5771557429688983,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/procedural_solids-union-package.log",
+      "log_sha256": "ce18ec4d7b61953cf0e49665d5f3daff64d6e9a089aaa860b6f1a2f62dd39c90"
+    },
+    {
+      "name": "quantized_blending",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/quantized_blending-a27351f808421e6a",
+      "executable_sha256": "14e699100875babe5cc9aad309a04e2a6ce139ee1eb21d5447d2ee555a37fec2",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/quantized_blending-a27351f808421e6a",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.41677418700419366,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/quantized_blending-union-package.log",
+      "log_sha256": "b432a89f73552e50783755cf6667efdb45b5393b1622fc3c5ce704dba4c3fa69"
+    },
+    {
+      "name": "text_at_one",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_at_one-bd115c9a7b4ece50",
+      "executable_sha256": "7ce5bcec2e161bf34d6b44922a8b603c4212bbd39e5c72c329d0fb9fb58f7f5c",
+      "shader_embed_count": 0,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_at_one-bd115c9a7b4ece50",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 0.018696270999498665,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/text_at_one-union-package.log",
+      "log_sha256": "23183cf1e7f6b0ccd56124161bf1d77c88a4108c35f77a6fdd97bd0e4456b9d6"
+    },
+    {
+      "name": "text_at_target",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_at_target-4018a2ef9540c6f9",
+      "executable_sha256": "2a5f29a9ac2bd71fbaf1d27bcbb9de955ca218bdad91f7ac5e1268f466b21151",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_at_target-4018a2ef9540c6f9",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 1.4503084979951382,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/text_at_target-union-package.log",
+      "log_sha256": "8b58d697cbc5e90a6c40fc571174367c09d28ccb75026f10aeb719e995592f63"
+    },
+    {
+      "name": "text_dual_source",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_dual_source-c160430e2dd99978",
+      "executable_sha256": "a68d87942437ffdd9e354ca9d889214f01882e6a62e713eac255062d3cab147a",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_dual_source-c160430e2dd99978",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 5.172044083010405,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/text_dual_source-union-package.log",
+      "log_sha256": "48fecd825786224769759080e20f1a9fa8b47e90b278708b25eb79d727eb794c"
+    },
+    {
+      "name": "text_matches_reference",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_matches_reference-39bdaeae547330f6",
+      "executable_sha256": "b4bb9a320fde1b1d0c3c09bec637e56c77aa6d355dc4abdb1e4e58667d0718f1",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/text_matches_reference-39bdaeae547330f6",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 17.210029795998707,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/text_matches_reference-union-package.log",
+      "log_sha256": "932545655f8a1ef5235f65d961e631f46a0d3ce4e94b42beb184991d06d6ca17"
+    },
+    {
+      "name": "ui_background_sampling",
+      "executable": "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/ui_background_sampling-279b797771e0edc1",
+      "executable_sha256": "6c3770584c0a4aa2d4399abf8ee4ef0001457b78de5407e0a22f881f95414257",
+      "shader_embed_count": 1,
+      "command": [
+        "/mnt/datasets/c3r-build/release-1019/target-86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/debug/deps/ui_background_sampling-279b797771e0edc1",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "gate_passed": true,
+      "rejected_timing_self_skip": false,
+      "counts": {
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ignored_lines": [],
+      "seconds": 2.088023795047775,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/ui_background_sampling-union-package.log",
+      "log_sha256": "41f9a24d33cf572b70d491db20cc807bd182908bee972c35d21716c64396e54a"
+    }
+  ],
+  "gpu_selection": {
+    "TILE_RENDER_ADAPTER": "radv",
+    "VK_DRIVER_FILES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json"
+  },
+  "subpixel_gate": "separate; original866 test expectation error recorded, corrected test rebuild pending",
+  "completed": true,
+  "passed_except_pending_subpixel": true,
+  "totals": {
+    "passed": 157,
+    "failed": 0,
+    "ignored": 1
+  }
+}

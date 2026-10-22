@@ -1,0 +1,32 @@
+{
+  "status": "Final audio source3 promoted into shared working tree, production build and VM acceptance pending",
+  "base_frozen_source": "6029ebac6d27a6707db8639c69b043a3b6630768746cd01ff520a80699fa4dd3",
+  "patch_sha256": "17d1363c0d6da4f2b14036c64b6d5cfaff7919dd69b9232890b7cf161e324a29",
+  "operation": "git apply of reviewed four-leaf patch; no commit, reset, stash, game-file or Nexus operation",
+  "preimage": {
+    "crates/civ3-sys/src/audio_init.rs": "absent",
+    "crates/civ3-sys/src/lib.rs": "2814b830c27faea96573a8b18a5e8f141a70298a41fbbe9db71d6769f05f26dc",
+    "crates/civ3-bridge/src/lib.rs": "0e635709b5617a527b8444f07d7da84368b8d4a7ed802e1063b1c69cd55e3e6f",
+    "crates/civ3-bridge/src/trace.rs": "55fbdc0695bba71880ece7b5894a0519126449275a0853c424335449f69af6e7"
+  },
+  "postimage": {
+    "crates/civ3-sys/src/audio_init.rs": "6785d365402588b4704799fafaf3047103f0bcb6dda559ed8b7eece1942bd92e",
+    "crates/civ3-sys/src/lib.rs": "134870f81ff62e38a24d15b8e148bf39e440730626867ea6e1035bcc47ef5e5c",
+    "crates/civ3-bridge/src/lib.rs": "a93f0c61a25cd2aeafdb00a603b1dd198c99b1087b846f051226191310e2dcdb",
+    "crates/civ3-bridge/src/trace.rs": "2830745bd77ae69ed8cdf44fd81282c5aa238929351c348bdd5a5dc650207b48"
+  },
+  "validation": {
+    "final_cpu_passed": 12,
+    "final_i686_sys_bridge_check_exit": 0,
+    "build_snapshot_unchanged": true,
+    "whole_crates_postcomparison": "Identical to tested snapshot except ignored tile-render-shaders/target cache",
+    "evidence": "/mnt/datasets/c3r-build/quit-audio-sol/audio-fix-build3/validation.json",
+    "source_review": "/mnt/datasets/c3r-build/handover/sol-root-audio-fix3-source-review.json",
+    "independent_review": "/mnt/datasets/c3r-build/handover/audio-fix3-independent-review.startup.sol.json"
+  },
+  "remaining": "Freeze and build production PE; exact failed-unwind title and loaded-game normal Quit; stage and install on idle Neo without launching game",
+  "Neo_installed_source_unchanged": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+  "protocol": 50,
+  "shader_changes": false,
+  "private_performance_candidates_promoted": false
+}

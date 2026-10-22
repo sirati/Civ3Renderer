@@ -1,0 +1,64 @@
+{
+  "shader": "/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/shader.spv",
+  "shader_sha256": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+  "executable": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-coverage-alpha37-oracle",
+  "executable_sha256": "0bcbee9090b77d5708ca111c3794a05289b4ed3df072988bdcf09bd52915cb09",
+  "runs": [
+    {
+      "mode": "0",
+      "exit_code": 101,
+      "seconds": 2.7729750849539414,
+      "log": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-rgb666-fallback-discrepancy.log",
+      "log_sha256": "3d277038443f6e7082b0ed539c2700fa132984ac43624e33db7c1974365f9254",
+      "capture": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-rgb666-fallback-discrepancy.rgba",
+      "capture_bytes": 57255280,
+      "capture_sha256": "3692fdbff50967a5aa22fb5e0377724f388f18d8bfdf6e90d897f2b1004d5064"
+    }
+  ],
+  "gpu_selection": {
+    "TILE_RENDER_ADAPTER": "radv",
+    "VK_DRIVER_FILES": "/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json",
+    "VK_ICD_FILENAMES": null
+  },
+  "dual_source_feature_active": true,
+  "passed": false,
+  "finding": {
+    "path": "existing three-pass fallback selected with TILE_RENDER_SUBPIXEL_DUAL=0",
+    "bits": 6,
+    "material": "RGBA",
+    "coverage_rgb": [
+      5,
+      109,
+      243
+    ],
+    "tint_rgb": [
+      0,
+      0,
+      255
+    ],
+    "clear_rgba": [
+      0,
+      0,
+      255,
+      37
+    ],
+    "actual_rgba": [
+      0,
+      0,
+      251,
+      37
+    ],
+    "integer_expected_rgba": [
+      0,
+      0,
+      255,
+      37
+    ],
+    "scope": "one RGB666 level on this RADV packed-FP16 path; game RGB555 exhaustive checks completed successfully before failure",
+    "source_contract": "mixed_source documents exact packed-FP16 guarantee only for RGB444/RGB555, ordinary floating calculation for larger spaces",
+    "production_change": "none; broader fidelity finding disclosed to root separately"
+  },
+  "historical_baseline_status": "pending unchanged31b SPV control; discrepancy established on866 production three-pass fallback, historical classification not yet GPU-proven",
+  "exact_source_contract_quote": "Translucent RGB444 and RGB555 sources use a binary fraction that survives packed FP16 fragment exports exactly. Its value is strictly between `(stored*k/32 - 1/2)/255` and that plus `1/(32*255)`, so rounding the resulting blend still gives [`mix_stored`] for every destination. Larger colour spaces retain the floating-point source calculation.",
+  "public_fidelity_status": "OPEN: ColorModel documents supported4..7 with integer blend semantics; default strict oracle is retained and must pass before claiming full fidelity."
+}

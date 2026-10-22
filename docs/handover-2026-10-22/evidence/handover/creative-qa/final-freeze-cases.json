@@ -1,0 +1,176 @@
+{
+  "scope": "Priority3be installation is complete and verified. These cases are remaining post-publication acceptance, not installation gates.",
+  "historical_baseline": "Frozen 31b/protocol48 aggregate remains historical. Protocol49 targeted fixes and candidate shaders do not establish a complete final aggregate.",
+  "cases": [
+    {
+      "id": "FINAL-PAIR-AGGREGATE",
+      "venue": "Papa CPU and cross-builds, then prepared native test runners",
+      "action": "Record completed installation evidence, then run affected full successor aggregate/platform groups. Review update_free source-update preconditions and actor ordering. Keep exact extractedCPU2 separate from full crate results.",
+      "oracle": "No source drift or mixed protocol/shader components. Nonzero expected test counts and named asset/capability skips. No carry of historical aggregate counts as new coverage.",
+      "checkpoint_progress": "Priority3be652files, paired SPV and installed raw8/live5/signature/icon/registration verified. Exact extractedCPU2 passed. Full successor suites remain pending."
+    },
+    {
+      "id": "FINAL-GPU-NUMERIC",
+      "venue": "Dedicated Papa AMD RADV correctness lease",
+      "action": "Run the amended strict raster-subpixel oracle with preserved target alpha37 on both dual and fallback paths from the new immutable pair. Recheck affected text/cache, indexed/smoke/control and4K army gates, or bind unaffected carry explicitly by component hashes.",
+      "oracle": "Exact independent pixel rules remain satisfied. Cache eviction and actual allocations are observed. CPU references stay within their declared tolerance. Optional Tiles555 prototype is either explicitly excluded or receives a matching integrated gate.",
+      "checkpoint_progress": "866 package157 plus explicit native smoke1 and4K army functional gate passed. Corrected independent raster-subpixel oracle and amended successor gates remain pending. Tiles555 was integrated in866; do not describe it as still unintegrated. Isolated6/7FP16 candidate rejected after first tiny oracle; wider-depth strict fidelity remains open. Glyph prepare-skip candidate not adopted."
+    },
+    {
+      "id": "FINAL-4K240",
+      "venue": "Exclusive Papa AMD RADV timed lease",
+      "action": "Measure retained real scenes at native 3840x2160 with forced dynamic pan and scene changes, fractional zoom/vector text, split views and active UI. Record reuse counts and CPU/GPU/wait timings. Compare the selected optimizations using matched source and workload. Validate the successor profiling counters and timer epoch/gap attribution before using them as actualApp timing evidence.",
+      "oracle": "Sustained 240 FPS requires at most 4.1667 ms per frame in actual dynamic work. Cached/static 273 FPS and isolated microbenchmarks do not satisfy the goal. Current measured goal remains not achieved.",
+      "checkpoint_progress": "ActualApp866 repetition1 is a bounded45.4216FPS observation,2504full/0reuse,2032/2504GPU samples,81.15% coverage. Ordered primary-camera x was6821,5704,4132,3000,1449,301,0,0,0,0,0,0, so it moved initially then remained at the boundary. All three old repetitions fail sustained-motion qualification; no pooled dynamic average is valid. Relative-pointer v2 and stronger motion/reset gates passed fixture-only tests:3Rust and26Python. Live barrier/preflight proof and the full matched actual-App matrix remain pending. No240FPS qualification is claimed."
+    },
+    {
+      "id": "FINAL-UI-ATOMIC",
+      "venue": "Owned Linux runtime, then healthy owned Mac runtime",
+      "action": "Run the tab prediction regression after the source fix, then capture cold and warm Preferences tab changes, tooltip/popup onset, F1 and city opening with timestamps, text traces and numeric plate/text regions. Include isolated missing font/art cases without changing shared assets.",
+      "oracle": "Selected tab, panel commands and hit geometry advance together. Distinguish host-status hourglass from panel commands. Missing sprites omit only themselves. No wait-all-assets delay. Sample bursts prove sampled states only.",
+      "checkpoint_progress": "866 Pick/tab/readout host and PE gates passed. Dependent Toggle fix passed only local54Prefs/15Panel tests; successor and actual UI still pending."
+    },
+    {
+      "id": "FINAL-NATIVE-CITY-UNIT",
+      "venue": "Owned actual game runtime",
+      "action": "Verify native movement bonuses, zero/last-step animation and army membership changes. Alt-click worked removal, center assignment and eligible unworked city tiles across split/zoom layouts; reopen city and switch modal/player/map identities.",
+      "oracle": "HUD matches authoritative native records. Tile clicks map to the same native center and reject stale identity/epoch data. Targeted CPU tests alone do not close this runtime case."
+    },
+    {
+      "id": "FINAL-INPUT",
+      "venue": "Owned Linux compositor/runtime",
+      "action": "Preseed and independently verify sensitivity 1.0 and 2.5 before applying identical relative inputs. Exercise boundary-only capture, multiple windows, focus-loss cancellation and legal/illegal mission cursors. Repeat GPU-worker-only suspension with an observable OS cursor plane.",
+      "oracle": "Numeric sensitivity ratio and isolated axes agree with actual settings. Free OS cursor remains responsive during GPU stall. Preserve the existing 1.0 axes and 66 confirmation passes; filenames are not setting evidence.",
+      "checkpoint_progress": "ActualApp timing helper reached a static boundary during repetition1 and stayed static in repetitions2/3. Relative-pointer v2 emits genuine Wayland motion events and passes3Rust wire/validation tests plus26Python fixture tests; actual barrier release and sustained bidirectional camera movement remain untested. This fixture diagnosis is not proof of a production capture defect. All earlier input acceptance gaps remain open. New user feedback is separately recorded in /mnt/datasets/c3r-build/handover/feedback-20261020-live.sol.json and is not marked implemented or runtime-passed."
+    },
+    {
+      "id": "FINAL-MAC-COMPAT-CLEANUP",
+      "venue": "Owned Intel Mac VM; physical Apple ARM separately when available",
+      "action": "Build the reviewed shipping Wine compatibility and identity cleanup combination on Papa, then test unmodified vendor and native renderer controls, actual map/city/F1, fault/shutdown and escaped debugger cleanup. Preserve role and identity checks; never signal shared services.",
+      "oracle": "No unreviewed process-local debugger patch is counted as shipping acceptance. No escaped owned debugger remains; unmarked clients and shared wineserver survive. DirectSound control success is not a game-fault fix. Apple Metal/FEX remains a separate unavailable venue.",
+      "checkpoint_progress": "Priority3be installed and verified on MacNeo; game was not auto-launched. Actual native renderer/WineV2 behavior, fault/shutdown cleanup and physicalARM/Metal feedback remain pending."
+    },
+    {
+      "id": "FINAL-WINDOWS",
+      "venue": "Prepared fresh ephemeral Windows VM after freeze and CPU/software-GPU lease",
+      "action": "Use the maintained read-only share route and final test inventory for primary Vulkan numeric/control/text/smoke tests, native CPU/GDI/city/process tests and minimal DX12 compatibility. Verify supported EXE and writable private state before optional gameplay.",
+      "oracle": "Exact fresh executable/driver/shader identities, actual adapter capability and explicit fixture skips. No copied assets or broad Direct3D specialization. Prepared scripts alone are not executed acceptance."
+    },
+    {
+      "id": "FINAL-GAMEPLAY-SOAK",
+      "venue": "Owned supported actual runtime",
+      "action": "Use a private save slot to move a unit, end a turn, save/reload, cycle city/advisor screens, return to title and start/load again. Record bounded memory and process inventory; include scenario churn and existing music/leader reproduction where available.",
+      "oracle": "State survives the save round trip, no freeze or orphan process, and memory remains bounded. A map screenshot or diagnostic vendor city/F1 flow does not close the full case."
+    }
+  ],
+  "latest_checkpoint": {
+    "source": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+    "protocol": 49,
+    "source_files": 652,
+    "shader": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+    "fallback": "7ff6d943a54e7255df2cd160e7239aee067f89470156e5a50b3c1e5079857a5d",
+    "artifact_directory": "/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+    "status": "coherent immutable checkpoint; not final and not shipping runtime accepted",
+    "root_aggregate": {
+      "host_excluding_tile_render": {
+        "passed": 1273,
+        "ignored": 15,
+        "suites": 67,
+        "exit_code": 0
+      },
+      "explicit_viewer_GPU": {
+        "passed": 3,
+        "exit_code": 0
+      },
+      "tile_render_docs": {
+        "passed": 0,
+        "exit_code": 0
+      },
+      "evidence": "/mnt/datasets/c3r-build/root-union-validation-sol/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/root-aggregate-review.json"
+    },
+    "separate_shader_package": {
+      "passed": 157,
+      "ignored": 1,
+      "explicit_native_smoke_passed": 1,
+      "subpixel_oracle": "Excluded pending corrected strict expectation and successor build",
+      "evidence": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/union-package-test-results.json",
+      "smoke_evidence": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json"
+    },
+    "focused_repeat_evidence": {
+      "army_CPU_passed": 41,
+      "units_RADV_passed": 15,
+      "units_ignored": 1,
+      "explicit_units_smoke_passed": 1,
+      "i686_PE_allocator_Papa_Wine_passed": 4,
+      "i686_PE_Preferences_Papa_Wine_passed": 2,
+      "evidence": "/mnt/datasets/c3r-build/army-checkpoint-86663ea8",
+      "count_scope": "CPU41 and units15 overlap full host coverage. Keep as exact repeated supporting evidence, not added unique aggregate tests. PE tests ran on Papa Wine, not a native Windows guest."
+    },
+    "source_and_log_verification": "/mnt/datasets/c3r-build/handover/creative-qa/checkpoint866-reconciliation.json",
+    "Wine_PE_suite": {
+      "passed": 590,
+      "ignored": 4,
+      "invocations": 7,
+      "all_exit_zero": true,
+      "log_hashes_verified": true,
+      "native_art_combinations": 40,
+      "evidence": "/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/wine-direct-results.json",
+      "count_scope": "40 native-art combinations are not added as extra tests. Focused army PE allocator/UI tests repeat parts of this suite."
+    }
+  },
+  "publication_candidate": {
+    "source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+    "source_files": 652,
+    "protocol": 49,
+    "shader": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+    "fallback": "7ff6d943a54e7255df2cd160e7239aee067f89470156e5a50b3c1e5079857a5d",
+    "source_gate": "652 verified files; shaders/shared sources identical to866; isolated candidates excluded",
+    "root_review": "/mnt/datasets/c3r-build/handover/sol-root-macneo-priority-freeze-review.json",
+    "quick_CPU": {
+      "passed": 2,
+      "scope": "Exact source-extracted diagnostic functions only, not full crate",
+      "log": "/mnt/datasets/c3r-build/root-worker-gaps-sol/test.log"
+    },
+    "build_and_deployment": "Installed and read-only verified; runtime acceptance pending",
+    "installed_claim": true,
+    "status_as_of_utc": "2026-10-20T13:15:26.629470+00:00",
+    "acceptance_scope": "User-priority UI publication; not complete runtime/UI/input/performance/soak acceptance",
+    "installed_at_utc": "2026-10-20T13:07:54.527761+00:00",
+    "installation_evidence": [
+      "/mnt/datasets/c3r-build/release-1019/artifacts/3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/install-record.json",
+      "/mnt/datasets/c3r-build/release-1019/artifacts/3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/remote-install-verification.json",
+      "/mnt/datasets/c3r-build/handover/sol-root-macneo-priority-artifact-review.json"
+    ]
+  },
+  "installed_publication": {
+    "source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+    "status": "installed",
+    "installed_at_utc": "2026-10-20T13:07:54.527761+00:00",
+    "scene_protocol": 49,
+    "verification": {
+      "raw_release_hashes": "all8exact",
+      "installed_runtime_hashes": "all5exact",
+      "app_entry_hash": "exact",
+      "bundle_starter_hash": "exact",
+      "deep_signature": "passed",
+      "app_path": "/Users/sirati/Applications/Civilization III.app",
+      "bundle_name": "Civilization III",
+      "bundle_id": "org.sirati.civ3r",
+      "icon_path": "/Users/sirati/Applications/Civilization III.app/Contents/Resources/civ3.icns",
+      "icon_bytes": 205347,
+      "launchservices_registered": true,
+      "remote_builds": 0,
+      "game_assets_copied": 0,
+      "game_auto_launch": false
+    },
+    "evidence": [
+      "/mnt/datasets/c3r-build/release-1019/artifacts/3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/install-record.json",
+      "/mnt/datasets/c3r-build/release-1019/artifacts/3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/remote-install-verification.json",
+      "/mnt/datasets/c3r-build/handover/sol-root-macneo-priority-artifact-review.json"
+    ],
+    "record_sha256": "20569502eab669d3af5f57337220f1638476db435d6497dc18349a3dd3510beb",
+    "verification_sha256": "744a218ee997f68507f927393f10f14d8dfe623273353d963129c9e61c346d5d",
+    "runtime_acceptance": "pending; game not auto-launched",
+    "UI_input_performance_soak_acceptance": "pending"
+  }
+}

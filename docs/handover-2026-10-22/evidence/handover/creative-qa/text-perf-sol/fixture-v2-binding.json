@@ -1,0 +1,219 @@
+{
+  "schema": "c3r-external-qualification-fixture-v2-binding-1",
+  "created_utc": "2026-10-20T13:41:16.061402+00:00",
+  "owner": "/root/text_perf_sol",
+  "shipping_code_changed": false,
+  "scope": "External nonshipping fixture only. CPU-only helper validation and fixture-policy tests do not establish actual pointer-barrier release, runtime performance, UI acceptance or 240 FPS.",
+  "completed": {
+    "rust_helper_tests_passed": 3,
+    "python_fixture_tests_passed": 26,
+    "earlier_python_23_superseded": true,
+    "helper_release_build_exit_zero": true,
+    "relative_wire_opcode": 0,
+    "absolute_wire_opcode": 1,
+    "capture_backend": "none",
+    "helper_protocol": 2,
+    "raw_evidence_unchanged": true,
+    "all_three_old_repetitions_fail_sustained_motion": true,
+    "historical_fixture_hashes_verified": {
+      "qualify.py": true,
+      "input_only.py": true,
+      "test_fixture.py": true,
+      "switch_to_direct_pointer.py": true,
+      "run_three.py": true,
+      "direct-pointer/Cargo.toml": true,
+      "direct-pointer/Cargo.lock": true,
+      "direct-pointer/src/main.rs": true
+    }
+  },
+  "pending": [
+    "Root-selected coherent successor runtime and new broker GO",
+    "Live capture-free relative barrier-release proof",
+    "Actual sustained left/right/left/right primary-world and inverse-label preflight",
+    "Matched native1 and scale2 crisp-UI dual0/1 matrix, three60-second repetitions each",
+    "240FPS at full quality with complete timing sample accounting"
+  ],
+  "lease": "CPU-only helper lease used and released; no App/compositor/Wine/GPU restart occurred during v2 work.",
+  "commands_completed_previously": [
+    "nix develop -c env CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer-target cargo test --offline --locked -j1 --manifest-path /mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer/Cargo.toml",
+    "nix develop -c env CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer-target cargo build --offline --locked --release -j1 --manifest-path /mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer/Cargo.toml",
+    "nix develop -c python3 /mnt/datasets/c3r-build/native-app-qualification-sol/test_fixture.py"
+  ],
+  "files": {
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/qualify.py": {
+      "sha256": "d2f6afbfe6a792c97ebf890ebef1039d4ab7b95fd5ee1a034077a5e9d08b9964",
+      "bytes": 35128
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/input_only.py": {
+      "sha256": "02d3f5a3197819643f4f61aad183e901676cba5371c64d5cc6b6178e7dbd030a",
+      "bytes": 3273
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/motion_policy.py": {
+      "sha256": "c38d7f0f4a14e5db028d46dc84d73b86d8f73dda98759907a6ab66dad89532b8",
+      "bytes": 2046
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/switch_to_direct_pointer.py": {
+      "sha256": "a74e9230e124a3406118336a6054721c498637058c6f429c415263de2a430efa",
+      "bytes": 2271
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/run_three.py": {
+      "sha256": "70d7201e801ae0c62373c5f39d9405bbf02c6ca0ff8a521662c9f79a58eb8c42",
+      "bytes": 2908
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/test_fixture.py": {
+      "sha256": "de7843939f0d652df44426a7bc0a049f13f5e5b52e3388a0340d894ed5cfcacb",
+      "bytes": 18054
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/test_diagnostics.py": {
+      "sha256": "fa31f83320cfeabece1909b13a4a594b4e85bebe845cf69869cb4aa32b4edab3",
+      "bytes": 5328
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer/Cargo.toml": {
+      "sha256": "129d987ab3a6259fce2d41c650734656caa2c7df3eb5eee7aab36c2a963c9402",
+      "bytes": 215
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer/Cargo.lock": {
+      "sha256": "13ff779b3a47fbcf9b8c6c22c158a5cb818ea802522e016d713e4545f48b5c29",
+      "bytes": 7318
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer/src/main.rs": {
+      "sha256": "25f18bab076c327ee6c2077441d4c80bdf50c2a7b6ec957c5389d32cc87c113c",
+      "bytes": 1725
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer/src/lib.rs": {
+      "sha256": "7066d4fd0148d9f6552b8974c2519cab8573d1ba48fdb062abe3e66259a35d21",
+      "bytes": 8562
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer-target/release/c3r-qualification-pointer": {
+      "sha256": "25b7a6040e20bd35757c17dc32252a829e9b814423781983bbb0fa0e6ce32cc9",
+      "bytes": 1099184
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/test-fixture-v2.log": {
+      "sha256": "6b8e828d505f36a9a8ae0e4f08324ee806b1495ea40c4564b99a8ea1009b1893",
+      "bytes": 3892
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer-v2-test.log": {
+      "sha256": "f538ce67ea5024d2c761bfe9bfdf4e9707e92430e5d09ca7d8cca85aff5010b3",
+      "bytes": 1193
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer-v2-build.log": {
+      "sha256": "0a1f958e0ff71a4899abbc032ad2a1e7f6228446b0c4098feba93f13a8138d3c",
+      "bytes": 245
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/README.md": {
+      "sha256": "79bfe4baaf1644a2ff5e6ff2a0f3a424b0a37d044839a9b98ccea446bccfa951",
+      "bytes": 14369
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/baseline866-fixture/source-sha256.json": {
+      "sha256": "db2d55921b5a04a273b46967b87f5e29927813bb6ed09597f32ed4b72749985b",
+      "bytes": 748
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/README.md": {
+      "sha256": "b6e6e7db98d8f4c56c8c72a5545f160985ec8235a07a24553d3b561b0112209a",
+      "bytes": 9357
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/native-app-status.md": {
+      "sha256": "77c4122a58580164d3e254c415cecde724d07ee2e6dd71c902fc3217f14158d2",
+      "bytes": 11587
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/ledger-correction-audit.json": {
+      "sha256": "9e718f3ac6dcd6b9093de6587efe7026d51052f8ad14dc67be94223221f10bf9",
+      "bytes": 4125
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/baseline866-retrospective-motion.json": {
+      "sha256": "f1c58d89d02fe74c83ce7f2c699e8659cc691628a31bcb73b60ea4f4529d3092",
+      "bytes": 7914
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/acceptance-matrix.json": {
+      "sha256": "e25858968a084e6243d3aac756efdbde7351aa3ecefa6d9adc36be4c6074c66b",
+      "bytes": 244771
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/final-freeze-cases.json": {
+      "sha256": "b40d56e21d3c5d52a7ab4940e7644e569f4f1ec1c53e4fc9b7fb45ffd4b8a8ce",
+      "bytes": 13962
+    },
+    "/mnt/datasets/c3r-build/handover/creative-qa/actual-App866-dynamic-summary.json": {
+      "sha256": "6dff38edcfc5f5f1bee2f9d14184414aa8ac14bdf53f341e2e530696a8a28898",
+      "bytes": 3680
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/shutdown.json": {
+      "sha256": "c2e848a7a93b8a9a35f1c19f17e04c61382649221aa0c74292d18e398b1564f5",
+      "bytes": 1472
+    }
+  },
+  "immutable_old_repetition_files": {
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-1/measurement.json": {
+      "sha256": "5e41d7606ddad3a0ae09b0ee49e18b2de55132319e6714f06d722e9ffafb64cf",
+      "bytes": 980
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-1/profile-records.json": {
+      "sha256": "e9ad1a0a7314f8fd93f6009934551aef4562df2338d4e6bf350ffef31c2ab254",
+      "bytes": 956253
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-1/qualification.json": {
+      "sha256": "c17f050024b2683feef108a0734bc5883a8ba59b3dab0d7e6f6fb824578a5c02",
+      "bytes": 393311
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-1/timed-input-binding.json": {
+      "sha256": "3f2594a7abdf1cd98767893d61ba7eb342aecd0fbed5823cf709a0a7ba781935",
+      "bytes": 773
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-2/measurement.json": {
+      "sha256": "3ed17c08fcd9687b677113a9402ca56893d03f9484fe84c3e7a7ecf421a7cd83",
+      "bytes": 980
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-2/profile-records.json": {
+      "sha256": "d540eb9bcea1e09a52e1310f9335b38056d8956136e6878b465f5b593804785a",
+      "bytes": 1083474
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-2/qualification.json": {
+      "sha256": "fb52a56adc871a0edd14aeb13f0639041d0ddaf93074e6767cdf9604b7bdd85e",
+      "bytes": 391057
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-2/timed-input-binding.json": {
+      "sha256": "3f2594a7abdf1cd98767893d61ba7eb342aecd0fbed5823cf709a0a7ba781935",
+      "bytes": 773
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-3/measurement.json": {
+      "sha256": "910e91be991ee0bd73f668a0828abb2390781262fba16e1485ebef9742bac06e",
+      "bytes": 980
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-3/profile-records.json": {
+      "sha256": "87daa69b714a63a415df7985ca1660b865c870b88e5d9c2ae8533ec9205ec4c4",
+      "bytes": 1210698
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-3/qualification.json": {
+      "sha256": "a858a9a2cf663bd601bbd4d2ffef8770a124cc068c33bd393b5ac52f496a0196",
+      "bytes": 391901
+    },
+    "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-3/timed-input-binding.json": {
+      "sha256": "3f2594a7abdf1cd98767893d61ba7eb342aecd0fbed5823cf709a0a7ba781935",
+      "bytes": 773
+    }
+  },
+  "new_user_feedback": {
+    "path": "/mnt/datasets/c3r-build/handover/feedback-20261020-live.sol.json",
+    "implementation_or_runtime_pass_claimed": false
+  },
+  "documentation_refresh": {
+    "utc": "2026-10-20T14:16:08.912546+00:00",
+    "reason": "Subsequent Neo scene/metadata CPU work added a handover README reference. Helper/fixture code and original test logs are unchanged. Acceptance ledgers are mutable checkpoints.",
+    "changed_files": [
+      {
+        "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/README.md",
+        "previous_sha256": "2194a6cc5034b82285d895c0e7ed8b26a559688f54b477d0878909b0467d8413",
+        "current_sha256": "b6e6e7db98d8f4c56c8c72a5545f160985ec8235a07a24553d3b561b0112209a"
+      }
+    ]
+  },
+  "post_live_preflight_documentation_refresh": {
+    "utc": "2026-10-20T16:32:41.144720+00:00",
+    "changed_file": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/native-app-status.md",
+    "previous_sha256": "6544a53782af20dd21bc8a6fb3d5dc76daa9481a85d88e0f727a6176b5298531",
+    "current_sha256": "77c4122a58580164d3e254c415cecde724d07ee2e6dd71c902fc3217f14158d2",
+    "fixture_helper_source_changed": false,
+    "new_actual_runtime_evidence": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App8b-v2-preflight-proof.json",
+    "new_actual_runtime_evidence_sha256": "037e0324214070ece249a76b2a2807339f0ee893f30f200a0aa1877852136242",
+    "result": "untimed preflight failed; no accepted timing; all owned processes absent and lease released"
+  }
+}

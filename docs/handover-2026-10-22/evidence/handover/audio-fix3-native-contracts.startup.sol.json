@@ -1,0 +1,27 @@
+{
+  "FAILED_CALLER": {
+    "address": 6265707,
+    "bytes": "5357b900abca00e839f3ffff8bf085f6740be87e0100008bc65f5e5bc3",
+    "match": true
+  },
+  "MIDI_CLOSE": {
+    "address": 6264688,
+    "bytes": "568bf18b4e1485c974138b01ff50148bcee81affffffc746140000000033c05ec3",
+    "match": true
+  },
+  "MIDI_DELETE": {
+    "address": 6264480,
+    "bytes": "568bf18b461485c07416a108adca0085c0740dffd0c746140000000033c05ec3b8140000005ec3",
+    "match": true
+  },
+  "UNLOAD": {
+    "address": 6266112,
+    "bytes": "a13cadca00c70540adca000000000085c0741150ff1560516600c7053cadca0000000000e88700000033c0c3",
+    "match": true
+  },
+  "PE": {
+    "path": "/mnt/datasets/winvm/wine-civ3-perf2/drive_c/Games/Civilization III Complete/Conquests/Civ3Conquests.exe",
+    "sha256": "66d0ae91de6f4a2376e03aa74eb29a8256f02108ca3a4c024a4857337bc45ee6",
+    "image_base": 4194304
+  }
+}

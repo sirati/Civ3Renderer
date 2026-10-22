@@ -1,0 +1,139 @@
+{
+  "same_test_binary_for_both_cases": true,
+  "test_binary_sha256": "20e40f7c1caf54694b2b4c5e486c9966546f46400c8d6efecd990b4779382a1e",
+  "results": {
+    "legacy": {
+      "case": "legacy",
+      "canvas": [
+        3840,
+        2160
+      ],
+      "main_pane": [
+        0,
+        0,
+        1920,
+        2160
+      ],
+      "open_spans_y": [
+        [
+          720,
+          1440
+        ]
+      ],
+      "pointer_walls": [
+        [
+          1920,
+          0,
+          4,
+          720
+        ],
+        [
+          1920,
+          1440,
+          4,
+          720
+        ]
+      ],
+      "commanded_target": [
+        1918,
+        800
+      ],
+      "layout_pointer": [
+        1918,
+        800
+      ],
+      "hit": "Divider",
+      "against": "None",
+      "view_edge": "None",
+      "corrected_target": [
+        1919,
+        360
+      ],
+      "camera_before": [
+        11008,
+        1800
+      ],
+      "camera_after": [
+        11008,
+        1800
+      ],
+      "label_shift_before": [
+        -960,
+        0
+      ],
+      "label_shift_after": [
+        -960,
+        0
+      ],
+      "test_exit_code": 101
+    },
+    "corrected": {
+      "case": "corrected",
+      "canvas": [
+        3840,
+        2160
+      ],
+      "main_pane": [
+        0,
+        0,
+        1920,
+        2160
+      ],
+      "open_spans_y": [
+        [
+          720,
+          1440
+        ]
+      ],
+      "pointer_walls": [
+        [
+          1920,
+          0,
+          4,
+          720
+        ],
+        [
+          1920,
+          1440,
+          4,
+          720
+        ]
+      ],
+      "commanded_target": [
+        1919,
+        360
+      ],
+      "layout_pointer": [
+        1919,
+        360
+      ],
+      "hit": "Main",
+      "against": "Some(A)",
+      "view_edge": "Some((Main, (1, 0)))",
+      "corrected_target": [
+        1919,
+        360
+      ],
+      "camera_before": [
+        11008,
+        1800
+      ],
+      "camera_after": [
+        11068,
+        1800
+      ],
+      "label_shift_before": [
+        -960,
+        0
+      ],
+      "label_shift_after": [
+        -1020,
+        0
+      ],
+      "test_exit_code": 0
+    }
+  },
+  "gpu_runtime_started": false,
+  "live_preflight_pending": true,
+  "performance_or_release_acceptance": false
+}

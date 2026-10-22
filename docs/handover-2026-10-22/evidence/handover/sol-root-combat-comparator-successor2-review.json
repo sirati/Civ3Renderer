@@ -1,0 +1,19 @@
+{
+  "reviewed_utc": "2026-10-20T18:57:42.888553+00:00",
+  "proof_sha256": "2355cfb2c8632831a54fa0c6266e44d69d1fbc51b6600264b7ad3c722427078a",
+  "source_sha256": "ad07842543aad40d2d25464c1420223464836b0a5b889edb24e4b59b268544ae",
+  "independent_review_sha256": "ee331de86a467fc46b54e80454bdcd61fd1be0b0b54695b42f1f79443589d2f2",
+  "scope": "Root read complete successor2 delta, proof and independent re-review. Rehashed every bound leaf and both preserved parents. Independent reviewer reran27 pure tests pass0failure; root did not repeat tests.",
+  "decision": "Accept exact offline finite-outcome comparator for future native evidence comparison. No native capture has passed.",
+  "corrections": [
+    "Remaining config requires recursive exact type/value equality outside combat_speed",
+    "Every capture receives structural/participant scope checks; selected capture adds combat/preserve/full-rule gates",
+    "JSON uses bounded actual reads and64-level predecoder validation; recursion becomes controlled rejection"
+  ],
+  "limits": [
+    "Current native flush return, normal exit and filesystem persistence remain unobserved by comparator",
+    "Hash-bound external fixtures/artifacts/process records need independent live-process confirmation",
+    "Finite observed outcome/seed equality does not count RNG calls or prove whole-world equivalence",
+    "Native boundary timings do not establish viewer-first-pose/scanout or exact animation speed"
+  ]
+}

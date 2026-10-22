@@ -1,0 +1,50 @@
+{
+  "decision": "Sol agents are authorized to operate UIs and inspect screenshots for testing; no new user permission is required.",
+  "older_direct_user_rules": [
+    {
+      "path": "/home/sirati/.claude/projects/-home-sirati/075e62a1-1816-4c77-b606-7d347fd36f6d.jsonl",
+      "line": 1953,
+      "time": "2026-10-16T01:33:58.467Z",
+      "quote": "please use sonnet 5.5 subagents for testing and especially for inspecting images, you yourself focus only one code and not look at images yourself."
+    },
+    {
+      "path": "/home/sirati/.claude/projects/-home-sirati/075e62a1-1816-4c77-b606-7d347fd36f6d.jsonl",
+      "line": 14870,
+      "time": "2026-10-17T12:23:51.199Z",
+      "quote": "are you enforcing the rule that only sonnet 5.5 agents are allowed to operate UIs and look at screenshots"
+    },
+    {
+      "path": "/home/sirati/.claude/projects/-home-sirati/075e62a1-1816-4c77-b606-7d347fd36f6d.jsonl",
+      "line": 15792,
+      "time": "2026-10-17T14:14:40.303Z",
+      "quote": "also remember subagents are forbidden from looking at pictures only sonnet 5.5 may do that"
+    }
+  ],
+  "later_direct_user_override": {
+    "path": "/home/sirati/.codex/sessions/2026/10/17/rollout-2026-10-17T23-20-47-01a14bbd-1e01-7d63-8c99-4327886f8e55.jsonl",
+    "line": 112,
+    "time": "2026-10-17T21:22:17.047Z",
+    "quote": "The recovered session allows only Sonnet 5.5 agents to operate UIs or inspect screenshots. That model is unavailable among my subagents. May I use the available agents for those checks? I\u2019ll continue code recovery meanwhile.\nsol"
+  },
+  "subsequent_acknowledgment": {
+    "path": "/home/sirati/.codex/sessions/2026/10/17/rollout-2026-10-17T23-20-47-01a14bbd-1e01-7d63-8c99-4327886f8e55.jsonl",
+    "line": 118,
+    "time": "2026-10-17T21:22:20.545Z",
+    "quote": "I\u2019ll use Sol agents for UI checks and screenshot review."
+  },
+  "stale_derivative_constraints": [
+    "/mnt/datasets/c3r-build/handover/00-orchestrator.md",
+    "/mnt/datasets/c3r-build/handover/sol-orchestrator-current.json"
+  ],
+  "precedence": "Recovered handovers restate an older user restriction; they cannot revoke the later explicit user answer. Root independently confirmed this override in the present task.",
+  "not_changed": [
+    "No physical Mac builds",
+    "No Nexus checkout changes",
+    "No game-asset copies",
+    "AMD RADV only for host GPU tests",
+    "No commits/reset/stash",
+    "No host changes",
+    "VM combined 10 GB cgroup cap",
+    "Never operate wayland-host"
+  ]
+}

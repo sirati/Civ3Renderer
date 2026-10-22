@@ -1,0 +1,15 @@
+{
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "scope": "Root independently read and rehashed f510 staged and unchanged live Neo files over SSH. Read-only, no install or game launch.",
+  "prepared_record_sha256": "2a278ab8ff8b7a7f2fbbdd37763f1c9fe3006ac685c1cd1c1ba31100b1ee54fa",
+  "raw_files_verified": 8,
+  "signed_files_verified": 8,
+  "all_MachO_signatures_pass": true,
+  "prepared_app_tree_and_deep_strict_signature_pass": true,
+  "live_runtime_matches_installed_3be": true,
+  "live_app_unchanged": true,
+  "active_runtime": [],
+  "launch_lock_present": false,
+  "remote_evidence": "/mnt/datasets/c3r-build/release-1019/artifacts/f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703/root-independent-remote-verification.json",
+  "decision": "f510 staging identity verified independently. Installation still awaits causal no-device lifecycle and fixture restoration."
+}

@@ -1,0 +1,75 @@
+{
+  "mode": "read-only recommendation; no deletion performed",
+  "candidates": [
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-7055148cf5c47a28d6ccb8cf3fa1e6b484fa582cbe7069877227b0c5999c35bf",
+      "physical_extent_bytes": 2322145280,
+      "exclusive_extent_bytes": 2287816704,
+      "shared_extent_bytes": 34328576
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-7055148cf5c47a28d6ccb8cf3fa1e6b484fa582cbe7069877227b0c5999c35bf",
+      "physical_extent_bytes": 866070528,
+      "exclusive_extent_bytes": 836939776,
+      "shared_extent_bytes": 29130752
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+      "physical_extent_bytes": 2142281728,
+      "exclusive_extent_bytes": 2106892288,
+      "shared_extent_bytes": 35389440
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+      "physical_extent_bytes": 888958976,
+      "exclusive_extent_bytes": 857124864,
+      "shared_extent_bytes": 31834112
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-intel-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
+      "physical_extent_bytes": 917700608,
+      "exclusive_extent_bytes": 84393984,
+      "shared_extent_bytes": 833306624
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340",
+      "physical_extent_bytes": 2145824768,
+      "exclusive_extent_bytes": 198225920,
+      "shared_extent_bytes": 1947598848
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340",
+      "physical_extent_bytes": 890499072,
+      "exclusive_extent_bytes": 85876736,
+      "shared_extent_bytes": 804622336
+    }
+  ],
+  "sum_physical_extent_bytes_before_shared_dedup": 10173480960,
+  "sum_exclusive_extent_bytes": 6457270272,
+  "size_note": "Btrfs reflinks share extents. Exclusive sum is conservative reclaimable allocation; summing du sizes overstates physical recovery. Snapshots outside this scan can retain extents.",
+  "dependency_check": {
+    "retained_build_script_output_references": [],
+    "external_symlinks": [],
+    "historical_self_references": [
+      "/mnt/datasets/c3r-build/release-1019/target-win-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340/i686-pc-windows-gnu/release/build/tile-render-0709a3673e140871/output",
+      "/mnt/datasets/c3r-build/release-1019/target-win-7055148cf5c47a28d6ccb8cf3fa1e6b484fa582cbe7069877227b0c5999c35bf/i686-pc-windows-gnu/release/build/tile-render-0709a3673e140871/output",
+      "/mnt/datasets/c3r-build/release-1019/target-win-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340/i686-pc-windows-gnu/debug/build/tile-render-d9054a7a36636c1c/output",
+      "/mnt/datasets/c3r-build/release-1019/target-win-7055148cf5c47a28d6ccb8cf3fa1e6b484fa582cbe7069877227b0c5999c35bf/i686-pc-windows-gnu/debug/build/tile-render-d9054a7a36636c1c/output",
+      "/mnt/datasets/c3r-build/release-1019/target-mac-intel-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/x86_64-apple-darwin/release/build/tile-render-8e801537a5016186/output",
+      "/mnt/datasets/c3r-build/release-1019/target-mac-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/aarch64-apple-darwin/release/build/tile-render-1a6b07f13478c139/output",
+      "/mnt/datasets/c3r-build/release-1019/target-win-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/i686-pc-windows-gnu/release/build/tile-render-0709a3673e140871/output",
+      "/mnt/datasets/c3r-build/release-1019/target-win-3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c/i686-pc-windows-gnu/debug/build/tile-render-d9054a7a36636c1c/output",
+      "/mnt/datasets/c3r-build/release-1019/target-mac-b41ec4a0fd903ad62b547383e5efddd7ab818118f4edeaf64a08ef29f911b340/aarch64-apple-darwin/release/build/tile-render-1a6b07f13478c139/output"
+    ],
+    "artifact_manifest_references": "Only cache-provenance origin references found; current manifests/tests/runtime paths are copied artifacts outside proposed caches.",
+    "active_compilers": "No cargo/rustc/target consumer process observed during inventory."
+  },
+  "preserve": [
+    "all release-1019/artifacts and src-* directories, source archives, logs/manifests/evidence",
+    "all target*866 directories, wider/binary/combat pinned resolver deps",
+    "current f510 ARM/Intel/Linux targets and f7b production PE target",
+    "9b and8b targets held pending wider owner dependency audit; no broad target wildcard cleanup",
+    "darwin-cross toolchain/SDK/native shim directories and all currentMac source/native-link build dependencies",
+    "Neo staged/installed/runtime rollback releases and prefixes; no remote deletion recommendation"
+  ]
+}

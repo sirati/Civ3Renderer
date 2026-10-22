@@ -1,0 +1,41 @@
+{
+  "reviewed_utc": "2026-10-20T15:28:38.828191+00:00",
+  "source_leaves": {
+    "crates/civ3r-launcher/Cargo.toml": "b40d57b9ad6824d6c26bbea1ba55ea2c6d1a5101e28eaf5f0d068031ed24436f",
+    "crates/civ3r-launcher/src/startup.rs": "18710796c0b59943383aa9b93c47de713fb6db8602266c6257e4590b3b38b3d4",
+    "crates/civ3r-launcher/src/startup/gpu.rs": "990cc213051447ed33d350967209ccf4a836f8e9768406241da84ce6b6cd0990",
+    "Cargo.lock": "e3736f09ad43284789a885e106d77adfb4693686fb2a2d0aacf8144ddd159d31"
+  },
+  "previous_leaves": {
+    "crates/civ3r-launcher/Cargo.toml": {
+      "sha256": "fe4c5c5a5bb2bc4dba3aca07374b8ad95cc8e35649a3f58b2900952a381edf8b",
+      "bytes": 657
+    },
+    "crates/civ3r-launcher/src/startup.rs": {
+      "sha256": "5ae2672bfa048cda877f896dc2b195d5051965fdd4465f93c30144aad43c2dd2",
+      "bytes": 12515
+    },
+    "Cargo.lock": {
+      "sha256": "ab1620891fe86bcc751b0ac399773b73b2746d3dacad4f057ec505f5eb1b60d4",
+      "bytes": 97468
+    }
+  },
+  "promotion": "exact four validated leaves copied to shared source after current-original hash guards",
+  "checks": [
+    "CPU startup4passed; shader text probe1passed with156ink pixels in expectedbounds; latest all-target locked checkpassed",
+    "No custom CPU pixel framebuffer/fallback; font contours are metadata and rasterization uses existing shaders",
+    "No new unsafe or locks; generic wgpu adapter helper permits hardware and backend software implementations",
+    "EventLoopProxy wake with ControlFlow::Wait; no polling timer; hidden/occluded paints skipped",
+    "Per visible frame submit then controls_submitted, no GPU completion wait",
+    "Lost/Outdated reconfigure and acquire retry bounded to1",
+    "cfg(unix) dependency scope matches startup module"
+  ],
+  "lock_review": "/mnt/datasets/c3r-build/handover/sol-root-launcher-lock-review.json",
+  "not_accepted": [
+    "actual startup window lifecycle on macOS",
+    "Metal hardware probe",
+    "whole game gameplay/performance",
+    "240FPS"
+  ],
+  "evidence": "/mnt/datasets/c3r-build/launcher-gpu-sol"
+}

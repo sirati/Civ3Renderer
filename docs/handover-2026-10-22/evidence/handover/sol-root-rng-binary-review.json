@@ -1,0 +1,21 @@
+{
+  "reviewed_utc": "2026-10-20T15:41:04.177351+00:00",
+  "binary_rows": [
+    {
+      "path": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Civ3Conquests-Unmodded.exe",
+      "sha256": "f5c72aa9460cfe2dcf0970108d4fb570b535e2861f4093713232b7122e7f8c0b",
+      "generator": "518b0169c06d4ec64105393000008901668b490281e1ff7f0000894c2400db442400dc0dc816670059c3",
+      "rand_int": "e8cbffffff8b44240425ffff000089442404db442404dec9e877e70300c20400",
+      "preserve_rule": "a13c26a500f6c401750bff15ec526600a37426a500"
+    },
+    {
+      "path": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Civ3Conquests.exe",
+      "sha256": "66d0ae91de6f4a2376e03aa74eb29a8256f02108ca3a4c024a4857337bc45ee6",
+      "generator": "518b0169c06d4ec64105393000008901668b490281e1ff7f0000894c2400db442400dc0dc816670059c3",
+      "rand_int": "e8cbffffff8b44240425ffff000089442404db442404dec9e877e70300c20400",
+      "preserve_rule": "a13c26a500f6c401750bff15ec526600a37426a500"
+    }
+  ],
+  "rng_state": "Direct oneDWORD0xA52674 for native LCG, ruleDWORD0xA5263C bit0x100; no seed-pointer dereference",
+  "conclusion": "Exact filebytes in VMexe66d match unmodf5c at generator/rand_int/preserve_rule. Runtime hooks still need checking; fileidentity cannot prove unmodified processmemory."
+}

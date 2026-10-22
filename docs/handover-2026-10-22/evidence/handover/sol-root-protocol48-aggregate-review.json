@@ -1,0 +1,52 @@
+{
+  "reviewed_at_utc": "2026-10-20T09:53:11.436658+00:00",
+  "source_archive_sha256": "60931ad49f18c0fb08a9ff2ed5710c6953f0f76f564837a8a6389deb4850ca9d",
+  "protocol": 48,
+  "aggregate_exit": 0,
+  "source_files_reverified": 630,
+  "results": {
+    "host": {
+      "passed": 1357,
+      "failed": 0,
+      "ignored": 11,
+      "suites": 80
+    },
+    "viewer-gpu-ignored": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 1
+    },
+    "wine-bridge-sys": {
+      "passed": 530,
+      "failed": 0,
+      "ignored": 1,
+      "suites": 2
+    },
+    "wine-inproc": {
+      "passed": 27,
+      "failed": 0,
+      "ignored": 1,
+      "suites": 2
+    },
+    "wine-procedural-controls": {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 2
+    },
+    "wine-camera": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 1
+    }
+  },
+  "total_passed": 1929,
+  "ignored": 13,
+  "native_art_combinations": 40,
+  "new_present_snapshot_and_GDI_regressions_passed": true,
+  "all_raw_artifacts_reverified": true,
+  "physical_installation": "failed before transfer due SSH unreachable; no waiter",
+  "macos_runtime": "New user requested actual single-process dual-stack validation; in progress, CPU-only coverage not sufficient."
+}

@@ -1,0 +1,23 @@
+{
+  "reviewed_at_utc": "2026-10-20T10:09:32.069707+00:00",
+  "source_archive_sha256": "31b5951a200234422c73a7c8c8f8b97bea77424fc8c9a86d2580003553c3ef58",
+  "protocol": 48,
+  "files_verified": {
+    "civ3r-viewer": "307ac463c5a3deebbd12f8f2f52a3241516d280e874a447a0ac9585b6dcbc888",
+    "civ3-play-macos": "853a2f7a205fe1dbb42c990473dd80a4d208fb1c749e199c2ce46a7acec8c29f",
+    "IFC23.dll": "3d918a59db4ba6478319810f7adb3af3c58227f7ba82d7c2d3d4b6da63509275",
+    "civ3r_native.so": "e6e208f89947bf46f80003c8994be7ef5d3c064aff7e0917466dc075cff00978",
+    "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935",
+    "civ3-app-macos": "fcdc345bde25cf1221146cf7d68604a7bf6940efcbe2d7244136f9e81a0ff668",
+    "RUN.md": "fb4f5df408b1da916d3cb355a3102c9a574a5a24181802e64d3567a76d12c26f",
+    "icon.png": "bd0bc503c55ea68d53d471694a35cd1b129e75a31f8bf9704f19974ed5273afc"
+  },
+  "shader_sha256": "67f3cefc9e905d7404baf63a3d0a3b54ca775bddc61612f52aa57c9b7de1ceb0",
+  "shader_embeds": {
+    "IFC23.dll": 1,
+    "civ3r-viewer": 1,
+    "civ3r_native.so": 1
+  },
+  "architecture_checks": "ARM64 Mach-O viewer/native.so/starter; i686 PE bridge/shim",
+  "scope": "Independent artifact pairing. Full aggregate and corrected actual Intelmac runtime still pending."
+}

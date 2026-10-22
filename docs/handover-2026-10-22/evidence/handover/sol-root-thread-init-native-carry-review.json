@@ -1,0 +1,10 @@
+{
+  "reviewed_at_utc": "2026-10-20T10:10:02.109973+00:00",
+  "baseline_source": "60931ad49f18c0fb08a9ff2ed5710c6953f0f76f564837a8a6389deb4850ca9d",
+  "successor_source": "31b5951a200234422c73a7c8c8f8b97bea77424fc8c9a86d2580003553c3ef58",
+  "source_files_independently_verified": 170,
+  "shader_identical": true,
+  "native_baseline_passed": 18,
+  "scope": "Retained native Windows procedural/control GPU and GDI results cover unchanged component code. Not fresh successor native Windows executions. New viewer/native-thread behavior requires successor aggregate and actual corrected Mac VM runtime.",
+  "carry_record_sha256": "d821facff10f5e31734b6ed6d97f33127c46df7f7bf4b081198362df286b0065"
+}

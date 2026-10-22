@@ -1,0 +1,76 @@
+{
+  "source": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+  "venue": "Actual native Linux App on AMD RADV, native3840x2160, verified WW2 load, dualsource/cache enabled",
+  "repetitions": [
+    {
+      "repetition": 1,
+      "raw_full_submit_FPS": 45.421564359309244,
+      "valid_dynamic_camera_gate": false,
+      "qualified_for_240FPS": false,
+      "full_submitted": 2504,
+      "reuse": 0,
+      "GPU_samples_submitted": 2032,
+      "GPU_sample_coverage": 0.8115015974440895,
+      "readback_busy_drops": 472,
+      "dynamic_FPS_evidence": null,
+      "qualification_evidence": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-1/qualification.json",
+      "ordered_primary_camera_x": [
+        6821,
+        5704,
+        4132,
+        3000,
+        1449,
+        301,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "observation_scope": "Bounded actual-App observation with initial one-way motion followed by a static map boundary; not sustained-pan qualification.",
+      "historical_weak_gate_passed": true
+    },
+    {
+      "repetition": 2,
+      "raw_full_submit_FPS": 47.106447865233804,
+      "valid_dynamic_camera_gate": false,
+      "qualified_for_240FPS": false,
+      "full_submitted": 2595,
+      "reuse": 0,
+      "GPU_samples_submitted": 2124,
+      "GPU_sample_coverage": 0.8184971098265896,
+      "readback_busy_drops": 471,
+      "dynamic_FPS_evidence": null,
+      "qualification_evidence": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-2/qualification.json"
+    },
+    {
+      "repetition": 3,
+      "raw_full_submit_FPS": 47.507533674617875,
+      "valid_dynamic_camera_gate": false,
+      "qualified_for_240FPS": false,
+      "full_submitted": 2617,
+      "reuse": 0,
+      "GPU_samples_submitted": 2104,
+      "GPU_sample_coverage": 0.8039740160489109,
+      "readback_busy_drops": 513,
+      "dynamic_FPS_evidence": null,
+      "qualification_evidence": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/repetition-3/qualification.json"
+    }
+  ],
+  "status": "240FPS NOT ACHIEVED; all three repetitions fail sustained-motion qualification; no pooled dynamic average",
+  "limits": [
+    "GPU timing coverage is incomplete; no complete per-frame timing claim.",
+    "Repetition1 moved initially and then remained at the boundary; repetitions2/3 were static. All three fail the stronger sustained bidirectional primary-camera gate. These fixture failures do not prove a production input defect.",
+    "Wine/bridge logs duplicate reports; retain per-file/window quantiles without pooling.",
+    "Worker draw(all) includes surface acquisition; it is not pure CPU work.",
+    "Unrelated host contention remained; not an isolated hardware limit."
+  ],
+  "timing_window_evidence": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/timing-window-summary.json",
+  "owner_scope": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/native-app-status.md",
+  "shutdown": "/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/shutdown.json",
+  "all_owned_processes_absent": true,
+  "motion_classification": "Retrospective corrected classification. Immutable raw qualification.json retains its historical weaker gate result; it is not sustained-motion evidence.",
+  "fixture_v2_scope": "3 Rust helper tests and 26 Python fixture tests passed; actual barrier/preflight proof remains pending.",
+  "retrospective_motion_evidence": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/baseline866-retrospective-motion.json"
+}

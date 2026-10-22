@@ -1,0 +1,35 @@
+{
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "target": "x86_64-apple-darwin shipping launcher",
+  "launcher_sha256": "2d161a9c0508c378c0bae586666a64e85bdf2fad5327b66112ddffefbc375c21",
+  "scope": "Root independently read pre-signal and result JSON for actual winit/AppKit retained-failure and active-child cancellation arms. Canonical shipping payload was previously artifact-reviewed; fresh per-arm preflight binds runtime.",
+  "retained_failure_A": {
+    "launcher_pid": 1231,
+    "identity_version": 3170,
+    "argv_nonexistent_game_control": true,
+    "atomic_launcher_TERM_return": 0,
+    "positive_Popen_returncode": 143,
+    "owned_after": [],
+    "lock_remaining": false,
+    "session_remaining": [],
+    "external_child_signals": false
+  },
+  "active_child_B": {
+    "launcher_pid": 1279,
+    "identity_version": 3298,
+    "lock_pid_matches_launcher": true,
+    "game_pid": 1327,
+    "game_identity_version": 3389,
+    "actual_private_game_argv_verified": true,
+    "game_and_owned_helpers_share_session_capability_hash": "c6b57c1dd180da11f1bfcb41f7bad7b7862e0d04ab5a5090665cf682a53638e6",
+    "atomic_launcher_TERM_return": 0,
+    "positive_Popen_returncode": 143,
+    "owned_after": [],
+    "lock_remaining": false,
+    "session_remaining": [],
+    "external_child_signals": false
+  },
+  "decision": "Both shipping launcher cancellation arms pass. Positive143 is normal program exit, distinct from Popen signal -15; no watchdog or KILL was required.",
+  "limits": "VM failure window screenshot remained blank with nil-device warnings. Cancellation success does not establish visible failure UI, gameplay normal Quit, failed-audio unwind or physical ARM Metal presentation.",
+  "remaining": "Exact production no-device title and loaded failed-unwind normal Quit, fixture restoration and idle Neo promotion; broader gameplay/performance remain scoped open."
+}

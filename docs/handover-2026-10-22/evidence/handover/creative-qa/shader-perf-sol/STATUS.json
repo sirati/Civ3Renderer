@@ -1,0 +1,149 @@
+{
+  "active_jobs": [],
+  "gpu_lease": "released; no owned GPU/compiler/background process active",
+  "output555": {
+    "decision": "rejected, production block removed",
+    "shader_sha256": "7b88e3282a9b6754ada83a28313ff66634083fad216474c8e64523d4cbb493f1",
+    "numeric": "85888 pixels exact",
+    "performance": "about0.07ms output regression over3 matched scale2 runs"
+  },
+  "indexed_opaque555": {
+    "decision": "rejected after3matchedruns; production branch removed",
+    "shader_sha256": "d0a2e242201bd96c1942673d18d24a5610d5b8572c0919fca246893579441405",
+    "tests": 8,
+    "production": "removed from generic tile_fs",
+    "native4k_gpu_p50_ms": [
+      12.28396,
+      13.18612
+    ],
+    "scale2_gpu_p50_ms": [
+      37.04292,
+      37.93876
+    ]
+  },
+  "tiles555": {
+    "decision": "accepted after58numericgates and3matchedperformance runs; parent authorized integration",
+    "shader_sha256": "205615534df6338a51dc46e8a2d11591bfe6569aff9f081104da39fe8acd4e9f",
+    "production": "tile555_fs inserted unchanged; renderer owner completing conservative RGB555 cell-only selector/fallback",
+    "benchmark": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/perf240-tiles555",
+    "benchmark_sha256": "43a41dee8dc4ab3e63eb93084af97f909a62b21ccbb5e870856e13488b1b596a",
+    "toggle": "TILE_RENDER_TILES555=0 or1, read once per renderer constructor",
+    "native4k_fps_median": [
+      70.51,
+      76.505
+    ],
+    "native4k_gpu_p50_ms": [
+      12.24932,
+      11.11456
+    ],
+    "native4k_gpu_p95_ms": [
+      12.54804,
+      11.48888
+    ],
+    "scale2_gpu_p50_ms": [
+      37.04472,
+      36.4704
+    ],
+    "performance_evidence": "/mnt/datasets/c3r-build/perf240-sol/evidence/candidates/candidate-summary.csv"
+  },
+  "shared_contributions": [
+    "native_palette_alpha_fs helper, owned by smoke team",
+    "glyph_cache shader module export",
+    "output_decode.rs independent GPU byte oracle",
+    "indexed_palette_boundaries.rs independent GPU palette/order oracle, free and cell paths"
+  ],
+  "cleanup": {
+    "completed_owned_cargo_targets_removed": [
+      "target-output555-host",
+      "target-indexed-opaque555-host",
+      "target-tiles555-host",
+      "target-tiles555-quality"
+    ],
+    "cargo_reported_approx_gib_removed": [
+      1.5,
+      1.8,
+      2.0,
+      1.0
+    ],
+    "retained": "SPV artifacts, immutable sources, evidence, benchmark binary, dedicated manual-oracle binaries"
+  },
+  "pending": [
+    "broker actualApp native1x and crisp4K SubpixelDual A/B results",
+    "root decision on source-only bounded exact6/7 destination-snapshot fallback design; fidelity remains OPEN",
+    "successor timingRING32 affected unit gate and root worker diagnostics",
+    "tile-render doc-test gate from release owner",
+    "root final coherent source/SPV freeze and aggregate crossplatform/full feature testing"
+  ],
+  "subpixel_dual": {
+    "decision": "exact fallback/dual byte parity proven across19,552,836pixels; RGB444/RGB555 independent integer checks pass; native1x/scale2 matched actualApp performance pending",
+    "production": "shader, text helper, build dual decorations/fallback and renderer constructor selector landed; coherent checkpoint SPV build pending broker release",
+    "entry": "subpixel_dual_fs",
+    "outputs": [
+      "subpixel_dual_source",
+      "subpixel_dual_coverage"
+    ],
+    "oracle_source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel_dual_oracle.rs",
+    "constraints": "source-only edits authorized; broker has not authorized heavy build or GPU",
+    "preserves": [
+      "three-pass fallback",
+      "direct fetched UNORM coverage",
+      "quantized integer arithmetic and zero-coverage discard semantics",
+      "target alpha with RGB-only writes"
+    ],
+    "oracle_supported_world_depths": [
+      0,
+      4,
+      5,
+      6,
+      7
+    ],
+    "oracle_pixels_per_mode": 19552836,
+    "initial_oracle_failure": "subpixel-dual-alpha-expectation-failure.json; fallback correctly preserves clear alpha37, while test incorrectly expected255 for quantized models",
+    "current_test_source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-coverage-inventory-amendment.rs",
+    "current_test_source_sha256": "5b980ae4366c79c42cb8078979019e0fd8c1dbe8d1d1fc9f7b4a18a4a347de14",
+    "numeric_results": "subpixel-dual-oracle-results.json",
+    "pixels_compared": 19552836,
+    "same_hash_capture_modes": true,
+    "supported_higher_depths": "parity proven, independently inventoried fidelity still open; default strict test retained"
+  },
+  "performance_caveat": "MatchedGPUrelative improvement does not establish240FPS. Host unrelatedCPU load retained; no resolution/features/reuse change.",
+  "current_union": {
+    "source_archive_sha256": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+    "full_spv_sha256": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+    "fallback_spv_sha256": "7ff6d943a54e7255df2cd160e7239aee067f89470156e5a50b3c1e5079857a5d",
+    "regular_package_passed_except_pending_new_oracle": 157,
+    "regular_package_ignored": 1,
+    "explicit_captured_smoke_passed": 1,
+    "captured_smoke_pixels": 524288,
+    "gpu_lease": "released to broker/army",
+    "results": [
+      "union-package-test-results.json",
+      "native-captured-smoke-union-results.json"
+    ]
+  },
+  "higher_depth_fidelity": {
+    "status": "OPEN; minimal unchanged-shader FP16 format reuse rejected by strict one-pixel GPU failure",
+    "observed": "866 three-pass RGB666 white-over-white returns251 instead of255",
+    "historical_control": "PROVEN: unchanged67f3 historical SPV and866 production three-pass fallback reproduce identical blue251 vs255; both new selectors disabled",
+    "numeric_findings": "subpixel-dual-rgb666-fallback-finding.json",
+    "default_test": "strict4..7 remains; only explicit inventory mode counts known errors and continues parity capture",
+    "isolated_fix": "renderer owner evaluating existing unit-spaced FP16 format for6/7; no production adoption",
+    "historical_results": "historical-subpixel-control-results.json",
+    "rgb666_mismatched_pixels_per_mode": 61325,
+    "rgb777_mismatched_pixels_per_mode": 134041,
+    "isolated_candidate_source": "/mnt/datasets/c3r-build/higher-depth-fp16-sol/source",
+    "isolated_candidate_renderer_sha256": "966860722f6e9779c6f0a793b650f97018642381e7353cea8904ff70130208bb",
+    "candidate_build": "completed via rustc only, exact866 dependencies/canonical shaders; no Cargo/live/new3be mutation",
+    "candidate_tests": [
+      "strict all4..7 exhaustive coverage/tint/destination oracle",
+      "one-pixel RGB666 control",
+      "three queued mixed-format control ownership and integer pixels",
+      "retained picture encoding across three newly uploaded world formats"
+    ],
+    "isolated_candidate_result": "/mnt/datasets/c3r-build/higher-depth-fp16-sol/strict-candidate-results.json",
+    "candidate_tests_executed": [
+      "one-pixel strictRGB666:FAILED251instead255; broad strict/transition tests intentionally not run after tiny failure"
+    ],
+    "next_design": "portable-wider-integer-fallback-design.json; source-only exact destination-snapshot integer composition, no implementation/adoption"
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "note": "Static SPIR-V counts before vendor lowering; not runtime counts or timing evidence",
+  "shader_sha256": "67f3cefc9e905d7404baf63a3d0a3b54ca775bddc61612f52aa57c9b7de1ceb0",
+  "entries": [
+    {
+      "entry": "fullscreen_vs",
+      "instructions": 11,
+      "sdiv": 0,
+      "udiv": 0,
+      "float_div": 0,
+      "loops": 0,
+      "image_fetches": 0,
+      "loads": 1,
+      "branches": 0
+    },
+    {
+      "entry": "subpixel_b_fs",
+      "instructions": 369,
+      "sdiv": 4,
+      "udiv": 0,
+      "float_div": 0,
+      "loops": 0,
+      "image_fetches": 2,
+      "loads": 24,
+      "branches": 24
+    },
+    {
+      "entry": "subpixel_g_fs",
+      "instructions": 370,
+      "sdiv": 4,
+      "udiv": 0,
+      "float_div": 0,
+      "loops": 0,
+      "image_fetches": 2,
+      "loads": 24,
+      "branches": 24
+    },
+    {
+      "entry": "subpixel_r_fs",
+      "instructions": 369,
+      "sdiv": 4,
+      "udiv": 0,
+      "float_div": 0,
+      "loops": 0,
+      "image_fetches": 2,
+      "loads": 24,
+      "branches": 24
+    },
+    {
+      "entry": "free_vs",
+      "instructions": 2263,
+      "sdiv": 34,
+      "udiv": 11,
+      "float_div": 2,
+      "loops": 0,
+      "image_fetches": 0,
+      "loads": 70,
+      "branches": 208
+    },
+    {
+      "entry": "tile_fs",
+      "instructions": 1669,
+      "sdiv": 16,
+      "udiv": 13,
+      "float_div": 3,
+      "loops": 1,
+      "image_fetches": 6,
+      "loads": 45,
+      "branches": 120
+    },
+    {
+      "entry": "tile_vs",
+      "instructions": 2382,
+      "sdiv": 24,
+      "udiv": 13,
+      "float_div": 2,
+      "loops": 0,
+      "image_fetches": 0,
+      "loads": 94,
+      "branches": 200
+    },
+    {
+      "entry": "output_fs",
+      "instructions": 240,
+      "sdiv": 0,
+      "udiv": 2,
+      "float_div": 0,
+      "loops": 0,
+      "image_fetches": 1,
+      "loads": 10,
+      "branches": 15
+    },
+    {
+      "entry": "text_keyed_fs",
+      "instructions": 1081,
+      "sdiv": 9,
+      "udiv": 5,
+      "float_div": 0,
+      "loops": 11,
+      "image_fetches": 0,
+      "loads": 31,
+      "branches": 85
+    },
+    {
+      "entry": "text_vs",
+      "instructions": 12451,
+      "sdiv": 29,
+      "udiv": 22,
+      "float_div": 2,
+      "loops": 0,
+      "image_fetches": 0,
+      "loads": 53,
+      "branches": 958
+    },
+    {
+      "entry": "text_b_fs",
+      "instructions": 992,
+      "sdiv": 9,
+      "udiv": 2,
+      "float_div": 0,
+      "loops": 11,
+      "image_fetches": 0,
+      "loads": 29,
+      "branches": 81
+    },
+    {
+      "entry": "text_g_fs",
+      "instructions": 993,
+      "sdiv": 9,
+      "udiv": 2,
+      "float_div": 0,
+      "loops": 11,
+      "image_fetches": 0,
+      "loads": 29,
+      "branches": 81
+    },
+    {
+      "entry": "text_r_fs",
+      "instructions": 993,
+      "sdiv": 9,
+      "udiv": 2,
+      "float_div": 0,
+      "loops": 11,
+      "image_fetches": 0,
+      "loads": 29,
+      "branches": 81
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "note": "Independent manual-byte oracles retained; standard suite binaries are rebuildable from immutable source and their bound logs remain",
+  "files": [
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/retained-qa/indexed-indexed_palette_boundaries",
+      "sha256": "94885c9b30850f1779bd28596424a9fa132fd065b5cfbd59af91b504a935ccac"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/retained-qa/indexed-output_decode",
+      "sha256": "1a7e39afcc14ee5ea375677ffb062660fe7432a21bcd6e788d58eb103fac10ab"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/retained-qa/tiles555-indexed_palette_boundaries",
+      "sha256": "c3ff48b447bda15251e21b0434cac50c173e1bdd4538f6004e8d42a8e5ae0393"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/retained-qa/tiles555-output_decode",
+      "sha256": "f0492fac99a55fa280cf7b96f9c54233b59a759f67869179d96610b9f344c7c8"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "reviewed_utc": "2026-10-20T15:30:31.826903+00:00",
+  "source": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "images": {
+    "009-aqua9b-c3x.png": "972ae3bfc38cbfe79b14b1a7930ce29da1c4fd166ef90792991fd5b91d94b7b4",
+    "aqua9b-x2-timeout/0009.png": "ec655f30c77ce297a387e3209aa61ad4dbca29d7176678f56d9ae2c285b0f967",
+    "014-x1-accepted-reopen.png": "40abf99c7b3ca9e9bbda06ffb5ef42a50a69e9c67ffed9f1206147784d8c862d",
+    "015-dirty-cancel.png": "9a58ec5777abbcdf4c7ac0121aa042e61003e548794244ce36933cba1fc6959e",
+    "011-x3-kept.png": "37ec83654cfa71b198aa77e98cc0fc5d042e4169b257c6f8120d1ec9e8ec0329",
+    "024-war-map.png": "449250ef1e0569215b811ab94e970364cd4b233af67e55cac6e667120c4e75bb",
+    "026-war-target-region.png": "7b1d67ffc8041410fdec8bf05c04071343fb95a1f91be2e5bd8a6926ca014cda"
+  },
+  "root_visual_findings": [
+    "C3XInfo popup fully visible and readable over Preferences; parent geometry appears preserved",
+    "Rendering-scale confirmation prompt/countdown/buttons all visible with correct dimmed background",
+    "DirtyCancel dialog readable with intended Pixel scale1to5 summary and discard/keep choices",
+    "Independently viewed011-x3-kept.png at effective2 with dialogdismissed: all3 Scale sliders/tracks/thumbs/values arevisible. Prior concern was complete opaque-modal occlusion, no sourcebug.",
+    "024 transient coldload screenshot has readable red warning text and game-art loading ornament to the right of the expected topbutton region. No general stall diagnosis follows from that frame.",
+    "026 settled war-map screenshot contains terrain, fog, borders, cities, unit art, minimap and HUD. This establishes visible game content, without pixel-fidelity, combat or broader input acceptance."
+  ],
+  "runtime_verdict": "/mnt/datasets/c3r-build/vm-qab41-sol/runtime-verdict.json",
+  "runtime_verdict_sha256": "bb17e1ee02863caada770c7d08085cdd1eb2addf6621cff74616f855b6433325",
+  "limits": "Visual inspection cannot establish countdown timing, full effective3..6 coverage, input routing, gameplay or hardware performance. VM owner reports native interaction/timestamps separately.",
+  "disposition": "Scoped popup/confirmation observations accepted. Slider concern resolved by exact overlaygeometry and unobscured effective2 capture; no release blocker.",
+  "superseded_concern": "At x1 all three Scale section sliders render; at effective x2 in inspected modal captures their labels remain but all three tracks/thumbs/values are absent. Limiter slider still renders. This needs separate investigation before deployment.",
+  "corrected_utc": "2026-10-20T15:31:08.186774+00:00",
+  "latest_inspection_utc": "2026-10-20T15:55:29.797799+00:00",
+  "latest_session_scope": "Game renderer and PE remain exact9b, affected launcher now exact8b; followup VM runtime verdict still pending."
+}

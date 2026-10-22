@@ -1,0 +1,59 @@
+{
+  "created_utc": "2026-10-20T20:17:22.245934+00:00",
+  "scope": "Read-only audit and Rust-only instrumentation plan; no source edits/build/runtime/VM/GPU work",
+  "accepted_results": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json",
+    "sha256": "368ba6b77e41dbc54ba6642001da9f14c644a66917e71ce62b9287ed426eb012"
+  },
+  "camera_stage_supplement": {
+    "path": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
+    "sha256": "9f0c4becf33b42dec31a1fa894acc856af2969ff656b0b88b42ea99b3aa23684"
+  },
+  "frozen_source_archive": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "source_files": {
+    "crates/tile-viewer/src/profile.rs": {
+      "path": "/mnt/datasets/c3r-build/release-1019/src-f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703/crates/tile-viewer/src/profile.rs",
+      "sha256": "a6d327b7e787eaab3f7de7deff89970379f43b9cabf6cafc21de83ba3cf8dfa3"
+    },
+    "crates/tile-viewer/src/render_worker.rs": {
+      "path": "/mnt/datasets/c3r-build/release-1019/src-f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703/crates/tile-viewer/src/render_worker.rs",
+      "sha256": "8bd2ecd7cba24b30823f7533b30ea2f3562f9402397d8698cddc404f329d3e3b"
+    },
+    "crates/tile-render/src/timing.rs": {
+      "path": "/mnt/datasets/c3r-build/release-1019/src-f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703/crates/tile-render/src/timing.rs",
+      "sha256": "cb348257f032099cd9a4590e4eefbee8092fdf7c2a91d24bc51a78b3ea9d2080"
+    }
+  },
+  "findings": {
+    "host_encode_wall": "render_worker prepare Instant through encoder.finish; includes command preparation/uploads/marker/patch/timestamp encoding; excludes acquire/submit/present; not CPU busy",
+    "gpu_frame": "existing asynchronous timestamp first-pass-start to last-pass-end",
+    "gpu_gap": "existing adjacent device timestamp end-to-start; includes pacing/presentation/uploads/queue work; cannot isolate CPU wait",
+    "query_accounting": "ring32/drop counters asynchronous; no matched submitted-frame cohort"
+  },
+  "minimum_instrumentation": {
+    "new_common_api": "per-thread CpuClock::now() returning CPU nanoseconds",
+    "sampling": "two CPU-clock reads around existing worker_prepare bracket only",
+    "new_profile_span": "frame encode (cpu busy), preserving frame encode (host)",
+    "extra_host_diagnostic": "submit-to-submit wall gap; never mixed with GPU clock",
+    "gpu_changes": "none; preserve existing frame span/gap/ring/drop counters",
+    "sync_added": false,
+    "cpu_culling_added": false,
+    "per_frame_allocations_added": false,
+    "procfs_per_frame_reads_added": false
+  },
+  "attribution_contract": {
+    "cpu_busy_ms": "per-thread CPU time charged during worker prepare bracket",
+    "gpu_frame_ms": "device timestamp frame span",
+    "gpu_idle_unattributed_ms": "existing device inter-frame gap",
+    "gpu_wait_for_cpu_ms": "unknown unless opt-in calibrated host/device clocks; no generic wgpu exact attribution"
+  },
+  "platform_clock_note": "std has no portable per-thread CPU clock; isolate Linux CLOCK_THREAD_CPUTIME_ID, Windows GetThreadTimes and macOS thread CPU API behind safe common Rust API. Existing Rust system bindings already exist; avoid procfs/process spawning per frame.",
+  "validation": [
+    "fake CpuClock unit tests for wall-vs-CPU divergence",
+    "async query/ring/drop/discontinuity tests",
+    "existing CPU fixture and renderer/tile-viewer tests",
+    "short separate AMD RADV diagnostic run comparing host wall/CPU busy/GPU frame/unattributed gap/submit/present",
+    "UI promotion only after those checks"
+  ],
+  "no_changes_performed": true
+}

@@ -1,0 +1,120 @@
+{
+  "status": "Isolated binary-cell reconstructed-native4K recorded-map paired correctness gate passed; no adoption/timing/actualApp qualification",
+  "completed_utc": "2026-10-20T18:32:31.467902+00:00",
+  "scope": {
+    "target": [
+      3840,
+      2160
+    ],
+    "source_content": "Existing real recorded WWII map cell layers and read-only actual game art.",
+    "geometry": "Expanded native4K recorded camera, reconstructed top-left/bottom-right edge cameras, observed actualApp866 two-pane geometry translated together onto recorded WWII world.",
+    "excluded": "Free/UI/text/unit overlay commands. This is not an actualApp replay or live motion acceptance.",
+    "native_guard": "Zoom1/1,downscale1,art0,nonstacked,target passes only,direct/RGB444/RGB555 UNORM. All other paths retain blending.",
+    "baseline_pair": "Same executable, fresh matched renderers with binary_cells=false and true; baseline pipeline remains blended and candidate pipeline creation is asserted."
+  },
+  "paired_images": 32,
+  "RGBA_pixels_compared": 265420800,
+  "pixel_discrepancies": 0,
+  "test_suite": {
+    "passed": 8,
+    "failed": 0,
+    "ignored": 0,
+    "native_device_sections": 5,
+    "feature_free_device_sections": 5,
+    "independent_integer_controls_per_device": 3456,
+    "independent_integer_controls_total": 6912,
+    "modes": [
+      "direct",
+      "RGB444",
+      "RGB555 generic",
+      "RGB555 Tiles555"
+    ]
+  },
+  "device": {
+    "PCI": "0000:72:00.0",
+    "vendor": "1002",
+    "device": "13c0",
+    "backend": "Vulkan",
+    "driver": "RADV Mesa26.2.4",
+    "optional_features": "native and feature-free devices"
+  },
+  "executable": {
+    "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/artifacts/binary-cell-recorded4k-tests",
+    "sha256": "e312ab955ca4e78cca8a30184b50ed7cc777fd28811fd5c68c92a697a168fd22",
+    "shader_occurrences": [
+      1,
+      1
+    ]
+  },
+  "paired_shaders": {
+    "shader.spv": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/artifacts/shader.spv",
+      "sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4"
+    },
+    "shader-fallback.spv": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/artifacts/shader-fallback.spv",
+      "sha256": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281"
+    }
+  },
+  "fixture": {
+    "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/fixture.raw",
+    "sha256": "af9a59c5ffed2d76666006d3418220286177db87f0a0ff6a60476f5f8851db38",
+    "bytes": 47999223,
+    "scope": "real recorded map cell layers and existing real art; native4K viewport and edge cameras reconstructed; free/UI/text/unit commands omitted; producer exact roundtrip verified"
+  },
+  "source_files_reverified": 53,
+  "external_files_reverified": 6,
+  "evidence": {
+    "source-ready.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/source-ready.json",
+      "sha256": "8a1756abff7a30de323675e53d0b160fd1e6fd733379a2e4196077c949b7cc2b"
+    },
+    "build-manifest.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/build-manifest.json",
+      "sha256": "44070e72798c5780610f61ac47710959a8a533956ff76fce9cc82b451deae504"
+    },
+    "cpu-results.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/cpu-results.json",
+      "sha256": "656cbca66ec0c22999d07d9c6d1b2ee7c8ee7ada8b08ddfbe7adacebba629bef"
+    },
+    "gpu-results.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/gpu-results.json",
+      "sha256": "fdf932f00f7f5a66ce3ad8dd33f895c53ad73a6316e1bfcde2586e81da139d8c"
+    },
+    "gpu-invocation.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/gpu-invocation.json",
+      "sha256": "d51ad30eefb786521c6fe7df3a6145006cdd09c289f406e89a24333b36f5368a"
+    },
+    "post-gate-verification.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/post-gate-verification.json",
+      "sha256": "d1b7c7f8fb69328b5b42a1fb37b0b2e779cbceb4d294d221419523542e53c294"
+    },
+    "camera-geometry.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/camera-geometry.json",
+      "sha256": "e81677d6b20a731db89c61927ad9c935425407449a8d22b3027fc73b9d0d4f3f"
+    },
+    "producer-source-binding.json": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/producer-source-binding.json",
+      "sha256": "34411e86e4a55dcf8fd7295bcc0438970afdacbc7a74dac02e6e9c6f00008e83"
+    },
+    "logs/fixture-producer.log": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/logs/fixture-producer.log",
+      "sha256": "b522a7078eeda194d5822b593a448059bd24f7e25387679879e5a94571fe18d1"
+    },
+    "logs/gpu-correctness.log": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/logs/gpu-correctness.log",
+      "sha256": "754a0a20f2435666a270b5f1840c826b2e12182983e47f5fa9fc222bc70d7e21"
+    },
+    "logs/gpu-invocation.log": {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/recorded4k/logs/gpu-invocation.log",
+      "sha256": "16b2f2eaf01d3eb855c3a8712d615f2c093f83c11e4b0972f252b087699a3e5e"
+    }
+  },
+  "leases": "CPU and GPU explicitly released; no owned process remains",
+  "shared_edits": false,
+  "production_adoption": false,
+  "performance_runs": 0,
+  "actualApp_run": false,
+  "fps240_verified": false,
+  "next_step": "Root-requested coherent nonshipping actualApp candidate source binding against immutablef510, then reviewed private compiler gate and qualified end-to-end env on/off A/B after baseline/control priorities."
+}

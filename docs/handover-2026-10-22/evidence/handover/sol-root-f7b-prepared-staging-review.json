@@ -1,0 +1,15 @@
+{
+  "source": "f7b0758996b7383537381cf71b5e58669014514ae06719eb222cddadbd1d802a",
+  "scope": "Root independently checked manifest/prepared records locally, then read and rehashed exact staged and live files over SSH on Neo. No install or launch.",
+  "prepared_record_sha256": "2e4e11591e5b04776a47cfad9e401eb916633c56d1546b75d0f46068a57dccd9",
+  "raw_files_verified_on_Neo": 8,
+  "signed_files_verified_on_Neo": 8,
+  "prepared_bundle_tree_matches": true,
+  "prepared_bundle_deep_strict_codesign_exit": 0,
+  "live_runtime_files_match_installed_3be": 5,
+  "launch_lock_present": false,
+  "local_record_checks": "Prepared raw hashes/origins match reviewed cross manifest; PE bytes match exact production DLL; staged-only flags and pre/post staging live runtime and app trees agree.",
+  "mutations_on_Neo": false,
+  "game_launched": false,
+  "decision": "Prepared f7b identity accepted. Idle transactional promotion remains dependent on final VM title and loaded-game normal Quit acceptance."
+}

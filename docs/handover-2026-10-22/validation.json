@@ -1,0 +1,15 @@
+{
+  "checked_date": "2026-10-22",
+  "scope": "Documentation and preserved evidence only; no renderer tests or game/VM launches in this task.",
+  "evidence_records_verified": 289,
+  "agent_records_verified": 96,
+  "acceptance_families": 85,
+  "relative_markdown_links_verified": 669,
+  "html_links_verified": 224,
+  "html_unique_ids": 29,
+  "html_agent_entries": 96,
+  "html_family_entries": 85,
+  "html_sha256": "a9f38172620dd25f4c1afeaa79f234c2d87eb624ad6d5220e296a4c1902f2436",
+  "visual_preview": "Unavailable: headless browser exited unexpectedly twice; collaborative browser could not start.",
+  "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39"
+}

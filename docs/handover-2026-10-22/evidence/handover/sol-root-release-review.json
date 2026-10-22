@@ -1,0 +1,15 @@
+{
+  "recorded_at_utc": "2026-10-20T07:25:13.878353+00:00",
+  "source_archive_sha256": "ef962736b6840284c6dc052d9df989d3539d4b16a83a6a28149ac222e0013754",
+  "scene_protocol": 47,
+  "frozen_source_files_verified": 624,
+  "frozen_source_mismatches": [],
+  "artifact_mismatches": [],
+  "working_tree_changes_after_freeze": [
+    "docs/macos-vm.md"
+  ],
+  "installer_review": "Runtime, starter, app bundle and RUN.md share one rollback transaction. Staged signing leaves raw artifacts immutable. Seven mocked failure/success cases passed.",
+  "deployment_status": "Pending the existing release agent reconnect waiter. TS Neo was offline at last verified access.",
+  "native_windows_tests": "In progress. Immediate popup key regression, hook test and sys tests passed. An inproc keyboard-state regression is under isolated investigation.",
+  "macos_snapshot": "sonoma-prepared-desktop verified independently. Work SSH and read-only assets restored. Prior accepted Intel protocol 38 baseline."
+}

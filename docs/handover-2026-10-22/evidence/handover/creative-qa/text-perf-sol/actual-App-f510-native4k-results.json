@@ -1,0 +1,4951 @@
+{
+  "created_utc": "2026-10-20T19:45:42.136994+00:00",
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "source_entries": 673,
+  "scene_protocol": 50,
+  "run": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2",
+  "status": "Three fresh ordinary actual-App native4K sustained-pan repetitions completed. Strong observation gates pass;240FPS goal fails in all three.",
+  "target_fps": 240,
+  "target_budget_ms": 4.166666666666667,
+  "target_met": false,
+  "actual_App_not_reconstruction": true,
+  "mode": {
+    "internal": [
+      3840,
+      2160
+    ],
+    "surface": [
+      3840,
+      2160
+    ],
+    "pixel_scale": 1,
+    "subpixel_dual": 0,
+    "tiles555": 1,
+    "glyph_cache": 1,
+    "present": "Immediate",
+    "max_fps": 0,
+    "original_game_renderer": "off"
+  },
+  "adapter": {
+    "PCI": "0000:72:00.0",
+    "vendor": "0x1002",
+    "device": "0x13c0",
+    "backend": "Vulkan/RADV",
+    "software": false
+  },
+  "runtime_artifact_hashes": {
+    "launcher": "080e66897a9c18c703f02a95be13a462395927ac04d466e71f8484178c9dcb6d",
+    "viewer": "e69b29ec06a41c5945095468f29c4a70739618cbcf6b0a2d208a2c49aad85cd3",
+    "bridge": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
+    "shim": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935",
+    "unixlib": "694c667412df04eee9fd6d649e77c7f1ff1c8bc211af3cadbdb294de92f4779e",
+    "shader": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+    "shader_fallback": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
+    "source_manifest": "1dc82c3ed34006053257338612496e73dbb13275e80c06e68b5b664b08b6ca9a"
+  },
+  "artifact_source_origins": {
+    "launcher": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+    "viewer": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "unixlib": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+    "bridge": "f7b0758996b7383537381cf71b5e58669014514ae06719eb222cddadbd1d802a",
+    "shim": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205"
+  },
+  "runtime_artifacts_rehashed_after_measurement_unchanged": true,
+  "fixture_32_test_source_rehashed_after_measurement_unchanged": true,
+  "ordinary_debug_disabled_and_verified": true,
+  "fresh_workload_verified": {
+    "path": "/mnt/datasets/winvm/civ3-src/Civilization III Complete/Conquests/Saves/WW2.SAV",
+    "bytes": 684111,
+    "sha256": "6c1405206c2ece1c03d7b58bcc8ccfe586eb485d451168f562cddd11a0134632",
+    "copied": false,
+    "current_load_verified": true,
+    "verified_utc": "2026-10-20T19:35:24.608988+00:00",
+    "fresh_summary_visually_verified": {
+      "difficulty": "Monarch",
+      "nation": "Germans",
+      "date": "Week24,1941AD"
+    },
+    "fresh_world_visually_verified": [
+      "terrain",
+      "units",
+      "labels",
+      "minimap",
+      "interface",
+      "A and B panes"
+    ],
+    "fresh_native_trace": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-loaded-trace.txt",
+      "native_map": [
+        256,
+        256
+      ],
+      "wrap": [
+        false,
+        false
+      ],
+      "native_camera": [
+        0,
+        0
+      ],
+      "visible_x": [
+        -1,
+        5
+      ],
+      "visible_y": [
+        -1,
+        5
+      ],
+      "request_removed": true
+    },
+    "derived_scene_grid": [
+      128,
+      258
+    ],
+    "derived_grid_label": "derived from native map; not a separate native trace measurement",
+    "worker": {
+      "source": "worker",
+      "elapsed_ms": 230475,
+      "frame_id": 34448,
+      "config_revision": 3,
+      "assets_base": 11,
+      "assets_through": 12,
+      "taken": 34448,
+      "retried": 1,
+      "submitted": 34447,
+      "full_submitted": 3286,
+      "reused_submitted": 31161,
+      "present_enqueued": 34447,
+      "surface": [
+        3840,
+        2160
+      ],
+      "present_mode": "Immediate",
+      "software": false,
+      "gpu_vendor": 4098,
+      "gpu_device": 5056,
+      "timer_enabled": true,
+      "timer_epoch": 1,
+      "timer_attempted_frames": 34448,
+      "timer_prepared_samples": 34447,
+      "timer_submitted_samples": 34447,
+      "timer_collected_samples": 34444,
+      "timer_empty_frames": 0,
+      "timer_discarded_frames": 1,
+      "timer_over_budget_frames": 0,
+      "timer_readback_busy_frames": 0,
+      "timer_map_failed_frames": 0,
+      "timer_mapped_range_failed_frames": 0,
+      "gpu_gap_observed": 34444,
+      "gpu_gap_adjacent": 34442,
+      "gpu_gap_discontinuous": 1,
+      "gpu_gap_out_of_order": 0,
+      "gpu_last_stamp": {
+        "frame_id": 34445,
+        "start_ticks": "47594322226646",
+        "end_ticks": "47594324219602",
+        "period_ns": 10,
+        "frame_token": 34445
+      },
+      "world_packet": true,
+      "tick": 0,
+      "canvas": [
+        3840,
+        2160
+      ],
+      "target": [
+        3840,
+        2160
+      ],
+      "present_zoom": [
+        1,
+        1
+      ],
+      "present_at": [
+        0,
+        0
+      ],
+      "overlay_from": 17,
+      "copy_count": 0,
+      "camera_count": 18,
+      "camera_hash": "30756f93f54d6b0a",
+      "command_sample_hash": "c4f16d58fac33c57",
+      "glyph_sample_hash": "9f18ce6832e2b6b6",
+      "glyph_sample_count": 256,
+      "sprite_commands": 7316,
+      "glyph_commands": 17168,
+      "bar_commands": 0,
+      "screen_commands": 325,
+      "screen_glyph_commands": 252,
+      "marker_commands": 89,
+      "cameras": [
+        {
+          "xy": [
+            10048,
+            1800
+          ],
+          "origin": [
+            0,
+            0
+          ],
+          "viewport": [
+            1920,
+            2160
+          ],
+          "screen_shift": [
+            -10048,
+            -1800
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": true,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            10050,
+            1800
+          ],
+          "origin": [
+            1924,
+            0
+          ],
+          "viewport": [
+            1916,
+            2160
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": true,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            11968,
+            2520
+          ],
+          "origin": [
+            1920,
+            720
+          ],
+          "viewport": [
+            2,
+            720
+          ],
+          "screen_shift": [
+            -10048,
+            -1800
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": true,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            10048,
+            2520
+          ],
+          "origin": [
+            1922,
+            720
+          ],
+          "viewport": [
+            2,
+            720
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": true,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            11968,
+            3846
+          ],
+          "origin": [
+            1920,
+            2046
+          ],
+          "viewport": [
+            2,
+            96
+          ],
+          "screen_shift": [
+            -10048,
+            -1800
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": true,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            10048,
+            3846
+          ],
+          "origin": [
+            1922,
+            2046
+          ],
+          "viewport": [
+            2,
+            96
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": true,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            1920,
+            0
+          ],
+          "viewport": [
+            4,
+            720
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            2,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": true,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            1920,
+            1440
+          ],
+          "viewport": [
+            4,
+            606
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            2,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": true,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            1920,
+            2142
+          ],
+          "viewport": [
+            4,
+            18
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            2,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": true,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            3819,
+            699
+          ],
+          "viewport": [
+            96,
+            96
+          ],
+          "screen_shift": [
+            3819,
+            699
+          ],
+          "zoom": [
+            3,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": true,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": [
+            1924,
+            0,
+            3840,
+            2160
+          ],
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            0,
+            0
+          ],
+          "viewport": [
+            1,
+            1
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            3541,
+            1999
+          ],
+          "viewport": [
+            299,
+            160
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            5,
+            2029
+          ],
+          "viewport": [
+            300,
+            130
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            21,
+            12
+          ],
+          "viewport": [
+            74,
+            1
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            1796,
+            2046
+          ],
+          "viewport": [
+            256,
+            96
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            0,
+            0
+          ],
+          "viewport": [
+            149,
+            54
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            0,
+            0
+          ],
+          "viewport": [
+            3840,
+            2160
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        },
+        {
+          "xy": [
+            0,
+            0
+          ],
+          "origin": [
+            0,
+            0
+          ],
+          "viewport": [
+            3840,
+            2160
+          ],
+          "screen_shift": [
+            0,
+            0
+          ],
+          "zoom": [
+            1,
+            1
+          ],
+          "cells": false,
+          "zoomed_art": false,
+          "stacked": false,
+          "downscale": 1,
+          "binding": 0,
+          "target_clip": null,
+          "cull": null
+        }
+      ]
+    },
+    "evidence": [
+      "untimed-main-menu.png",
+      "untimed-load-dialog.png",
+      "untimed-ww2-summary.png",
+      "untimed-ww2-world.png",
+      "untimed-loaded-trace.txt",
+      "untimed-loaded-worker.json"
+    ]
+  },
+  "preflight": {
+    "utc": "2026-10-20T19:37:46.680398+00:00",
+    "strong_motion_passed": true,
+    "fixed_B_passed": true,
+    "A_motion": {
+      "camera_index": 0,
+      "primary_world_camera": true,
+      "ordered_world_positions": [
+        [
+          7433,
+          1800
+        ],
+        [
+          4903,
+          1800
+        ],
+        [
+          2200,
+          1800
+        ],
+        [
+          5067,
+          1800
+        ],
+        [
+          8075,
+          1800
+        ],
+        [
+          5470,
+          1800
+        ],
+        [
+          2776,
+          1800
+        ],
+        [
+          5665,
+          1800
+        ],
+        [
+          8669,
+          1800
+        ]
+      ],
+      "complete_observed_intervals": 8,
+      "first_and_last_partial_intervals_checked": false,
+      "motion_in_each_window": true,
+      "positive_x_legs": 4,
+      "negative_x_legs": 4,
+      "x_direction_reversals": 3,
+      "world_positions": [
+        [
+          2200,
+          1800
+        ],
+        [
+          2776,
+          1800
+        ],
+        [
+          4903,
+          1800
+        ],
+        [
+          5067,
+          1800
+        ],
+        [
+          5470,
+          1800
+        ],
+        [
+          5665,
+          1800
+        ],
+        [
+          7433,
+          1800
+        ],
+        [
+          8075,
+          1800
+        ],
+        [
+          8669,
+          1800
+        ]
+      ],
+      "label_shifts": [
+        [
+          -8669,
+          -1800
+        ],
+        [
+          -8075,
+          -1800
+        ],
+        [
+          -7433,
+          -1800
+        ],
+        [
+          -5665,
+          -1800
+        ],
+        [
+          -5470,
+          -1800
+        ],
+        [
+          -5067,
+          -1800
+        ],
+        [
+          -4903,
+          -1800
+        ],
+        [
+          -2776,
+          -1800
+        ],
+        [
+          -2200,
+          -1800
+        ]
+      ],
+      "fixed_source_anchor_sums": [
+        [
+          0,
+          0
+        ]
+      ],
+      "world_camera_changed": true,
+      "label_mapping_changed": true,
+      "fixed_anchor_mapping_consistent": true,
+      "origin": [
+        0,
+        0
+      ],
+      "viewport": [
+        1920,
+        2160
+      ],
+      "zoom": [
+        1,
+        1
+      ]
+    },
+    "B_motion": {
+      "camera_index": 1,
+      "primary_world_camera": true,
+      "ordered_world_positions": [
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ],
+        [
+          10050,
+          1800
+        ]
+      ],
+      "complete_observed_intervals": 8,
+      "first_and_last_partial_intervals_checked": false,
+      "motion_in_each_window": false,
+      "positive_x_legs": 0,
+      "negative_x_legs": 0,
+      "x_direction_reversals": 0,
+      "world_positions": [
+        [
+          10050,
+          1800
+        ]
+      ],
+      "label_shifts": [
+        [
+          0,
+          0
+        ]
+      ],
+      "fixed_source_anchor_sums": [
+        [
+          10050,
+          1800
+        ]
+      ],
+      "world_camera_changed": false,
+      "label_mapping_changed": false,
+      "fixed_anchor_mapping_consistent": true,
+      "origin": [
+        1924,
+        0
+      ],
+      "viewport": [
+        1916,
+        2160
+      ],
+      "zoom": [
+        1,
+        1
+      ]
+    },
+    "legs": [
+      {
+        "side": "left",
+        "dx": -2703,
+        "first_frame": 36866,
+        "last_frame": 37104
+      },
+      {
+        "side": "right",
+        "dx": 3008,
+        "first_frame": 37338,
+        "last_frame": 37571
+      },
+      {
+        "side": "left",
+        "dx": -2694,
+        "first_frame": 37811,
+        "last_frame": 38047
+      },
+      {
+        "side": "right",
+        "dx": 3004,
+        "first_frame": 38285,
+        "last_frame": 38522
+      }
+    ],
+    "full_UI_source_commands_present": true,
+    "actual_native_canvas_and_AMD_Immediate_verified": true,
+    "capture_processes_absent": true,
+    "trace_request_absent": true,
+    "ordinary_environment": [
+      {
+        "name": "launcher",
+        "pid": 3979696,
+        "WAYLAND_DEBUG_present": false,
+        "selected_flags": {
+          "CIV3R_GAME_RENDER": "off",
+          "TILE_RENDER_SUBPIXEL_DUAL": "0",
+          "TILE_RENDER_TILES555": "1",
+          "TILE_RENDER_GLYPH_CACHE": "1",
+          "TILE_VIEWER_MAX_FPS": "0",
+          "TILE_VIEWER_PRESENT": "immediate"
+        }
+      },
+      {
+        "name": "pointer",
+        "pid": 3993586,
+        "WAYLAND_DEBUG_present": false,
+        "selected_flags": {
+          "CIV3R_GAME_RENDER": null,
+          "TILE_RENDER_SUBPIXEL_DUAL": null,
+          "TILE_RENDER_TILES555": null,
+          "TILE_RENDER_GLYPH_CACHE": null,
+          "TILE_VIEWER_MAX_FPS": null,
+          "TILE_VIEWER_PRESENT": null
+        }
+      }
+    ],
+    "timing_started": false
+  },
+  "repetitions": [
+    {
+      "repetition": 1,
+      "requested_seconds": 60,
+      "actual_measurement_utc": [
+        "2026-10-20T19:38:20.002151+00:00",
+        "2026-10-20T19:39:20.087387+00:00"
+      ],
+      "app_presented_fps": 43.22353624029602,
+      "worker_full_submitted_fps": 43.238437392266796,
+      "complete_observed_app_interval_seconds": 55.132,
+      "complete_observed_worker_interval_seconds": 55.113,
+      "full_submitted": 2383,
+      "reused_submitted": 0,
+      "replay_accepted": 0,
+      "timer_submitted_samples": 2383,
+      "timer_collected_samples": 2384,
+      "gpu_timing_drops": {
+        "timer_over_budget_frames": 0,
+        "timer_readback_busy_frames": 0,
+        "timer_map_failed_frames": 0,
+        "timer_mapped_range_failed_frames": 0
+      },
+      "immutable_inflight_bound": 32,
+      "A_motion": {
+        "camera_index": 0,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            11451,
+            1800
+          ],
+          [
+            8998,
+            1800
+          ],
+          [
+            11756,
+            1800
+          ],
+          [
+            9280,
+            1800
+          ],
+          [
+            12052,
+            1800
+          ],
+          [
+            9566,
+            1800
+          ],
+          [
+            12370,
+            1800
+          ],
+          [
+            9853,
+            1800
+          ],
+          [
+            12682,
+            1800
+          ],
+          [
+            10128,
+            1800
+          ],
+          [
+            12972,
+            1800
+          ],
+          [
+            10410,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": true,
+        "positive_x_legs": 5,
+        "negative_x_legs": 6,
+        "x_direction_reversals": 10,
+        "world_positions": [
+          [
+            8998,
+            1800
+          ],
+          [
+            9280,
+            1800
+          ],
+          [
+            9566,
+            1800
+          ],
+          [
+            9853,
+            1800
+          ],
+          [
+            10128,
+            1800
+          ],
+          [
+            10410,
+            1800
+          ],
+          [
+            11451,
+            1800
+          ],
+          [
+            11756,
+            1800
+          ],
+          [
+            12052,
+            1800
+          ],
+          [
+            12370,
+            1800
+          ],
+          [
+            12682,
+            1800
+          ],
+          [
+            12972,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            -12972,
+            -1800
+          ],
+          [
+            -12682,
+            -1800
+          ],
+          [
+            -12370,
+            -1800
+          ],
+          [
+            -12052,
+            -1800
+          ],
+          [
+            -11756,
+            -1800
+          ],
+          [
+            -11451,
+            -1800
+          ],
+          [
+            -10410,
+            -1800
+          ],
+          [
+            -10128,
+            -1800
+          ],
+          [
+            -9853,
+            -1800
+          ],
+          [
+            -9566,
+            -1800
+          ],
+          [
+            -9280,
+            -1800
+          ],
+          [
+            -8998,
+            -1800
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            0,
+            0
+          ]
+        ],
+        "world_camera_changed": true,
+        "label_mapping_changed": true,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          0,
+          0
+        ],
+        "viewport": [
+          1920,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "B_fixed": true,
+      "B_motion": {
+        "camera_index": 1,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": false,
+        "positive_x_legs": 0,
+        "negative_x_legs": 0,
+        "x_direction_reversals": 0,
+        "world_positions": [
+          [
+            10050,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            10050,
+            1800
+          ]
+        ],
+        "world_camera_changed": false,
+        "label_mapping_changed": false,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          1924,
+          0
+        ],
+        "viewport": [
+          1916,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "source_qualification": false,
+      "failures": [
+        "240 FPS not achieved by actual App full redraws"
+      ],
+      "non_FPS_observation_gates_passed": true,
+      "host_load_before": "26.48 24.57 26.85 37/3605 4000273",
+      "host_load_after": "25.51 24.77 26.79 18/3530 4003159",
+      "per_window_quantile_ranges_ms": {
+        "viewer": {
+          "art transfers": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.03,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.08
+            ]
+          },
+          "draw (all)": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              3.21,
+              4.89
+            ],
+            "p99_range": [
+              4.47,
+              7.7
+            ]
+          },
+          "free sprites build": {
+            "p50_range": [
+              0.76,
+              1.17
+            ],
+            "p95_range": [
+              1.26,
+              2.49
+            ],
+            "p99_range": [
+              1.42,
+              3.11
+            ]
+          },
+          "layout": {
+            "p50_range": [
+              0.17,
+              0.19
+            ],
+            "p95_range": [
+              2.45,
+              3.95
+            ],
+            "p99_range": [
+              3.03,
+              7.4
+            ]
+          },
+          "markers+cursor": {
+            "p50_range": [
+              0.03,
+              0.04
+            ],
+            "p95_range": [
+              0.69,
+              1.34
+            ],
+            "p99_range": [
+              1.14,
+              2.23
+            ]
+          },
+          "receive (outside draw)": {
+            "p50_range": [
+              0.0,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.03
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          }
+        },
+        "viewer GPU execution": {
+          "gpu clear": {
+            "p50_range": [
+              0.45,
+              0.5
+            ],
+            "p95_range": [
+              0.55,
+              0.58
+            ],
+            "p99_range": [
+              0.57,
+              0.61
+            ]
+          },
+          "gpu clear sources": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu frame span": {
+            "p50_range": [
+              20.1,
+              20.81
+            ],
+            "p95_range": [
+              21.22,
+              22.12
+            ],
+            "p99_range": [
+              21.51,
+              23.78
+            ]
+          },
+          "gpu glyph cache fill": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.07
+            ]
+          },
+          "gpu glyph cache publish": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.01
+            ]
+          },
+          "gpu increment clear": {
+            "p50_range": [
+              0.47,
+              0.51
+            ],
+            "p95_range": [
+              0.56,
+              0.59
+            ],
+            "p99_range": [
+              0.58,
+              0.63
+            ]
+          },
+          "gpu increment clear sources": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu increment glyph cache fill": {
+            "p50_range": [
+              0.57,
+              0.87
+            ],
+            "p95_range": [
+              1.07,
+              1.25
+            ],
+            "p99_range": [
+              1.28,
+              1.97
+            ]
+          },
+          "gpu increment glyph cache publish": {
+            "p50_range": [
+              0.03,
+              0.04
+            ],
+            "p95_range": [
+              0.04,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.05
+            ]
+          },
+          "gpu increment output": {
+            "p50_range": [
+              1.84,
+              1.9
+            ],
+            "p95_range": [
+              1.98,
+              2.06
+            ],
+            "p99_range": [
+              2.04,
+              2.1
+            ]
+          },
+          "gpu increment v0": {
+            "p50_range": [
+              4.98,
+              5.68
+            ],
+            "p95_range": [
+              5.85,
+              6.3
+            ],
+            "p99_range": [
+              6.13,
+              7.29
+            ]
+          },
+          "gpu increment v1": {
+            "p50_range": [
+              4.53,
+              4.62
+            ],
+            "p95_range": [
+              5.33,
+              5.61
+            ],
+            "p99_range": [
+              5.51,
+              5.74
+            ]
+          },
+          "gpu increment v11": {
+            "p50_range": [
+              0.06,
+              0.06
+            ],
+            "p95_range": [
+              0.07,
+              0.08
+            ],
+            "p99_range": [
+              0.08,
+              0.08
+            ]
+          },
+          "gpu increment v12": {
+            "p50_range": [
+              0.06,
+              0.06
+            ],
+            "p95_range": [
+              0.06,
+              0.06
+            ],
+            "p99_range": [
+              0.06,
+              0.07
+            ]
+          },
+          "gpu increment v13": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v14": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.03
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v15": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v17": {
+            "p50_range": [
+              1.24,
+              1.34
+            ],
+            "p95_range": [
+              1.46,
+              1.61
+            ],
+            "p99_range": [
+              1.51,
+              1.69
+            ]
+          },
+          "gpu increment v2": {
+            "p50_range": [
+              2.04,
+              2.1
+            ],
+            "p95_range": [
+              2.14,
+              2.24
+            ],
+            "p99_range": [
+              2.19,
+              2.35
+            ]
+          },
+          "gpu increment v3": {
+            "p50_range": [
+              1.26,
+              1.28
+            ],
+            "p95_range": [
+              1.32,
+              1.36
+            ],
+            "p99_range": [
+              1.36,
+              1.42
+            ]
+          },
+          "gpu increment v4": {
+            "p50_range": [
+              1.2,
+              1.23
+            ],
+            "p95_range": [
+              1.26,
+              1.3
+            ],
+            "p99_range": [
+              1.3,
+              1.33
+            ]
+          },
+          "gpu increment v5": {
+            "p50_range": [
+              1.21,
+              1.24
+            ],
+            "p95_range": [
+              1.28,
+              1.32
+            ],
+            "p99_range": [
+              1.3,
+              1.36
+            ]
+          },
+          "gpu increment v6": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v6 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v7": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu increment v7 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v8": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu increment v8 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v9 zoomed": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.03
+            ],
+            "p99_range": [
+              0.02,
+              0.04
+            ]
+          },
+          "gpu inter-frame gap": {
+            "p50_range": [
+              2.41,
+              2.63
+            ],
+            "p95_range": [
+              3.04,
+              3.49
+            ],
+            "p99_range": [
+              3.4,
+              5.38
+            ]
+          },
+          "gpu output": {
+            "p50_range": [
+              1.83,
+              1.9
+            ],
+            "p95_range": [
+              1.98,
+              2.05
+            ],
+            "p99_range": [
+              2.03,
+              2.09
+            ]
+          },
+          "gpu passes sum": {
+            "p50_range": [
+              17.08,
+              17.66
+            ],
+            "p95_range": [
+              17.92,
+              18.79
+            ],
+            "p99_range": [
+              18.26,
+              20.01
+            ]
+          },
+          "gpu v0": {
+            "p50_range": [
+              4.96,
+              5.67
+            ],
+            "p95_range": [
+              5.84,
+              6.29
+            ],
+            "p99_range": [
+              6.12,
+              7.28
+            ]
+          },
+          "gpu v1": {
+            "p50_range": [
+              4.49,
+              4.58
+            ],
+            "p95_range": [
+              4.73,
+              4.9
+            ],
+            "p99_range": [
+              4.8,
+              5.15
+            ]
+          },
+          "gpu v11": {
+            "p50_range": [
+              0.05,
+              0.05
+            ],
+            "p95_range": [
+              0.05,
+              0.06
+            ],
+            "p99_range": [
+              0.06,
+              0.07
+            ]
+          },
+          "gpu v12": {
+            "p50_range": [
+              0.05,
+              0.05
+            ],
+            "p95_range": [
+              0.05,
+              0.05
+            ],
+            "p99_range": [
+              0.05,
+              0.05
+            ]
+          },
+          "gpu v13": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v14": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu v15": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v17": {
+            "p50_range": [
+              0.03,
+              0.03
+            ],
+            "p95_range": [
+              0.03,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.04
+            ]
+          },
+          "gpu v2": {
+            "p50_range": [
+              1.26,
+              1.27
+            ],
+            "p95_range": [
+              1.32,
+              1.36
+            ],
+            "p99_range": [
+              1.34,
+              1.38
+            ]
+          },
+          "gpu v3": {
+            "p50_range": [
+              1.25,
+              1.27
+            ],
+            "p95_range": [
+              1.31,
+              1.34
+            ],
+            "p99_range": [
+              1.34,
+              1.38
+            ]
+          },
+          "gpu v4": {
+            "p50_range": [
+              1.2,
+              1.22
+            ],
+            "p95_range": [
+              1.26,
+              1.29
+            ],
+            "p99_range": [
+              1.29,
+              1.32
+            ]
+          },
+          "gpu v5": {
+            "p50_range": [
+              1.2,
+              1.23
+            ],
+            "p95_range": [
+              1.26,
+              1.3
+            ],
+            "p99_range": [
+              1.29,
+              1.32
+            ]
+          },
+          "gpu v6": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v6 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v7": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v7 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v8": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v8 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v9 zoomed": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          }
+        },
+        "viewer GPU worker": {
+          "art transfers": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.01
+            ]
+          },
+          "draw (all)": {
+            "p50_range": [
+              20.54,
+              21.65
+            ],
+            "p95_range": [
+              25.59,
+              28.22
+            ],
+            "p99_range": [
+              28.6,
+              38.9
+            ]
+          },
+          "frame encode (host)": {
+            "p50_range": [
+              12.64,
+              16.48
+            ],
+            "p95_range": [
+              17.51,
+              22.06
+            ],
+            "p99_range": [
+              19.12,
+              33.46
+            ]
+          },
+          "present enqueue (host)": {
+            "p50_range": [
+              0.07,
+              0.12
+            ],
+            "p95_range": [
+              0.13,
+              0.6
+            ],
+            "p99_range": [
+              0.18,
+              0.8
+            ]
+          },
+          "queue submit (host)": {
+            "p50_range": [
+              1.36,
+              1.82
+            ],
+            "p95_range": [
+              1.98,
+              3.98
+            ],
+            "p99_range": [
+              2.61,
+              4.81
+            ]
+          },
+          "surface acquire (host)": {
+            "p50_range": [
+              0.09,
+              6.89
+            ],
+            "p95_range": [
+              5.88,
+              10.06
+            ],
+            "p99_range": [
+              8.49,
+              11.19
+            ]
+          }
+        }
+      },
+      "profile_window_counts": {
+        "primary_wine_all": 36,
+        "primary_wine_complete": 33,
+        "duplicate_bridge_not_pooled": true
+      }
+    },
+    {
+      "repetition": 2,
+      "requested_seconds": 60,
+      "actual_measurement_utc": [
+        "2026-10-20T19:39:35.168959+00:00",
+        "2026-10-20T19:40:35.252556+00:00"
+      ],
+      "app_presented_fps": 43.991143697143485,
+      "worker_full_submitted_fps": 43.991942070016876,
+      "complete_observed_app_interval_seconds": 55.102,
+      "complete_observed_worker_interval_seconds": 55.101,
+      "full_submitted": 2424,
+      "reused_submitted": 0,
+      "replay_accepted": 0,
+      "timer_submitted_samples": 2424,
+      "timer_collected_samples": 2424,
+      "gpu_timing_drops": {
+        "timer_over_budget_frames": 0,
+        "timer_readback_busy_frames": 0,
+        "timer_map_failed_frames": 0,
+        "timer_mapped_range_failed_frames": 0
+      },
+      "immutable_inflight_bound": 32,
+      "A_motion": {
+        "camera_index": 0,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            10687,
+            1800
+          ],
+          [
+            8251,
+            1800
+          ],
+          [
+            11005,
+            1800
+          ],
+          [
+            8546,
+            1800
+          ],
+          [
+            11301,
+            1800
+          ],
+          [
+            8837,
+            1800
+          ],
+          [
+            11603,
+            1800
+          ],
+          [
+            9117,
+            1800
+          ],
+          [
+            11923,
+            1800
+          ],
+          [
+            9398,
+            1800
+          ],
+          [
+            12218,
+            1800
+          ],
+          [
+            9691,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": true,
+        "positive_x_legs": 5,
+        "negative_x_legs": 6,
+        "x_direction_reversals": 10,
+        "world_positions": [
+          [
+            8251,
+            1800
+          ],
+          [
+            8546,
+            1800
+          ],
+          [
+            8837,
+            1800
+          ],
+          [
+            9117,
+            1800
+          ],
+          [
+            9398,
+            1800
+          ],
+          [
+            9691,
+            1800
+          ],
+          [
+            10687,
+            1800
+          ],
+          [
+            11005,
+            1800
+          ],
+          [
+            11301,
+            1800
+          ],
+          [
+            11603,
+            1800
+          ],
+          [
+            11923,
+            1800
+          ],
+          [
+            12218,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            -12218,
+            -1800
+          ],
+          [
+            -11923,
+            -1800
+          ],
+          [
+            -11603,
+            -1800
+          ],
+          [
+            -11301,
+            -1800
+          ],
+          [
+            -11005,
+            -1800
+          ],
+          [
+            -10687,
+            -1800
+          ],
+          [
+            -9691,
+            -1800
+          ],
+          [
+            -9398,
+            -1800
+          ],
+          [
+            -9117,
+            -1800
+          ],
+          [
+            -8837,
+            -1800
+          ],
+          [
+            -8546,
+            -1800
+          ],
+          [
+            -8251,
+            -1800
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            0,
+            0
+          ]
+        ],
+        "world_camera_changed": true,
+        "label_mapping_changed": true,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          0,
+          0
+        ],
+        "viewport": [
+          1920,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "B_fixed": true,
+      "B_motion": {
+        "camera_index": 1,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": false,
+        "positive_x_legs": 0,
+        "negative_x_legs": 0,
+        "x_direction_reversals": 0,
+        "world_positions": [
+          [
+            10050,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            10050,
+            1800
+          ]
+        ],
+        "world_camera_changed": false,
+        "label_mapping_changed": false,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          1924,
+          0
+        ],
+        "viewport": [
+          1916,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "source_qualification": false,
+      "failures": [
+        "240 FPS not achieved by actual App full redraws"
+      ],
+      "non_FPS_observation_gates_passed": true,
+      "host_load_before": "24.57 24.60 26.70 26/3509 4003799",
+      "host_load_after": "30.34 26.04 27.05 20/3603 4007006",
+      "per_window_quantile_ranges_ms": {
+        "viewer": {
+          "art transfers": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.04,
+              0.05
+            ],
+            "p99_range": [
+              0.04,
+              0.22
+            ]
+          },
+          "draw (all)": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              3.18,
+              5.15
+            ],
+            "p99_range": [
+              5.15,
+              8.56
+            ]
+          },
+          "free sprites build": {
+            "p50_range": [
+              0.85,
+              1.29
+            ],
+            "p95_range": [
+              1.4,
+              2.89
+            ],
+            "p99_range": [
+              1.84,
+              3.29
+            ]
+          },
+          "layout": {
+            "p50_range": [
+              0.16,
+              0.2
+            ],
+            "p95_range": [
+              2.54,
+              4.06
+            ],
+            "p99_range": [
+              3.69,
+              7.33
+            ]
+          },
+          "markers+cursor": {
+            "p50_range": [
+              0.03,
+              0.04
+            ],
+            "p95_range": [
+              0.85,
+              1.49
+            ],
+            "p99_range": [
+              1.13,
+              2.73
+            ]
+          },
+          "receive (outside draw)": {
+            "p50_range": [
+              0.0,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.03
+            ],
+            "p99_range": [
+              0.02,
+              0.05
+            ]
+          }
+        },
+        "viewer GPU execution": {
+          "gpu clear": {
+            "p50_range": [
+              0.46,
+              0.5
+            ],
+            "p95_range": [
+              0.57,
+              0.6
+            ],
+            "p99_range": [
+              0.59,
+              0.65
+            ]
+          },
+          "gpu clear sources": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu frame span": {
+            "p50_range": [
+              19.42,
+              20.7
+            ],
+            "p95_range": [
+              20.75,
+              22.38
+            ],
+            "p99_range": [
+              21.39,
+              23.5
+            ]
+          },
+          "gpu glyph cache fill": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu glyph cache publish": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu increment clear": {
+            "p50_range": [
+              0.47,
+              0.51
+            ],
+            "p95_range": [
+              0.58,
+              0.61
+            ],
+            "p99_range": [
+              0.6,
+              0.66
+            ]
+          },
+          "gpu increment clear sources": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu increment glyph cache fill": {
+            "p50_range": [
+              0.2,
+              0.82
+            ],
+            "p95_range": [
+              0.88,
+              1.25
+            ],
+            "p99_range": [
+              0.93,
+              1.83
+            ]
+          },
+          "gpu increment glyph cache publish": {
+            "p50_range": [
+              0.03,
+              0.04
+            ],
+            "p95_range": [
+              0.04,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.05
+            ]
+          },
+          "gpu increment output": {
+            "p50_range": [
+              1.84,
+              1.9
+            ],
+            "p95_range": [
+              2.0,
+              2.08
+            ],
+            "p99_range": [
+              2.04,
+              2.16
+            ]
+          },
+          "gpu increment v0": {
+            "p50_range": [
+              4.75,
+              5.43
+            ],
+            "p95_range": [
+              5.45,
+              6.76
+            ],
+            "p99_range": [
+              5.98,
+              7.44
+            ]
+          },
+          "gpu increment v1": {
+            "p50_range": [
+              4.51,
+              4.65
+            ],
+            "p95_range": [
+              5.36,
+              5.59
+            ],
+            "p99_range": [
+              5.47,
+              5.99
+            ]
+          },
+          "gpu increment v11": {
+            "p50_range": [
+              0.06,
+              0.06
+            ],
+            "p95_range": [
+              0.07,
+              0.08
+            ],
+            "p99_range": [
+              0.08,
+              0.08
+            ]
+          },
+          "gpu increment v12": {
+            "p50_range": [
+              0.06,
+              0.06
+            ],
+            "p95_range": [
+              0.06,
+              0.06
+            ],
+            "p99_range": [
+              0.06,
+              0.07
+            ]
+          },
+          "gpu increment v13": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v14": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.03
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v15": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v17": {
+            "p50_range": [
+              1.24,
+              1.34
+            ],
+            "p95_range": [
+              1.53,
+              1.63
+            ],
+            "p99_range": [
+              1.6,
+              1.73
+            ]
+          },
+          "gpu increment v2": {
+            "p50_range": [
+              2.02,
+              2.05
+            ],
+            "p95_range": [
+              2.12,
+              2.18
+            ],
+            "p99_range": [
+              2.15,
+              2.26
+            ]
+          },
+          "gpu increment v3": {
+            "p50_range": [
+              1.26,
+              1.29
+            ],
+            "p95_range": [
+              1.34,
+              1.38
+            ],
+            "p99_range": [
+              1.36,
+              1.43
+            ]
+          },
+          "gpu increment v4": {
+            "p50_range": [
+              1.21,
+              1.23
+            ],
+            "p95_range": [
+              1.27,
+              1.31
+            ],
+            "p99_range": [
+              1.29,
+              1.32
+            ]
+          },
+          "gpu increment v5": {
+            "p50_range": [
+              1.21,
+              1.24
+            ],
+            "p95_range": [
+              1.29,
+              1.31
+            ],
+            "p99_range": [
+              1.3,
+              1.36
+            ]
+          },
+          "gpu increment v6": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v6 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v7": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu increment v7 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v8": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu increment v8 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v9 zoomed": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.03,
+              0.03
+            ],
+            "p99_range": [
+              0.03,
+              0.03
+            ]
+          },
+          "gpu inter-frame gap": {
+            "p50_range": [
+              2.45,
+              2.63
+            ],
+            "p95_range": [
+              3.09,
+              3.54
+            ],
+            "p99_range": [
+              3.35,
+              10.36
+            ]
+          },
+          "gpu output": {
+            "p50_range": [
+              1.83,
+              1.89
+            ],
+            "p95_range": [
+              1.99,
+              2.07
+            ],
+            "p99_range": [
+              2.03,
+              2.14
+            ]
+          },
+          "gpu passes sum": {
+            "p50_range": [
+              16.73,
+              17.58
+            ],
+            "p95_range": [
+              17.55,
+              19.17
+            ],
+            "p99_range": [
+              18.3,
+              20.07
+            ]
+          },
+          "gpu v0": {
+            "p50_range": [
+              4.74,
+              5.41
+            ],
+            "p95_range": [
+              5.43,
+              6.75
+            ],
+            "p99_range": [
+              5.97,
+              7.42
+            ]
+          },
+          "gpu v1": {
+            "p50_range": [
+              4.47,
+              4.59
+            ],
+            "p95_range": [
+              4.74,
+              4.92
+            ],
+            "p99_range": [
+              4.84,
+              5.24
+            ]
+          },
+          "gpu v11": {
+            "p50_range": [
+              0.05,
+              0.05
+            ],
+            "p95_range": [
+              0.06,
+              0.06
+            ],
+            "p99_range": [
+              0.06,
+              0.07
+            ]
+          },
+          "gpu v12": {
+            "p50_range": [
+              0.05,
+              0.05
+            ],
+            "p95_range": [
+              0.05,
+              0.05
+            ],
+            "p99_range": [
+              0.05,
+              0.05
+            ]
+          },
+          "gpu v13": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v14": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu v15": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v17": {
+            "p50_range": [
+              0.03,
+              0.03
+            ],
+            "p95_range": [
+              0.04,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.04
+            ]
+          },
+          "gpu v2": {
+            "p50_range": [
+              1.25,
+              1.27
+            ],
+            "p95_range": [
+              1.32,
+              1.34
+            ],
+            "p99_range": [
+              1.34,
+              1.37
+            ]
+          },
+          "gpu v3": {
+            "p50_range": [
+              1.25,
+              1.27
+            ],
+            "p95_range": [
+              1.31,
+              1.35
+            ],
+            "p99_range": [
+              1.34,
+              1.38
+            ]
+          },
+          "gpu v4": {
+            "p50_range": [
+              1.2,
+              1.22
+            ],
+            "p95_range": [
+              1.26,
+              1.3
+            ],
+            "p99_range": [
+              1.28,
+              1.32
+            ]
+          },
+          "gpu v5": {
+            "p50_range": [
+              1.2,
+              1.23
+            ],
+            "p95_range": [
+              1.27,
+              1.3
+            ],
+            "p99_range": [
+              1.29,
+              1.32
+            ]
+          },
+          "gpu v6": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v6 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v7": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v7 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v8": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v8 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v9 zoomed": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          }
+        },
+        "viewer GPU worker": {
+          "art transfers": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.01
+            ]
+          },
+          "draw (all)": {
+            "p50_range": [
+              20.04,
+              21.16
+            ],
+            "p95_range": [
+              25.34,
+              27.66
+            ],
+            "p99_range": [
+              27.26,
+              38.31
+            ]
+          },
+          "frame encode (host)": {
+            "p50_range": [
+              13.26,
+              16.49
+            ],
+            "p95_range": [
+              17.45,
+              21.51
+            ],
+            "p99_range": [
+              18.62,
+              32.3
+            ]
+          },
+          "present enqueue (host)": {
+            "p50_range": [
+              0.08,
+              0.35
+            ],
+            "p95_range": [
+              0.17,
+              0.69
+            ],
+            "p99_range": [
+              0.41,
+              0.91
+            ]
+          },
+          "queue submit (host)": {
+            "p50_range": [
+              1.24,
+              1.83
+            ],
+            "p95_range": [
+              2.04,
+              3.54
+            ],
+            "p99_range": [
+              2.33,
+              5.36
+            ]
+          },
+          "surface acquire (host)": {
+            "p50_range": [
+              0.13,
+              6.12
+            ],
+            "p95_range": [
+              6.6,
+              9.59
+            ],
+            "p99_range": [
+              9.16,
+              10.89
+            ]
+          }
+        }
+      },
+      "profile_window_counts": {
+        "primary_wine_all": 36,
+        "primary_wine_complete": 33,
+        "duplicate_bridge_not_pooled": true
+      }
+    },
+    {
+      "repetition": 3,
+      "requested_seconds": 60,
+      "actual_measurement_utc": [
+        "2026-10-20T19:40:45.234175+00:00",
+        "2026-10-20T19:41:45.317959+00:00"
+      ],
+      "app_presented_fps": 42.996518206876544,
+      "worker_full_submitted_fps": 43.00139591377966,
+      "complete_observed_app_interval_seconds": 55.144,
+      "complete_observed_worker_interval_seconds": 55.161,
+      "full_submitted": 2372,
+      "reused_submitted": 0,
+      "replay_accepted": 0,
+      "timer_submitted_samples": 2372,
+      "timer_collected_samples": 2372,
+      "gpu_timing_drops": {
+        "timer_over_budget_frames": 0,
+        "timer_readback_busy_frames": 0,
+        "timer_map_failed_frames": 0,
+        "timer_mapped_range_failed_frames": 0
+      },
+      "immutable_inflight_bound": 32,
+      "A_motion": {
+        "camera_index": 0,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            12389,
+            1800
+          ],
+          [
+            9864,
+            1800
+          ],
+          [
+            12683,
+            1800
+          ],
+          [
+            10132,
+            1800
+          ],
+          [
+            12998,
+            1800
+          ],
+          [
+            10424,
+            1800
+          ],
+          [
+            13312,
+            1800
+          ],
+          [
+            10694,
+            1800
+          ],
+          [
+            13627,
+            1800
+          ],
+          [
+            10977,
+            1800
+          ],
+          [
+            13942,
+            1800
+          ],
+          [
+            11279,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": true,
+        "positive_x_legs": 5,
+        "negative_x_legs": 6,
+        "x_direction_reversals": 10,
+        "world_positions": [
+          [
+            9864,
+            1800
+          ],
+          [
+            10132,
+            1800
+          ],
+          [
+            10424,
+            1800
+          ],
+          [
+            10694,
+            1800
+          ],
+          [
+            10977,
+            1800
+          ],
+          [
+            11279,
+            1800
+          ],
+          [
+            12389,
+            1800
+          ],
+          [
+            12683,
+            1800
+          ],
+          [
+            12998,
+            1800
+          ],
+          [
+            13312,
+            1800
+          ],
+          [
+            13627,
+            1800
+          ],
+          [
+            13942,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            -13942,
+            -1800
+          ],
+          [
+            -13627,
+            -1800
+          ],
+          [
+            -13312,
+            -1800
+          ],
+          [
+            -12998,
+            -1800
+          ],
+          [
+            -12683,
+            -1800
+          ],
+          [
+            -12389,
+            -1800
+          ],
+          [
+            -11279,
+            -1800
+          ],
+          [
+            -10977,
+            -1800
+          ],
+          [
+            -10694,
+            -1800
+          ],
+          [
+            -10424,
+            -1800
+          ],
+          [
+            -10132,
+            -1800
+          ],
+          [
+            -9864,
+            -1800
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            0,
+            0
+          ]
+        ],
+        "world_camera_changed": true,
+        "label_mapping_changed": true,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          0,
+          0
+        ],
+        "viewport": [
+          1920,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "B_fixed": true,
+      "B_motion": {
+        "camera_index": 1,
+        "primary_world_camera": true,
+        "ordered_world_positions": [
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ],
+          [
+            10050,
+            1800
+          ]
+        ],
+        "complete_observed_intervals": 11,
+        "first_and_last_partial_intervals_checked": false,
+        "motion_in_each_window": false,
+        "positive_x_legs": 0,
+        "negative_x_legs": 0,
+        "x_direction_reversals": 0,
+        "world_positions": [
+          [
+            10050,
+            1800
+          ]
+        ],
+        "label_shifts": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fixed_source_anchor_sums": [
+          [
+            10050,
+            1800
+          ]
+        ],
+        "world_camera_changed": false,
+        "label_mapping_changed": false,
+        "fixed_anchor_mapping_consistent": true,
+        "origin": [
+          1924,
+          0
+        ],
+        "viewport": [
+          1916,
+          2160
+        ],
+        "zoom": [
+          1,
+          1
+        ]
+      },
+      "source_qualification": false,
+      "failures": [
+        "240 FPS not achieved by actual App full redraws"
+      ],
+      "non_FPS_observation_gates_passed": true,
+      "host_load_before": "30.71 26.25 27.11 18/3578 4007455",
+      "host_load_after": "29.14 26.70 27.21 18/3562 4009898",
+      "per_window_quantile_ranges_ms": {
+        "viewer": {
+          "art transfers": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.03,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.08
+            ]
+          },
+          "draw (all)": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              3.12,
+              4.07
+            ],
+            "p99_range": [
+              4.23,
+              7.74
+            ]
+          },
+          "free sprites build": {
+            "p50_range": [
+              0.84,
+              1.09
+            ],
+            "p95_range": [
+              1.32,
+              2.04
+            ],
+            "p99_range": [
+              1.74,
+              3.63
+            ]
+          },
+          "layout": {
+            "p50_range": [
+              0.16,
+              0.19
+            ],
+            "p95_range": [
+              2.13,
+              3.7
+            ],
+            "p99_range": [
+              3.52,
+              7.09
+            ]
+          },
+          "markers+cursor": {
+            "p50_range": [
+              0.03,
+              0.04
+            ],
+            "p95_range": [
+              0.84,
+              1.27
+            ],
+            "p99_range": [
+              1.32,
+              2.27
+            ]
+          },
+          "receive (outside draw)": {
+            "p50_range": [
+              0.0,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          }
+        },
+        "viewer GPU execution": {
+          "gpu clear": {
+            "p50_range": [
+              0.44,
+              0.49
+            ],
+            "p95_range": [
+              0.55,
+              0.57
+            ],
+            "p99_range": [
+              0.56,
+              0.62
+            ]
+          },
+          "gpu clear sources": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu frame span": {
+            "p50_range": [
+              20.5,
+              20.82
+            ],
+            "p95_range": [
+              21.25,
+              22.29
+            ],
+            "p99_range": [
+              22.25,
+              24.06
+            ]
+          },
+          "gpu glyph cache fill": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.05
+            ]
+          },
+          "gpu glyph cache publish": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu increment clear": {
+            "p50_range": [
+              0.45,
+              0.51
+            ],
+            "p95_range": [
+              0.56,
+              0.59
+            ],
+            "p99_range": [
+              0.58,
+              0.63
+            ]
+          },
+          "gpu increment clear sources": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu increment glyph cache fill": {
+            "p50_range": [
+              0.63,
+              0.82
+            ],
+            "p95_range": [
+              1.08,
+              1.67
+            ],
+            "p99_range": [
+              1.62,
+              1.95
+            ]
+          },
+          "gpu increment glyph cache publish": {
+            "p50_range": [
+              0.04,
+              0.04
+            ],
+            "p95_range": [
+              0.04,
+              0.05
+            ],
+            "p99_range": [
+              0.05,
+              0.05
+            ]
+          },
+          "gpu increment output": {
+            "p50_range": [
+              1.83,
+              1.89
+            ],
+            "p95_range": [
+              1.97,
+              2.06
+            ],
+            "p99_range": [
+              2.02,
+              2.11
+            ]
+          },
+          "gpu increment v0": {
+            "p50_range": [
+              5.44,
+              5.79
+            ],
+            "p95_range": [
+              5.97,
+              6.58
+            ],
+            "p99_range": [
+              6.74,
+              7.81
+            ]
+          },
+          "gpu increment v1": {
+            "p50_range": [
+              4.54,
+              4.64
+            ],
+            "p95_range": [
+              4.84,
+              5.5
+            ],
+            "p99_range": [
+              4.96,
+              5.72
+            ]
+          },
+          "gpu increment v11": {
+            "p50_range": [
+              0.06,
+              0.06
+            ],
+            "p95_range": [
+              0.07,
+              0.08
+            ],
+            "p99_range": [
+              0.08,
+              0.08
+            ]
+          },
+          "gpu increment v12": {
+            "p50_range": [
+              0.06,
+              0.06
+            ],
+            "p95_range": [
+              0.06,
+              0.06
+            ],
+            "p99_range": [
+              0.06,
+              0.07
+            ]
+          },
+          "gpu increment v13": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v14": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v15": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v17": {
+            "p50_range": [
+              1.23,
+              1.33
+            ],
+            "p95_range": [
+              1.48,
+              1.62
+            ],
+            "p99_range": [
+              1.59,
+              1.7
+            ]
+          },
+          "gpu increment v2": {
+            "p50_range": [
+              2.04,
+              2.1
+            ],
+            "p95_range": [
+              2.17,
+              2.23
+            ],
+            "p99_range": [
+              2.24,
+              2.31
+            ]
+          },
+          "gpu increment v3": {
+            "p50_range": [
+              1.26,
+              1.28
+            ],
+            "p95_range": [
+              1.32,
+              1.35
+            ],
+            "p99_range": [
+              1.35,
+              1.37
+            ]
+          },
+          "gpu increment v4": {
+            "p50_range": [
+              1.21,
+              1.23
+            ],
+            "p95_range": [
+              1.27,
+              1.29
+            ],
+            "p99_range": [
+              1.3,
+              1.33
+            ]
+          },
+          "gpu increment v5": {
+            "p50_range": [
+              1.21,
+              1.24
+            ],
+            "p95_range": [
+              1.28,
+              1.31
+            ],
+            "p99_range": [
+              1.31,
+              1.37
+            ]
+          },
+          "gpu increment v6": {
+            "p50_range": [
+              0.01,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu increment v6 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v7": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu increment v7 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v8": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.02
+            ],
+            "p99_range": [
+              0.02,
+              0.02
+            ]
+          },
+          "gpu increment v8 blit": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu increment v9 zoomed": {
+            "p50_range": [
+              0.02,
+              0.02
+            ],
+            "p95_range": [
+              0.02,
+              0.03
+            ],
+            "p99_range": [
+              0.02,
+              0.03
+            ]
+          },
+          "gpu inter-frame gap": {
+            "p50_range": [
+              2.35,
+              2.59
+            ],
+            "p95_range": [
+              2.92,
+              3.31
+            ],
+            "p99_range": [
+              3.18,
+              4.07
+            ]
+          },
+          "gpu output": {
+            "p50_range": [
+              1.82,
+              1.88
+            ],
+            "p95_range": [
+              1.96,
+              2.05
+            ],
+            "p99_range": [
+              2.02,
+              2.1
+            ]
+          },
+          "gpu passes sum": {
+            "p50_range": [
+              17.46,
+              17.77
+            ],
+            "p95_range": [
+              18.21,
+              19.17
+            ],
+            "p99_range": [
+              19.19,
+              20.67
+            ]
+          },
+          "gpu v0": {
+            "p50_range": [
+              5.43,
+              5.77
+            ],
+            "p95_range": [
+              5.96,
+              6.56
+            ],
+            "p99_range": [
+              6.73,
+              7.8
+            ]
+          },
+          "gpu v1": {
+            "p50_range": [
+              4.5,
+              4.57
+            ],
+            "p95_range": [
+              4.76,
+              4.91
+            ],
+            "p99_range": [
+              4.93,
+              5.25
+            ]
+          },
+          "gpu v11": {
+            "p50_range": [
+              0.05,
+              0.05
+            ],
+            "p95_range": [
+              0.06,
+              0.06
+            ],
+            "p99_range": [
+              0.06,
+              0.07
+            ]
+          },
+          "gpu v12": {
+            "p50_range": [
+              0.05,
+              0.05
+            ],
+            "p95_range": [
+              0.05,
+              0.05
+            ],
+            "p99_range": [
+              0.05,
+              0.05
+            ]
+          },
+          "gpu v13": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v14": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          },
+          "gpu v15": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v17": {
+            "p50_range": [
+              0.03,
+              0.03
+            ],
+            "p95_range": [
+              0.03,
+              0.04
+            ],
+            "p99_range": [
+              0.04,
+              0.04
+            ]
+          },
+          "gpu v2": {
+            "p50_range": [
+              1.25,
+              1.28
+            ],
+            "p95_range": [
+              1.31,
+              1.34
+            ],
+            "p99_range": [
+              1.34,
+              1.38
+            ]
+          },
+          "gpu v3": {
+            "p50_range": [
+              1.25,
+              1.27
+            ],
+            "p95_range": [
+              1.31,
+              1.34
+            ],
+            "p99_range": [
+              1.34,
+              1.36
+            ]
+          },
+          "gpu v4": {
+            "p50_range": [
+              1.2,
+              1.22
+            ],
+            "p95_range": [
+              1.26,
+              1.29
+            ],
+            "p99_range": [
+              1.29,
+              1.32
+            ]
+          },
+          "gpu v5": {
+            "p50_range": [
+              1.2,
+              1.23
+            ],
+            "p95_range": [
+              1.27,
+              1.29
+            ],
+            "p99_range": [
+              1.29,
+              1.31
+            ]
+          },
+          "gpu v6": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v6 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v7": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v7 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v8": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.01
+            ],
+            "p99_range": [
+              0.01,
+              0.01
+            ]
+          },
+          "gpu v8 blit": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "gpu v9 zoomed": {
+            "p50_range": [
+              0.01,
+              0.01
+            ],
+            "p95_range": [
+              0.01,
+              0.02
+            ],
+            "p99_range": [
+              0.01,
+              0.02
+            ]
+          }
+        },
+        "viewer GPU worker": {
+          "art transfers": {
+            "p50_range": [
+              0.0,
+              0.0
+            ],
+            "p95_range": [
+              0.0,
+              0.0
+            ],
+            "p99_range": [
+              0.0,
+              0.01
+            ]
+          },
+          "draw (all)": {
+            "p50_range": [
+              21.1,
+              21.54
+            ],
+            "p95_range": [
+              25.29,
+              27.9
+            ],
+            "p99_range": [
+              27.03,
+              30.35
+            ]
+          },
+          "frame encode (host)": {
+            "p50_range": [
+              14.65,
+              15.65
+            ],
+            "p95_range": [
+              17.93,
+              19.36
+            ],
+            "p99_range": [
+              19.15,
+              22.57
+            ]
+          },
+          "present enqueue (host)": {
+            "p50_range": [
+              0.08,
+              0.1
+            ],
+            "p95_range": [
+              0.14,
+              0.46
+            ],
+            "p99_range": [
+              0.31,
+              0.71
+            ]
+          },
+          "queue submit (host)": {
+            "p50_range": [
+              1.47,
+              1.67
+            ],
+            "p95_range": [
+              2.15,
+              2.92
+            ],
+            "p99_range": [
+              2.58,
+              3.61
+            ]
+          },
+          "surface acquire (host)": {
+            "p50_range": [
+              3.63,
+              5.54
+            ],
+            "p95_range": [
+              7.82,
+              9.55
+            ],
+            "p99_range": [
+              9.79,
+              11.35
+            ]
+          }
+        }
+      },
+      "profile_window_counts": {
+        "primary_wine_all": 36,
+        "primary_wine_complete": 33,
+        "duplicate_bridge_not_pooled": true
+      }
+    }
+  ],
+  "scope_limits": {
+    "host": "Unrelated Python/QEMU/long-lived Civ3 remain. No unrelated process was controlled. Host load/pressure and AMD telemetry are preserved. This is not a quiet-host hardware-limit result.",
+    "quantiles": "Per-report windows are retained; first partial windows excluded from comparisons. Wine and bridge duplicate logs are not pooled. Ranges are minima/maxima of individual-window quantiles, not a global quantile or an average of quantiles.",
+    "timing_coverage": "All drop deltas are zero and endpoint submitted/collected differences fit immutable ring32. Rep1 collected one sample more than submitted during the endpoint interval. These counters are not a matched per-frame submitted cohort and are not called exact full coverage.",
+    "motion": "All11 complete adjacent report intervals in each repetition move the same primary world camera, with5 positive and6 negative legs,10reversals and fixed inverse-label anchor. First/last partial intervals remain unobserved. B is fixed in every retained observation.",
+    "CPU": "Frame encode(host) is host command-preparation wall time, not total CPU utilization or a guarantee of unblocked CPU compute. Worker draw(all) includes acquire/submit/present walls.",
+    "GPU_waiting_for_CPU": "GPU inter-frame gap is retained separately and is not attributed solely to CPU starvation.",
+    "physical_scanout": false,
+    "platform_scope": "Linux shipping runtime only. No macOS loaded-audio, deployment, or all-feature acceptance follows."
+  },
+  "measurement_control": {
+    "repetitions": 3,
+    "seconds_requested_each": 60,
+    "reset_before_each": true,
+    "same_reviewed_geometry_preflight_and_timing": true,
+    "right": [
+      1919,
+      360
+    ],
+    "left": [
+      2,
+      800
+    ],
+    "relative_samples": {
+      "count": 3,
+      "dx": 96
+    },
+    "setup_captures_removed": true,
+    "no_screenshots_hashing_builds_transfers_or_VM_work_during_timed_intervals": true,
+    "no_gpu_forced_wait_for_sample_coverage": true,
+    "unrelated_tasks_untouched": true
+  },
+  "cleanup": {
+    "direct_children_forced": [],
+    "owned_descendants_signaled": [
+      {
+        "pid": 3979463,
+        "start": "47561890",
+        "cmd": "sway"
+      },
+      {
+        "pid": 3979497,
+        "start": "47561921",
+        "cmd": ".swaybg-wrapped"
+      },
+      {
+        "pid": 3979537,
+        "start": "47561940",
+        "cmd": "wineserver"
+      },
+      {
+        "pid": 3979543,
+        "start": "47561950",
+        "cmd": "services.exe"
+      },
+      {
+        "pid": 3979546,
+        "start": "47561952",
+        "cmd": "winedevice.exe"
+      },
+      {
+        "pid": 3979555,
+        "start": "47561954",
+        "cmd": "plugplay.exe"
+      },
+      {
+        "pid": 3979595,
+        "start": "47562045",
+        "cmd": "svchost.exe"
+      },
+      {
+        "pid": 3979601,
+        "start": "47562046",
+        "cmd": "explorer.exe"
+      },
+      {
+        "pid": 3979603,
+        "start": "47562047",
+        "cmd": "winedevice.exe"
+      },
+      {
+        "pid": 3979643,
+        "start": "47562072",
+        "cmd": "rpcss.exe"
+      },
+      {
+        "pid": 3979696,
+        "start": "47562127",
+        "cmd": "civ3-play-macos"
+      },
+      {
+        "pid": 3979740,
+        "start": "47562253",
+        "cmd": "start.exe"
+      },
+      {
+        "pid": 3979743,
+        "start": "47562270",
+        "cmd": "Civ3Conquests.e"
+      },
+      {
+        "pid": 3993586,
+        "start": "47587947",
+        "cmd": "c3r-qualificati"
+      }
+    ],
+    "direct_survivors": [],
+    "owned_descendant_survivors": [],
+    "all_owned_processes_absent": true,
+    "unrelated_processes_touched": false
+  },
+  "runtime_lease_released": true,
+  "no_source_changes_or_Neo_operations": true,
+  "performance_or_release_accepted": false,
+  "evidence": {
+    "repetition-1/measurement.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/measurement.json",
+      "sha256": "8b6260bf4201a2cf15d76adc19d764ac50f8183d3c81525250f280ed87e39acf"
+    },
+    "repetition-1/qualification.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/qualification.json",
+      "sha256": "627e7250ac15b60b3d40bf3a9cbd67476264d25e6232d11c865989eac372f360"
+    },
+    "repetition-1/profile-records.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/profile-records.json",
+      "sha256": "ee2e5c2c17a330aba136fbed7def1c3fab4e09a3dd713bfca3be9fc5a5f743a6"
+    },
+    "repetition-1/profile-windows.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/profile-windows.json",
+      "sha256": "62fdd8dc2c1fdb90dfd6620dd549006d55d31f5bddf7cc891da75ecbe1609dcf"
+    },
+    "repetition-1/summary.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/summary.json",
+      "sha256": "99f3a7139dbe93ec839a3e9ec61f80fd3c40eeb8fb590b333cd3837322cf9a85"
+    },
+    "repetition-1/host-before.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/host-before.json",
+      "sha256": "0870fa90f62bfad90308a8262a2858ec2201d325992c90556f1fb6683548992c"
+    },
+    "repetition-1/host-after.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/host-after.json",
+      "sha256": "dee373aa47aa661ebe67a9e5f428e17229a46030787f9246a7771b6090b036a6"
+    },
+    "repetition-1/workload.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/workload.json",
+      "sha256": "f98ff0853ea081754c08d551f09d3eee7d726c66f05ceb24cd3501c133e5ef01"
+    },
+    "repetition-1/timed-input-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/timed-input-binding.json",
+      "sha256": "308aec1f3dd76bdda9b4e70f61ee5e822e8d37dbfab6ba306ebe199c6e621c77"
+    },
+    "repetition-1/plain-launch-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/plain-launch-binding.json",
+      "sha256": "618d75194dcef77bcf3b7c5d5f5d284ad4d408cc9ff9ecf166ffa41871f5add3"
+    },
+    "repetition-1/release-status.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-1/release-status.json",
+      "sha256": "de46a01815779eb97d6e18b09d006dcf702d881417a1fbb180d3225e13c294f9"
+    },
+    "repetition-2/measurement.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/measurement.json",
+      "sha256": "3073a5b10e3bb284dc1094cc934c9df94f6cdcb967977d3ba1119235b3cd6461"
+    },
+    "repetition-2/qualification.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/qualification.json",
+      "sha256": "cca4b138469be5dcc04e3634272bb5445779d2bd49dab5bbda7d0357f1f8c9f7"
+    },
+    "repetition-2/profile-records.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/profile-records.json",
+      "sha256": "dda5ef02623b444bbcebb57e0735d0fcb8143e80f81ec58982f8059a6b379849"
+    },
+    "repetition-2/profile-windows.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/profile-windows.json",
+      "sha256": "c815b79aab372e0b575251d1fc20b413511b4de17950bd3f4b3e380741b2291e"
+    },
+    "repetition-2/summary.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/summary.json",
+      "sha256": "fa72ba1f0e9a13e2e68a81653f0118720a63ef6b865a6d69d35df934e2396852"
+    },
+    "repetition-2/host-before.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/host-before.json",
+      "sha256": "26666a37ac5a645134f8ca2fbaa156d3c0522152d874647cc0830420d6398703"
+    },
+    "repetition-2/host-after.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/host-after.json",
+      "sha256": "36d1a9edb31540c1a58aca1dd6d30439962b9410aaa3e6d9e2b53ab2229ea896"
+    },
+    "repetition-2/workload.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/workload.json",
+      "sha256": "f98ff0853ea081754c08d551f09d3eee7d726c66f05ceb24cd3501c133e5ef01"
+    },
+    "repetition-2/timed-input-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/timed-input-binding.json",
+      "sha256": "308aec1f3dd76bdda9b4e70f61ee5e822e8d37dbfab6ba306ebe199c6e621c77"
+    },
+    "repetition-2/plain-launch-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/plain-launch-binding.json",
+      "sha256": "618d75194dcef77bcf3b7c5d5f5d284ad4d408cc9ff9ecf166ffa41871f5add3"
+    },
+    "repetition-2/release-status.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-2/release-status.json",
+      "sha256": "de46a01815779eb97d6e18b09d006dcf702d881417a1fbb180d3225e13c294f9"
+    },
+    "repetition-3/measurement.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/measurement.json",
+      "sha256": "df601604f602407d1025e8b72cc5a9d19d75d9d0fe31d0952ef45cc09d42565e"
+    },
+    "repetition-3/qualification.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/qualification.json",
+      "sha256": "7bf5ee789df4134b2b6cf0e80ee92cda141b2598130e034b210ea924916b985c"
+    },
+    "repetition-3/profile-records.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/profile-records.json",
+      "sha256": "e14d94395c75a85b5dafaf1c20c55d5f45475c18b18757a1b7fb5624a6a72074"
+    },
+    "repetition-3/profile-windows.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/profile-windows.json",
+      "sha256": "517a38f7e2f71dd44d1f2ff142ffbb4b4241581857cad8d0e26d177118ddea3d"
+    },
+    "repetition-3/summary.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/summary.json",
+      "sha256": "ac2d430f9200835e869de03357186d7779821bdc55975fcfdd72e7796640c496"
+    },
+    "repetition-3/host-before.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/host-before.json",
+      "sha256": "e3a4167f9fd367933270b61a45e45994592bae512d306a6f4f70dab5117dc132"
+    },
+    "repetition-3/host-after.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/host-after.json",
+      "sha256": "e06682331613006c96f8712b65609d480e42b393ceea3e7013e0703204379717"
+    },
+    "repetition-3/workload.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/workload.json",
+      "sha256": "f98ff0853ea081754c08d551f09d3eee7d726c66f05ceb24cd3501c133e5ef01"
+    },
+    "repetition-3/timed-input-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/timed-input-binding.json",
+      "sha256": "308aec1f3dd76bdda9b4e70f61ee5e822e8d37dbfab6ba306ebe199c6e621c77"
+    },
+    "repetition-3/plain-launch-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/plain-launch-binding.json",
+      "sha256": "618d75194dcef77bcf3b7c5d5f5d284ad4d408cc9ff9ecf166ffa41871f5add3"
+    },
+    "repetition-3/release-status.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/repetition-3/release-status.json",
+      "sha256": "de46a01815779eb97d6e18b09d006dcf702d881417a1fbb180d3225e13c294f9"
+    },
+    "runtime-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/runtime-binding.json",
+      "sha256": "c82afbeb04c582edfaa9d893b4c40d4b761064bdd1f9130090486911b41dea10"
+    },
+    "state.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/state.json",
+      "sha256": "96564837d3c4844d5a0bb206a727ad9d931a280cbb5c7cc133c94c95619b5b73"
+    },
+    "plain-launch-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/plain-launch-binding.json",
+      "sha256": "618d75194dcef77bcf3b7c5d5f5d284ad4d408cc9ff9ecf166ffa41871f5add3"
+    },
+    "timed-input-binding.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/timed-input-binding.json",
+      "sha256": "308aec1f3dd76bdda9b4e70f61ee5e822e8d37dbfab6ba306ebe199c6e621c77"
+    },
+    "plain-preflight-gate.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/plain-preflight-gate.json",
+      "sha256": "7f7aca106c0e4ed1bf6ee6698cbb590996be96b5bf75716c2fc10d9b2fe5613a"
+    },
+    "motion-preflight.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/motion-preflight.json",
+      "sha256": "da8c73d84c090cfbc0e3fcdedd44861391f21861c28a860aa2b819b9564681d9"
+    },
+    "plain-preflight-output.log": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/plain-preflight-output.log",
+      "sha256": "a353849d858e5a095a7f22cb13b9a23fc96124f3bcf7e6ca1c1d7bf059d83fda"
+    },
+    "workload.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/workload.json",
+      "sha256": "f98ff0853ea081754c08d551f09d3eee7d726c66f05ceb24cd3501c133e5ef01"
+    },
+    "host-gpu.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/host-gpu.json",
+      "sha256": "126a1efa0ed7a75dbc8657bd075061c4062de5d203f99a41ff7900af2f8f1964"
+    },
+    "untimed-host-before.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-host-before.json",
+      "sha256": "47ea2fa1a2c12897a1e241739e0c424fb5d25c94a78283c2e96380268b44c6a0"
+    },
+    "untimed-keyboard-load.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-keyboard-load.json",
+      "sha256": "c59ba6d7311dc6c082a19ceb4bdb9da08f555bde1179213a20526d020c8db3b3"
+    },
+    "untimed-main-menu.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-main-menu.png",
+      "sha256": "69775284c3374d5102c0f6f24357721f97da39ae04fb840f6daf4b13acc7c39c"
+    },
+    "untimed-load-dialog.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-load-dialog.png",
+      "sha256": "8681abbdc406b59d22a60c1699c125f76d004fd9193fe472cf418f030c6cc8b1"
+    },
+    "untimed-ww2-loading.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-ww2-loading.png",
+      "sha256": "a580a88f198823e8ff3daa0f2eadaa3b3bdd369f3e3998c300bd5c045f843c97"
+    },
+    "untimed-ww2-summary.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-ww2-summary.png",
+      "sha256": "9f94e22ea2f221be4ade022eb158dfc4f5532a0df6e2ff67f4ba69ec199ff4f3"
+    },
+    "untimed-ww2-world.png": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-ww2-world.png",
+      "sha256": "d4500e9df82fd67563bedb66abe165466ff8b82aec023d175fe8ba6d9a7d1bdf"
+    },
+    "untimed-loaded-worker.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-loaded-worker.json",
+      "sha256": "fbb001e3e9d8a253f38f8a39a29d25d81afc3b64072752893f9015a0aee58ff1"
+    },
+    "untimed-loaded-trace.txt": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/untimed-loaded-trace.txt",
+      "sha256": "11d4f4022f9dc54b3a9810838eb74bdd5d33345da51d40613511e655805b5109"
+    },
+    "three-repetitions-output.log": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/three-repetitions-output.log",
+      "sha256": "b5f708d42069858ff380b113b289f396155da0a5cc884f0fc84d38d33a436fdc"
+    },
+    "authoritative-timing-windows.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/authoritative-timing-windows.json",
+      "sha256": "1cea0954b2ba29c5a3edc70e3d827c66d9ca6d9b727b45eebc99a83cd092831c"
+    },
+    "shutdown.json": {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/finalf510-native1-dual0-plain-v3-r2/shutdown.json",
+      "sha256": "7fa03856c445f39dca7975bbabe6555a12b5d84c833b5e2c05d4cdffa357e6f9"
+    }
+  }
+}

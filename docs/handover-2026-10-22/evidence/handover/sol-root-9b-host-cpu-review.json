@@ -1,0 +1,136 @@
+{
+  "reviewed_utc": "2026-10-20T15:24:19.557306+00:00",
+  "source": "9b07836fc7743952d53283e41b41999972a781f42d005be67c31e568cdddc205",
+  "review": "Independently checked retained executable hashes and parsed every test-result line against aggregate rows. No tests repeated.",
+  "invocations": 20,
+  "totals": {
+    "passed": 712,
+    "failed": 0,
+    "ignored": 3,
+    "measured": 0,
+    "filtered_out": 5799
+  },
+  "limits": "Scoped CPU modules only. Filtered totals count per invocation, not unique tests. Launcher GPU candidate, actual UI, gameplay and performance are outside this aggregate.",
+  "checks": [
+    {
+      "executable": "civ3_sys",
+      "binary_sha256": "eec5141de26d02e2653a7eed18091cdd4239296306bf80b3e102cdcffa74eaf9",
+      "log": "00-civ3_sys-all.log",
+      "log_sha256": "8e375c737695345f3d323c195e78235846c2497b31158193d84b970e31e25e09"
+    },
+    {
+      "executable": "scene",
+      "binary_sha256": "69dfe8f386f4c452e1d13a66074062d184feeeccd4ee9b449fdaf0cc7d846365",
+      "log": "01-scene-all.log",
+      "log_sha256": "7dd82e1df71e68ff17bff3fe7d55f46f0d6d6e59ed5a9106ea569f93c9e09203"
+    },
+    {
+      "executable": "viewer_settings",
+      "binary_sha256": "11a3559bfb91443af6971b3e04c9ea78aab43eb17e512d83ab6682963cb93e18",
+      "log": "02-viewer_settings-all.log",
+      "log_sha256": "bc031114ae663cc673bda86dd32f75fb4705ce3e2f35a282e3ce00ca75c56841"
+    },
+    {
+      "executable": "viewer_transport",
+      "binary_sha256": "53c2e04fe947574b3e5223bcb8c4cd82ea82b9364af8ab313838514bd152a90f",
+      "log": "03-viewer_transport-all.log",
+      "log_sha256": "d0dfe681c2ee17f2f2f3f1e49501bd302aec0a0bc6557f470184222bd0353cf4"
+    },
+    {
+      "executable": "civ3r_sync",
+      "binary_sha256": "7a9b59c3a97d2a5189d5b66297f942ca787e1c8e5a85ac64cc340a66175acc83",
+      "log": "04-civ3r_sync-all.log",
+      "log_sha256": "be4456060927c18725b7303addf81b6404b0daf9ccabfa9a4d56dff4caa7290b"
+    },
+    {
+      "executable": "civ3r_process",
+      "binary_sha256": "14f8169d4f06fcccd3609cd212c65fc09f9fbd0a077a45eca7d792328bc9d1cf",
+      "log": "05-civ3r_process-all.log",
+      "log_sha256": "d9efeb0e386088a4e322a11dd788b7dbbf1b104f0118cbbe8c4ee551160ac756"
+    },
+    {
+      "executable": "geometry",
+      "binary_sha256": "a7fd80a1e9a4151daaf094eb2aecbc3a989b9a21e4ecf7589a87e290a4b18697",
+      "log": "06-geometry-all.log",
+      "log_sha256": "5a7d494b680cb7ec0ac7debd8e04f8aefea5fb9bc472c359fa8ce916de6d2eaf"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "07-tile_viewer-cursor__.log",
+      "log_sha256": "71641eefc01b997027ff75c755dd48bcc5705ab3972282ea7262ad0501343dec"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "08-tile_viewer-snap__.log",
+      "log_sha256": "4f4cb13e877b3abf1a04d90cccbd087bb4e6f5713a9e7fe96c4585976ba26c7b"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "09-tile_viewer-layout__.log",
+      "log_sha256": "03e28e6e0b49c2b8292c9db81503118fefe9787976774c89c6984e17a82095a3"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "10-tile_viewer-smooth_menus__.log",
+      "log_sha256": "4671e66dc35b95ace4aef6acfbf91f8f547a45d8d9100c1d05c2a064e2a8aa7e"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "11-tile_viewer-input__.log",
+      "log_sha256": "9aa4e46aa5c76044b92128df19f7b87546b5eb6abbd8861396b688740c8bf6d9"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "12-tile_viewer-settings_preview__.log",
+      "log_sha256": "51da3ebf9991c82ef61468613b833e260e21b61c10ba91ca125ada342b604c7f"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "13-tile_viewer-scene_prefix__.log",
+      "log_sha256": "65c6b3b07ce811db9c319661634094d03a9a31c76d72cf5d2c4bfcce72141435"
+    },
+    {
+      "executable": "tile_viewer",
+      "binary_sha256": "879bd396b3ce03be0adf7c7ac80d930d9536c88f74c8ebb98a915f3d9ee6c6d2",
+      "log": "14-tile_viewer-rejected_snapshot_recovery_tests__.log",
+      "log_sha256": "47849454f5b7561d4c23bedabeef34c4d3c81114c40c4f708fdaf41b62ce7dd6"
+    },
+    {
+      "executable": "ifc23",
+      "binary_sha256": "c5bd494fd15d28a20ff78ea38eb30939f06ffcb89043096e0b7f775dda43f528",
+      "log": "15-ifc23-prefs__.log",
+      "log_sha256": "f2b64cb6b7081418e9fb4ee30519579028cba0d83c3ead1cd401807d0952c88b"
+    },
+    {
+      "executable": "ifc23",
+      "binary_sha256": "c5bd494fd15d28a20ff78ea38eb30939f06ffcb89043096e0b7f775dda43f528",
+      "log": "16-ifc23-native_sliders__.log",
+      "log_sha256": "3a2f7fe6fbbf6e6a21c306106188e94f23b4b1e06eb34f0412d09edc42dbc8ec"
+    },
+    {
+      "executable": "ifc23",
+      "binary_sha256": "c5bd494fd15d28a20ff78ea38eb30939f06ffcb89043096e0b7f775dda43f528",
+      "log": "17-ifc23-stale_input__.log",
+      "log_sha256": "252760e6c63467f29cf6bcc06a16741563862f2c9275400651f3e64b2e8ea08f"
+    },
+    {
+      "executable": "ifc23",
+      "binary_sha256": "c5bd494fd15d28a20ff78ea38eb30939f06ffcb89043096e0b7f775dda43f528",
+      "log": "18-ifc23-modal__.log",
+      "log_sha256": "a8125d40c7dcc6e3694f54234cd5dddb07ceefa47ca920ef52938f21498288fe"
+    },
+    {
+      "executable": "ifc23",
+      "binary_sha256": "c5bd494fd15d28a20ff78ea38eb30939f06ffcb89043096e0b7f775dda43f528",
+      "log": "19-ifc23-ui__tests__.log",
+      "log_sha256": "2e3715c38c03019b8603dc5700691b44595de1235add04fa81a290730797f2d4"
+    }
+  ]
+}

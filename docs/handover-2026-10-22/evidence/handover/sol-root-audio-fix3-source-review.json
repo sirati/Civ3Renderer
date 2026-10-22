@@ -1,0 +1,22 @@
+{
+  "scope": "Final source3 review only. No final compiler, runtime, deployment or shared promotion claim.",
+  "patch": "/mnt/datasets/c3r-build/quit-audio-sol/audio-fix-proposal3/audio-init.patch",
+  "patch_sha256": "17d1363c0d6da4f2b14036c64b6d5cfaff7919dd69b9232890b7cf161e324a29",
+  "leaves": {
+    "crates/civ3-sys/src/audio_init.rs": "6785d365402588b4704799fafaf3047103f0bcb6dda559ed8b7eece1942bd92e",
+    "crates/civ3-sys/src/lib.rs": "134870f81ff62e38a24d15b8e148bf39e440730626867ea6e1035bcc47ef5e5c",
+    "crates/civ3-bridge/src/lib.rs": "a93f0c61a25cd2aeafdb00a603b1dd198c99b1087b846f051226191310e2dcdb",
+    "crates/civ3-bridge/src/trace.rs": "2830745bd77ae69ed8cdf44fd81282c5aa238929351c348bdd5a5dc650207b48"
+  },
+  "findings": [
+    "Core correction retains source1 reviewed native close-before-unload behavior, ABI/error preservation, full byte contracts and clean preinit gate.",
+    "Final diagnostics retain the first completed native close/unload pair immutably. A separate ready flag publishes the pair after both native calls and stores complete. Later unwinds only increment count; incomplete publication yields unavailable results without spinning or waiting.",
+    "Requested trace adds a comment line, preserving existing strict trace consumers. Native state reads are bounded and on-demand, with unreadable fields explicit and no address reads when installation was declined.",
+    "No new unsafe, lock, timer, periodic native read, rendering, shader or audio-clock change. Hook work runs only on the native failed-Wave branch."
+  ],
+  "apply_check_exit": 0,
+  "independent_review": "/mnt/datasets/c3r-build/handover/audio-fix3-independent-review.startup.sol.json",
+  "prepared_test_count": 12,
+  "source1_evidence": "Eight earlier CPU cases and i686 sys check passed. Bridge check failed because the isolated snapshot omitted repository include_str assets. Source1 evidence remains separate and is not a final source3 acceptance.",
+  "decision": "Final isolated CPU and Windows checks approved through broker. Promote only exact reviewed leaves after final checks. Rebuild production PE, then require actual failed-unwind proof and normal title and loaded-game Quit before idle Neo install."
+}

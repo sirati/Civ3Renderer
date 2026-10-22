@@ -1,0 +1,2910 @@
+{
+  "created_date": "2026-10-22",
+  "scope": "Small retained reports and evidence records; no source trees, game assets, credentials, binaries, full transcripts or VM disks.",
+  "files": [
+    {
+      "source": "/mnt/datasets/c3r-source-backups/20261020T1918Z/RESTORE.md",
+      "copy": "evidence/backups-20261020/RESTORE.md",
+      "source_bytes": 1842,
+      "source_sha256": "540439422b081a7262694a83c903671123ad7525fa62ac7e3fe270abf49d1a0a",
+      "copy_bytes": 1842,
+      "copy_sha256": "540439422b081a7262694a83c903671123ad7525fa62ac7e3fe270abf49d1a0a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-source-backups/20261020T1918Z/backup-manifest.json",
+      "copy": "evidence/backups-20261020/backup-manifest.json",
+      "source_bytes": 1323,
+      "source_sha256": "01cc99d799b00597dbb7cea36faf6a32108ef3440f13a539dab4cfb770c13d9d",
+      "copy_bytes": 1323,
+      "copy_sha256": "01cc99d799b00597dbb7cea36faf6a32108ef3440f13a539dab4cfb770c13d9d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-source-backups/20261020T1918Z/development-source-current-backup.json",
+      "copy": "evidence/backups-20261020/development-source-current-backup.json",
+      "source_bytes": 666,
+      "source_sha256": "8722c4f27043f2915f5245aefa0e9c95653cc42c128fdb4dad468e5c14b58ac8",
+      "copy_bytes": 666,
+      "copy_sha256": "8722c4f27043f2915f5245aefa0e9c95653cc42c128fdb4dad468e5c14b58ac8",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/ab-plan.json",
+      "copy": "evidence/external/binary-cell-blend-sol/actualapp-f510/ab-plan.json",
+      "source_bytes": 10580,
+      "source_sha256": "4e6e4a4213b7e7ac21ae9c302d4f4dea5fb462c39b29304a5f2e27d8ad89c872",
+      "copy_bytes": 10256,
+      "copy_sha256": "990851952ef669928f3ff772ed876f95882cd530f006ca980c6cf9f16008b019",
+      "redactions": [
+        "/per_launch/1:1"
+      ],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/README.md",
+      "copy": "evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/README.md",
+      "source_bytes": 1357,
+      "source_sha256": "3ac2df06bd934f5f9fbdffdd7f544aa393db2615e58de6c75ba776efbc66c830",
+      "copy_bytes": 1357,
+      "copy_sha256": "3ac2df06bd934f5f9fbdffdd7f544aa393db2615e58de6c75ba776efbc66c830",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json",
+      "copy": "evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json",
+      "source_bytes": 8780,
+      "source_sha256": "2895410a752fa6aa3645af9d166c8558fe07726b10715b3c28fd1a61ffe522a3",
+      "copy_bytes": 8780,
+      "copy_sha256": "2895410a752fa6aa3645af9d166c8558fe07726b10715b3c28fd1a61ffe522a3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/camera-decouple/ai-focus-evidence.md",
+      "copy": "evidence/external/camera-decouple/ai-focus-evidence.md",
+      "source_bytes": 10177,
+      "source_sha256": "51a45764ef07626c2704719be2e75480553b96ca2d74bb2ab30966fa8d75ee01",
+      "copy_bytes": 10177,
+      "copy_sha256": "51a45764ef07626c2704719be2e75480553b96ca2d74bb2ab30966fa8d75ee01",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/combat-diagnostics-army/f510-outcomes-rebind/README.md",
+      "copy": "evidence/external/combat-diagnostics-army/f510-outcomes-rebind/README.md",
+      "source_bytes": 2490,
+      "source_sha256": "70073f6a41c3a473efe40d185384fad2ee378e5d9be62b66e503fec00ef32e80",
+      "copy_bytes": 2490,
+      "copy_sha256": "70073f6a41c3a473efe40d185384fad2ee378e5d9be62b66e503fec00ef32e80",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/combat-diagnostics-army/f510-outcomes-rebind/verification-manifest.json",
+      "copy": "evidence/external/combat-diagnostics-army/f510-outcomes-rebind/verification-manifest.json",
+      "source_bytes": 122984,
+      "source_sha256": "8a5c11b7acf3a757fc3c146bab333c81c71e844f25fc4f227ba3f3e0f4163a35",
+      "copy_bytes": 122984,
+      "copy_sha256": "8a5c11b7acf3a757fc3c146bab333c81c71e844f25fc4f227ba3f3e0f4163a35",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/combat-diagnostics-army/offline-comparator-successor2/proof.json",
+      "copy": "evidence/external/combat-diagnostics-army/offline-comparator-successor2/proof.json",
+      "source_bytes": 4815,
+      "source_sha256": "2355cfb2c8632831a54fa0c6266e44d69d1fbc51b6600264b7ad3c722427078a",
+      "copy_bytes": 4815,
+      "copy_sha256": "2355cfb2c8632831a54fa0c6266e44d69d1fbc51b6600264b7ad3c722427078a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/fps-details-sol/handover.md",
+      "copy": "evidence/external/fps-details-sol/handover.md",
+      "source_bytes": 3081,
+      "source_sha256": "cdc875b082844a7a6135de98ee1f4f729dcb75363a821a34b12d7981900ebddb",
+      "copy_bytes": 3081,
+      "copy_sha256": "cdc875b082844a7a6135de98ee1f4f729dcb75363a821a34b12d7981900ebddb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md",
+      "copy": "evidence/external/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md",
+      "source_bytes": 6214,
+      "source_sha256": "6f864d232607f453489f4ffcf8bac3dff9c88eefe85c98e9513a151ae10b59d3",
+      "copy_bytes": 6214,
+      "copy_sha256": "6f864d232607f453489f4ffcf8bac3dff9c88eefe85c98e9513a151ae10b59d3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/sparse-cells-sol/audit.md",
+      "copy": "evidence/external/sparse-cells-sol/audit.md",
+      "source_bytes": 8878,
+      "source_sha256": "44091afb7de937dbbd0c8a21053809208a5fe7664a0f84932550f0e58419d1cc",
+      "copy_bytes": 8878,
+      "copy_sha256": "44091afb7de937dbbd0c8a21053809208a5fe7664a0f84932550f0e58419d1cc",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/wider-integer-sol/compiler-gate/cpu-gate-plan.json",
+      "copy": "evidence/external/wider-integer-sol/compiler-gate/cpu-gate-plan.json",
+      "source_bytes": 765,
+      "source_sha256": "15dac6000584cf14b947f09f0c23c7b407dcbc9ab4394639de6ca26dd52875ca",
+      "copy_bytes": 765,
+      "copy_sha256": "15dac6000584cf14b947f09f0c23c7b407dcbc9ab4394639de6ca26dd52875ca",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/wider-integer-sol/gpu-qualification-v2/package-manifest.json",
+      "copy": "evidence/external/wider-integer-sol/gpu-qualification-v2/package-manifest.json",
+      "source_bytes": 5510,
+      "source_sha256": "6282804c6a21e64a6653c843a84437690c2ef763b57640893fe1513e4fb3f480",
+      "copy_bytes": 5510,
+      "copy_sha256": "6282804c6a21e64a6653c843a84437690c2ef763b57640893fe1513e4fb3f480",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/00-orchestrator.md",
+      "copy": "evidence/handover/00-orchestrator.md",
+      "source_bytes": 8844,
+      "source_sha256": "06ecaac18b23005f6b8f5be7ea6b2e0d2f06af44f792abcb297c6183594ec1a8",
+      "copy_bytes": 8555,
+      "copy_sha256": "ce3ea2f77f90c744b01badd5054c1c6c39bd632918ae076d9cddcfb8392ac78c",
+      "redactions": [
+        4,
+        18
+      ],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/army-units.md",
+      "copy": "evidence/handover/army-units.md",
+      "source_bytes": 7902,
+      "source_sha256": "b6f8f52a6b3dde1be361abe7d3a2ab8426591c90d516e74a88695a0dc88b8bc5",
+      "copy_bytes": 7781,
+      "copy_sha256": "b9ddfc18910e75fd8eda2c36c477732089d8f9b1cee2fb2c8008dabef3f15784",
+      "redactions": [
+        71
+      ],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/army-units.sol.md",
+      "copy": "evidence/handover/army-units.sol.md",
+      "source_bytes": 24447,
+      "source_sha256": "55c865dd9d32f99071ee5aa9a78ab46d4fd07ceaa5f5d5ea458a46b1dee92ac9",
+      "copy_bytes": 24447,
+      "copy_sha256": "55c865dd9d32f99071ee5aa9a78ab46d4fd07ceaa5f5d5ea458a46b1dee92ac9",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/atlas-reserve.sol.md",
+      "copy": "evidence/handover/atlas-reserve.sol.md",
+      "source_bytes": 5528,
+      "source_sha256": "b8d8d167173105dc3247dee84ffd34e6c9563a432128a063900201f6239d677b",
+      "copy_bytes": 5528,
+      "copy_sha256": "b8d8d167173105dc3247dee84ffd34e6c9563a432128a063900201f6239d677b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/audio-fix3-independent-review.startup.sol.json",
+      "copy": "evidence/handover/audio-fix3-independent-review.startup.sol.json",
+      "source_bytes": 4910,
+      "source_sha256": "0f02d00bf7640e65a1bd5b24c2f1efa26dbc4051491fa904d97c7235c19c1a86",
+      "copy_bytes": 4910,
+      "copy_sha256": "0f02d00bf7640e65a1bd5b24c2f1efa26dbc4051491fa904d97c7235c19c1a86",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/audio-fix3-native-contracts.startup.sol.json",
+      "copy": "evidence/handover/audio-fix3-native-contracts.startup.sol.json",
+      "source_bytes": 863,
+      "source_sha256": "686a71940d0a24ca5bf9484fd4872ea940e0166bb87563ada7dcb5aef19a90a1",
+      "copy_bytes": 863,
+      "copy_sha256": "686a71940d0a24ca5bf9484fd4872ea940e0166bb87563ada7dcb5aef19a90a1",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/background-upscale-coherent-validation.sol.md",
+      "copy": "evidence/handover/background-upscale-coherent-validation.sol.md",
+      "source_bytes": 5929,
+      "source_sha256": "84b39f1a68745e9273968be2c28694fd9abc260c9912ddcd19a6bced1634a91a",
+      "copy_bytes": 5929,
+      "copy_sha256": "84b39f1a68745e9273968be2c28694fd9abc260c9912ddcd19a6bced1634a91a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/binary-cell-blend-audit.sol.md",
+      "copy": "evidence/handover/binary-cell-blend-audit.sol.md",
+      "source_bytes": 5631,
+      "source_sha256": "0ddeab766e1acc34bf455df2b05697802cfd343ea242f6eafc479affca22971d",
+      "copy_bytes": 5631,
+      "copy_sha256": "0ddeab766e1acc34bf455df2b05697802cfd343ea242f6eafc479affca22971d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/binary-cell-recorded4k-proof.sol.json",
+      "copy": "evidence/handover/binary-cell-recorded4k-proof.sol.json",
+      "source_bytes": 5640,
+      "source_sha256": "e55adcef435a2c2189da2fa65edaa68cfc8e1cb85391ebd92d14271ef917eabe",
+      "copy_bytes": 5640,
+      "copy_sha256": "e55adcef435a2c2189da2fa65edaa68cfc8e1cb85391ebd92d14271ef917eabe",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/combat-diagnostics-independent-review.startup.sol.json",
+      "copy": "evidence/handover/combat-diagnostics-independent-review.startup.sol.json",
+      "source_bytes": 7473,
+      "source_sha256": "83187a5a2b5477b815cf2927c66c15a1cbddd34a2bea85412b8c8e32c8194438",
+      "copy_bytes": 7473,
+      "copy_sha256": "83187a5a2b5477b815cf2927c66c15a1cbddd34a2bea85412b8c8e32c8194438",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/combat-f510-rebind-independent-review.startup.sol.json",
+      "copy": "evidence/handover/combat-f510-rebind-independent-review.startup.sol.json",
+      "source_bytes": 4152,
+      "source_sha256": "823cc770e60b70f89bd72869553cfc907ef7125d1ae1775cd6d5432055488416",
+      "copy_bytes": 4152,
+      "copy_sha256": "823cc770e60b70f89bd72869553cfc907ef7125d1ae1775cd6d5432055488416",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/combat-outcomes-independent-review.startup.sol.json",
+      "copy": "evidence/handover/combat-outcomes-independent-review.startup.sol.json",
+      "source_bytes": 6563,
+      "source_sha256": "f79787057a36d818ebe9bcb1892b38578e8ee6d677254c99a34129cd7dbfd7f9",
+      "copy_bytes": 6563,
+      "copy_sha256": "f79787057a36d818ebe9bcb1892b38578e8ee6d677254c99a34129cd7dbfd7f9",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/acceptance-matrix.json",
+      "copy": "evidence/handover/creative-qa/acceptance-matrix.json",
+      "source_bytes": 370884,
+      "source_sha256": "194c78f3fc8ba38320070e28d7a65b1cbd9097c5dce834d70a78239e697d2535",
+      "copy_bytes": 370884,
+      "copy_sha256": "194c78f3fc8ba38320070e28d7a65b1cbd9097c5dce834d70a78239e697d2535",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/actual-App866-dynamic-summary.json",
+      "copy": "evidence/handover/creative-qa/actual-App866-dynamic-summary.json",
+      "source_bytes": 3680,
+      "source_sha256": "6dff38edcfc5f5f1bee2f9d14184414aa8ac14bdf53f341e2e530696a8a28898",
+      "copy_bytes": 3680,
+      "copy_sha256": "6dff38edcfc5f5f1bee2f9d14184414aa8ac14bdf53f341e2e530696a8a28898",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/checkpoint866-reconciliation.json",
+      "copy": "evidence/handover/creative-qa/checkpoint866-reconciliation.json",
+      "source_bytes": 4664,
+      "source_sha256": "b85f197f4ae1ac0da8d2d1de66490878580dd6532a3fd694b4714d9ffe5862bf",
+      "copy_bytes": 4664,
+      "copy_sha256": "b85f197f4ae1ac0da8d2d1de66490878580dd6532a3fd694b4714d9ffe5862bf",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/checkpoint866-reconciliation.sol.md",
+      "copy": "evidence/handover/creative-qa/checkpoint866-reconciliation.sol.md",
+      "source_bytes": 2190,
+      "source_sha256": "15cb644e7ac86a992a084bb5f5c871afc831ff57ebed52cecb45b13d407aa4dd",
+      "copy_bytes": 2190,
+      "copy_sha256": "15cb644e7ac86a992a084bb5f5c871afc831ff57ebed52cecb45b13d407aa4dd",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/codex-authority-and-performance.json",
+      "copy": "evidence/handover/creative-qa/codex-authority-and-performance.json",
+      "source_bytes": 37253,
+      "source_sha256": "42521ef96da014bd0ebe1334e0592cb6648ff0d01f9cf56474d9b04629df88ed",
+      "copy_bytes": 37253,
+      "copy_sha256": "42521ef96da014bd0ebe1334e0592cb6648ff0d01f9cf56474d9b04629df88ed",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/codex-user-history.json",
+      "copy": "evidence/handover/creative-qa/codex-user-history.json",
+      "source_bytes": 44518,
+      "source_sha256": "26317ed73da3fe25fa1447a3409ede22ee4335c5bc9ac15e10a7ed711138b534",
+      "copy_bytes": 44518,
+      "copy_sha256": "26317ed73da3fe25fa1447a3409ede22ee4335c5bc9ac15e10a7ed711138b534",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/current-versus-frozen31b.json",
+      "copy": "evidence/handover/creative-qa/current-versus-frozen31b.json",
+      "source_bytes": 4283,
+      "source_sha256": "3ca6925f87175740f59c13518cc46ac703de5fc09bffe17eb667463534a57b46",
+      "copy_bytes": 4283,
+      "copy_sha256": "3ca6925f87175740f59c13518cc46ac703de5fc09bffe17eb667463534a57b46",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/final-freeze-cases.json",
+      "copy": "evidence/handover/creative-qa/final-freeze-cases.json",
+      "source_bytes": 13962,
+      "source_sha256": "b40d56e21d3c5d52a7ab4940e7644e569f4f1ec1c53e4fc9b7fb45ffd4b8a8ce",
+      "copy_bytes": 13962,
+      "copy_sha256": "b40d56e21d3c5d52a7ab4940e7644e569f4f1ec1c53e4fc9b7fb45ffd4b8a8ce",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/findings.json",
+      "copy": "evidence/handover/creative-qa/findings.json",
+      "source_bytes": 8190,
+      "source_sha256": "3f90d11e3bf55b44c82b2ff702ef560a720525b7f3adef1662c6a55ffc9a5e31",
+      "copy_bytes": 8190,
+      "copy_sha256": "3f90d11e3bf55b44c82b2ff702ef560a720525b7f3adef1662c6a55ffc9a5e31",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/index.json",
+      "copy": "evidence/handover/creative-qa/index.json",
+      "source_bytes": 4105,
+      "source_sha256": "2439c75a91e41916e71aded20f111113f76b24a9cfbd5b7d3c66e5de8d2cf2c4",
+      "copy_bytes": 4105,
+      "copy_sha256": "2439c75a91e41916e71aded20f111113f76b24a9cfbd5b7d3c66e5de8d2cf2c4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/input-evidence-manifest.json",
+      "copy": "evidence/handover/creative-qa/input-evidence-manifest.json",
+      "source_bytes": 6681,
+      "source_sha256": "92f7074ec928b2a50239f7f567b5c62eb0b93d0c4c9147e7ea52d7abed77dbbd",
+      "copy_bytes": 6681,
+      "copy_sha256": "92f7074ec928b2a50239f7f567b5c62eb0b93d0c4c9147e7ea52d7abed77dbbd",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/original-ui-authority-candidates.json",
+      "copy": "evidence/handover/creative-qa/original-ui-authority-candidates.json",
+      "source_bytes": 82949,
+      "source_sha256": "cd6cd2bc33cecf153c33f572145a83ca1d7dc10a8f22c59299b1459ce0e5b36e",
+      "copy_bytes": 82949,
+      "copy_sha256": "cd6cd2bc33cecf153c33f572145a83ca1d7dc10a8f22c59299b1459ce0e5b36e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/original-user-messages.json",
+      "copy": "evidence/handover/creative-qa/original-user-messages.json",
+      "source_bytes": 68460,
+      "source_sha256": "8def201b11a71427bb74752bb08beb5a87ae78ceef214b5ca0d4e557b2c86f5b",
+      "copy_bytes": 68460,
+      "copy_sha256": "8def201b11a71427bb74752bb08beb5a87ae78ceef214b5ca0d4e557b2c86f5b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/prioritized-test-plan.json",
+      "copy": "evidence/handover/creative-qa/prioritized-test-plan.json",
+      "source_bytes": 21901,
+      "source_sha256": "396d9aa4ce55cafb18a3979b844f92312b1c16dacf6c5a8dd8c62077d0db3360",
+      "copy_bytes": 21901,
+      "copy_sha256": "396d9aa4ce55cafb18a3979b844f92312b1c16dacf6c5a8dd8c62077d0db3360",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/priority3be-reconciliation.json",
+      "copy": "evidence/handover/creative-qa/priority3be-reconciliation.json",
+      "source_bytes": 3496,
+      "source_sha256": "e539c0950d62ede35d8f4499c4dbdfbfbc53fd6db4db1dcf39e5a031103cb861",
+      "copy_bytes": 3496,
+      "copy_sha256": "e539c0950d62ede35d8f4499c4dbdfbfbc53fd6db4db1dcf39e5a031103cb861",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/priority3be-reconciliation.sol.md",
+      "copy": "evidence/handover/creative-qa/priority3be-reconciliation.sol.md",
+      "source_bytes": 2028,
+      "source_sha256": "28b0d5c995115fb3e0b0c3553a097961355a429afca1e8e4c6dc148f8345f909",
+      "copy_bytes": 2028,
+      "copy_sha256": "28b0d5c995115fb3e0b0c3553a097961355a429afca1e8e4c6dc148f8345f909",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/remaining-final-freeze.sol.md",
+      "copy": "evidence/handover/creative-qa/remaining-final-freeze.sol.md",
+      "source_bytes": 2088,
+      "source_sha256": "d7e0740cf4614b3e3c7182b9e310f079c3c59cb1bbc28dcce066d0d21a83db90",
+      "copy_bytes": 2088,
+      "copy_sha256": "d7e0740cf4614b3e3c7182b9e310f079c3c59cb1bbc28dcce066d0d21a83db90",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/request-coverage-index.json",
+      "copy": "evidence/handover/creative-qa/request-coverage-index.json",
+      "source_bytes": 296269,
+      "source_sha256": "6e1f2f610081004e03ec75a75cd0615c4088a5bc1d280e87e1644fdc325eccfd",
+      "copy_bytes": 296269,
+      "copy_sha256": "6e1f2f610081004e03ec75a75cd0615c4088a5bc1d280e87e1644fdc325eccfd",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-allocator-failure-review.sol.json",
+      "copy": "evidence/handover/creative-qa/root-allocator-failure-review.sol.json",
+      "source_bytes": 998,
+      "source_sha256": "608eace530c011a2bec84378c7771f1f90078935752822cbb8adc76ddf11f5e1",
+      "copy_bytes": 998,
+      "copy_sha256": "608eace530c011a2bec84378c7771f1f90078935752822cbb8adc76ddf11f5e1",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-cache-and-stall-review.sol.json",
+      "copy": "evidence/handover/creative-qa/root-cache-and-stall-review.sol.json",
+      "source_bytes": 2873,
+      "source_sha256": "4e39ad7acca3c1b8abed463c9ffbcfb360cdc98813d2f986b5a97bc7a4f65779",
+      "copy_bytes": 2873,
+      "copy_sha256": "4e39ad7acca3c1b8abed463c9ffbcfb360cdc98813d2f986b5a97bc7a4f65779",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-encode-span-adoption.sol.json",
+      "copy": "evidence/handover/creative-qa/root-encode-span-adoption.sol.json",
+      "source_bytes": 677,
+      "source_sha256": "2601707abf986237d09ab79347e99aad6b7e1270247a1d424e34236ea014306d",
+      "copy_bytes": 677,
+      "copy_sha256": "2601707abf986237d09ab79347e99aad6b7e1270247a1d424e34236ea014306d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-state-before-priority3be-reconciliation.json",
+      "copy": "evidence/handover/creative-qa/root-state-before-priority3be-reconciliation.json",
+      "source_bytes": 31418,
+      "source_sha256": "9a1f419006130ad477e98e56a801db8d41a6222903c769ad9e1de425b7c80639",
+      "copy_bytes": 31418,
+      "copy_sha256": "9a1f419006130ad477e98e56a801db8d41a6222903c769ad9e1de425b7c80639",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-state-before866-reconciliation.json",
+      "copy": "evidence/handover/creative-qa/root-state-before866-reconciliation.json",
+      "source_bytes": 22791,
+      "source_sha256": "b097e9dc1253f1183455fcdf99ae5e086aea44a0eb3d55c8839b4564fdbb09c2",
+      "copy_bytes": 22791,
+      "copy_sha256": "b097e9dc1253f1183455fcdf99ae5e086aea44a0eb3d55c8839b4564fdbb09c2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-sync-audit.sol.json",
+      "copy": "evidence/handover/creative-qa/root-sync-audit.sol.json",
+      "source_bytes": 4475,
+      "source_sha256": "29773dc32970306370d6e593e576f1871b26ef52228b33ef2356580f74e6100a",
+      "copy_bytes": 4475,
+      "copy_sha256": "29773dc32970306370d6e593e576f1871b26ef52228b33ef2356580f74e6100a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/root-worker-gap-diagnostics.sol.json",
+      "copy": "evidence/handover/creative-qa/root-worker-gap-diagnostics.sol.json",
+      "source_bytes": 4241,
+      "source_sha256": "70e8820e637f7829cfebb1c125cb8cabc7a6d06416be91908c526bec2cf2ee51",
+      "copy_bytes": 4241,
+      "copy_sha256": "70e8820e637f7829cfebb1c125cb8cabc7a6d06416be91908c526bec2cf2ee51",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/STATUS.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/STATUS.json",
+      "source_bytes": 7261,
+      "source_sha256": "0a7e816cd16d0a6172849b058a047c180d86bb7549c72569537935060e9bf385",
+      "copy_bytes": 7261,
+      "copy_sha256": "0a7e816cd16d0a6172849b058a047c180d86bb7549c72569537935060e9bf385",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/audit.md",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/audit.md",
+      "source_bytes": 20443,
+      "source_sha256": "d4170731d96673e9f6d1f77a0c529b6808032e87d22fa1fb5fff551e0c2cb16f",
+      "copy_bytes": 20443,
+      "copy_sha256": "d4170731d96673e9f6d1f77a0c529b6808032e87d22fa1fb5fff551e0c2cb16f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/baseline-instruction-counts.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/baseline-instruction-counts.json",
+      "source_bytes": 2940,
+      "source_sha256": "821477c9571dd7cf540a691a377978751d1eb10c48dc57848d86774bd507a44a",
+      "copy_bytes": 2940,
+      "copy_sha256": "821477c9571dd7cf540a691a377978751d1eb10c48dc57848d86774bd507a44a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/canonical-vs-3tap-comparison.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/canonical-vs-3tap-comparison.json",
+      "source_bytes": 515,
+      "source_sha256": "cb6dc4e0f33948a061b5a259f7939537c9033319c0f5b85f8e4efbf0f5bdb689",
+      "copy_bytes": 515,
+      "copy_sha256": "cb6dc4e0f33948a061b5a259f7939537c9033319c0f5b85f8e4efbf0f5bdb689",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/fp16-candidate-arithmetic-prediction.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/fp16-candidate-arithmetic-prediction.json",
+      "source_bytes": 7061,
+      "source_sha256": "d220155f746b46d257012504fac01d5b634cef215546bfb54c9fa5b4903fc63a",
+      "copy_bytes": 7061,
+      "copy_sha256": "d220155f746b46d257012504fac01d5b634cef215546bfb54c9fa5b4903fc63a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/historical-subpixel-control-build-manifest.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/historical-subpixel-control-build-manifest.json",
+      "source_bytes": 7811,
+      "source_sha256": "66e5431a34775d538a775ab0e8cb2ea46f0159146b1530c696a4d94dfa901d87",
+      "copy_bytes": 7811,
+      "copy_sha256": "66e5431a34775d538a775ab0e8cb2ea46f0159146b1530c696a4d94dfa901d87",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/historical-subpixel-control-results.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/historical-subpixel-control-results.json",
+      "source_bytes": 1738,
+      "source_sha256": "25323842f5ff613d885c8d60f5d4d8f6b09848ab23c803742deb6b5d71cf8432",
+      "copy_bytes": 1738,
+      "copy_sha256": "25323842f5ff613d885c8d60f5d4d8f6b09848ab23c803742deb6b5d71cf8432",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/historical-subpixel-interface-proof.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/historical-subpixel-interface-proof.json",
+      "source_bytes": 4531,
+      "source_sha256": "1dfe801126bbca0ebd7953f640f06eb1f6c160511be73ff01cc4136ffd677273",
+      "copy_bytes": 4531,
+      "copy_sha256": "1dfe801126bbca0ebd7953f640f06eb1f6c160511be73ff01cc4136ffd677273",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/indexed-opaque555-artifact.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/indexed-opaque555-artifact.json",
+      "source_bytes": 1557,
+      "source_sha256": "dccc90d99bf4b807109fa09757d2e999c764b04b873251ae7b18934ac6eae13e",
+      "copy_bytes": 1557,
+      "copy_sha256": "dccc90d99bf4b807109fa09757d2e999c764b04b873251ae7b18934ac6eae13e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/indexed-opaque555-oracle-results.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/indexed-opaque555-oracle-results.json",
+      "source_bytes": 2436,
+      "source_sha256": "9e716c3a8e121c4c965b722527d0a2966b49c7270257bbd43d712d3bae30c907",
+      "copy_bytes": 2436,
+      "copy_sha256": "9e716c3a8e121c4c965b722527d0a2966b49c7270257bbd43d712d3bae30c907",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/indexed-opaque555-test-pairing.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/indexed-opaque555-test-pairing.json",
+      "source_bytes": 1299,
+      "source_sha256": "811e3a92b83bc4f795ba13faa49af104d1e6e8620e083cd598b8a64c6e59ec8e",
+      "copy_bytes": 1299,
+      "copy_sha256": "811e3a92b83bc4f795ba13faa49af104d1e6e8620e083cd598b8a64c6e59ec8e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json",
+      "source_bytes": 1404,
+      "source_sha256": "1362dba92e136ba887285f54b54fa075b8815a98f004803523478a65c3db8b5d",
+      "copy_bytes": 1404,
+      "copy_sha256": "1362dba92e136ba887285f54b54fa075b8815a98f004803523478a65c3db8b5d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/output555-all256-f32-proof.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/output555-all256-f32-proof.json",
+      "source_bytes": 23187,
+      "source_sha256": "2e125a6fb151c0e19c240faa02d8bb0e1e9eb9744803e3d76f79d2c5d98b9e68",
+      "copy_bytes": 23187,
+      "copy_sha256": "2e125a6fb151c0e19c240faa02d8bb0e1e9eb9744803e3d76f79d2c5d98b9e68",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/output555-artifact.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/output555-artifact.json",
+      "source_bytes": 1745,
+      "source_sha256": "5e08530be2b130868656c337198322ae2c0d9dd36f2a8fc7d114ae68fcedcabf",
+      "copy_bytes": 1745,
+      "copy_sha256": "5e08530be2b130868656c337198322ae2c0d9dd36f2a8fc7d114ae68fcedcabf",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/output555-candidate-f32-proof.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/output555-candidate-f32-proof.json",
+      "source_bytes": 5522,
+      "source_sha256": "5ea8920387297d20441a789d2d737695b9364453684b02fcba9be610fd000c7d",
+      "copy_bytes": 5522,
+      "copy_sha256": "5ea8920387297d20441a789d2d737695b9364453684b02fcba9be610fd000c7d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/output555-oracle-result.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/output555-oracle-result.json",
+      "source_bytes": 1104,
+      "source_sha256": "21501a7aa089695f528fec0b83414d6efea733e7d32d7c64a386b3ffc122e1e4",
+      "copy_bytes": 1104,
+      "copy_sha256": "21501a7aa089695f528fec0b83414d6efea733e7d32d7c64a386b3ffc122e1e4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/portable-wider-integer-fallback-design.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/portable-wider-integer-fallback-design.json",
+      "source_bytes": 6099,
+      "source_sha256": "e04849379a0e71438d6960c2f7ce81f0a9ba01c97aa98a89e4d68d20f40bcd24",
+      "copy_bytes": 6099,
+      "copy_sha256": "e04849379a0e71438d6960c2f7ce81f0a9ba01c97aa98a89e4d68d20f40bcd24",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/retained-qa-manifest.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/retained-qa-manifest.json",
+      "source_bytes": 1025,
+      "source_sha256": "f58fc169802b1b33daf431378ae95097379ec0b92a55a27ab747ca90857bd9e2",
+      "copy_bytes": 1025,
+      "copy_sha256": "f58fc169802b1b33daf431378ae95097379ec0b92a55a27ab747ca90857bd9e2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-alpha37-amendment-manifest.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/subpixel-alpha37-amendment-manifest.json",
+      "source_bytes": 3363,
+      "source_sha256": "171fe646267f8e57e7d6a0ba19587156679d9831aba80d5507881b52a689a629",
+      "copy_bytes": 3363,
+      "copy_sha256": "171fe646267f8e57e7d6a0ba19587156679d9831aba80d5507881b52a689a629",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-alpha-expectation-failure.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/subpixel-dual-alpha-expectation-failure.json",
+      "source_bytes": 1492,
+      "source_sha256": "a4adb1b3fc58f9f5ed842f4c96140ba28f5089d521aa928fac47d2ce5118915a",
+      "copy_bytes": 1492,
+      "copy_sha256": "a4adb1b3fc58f9f5ed842f4c96140ba28f5089d521aa928fac47d2ce5118915a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-oracle-results.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/subpixel-dual-oracle-results.json",
+      "source_bytes": 2423,
+      "source_sha256": "be1f0ea4484b23189dbfe403a152e64558a71421897f473402066eecf6b890bf",
+      "copy_bytes": 2423,
+      "copy_sha256": "be1f0ea4484b23189dbfe403a152e64558a71421897f473402066eecf6b890bf",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-dual-rgb666-fallback-finding.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/subpixel-dual-rgb666-fallback-finding.json",
+      "source_bytes": 2808,
+      "source_sha256": "c0f4a98b7e2ed3bd9ff35ab55d0d99061a75b54f898ad670976f89c5ab392ee3",
+      "copy_bytes": 2808,
+      "copy_sha256": "c0f4a98b7e2ed3bd9ff35ab55d0d99061a75b54f898ad670976f89c5ab392ee3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-inventory-amendment-manifest.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/subpixel-inventory-amendment-manifest.json",
+      "source_bytes": 3397,
+      "source_sha256": "6849a5df1404f900f1664f613e9f105028d0734eda454ccffb2deb9333b480ca",
+      "copy_bytes": 3397,
+      "copy_sha256": "6849a5df1404f900f1664f613e9f105028d0734eda454ccffb2deb9333b480ca",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/subpixel-preserve-wider-amendment-manifest.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/subpixel-preserve-wider-amendment-manifest.json",
+      "source_bytes": 1622,
+      "source_sha256": "4e30122c9e7b842322c7c111fca32da9fb0c02b39e3545a337fba77ff7786495",
+      "copy_bytes": 1622,
+      "copy_sha256": "4e30122c9e7b842322c7c111fca32da9fb0c02b39e3545a337fba77ff7786495",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/tiles555-artifact.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/tiles555-artifact.json",
+      "source_bytes": 917,
+      "source_sha256": "cd937c53828cb76e99c1a2c27222e81efd9c8103e3f85fc439df8bfebe434f07",
+      "copy_bytes": 917,
+      "copy_sha256": "cd937c53828cb76e99c1a2c27222e81efd9c8103e3f85fc439df8bfebe434f07",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/tiles555-oracle-results.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/tiles555-oracle-results.json",
+      "source_bytes": 3729,
+      "source_sha256": "1fb68c733e4c4e9f3839a5179e3ece6391e15a5657ee2fec8efb329415a76b78",
+      "copy_bytes": 3729,
+      "copy_sha256": "1fb68c733e4c4e9f3839a5179e3ece6391e15a5657ee2fec8efb329415a76b78",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/tiles555-quality-manifest.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/tiles555-quality-manifest.json",
+      "source_bytes": 758,
+      "source_sha256": "16950f3a686ea3438f523efd31696982fe63825505f4f5d773c88246b690f524",
+      "copy_bytes": 758,
+      "copy_sha256": "16950f3a686ea3438f523efd31696982fe63825505f4f5d773c88246b690f524",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/tiles555-static-counts.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/tiles555-static-counts.json",
+      "source_bytes": 374,
+      "source_sha256": "1ec4a93f19b4ecc54c62b9ae618a054a854ade1dc09ae77dd3183c07a86c40c4",
+      "copy_bytes": 374,
+      "copy_sha256": "1ec4a93f19b4ecc54c62b9ae618a054a854ade1dc09ae77dd3183c07a86c40c4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/union-package-test-results.json",
+      "copy": "evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json",
+      "source_bytes": 21825,
+      "source_sha256": "875d1b3c100db6773a3419d2a53f2f56a958cdc15f75578fb87690d0badaa02f",
+      "copy_bytes": 21825,
+      "copy_sha256": "875d1b3c100db6773a3419d2a53f2f56a958cdc15f75578fb87690d0badaa02f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/targeting-cursors-sol/checklist.md",
+      "copy": "evidence/handover/creative-qa/targeting-cursors-sol/checklist.md",
+      "source_bytes": 2219,
+      "source_sha256": "360fe67032e379672016ad301a559154004fd6425b2d8ddeee106545d17e139a",
+      "copy_bytes": 2219,
+      "copy_sha256": "360fe67032e379672016ad301a559154004fd6425b2d8ddeee106545d17e139a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/README.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/README.md",
+      "source_bytes": 9357,
+      "source_sha256": "b6e6e7db98d8f4c56c8c72a5545f160985ec8235a07a24553d3b561b0112209a",
+      "copy_bytes": 9357,
+      "copy_sha256": "b6e6e7db98d8f4c56c8c72a5545f160985ec8235a07a24553d3b561b0112209a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
+      "source_bytes": 630316,
+      "source_sha256": "9f0c4becf33b42dec31a1fa894acc856af2969ff656b0b88b42ea99b3aa23684",
+      "copy_bytes": 630316,
+      "copy_sha256": "9f0c4becf33b42dec31a1fa894acc856af2969ff656b0b88b42ea99b3aa23684",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-interrupted-preflight-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-interrupted-preflight-proof.json",
+      "source_bytes": 3868,
+      "source_sha256": "c1985e74ada049c532c70e763098c74bfbdbb584fc4db13a06a0ff56d73dfe37",
+      "copy_bytes": 3868,
+      "copy_sha256": "c1985e74ada049c532c70e763098c74bfbdbb584fc4db13a06a0ff56d73dfe37",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json",
+      "source_bytes": 111497,
+      "source_sha256": "368ba6b77e41dbc54ba6642001da9f14c644a66917e71ce62b9287ed426eb012",
+      "copy_bytes": 111497,
+      "copy_sha256": "368ba6b77e41dbc54ba6642001da9f14c644a66917e71ce62b9287ed426eb012",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-status.md",
+      "source_bytes": 3072,
+      "source_sha256": "f4fcc6e5a886bd366a2a0f439ba47e862223b42fd434a7223b519265275a2405",
+      "copy_bytes": 3072,
+      "copy_sha256": "f4fcc6e5a886bd366a2a0f439ba47e862223b42fd434a7223b519265275a2405",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-plain-v3-preparation.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-plain-v3-preparation.json",
+      "source_bytes": 7240,
+      "source_sha256": "64369487f5d763f359a546a31f035a0aa37932eb8a93440bf454abefe2e2dbef",
+      "copy_bytes": 7240,
+      "copy_sha256": "64369487f5d763f359a546a31f035a0aa37932eb8a93440bf454abefe2e2dbef",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-plain-v3-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-plain-v3-status.md",
+      "source_bytes": 2198,
+      "source_sha256": "8e8a04ecdf3f233f618e74f275afba18a2cf2352f9dedbbe338532881eadcd57",
+      "copy_bytes": 2198,
+      "copy_sha256": "8e8a04ecdf3f233f618e74f275afba18a2cf2352f9dedbbe338532881eadcd57",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.json",
+      "source_bytes": 3741,
+      "source_sha256": "07fdd8a36c14704314870cba5f0e50cb347304867b487ebdda4b6bdd7bb2ded5",
+      "copy_bytes": 3741,
+      "copy_sha256": "07fdd8a36c14704314870cba5f0e50cb347304867b487ebdda4b6bdd7bb2ded5",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.md",
+      "source_bytes": 8578,
+      "source_sha256": "6ff483a6880172862c14ad99c3f8461e95162962c45a59ff2ae55286e435f52d",
+      "copy_bytes": 8578,
+      "copy_sha256": "6ff483a6880172862c14ad99c3f8461e95162962c45a59ff2ae55286e435f52d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App8b-v2-preflight-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App8b-v2-preflight-proof.json",
+      "source_bytes": 6299,
+      "source_sha256": "037e0324214070ece249a76b2a2807339f0ee893f30f200a0aa1877852136242",
+      "copy_bytes": 6299,
+      "copy_sha256": "037e0324214070ece249a76b2a2807339f0ee893f30f200a0aa1877852136242",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App8b-v2-preflight-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App8b-v2-preflight-status.md",
+      "source_bytes": 2038,
+      "source_sha256": "00fb96d73b3a9c47ce0ea244ea1f14d6a77c5d7a8fbee23c4f354106f7dcc0e6",
+      "copy_bytes": 2038,
+      "copy_sha256": "00fb96d73b3a9c47ce0ea244ea1f14d6a77c5d7a8fbee23c4f354106f7dcc0e6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App8b-v2-preparation.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App8b-v2-preparation.json",
+      "source_bytes": 3375,
+      "source_sha256": "c9824192214ccbc4fff57431ab7214a88bbc901556504de98489affd02312942",
+      "copy_bytes": 3375,
+      "copy_sha256": "c9824192214ccbc4fff57431ab7214a88bbc901556504de98489affd02312942",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App8b-v2-readiness.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/actual-App8b-v2-readiness.json",
+      "source_bytes": 6850,
+      "source_sha256": "52c4922377f4212b5a13dabd2caba43fa0c20e322edd03eb6d124a504dd5329c",
+      "copy_bytes": 6850,
+      "copy_sha256": "52c4922377f4212b5a13dabd2caba43fa0c20e322edd03eb6d124a504dd5329c",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/baseline866-retrospective-motion.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/baseline866-retrospective-motion.json",
+      "source_bytes": 7914,
+      "source_sha256": "f1c58d89d02fe74c83ce7f2c699e8659cc691628a31bcb73b60ea4f4529d3092",
+      "copy_bytes": 7914,
+      "copy_sha256": "f1c58d89d02fe74c83ce7f2c699e8659cc691628a31bcb73b60ea4f4529d3092",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/exactness.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/exactness.md",
+      "source_bytes": 1969,
+      "source_sha256": "24d4af183a56e87b1ddcd21cda0329b5f63b5991e7a2dbf10359e7530b1aafa4",
+      "copy_bytes": 1969,
+      "copy_sha256": "24d4af183a56e87b1ddcd21cda0329b5f63b5991e7a2dbf10359e7530b1aafa4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/fixture-v2-binding.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/fixture-v2-binding.json",
+      "source_bytes": 11652,
+      "source_sha256": "1615e0aa7b32b667fc20ca85ed6f2d417fa0c1abb089e60891ed9f3e7a8a5171",
+      "copy_bytes": 11652,
+      "copy_sha256": "1615e0aa7b32b667fc20ca85ed6f2d417fa0c1abb089e60891ed9f3e7a8a5171",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/ledger-correction-audit.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/ledger-correction-audit.json",
+      "source_bytes": 4125,
+      "source_sha256": "9e718f3ac6dcd6b9093de6587efe7026d51052f8ad14dc67be94223221f10bf9",
+      "copy_bytes": 4125,
+      "copy_sha256": "9e718f3ac6dcd6b9093de6587efe7026d51052f8ad14dc67be94223221f10bf9",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/main-scene-cpu-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/main-scene-cpu-proof.json",
+      "source_bytes": 15792,
+      "source_sha256": "c97a2fd6aa0f9eaf6ead048248fe4398c8d401ba9352a9386c38e2991cf3536f",
+      "copy_bytes": 15792,
+      "copy_sha256": "c97a2fd6aa0f9eaf6ead048248fe4398c8d401ba9352a9386c38e2991cf3536f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/main-scene-cpu-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/main-scene-cpu-status.md",
+      "source_bytes": 3933,
+      "source_sha256": "9d79b9e8404208ec82d3077fef978b0456426ee3e302109d273251d861ae9a19",
+      "copy_bytes": 3933,
+      "copy_sha256": "9d79b9e8404208ec82d3077fef978b0456426ee3e302109d273251d861ae9a19",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/native-app-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/native-app-status.md",
+      "source_bytes": 14582,
+      "source_sha256": "fd9a68e35c99ea977eaedc43f1305ce9ecc9165527e6e8cd164a6b393f3646b6",
+      "copy_bytes": 14582,
+      "copy_sha256": "fd9a68e35c99ea977eaedc43f1305ce9ecc9165527e6e8cd164a6b393f3646b6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/optional-art-retention-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/optional-art-retention-proof.json",
+      "source_bytes": 5282,
+      "source_sha256": "1e5d597786d3dd711dc551a280e88b9f182ff9d4f4ff366ed42525645592fb11",
+      "copy_bytes": 5282,
+      "copy_sha256": "1e5d597786d3dd711dc551a280e88b9f182ff9d4f4ff366ed42525645592fb11",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/optional-art-retention-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/optional-art-retention-status.md",
+      "source_bytes": 2316,
+      "source_sha256": "1f36a1524feeb97f3de0282aa55b93611d19ca9ef7cb67e35915d25032359947",
+      "copy_bytes": 2316,
+      "copy_sha256": "1f36a1524feeb97f3de0282aa55b93611d19ca9ef7cb67e35915d25032359947",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-cpu-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/pointer-geometry-cpu-proof.json",
+      "source_bytes": 2274,
+      "source_sha256": "a58e1264d5d6b9e26b571f9946ad66f02f8ae76c8ee49d3df3cd8487a72c98f6",
+      "copy_bytes": 2274,
+      "copy_sha256": "a58e1264d5d6b9e26b571f9946ad66f02f8ae76c8ee49d3df3cd8487a72c98f6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-live-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/pointer-geometry-live-proof.json",
+      "source_bytes": 10617,
+      "source_sha256": "55f63ad0cc0bd9af5e097baff87b07d07e52464b84d52433b869a35edcf85a98",
+      "copy_bytes": 10617,
+      "copy_sha256": "55f63ad0cc0bd9af5e097baff87b07d07e52464b84d52433b869a35edcf85a98",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-policy-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/pointer-geometry-policy-proof.json",
+      "source_bytes": 3678,
+      "source_sha256": "aae9deb137ed13392aaf565a577d025768b1ba9d57b08fde1dbfb00317ce5a45",
+      "copy_bytes": 3678,
+      "copy_sha256": "aae9deb137ed13392aaf565a577d025768b1ba9d57b08fde1dbfb00317ce5a45",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-source-only-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/pointer-geometry-source-only-proof.json",
+      "source_bytes": 4284,
+      "source_sha256": "40fb6b4e99abec4506750ef7b1453e9eeed71790e16463432e3da1cebed6ba6d",
+      "copy_bytes": 4284,
+      "copy_sha256": "40fb6b4e99abec4506750ef7b1453e9eeed71790e16463432e3da1cebed6ba6d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/pointer-geometry-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/pointer-geometry-status.md",
+      "source_bytes": 2937,
+      "source_sha256": "7e0f17805222bab5ec7cfc989eb94d8e8e5936d24cb36aca3cb50198d40655a1",
+      "copy_bytes": 2937,
+      "copy_sha256": "7e0f17805222bab5ec7cfc989eb94d8e8e5936d24cb36aca3cb50198d40655a1",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/snapshot-predecessor-fix-proof.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/snapshot-predecessor-fix-proof.json",
+      "source_bytes": 7094,
+      "source_sha256": "23bdc2b4d5c7d51401d907e2b5984045a6fc874b245446aeaca98dea7e20cc5e",
+      "copy_bytes": 7094,
+      "copy_sha256": "23bdc2b4d5c7d51401d907e2b5984045a6fc874b245446aeaca98dea7e20cc5e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/snapshot-predecessor-fix-status.md",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/snapshot-predecessor-fix-status.md",
+      "source_bytes": 2832,
+      "source_sha256": "0fafb3f0cba2261b1112806b85813d0a132dbb9001ccd365fae8e2ca5f039a64",
+      "copy_bytes": 2832,
+      "copy_sha256": "0fafb3f0cba2261b1112806b85813d0a132dbb9001ccd365fae8e2ca5f039a64",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/target-cache-cleanup-prechecks.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/target-cache-cleanup-prechecks.json",
+      "source_bytes": 235475,
+      "source_sha256": "10157a06dd7bc5081de0340cbee673583a57cca10082fd43a74a9d0fa26282fc",
+      "copy_bytes": 235475,
+      "copy_sha256": "10157a06dd7bc5081de0340cbee673583a57cca10082fd43a74a9d0fa26282fc",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/target-cache-cleanup.json",
+      "copy": "evidence/handover/creative-qa/text-perf-sol/target-cache-cleanup.json",
+      "source_bytes": 2992,
+      "source_sha256": "a4c24213b2d4fe0e37768cb6811a8ff98d10964fefe782c43e3a457459e16514",
+      "copy_bytes": 2992,
+      "copy_sha256": "a4c24213b2d4fe0e37768cb6811a8ff98d10964fefe782c43e3a457459e16514",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/ui-authority.json",
+      "copy": "evidence/handover/creative-qa/ui-authority.json",
+      "source_bytes": 2505,
+      "source_sha256": "b3d95a98ad45c47be2ea5f1a9ad7eac269ade01d5f9092f35b7becea7a2a6d3b",
+      "copy_bytes": 2505,
+      "copy_sha256": "b3d95a98ad45c47be2ea5f1a9ad7eac269ade01d5f9092f35b7becea7a2a6d3b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/creative-qa/ui-layout-4k31b.sol.md",
+      "copy": "evidence/handover/creative-qa/ui-layout-4k31b.sol.md",
+      "source_bytes": 2362,
+      "source_sha256": "4d685f63fde0a1db48318fed9977fe09095713b585d1fac179dab35bcf97cc09",
+      "copy_bytes": 2362,
+      "copy_sha256": "4d685f63fde0a1db48318fed9977fe09095713b585d1fac179dab35bcf97cc09",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/feedback-20261020-live.sol.json",
+      "copy": "evidence/handover/feedback-20261020-live.sol.json",
+      "source_bytes": 114576,
+      "source_sha256": "1c4ec4adb610b07042c22463bbd0df3562850fbede92718717d7fe8024fa63a2",
+      "copy_bytes": 114576,
+      "copy_sha256": "1c4ec4adb610b07042c22463bbd0df3562850fbede92718717d7fe8024fa63a2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/fractional-clip-successor-pair.sol.md",
+      "copy": "evidence/handover/fractional-clip-successor-pair.sol.md",
+      "source_bytes": 4757,
+      "source_sha256": "8a1691514715971db616b824e79791bdf0ae005bb8b8ff2ae557ccd03d2e4286",
+      "copy_bytes": 4757,
+      "copy_sha256": "8a1691514715971db616b824e79791bdf0ae005bb8b8ff2ae557ccd03d2e4286",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-cache-camera-reuse-audit.sol.md",
+      "copy": "evidence/handover/glyph-cache-camera-reuse-audit.sol.md",
+      "source_bytes": 10481,
+      "source_sha256": "e5605a66e05d83c2e41d5dbe72d26e2fbd1b97c7bd541ef69f705eb333ffa193",
+      "copy_bytes": 10481,
+      "copy_sha256": "e5605a66e05d83c2e41d5dbe72d26e2fbd1b97c7bd541ef69f705eb333ffa193",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-cache-independent-oracle.sol.md",
+      "copy": "evidence/handover/glyph-cache-independent-oracle.sol.md",
+      "source_bytes": 6137,
+      "source_sha256": "f53448e46d3b9fb5a03845132611ff04c3a90f09600e0f8cff7dfb77f8186ab8",
+      "copy_bytes": 6137,
+      "copy_sha256": "f53448e46d3b9fb5a03845132611ff04c3a90f09600e0f8cff7dfb77f8186ab8",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-cache-sol.json",
+      "copy": "evidence/handover/glyph-cache-sol.json",
+      "source_bytes": 5672,
+      "source_sha256": "46d6b486f3d80f373795bea1fcedc81c698c63b127ca20bb30c07659cf4f4042",
+      "copy_bytes": 5672,
+      "copy_sha256": "46d6b486f3d80f373795bea1fcedc81c698c63b127ca20bb30c07659cf4f4042",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-preparation-skip-866-validation.sol.md",
+      "copy": "evidence/handover/glyph-preparation-skip-866-validation.sol.md",
+      "source_bytes": 8302,
+      "source_sha256": "fb4de53662c877c7741e7b91e6379c037317f7cc109bfa13ae89eef2f850b85e",
+      "copy_bytes": 8302,
+      "copy_sha256": "fb4de53662c877c7741e7b91e6379c037317f7cc109bfa13ae89eef2f850b85e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-preparation-skip-adoption.sol.md",
+      "copy": "evidence/handover/glyph-preparation-skip-adoption.sol.md",
+      "source_bytes": 4144,
+      "source_sha256": "e8f7680eac5eae8f32ecf59e4c93868c8040fdd3bb00c6d198e383ea4213b72e",
+      "copy_bytes": 4144,
+      "copy_sha256": "e8f7680eac5eae8f32ecf59e4c93868c8040fdd3bb00c6d198e383ea4213b72e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-preparation-skip-clip2-proof.sol.md",
+      "copy": "evidence/handover/glyph-preparation-skip-clip2-proof.sol.md",
+      "source_bytes": 3012,
+      "source_sha256": "19a96f6daaae91a1a294b4517a0b6f49f5e7e569d6d28b9490ca4c0c3e7781b5",
+      "copy_bytes": 3012,
+      "copy_sha256": "19a96f6daaae91a1a294b4517a0b6f49f5e7e569d6d28b9490ca4c0c3e7781b5",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/glyph-preparation-skip.sol.md",
+      "copy": "evidence/handover/glyph-preparation-skip.sol.md",
+      "source_bytes": 5415,
+      "source_sha256": "816d0e2e5787f1e5714c798652c1a77c6f5f4ba98dcf11c6bde3d045a030749d",
+      "copy_bytes": 5415,
+      "copy_sha256": "816d0e2e5787f1e5714c798652c1a77c6f5f4ba98dcf11c6bde3d045a030749d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/gpu-worker-sol-rustc-info.json",
+      "copy": "evidence/handover/gpu-worker-sol-rustc-info.json",
+      "source_bytes": 1270,
+      "source_sha256": "f8b42ab69f0863083bb609e9faa9a24d450a26003f3fee0575a5761c1cebd301",
+      "copy_bytes": 1270,
+      "copy_sha256": "f8b42ab69f0863083bb609e9faa9a24d450a26003f3fee0575a5761c1cebd301",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/gpu-worker.sol.md",
+      "copy": "evidence/handover/gpu-worker.sol.md",
+      "source_bytes": 5439,
+      "source_sha256": "3756e454dfba348c470e3160c144607719385c5b547960bd1a5b2c57d42c5dd6",
+      "copy_bytes": 5439,
+      "copy_sha256": "3756e454dfba348c470e3160c144607719385c5b547960bd1a5b2c57d42c5dd6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/host-warning-final9b-binding.json",
+      "copy": "evidence/handover/host-warning-final9b-binding.json",
+      "source_bytes": 4301,
+      "source_sha256": "bf4337e03114bfe9ae52d6037e915ead9d5887a7967a6a69761746306bdcb3fb",
+      "copy_bytes": 4301,
+      "copy_sha256": "bf4337e03114bfe9ae52d6037e915ead9d5887a7967a6a69761746306bdcb3fb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/host-warning.sol.md",
+      "copy": "evidence/handover/host-warning.sol.md",
+      "source_bytes": 6446,
+      "source_sha256": "ba29932d6dfc8f7580f6b0da4dc1dbf4cfd4a33b993fd367d8f013ad7ecbf5bb",
+      "copy_bytes": 6446,
+      "copy_sha256": "ba29932d6dfc8f7580f6b0da4dc1dbf4cfd4a33b993fd367d8f013ad7ecbf5bb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/launcher-cancel-independent-review.startup.sol.json",
+      "copy": "evidence/handover/launcher-cancel-independent-review.startup.sol.json",
+      "source_bytes": 5069,
+      "source_sha256": "7b4cf406b4be8174d73ffdf046b0b9472a385ded78f460a775d3f17cc18de9a8",
+      "copy_bytes": 5069,
+      "copy_sha256": "7b4cf406b4be8174d73ffdf046b0b9472a385ded78f460a775d3f17cc18de9a8",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/launcher-failure-cancellation-review.release.sol.json",
+      "copy": "evidence/handover/launcher-failure-cancellation-review.release.sol.json",
+      "source_bytes": 5341,
+      "source_sha256": "5516ef85cf8a64ab5f2d73b3f6ca4fcc239124111c5d12898dfbd9126a33afb9",
+      "copy_bytes": 5341,
+      "copy_sha256": "5516ef85cf8a64ab5f2d73b3f6ca4fcc239124111c5d12898dfbd9126a33afb9",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/loading-bar-class-disassembly.sol.txt",
+      "copy": "evidence/handover/loading-bar-class-disassembly.sol.txt",
+      "source_bytes": 39214,
+      "source_sha256": "68c96ecb780bf711e52953f0a2203ddf84889e6437dd9c33640353a696c66db5",
+      "copy_bytes": 39214,
+      "copy_sha256": "68c96ecb780bf711e52953f0a2203ddf84889e6437dd9c33640353a696c66db5",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/loading-bar-disassembly.sol.txt",
+      "copy": "evidence/handover/loading-bar-disassembly.sol.txt",
+      "source_bytes": 16546,
+      "source_sha256": "4ce858e330e4e3e22255ade6d03eb726f32c56ecabe8117c9136a15f0c946a81",
+      "copy_bytes": 16546,
+      "copy_sha256": "4ce858e330e4e3e22255ade6d03eb726f32c56ecabe8117c9136a15f0c946a81",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/loading-ui.sol.md",
+      "copy": "evidence/handover/loading-ui.sol.md",
+      "source_bytes": 6755,
+      "source_sha256": "be54e8821478548dc954f35acc57cb49f8fc8cbc023fbb4ee19ed03730524c90",
+      "copy_bytes": 6755,
+      "copy_sha256": "be54e8821478548dc954f35acc57cb49f8fc8cbc023fbb4ee19ed03730524c90",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/mac-audio.sol.md",
+      "copy": "evidence/handover/mac-audio.sol.md",
+      "source_bytes": 8870,
+      "source_sha256": "ea3fa3d08eb17b2c315397ce73a8d93ab5a342385608463f6687b614bc86bcc8",
+      "copy_bytes": 8870,
+      "copy_sha256": "ea3fa3d08eb17b2c315397ce73a8d93ab5a342385608463f6687b614bc86bcc8",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/mac-fps-music.md",
+      "copy": "evidence/handover/mac-fps-music.md",
+      "source_bytes": 8598,
+      "source_sha256": "5558edd70a420b1efdbf207d5b0818b433f3351b9fb469d0ed4bb188cca2ff78",
+      "copy_bytes": 8598,
+      "copy_sha256": "5558edd70a420b1efdbf207d5b0818b433f3351b9fb469d0ed4bb188cca2ff78",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/mac-fps-music.sol.md",
+      "copy": "evidence/handover/mac-fps-music.sol.md",
+      "source_bytes": 13041,
+      "source_sha256": "e887c143638127486be0e7638e1d72ead664ac97f8bf0603181c125e398d4889",
+      "copy_bytes": 13041,
+      "copy_sha256": "e887c143638127486be0e7638e1d72ead664ac97f8bf0603181c125e398d4889",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/native-arm-metal-offscreen-probe.sol.md",
+      "copy": "evidence/handover/native-arm-metal-offscreen-probe.sol.md",
+      "source_bytes": 3483,
+      "source_sha256": "15b405ef9d49873d3e8ebb01564648ee87f044970cc1ec79d207c96eb6fbefbf",
+      "copy_bytes": 3483,
+      "copy_sha256": "15b405ef9d49873d3e8ebb01564648ee87f044970cc1ec79d207c96eb6fbefbf",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/native-audio-failure.sol.md",
+      "copy": "evidence/handover/native-audio-failure.sol.md",
+      "source_bytes": 9207,
+      "source_sha256": "d196eebfc2dc76ca162adc12b843892d0b4d0b0aec0c7e62692100fe12271da3",
+      "copy_bytes": 9207,
+      "copy_sha256": "d196eebfc2dc76ca162adc12b843892d0b4d0b0aec0c7e62692100fe12271da3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/native-thread-init-sol-cleanup.json",
+      "copy": "evidence/handover/native-thread-init-sol-cleanup.json",
+      "source_bytes": 389,
+      "source_sha256": "dfa910f8cd1eabd1a653d4e237b370ef97cde55ddfc4c57a1651fd6b8ad46b39",
+      "copy_bytes": 389,
+      "copy_sha256": "dfa910f8cd1eabd1a653d4e237b370ef97cde55ddfc4c57a1651fd6b8ad46b39",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/native-thread-init.sol.md",
+      "copy": "evidence/handover/native-thread-init.sol.md",
+      "source_bytes": 2880,
+      "source_sha256": "5a33fc52a84f009c32220febebb14a9d50ba8abe7f3dbc8d45024d12265b8959",
+      "copy_bytes": 2880,
+      "copy_sha256": "5a33fc52a84f009c32220febebb14a9d50ba8abe7f3dbc8d45024d12265b8959",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/offline-comparator-successor-independent-sol.txt",
+      "copy": "evidence/handover/offline-comparator-successor-independent-sol.txt",
+      "source_bytes": 7025,
+      "source_sha256": "7a70e4381ee6480d6e267d772024c7faa861e61731a3e053d3f193170912dda4",
+      "copy_bytes": 7025,
+      "copy_sha256": "7a70e4381ee6480d6e267d772024c7faa861e61731a3e053d3f193170912dda4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/offline-comparator-successor2-independent-sol.txt",
+      "copy": "evidence/handover/offline-comparator-successor2-independent-sol.txt",
+      "source_bytes": 3441,
+      "source_sha256": "ee331de86a467fc46b54e80454bdcd61fd1be0b0b54695b42f1f79443589d2f2",
+      "copy_bytes": 3441,
+      "copy_sha256": "ee331de86a467fc46b54e80454bdcd61fd1be0b0b54695b42f1f79443589d2f2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/preload.sol.md",
+      "copy": "evidence/handover/preload.sol.md",
+      "source_bytes": 7146,
+      "source_sha256": "61b95b60b5bcade7b4ea7f85519aeca6dd4950d2b17e11f9659f5c430c6db220",
+      "copy_bytes": 7146,
+      "copy_sha256": "61b95b60b5bcade7b4ea7f85519aeca6dd4950d2b17e11f9659f5c430c6db220",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/prepared-update-scope.sol.md",
+      "copy": "evidence/handover/prepared-update-scope.sol.md",
+      "source_bytes": 1746,
+      "source_sha256": "13407b4b85b867d82f660d9e33ee0dec1c79809f0cf052c0a8781af12658b54a",
+      "copy_bytes": 1746,
+      "copy_sha256": "13407b4b85b867d82f660d9e33ee0dec1c79809f0cf052c0a8781af12658b54a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/preview-smear-missing-hud-readonly.sol.md",
+      "copy": "evidence/handover/preview-smear-missing-hud-readonly.sol.md",
+      "source_bytes": 7821,
+      "source_sha256": "6210535fdfd612af8cacea2164f38a5121ffa491aca063524b0e542ce04566b1",
+      "copy_bytes": 7821,
+      "copy_sha256": "6210535fdfd612af8cacea2164f38a5121ffa491aca063524b0e542ce04566b1",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/preview-smear.md",
+      "copy": "evidence/handover/preview-smear.md",
+      "source_bytes": 5730,
+      "source_sha256": "23b3db278bb79eacc4b3d6291a677bb6dbd78a864a86ad7754cdbbe8a6c865e6",
+      "copy_bytes": 5730,
+      "copy_sha256": "23b3db278bb79eacc4b3d6291a677bb6dbd78a864a86ad7754cdbbe8a6c865e6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/preview-smear.sol.md",
+      "copy": "evidence/handover/preview-smear.sol.md",
+      "source_bytes": 8139,
+      "source_sha256": "1f43b772692f49d5c95508d2f6f059d815de6e8e32c6ac075bfc1d5ab5c0baeb",
+      "copy_bytes": 8139,
+      "copy_sha256": "1f43b772692f49d5c95508d2f6f059d815de6e8e32c6ac075bfc1d5ab5c0baeb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/release-cache-cleanup-inventory.sol.json",
+      "copy": "evidence/handover/release-cache-cleanup-inventory.sol.json",
+      "source_bytes": 4993,
+      "source_sha256": "5a27099e2a27858ad18faf9a5db43e66c6e9ed170b26465ca72367bb609bdf4a",
+      "copy_bytes": 4993,
+      "copy_sha256": "5a27099e2a27858ad18faf9a5db43e66c6e9ed170b26465ca72367bb609bdf4a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/release-deploy.md",
+      "copy": "evidence/handover/release-deploy.md",
+      "source_bytes": 14626,
+      "source_sha256": "d729437b870783e80b363d257db209821cca11ae1376efef979c1c060a2e9c77",
+      "copy_bytes": 14527,
+      "copy_sha256": "99b3591ce708f33016d37ea5dd50f9faffeb51dd68356f3b6f47f6f60cf782be",
+      "redactions": [
+        155
+      ],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/release-deploy.sol.md",
+      "copy": "evidence/handover/release-deploy.sol.md",
+      "source_bytes": 43239,
+      "source_sha256": "dab59bc2260865869caae7a41eedb845679610cd485c489d6254532064da2b32",
+      "copy_bytes": 43239,
+      "copy_sha256": "dab59bc2260865869caae7a41eedb845679610cd485c489d6254532064da2b32",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/renderer-sync.sol.md",
+      "copy": "evidence/handover/renderer-sync.sol.md",
+      "source_bytes": 4021,
+      "source_sha256": "d085ba13bfb76d8a5d10a98ac188c5a1fe00151d05a61ff2eada69389b9ef670",
+      "copy_bytes": 4021,
+      "copy_sha256": "d085ba13bfb76d8a5d10a98ac188c5a1fe00151d05a61ff2eada69389b9ef670",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/rgb666-rgb777-integer-candidate.sol.json",
+      "copy": "evidence/handover/rgb666-rgb777-integer-candidate.sol.json",
+      "source_bytes": 16618,
+      "source_sha256": "8ca8df9a7b85a342c06a28ce19aa0a288f25a8f3226f1a1eee7ee41445edbf06",
+      "copy_bytes": 16618,
+      "copy_sha256": "8ca8df9a7b85a342c06a28ce19aa0a288f25a8f3226f1a1eee7ee41445edbf06",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/scenario-crash.md",
+      "copy": "evidence/handover/scenario-crash.md",
+      "source_bytes": 9774,
+      "source_sha256": "de6dc1718601949fca253feea83d43818901a83513b7148193f6c261ea16bc0f",
+      "copy_bytes": 9774,
+      "copy_sha256": "de6dc1718601949fca253feea83d43818901a83513b7148193f6c261ea16bc0f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/scenario-crash.sol.md",
+      "copy": "evidence/handover/scenario-crash.sol.md",
+      "source_bytes": 4143,
+      "source_sha256": "0bb357302f6b358d15235f55e62a448ebce48803c780329b48c19736fc42bf84",
+      "copy_bytes": 4143,
+      "copy_sha256": "0bb357302f6b358d15235f55e62a448ebce48803c780329b48c19736fc42bf84",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/slider-arrow-keys.md",
+      "copy": "evidence/handover/slider-arrow-keys.md",
+      "source_bytes": 5880,
+      "source_sha256": "e51b59206bc4a61aeadd34afe9fbc81e3a4a986e9310f43f0f1454a49587271d",
+      "copy_bytes": 5880,
+      "copy_sha256": "e51b59206bc4a61aeadd34afe9fbc81e3a4a986e9310f43f0f1454a49587271d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/slider-arrow-keys.sol.md",
+      "copy": "evidence/handover/slider-arrow-keys.sol.md",
+      "source_bytes": 15756,
+      "source_sha256": "f9be8a168f426041396ccb2ede55cef7665d6198bfdaa6b8bdf764c0008e3e39",
+      "copy_bytes": 15756,
+      "copy_sha256": "f9be8a168f426041396ccb2ede55cef7665d6198bfdaa6b8bdf764c0008e3e39",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-cpu-gpu-preparation-clarification.json",
+      "copy": "evidence/handover/sol-cpu-gpu-preparation-clarification.json",
+      "source_bytes": 1982,
+      "source_sha256": "4c4b97b0bc9dac99e81c58eaea88706a59d15e22ef29d8047bba345c4a787881",
+      "copy_bytes": 1982,
+      "copy_sha256": "4c4b97b0bc9dac99e81c58eaea88706a59d15e22ef29d8047bba345c4a787881",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-disk-cleanup-20261020.json",
+      "copy": "evidence/handover/sol-disk-cleanup-20261020.json",
+      "source_bytes": 4875,
+      "source_sha256": "d0e0f2145c7d7f3a71badf0b65f304ab8f9e1184ee7edf02e3c9832a46871f3f",
+      "copy_bytes": 4875,
+      "copy_sha256": "d0e0f2145c7d7f3a71badf0b65f304ab8f9e1184ee7edf02e3c9832a46871f3f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-git-checkpoint-20261020.json",
+      "copy": "evidence/handover/sol-git-checkpoint-20261020.json",
+      "source_bytes": 533,
+      "source_sha256": "22b97274968321a3f86dd4867cec906b307f6baf2b355cbff75a8dfcfefd4e2d",
+      "copy_bytes": 533,
+      "copy_sha256": "22b97274968321a3f86dd4867cec906b307f6baf2b355cbff75a8dfcfefd4e2d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-orchestrator-current.json",
+      "copy": "evidence/handover/sol-orchestrator-current.json",
+      "source_bytes": 160270,
+      "source_sha256": "fbdc6a86d292cb9eb8be321a04b10ee17b394472c86bbba01cbbdd31b08999ca",
+      "copy_bytes": 160270,
+      "copy_sha256": "fbdc6a86d292cb9eb8be321a04b10ee17b394472c86bbba01cbbdd31b08999ca",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-release-private-wine-review.json",
+      "copy": "evidence/handover/sol-release-private-wine-review.json",
+      "source_bytes": 3684,
+      "source_sha256": "4a28204e4f5bb204794edc6dc717ddf433d89ef410d8482597caeaced2987394",
+      "copy_bytes": 3684,
+      "copy_sha256": "4a28204e4f5bb204794edc6dc717ddf433d89ef410d8482597caeaced2987394",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-3be-intel-payload-review.json",
+      "copy": "evidence/handover/sol-root-3be-intel-payload-review.json",
+      "source_bytes": 521,
+      "source_sha256": "f1eeb6dab830161e2e13bbfb07e72822119b9bf4ac9d465c0784b369ac5d31c4",
+      "copy_bytes": 521,
+      "copy_sha256": "f1eeb6dab830161e2e13bbfb07e72822119b9bf4ac9d465c0784b369ac5d31c4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-6029-freeze-artifact-review.json",
+      "copy": "evidence/handover/sol-root-6029-freeze-artifact-review.json",
+      "source_bytes": 1645,
+      "source_sha256": "9f9cf3d80f610781f7b30fb8b83a4e9320241ce4731d160c3210aaf7c1952846",
+      "copy_bytes": 1645,
+      "copy_sha256": "9f9cf3d80f610781f7b30fb8b83a4e9320241ce4731d160c3210aaf7c1952846",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-6029-prepared-promotion-review.json",
+      "copy": "evidence/handover/sol-root-6029-prepared-promotion-review.json",
+      "source_bytes": 2825,
+      "source_sha256": "cf184d0fa6c080b20e0487db11232f4e65345572028e84962054bf6e9269aa95",
+      "copy_bytes": 2825,
+      "copy_sha256": "cf184d0fa6c080b20e0487db11232f4e65345572028e84962054bf6e9269aa95",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-artifact-review.json",
+      "copy": "evidence/handover/sol-root-8b-artifact-review.json",
+      "source_bytes": 1827,
+      "source_sha256": "8b071107651bb4b2474a33aadaab5946aa471cb94f7e47faec4bb2eaa8cd528a",
+      "copy_bytes": 1827,
+      "copy_sha256": "8b071107651bb4b2474a33aadaab5946aa471cb94f7e47faec4bb2eaa8cd528a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-darwin-cpu-review.json",
+      "copy": "evidence/handover/sol-root-8b-darwin-cpu-review.json",
+      "source_bytes": 1743,
+      "source_sha256": "287b00e25c13ce88218595572b5dd6d8487feeec89c928ee1cf8410dc14751e0",
+      "copy_bytes": 1743,
+      "copy_sha256": "287b00e25c13ce88218595572b5dd6d8487feeec89c928ee1cf8410dc14751e0",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-freeze-review.json",
+      "copy": "evidence/handover/sol-root-8b-freeze-review.json",
+      "source_bytes": 2205,
+      "source_sha256": "178ac04af0d23e14c9e4fcbde2f0c467db728f16749aedd6c8b812f4340ca9cc",
+      "copy_bytes": 2205,
+      "copy_sha256": "178ac04af0d23e14c9e4fcbde2f0c467db728f16749aedd6c8b812f4340ca9cc",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-intel-artifact-review.json",
+      "copy": "evidence/handover/sol-root-8b-intel-artifact-review.json",
+      "source_bytes": 1341,
+      "source_sha256": "0ea445c5eea372bef79af33bcee6ca7a97292dd333c18879b8bd17ad8139325b",
+      "copy_bytes": 1341,
+      "copy_sha256": "0ea445c5eea372bef79af33bcee6ca7a97292dd333c18879b8bd17ad8139325b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-launcher-build-provenance-review.json",
+      "copy": "evidence/handover/sol-root-8b-launcher-build-provenance-review.json",
+      "source_bytes": 33968,
+      "source_sha256": "e1473ec7eeeaf54675efa6fbb8cc0d0e12231d5f26202d865bf4fe313da75029",
+      "copy_bytes": 33968,
+      "copy_sha256": "e1473ec7eeeaf54675efa6fbb8cc0d0e12231d5f26202d865bf4fe313da75029",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-linux-artifact-review.json",
+      "copy": "evidence/handover/sol-root-8b-linux-artifact-review.json",
+      "source_bytes": 2153,
+      "source_sha256": "8aa90478061c3066c3b4a3f916d8f16816172e6666d24f39673b0ec156eafd1a",
+      "copy_bytes": 2153,
+      "copy_sha256": "8aa90478061c3066c3b4a3f916d8f16816172e6666d24f39673b0ec156eafd1a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-8b-metal-execution-review.json",
+      "copy": "evidence/handover/sol-root-8b-metal-execution-review.json",
+      "source_bytes": 2107,
+      "source_sha256": "42e96584616e485e9d2f61896caf9dcc2f7ebe2b66ba903c534fab651244ca5d",
+      "copy_bytes": 2107,
+      "copy_sha256": "42e96584616e485e9d2f61896caf9dcc2f7ebe2b66ba903c534fab651244ca5d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-9b-freeze-review.json",
+      "copy": "evidence/handover/sol-root-9b-freeze-review.json",
+      "source_bytes": 830,
+      "source_sha256": "cb6e162f7916a3a7a8ec454c709ab8df6c93107a18bc890402b0d12641174f59",
+      "copy_bytes": 830,
+      "copy_sha256": "cb6e162f7916a3a7a8ec454c709ab8df6c93107a18bc890402b0d12641174f59",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-9b-host-cpu-review.json",
+      "copy": "evidence/handover/sol-root-9b-host-cpu-review.json",
+      "source_bytes": 5978,
+      "source_sha256": "08cab7f8f3f9200c90b7fea9e4295d21fa042ae0e25a966222af93521b330c36",
+      "copy_bytes": 5978,
+      "copy_sha256": "08cab7f8f3f9200c90b7fea9e4295d21fa042ae0e25a966222af93521b330c36",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-9b-intel-artifact-review.json",
+      "copy": "evidence/handover/sol-root-9b-intel-artifact-review.json",
+      "source_bytes": 1994,
+      "source_sha256": "7d8d0349c07357a0434cee5b6af4ea61921c475154d811a87c733ee19fde1791",
+      "copy_bytes": 1994,
+      "copy_sha256": "7d8d0349c07357a0434cee5b6af4ea61921c475154d811a87c733ee19fde1791",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-9b-paired-artifact-review.json",
+      "copy": "evidence/handover/sol-root-9b-paired-artifact-review.json",
+      "source_bytes": 1724,
+      "source_sha256": "4f31bb35401f73d05a097cee6875e541165d7cdc72b9db46ebe7fda10404e50f",
+      "copy_bytes": 1724,
+      "copy_sha256": "4f31bb35401f73d05a097cee6875e541165d7cdc72b9db46ebe7fda10404e50f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-9b-vm-visual-review.json",
+      "copy": "evidence/handover/sol-root-9b-vm-visual-review.json",
+      "source_bytes": 2847,
+      "source_sha256": "1b8f148010736b6a779b765bf83b8ee82fdc8ff1fe994f69e91470f77b808b88",
+      "copy_bytes": 2847,
+      "copy_sha256": "1b8f148010736b6a779b765bf83b8ee82fdc8ff1fe994f69e91470f77b808b88",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-audio-fix-source-review.json",
+      "copy": "evidence/handover/sol-root-audio-fix-source-review.json",
+      "source_bytes": 1706,
+      "source_sha256": "fc014e6fc0846fce738bfd5e5ecd2e5670521091e7cb6a0e65c7878d1c2266d1",
+      "copy_bytes": 1706,
+      "copy_sha256": "fc014e6fc0846fce738bfd5e5ecd2e5670521091e7cb6a0e65c7878d1c2266d1",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-audio-fix3-promotion.json",
+      "copy": "evidence/handover/sol-root-audio-fix3-promotion.json",
+      "source_bytes": 2135,
+      "source_sha256": "2c5a27ff7eb6ec43aaf989fc650fa91a48e4f9d091ffb76b0ec9e58c00b387fa",
+      "copy_bytes": 2135,
+      "copy_sha256": "2c5a27ff7eb6ec43aaf989fc650fa91a48e4f9d091ffb76b0ec9e58c00b387fa",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-audio-fix3-source-review.json",
+      "copy": "evidence/handover/sol-root-audio-fix3-source-review.json",
+      "source_bytes": 2220,
+      "source_sha256": "c27b05fe6a7755be222306498ae70865d20805c5b8169dab1805542a17498aa5",
+      "copy_bytes": 2220,
+      "copy_sha256": "c27b05fe6a7755be222306498ae70865d20805c5b8169dab1805542a17498aa5",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-audio-lifetime-cause-review.json",
+      "copy": "evidence/handover/sol-root-audio-lifetime-cause-review.json",
+      "source_bytes": 2336,
+      "source_sha256": "6adb2ccb6864af6e960d8f75efb64b8901dc25d9b050c7d1e49a14a26e6864b7",
+      "copy_bytes": 2336,
+      "copy_sha256": "6adb2ccb6864af6e960d8f75efb64b8901dc25d9b050c7d1e49a14a26e6864b7",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-audio-observer-artifact-review.json",
+      "copy": "evidence/handover/sol-root-audio-observer-artifact-review.json",
+      "source_bytes": 1325,
+      "source_sha256": "9757aed702f075fe41a7c1539119869b865be24d0157312f81dce2fffef233af",
+      "copy_bytes": 1325,
+      "copy_sha256": "9757aed702f075fe41a7c1539119869b865be24d0157312f81dce2fffef233af",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-audio-observer-source-review.json",
+      "copy": "evidence/handover/sol-root-audio-observer-source-review.json",
+      "source_bytes": 2785,
+      "source_sha256": "2286f449ffe22696fee3799b89ff3de81f568940dd6807ee62f383916c5421e0",
+      "copy_bytes": 2785,
+      "copy_sha256": "2286f449ffe22696fee3799b89ff3de81f568940dd6807ee62f383916c5421e0",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-b41-freeze-review.json",
+      "copy": "evidence/handover/sol-root-b41-freeze-review.json",
+      "source_bytes": 1500,
+      "source_sha256": "7d4325e53189b56ab60947a57b73f0ffc6b71ffe12d3bd6142cafd9316d78831",
+      "copy_bytes": 1500,
+      "copy_sha256": "7d4325e53189b56ab60947a57b73f0ffc6b71ffe12d3bd6142cafd9316d78831",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-binary-cell-f510-app-package-review.json",
+      "copy": "evidence/handover/sol-root-binary-cell-f510-app-package-review.json",
+      "source_bytes": 2332,
+      "source_sha256": "96c10838bc830f3d7e870b24e995644bf62f66cb5714b8089619da92e84706d2",
+      "copy_bytes": 2332,
+      "copy_sha256": "96c10838bc830f3d7e870b24e995644bf62f66cb5714b8089619da92e84706d2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-binary-cell-recorded4k-review.json",
+      "copy": "evidence/handover/sol-root-binary-cell-recorded4k-review.json",
+      "source_bytes": 1707,
+      "source_sha256": "feddf2af2a8dca97ba2e329833b56c32170881305ffbb2eddf3b50d4b893d67e",
+      "copy_bytes": 1707,
+      "copy_sha256": "feddf2af2a8dca97ba2e329833b56c32170881305ffbb2eddf3b50d4b893d67e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-binary-cell-source-review.json",
+      "copy": "evidence/handover/sol-root-binary-cell-source-review.json",
+      "source_bytes": 1902,
+      "source_sha256": "5bef17447ab0dbc5d425cdbf0abf3747cc6e8fa335edcfa4e568460242edc792",
+      "copy_bytes": 1902,
+      "copy_sha256": "5bef17447ab0dbc5d425cdbf0abf3747cc6e8fa335edcfa4e568460242edc792",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-combat-binary-review.json",
+      "copy": "evidence/handover/sol-root-combat-binary-review.json",
+      "source_bytes": 2164,
+      "source_sha256": "bb902fdc292689555056e26d7bc5dfe027d089a4588a75efd351d829983e7aaf",
+      "copy_bytes": 2164,
+      "copy_sha256": "bb902fdc292689555056e26d7bc5dfe027d089a4588a75efd351d829983e7aaf",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-combat-comparator-successor2-review.json",
+      "copy": "evidence/handover/sol-root-combat-comparator-successor2-review.json",
+      "source_bytes": 1459,
+      "source_sha256": "f87b38c7bf3b1c9f20fa4320cd1ab53555adfc402d824f66ea17baa2fe8c6ef1",
+      "copy_bytes": 1459,
+      "copy_sha256": "f87b38c7bf3b1c9f20fa4320cd1ab53555adfc402d824f66ea17baa2fe8c6ef1",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-combat-outcomes-integration-review.json",
+      "copy": "evidence/handover/sol-root-combat-outcomes-integration-review.json",
+      "source_bytes": 1269,
+      "source_sha256": "3b440f8d7db029a51ef681fdfae50dc3634cb64f9a6f99970b4b22ed2239c162",
+      "copy_bytes": 1269,
+      "copy_sha256": "3b440f8d7db029a51ef681fdfae50dc3634cb64f9a6f99970b4b22ed2239c162",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-combat-preload-review.json",
+      "copy": "evidence/handover/sol-root-combat-preload-review.json",
+      "source_bytes": 2979,
+      "source_sha256": "bc4102ec46915fea856864618d05855fb15dc744837c8ebb54dbc536b253e7b8",
+      "copy_bytes": 2979,
+      "copy_sha256": "bc4102ec46915fea856864618d05855fb15dc744837c8ebb54dbc536b253e7b8",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-benchmark-preparation-review.json",
+      "copy": "evidence/handover/sol-root-f510-benchmark-preparation-review.json",
+      "source_bytes": 1469,
+      "source_sha256": "1619417ec10e870cafac68bc558858c4e80abc678c7c5801fd57b34f58bd5251",
+      "copy_bytes": 1469,
+      "copy_sha256": "1619417ec10e870cafac68bc558858c4e80abc678c7c5801fd57b34f58bd5251",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-cancellation-runtime-review.json",
+      "copy": "evidence/handover/sol-root-f510-cancellation-runtime-review.json",
+      "source_bytes": 1908,
+      "source_sha256": "925f835071a63606f1704cbcb648f12e51df2a8b27f00ea6e09c256610a288fa",
+      "copy_bytes": 1908,
+      "copy_sha256": "925f835071a63606f1704cbcb648f12e51df2a8b27f00ea6e09c256610a288fa",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-native4k-baseline-review.json",
+      "copy": "evidence/handover/sol-root-f510-native4k-baseline-review.json",
+      "source_bytes": 4134,
+      "source_sha256": "275b67e7cd6956da002046e253420f81665ea32ecb2ab5bc958c6eebd19b4404",
+      "copy_bytes": 4134,
+      "copy_sha256": "275b67e7cd6956da002046e253420f81665ea32ecb2ab5bc958c6eebd19b4404",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-no-device-plan-review.json",
+      "copy": "evidence/handover/sol-root-f510-no-device-plan-review.json",
+      "source_bytes": 1741,
+      "source_sha256": "781371fafb6b308ba9b062a28ce9d4bb5cc52e860d7f3f46d51b29298bc33c16",
+      "copy_bytes": 1741,
+      "copy_sha256": "781371fafb6b308ba9b062a28ce9d4bb5cc52e860d7f3f46d51b29298bc33c16",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-no-device-title-review.json",
+      "copy": "evidence/handover/sol-root-f510-no-device-title-review.json",
+      "source_bytes": 2992,
+      "source_sha256": "e6b8c66eae283a4983de0edfae42ccaf6525678ab607839a014ff50bd60aa15e",
+      "copy_bytes": 2992,
+      "copy_sha256": "e6b8c66eae283a4983de0edfae42ccaf6525678ab607839a014ff50bd60aa15e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-no-device-vendor-control-review.json",
+      "copy": "evidence/handover/sol-root-f510-no-device-vendor-control-review.json",
+      "source_bytes": 1921,
+      "source_sha256": "749cf3705da2778097b1117739aba597f909be4ebc4777a2f269dc56bb42896d",
+      "copy_bytes": 1921,
+      "copy_sha256": "749cf3705da2778097b1117739aba597f909be4ebc4777a2f269dc56bb42896d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-prepared-record-review.json",
+      "copy": "evidence/handover/sol-root-f510-prepared-record-review.json",
+      "source_bytes": 817,
+      "source_sha256": "774e8060130aa603089db30dc95cb92cd14dd09846369983352d50cf3805eb2e",
+      "copy_bytes": 817,
+      "copy_sha256": "774e8060130aa603089db30dc95cb92cd14dd09846369983352d50cf3805eb2e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-prepared-staging-review.json",
+      "copy": "evidence/handover/sol-root-f510-prepared-staging-review.json",
+      "source_bytes": 924,
+      "source_sha256": "94ecd76ea1723349a85b2aab3372432abd9c1c4a446cb34b464a8ef89ec0c76b",
+      "copy_bytes": 924,
+      "copy_sha256": "94ecd76ea1723349a85b2aab3372432abd9c1c4a446cb34b464a8ef89ec0c76b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f510-production-artifact-review.json",
+      "copy": "evidence/handover/sol-root-f510-production-artifact-review.json",
+      "source_bytes": 3216,
+      "source_sha256": "f04945a7525c58fda0b6e1bea61294e54a5b513a36d586fcf000f58d848e19cc",
+      "copy_bytes": 3216,
+      "copy_sha256": "f04945a7525c58fda0b6e1bea61294e54a5b513a36d586fcf000f58d848e19cc",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f7b-freeze-review.json",
+      "copy": "evidence/handover/sol-root-f7b-freeze-review.json",
+      "source_bytes": 954,
+      "source_sha256": "98f41e5f38e58a3ed4e107652665e987f5451565c709dc3a6202886637e00467",
+      "copy_bytes": 954,
+      "copy_sha256": "98f41e5f38e58a3ed4e107652665e987f5451565c709dc3a6202886637e00467",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f7b-loaded-E-review.json",
+      "copy": "evidence/handover/sol-root-f7b-loaded-E-review.json",
+      "source_bytes": 1584,
+      "source_sha256": "a487aab89f8c23d6b136a046d66448f0039ecd2e1e152d7fe3d8ff5e74ac509a",
+      "copy_bytes": 1584,
+      "copy_sha256": "a487aab89f8c23d6b136a046d66448f0039ecd2e1e152d7fe3d8ff5e74ac509a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f7b-prepared-staging-review.json",
+      "copy": "evidence/handover/sol-root-f7b-prepared-staging-review.json",
+      "source_bytes": 991,
+      "source_sha256": "c9a6f714a37851c60eab4da24c752721a0f982eea4e4809365926512b17e558b",
+      "copy_bytes": 991,
+      "copy_sha256": "c9a6f714a37851c60eab4da24c752721a0f982eea4e4809365926512b17e558b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f7b-production-artifact-review.json",
+      "copy": "evidence/handover/sol-root-f7b-production-artifact-review.json",
+      "source_bytes": 1724,
+      "source_sha256": "7ee69b16231da095b92a5f4808b7da415b082e48254fde0e17e40101e5f5f190",
+      "copy_bytes": 1724,
+      "copy_sha256": "7ee69b16231da095b92a5f4808b7da415b082e48254fde0e17e40101e5f5f190",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-f7b-title-D-review.json",
+      "copy": "evidence/handover/sol-root-f7b-title-D-review.json",
+      "source_bytes": 1950,
+      "source_sha256": "1631f6ec2708187e75de848cb34949618fa4824a943fa6994d0ee4760b0d7985",
+      "copy_bytes": 1950,
+      "copy_sha256": "1631f6ec2708187e75de848cb34949618fa4824a943fa6994d0ee4760b0d7985",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-fallback-review.json",
+      "copy": "evidence/handover/sol-root-fallback-review.json",
+      "source_bytes": 2075,
+      "source_sha256": "67734d052b45352b7a64b6b0534e01502080bc15b1e64db8f5056fb5893f146a",
+      "copy_bytes": 2075,
+      "copy_sha256": "67734d052b45352b7a64b6b0534e01502080bc15b1e64db8f5056fb5893f146a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-feedback-review-20261020.json",
+      "copy": "evidence/handover/sol-root-feedback-review-20261020.json",
+      "source_bytes": 1720,
+      "source_sha256": "2fbd89184e10e80183d98218aa5003805ab281d37e2791f618527ffc9165cc6f",
+      "copy_bytes": 1720,
+      "copy_sha256": "2fbd89184e10e80183d98218aa5003805ab281d37e2791f618527ffc9165cc6f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-final46e-aggregate-review.json",
+      "copy": "evidence/handover/sol-root-final46e-aggregate-review.json",
+      "source_bytes": 892,
+      "source_sha256": "0df241019df8e9926e4509687da015e25c5634f4f432162cb63f5f0386b32af3",
+      "copy_bytes": 892,
+      "copy_sha256": "0df241019df8e9926e4509687da015e25c5634f4f432162cb63f5f0386b32af3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-final46e-artifact-review.json",
+      "copy": "evidence/handover/sol-root-final46e-artifact-review.json",
+      "source_bytes": 1228,
+      "source_sha256": "515d11eb1981e455949f93b2e230465dbda902cc02a7316f715de8e2cb9f7360",
+      "copy_bytes": 1228,
+      "copy_sha256": "515d11eb1981e455949f93b2e230465dbda902cc02a7316f715de8e2cb9f7360",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-finalclip-pair-review.json",
+      "copy": "evidence/handover/sol-root-finalclip-pair-review.json",
+      "source_bytes": 457,
+      "source_sha256": "132481e30629543e03f5e7e3a4b8b5fc40fc70dc7a72b8e8c22c19d448bb4739",
+      "copy_bytes": 457,
+      "copy_sha256": "132481e30629543e03f5e7e3a4b8b5fc40fc70dc7a72b8e8c22c19d448bb4739",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-freeze-review.json",
+      "copy": "evidence/handover/sol-root-freeze-review.json",
+      "source_bytes": 665,
+      "source_sha256": "488d07abc4b1b8e6be484631604b296027a0e10e2ef649a6f02dee8cfb80d5fc",
+      "copy_bytes": 665,
+      "copy_sha256": "488d07abc4b1b8e6be484631604b296027a0e10e2ef649a6f02dee8cfb80d5fc",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-geometry-artifact-review.json",
+      "copy": "evidence/handover/sol-root-geometry-artifact-review.json",
+      "source_bytes": 1230,
+      "source_sha256": "33eb76f5137bcb6b3d09f633d60d0c0ec4a4137b460c0192ced835358985d636",
+      "copy_bytes": 1230,
+      "copy_sha256": "33eb76f5137bcb6b3d09f633d60d0c0ec4a4137b460c0192ced835358985d636",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-geometry-freeze-review.json",
+      "copy": "evidence/handover/sol-root-geometry-freeze-review.json",
+      "source_bytes": 1553,
+      "source_sha256": "3c0c9c3f618f53db3e7078a8ec9dd8dd0b102c93634db9cd9a4cb3a126fefa54",
+      "copy_bytes": 1553,
+      "copy_sha256": "3c0c9c3f618f53db3e7078a8ec9dd8dd0b102c93634db9cd9a4cb3a126fefa54",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-glyph-skip-review.json",
+      "copy": "evidence/handover/sol-root-glyph-skip-review.json",
+      "source_bytes": 2277,
+      "source_sha256": "9586b8b90f7daa95f11b4eb111ca10ae24429810d72b8b8ff1d18833d52ed977",
+      "copy_bytes": 2277,
+      "copy_sha256": "9586b8b90f7daa95f11b4eb111ca10ae24429810d72b8b8ff1d18833d52ed977",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-launcher-cancel-promotion.json",
+      "copy": "evidence/handover/sol-root-launcher-cancel-promotion.json",
+      "source_bytes": 1675,
+      "source_sha256": "1045298a27c3310d030831df32ae34cb2b6c1a37cdf5d17d74f4e8e804e8ee48",
+      "copy_bytes": 1675,
+      "copy_sha256": "1045298a27c3310d030831df32ae34cb2b6c1a37cdf5d17d74f4e8e804e8ee48",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-launcher-cancel-source-review.json",
+      "copy": "evidence/handover/sol-root-launcher-cancel-source-review.json",
+      "source_bytes": 2324,
+      "source_sha256": "b9ac8e15abef99e091352bf6b9eec68854c047e1dc9df587c51e1aa80fde5796",
+      "copy_bytes": 2324,
+      "copy_sha256": "b9ac8e15abef99e091352bf6b9eec68854c047e1dc9df587c51e1aa80fde5796",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-launcher-gpu-promotion-review.json",
+      "copy": "evidence/handover/sol-root-launcher-gpu-promotion-review.json",
+      "source_bytes": 2050,
+      "source_sha256": "c5b59b54a8d93ca39bb18e32f3b9be1074cc78549868075c5aaf6637a879a04d",
+      "copy_bytes": 2050,
+      "copy_sha256": "c5b59b54a8d93ca39bb18e32f3b9be1074cc78549868075c5aaf6637a879a04d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-launcher-lock-review.json",
+      "copy": "evidence/handover/sol-root-launcher-lock-review.json",
+      "source_bytes": 1166,
+      "source_sha256": "af41dc429ce531570eb194805d2e0362c0c1165c77f78d2b52f75ac983f9b19e",
+      "copy_bytes": 1166,
+      "copy_sha256": "af41dc429ce531570eb194805d2e0362c0c1165c77f78d2b52f75ac983f9b19e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-macneo-priority-artifact-review.json",
+      "copy": "evidence/handover/sol-root-macneo-priority-artifact-review.json",
+      "source_bytes": 2981,
+      "source_sha256": "262d80c94522cca16ef7007a8d7b379fd52601dc07f4581ecaee7cb1690bb2a4",
+      "copy_bytes": 2981,
+      "copy_sha256": "262d80c94522cca16ef7007a8d7b379fd52601dc07f4581ecaee7cb1690bb2a4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-macneo-priority-freeze-review.json",
+      "copy": "evidence/handover/sol-root-macneo-priority-freeze-review.json",
+      "source_bytes": 1245,
+      "source_sha256": "0217a1806e46455916f894c9632d2a77e6559678de6fbd421853dd39368a2d42",
+      "copy_bytes": 1245,
+      "copy_sha256": "0217a1806e46455916f894c9632d2a77e6559678de6fbd421853dd39368a2d42",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-metal-probe-review.json",
+      "copy": "evidence/handover/sol-root-metal-probe-review.json",
+      "source_bytes": 1190,
+      "source_sha256": "ebaef2baa312334687542009d19d93db269cc7621c8c42bb0e09a54bd9e8a33e",
+      "copy_bytes": 1190,
+      "copy_sha256": "ebaef2baa312334687542009d19d93db269cc7621c8c42bb0e09a54bd9e8a33e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-no-device-first-restoration-review.json",
+      "copy": "evidence/handover/sol-root-no-device-first-restoration-review.json",
+      "source_bytes": 1812,
+      "source_sha256": "b3fa9899e71715299ea898a8ee6b204ca96a240303b2591b6eec874e14bf7480",
+      "copy_bytes": 1812,
+      "copy_sha256": "b3fa9899e71715299ea898a8ee6b204ca96a240303b2591b6eec874e14bf7480",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-no-device-retry-restoration-review.json",
+      "copy": "evidence/handover/sol-root-no-device-retry-restoration-review.json",
+      "source_bytes": 1462,
+      "source_sha256": "844a5ed1dc731f48b9ed04370ae09bc4498eb8864475a56a212d904e8b98d9bd",
+      "copy_bytes": 1462,
+      "copy_sha256": "844a5ed1dc731f48b9ed04370ae09bc4498eb8864475a56a212d904e8b98d9bd",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-no-device-retry-review.json",
+      "copy": "evidence/handover/sol-root-no-device-retry-review.json",
+      "source_bytes": 2805,
+      "source_sha256": "0d6db03544a989186d1cbbe28fa4759efe213e024ef94b35d9dcada00e1c80bb",
+      "copy_bytes": 2805,
+      "copy_sha256": "0d6db03544a989186d1cbbe28fa4759efe213e024ef94b35d9dcada00e1c80bb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-no-device-vendor-setup-failure-review.json",
+      "copy": "evidence/handover/sol-root-no-device-vendor-setup-failure-review.json",
+      "source_bytes": 2733,
+      "source_sha256": "ca45e5a0b85abdad30b61c9405ec116601846f0a8d8c2379ef50632e1ca7c3de",
+      "copy_bytes": 2733,
+      "copy_sha256": "ca45e5a0b85abdad30b61c9405ec116601846f0a8d8c2379ef50632e1ca7c3de",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-pacing-review.json",
+      "copy": "evidence/handover/sol-root-pacing-review.json",
+      "source_bytes": 1627,
+      "source_sha256": "0b71d00a0bdaa59294cf854868f034f8ce8f27b1acfed638adfe91224da0cd62",
+      "copy_bytes": 1627,
+      "copy_sha256": "0b71d00a0bdaa59294cf854868f034f8ce8f27b1acfed638adfe91224da0cd62",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-pointer-fixture-v3-source-review.json",
+      "copy": "evidence/handover/sol-root-pointer-fixture-v3-source-review.json",
+      "source_bytes": 1699,
+      "source_sha256": "29b5fa5ca177b7cbff17070691cbfb443d6d23afbda15d1e3e979991792f49e2",
+      "copy_bytes": 1699,
+      "copy_sha256": "29b5fa5ca177b7cbff17070691cbfb443d6d23afbda15d1e3e979991792f49e2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-pointer-geometry-preflight-review.json",
+      "copy": "evidence/handover/sol-root-pointer-geometry-preflight-review.json",
+      "source_bytes": 1622,
+      "source_sha256": "316b05fff848c9a709cb033824e58fadd69fbd8d4b863b9b8ed4e65ffe3761f6",
+      "copy_bytes": 1622,
+      "copy_sha256": "316b05fff848c9a709cb033824e58fadd69fbd8d4b863b9b8ed4e65ffe3761f6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-protocol48-aggregate-review.json",
+      "copy": "evidence/handover/sol-root-protocol48-aggregate-review.json",
+      "source_bytes": 1288,
+      "source_sha256": "061e1531238af41e662c4340263a9f8579a26710efd926fb21e8b92c34b61f35",
+      "copy_bytes": 1288,
+      "copy_sha256": "061e1531238af41e662c4340263a9f8579a26710efd926fb21e8b92c34b61f35",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-protocol48-artifact-review.json",
+      "copy": "evidence/handover/sol-root-protocol48-artifact-review.json",
+      "source_bytes": 1284,
+      "source_sha256": "4f6cd286a94c1de745d10214ef4c660d1f3d1d6ea068cf418a34ae6b90854202",
+      "copy_bytes": 1284,
+      "copy_sha256": "4f6cd286a94c1de745d10214ef4c660d1f3d1d6ea068cf418a34ae6b90854202",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-protocol48-freeze-review.json",
+      "copy": "evidence/handover/sol-root-protocol48-freeze-review.json",
+      "source_bytes": 596,
+      "source_sha256": "33687b90802fee62eaff3fe68ea1634b5c77450298cbc4f148b29ca635d1f3ee",
+      "copy_bytes": 596,
+      "copy_sha256": "33687b90802fee62eaff3fe68ea1634b5c77450298cbc4f148b29ca635d1f3ee",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-protocol48-macos-cpu-review.json",
+      "copy": "evidence/handover/sol-root-protocol48-macos-cpu-review.json",
+      "source_bytes": 1248,
+      "source_sha256": "ee40393967152017683274a1815d3ef5b76fd19069b5368e74c2804b17c937bf",
+      "copy_bytes": 1248,
+      "copy_sha256": "ee40393967152017683274a1815d3ef5b76fd19069b5368e74c2804b17c937bf",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-protocol48-windows-review.json",
+      "copy": "evidence/handover/sol-root-protocol48-windows-review.json",
+      "source_bytes": 1205,
+      "source_sha256": "c5f343a778dd8cf31159e5760334094e03cf8e406f446db5f903a44a81009365",
+      "copy_bytes": 1205,
+      "copy_sha256": "c5f343a778dd8cf31159e5760334094e03cf8e406f446db5f903a44a81009365",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-protocol49-union-checkpoint-review.json",
+      "copy": "evidence/handover/sol-root-protocol49-union-checkpoint-review.json",
+      "source_bytes": 1702,
+      "source_sha256": "63f1bc929667868c366c16de2b87e8888930b03d775da3fed11e50c4b90e90ac",
+      "copy_bytes": 1702,
+      "copy_sha256": "63f1bc929667868c366c16de2b87e8888930b03d775da3fed11e50c4b90e90ac",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-release-review.json",
+      "copy": "evidence/handover/sol-root-release-review.json",
+      "source_bytes": 989,
+      "source_sha256": "6406f55d507beb03a4ce139bfc2f94a21a14452f99cf0184ff7c4e3722dd23da",
+      "copy_bytes": 989,
+      "copy_sha256": "6406f55d507beb03a4ce139bfc2f94a21a14452f99cf0184ff7c4e3722dd23da",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-rng-binary-review.json",
+      "copy": "evidence/handover/sol-root-rng-binary-review.json",
+      "source_bytes": 1305,
+      "source_sha256": "fd5faabb94bb10c388d4d8864a7cc2daeb74d844027647add805fe205023db8d",
+      "copy_bytes": 1305,
+      "copy_sha256": "fd5faabb94bb10c388d4d8864a7cc2daeb74d844027647add805fe205023db8d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-snapshot-predecessor-review.json",
+      "copy": "evidence/handover/sol-root-snapshot-predecessor-review.json",
+      "source_bytes": 2445,
+      "source_sha256": "4c2d7766a3ba2782140e33eae460178dd25bb59350fd5ccb19d98836a7d6de20",
+      "copy_bytes": 2445,
+      "copy_sha256": "4c2d7766a3ba2782140e33eae460178dd25bb59350fd5ccb19d98836a7d6de20",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-source-backups-review-20261020.json",
+      "copy": "evidence/handover/sol-root-source-backups-review-20261020.json",
+      "source_bytes": 1540,
+      "source_sha256": "e4d7c7866f9f84feb9a4b0c237dd8ebc26c1625b3273e05141c0243bff331e79",
+      "copy_bytes": 1540,
+      "copy_sha256": "e4d7c7866f9f84feb9a4b0c237dd8ebc26c1625b3273e05141c0243bff331e79",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-successor-freeze-review.json",
+      "copy": "evidence/handover/sol-root-successor-freeze-review.json",
+      "source_bytes": 913,
+      "source_sha256": "d41a400b6658957715779eddb0b018bcb5d1f876bd72105d520db89c42893a28",
+      "copy_bytes": 913,
+      "copy_sha256": "d41a400b6658957715779eddb0b018bcb5d1f876bd72105d520db89c42893a28",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-aggregate-review.json",
+      "copy": "evidence/handover/sol-root-thread-init-aggregate-review.json",
+      "source_bytes": 1675,
+      "source_sha256": "f124eea3927c66b25319a0c7e1ef967ab402b34e479e10ec6885f2bb4a77495f",
+      "copy_bytes": 1675,
+      "copy_sha256": "f124eea3927c66b25319a0c7e1ef967ab402b34e479e10ec6885f2bb4a77495f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-artifact-review.json",
+      "copy": "evidence/handover/sol-root-thread-init-artifact-review.json",
+      "source_bytes": 1282,
+      "source_sha256": "4f2093e0e8b23cedd5869edea1912988ae991b544ec316790d58934317a9dee2",
+      "copy_bytes": 1282,
+      "copy_sha256": "4f2093e0e8b23cedd5869edea1912988ae991b544ec316790d58934317a9dee2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-freeze-review.json",
+      "copy": "evidence/handover/sol-root-thread-init-freeze-review.json",
+      "source_bytes": 2516,
+      "source_sha256": "479c079de1592c9934a553ca3e6bbdbe6054aaca9c78e9230b56580491e36955",
+      "copy_bytes": 2516,
+      "copy_sha256": "479c079de1592c9934a553ca3e6bbdbe6054aaca9c78e9230b56580491e36955",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-macos-runtime-review-erratum.json",
+      "copy": "evidence/handover/sol-root-thread-init-macos-runtime-review-erratum.json",
+      "source_bytes": 934,
+      "source_sha256": "336d644797a8bf13b07a7b86894aba11dab80675eb73af90d0008ed6bad18683",
+      "copy_bytes": 934,
+      "copy_sha256": "336d644797a8bf13b07a7b86894aba11dab80675eb73af90d0008ed6bad18683",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-macos-runtime-review.json",
+      "copy": "evidence/handover/sol-root-thread-init-macos-runtime-review.json",
+      "source_bytes": 1548,
+      "source_sha256": "c02dfb5b6d2ed75773cf38d9bfab3ccb9f4a4a2b29216d255297bd486eedbc94",
+      "copy_bytes": 1548,
+      "copy_sha256": "c02dfb5b6d2ed75773cf38d9bfab3ccb9f4a4a2b29216d255297bd486eedbc94",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-thread-init-native-carry-review.json",
+      "copy": "evidence/handover/sol-root-thread-init-native-carry-review.json",
+      "source_bytes": 694,
+      "source_sha256": "20730ea5e4b28dbd31c8907c40892dfe986baf9afaa8810430b2074a7709a0f2",
+      "copy_bytes": 694,
+      "copy_sha256": "20730ea5e4b28dbd31c8907c40892dfe986baf9afaa8810430b2074a7709a0f2",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-ui-shader-review.json",
+      "copy": "evidence/handover/sol-root-ui-shader-review.json",
+      "source_bytes": 1538,
+      "source_sha256": "6a171e2be92a2c874b016974d4b66607e955dfe57e02f83c21ad5f7ddaf800fb",
+      "copy_bytes": 1538,
+      "copy_sha256": "6a171e2be92a2c874b016974d4b66607e955dfe57e02f83c21ad5f7ddaf800fb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-ui-worker-review.json",
+      "copy": "evidence/handover/sol-root-ui-worker-review.json",
+      "source_bytes": 6161,
+      "source_sha256": "a36cfb1fd0b0274be8a7ec9e079b956dc31990f58e5fcd18cc158cc756b19cfb",
+      "copy_bytes": 6161,
+      "copy_sha256": "a36cfb1fd0b0274be8a7ec9e079b956dc31990f58e5fcd18cc158cc756b19cfb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-vendor-audio-fault-review.json",
+      "copy": "evidence/handover/sol-root-vendor-audio-fault-review.json",
+      "source_bytes": 2227,
+      "source_sha256": "df83cb44859dab2b9290950ca395b6a61daf449c11e46c0202accb6d430dc00b",
+      "copy_bytes": 2227,
+      "copy_sha256": "df83cb44859dab2b9290950ca395b6a61daf449c11e46c0202accb6d430dc00b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-warning-fixture-promotion-review.json",
+      "copy": "evidence/handover/sol-root-warning-fixture-promotion-review.json",
+      "source_bytes": 1060,
+      "source_sha256": "31a006350d4999fbce5b9614117b3e7ee5e2a38c1d0cd2abf31e981794bb74e5",
+      "copy_bytes": 1060,
+      "copy_sha256": "31a006350d4999fbce5b9614117b3e7ee5e2a38c1d0cd2abf31e981794bb74e5",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-wider-compiler-gate-review.json",
+      "copy": "evidence/handover/sol-root-wider-compiler-gate-review.json",
+      "source_bytes": 2592,
+      "source_sha256": "180d1576a6bb3e44f45c60edfc9cd1ff3f641c382d65f4fc4de68b1421d7e8fd",
+      "copy_bytes": 2592,
+      "copy_sha256": "180d1576a6bb3e44f45c60edfc9cd1ff3f641c382d65f4fc4de68b1421d7e8fd",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-wider-v2-orchestration-review.json",
+      "copy": "evidence/handover/sol-root-wider-v2-orchestration-review.json",
+      "source_bytes": 1219,
+      "source_sha256": "b78317138b62ab2805cca8d096970382e5bffa7190ca7cf3e8e382497132c86e",
+      "copy_bytes": 1219,
+      "copy_sha256": "b78317138b62ab2805cca8d096970382e5bffa7190ca7cf3e8e382497132c86e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-root-world-table-candidate-review.json",
+      "copy": "evidence/handover/sol-root-world-table-candidate-review.json",
+      "source_bytes": 1705,
+      "source_sha256": "0747be333fc4616f2c0cd9cf48083979cf23d6f67b7ca51125561298106eb6ca",
+      "copy_bytes": 1705,
+      "copy_sha256": "0747be333fc4616f2c0cd9cf48083979cf23d6f67b7ca51125561298106eb6ca",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/sol-successor-delta.json",
+      "copy": "evidence/handover/sol-successor-delta.json",
+      "source_bytes": 1040,
+      "source_sha256": "11793aa24dbb8be9659751b70d7526d6ccee44c739a9056afe643dca4972b0ed",
+      "copy_bytes": 1040,
+      "copy_sha256": "11793aa24dbb8be9659751b70d7526d6ccee44c739a9056afe643dca4972b0ed",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/source-backup-audit.release.sol.json",
+      "copy": "evidence/handover/source-backup-audit.release.sol.json",
+      "source_bytes": 7960,
+      "source_sha256": "7e72545323ecc91ab4341348e1ebdd238e519feef668ed570fe2a8585f9c0cb9",
+      "copy_bytes": 7960,
+      "copy_sha256": "7e72545323ecc91ab4341348e1ebdd238e519feef668ed570fe2a8585f9c0cb9",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/source-backups-final-receipt.release.sol.json",
+      "copy": "evidence/handover/source-backups-final-receipt.release.sol.json",
+      "source_bytes": 33016,
+      "source_sha256": "8f5c4b152222c718dd3dcc1ab6f08dceeee7b725ab22438da8ab699b3c86d7cb",
+      "copy_bytes": 33016,
+      "copy_sha256": "8f5c4b152222c718dd3dcc1ab6f08dceeee7b725ab22438da8ab699b3c86d7cb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/source-development-backups-verified.release.sol.json",
+      "copy": "evidence/handover/source-development-backups-verified.release.sol.json",
+      "source_bytes": 6323,
+      "source_sha256": "5157c6af08a722155e9344735f72ef6d2df5e435af48e1cec143e0ac3a2d989c",
+      "copy_bytes": 6323,
+      "copy_sha256": "5157c6af08a722155e9344735f72ef6d2df5e435af48e1cec143e0ac3a2d989c",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/source-main-backups-verified.release.sol.json",
+      "copy": "evidence/handover/source-main-backups-verified.release.sol.json",
+      "source_bytes": 25491,
+      "source_sha256": "2fa08be91d31d95a64252a59c85b1235d27542c5bcfdf425af03055f62cfc08c",
+      "copy_bytes": 25491,
+      "copy_sha256": "2fa08be91d31d95a64252a59c85b1235d27542c5bcfdf425af03055f62cfc08c",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/startup-progress-sol-cleanup.json",
+      "copy": "evidence/handover/startup-progress-sol-cleanup.json",
+      "source_bytes": 1024,
+      "source_sha256": "47f7f6bcb65c9b289dc05f252642f77883dd91fa991cdeeb9bcc3299241dcacb",
+      "copy_bytes": 1024,
+      "copy_sha256": "47f7f6bcb65c9b289dc05f252642f77883dd91fa991cdeeb9bcc3299241dcacb",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/startup-progress.sol.md",
+      "copy": "evidence/handover/startup-progress.sol.md",
+      "source_bytes": 6763,
+      "source_sha256": "2191272c573961e768d44f227f2e22ca2f547c7a1772671f4e2e38a81b8e933b",
+      "copy_bytes": 6763,
+      "copy_sha256": "2191272c573961e768d44f227f2e22ca2f547c7a1772671f4e2e38a81b8e933b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/subpixel-dual-renderer.sol.md",
+      "copy": "evidence/handover/subpixel-dual-renderer.sol.md",
+      "source_bytes": 1703,
+      "source_sha256": "710790c3d68cb6dff51111acf418d61d4963c40a5c3cbd5929ecc241cba0db47",
+      "copy_bytes": 1703,
+      "copy_sha256": "710790c3d68cb6dff51111acf418d61d4963c40a5c3cbd5929ecc241cba0db47",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/targeting-cursors.md",
+      "copy": "evidence/handover/targeting-cursors.md",
+      "source_bytes": 7099,
+      "source_sha256": "aac04bdfb3d491451b9501db91ca0d99a1ed139a47895978e462162a2d204e60",
+      "copy_bytes": 7099,
+      "copy_sha256": "aac04bdfb3d491451b9501db91ca0d99a1ed139a47895978e462162a2d204e60",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/targeting-cursors.sol.md",
+      "copy": "evidence/handover/targeting-cursors.sol.md",
+      "source_bytes": 3816,
+      "source_sha256": "221e99a988fac167c3f3a126e62538cd79d4b0c1b05d7e6cb750cd0a96f6d6ca",
+      "copy_bytes": 3816,
+      "copy_sha256": "221e99a988fac167c3f3a126e62538cd79d4b0c1b05d7e6cb750cd0a96f6d6ca",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/terrain-region-cache-design.sol.md",
+      "copy": "evidence/handover/terrain-region-cache-design.sol.md",
+      "source_bytes": 5072,
+      "source_sha256": "41e85e56d9e224f87bd4bd80ab59491408c65ceb464318fc382ae12ef188d547",
+      "copy_bytes": 5072,
+      "copy_sha256": "41e85e56d9e224f87bd4bd80ab59491408c65ceb464318fc382ae12ef188d547",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/text-fit-atomic-ui.md",
+      "copy": "evidence/handover/text-fit-atomic-ui.md",
+      "source_bytes": 7015,
+      "source_sha256": "89ac938accba6e4fd399d1c73a4cb06e2106b7bcbe906c6df8969d78e0203e3f",
+      "copy_bytes": 7015,
+      "copy_sha256": "89ac938accba6e4fd399d1c73a4cb06e2106b7bcbe906c6df8969d78e0203e3f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/text-fit-atomic-ui.sol.md",
+      "copy": "evidence/handover/text-fit-atomic-ui.sol.md",
+      "source_bytes": 7095,
+      "source_sha256": "3fbbfffc39d4cb288054c1b406db02ed00875007bac246ccb041680767c62996",
+      "copy_bytes": 7095,
+      "copy_sha256": "3fbbfffc39d4cb288054c1b406db02ed00875007bac246ccb041680767c62996",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/tile-popup-menus.md",
+      "copy": "evidence/handover/tile-popup-menus.md",
+      "source_bytes": 6332,
+      "source_sha256": "d4b403300a5411e1643b4df5e00d881455783d9e69e3a0e00f5a7df37803287e",
+      "copy_bytes": 6332,
+      "copy_sha256": "d4b403300a5411e1643b4df5e00d881455783d9e69e3a0e00f5a7df37803287e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/tile-popup-menus.sol.md",
+      "copy": "evidence/handover/tile-popup-menus.sol.md",
+      "source_bytes": 14330,
+      "source_sha256": "71a7f0f52101b31dcf08fef446e9e7285297d0ca07810cd747c0c9f796592ba4",
+      "copy_bytes": 14330,
+      "copy_sha256": "71a7f0f52101b31dcf08fef446e9e7285297d0ca07810cd747c0c9f796592ba4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/tile-popup-render-shadow.md",
+      "copy": "evidence/handover/tile-popup-render-shadow.md",
+      "source_bytes": 4768,
+      "source_sha256": "bca7da5c94bf612a2261ab5ea1c0ee86c804a0c57ce82776403bc439d41ee6ad",
+      "copy_bytes": 4768,
+      "copy_sha256": "bca7da5c94bf612a2261ab5ea1c0ee86c804a0c57ce82776403bc439d41ee6ad",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/tile-popup-render-shadow.sol.md",
+      "copy": "evidence/handover/tile-popup-render-shadow.sol.md",
+      "source_bytes": 4565,
+      "source_sha256": "a542b00a50b1469579ff31e046118a755da7ee633fcb5d220fd61037a84783f6",
+      "copy_bytes": 4565,
+      "copy_sha256": "a542b00a50b1469579ff31e046118a755da7ee633fcb5d220fd61037a84783f6",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/timing-overflow-independent-review.sol.json",
+      "copy": "evidence/handover/timing-overflow-independent-review.sol.json",
+      "source_bytes": 754,
+      "source_sha256": "f9ced9f393d743462ee2b52fe7504c117afa7644e35f3946b23517c27095d264",
+      "copy_bytes": 754,
+      "copy_sha256": "f9ced9f393d743462ee2b52fe7504c117afa7644e35f3946b23517c27095d264",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/timing-stats-independent-review.sol.json",
+      "copy": "evidence/handover/timing-stats-independent-review.sol.json",
+      "source_bytes": 685,
+      "source_sha256": "3b4e04fd68b454a2be09de2de7b2f876137cf0ea425f8e83d5435d5f8705832a",
+      "copy_bytes": 685,
+      "copy_sha256": "3b4e04fd68b454a2be09de2de7b2f876137cf0ea425f8e83d5435d5f8705832a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/ui-command-transactions.sol.md",
+      "copy": "evidence/handover/ui-command-transactions.sol.md",
+      "source_bytes": 5479,
+      "source_sha256": "8a2b2ad51a84abcf7f8ac8e82dd44d70b6f24491152983053971e0c6ef5ed99f",
+      "copy_bytes": 5479,
+      "copy_sha256": "8a2b2ad51a84abcf7f8ac8e82dd44d70b6f24491152983053971e0c6ef5ed99f",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/ui-commands-atomic.sol.md",
+      "copy": "evidence/handover/ui-commands-atomic.sol.md",
+      "source_bytes": 7900,
+      "source_sha256": "8173c1b6e025341ad1097b095a56f96b381675b2b5c29aa0c0a6ccb868685a77",
+      "copy_bytes": 7900,
+      "copy_sha256": "8173c1b6e025341ad1097b095a56f96b381675b2b5c29aa0c0a6ccb868685a77",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/ui-frame-transactions.requirements.json",
+      "copy": "evidence/handover/ui-frame-transactions.requirements.json",
+      "source_bytes": 3430,
+      "source_sha256": "8a219db14faaaf8a5b01cd03560ec98d78f747059599c6192f8951579c3c304d",
+      "copy_bytes": 3430,
+      "copy_sha256": "8a219db14faaaf8a5b01cd03560ec98d78f747059599c6192f8951579c3c304d",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/ui-present-metadata.sol.md",
+      "copy": "evidence/handover/ui-present-metadata.sol.md",
+      "source_bytes": 2412,
+      "source_sha256": "6da036a9632c22381b7267823de9f2f076acbf0b8690eea1f5b12feab94f233a",
+      "copy_bytes": 2412,
+      "copy_sha256": "6da036a9632c22381b7267823de9f2f076acbf0b8690eea1f5b12feab94f233a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/unit-notices.md",
+      "copy": "evidence/handover/unit-notices.md",
+      "source_bytes": 4376,
+      "source_sha256": "f9e078fad60dffba858f1cbe56a648a287008f78a6217dfb0b13e29dff59cf0e",
+      "copy_bytes": 4376,
+      "copy_sha256": "f9e078fad60dffba858f1cbe56a648a287008f78a6217dfb0b13e29dff59cf0e",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/unit-notices.sol.md",
+      "copy": "evidence/handover/unit-notices.sol.md",
+      "source_bytes": 4232,
+      "source_sha256": "7cf67d5e9ea339b1927a2fb7da6b2b9dc925d4d1e4affc9973ffec28b2abde66",
+      "copy_bytes": 4232,
+      "copy_sha256": "7cf67d5e9ea339b1927a2fb7da6b2b9dc925d4d1e4affc9973ffec28b2abde66",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/vm-snapshot.sol.md",
+      "copy": "evidence/handover/vm-snapshot.sol.md",
+      "source_bytes": 54380,
+      "source_sha256": "c2a23cb5fac3b9a7d8258354e6b22b720ec53df7b52588edd2a66817df4e30ab",
+      "copy_bytes": 52360,
+      "copy_sha256": "9c668dd7d34b9da8f9bfa2ae7b17716437edfc0e85842eba74f7f37b7fa13167",
+      "redactions": [
+        5,
+        7,
+        19,
+        33
+      ],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/wider-continuation-review.shader-perf.sol.json",
+      "copy": "evidence/handover/wider-continuation-review.shader-perf.sol.json",
+      "source_bytes": 14780,
+      "source_sha256": "2dab316ffb62243aa1721223bb034f4f880c47b9eebf248b0ddc853a967be1f4",
+      "copy_bytes": 14780,
+      "copy_sha256": "2dab316ffb62243aa1721223bb034f4f880c47b9eebf248b0ddc853a967be1f4",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/wider-gpu-orchestration-independent-review.sol.json",
+      "copy": "evidence/handover/wider-gpu-orchestration-independent-review.sol.json",
+      "source_bytes": 5614,
+      "source_sha256": "c46f840c6024f3760ea904b9be61abefbdddadc04f3dfd74bcbfcd780cb8e15b",
+      "copy_bytes": 5614,
+      "copy_sha256": "c46f840c6024f3760ea904b9be61abefbdddadc04f3dfd74bcbfcd780cb8e15b",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/wider-gpu-orchestration-v2-independent-review.sol.json",
+      "copy": "evidence/handover/wider-gpu-orchestration-v2-independent-review.sol.json",
+      "source_bytes": 3440,
+      "source_sha256": "8d55339ddd885b6008085ba0061686638b0572c1b27f4ab486c131380039ad1a",
+      "copy_bytes": 3440,
+      "copy_sha256": "8d55339ddd885b6008085ba0061686638b0572c1b27f4ab486c131380039ad1a",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/wider-worker-lifecycle-review.startup.sol.json",
+      "copy": "evidence/handover/wider-worker-lifecycle-review.startup.sol.json",
+      "source_bytes": 6510,
+      "source_sha256": "0e297e53d3852e6d1e5839dc019cf6e0c8e74ef49a22460a59cad66be78c0b48",
+      "copy_bytes": 6510,
+      "copy_sha256": "0e297e53d3852e6d1e5839dc019cf6e0c8e74ef49a22460a59cad66be78c0b48",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/windows-86663-numeric.sol.md",
+      "copy": "evidence/handover/windows-86663-numeric.sol.md",
+      "source_bytes": 8015,
+      "source_sha256": "1df6bf2845e1ff67e36de0cd7f5e8599724c3699cf1519f963e77f879618c4e3",
+      "copy_bytes": 8015,
+      "copy_sha256": "1df6bf2845e1ff67e36de0cd7f5e8599724c3699cf1519f963e77f879618c4e3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/windows-final-prep.sol.md",
+      "copy": "evidence/handover/windows-final-prep.sol.md",
+      "source_bytes": 8005,
+      "source_sha256": "6b7872f75a8b2e0365b3c2c61b2b2224d9517447970b4981c9a7ac50aaed75b3",
+      "copy_bytes": 8005,
+      "copy_sha256": "6b7872f75a8b2e0365b3c2c61b2b2224d9517447970b4981c9a7ac50aaed75b3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/windows-protocol48.sol.md",
+      "copy": "evidence/handover/windows-protocol48.sol.md",
+      "source_bytes": 5131,
+      "source_sha256": "639b01163c0c992f95140ff22a3f45aee1d206abbc0c62f743ac71c6f731ff43",
+      "copy_bytes": 5131,
+      "copy_sha256": "639b01163c0c992f95140ff22a3f45aee1d206abbc0c62f743ac71c6f731ff43",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/windows-vm.sol.md",
+      "copy": "evidence/handover/windows-vm.sol.md",
+      "source_bytes": 19128,
+      "source_sha256": "7a5bbe4200c7462f6c071ef7670035724bc871d34ab85b830ac9c1ffc1b93939",
+      "copy_bytes": 19128,
+      "copy_sha256": "7a5bbe4200c7462f6c071ef7670035724bc871d34ab85b830ac9c1ffc1b93939",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/windows-vulkan.sol.md",
+      "copy": "evidence/handover/windows-vulkan.sol.md",
+      "source_bytes": 5272,
+      "source_sha256": "cb757f472ac9c50e8a9ffbd57301d65a2be166f60107aedf3563110da51b0d43",
+      "copy_bytes": 5272,
+      "copy_sha256": "cb757f472ac9c50e8a9ffbd57301d65a2be166f60107aedf3563110da51b0d43",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/worker-cpu-prefix.sol.md",
+      "copy": "evidence/handover/worker-cpu-prefix.sol.md",
+      "source_bytes": 5547,
+      "source_sha256": "2e4b259daee8636ea699f680aa6593b14d56537a63c10f1e9b44b55667ec7eb3",
+      "copy_bytes": 5547,
+      "copy_sha256": "2e4b259daee8636ea699f680aa6593b14d56537a63c10f1e9b44b55667ec7eb3",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/worker-gaps-independent-review.sol.json",
+      "copy": "evidence/handover/worker-gaps-independent-review.sol.json",
+      "source_bytes": 1401,
+      "source_sha256": "2e4c879eaff373e1d3591c9d6c2a5546091298b32e85243042cd376e8d98f51c",
+      "copy_bytes": 1401,
+      "copy_sha256": "2e4c879eaff373e1d3591c9d6c2a5546091298b32e85243042cd376e8d98f51c",
+      "redactions": [],
+      "historical_evidence": true
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/handover/worker-prefix-independent-review.sol.json",
+      "copy": "evidence/handover/worker-prefix-independent-review.sol.json",
+      "source_bytes": 4998,
+      "source_sha256": "91338686750ca87e7b6f03c2abfd1f35aed7b7040d2da3efafcb8f8f12dc2bb4",
+      "copy_bytes": 4998,
+      "copy_sha256": "91338686750ca87e7b6f03c2abfd1f35aed7b7040d2da3efafcb8f8f12dc2bb4",
+      "redactions": [],
+      "historical_evidence": true
+    }
+  ]
+}

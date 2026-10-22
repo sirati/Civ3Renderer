@@ -1,0 +1,49 @@
+{
+  "reviewer": "/root/startup_progress_sol",
+  "scope": "Read-only independent outcome-delta source review. No build/runtime/GPU/shared edit.",
+  "candidate": "/mnt/datasets/c3r-build/combat-diagnostics-army/outcomes-successor",
+  "verified_source_manifest": {
+    "combat-diagnostics.patch": "b70e11ac439fb50cf8fa26493e18b8b3eda8b9934d90ab9c47a8d2633e1dc046",
+    "outcome-delta.patch": "c12d59f904cd3e780d7c46c28f71fbf18967a0f2f008bb68298f61d461923b3c",
+    "candidate/crates/civ3-sys/src/combat_diagnostics.rs": "dc5f09341215d9646a47c48fe02f8604426c544e17a9299fd4384cad0560ae58",
+    "candidate/crates/civ3-sys/src/combat_diagnostic_outcomes.rs": "a537602b3a29ccd9de672262616c3f79dbd226f23f171173e3ac8df3206826c6"
+  },
+  "readme_sha256": "cf4c1fc29cf66eba183a8e8c4afc9273753b87b83d0b8b78d0ca9d361baf0da2",
+  "logic_blocking_findings": [],
+  "integration_blocker": {
+    "location": "candidate/crates/civ3-sys/src/lib.rs",
+    "finding": "Candidate is based on pre-f510 sys lib and lacks audio_init module export. It must not be applied as a stale whole-file overlay to current final source. Root identified this integration issue; army_units is preparing a separate f510-based diagnostic-only overlay.",
+    "restriction": "No runtime artifact build/promotion from this stale tree. Review rebase identities/delta and preserve current audio source3 before qualification."
+  },
+  "prior_gap_closure": [
+    "Both actual native Fighter_fight argument pointers are bound before original invocation and emitted as attacker/defender outcome rows with validated stable IDs. Entry no longer depends on future pose ticks to identify actual defender.",
+    "Per-scope Command stores original arguments and saved identities. Return snapshots resolve saved ID through native list before object reads, preserving scope association. Outer final snapshots cover nested/visibility-discovered participants.",
+    "Fixed76-byte Unit_Body copy records ID, X/Y, civ/type, combat experience, damage, consumed movement, container/state. Existing generated offsets and read_unit/unit_ptr layouts independently match the copied field/list offsets.",
+    "Previously validated identity with readable null slot or ID outside LastIndex is explicit AbsentById. Null table, bad header, unreadable arithmetic/list/slot/prefix, changed pointer or changed ID are distinct invalid observations. Unbound entry cannot become a claimed removed unit.",
+    "Loaded selector5-byte and tick6-byte exact checks now run before generic installer, declining unknown E9 entry jumps. Exact66d file hash and loaded RNG42/32/preserve21-byte gates remain. Existing C3X fight chaining is preserved without claiming full linked-body exactness."
+  ],
+  "safety_and_resources": [
+    "No observer RNG getter/reseed, native simulation/audio/global-field writes or argument/result changes found. Only instrumentation hook installation and private diagnostic state mutate. Boundary RNG/rules read occurs before fixed outcome copies.",
+    "All snapshots and events are Copy payloads in preallocated8192-record storage; participant array has8 entries and pose array16. Every overflow invalidates capture. No per-boundary/tick Vec growth, file IO, formatting, log, explicit Mutex, new wait or native getter is introduced.",
+    "New helper uses checked arithmetic, fixed guarded scalar/prefix reads and existing generated offsets. Endpoints consult list first rather than reading a stale Unit pointer. No borrow crosses native original.",
+    "Nested guards restore outer scope; visibility pair rows carry current scope. Global defender_observed is only a summary, not proof for every fight."
+  ],
+  "conditional_acceptance_sufficiency": {
+    "verdict": "Source now supplies the previously missing participant/outcome data needed to compare the planned bounded natural matched battle, once a rebased exact diagnostic binary is compiled and runtime-qualified. No outcome/RNG runtime pass exists yet.",
+    "required_oracle": [
+      "Pin same save/runtime/protocol/shaders/native rules fixture and native-confirm legal attacker/target/war/control, with no intervening random actions.",
+      "Require valid capture header/footer, overflow0, read_failed=false, outcome_invalid=false, fight_seen=true, and complete matched scope entry/return boundaries. Require RNG/rules Some on each compared boundary and preserve bit0x100 with equal full rule words.",
+      "For every actual fight scope, require validated stable attacker/defender identity from its own entry or same-scope resolved visibility-pair rows. Never use raw-pointer equality across sessions or another scope/global defender summary.",
+      "Compare corresponding entry Fields, actual defender ID and endpoint Fields/statuses, plus outer FinalParticipants and pre/post native seed words. Absence means native list removal, not an invented destruction cause; battle context must support interpreting it as destruction.",
+      "Invalid/missing/unbound/mismatched observations, missing final rows, unreadable native values or reused identity leave acceptance open rather than counting as death/survival."
+    ]
+  },
+  "remaining_limits": [
+    "RNG/toggle word equality is finite boundary evidence, not counted RNG calls, whole-world simulation equivalence or complete combat-rule equivalence from one option word.",
+    "Exact simultaneous ID and allocation-address reuse cannot be detected without an audited generation field. Natural single-battle fixture must exclude unrelated create/delete activity.",
+    "Snapshots cover listed participant fields; they do not exhaust all possible global side effects or unrelated newly spawned units. Promotion comparison uses native experience/type fields; broader leader-spawn/global-state claims need separate observation.",
+    "Command/Fight return is not global idle. Selector/update brackets do not expose internal intermediate poses, accepted viewer first-pose packets or physical scanout. Army displayed-child timing coverage remains separately bounded.",
+    "Eleven tests are prepared but unrun. Helper fixtures meaningfully distinguish absent/readfailed/unavailable/mismatched and copy fields; event tests preserve defender/removal and invalidation. Actual native reads/ABI/hook gates require controlled runtime checks after rebasing."
+  ],
+  "decision": "Outcome logic closes prior concrete data/E9 gaps without new safety/hot-allocation issue found. Block runtime build/adoption until stale-base integration is corrected and exact source identity is independently reviewed. No runtime acceptance."
+}

@@ -1,0 +1,25 @@
+{
+  "reviewed_utc": "2026-10-20T12:19:48.647809+00:00",
+  "source_archive": "86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e",
+  "source_files_verified": 652,
+  "protocol": 49,
+  "shader_sha256": {
+    "shader.spv": "f9968edd2867ca9857731cd0b1c09d2172cb019e5523065b942507b249d7dc75",
+    "shader-fallback.spv": "7ff6d943a54e7255df2cd160e7239aee067f89470156e5a50b3c1e5079857a5d"
+  },
+  "critical_source_files_verified": {
+    "crates/inproc/src/alloc.rs": "31a6590d4ecde7c239412e53b5f2d2dcb126cb713a944c972a400add89d0b785",
+    "crates/tile-render/src/timing.rs": "6b63778f944345d84eccd714c0d0c1bc509330498be6c760b13355a2891a4a3c",
+    "crates/tile-render/tests/glyph_cache.rs": "43a43f9b9de9c8ca154763f4aa654e1d89b12a1c6ea2a0a0e26e6c30084ff62b",
+    "crates/tile-viewer/src/render_worker.rs": "c2f95eabf52e7db2a01cf9cee60e662f583bfeae144959a1508f2300a3a680ac",
+    "crates/civ3r-process/src/macos.rs": "5be7e5a61c2cf426e16016140abf3f29ac044479c12caef1a213452035b701e8",
+    "crates/civ3r-launcher/src/unix/wine_compat.rs": "5b68c9aa0e1fea7ea39565fe93e02e43dd27e08c699163e7ef94a7edb0bb87b4"
+  },
+  "source_scope": "Candidate coherent union. Source hash validation is not aggregate/runtime acceptance.",
+  "reviewed_new_shader": "RGB555 specialization only for quantized5bit UNORM cell pipelines, generic fallback retained; indexed shortcut removed. Optional rasterLCD dual uses negotiated feature and exact3draw fallback. Both helper transforms and renderer index/count mappings reviewed.",
+  "pending": [
+    "fresh host/Wine/Windows/Mac suites",
+    "actualApp geometry and sustained4K240 qualification",
+    "paired runtime/starter artifacts and deployment if TSNeo reachable"
+  ]
+}

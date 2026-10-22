@@ -1,0 +1,97 @@
+{
+  "reviewed_utc": "2026-10-20T19:49:24.309154+00:00",
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "source_commit": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+  "report_sha256": "368ba6b77e41dbc54ba6642001da9f14c644a66917e71ce62b9287ed426eb012",
+  "scope": "Root independently rehashed54evidence files and8runtime/source/shader artifacts, read raw qualifiers and measurement controls, recomputed FPS/counter differences and primary-camera/reversal/fixed-B/inverse-label behavior from endpoint records. Inspected actual loaded native4K screenshot with world/units/minimap/HUD.",
+  "mode": {
+    "internal": [
+      3840,
+      2160
+    ],
+    "surface": [
+      3840,
+      2160
+    ],
+    "pixel_scale": 1,
+    "subpixel_dual": 0,
+    "tiles555": 1,
+    "glyph_cache": 1,
+    "present": "Immediate",
+    "max_fps": 0,
+    "original_game_renderer": "off"
+  },
+  "adapter": {
+    "PCI": "0000:72:00.0",
+    "vendor": "0x1002",
+    "device": "0x13c0",
+    "backend": "Vulkan/RADV",
+    "software": false
+  },
+  "repetitions": [
+    {
+      "rep": 1,
+      "app_FPS_recomputed": 43.22353624029602,
+      "full_submit_FPS_recomputed": 43.238437392266796,
+      "complete_windows": 11,
+      "positive_negative_legs": [
+        5,
+        6
+      ],
+      "reversals": 10,
+      "B_fixed": true,
+      "zero_replay_reuse_drops": true
+    },
+    {
+      "rep": 2,
+      "app_FPS_recomputed": 43.991143697143485,
+      "full_submit_FPS_recomputed": 43.991942070016876,
+      "complete_windows": 11,
+      "positive_negative_legs": [
+        5,
+        6
+      ],
+      "reversals": 10,
+      "B_fixed": true,
+      "zero_replay_reuse_drops": true
+    },
+    {
+      "rep": 3,
+      "app_FPS_recomputed": 42.996518206876544,
+      "full_submit_FPS_recomputed": 43.00139591377966,
+      "complete_windows": 11,
+      "positive_negative_legs": [
+        5,
+        6
+      ],
+      "reversals": 10,
+      "B_fixed": true,
+      "zero_replay_reuse_drops": true
+    }
+  ],
+  "decision": "Accept measured shipping native4K dynamic App baseline and strong observation gates. All3 fail240FPS goal. No application/platform/all-feature completion inferred.",
+  "limits": {
+    "host": "Unrelated Python/QEMU/long-lived Civ3 remain. No unrelated process was controlled. Host load/pressure and AMD telemetry are preserved. This is not a quiet-host hardware-limit result.",
+    "quantiles": "Per-report windows are retained; first partial windows excluded from comparisons. Wine and bridge duplicate logs are not pooled. Ranges are minima/maxima of individual-window quantiles, not a global quantile or an average of quantiles.",
+    "timing_coverage": "All drop deltas are zero and endpoint submitted/collected differences fit immutable ring32. Rep1 collected one sample more than submitted during the endpoint interval. These counters are not a matched per-frame submitted cohort and are not called exact full coverage.",
+    "motion": "All11 complete adjacent report intervals in each repetition move the same primary world camera, with5 positive and6 negative legs,10reversals and fixed inverse-label anchor. First/last partial intervals remain unobserved. B is fixed in every retained observation.",
+    "CPU": "Frame encode(host) is host command-preparation wall time, not total CPU utilization or a guarantee of unblocked CPU compute. Worker draw(all) includes acquire/submit/present walls.",
+    "GPU_waiting_for_CPU": "GPU inter-frame gap is retained separately and is not attributed solely to CPU starvation.",
+    "physical_scanout": false,
+    "platform_scope": "Linux shipping runtime only. No macOS loaded-audio, deployment, or all-feature acceptance follows."
+  },
+  "cleanup": {
+    "all_owned_processes_absent": true,
+    "unrelated_processes_touched": false
+  },
+  "performance_goal_achieved": false,
+  "GPU_frame_per_window_p50_ms_range": [
+    19.42,
+    20.82
+  ],
+  "host_encode_wall_per_window_p50_ms_range": [
+    12.64,
+    16.49
+  ],
+  "tiny_view_performance_lead": "v2-v5 tiny world views each~1.25ms. Source-path investigation only; no optimization or matched causal attribution yet."
+}
