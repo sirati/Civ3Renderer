@@ -699,6 +699,8 @@ fn publish(
     let mut ui_sprites_memo = Memo::default();
     let mut label_sprites_memo = Memo::default();
     let mut minimap_memo = Memo::default();
+    // The Load Scenario screen's map of the scenario (`minimap::scenario_map`).
+    let mut scenario_map_memo = Memo::default();
     // The previewed world's scene (`crate::preview::scene_with`).
     let mut preview_memo: Memo<_, scene::Scene> = Memo::default();
     // The controls' pointer anchors (`ui_screen::content_anchors`).
@@ -997,6 +999,8 @@ fn publish(
             folders_changed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             art = resolved_art.unwrap_or_else(|| units::UnitArt::new(compiler.files(&folders)));
             label_env = crate::city_labels::SystemTextEnv::new(crate::city_labels::FileEnv::new(Box::new(compiler.files(&folders))));
+            // (A scenario's own `Art/Units/Palettes` give the minimap's civ colours.)
+            table_colors.clear();
             labels_memo = Memo::default();
             items_memos = Default::default();
             have = units::Needed::default();
@@ -1916,7 +1920,24 @@ fn publish(
         mark(&mut profile, "minimap", &mut t);
         // Replay pixels made by our renderer from terrain and history changes.
         let all = ui_items.iter().chain(&menu_items).chain(&screen_items).chain(&popup_items);
-        scene.patches.extend(ui_screen::surface_patches(all, &replay_surface, &compiled));
+        scene.patches.extend(ui_screen::surface_patches(all.clone(), &replay_surface, &compiled));
+        // The Load Scenario screen's map of the highlighted scenario (§19.1),
+        // made from the previewed world at each size the screen shows it.
+        if let Shown::Preview(_, Some(p)) = &shown {
+            let scenario_map = civ3_sys::ui_hooks::SCENARIO_MAP;
+            let mut sizes: Vec<(u32, u32)> = all
+                .clone()
+                .filter_map(|i| match i {
+                    ui_screen::Item::Element(menu::screen::Element::Dynamic { name, size, .. }, _) if name == scenario_map => Some(*size),
+                    _ => None,
+                })
+                .collect();
+            sizes.dedup();
+            let surfaces = scenario_map_memo.get((p.number, sizes.clone()), || {
+                sizes.iter().map(|&size| (scenario_map, size, crate::minimap::scenario_map(&p.world, size))).collect::<Vec<_>>()
+            });
+            scene.patches.extend(ui_screen::surface_patches(all, &surfaces, &compiled));
+        }
         crate::scene_map::overlay_screen_sprites(&mut scene);
         // Add transient world art after screen sprites have been partitioned,
         // so its index ranges remain valid through the rest of publication.

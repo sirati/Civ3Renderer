@@ -196,6 +196,13 @@ pub(crate) fn rgba(pixels: &[u16]) -> Vec<u8> {
     }).collect()
 }
 
+/// The Load Scenario screen's map of a scenario (`SCENARIO_MAP`, docs
+/// §19.1): its navigator's terrain image as the game keeps it, the whole
+/// map in bright terrain colours, nothing explored, owned or built shown.
+pub fn scenario_map(world: &Civ3World, size: (u32, u32)) -> Vec<u8> {
+    rgba(&terrain(world, size).bright)
+}
+
 /// The minimap the viewing player sees, `size` pixels, as row-major RGBA.
 /// `owner_color`: a civ's colour (its colour table's entry 66) in RGB555.
 pub fn image(world: &Civ3World, size: (u32, u32), owner_color: impl Fn(i32) -> u16) -> Vec<u8> {
@@ -347,6 +354,38 @@ mod mode_tests {
     use super::*;
     use civ3_sys::ui_hooks::NavigatorMode;
     use crate::world::{Civ3City, Civ3Tile};
+
+    /// The Load Scenario screen's map of *WWII in the Pacific* (136 × 120,
+    /// no wrap) at its 230 × 110: interior ocean and desert pixels as the
+    /// game showed them (its screenshot: (0, 66, 82) and (239, 239, 181), the
+    /// bright colours one step lower from the bilinear blend's truncation),
+    /// whatever the viewer has explored, with no city squares or territory.
+    #[test]
+    fn scenario_map_is_the_whole_bright_terrain_image() {
+        let (width, height) = (136, 120);
+        let mut world = Civ3World { width, height, flags: 0, player: 1, ..Default::default() };
+        for y in 0..height {
+            for x in ((y & 1)..width).step_by(2) {
+                let terrain = if x < 40 { 0 } else { 13 };
+                world.tiles.push(Civ3Tile { square_type: terrain << 12, owner: if x < 40 { 1 } else { 0 }, ..Default::default() });
+            }
+        }
+        world.cities.push(Civ3City { x: 20, y: 60, ..Default::default() });
+        let size = (230, 110);
+        let map = scenario_map(&world, size);
+        assert_eq!(map.len(), (size.0 * size.1 * 4) as usize);
+        let at = |tile| {
+            let (x, y) = pixel_of(&world, size, tile).unwrap();
+            let i = ((y * size.0 + x) * 4) as usize;
+            <[u8; 4]>::try_from(&map[i..i + 4]).unwrap()
+        };
+        assert_eq!(at((100, 60)), [0, 66, 82, 255]);
+        assert_eq!(at((10, 30)), [239, 239, 181, 255]);
+        assert_eq!(at((20, 60)), [239, 239, 181, 255], "no city square");
+        // The in-game minimap of the same world shows nothing unexplored.
+        let shown = image_mode(&world, size, NavigatorMode::Geography, |_| 0);
+        assert!(shown.chunks(4).all(|p| p[..3] == [0, 0, 0]));
+    }
 
     #[test]
     fn geography_and_territory_toggle_both_ways_with_ocean_and_unclaimed_land() {
