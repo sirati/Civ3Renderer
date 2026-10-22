@@ -216,7 +216,9 @@ fn sheet_meta(font: &FontStyle) -> Result<SheetMeta, String> {
     let dir = cache_dir().ok_or("no font cache directory")?;
     let stem = dir.join(cache_stem(font));
     let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
-    let meta: toml::Table = std::fs::read_to_string(stem.with_extension("toml"))
+    // (`read_file`: no `metadata()` size hint, a volume query under Wine.)
+    let meta = crate::files::read_file(&stem.with_extension("toml")).map_err(|e| missing(&e))?;
+    let meta: toml::Table = String::from_utf8(meta)
         .map_err(|e| missing(&e))?
         .parse()
         .map_err(|e| missing(&e))?;
@@ -269,8 +271,12 @@ fn from_cache(font: &FontStyle, color: [u8; 3]) -> Result<GlyphFont, String> {
     let font = &FontStyle { height: available_height(font), ..font.clone() };
     let SheetMeta { stem, meta, cell: (cw, ch) } = sheet_meta(font)?;
     let missing = |e: &dyn std::fmt::Display| format!("{}: {e} (run tools/gen-civ3-fonts)", stem.display());
-    let sheet = image::open(stem.with_extension("png")).map_err(|e| missing(&e))?.to_rgba8();
-    let light_sheet = image::open(stem.with_file_name(format!("{}-light.png", cache_stem(font)))).map_err(|e| missing(&e))?.to_rgba8();
+    let png = |path: std::path::PathBuf| -> Result<image::RgbaImage, String> {
+        let bytes = crate::files::read_file(&path).map_err(|e| missing(&e))?;
+        Ok(image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).map_err(|e| missing(&e))?.to_rgba8())
+    };
+    let sheet = png(stem.with_extension("png"))?;
+    let light_sheet = png(stem.with_file_name(format!("{}-light.png", cache_stem(font))))?;
     let first = int(meta.get("first")) as u32;
     let ascent = int(meta.get("ascent")) as i32;
     let underline = match meta.get("underline").and_then(|u| u.as_array()) {
