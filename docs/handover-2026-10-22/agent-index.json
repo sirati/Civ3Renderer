@@ -1,91 +1,9 @@
 [
   {
-    "task_name": "performance_240",
-    "title": "Native 4K performance and candidate attribution",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named performance_240 to continue this unfinished task.",
-    "brief": "Reach and verify sustained 240 FPS on the AMD RADV iGPU at native 3840 by 2160 with full UI and realistic motion. Preserve the counter design. Continue the controlled thin-view diagnostic before adopting binary-cell, glyph-skip, sparse-cell or terrain-cache changes. Test candidates against the unchanged baseline with matched correctness and timing.",
-    "first_step": "Inspect the accepted f510 baseline and thin-view plan. Bind the exact source, shader pair, 18-camera workload and attachments. Run controlled free/text/glyph-metadata axes under an exclusive AMD measurement reservation.",
-    "done_when": "The actual full-UI workload meets the 240 FPS target in repeated sustained moving runs, with correct pixels and separately reported full submissions, cache reuse, presentation rates and timing loss. Host-load and frame-gap limits remain explicit.",
-    "resources": "Exclusive AMD GPU measurement; no competing builds, captures, hashing or VM activity during measured intervals.",
-    "family_ids": [
-      "performance-4k-static",
-      "performance-4k-dynamic",
-      "performance-delays"
-    ],
-    "evidence": [
-      "evidence/handover/sol-root-f510-native4k-baseline-review.json",
-      "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json",
-      "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
-      "evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json",
-      "evidence/handover/binary-cell-recorded4k-proof.sol.json"
-    ],
-    "depends_on": []
-  },
-  {
-    "task_name": "cpu_timing",
-    "title": "CPU busy measurement and concurrency acceptance",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named cpu_timing to continue this unfinished task.",
-    "brief": "Measure actual CPU busy time separately from host build/encode wall time. Verify GPU-worker isolation, immutable frame/mapping ownership, three small control slots and bounded transport under resize, cancellation and failures. Keep the current counter layout and existing GPU gap semantics.",
-    "first_step": "Locate the viewer profiling and worker timing paths. Add a measured thread/process CPU-time source and a controlled check that distinguishes blocked wall time from CPU execution. Reproduce the stale/failure/resize paths against current source.",
-    "done_when": "The displayed CPU metric has a tested meaning and bounded overhead; cursor independence, command/image pairing and bounded queues hold during GPU stalls, surface loss and worker failure. No world/atlas triplication or production Rust locks are introduced.",
-    "resources": "Owned CPU build target; coordinate affected shared viewer files and any GPU stall test with the parent.",
-    "family_ids": [
-      "architecture",
-      "fps-counter-details",
-      "gpu-worker-isolation",
-      "gpu-transactions",
-      "gpu-three-buffers",
-      "gpu-no-cpu-render",
-      "architecture-transport"
-    ],
-    "evidence": [
-      "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.json",
-      "verification.md"
-    ],
-    "depends_on": []
-  },
-  {
-    "task_name": "wider_color",
-    "title": "Six-bit and seven-bit color correctness",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named wider_color to continue this unfinished task.",
-    "brief": "Resolve the strict wider-depth subpixel rounding failure and qualify the isolated wider-integer implementation. Keep RADV on its proven UNORM path until a replacement passes the numerical oracle. Do not broaden the Microsoft Basic Render Driver FP16 workaround.",
-    "first_step": "Reproduce bits=6, material=0, dst=0, x=5, y=0 returning [0,0,251,37] instead of [0,0,255,37] in both dual-source and fallback paths. Inspect the private wider compiler/qualification package before building it.",
-    "done_when": "Strict six-bit and seven-bit tests pass while RGB444/RGB555, alpha, clipping, glyphs and ordinary rendering remain correct. Continuation/retirement bounds and worker behavior pass compiler and runtime checks. The inventory-only switch is never counted as a correctness pass.",
-    "resources": "Owned CPU target followed by a separately scheduled exclusive AMD GPU gate.",
-    "family_ids": [],
-    "evidence": [
-      "verification.md",
-      "evidence/external/wider-integer-sol/compiler-gate/cpu-gate-plan.json",
-      "evidence/external/wider-integer-sol/gpu-qualification-v2/package-manifest.json"
-    ],
-    "depends_on": []
-  },
-  {
-    "task_name": "audio_loaded",
-    "title": "Loaded-save audio failure and normal Quit",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named audio_loaded to continue this unfinished task.",
-    "brief": "Finish the loaded Mal3 no-device causal test and macOS music/CPU soak. Fix the owner driver before running it. Preserve the eight-minute watchdog, identity-safe cleanup and exact USB-null environment restoration.",
-    "first_step": "Restore the ce5e104 private QA checkpoint. Fix bridge-log truncation, title adoption incorrectly satisfying loaded-map readiness, and capture occurring before readiness. Extend offline checks, then separately calibrate the normal-Quit radio selection before a new qualified arm.",
-    "done_when": "Fresh post-adoption full-HUD/unit images and a current loaded native-audio trace establish the intended state; ordinary Quit produces a natural success exit without external signals or survivors. Restore the original audio/VM environment after every outcome. Music soak on physical Neo is recorded separately.",
-    "resources": "Sole VM GUI/input and audio-fixture owner; coordinate physical Neo checks with platform_runtime. No VM operation while performance timing owns a quiet interval.",
-    "family_ids": [
-      "audio-music"
-    ],
-    "evidence": [
-      "evidence/external/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md",
-      "README.md"
-    ],
-    "depends_on": []
-  },
-  {
     "task_name": "combat_validation",
     "title": "Camera arrival and accelerated combat",
     "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named combat_validation to continue this unfinished task.",
+    "spawn_instruction": "When this unfinished task is resumed, spawn a fresh subagent named combat_validation. Respect its P1 priority.",
     "brief": "Verify visible battles at 1x and 4x, camera arrival before animation, minimum keep-visible AI focus, army presentation and movement bonuses. Use matched initial state and compare RNG plus stable unit outcomes.",
     "first_step": "Build the reviewed f510 combat diagnostic successor and run its pending 11-test gate. Prepare matched battles and the corrected offline comparator; check actual event provenance before interpreting timings.",
     "done_when": "Matched battles have equivalent RNG and stable unit results at both speeds; camera movement completes before visible combat begins; no per-tile recentering, hidden-unit disclosure, stuck arrival or unintended global/audio clock change appears.",
@@ -102,222 +20,92 @@
       "evidence/external/combat-diagnostics-army/f510-outcomes-rebind/verification-manifest.json",
       "evidence/external/combat-diagnostics-army/offline-comparator-successor2/proof.json"
     ],
-    "depends_on": []
+    "depends_on": [],
+    "priority": "P1",
+    "deployment_gate": false
   },
   {
-    "task_name": "ui_acceptance",
-    "title": "Settings and UI runtime acceptance",
+    "task_name": "audio_loaded",
+    "title": "Sound and loaded-save audio follow-up",
     "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named ui_acceptance to continue this unfinished task.",
-    "brief": "Finish current-game acceptance for UI command atomicity, settings preview/Accept/Cancel, scale confirmation/rollback, menu fit, C3X modal painter order, F1 smooth scrolling, text fit, popup identity/freezing/dismissal, loading/status UI and background sampling.",
-    "first_step": "Use the assigned acceptance rows to run cold/warm Preferences and F1 cases at multiple scales, then C3X and terrain/context popups. Check command publication without waiting for every optional sprite. Preserve exact source, scene and screenshot/trace identities.",
-    "done_when": "Each assigned acceptance oracle passes in the current actual game, including Cancel restoration, ten-second scale rollback, coherent first-frame UI, clipped hit targets, full-row F1 scrolling and usable modal placement. Fix and recheck concrete failures before closing rows.",
-    "resources": "One scheduled GUI owner; CPU-only recipe/preparation may proceed independently. Coordinate changes to shared UI files.",
+    "spawn_instruction": "When this unfinished task is resumed, spawn a fresh subagent named audio_loaded. Respect its P3 priority.",
+    "brief": "Continue the unfinished loaded Mal3 no-device test and music/CPU soak at P3. Fix the owner-driver gaps before running that qualification. Preserve the eight-minute watchdog, identity-safe cleanup and exact audio-fixture restoration. This work does not block installation.",
+    "first_step": "Restore the ce5e104 private QA checkpoint. Fix bridge-log truncation, title adoption incorrectly satisfying loaded-map readiness, and capture occurring before readiness. Extend offline checks, then separately calibrate the normal-Quit radio selection before a new qualified arm.",
+    "done_when": "Fresh post-adoption full-HUD/unit images and a current loaded native-audio trace establish the intended state; ordinary Quit produces a natural success exit without external signals or survivors. Restore the original audio/VM environment after every outcome. Music soak on physical Neo is recorded separately.",
+    "resources": "Sole VM GUI/input and audio-fixture owner; coordinate physical Neo checks with the parent. No VM operation while performance timing owns a quiet interval.",
     "family_ids": [
-      "text-native",
-      "text-tooltip-fit",
-      "ui-command-atomic",
-      "ui-settings-transactions",
-      "ui-menu-scale",
-      "ui-c3x-modal",
-      "ui-screen-placement",
-      "ui-other-pane",
-      "slider-edit",
-      "menu-hover",
-      "menu-smooth-scroll",
-      "popup-world-scale",
-      "popup-freeze-dismiss",
-      "popup-tile-identity",
-      "popup-resource-shadows",
-      "host-busy",
-      "startup-window",
-      "leader-blink",
-      "ui-background-sampling"
+      "audio-music"
     ],
     "evidence": [
-      "acceptance.md",
-      "../settings-transactions.md",
-      "../modal-input.md"
+      "evidence/external/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md",
+      "README.md"
     ],
-    "depends_on": []
+    "depends_on": [],
+    "priority": "P3",
+    "deployment_gate": false
   },
   {
-    "task_name": "scenario_loading",
-    "title": "Scenario switching and loading cost",
+    "task_name": "cpu_timing",
+    "title": "CPU busy attribution",
     "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named scenario_loading to continue this unfinished task.",
-    "brief": "Finish rapid scenario-selection/roundtrip acceptance, optional preview lifecycle, memory bounds, capture entry and fractional preview geometry. Attribute remaining late HUD/art adoption delays without conflating load time and frame GPU cost.",
-    "first_step": "Run the rapid-switch/reopen cases with generation and memory tracking. Instrument per-source FLC metadata calls and PE art-job stages around the reported 30\u201336 second gap after GPU uploads.",
-    "done_when": "Repeated quick switches never leave a black/stale preview, lost menu or corrupt atlas/glyph state; preview visibility follows human-playable nations; memory is bounded and load-stage timings identify any remaining delay. Warm startup behavior is measured.",
-    "resources": "Owned instrumentation/build target and one scheduled actual-game GUI owner; reuse read-only game assets.",
+    "spawn_instruction": "When this unfinished task is resumed, spawn a fresh subagent named cpu_timing. Respect its P3 priority.",
+    "brief": "Add actual CPU busy measurement separately from host encode/build wall time. Preserve the existing counter design and GPU-gap meaning. The accepted GPU-worker and frame-ownership implementations are complete and are not reopened by this task.",
+    "first_step": "Locate the existing viewer timing counters and add a measured thread/process CPU-time source. Use a controlled check that distinguishes blocked wall time from CPU execution.",
+    "done_when": "The CPU busy metric has a tested meaning and bounded overhead without changing the counter design or attributing all GPU gaps to CPU starvation.",
+    "resources": "Owned CPU build target; coordinate affected shared viewer files and any GPU stall test with the parent.",
     "family_ids": [
-      "preview-human-visibility",
-      "preview-progressive",
-      "preview-smear",
-      "preview-capture",
-      "scenario-generation",
-      "scenario-memory",
-      "startup-warm-time"
+      "fps-counter-details"
     ],
     "evidence": [
-      "acceptance.md",
-      "../civ3-map-rendering.md"
+      "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.json",
+      "verification.md"
     ],
-    "depends_on": []
+    "depends_on": [],
+    "priority": "P3",
+    "deployment_gate": false
   },
   {
-    "task_name": "pointer_input",
-    "title": "Pointer independence and input acceptance",
+    "task_name": "performance_240",
+    "title": "Native 4K performance and candidate attribution",
     "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named pointer_input to continue this unfinished task.",
-    "brief": "Finish common pointer API, cursor/game-asset busy animation, capture/release, barriers, sensitivity, Alt navigation, native slider/City/F1 targets and translated menu cursor acceptance across supported display setups.",
-    "first_step": "Run focus/multiple-window/boundary and sensitivity-ratio checks, then an observable OS-cursor check during a controlled GPU-only stall. Cover captured and free input, magnifier barriers, invalid targeting and right-drag orders.",
-    "done_when": "Assigned input/cursor oracles pass without duplicate native input or leaked slider arrows. The OS cursor remains responsive during the stall; HiDPI/fractional geometry, capture handoff, targeting and Alt actions match their displayed coordinates.",
-    "resources": "Exclusive GUI/input during live checks; coordinate GPU stall work with cpu_timing and the AMD owner.",
+    "spawn_instruction": "When this unfinished task is resumed, spawn a fresh subagent named performance_240. Respect its P3 priority.",
+    "brief": "Continue the unfinished 240 FPS native-4K target and controlled thin-view attribution on AMD RADV. Preserve the counter design and use the accepted f510 moving full-UI baseline. Qualify any optimization with matched correctness and timing. This P3 task is not a deployment gate.",
+    "first_step": "Inspect the accepted f510 baseline and thin-view plan. Bind the exact source, shader pair, 18-camera workload and attachments. Run controlled free/text/glyph-metadata axes under an exclusive AMD measurement reservation.",
+    "done_when": "The actual full-UI workload meets the 240 FPS target in repeated sustained moving runs, with correct pixels and separately reported full submissions, cache reuse, presentation rates and timing loss. Host-load and frame-gap limits remain explicit.",
+    "resources": "Exclusive AMD GPU measurement; no competing builds, captures, hashing or VM activity during measured intervals.",
     "family_ids": [
-      "magnifier-layout",
-      "magnifier-hit",
-      "cursor-os",
-      "cursor-captured",
-      "cursor-scale",
-      "cursor-target-modes",
-      "cursor-civ4-drag",
-      "capture-entry",
-      "capture-sensitivity",
-      "alt-navigation",
-      "alt-f1-city",
-      "platform-pointer-api",
-      "mirrored-cursor"
+      "performance-4k-static",
+      "performance-4k-dynamic",
+      "performance-delays"
     ],
     "evidence": [
-      "acceptance.md",
-      "../world-input.md",
-      "../native-alt-sliders.md"
+      "evidence/handover/sol-root-f510-native4k-baseline-review.json",
+      "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json",
+      "evidence/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
+      "evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json",
+      "evidence/handover/binary-cell-recorded4k-proof.sol.json"
     ],
-    "depends_on": []
+    "depends_on": [],
+    "priority": "P3",
+    "deployment_gate": false
   },
   {
-    "task_name": "world_fidelity",
-    "title": "World and city correctness in independent views",
+    "task_name": "wider_color",
+    "title": "Six-bit and seven-bit pixel attribution",
     "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named world_fidelity to continue this unfinished task.",
-    "brief": "Finish current-source correctness for terrain/cities/districts, off-camera units, national palettes, crisp zoom, independent panes and fog/clean-map controls, notices, city transitions, diplomacy overlays and indexed smoke/shadows.",
-    "first_step": "Use independent A/B and magnifier views of the same real save. Compare the assigned pixel/state oracles, including C3X resource layers, City worked tiles, repeated notices, resized indexed smoke and rapid Next City transitions.",
-    "done_when": "All assigned feature oracles pass with original game pixels disabled. Separate pane settings and unit visibility remain correct outside the native parked camera, and no outstanding smoke/indexed path is silently omitted.",
-    "resources": "One scheduled actual-game GUI owner and separate AMD pixel checks as needed; do not duplicate game assets.",
-    "family_ids": [
-      "world-pixel-fidelity",
-      "districts",
-      "city-labels-all",
-      "unit-visibility",
-      "unit-palette-memory",
-      "zoom-crisp",
-      "split-independent",
-      "split-fog",
-      "smoke-resized-indexed",
-      "city-state-sync",
-      "notices-expire",
-      "diplomacy-ring-arrow",
-      "city-worked-alt",
-      "settings-fog-and-territory",
-      "viewport-separators"
-    ],
+    "spawn_instruction": "When this unfinished task is resumed, spawn a fresh subagent named wider_color. Respect its P4 priority.",
+    "brief": "Resolve the strict wider-depth subpixel rounding failure and qualify the isolated wider-integer implementation. Keep RADV on its proven UNORM path until a replacement passes the numerical oracle. Do not broaden the Microsoft Basic Render Driver FP16 workaround.",
+    "first_step": "Reproduce bits=6, material=0, dst=0, x=5, y=0 returning [0,0,251,37] instead of [0,0,255,37] in both dual-source and fallback paths. Inspect the private wider compiler/qualification package before building it.",
+    "done_when": "Strict six-bit and seven-bit tests pass while RGB444/RGB555, alpha, clipping, glyphs and ordinary rendering remain correct. Continuation/retirement bounds and worker behavior pass compiler and runtime checks. The inventory-only switch is never counted as a correctness pass.",
+    "resources": "Owned CPU target followed by a separately scheduled exclusive AMD GPU gate.",
+    "family_ids": [],
     "evidence": [
-      "acceptance.md",
-      "../clean-map.md",
-      "../per-view-layers.md",
-      "../unit-map-notices.md"
+      "verification.md",
+      "evidence/external/wider-integer-sol/compiler-gate/cpu-gate-plan.json",
+      "evidence/external/wider-integer-sol/gpu-qualification-v2/package-manifest.json"
     ],
-    "depends_on": []
-  },
-  {
-    "task_name": "windows_guest",
-    "title": "Native Windows guest acceptance",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named windows_guest to continue this unfinished task.",
-    "brief": "Execute the prepared native Windows guest matrix and complete the small offline-ready ephemeral template requirements. Use Vulkan as the primary backend and preserve the minimum observed DX12 compatibility behavior.",
-    "first_step": "Inspect the existing VM and matrix without starting unrelated guests. Verify read-only fixtures and matched artifacts, then run the native guest cases. Papa Wine tests are supporting evidence only.",
-    "done_when": "The native guest matrix passes with explicit adapter/backend identity; the required small clones are usable and within resource limits. Keep hardware acceleration claims separate from pure CPU tests and software-adapter results.",
-    "resources": "Renderer VMs together remain within the c3r-vms.slice 10 GB cap. Never operate wayland-host.",
-    "family_ids": [
-      "platform-windows",
-      "windows-ephemeral-template"
-    ],
-    "evidence": [
-      "acceptance.md",
-      "../macos-vm.md"
-    ],
-    "depends_on": []
-  },
-  {
-    "task_name": "platform_runtime",
-    "title": "Dual-stack and physical Metal runtime acceptance",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named platform_runtime to continue this unfinished task.",
-    "brief": "Finish current matched Linux/Intel macOS/physical Apple ARM64 runtime acceptance, native resolution and HiDPI behavior. Verify the intended ARM-native Wine/FEX plus Metal setup and explicit unsupported GPU-option failure behavior.",
-    "first_step": "Bind the current source and all native/PE artifacts. Use the Intel macOS VM for permitted preparatory checks; coordinate any physical Neo run with the release owner after priority checks and installation. Recheck adapter identity and game-window suppression.",
-    "done_when": "Current-source startup/input/drawing/exit works on the assigned platforms, renderer output remains native-resolution with supported game modes, and physical Metal/FEX fidelity/performance is recorded. No VM SwiftShader test is claimed as Metal proof.",
-    "resources": "Cross-build only on Papa. No physical Neo compilation or automatic game launch. Reserve physical/VM GUI ownership.",
-    "family_ids": [
-      "platform-linux-dualstack",
-      "platform-mac-dualstack",
-      "platform-metal",
-      "resolution-native",
-      "window-hidpi",
-      "nvidia-failure-handling",
-      "low-game-resolution"
-    ],
-    "evidence": [
-      "acceptance.md",
-      "../macos-tsneo.md",
-      "../macos-vm.md"
-    ],
-    "depends_on": []
-  },
-  {
-    "task_name": "neo_release",
-    "title": "Matched successor release on Neo",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named neo_release to continue this unfinished task.",
-    "brief": "Finish the coherent release and priority runtime gates, then install and verify the matched staged successor on Neo. Keep source freezes, shader identity, all five runtime files and starter/bundle artifacts coherent.",
-    "first_step": "Verify that Neo still has the last recorded protocol49 3be set and that protocol50 f510 remains staged. Inspect actual outstanding priority gates before replacing any file. Prepare rollback and verification from the existing release procedure.",
-    "done_when": "The intended source-bound successor is installed as a matching signed set with searchable app/icon, verified runtime hashes and explicit runtime acceptance results. Installation alone does not close music, performance or feature acceptance.",
-    "resources": "Parent coordinates publication after relevant priority checks. Cross-build on Papa; no automatic Neo launch.",
-    "family_ids": [
-      "release-pairing",
-      "settings-chrome"
-    ],
-    "evidence": [
-      "README.md",
-      "../macos-tsneo.md"
-    ],
-    "depends_on": [
-      "audio_loaded",
-      "ui_acceptance",
-      "combat_validation"
-    ]
-  },
-  {
-    "task_name": "game_soak",
-    "title": "Save and full-game lifecycle acceptance",
-    "status": "open",
-    "spawn_instruction": "Spawn a fresh subagent named game_soak to continue this unfinished task.",
-    "brief": "Finish new-game/save/load/reload/end-turn/scenario/city/retire/restart soak using the current paired runtime. Check bounded memory, responsive input, world-mode reset and owned-process cleanup.",
-    "first_step": "Prepare the recorded save/load/turn cases and run them only after the relevant current-source smoke and input checks. Preserve unique saves, logs and identity-bound failures.",
-    "done_when": "The full lifecycle sequence passes without leaked processes or unbounded memory, state and world mode reset on exit/restart, and no evidence relies only on title-screen or synthetic tests.",
-    "resources": "One scheduled game/GUI owner; share the same asset tree and preserve unique saves before cleanup.",
-    "family_ids": [
-      "regression-start-exit",
-      "save-load-input",
-      "ui-read-only-constraints"
-    ],
-    "evidence": [
-      "acceptance.md"
-    ],
-    "depends_on": [
-      "ui_acceptance",
-      "pointer_input",
-      "scenario_loading"
-    ]
+    "depends_on": [],
+    "priority": "P4",
+    "deployment_gate": false
   }
 ]

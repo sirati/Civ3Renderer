@@ -85,9 +85,9 @@
     {
       "copy": "evidence/handover/creative-qa/acceptance-matrix.json",
       "source": "/mnt/datasets/c3r-build/handover/creative-qa/acceptance-matrix.json",
-      "transformation": "Retained task requirements and next checks; removed historical subagent/review details; mapped open tasks to fresh continuation briefs.",
-      "copy_sha256": "340c6cf1c4d8fba9aff3d9c08065e2e20729f67710b35952fc34c82c2cdf5473",
-      "copy_bytes": 91482
+      "transformation": "Historical task checklist with current priority overrides, accepted installation and actual unfinished continuation assignments only.",
+      "copy_sha256": "eef74ad655474ff8ba96f62b9ee7afd170773e9be6a02f6c5a476ee3ef668a63",
+      "copy_bytes": 90669
     },
     {
       "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",

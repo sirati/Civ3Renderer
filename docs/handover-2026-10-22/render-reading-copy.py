@@ -18,7 +18,8 @@ def inline(value):
         label, href = match.groups()
         pages = {'README.md': '#overview', 'subagents.md': '#agents',
                  'acceptance.md': '#acceptance', 'verification.md': '#verification',
-                 'backup-and-restore.md': '#backups', 'handover.html': '#overview'}
+                 'backup-and-restore.md': '#backups', 'deferred-work.md': '#deferred',
+                 'handover.html': '#overview'}
         href = pages.get(href, href)
         return f'<a href="{href}">{label}</a>'
 
@@ -120,18 +121,18 @@ details{border-bottom:1px solid var(--border,GrayText);padding:.7rem 0}summary{c
 @media print{input,nav{display:none}details>*{display:block}.table-scroll{overflow:visible}a{color:inherit}}
 </style></head><body><main>
 <h1>Civ III renderer handover</h1><p class="muted">22 October 2026 · Implementation baseline 8106ae5 · Unfinished continuation tasks</p>
-<nav aria-label="Sections"><a href="#overview">Open and closed work</a><a href="#agents">Subagents to spawn</a><a href="#acceptance">Acceptance</a><a href="#verification">Tests</a><a href="#backups">Restore</a></nav>
+<nav aria-label="Sections"><a href="#overview">Current status</a><a href="#agents">Unfinished tasks</a><a href="#acceptance">Acceptance reference</a><a href="#deferred">Deferred details</a><a href="#backups">Restore</a></nav>
 '''
 overview = (ROOT / 'README.md').read_text().split('\n', 1)[1]
 page += '<section id="overview">' + markdown(overview) + '</section>'
-page += '''<section id="agents"><h2>Subagents the successor must spawn</h2><p>Spawn a fresh subagent for each unfinished task below. Give it the brief, first action, completion condition and shared constraints. The parent must coordinate dependencies and reserve VM GUI/input and AMD measurement intervals. <a href="subagents.md">Full continuation instructions</a>.</p>
+page += '''<section id="agents"><h2>Unfinished tasks by priority</h2><p>Only still-unfinished work appears here. When resuming a task, spawn its fresh subagent with the brief and constraints below. Do not start the entire backlog or recreate completed and accepted agents. Sound and the frame target are P3; six-bit/seven-bit attribution is P4. The Neo deployment is complete. <a href="subagents.md">Continuation instructions</a>.</p>
 <label for="agent-search">Filter unfinished tasks</label><input id="agent-search" type="search" placeholder="For example: audio, combat, camera or performance" aria-controls="agent-list"><p id="agent-count" class="muted" aria-live="polite"></p><div id="agent-list">'''
 for task in tasks:
-    page += '<details data-filter><summary>' + html.escape(task['title']) + '</summary><div class="detail"><p>' + html.escape(task['spawn_instruction']) + '</p><p>' + html.escape(task['brief']) + '</p><p>First action: ' + html.escape(task['first_step']) + '</p><p>Completion condition: ' + html.escape(task['done_when']) + '</p><p>Resources: ' + html.escape(task['resources']) + '</p>'
+    page += '<details data-filter><summary>' + html.escape(task['priority'] + ' · ' + task['title']) + '</summary><div class="detail"><p>' + html.escape(task['spawn_instruction']) + '</p><p>' + html.escape(task['brief']) + '</p><p>First action: ' + html.escape(task['first_step']) + '</p><p>Completion condition: ' + html.escape(task['done_when']) + '</p><p>Resources: ' + html.escape(task['resources']) + '</p>'
     if task['depends_on']:
         page += '<p>Dependent execution waits for: ' + html.escape(', '.join(task['depends_on'])) + '.</p>'
-    page += '<p><a href="subagents.md#' + task['task_name'] + '">Starting material and assigned acceptance rows</a></p></div></details>'
-page += '</div></section><section id="acceptance"><h2>Open acceptance families</h2><p>82 open families and two failed performance goals. Prepared macOS desktop template: All of this task has been done. <a href="acceptance.md">Expanded checklist and continuation assignments</a>.</p><label for="family-search">Filter requirements and next actions</label><input id="family-search" type="search" placeholder="For example: settings, glyphs, 240 or Metal" aria-controls="family-list"><p id="family-count" class="muted" aria-live="polite"></p><div id="family-list">'
+    page += '<p><a href="subagents.md#' + task['task_name'] + '">Starting material</a></p></div></details>'
+page += '</div></section><section id="acceptance"><h2>Checks assigned to unfinished work</h2><p>These checks belong to actual unfinished tasks. The older feature ledger is a reference and does not reopen completed work. <a href="acceptance.md">Historical checklist</a>.</p><label for="family-search">Filter assigned checks</label><input id="family-search" type="search" placeholder="For example: combat, sound or 240" aria-controls="family-list"><p id="family-count" class="muted" aria-live="polite"></p><div id="family-list">'
 for f in open_families:
     page += '<details data-filter><summary>' + html.escape(f['id']) + '<span class="tag">' + html.escape(f['priority'] + ' · ' + f['acceptance_status'].replace('_', ' ')) + '</span></summary><div class="detail"><p>' + html.escape(f['requirement']) + '</p>'
     nt = f.get('next_test', {})
@@ -139,10 +140,11 @@ for f in open_families:
         page += '<ol>' + ''.join('<li>' + html.escape(s) + '</li>' for s in nt.get('actions', [])) + '</ol>'
         if nt.get('oracle'):
             page += '<p>Acceptance oracle: ' + html.escape(nt['oracle']) + '</p>'
-    page += '<p>Spawn the <code>' + html.escape(f['continuation_task']) + '</code> subagent to finish this work.</p><p><a href="acceptance.md#' + f['id'] + '">Full test scope</a></p></div></details>'
+    page += '<p>When this work is resumed, spawn the <code>' + html.escape(f['continuation_task']) + '</code> subagent.</p><p><a href="acceptance.md">Historical test reference</a></p></div></details>'
 page += '</div></section>'
 for name, ident in [('verification.md', 'verification'), ('backup-and-restore.md', 'backups')]:
     page += '<section id="' + ident + '">' + markdown((ROOT / name).read_text()) + '</section>'
+page += '<section id="deferred"><details><summary>Deferred P3 and P4 technical details</summary>' + markdown((ROOT / 'deferred-work.md').read_text()) + '</details></section>'
 page += '''<p><a href="evidence-index.md">Starting evidence for unfinished tasks</a> · <a href="state.json">Machine-readable state</a></p></main><script>
 function connect(inputId,listId,countId){const input=document.getElementById(inputId),list=document.getElementById(listId),rows=[...list.querySelectorAll('[data-filter]')],count=document.getElementById(countId);function update(){const q=input.value.toLocaleLowerCase().trim();let shown=0;for(const row of rows){const show=!q||row.textContent.toLocaleLowerCase().includes(q);row.hidden=!show;if(show)shown++;}count.textContent=shown+' of '+rows.length+' entries';}input.addEventListener('input',update);update();}
 connect('agent-search','agent-list','agent-count');connect('family-search','family-list','family-count');

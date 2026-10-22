@@ -26,7 +26,7 @@ The private snapshot preserved 55,602 source/harness/text files. Root checked co
 
 ## Handover successor backup
 
-The handover checkpoint uses a new directory, `20261022-handover-open`, under the same three backup roots. Its `civ3-renderer.bundle` contains the committed documentation and all available main-repository refs. Its `backup-receipt.json` records the actual documentation commit, bundle SHA-256, restored main ref, and per-host integrity verification. Consult that receipt for the completed transfer result. It is outside the Git commit whose identity it records.
+The handover checkpoint uses a new directory, `20261022-neo-priorities`, under the same three backup roots. Its `civ3-renderer.bundle` contains the committed documentation and all available main-repository refs. Its `backup-receipt.json` records the actual documentation commit, bundle SHA-256, restored main ref, and per-host integrity verification. Consult that receipt for the completed transfer result. It is outside the Git commit whose identity it records.
 
 The previous development/FEX archives remain in `20261020T1918Z`; do not assume the new main bundle contains them. Retain both backup directories together.
 

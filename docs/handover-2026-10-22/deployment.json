@@ -1,0 +1,41 @@
+{
+  "status": "installed_and_accepted",
+  "installed_at_utc": "2026-10-22T10:44:43.866983+00:00",
+  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "scene_protocol": 50,
+  "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+  "app": "/Users/sirati/Applications/Civilization III.app",
+  "runtime_sha256": {
+    "civ3r-viewer": "9c7cd815c2243728be1484b6dd03ebe00b7b95b20b841e968a225cf4de9d5151",
+    "civ3-play-macos": "6f5688b29a7a7bf6cbcc701f97d884493092474dd8a58ddf85361cc73c41afda",
+    "IFC23.dll": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
+    "civ3r_native.so": "3de5db8eb70f88c3c4da83ec004786cbde85404629fabbcf6ca2e83749875ab8",
+    "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935"
+  },
+  "app_starter_sha256": "9c8b6950d270da978acdf9ecac89917bb6bb118395d42b2dd61c3677f64a32a9",
+  "signatures_verified": true,
+  "searchable_app_verified": true,
+  "icon_sha256": "7f82e6481019ad30792227d9f4cde3bf0076676f01aea6706d21f8d40ca2a4f2",
+  "parent_independent_remote_hashes_verified": true,
+  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z",
+  "game_launched": false,
+  "runtime_acceptance": "not exercised by installation",
+  "receipts": {
+    "deployment-summary.json": {
+      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/deployment-summary.json",
+      "sha256": "c62ea03e9388419d95a7b73125432659888ccaa3060feeaa8c0798c3f333356b"
+    },
+    "final-install-verification.json": {
+      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/final-install-verification.json",
+      "sha256": "3524bf63a4fbefd1ee0d051110453ea1653aee77ec6398b076b7e96484fe4e88"
+    },
+    "local-source-verification.json": {
+      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/local-source-verification.json",
+      "sha256": "aca9c3e44769c4a65af3050cfd3ba5f2ab6e8f9725eaf03396a4e9ff000d7675"
+    },
+    "parent-install-review.json": {
+      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/parent-install-review.json",
+      "sha256": "f2a655e9f353a349123bbd11c6dddc6feefe2853b6964fd918b811140968d65b"
+    }
+  }
+}
