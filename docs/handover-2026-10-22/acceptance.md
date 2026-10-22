@@ -1,102 +1,105 @@
 # Renderer acceptance checklist
 
-The retained 20 October ledger contains 85 acceptance families: 82 open, two performance goals failed and one VM-template family covered with scope limits. Implementation and acceptance are separate. An open row may already have implemented code and passing targeted tests.
+The retained ledger has 82 open families, two failed performance goals and one completed macOS VM-template task. An implemented feature can still have an open runtime acceptance check. Completed reviews and preparation work do not need their old agents restarted.
 
-These rows preserve the ledger's requirement, implementation state, next test and evidence. The main handover records later corrections. Root accepted the native 4K baseline at 19:49 UTC, after the 19:44 ledger snapshot. All three runs still failed the 240 FPS goal. The loaded-audio driver advanced to ce5e104, but its later review found three blockers. On 21 October, the strict six-bit and seven-bit rounding checks failed again.
+The successor must spawn the fresh subagents in the [continuation assignments](subagents.md). Each open family below names its continuation task. The six-bit and seven-bit numerical failure is also an unfinished task, even though the older feature ledger has no separate row for it.
 
-The current release gates and command-transaction design supersede old wording about immediate deployment and art-readiness holds.
+Later corrections remain in the main summary. The native 4K baseline is accepted measurement evidence and still fails 240 FPS. The loaded-audio driver has three unresolved review blockers. Strict wider rounding failed again on 21 October.
 
-The [original JSON ledger](evidence/handover/creative-qa/acceptance-matrix.json) retains all reconciled evidence. The [request coverage index](evidence/handover/creative-qa/request-coverage-index.json) maps original user requests to these families. The [prioritized test plan](evidence/handover/creative-qa/prioritized-test-plan.json) supplies additional sequencing.
+## Completed task
 
-## Family status
+| Task | Status |
+| --- | --- |
+| Prepared macOS desktop template | All of this task has been done. |
 
-| Family | Priority | Acceptance | Requirement |
+## Open families
+
+| Family | Priority | Acceptance | Continuation subagent |
 | --- | --- | --- | --- |
-| [architecture](#architecture) | P0 | open | Generic tile renderer/menu and safe isolated interop; no game-renderer pixels |
-| [world-pixel-fidelity](#world-pixel-fidelity) | P1 | open | Pixel-correct terrain, improvements, resources, cities and borders |
-| [districts](#districts) | P1 | open | C3X district graphics render in all views |
-| [city-labels-all](#city-labels-all) | P1 | open | Every city has a label in all independently moved views |
-| [unit-visibility](#unit-visibility) | P1 | open | Units outside A remain visible in B and other views |
-| [unit-animation](#unit-animation) | P0 | open | Unit motion/action/combat/explosions and active highlight are complete |
-| [unit-army](#unit-army) | P1 | open | Army national/body/flag colours and aggregate HP/strength/movement |
-| [unit-movement-bonuses](#unit-movement-bonuses) | P1 | open | HUD movement remains correct for civ bonuses and altered road movement |
-| [unit-palette-memory](#unit-palette-memory) | P1 | open | Indexed national recolouring avoids duplicating all art per nation |
-| [zoom-crisp](#zoom-crisp) | P1 | open | Free zoom and Z downsampling remain crisp without per-zoom art |
-| [text-native](#text-native) | P1 | open | Native Windows text geometry and outline glyphs including ANSI punctuation |
-| [text-tooltip-fit](#text-tooltip-fit) | P1 | open | Tooltip text/background/borders fit across DPI and pane boundaries |
-| [ui-command-atomic](#ui-command-atomic) | P0 | open | Commands/layout/controls/sprite sources appear as one committed UI group without waiting for optional art |
-| [ui-settings-transactions](#ui-settings-transactions) | P0 | open | Native/custom preferences preview live, Accept persists, Cancel restores all settings |
-| [ui-menu-scale](#ui-menu-scale) | P1 | open | Menu checkbox and percentage mean fraction of available height with no black top/bottom at100% |
-| [ui-c3x-modal](#ui-c3x-modal) | P1 | open | C3X modal over Preferences keeps settings size and appears centred in top third |
-| [ui-screen-placement](#ui-screen-placement) | P1 | open | Shared Screens setting places city/advisor/menu/popup consistently without duplicating world |
-| [ui-other-pane](#ui-other-pane) | P1 | open | Other pane remains usable when permissible menu/city open |
-| [split-independent](#split-independent) | P1 | open | Split panes have independent movement, focus and layer visibility |
-| [split-fog](#split-fog) | P1 | open | Fog/clean-map settings are independent per view while sharing world layers |
-| [magnifier-layout](#magnifier-layout) | P1 | open | Top strip/floating/mouse magnifiers respect pane bounds, size sliders and horizontal ratios |
-| [magnifier-hit](#magnifier-hit) | P1 | open | Strip barriers and box entry preserve scrolling/cursor behavior |
-| [preview-human-visibility](#preview-human-visibility) | P1 | open | Scenario preview reveals only human-playable nations |
-| [preview-progressive](#preview-progressive) | P0 | open | Scenario selection switches immediately while optional preview/art loads progressively |
-| [preview-smear](#preview-smear) | P1 | open | Fitted preview columns/visible extents never smear under fractional scale |
-| [preview-capture](#preview-capture) | P1 | open | Double-click preview enters x2 captured world view with release hint |
-| [scenario-generation](#scenario-generation) | P0 | open | Rapid scenario roundtrips preserve atlas/glyph IDs and never hang |
-| [scenario-memory](#scenario-memory) | P1 | open | Cancelled art/uploads and repeated scenario menus remain memory bounded |
-| [cursor-os](#cursor-os) | P0 | open | Uncaptured physical OS cursor and icon updates stay independent of slow GPU |
-| [cursor-captured](#cursor-captured) | P1 | open | Captured/Alt virtual cursor hides physical cursor and hands off safely at edges |
-| [cursor-scale](#cursor-scale) | P1 | open | Cursor scales with integer game pixel blocks without blurry/shadow regression |
-| [cursor-target-modes](#cursor-target-modes) | P0 | open | Only go-to/stack modes tile-snap; rebase/airlift/bombard invalid target icon works |
-| [cursor-civ4-drag](#cursor-civ4-drag) | P1 | open | Civ IV style right-drag moves units, click opens menu |
-| [capture-entry](#capture-entry) | P1 | open | Clicking capture pane captures without world click or recenter |
-| [capture-sensitivity](#capture-sensitivity) | P1 | open | Only captured mode gets configurable extra mouse sensitivity |
-| [alt-navigation](#alt-navigation) | P1 | open | Directional Alt navigation animates at configured cadence and stays in correct bounds |
-| [alt-f1-city](#alt-f1-city) | P1 | open | F1 cities/buildings and city production controls are selectable in Alt mode |
-| [slider-edit](#slider-edit) | P1 | open | Alt slider drag/arrow edits support Preview/Accept/Cancel and clear focus feedback |
-| [menu-hover](#menu-hover) | P1 | open | Hover/selected/pressed states render locally and hotkeys select stack mode |
-| [menu-smooth-scroll](#menu-smooth-scroll) | P1 | open | Optional menu list scrolling is smooth without stale hover or click targets |
-| [popup-world-scale](#popup-world-scale) | P1 | open | Terrain information popup uses world scale, HUD floor and window fit cap |
-| [popup-freeze-dismiss](#popup-freeze-dismiss) | P0 | open | Anchored tile/rightclick popup freezes map and dismisses on outside click/recapture |
-| [popup-tile-identity](#popup-tile-identity) | P1 | open | Terrain Details retains original clicked virtual tile with parked game camera |
-| [popup-resource-shadows](#popup-resource-shadows) | P1 | open | Terrain detail/resource palette and cattle shadows are correct |
-| [smoke-resized-indexed](#smoke-resized-indexed) | P1 | open | Non-FLC colour-table smoke224..239 and resized indexed blend are complete |
-| [city-state-sync](#city-state-sync) | P0 | open | Rapid Next City and alternate-camera UI remain responsive with matching city/camera |
-| [notices-expire](#notices-expire) | P1 | open | Repeated already-moved notice dedupes and expires by viewer clock |
-| [host-busy](#host-busy) | P1 | open | Busy indicator distinguishes500 ms/no response and prolonged stuck host |
-| [startup-window](#startup-window) | P1 | open | Native loading window explains Wine/prefix/translation/art stages through first menu |
-| [startup-warm-time](#startup-warm-time) | P1 | open | Warm launcher avoids repeated registry writes; cold translation remains observable |
-| [audio-music](#audio-music) | P0 | open | macOS music plays continuously without short loops or excessive sound CPU |
-| [leader-blink](#leader-blink) | P1 | open | Leader-head animations have intended timing instead of rapid blinking |
-| [resolution-native](#resolution-native) | P0 | open | Native-resolution window, integer Auto/x1..x6 pixels and dynamic resizing |
-| [window-hidpi](#window-hidpi) | P1 | open | Only renderer window and correct DPI/placement across desktops and task switch |
-| [settings-chrome](#settings-chrome) | P1 | open | Settings icons and native Accept/Cancel chrome are correct; launcher app searchable/icon present |
-| [fps-counter-details](#fps-counter-details) | P1 | open | FPS details include separate CPU preparation, GPU execution, CPU passes and optional GPU passes |
-| [gpu-worker-isolation](#gpu-worker-isolation) | P0 | open | All GPU upload/draw/acquire work is off OS main thread; main cursor remains live |
-| [gpu-transactions](#gpu-transactions) | P0 | open | Resize/lost surfaces/cancelled epochs/failure replies preserve image-mapping pairing |
-| [gpu-three-buffers](#gpu-three-buffers) | P0 | open | Small frame controls stay immutable across three in-flight GPU submissions |
-| [gpu-no-cpu-render](#gpu-no-cpu-render) | P1 | open | GPU shader paths draw solid UI/text/indexed/direct art; CPU only state/layout/oracle |
-| [platform-linux-dualstack](#platform-linux-dualstack) | P0 | open | Wine dual-stack native Linux remains correct with game rendering disabled |
-| [platform-mac-dualstack](#platform-mac-dualstack) | P0 | open | Actual single-process Intel macOS game/native runtime plus Apple ARM/FEX |
-| [platform-metal](#platform-metal) | P0 | open | Physical A18 Metal/FEX rendering, music and performance |
-| [platform-windows](#platform-windows) | P1 | open | Windows primary Vulkan correctness with minimum D3D compatibility |
-| [platform-pointer-api](#platform-pointer-api) | P1 | open | Portable pointer constraints and keyboard capture behave on Windows/Wayland/macOS |
-| [vm-template](#vm-template) | P2 | covered with scope limits | Prepared desktop snapshot clones boot/login/SSH/read-only assets cleanly under10GB shared cap |
-| [release-pairing](#release-pairing) | P0 | open | Five matched binaries plus launcher app deploy immediately after build/protocol/shader gate |
-| [performance-4k-static](#performance-4k-static) | P0 | failed goal not achieved | Verify 240 FPS AMD iGPU at3840 x 2160, static/cached and forced dynamic work separately |
-| [performance-4k-dynamic](#performance-4k-dynamic) | P0 | failed goal not achieved | 240 FPS AMD iGPU target holds under forced world/UI redraw and realistic interactions |
-| [performance-delays](#performance-delays) | P0 | open | Audit arbitrary waits/locks without removing necessary pacing/lost-wake safeguards blindly |
-| [diplomacy-ring-arrow](#diplomacy-ring-arrow) | P2 | open | Configurable flashing active arrow and diplomacy rings across views |
-| [turn-focus](#turn-focus) | P1 | open | AI combat/turn animations focus requested pane without moving independent pane |
-| [city-worked-alt](#city-worked-alt) | P1 | open | City worked-tile Alt targets agree with displayed independent city camera |
-| [architecture-transport](#architecture-transport) | P2 | open | Viewer transport async ownership does not block game/publisher or grow unbounded |
-| [regression-start-exit](#regression-start-exit) | P0 | open | New game/retire/exit/restart clears world mode and resources |
-| [settings-fog-and-territory](#settings-fog-and-territory) | P1 | open | Show territory and clean-map presets/categories update intended views immediately |
-| [viewport-separators](#viewport-separators) | P2 | open | High-contrast dividers and capture-release hint stay visible over unexplored world |
-| [save-load-input](#save-load-input) | P0 | open | Keyboard/mouse operate new-game, load/save and full turn in each supported runtime |
-| [ui-read-only-constraints](#ui-read-only-constraints) | P0 | open | Sol visual/GUI acceptance permitted without touching Nexus/assets/system settings |
-| [nvidia-failure-handling](#nvidia-failure-handling) | P2 | open | Unsupported explicit NVIDIA option should fail clearly rather than hang invisible |
-| [ui-background-sampling](#ui-background-sampling) | P1 | open | Selectable discard/dither/interpolate background sampling and original native settings buttons |
-| [bombard-range](#bombard-range) | P1 | open | Bombard command displays correct range/path and action overlays |
-| [mirrored-cursor](#mirrored-cursor) | P1 | open | Translated pointer in a menu pane keeps arrow shape while physical pointer outside |
-| [windows-ephemeral-template](#windows-ephemeral-template) | P2 | open | Windows golden VM clones are small,2GB RAM,30GB disk,offline-ready and usable for testing |
-| [low-game-resolution](#low-game-resolution) | P1 | open | Original game runs at supported low resolution independent of native renderer output |
+| [architecture](#architecture) | P0 | open | `cpu_timing` |
+| [world-pixel-fidelity](#world-pixel-fidelity) | P1 | open | `world_fidelity` |
+| [districts](#districts) | P1 | open | `world_fidelity` |
+| [city-labels-all](#city-labels-all) | P1 | open | `world_fidelity` |
+| [unit-visibility](#unit-visibility) | P1 | open | `world_fidelity` |
+| [unit-animation](#unit-animation) | P0 | open | `combat_validation` |
+| [unit-army](#unit-army) | P1 | open | `combat_validation` |
+| [unit-movement-bonuses](#unit-movement-bonuses) | P1 | open | `combat_validation` |
+| [unit-palette-memory](#unit-palette-memory) | P1 | open | `world_fidelity` |
+| [zoom-crisp](#zoom-crisp) | P1 | open | `world_fidelity` |
+| [text-native](#text-native) | P1 | open | `ui_acceptance` |
+| [text-tooltip-fit](#text-tooltip-fit) | P1 | open | `ui_acceptance` |
+| [ui-command-atomic](#ui-command-atomic) | P0 | open | `ui_acceptance` |
+| [ui-settings-transactions](#ui-settings-transactions) | P0 | open | `ui_acceptance` |
+| [ui-menu-scale](#ui-menu-scale) | P1 | open | `ui_acceptance` |
+| [ui-c3x-modal](#ui-c3x-modal) | P1 | open | `ui_acceptance` |
+| [ui-screen-placement](#ui-screen-placement) | P1 | open | `ui_acceptance` |
+| [ui-other-pane](#ui-other-pane) | P1 | open | `ui_acceptance` |
+| [split-independent](#split-independent) | P1 | open | `world_fidelity` |
+| [split-fog](#split-fog) | P1 | open | `world_fidelity` |
+| [magnifier-layout](#magnifier-layout) | P1 | open | `pointer_input` |
+| [magnifier-hit](#magnifier-hit) | P1 | open | `pointer_input` |
+| [preview-human-visibility](#preview-human-visibility) | P1 | open | `scenario_loading` |
+| [preview-progressive](#preview-progressive) | P0 | open | `scenario_loading` |
+| [preview-smear](#preview-smear) | P1 | open | `scenario_loading` |
+| [preview-capture](#preview-capture) | P1 | open | `scenario_loading` |
+| [scenario-generation](#scenario-generation) | P0 | open | `scenario_loading` |
+| [scenario-memory](#scenario-memory) | P1 | open | `scenario_loading` |
+| [cursor-os](#cursor-os) | P0 | open | `pointer_input` |
+| [cursor-captured](#cursor-captured) | P1 | open | `pointer_input` |
+| [cursor-scale](#cursor-scale) | P1 | open | `pointer_input` |
+| [cursor-target-modes](#cursor-target-modes) | P0 | open | `pointer_input` |
+| [cursor-civ4-drag](#cursor-civ4-drag) | P1 | open | `pointer_input` |
+| [capture-entry](#capture-entry) | P1 | open | `pointer_input` |
+| [capture-sensitivity](#capture-sensitivity) | P1 | open | `pointer_input` |
+| [alt-navigation](#alt-navigation) | P1 | open | `pointer_input` |
+| [alt-f1-city](#alt-f1-city) | P1 | open | `pointer_input` |
+| [slider-edit](#slider-edit) | P1 | open | `ui_acceptance` |
+| [menu-hover](#menu-hover) | P1 | open | `ui_acceptance` |
+| [menu-smooth-scroll](#menu-smooth-scroll) | P1 | open | `ui_acceptance` |
+| [popup-world-scale](#popup-world-scale) | P1 | open | `ui_acceptance` |
+| [popup-freeze-dismiss](#popup-freeze-dismiss) | P0 | open | `ui_acceptance` |
+| [popup-tile-identity](#popup-tile-identity) | P1 | open | `ui_acceptance` |
+| [popup-resource-shadows](#popup-resource-shadows) | P1 | open | `ui_acceptance` |
+| [smoke-resized-indexed](#smoke-resized-indexed) | P1 | open | `world_fidelity` |
+| [city-state-sync](#city-state-sync) | P0 | open | `world_fidelity` |
+| [notices-expire](#notices-expire) | P1 | open | `world_fidelity` |
+| [host-busy](#host-busy) | P1 | open | `ui_acceptance` |
+| [startup-window](#startup-window) | P1 | open | `ui_acceptance` |
+| [startup-warm-time](#startup-warm-time) | P1 | open | `scenario_loading` |
+| [audio-music](#audio-music) | P0 | open | `audio_loaded` |
+| [leader-blink](#leader-blink) | P1 | open | `ui_acceptance` |
+| [resolution-native](#resolution-native) | P0 | open | `platform_runtime` |
+| [window-hidpi](#window-hidpi) | P1 | open | `platform_runtime` |
+| [settings-chrome](#settings-chrome) | P1 | open | `neo_release` |
+| [fps-counter-details](#fps-counter-details) | P1 | open | `cpu_timing` |
+| [gpu-worker-isolation](#gpu-worker-isolation) | P0 | open | `cpu_timing` |
+| [gpu-transactions](#gpu-transactions) | P0 | open | `cpu_timing` |
+| [gpu-three-buffers](#gpu-three-buffers) | P0 | open | `cpu_timing` |
+| [gpu-no-cpu-render](#gpu-no-cpu-render) | P1 | open | `cpu_timing` |
+| [platform-linux-dualstack](#platform-linux-dualstack) | P0 | open | `platform_runtime` |
+| [platform-mac-dualstack](#platform-mac-dualstack) | P0 | open | `platform_runtime` |
+| [platform-metal](#platform-metal) | P0 | open | `platform_runtime` |
+| [platform-windows](#platform-windows) | P1 | open | `windows_guest` |
+| [platform-pointer-api](#platform-pointer-api) | P1 | open | `pointer_input` |
+| [release-pairing](#release-pairing) | P0 | open | `neo_release` |
+| [performance-4k-static](#performance-4k-static) | P0 | failed goal not achieved | `performance_240` |
+| [performance-4k-dynamic](#performance-4k-dynamic) | P0 | failed goal not achieved | `performance_240` |
+| [performance-delays](#performance-delays) | P0 | open | `performance_240` |
+| [diplomacy-ring-arrow](#diplomacy-ring-arrow) | P2 | open | `world_fidelity` |
+| [turn-focus](#turn-focus) | P1 | open | `combat_validation` |
+| [city-worked-alt](#city-worked-alt) | P1 | open | `world_fidelity` |
+| [architecture-transport](#architecture-transport) | P2 | open | `cpu_timing` |
+| [regression-start-exit](#regression-start-exit) | P0 | open | `game_soak` |
+| [settings-fog-and-territory](#settings-fog-and-territory) | P1 | open | `world_fidelity` |
+| [viewport-separators](#viewport-separators) | P2 | open | `world_fidelity` |
+| [save-load-input](#save-load-input) | P0 | open | `game_soak` |
+| [ui-read-only-constraints](#ui-read-only-constraints) | P0 | open | `game_soak` |
+| [nvidia-failure-handling](#nvidia-failure-handling) | P2 | open | `platform_runtime` |
+| [ui-background-sampling](#ui-background-sampling) | P1 | open | `ui_acceptance` |
+| [bombard-range](#bombard-range) | P1 | open | `combat_validation` |
+| [mirrored-cursor](#mirrored-cursor) | P1 | open | `pointer_input` |
+| [windows-ephemeral-template](#windows-ephemeral-template) | P2 | open | `windows_guest` |
+| [low-game-resolution](#low-game-resolution) | P1 | open | `platform_runtime` |
 
 <a id="architecture"></a>
 
@@ -104,9 +107,9 @@ The [original JSON ledger](evidence/handover/creative-qa/acceptance-matrix.json)
 
 Generic tile renderer/menu and safe isolated interop; no game-renderer pixels.
 
-Acceptance: open. Priority P0.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -121,28 +124,15 @@ Related failure to probe: Hidden original window still burning GDI CPU; audit re
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [ui-commands-atomic.sol.md](evidence/handover/ui-commands-atomic.sol.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- `/mnt/datasets/c3r-build/launcher-cleanup-sol/audit.json`
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/root-union-validation-sol/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/root-aggregate-review.json`
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/release-validation.json`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/allocator-results.json`
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/wine-direct-results.json`
-
 <a id="world-pixel-fidelity"></a>
 
 ## world pixel fidelity
 
 Pixel-correct terrain, improvements, resources, cities and borders.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa AMD RADV numeric GPU; Papa Wine existing assets.
 
@@ -157,28 +147,15 @@ Related failure to probe: Nonwrapping edges default to ocean instead of land con
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- [windows-vulkan.sol.md](evidence/handover/windows-vulkan.sol.md)
-- `/mnt/datasets/c3r-build/smoke-resized-sol/handover.md`
-- `/mnt/datasets/c3r-build/smoke-resized-sol/smoke-integration-gpu.log`
-- [tiles555-oracle-results.json](evidence/handover/creative-qa/shader-perf-sol/tiles555-oracle-results.json)
-- [tiles555-artifact.json](evidence/handover/creative-qa/shader-perf-sol/tiles555-artifact.json)
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- [native-captured-smoke-union-results.json](evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json)
-- `/mnt/datasets/c3r-build/higher-depth-fp16-sol/strict-candidate-results.json`
-- `/mnt/datasets/c3r-build/higher-depth-fp16-sol/one_pixel-dual0.log`
-
 <a id="districts"></a>
 
 ## districts
 
 C3X district graphics render in all views.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: not individually audited.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -193,19 +170,15 @@ Related failure to probe: District art only follows parked game camera.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-
 <a id="city-labels-all"></a>
 
 ## city labels all
 
 Every city has a label in all independently moved views.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -220,19 +193,15 @@ Related failure to probe: Labels disappear only at wrap seam or when native came
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-
 <a id="unit-visibility"></a>
 
 ## unit visibility
 
 Units outside A remain visible in B and other views.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -247,19 +216,15 @@ Related failure to probe: Animation offset or HP overlay clipped by A.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-
 <a id="unit-animation"></a>
 
 ## unit animation
 
 Unit motion/action/combat/explosions and active highlight are complete.
 
-Acceptance: open. Priority P0.
+Spawn the `combat_validation` subagent described in [the continuation assignments](subagents.md#combat_validation) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -274,24 +239,15 @@ Related failure to probe: Attack ring flashes incorrect peace colour; smoke miss
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- [tile-popup-render-shadow.sol.md](evidence/handover/tile-popup-render-shadow.sol.md)
-- `/mnt/datasets/c3r-build/smoke-resized-sol/handover.md`
-- `/mnt/datasets/c3r-build/smoke-resized-sol/smoke-integration-gpu.log`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/units-gpu.log`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/smoke-gpu-final.log`
-
 <a id="unit-army"></a>
 
 ## unit army
 
 Army national/body/flag colours and aggregate HP/strength/movement.
 
-Acceptance: open. Priority P1.
+Spawn the `combat_validation` subagent described in [the continuation assignments](subagents.md#combat_validation) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -306,21 +262,15 @@ Related failure to probe: Real-owner flag wrongly uses hidden-nationality body p
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/units-gpu.log`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/smoke-gpu-final.log`
-
 <a id="unit-movement-bonuses"></a>
 
 ## unit movement bonuses
 
 HUD movement remains correct for civ bonuses and altered road movement.
 
-Acceptance: open. Priority P1.
+Spawn the `combat_validation` subagent described in [the continuation assignments](subagents.md#combat_validation) to finish this work.
 
-Implementation record: successor source fixed targeted tests passed not frozen.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine existing assets; native record/synthetic fixture.
 
@@ -335,22 +285,15 @@ Related failure to probe: Army min-member movement wrong when member types share
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/army-acceptance-sol-evidence/`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/units-gpu.log`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/smoke-gpu-final.log`
-
 <a id="unit-palette-memory"></a>
 
 ## unit palette memory
 
 Indexed national recolouring avoids duplicating all art per nation.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -364,20 +307,15 @@ Related failure to probe: Scenario roundtrip accumulates unused country-specific
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-
 <a id="zoom-crisp"></a>
 
 ## zoom crisp
 
 Free zoom and Z downsampling remain crisp without per-zoom art.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -392,20 +330,15 @@ Related failure to probe: Z changes logical layout, icon size or held cursor sca
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-
 <a id="text-native"></a>
 
 ## text native
 
 Native Windows text geometry and outline glyphs including ANSI punctuation.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -420,26 +353,15 @@ Related failure to probe: Glyph0 boxes, raw ANSI/Unicode punctuation drift, posi
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [ui-commands-atomic.sol.md](evidence/handover/ui-commands-atomic.sol.md)
-- [windows-protocol48.sol.md](evidence/handover/windows-protocol48.sol.md)
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- [native-captured-smoke-union-results.json](evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json)
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/wine-direct-results.json`
-- `/mnt/datasets/c3r-build/higher-depth-fp16-sol/strict-candidate-results.json`
-- `/mnt/datasets/c3r-build/higher-depth-fp16-sol/one_pixel-dual0.log`
-
 <a id="text-tooltip-fit"></a>
 
 ## text tooltip fit
 
 Tooltip text/background/borders fit across DPI and pane boundaries.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -454,23 +376,15 @@ Related failure to probe: Warm-only success hides first-use font width drift.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [ui-commands-atomic.sol.md](evidence/handover/ui-commands-atomic.sol.md)
-- [text-fit-atomic-ui.sol.md](evidence/handover/text-fit-atomic-ui.sol.md)
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- [native-captured-smoke-union-results.json](evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json)
-
 <a id="ui-command-atomic"></a>
 
 ## ui command atomic
 
 Commands/layout/controls/sprite sources appear as one committed UI group without waiting for optional art.
 
-Acceptance: open. Priority P0.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -485,41 +399,15 @@ Related failure to probe: Fresh native modal targets paired with old draw group;
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [ui-commands-atomic.sol.md](evidence/handover/ui-commands-atomic.sol.md)
-- [ui-present-metadata.sol.md](evidence/handover/ui-present-metadata.sol.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [mac-audio.sol.md](evidence/handover/mac-audio.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/native-ss-preferences-settle/frames.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/native-ss-preferences-reopen/frames.json`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/tab-before.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/tab-after.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/ui-readiness.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/source-lookup-test.log`
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-- [prepared-update-scope.sol.md](evidence/handover/prepared-update-scope.sol.md)
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/cpu-results.json`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/windows-ui-results.json`
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/toggle-before.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/toggle-after.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/menu-toggle-after.log`
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/wine-direct-results.json`
-- [sol-root-macneo-priority-freeze-review.json](evidence/handover/sol-root-macneo-priority-freeze-review.json)
-- [priority3be-reconciliation.json](evidence/handover/creative-qa/priority3be-reconciliation.json)
-
 <a id="ui-settings-transactions"></a>
 
 ## ui settings transactions
 
 Native/custom preferences preview live, Accept persists, Cancel restores all settings.
 
-Acceptance: open. Priority P0.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -535,33 +423,15 @@ Related failure to probe: Changing one control commits other draft; Escape/modal
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/native-ss-preferences-settle/frames.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/native-ss-preferences-reopen/frames.json`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/tab-before.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/tab-after.log`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/cpu-results.json`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/windows-ui-results.json`
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/toggle-before.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/toggle-after.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/menu-toggle-after.log`
-- [sol-root-macneo-priority-freeze-review.json](evidence/handover/sol-root-macneo-priority-freeze-review.json)
-- [priority3be-reconciliation.json](evidence/handover/creative-qa/priority3be-reconciliation.json)
-
 <a id="ui-menu-scale"></a>
 
 ## ui menu scale
 
 Menu checkbox and percentage mean fraction of available height with no black top/bottom at100%.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -576,24 +446,15 @@ Related failure to probe: Only title or only setup screen uses wrong popup class
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.md](evidence/handover/release-deploy.md)
-- [ui-layout-4k31b.sol.md](evidence/handover/creative-qa/ui-layout-4k31b.sol.md)
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/toggle-before.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/toggle-after.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/menu-toggle-after.log`
-
 <a id="ui-c3x-modal"></a>
 
 ## ui c3x modal
 
 C3X modal over Preferences keeps settings size and appears centred in top third.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -608,19 +469,15 @@ Related failure to probe: Pointer pane picks placement rather than stored screen
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.md](evidence/handover/release-deploy.md)
-
 <a id="ui-screen-placement"></a>
 
 ## ui screen placement
 
 Shared Screens setting places city/advisor/menu/popup consistently without duplicating world.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -635,20 +492,15 @@ Related failure to probe: Single sub-dialog moves but parent/border stays behind
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.md](evidence/handover/release-deploy.md)
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="ui-other-pane"></a>
 
 ## ui other pane
 
 Other pane remains usable when permissible menu/city open.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -663,19 +515,15 @@ Related failure to probe: Global modal workaround disables both views for any sc
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="split-independent"></a>
 
 ## split independent
 
 Split panes have independent movement, focus and layer visibility.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -690,21 +538,15 @@ Related failure to probe: White camera viewport shows whole window; B objects de
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-- [ui-layout-4k31b.sol.md](evidence/handover/creative-qa/ui-layout-4k31b.sol.md)
-
 <a id="split-fog"></a>
 
 ## split fog
 
 Fog/clean-map settings are independent per view while sharing world layers.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -719,20 +561,15 @@ Related failure to probe: Global mask hides units in all panes; zoomed-pass came
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-
 <a id="magnifier-layout"></a>
 
 ## magnifier layout
 
 Top strip/floating/mouse magnifiers respect pane bounds, size sliders and horizontal ratios.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -747,19 +584,15 @@ Related failure to probe: Strip height control omitted or shared setting silentl
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-
 <a id="magnifier-hit"></a>
 
 ## magnifier hit
 
 Strip barriers and box entry preserve scrolling/cursor behavior.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -774,19 +607,15 @@ Related failure to probe: Barrier includes blank box margin or blocks entire top
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-
 <a id="preview-human-visibility"></a>
 
 ## preview human visibility
 
 Scenario preview reveals only human-playable nations.
 
-Acceptance: open. Priority P1.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -800,22 +629,15 @@ Related failure to probe: Changing selected nation leaves previous scenario reve
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.md](evidence/handover/preview-smear.md)
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/ui-readiness.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/source-lookup-test.log`
-
 <a id="preview-progressive"></a>
 
 ## preview progressive
 
 Scenario selection switches immediately while optional preview/art loads progressively.
 
-Acceptance: open. Priority P0.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -830,22 +652,15 @@ Related failure to probe: Late old preview overwrites current selection or block
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/ui-readiness.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/source-lookup-test.log`
-
 <a id="preview-smear"></a>
 
 ## preview smear
 
 Fitted preview columns/visible extents never smear under fractional scale.
 
-Acceptance: open. Priority P1.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -860,19 +675,15 @@ Related failure to probe: Direct-at-zoom path differs from source-picture path a
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-
 <a id="preview-capture"></a>
 
 ## preview capture
 
 Double-click preview enters x2 captured world view with release hint.
 
-Acceptance: open. Priority P1.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -886,19 +697,15 @@ Related failure to probe: Doubleclick stale scenario captures old world.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-
 <a id="scenario-generation"></a>
 
 ## scenario generation
 
 Rapid scenario roundtrips preserve atlas/glyph IDs and never hang.
 
-Acceptance: open. Priority P0.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -913,20 +720,15 @@ Related failure to probe: Empty growth leaps pending nonempty growth; abandoned 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-
 <a id="scenario-memory"></a>
 
 ## scenario memory
 
 Cancelled art/uploads and repeated scenario menus remain memory bounded.
 
-Acceptance: open. Priority P1.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -941,25 +743,15 @@ Related failure to probe: Latest slot retains full initial atlas forever or old 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [renderer-sync.sol.md](evidence/handover/renderer-sync.sol.md)
-- [worker-cpu-prefix.sol.md](evidence/handover/worker-cpu-prefix.sol.md)
-- [worker-prefix-independent-review.sol.json](evidence/handover/worker-prefix-independent-review.sol.json)
-- [ui-command-transactions.sol.md](evidence/handover/ui-command-transactions.sol.md)
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-
 <a id="cursor-os"></a>
 
 ## cursor os
 
 Uncaptured physical OS cursor and icon updates stay independent of slow GPU.
 
-Acceptance: open. Priority P0.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -974,21 +766,15 @@ Related failure to probe: Cursor-build completion needs another frame to become 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results-controls.md`
-
 <a id="cursor-captured"></a>
 
 ## cursor captured
 
 Captured/Alt virtual cursor hides physical cursor and hands off safely at edges.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1003,21 +789,15 @@ Related failure to probe: Window re-entry warps pointer from another compositor 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- [targeting-cursors.sol.md](evidence/handover/targeting-cursors.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results-controls.md`
-
 <a id="cursor-scale"></a>
 
 ## cursor scale
 
 Cursor scales with integer game pixel blocks without blurry/shadow regression.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1032,19 +812,15 @@ Related failure to probe: Icon art cached for wrong DPI generation.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-
 <a id="cursor-target-modes"></a>
 
 ## cursor target modes
 
 Only go-to/stack modes tile-snap; rebase/airlift/bombard invalid target icon works.
 
-Acceptance: open. Priority P0.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1059,21 +835,15 @@ Related failure to probe: Policy unit tests pass while actual game field lags or
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [targeting-cursors.sol.md](evidence/handover/targeting-cursors.sol.md)
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-
 <a id="cursor-civ4-drag"></a>
 
 ## cursor civ4 drag
 
 Civ IV style right-drag moves units, click opens menu.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: not individually audited.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1088,20 +858,15 @@ Related failure to probe: Release swallowed by different pane/magnifier.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results-controls.md`
-
 <a id="capture-entry"></a>
 
 ## capture entry
 
 Clicking capture pane captures without world click or recenter.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1115,20 +880,15 @@ Related failure to probe: Capture gesture propagates release as command.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results-controls.md`
-
 <a id="capture-sensitivity"></a>
 
 ## capture sensitivity
 
 Only captured mode gets configurable extra mouse sensitivity.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: not individually audited.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1142,20 +902,15 @@ Related failure to probe: Physical OS pointer or Alt navigation inherits multipl
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results-controls.md`
-
 <a id="alt-navigation"></a>
 
 ## alt navigation
 
 Directional Alt navigation animates at configured cadence and stays in correct bounds.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1170,22 +925,15 @@ Related failure to probe: Nearest Euclidean target ignores requested direction; 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- [targeting-cursors.sol.md](evidence/handover/targeting-cursors.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="alt-f1-city"></a>
 
 ## alt f1 city
 
 F1 cities/buildings and city production controls are selectable in Alt mode.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1200,23 +948,15 @@ Related failure to probe: City worked-tile targets remain tied to native camera.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/city-worked-alt-sol-evidence/`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/cpu-results.json`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/windows-ui-results.json`
-
 <a id="slider-edit"></a>
 
 ## slider edit
 
 Alt slider drag/arrow edits support Preview/Accept/Cancel and clear focus feedback.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1231,21 +971,15 @@ Related failure to probe: Keyboard edit renews stale slider address after modal 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="menu-hover"></a>
 
 ## menu hover
 
 Hover/selected/pressed states render locally and hotkeys select stack mode.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1260,24 +994,15 @@ Related failure to probe: Live targeting state uses newer sprite source table th
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [ui-present-metadata.sol.md](evidence/handover/ui-present-metadata.sol.md)
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/native-ss-preferences-settle/frames.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/native-ss-preferences-reopen/frames.json`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/tab-before.log`
-- `/mnt/datasets/c3r-build/ui-atomicity-sol-evidence/tab-after.log`
-
 <a id="menu-smooth-scroll"></a>
 
 ## menu smooth scroll
 
 Optional menu list scrolling is smooth without stale hover or click targets.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1292,19 +1017,15 @@ Related failure to probe: MouseMove for obsolete frame delivered after latest po
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-
 <a id="popup-world-scale"></a>
 
 ## popup world scale
 
 Terrain information popup uses world scale, HUD floor and window fit cap.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1318,19 +1039,15 @@ Related failure to probe: World popup classification accidentally treats advisor
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="popup-freeze-dismiss"></a>
 
 ## popup freeze dismiss
 
 Anchored tile/rightclick popup freezes map and dismisses on outside click/recapture.
 
-Acceptance: open. Priority P0.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1344,19 +1061,15 @@ Related failure to probe: Queued double dismiss posts extra Escape after modal c
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="popup-tile-identity"></a>
 
 ## popup tile identity
 
 Terrain Details retains original clicked virtual tile with parked game camera.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1371,19 +1084,15 @@ Related failure to probe: Hover moves native camera after menu-open and replaces
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-
 <a id="popup-resource-shadows"></a>
 
 ## popup resource shadows
 
 Terrain detail/resource palette and cattle shadows are correct.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1398,19 +1107,15 @@ Related failure to probe: Resized colour-table path bypasses indexed smoke/shado
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [tile-popup-render-shadow.sol.md](evidence/handover/tile-popup-render-shadow.sol.md)
-
 <a id="smoke-resized-indexed"></a>
 
 ## smoke resized indexed
 
 Non-FLC colour-table smoke224..239 and resized indexed blend are complete.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: successor source fixed targeted native CPU and RADV numeric passed not final frozen.
+Acceptance: open. Priority P1.
 
 Venues: Papa AMD RADV numeric GPU; existing asset fixtures.
 
@@ -1425,24 +1130,15 @@ Related failure to probe: Unscaled fixed but scaled shadows still route plain-re
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [tile-popup-render-shadow.sol.md](evidence/handover/tile-popup-render-shadow.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- `/mnt/datasets/c3r-build/smoke-resized-sol/handover.md`
-- `/mnt/datasets/c3r-build/smoke-resized-sol/smoke-integration-gpu.log`
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- [native-captured-smoke-union-results.json](evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json)
-
 <a id="city-state-sync"></a>
 
 ## city state sync
 
 Rapid Next City and alternate-camera UI remain responsive with matching city/camera.
 
-Acceptance: open. Priority P0.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1457,22 +1153,15 @@ Related failure to probe: One-tile offset; UI local hover hides game-thread hang
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-- [tile-popup-menus.sol.md](evidence/handover/tile-popup-menus.sol.md)
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/city-worked-alt-sol-evidence/`
-
 <a id="notices-expire"></a>
 
 ## notices expire
 
 Repeated already-moved notice dedupes and expires by viewer clock.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1487,19 +1176,15 @@ Related failure to probe: Stale serial revives after removal or expiry clip hide
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [unit-notices.sol.md](evidence/handover/unit-notices.sol.md)
-
 <a id="host-busy"></a>
 
 ## host busy
 
 Busy indicator distinguishes500 ms/no response and prolonged stuck host.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1514,20 +1199,15 @@ Related failure to probe: GPU pending mistaken for game-dead heartbeat.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-
 <a id="startup-window"></a>
 
 ## startup window
 
 Native loading window explains Wine/prefix/translation/art stages through first menu.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1542,21 +1222,15 @@ Related failure to probe: GPU-init-hidden viewer leaves gap after launcher progr
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [startup-progress.sol.md](evidence/handover/startup-progress.sol.md)
-- [native-thread-init.sol.md](evidence/handover/native-thread-init.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-
 <a id="startup-warm-time"></a>
 
 ## startup warm time
 
 Warm launcher avoids repeated registry writes; cold translation remains observable.
 
-Acceptance: open. Priority P1.
+Spawn the `scenario_loading` subagent described in [the continuation assignments](subagents.md#scenario_loading) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1571,20 +1245,15 @@ Related failure to probe: Existing registry contains value in wrong32/64-bit vie
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [startup-progress.sol.md](evidence/handover/startup-progress.sol.md)
-- [release-deploy.md](evidence/handover/release-deploy.md)
-
 <a id="audio-music"></a>
 
 ## audio music
 
 macOS music plays continuously without short loops or excessive sound CPU.
 
-Acceptance: open. Priority P0.
+Spawn the `audio_loaded` subagent described in [the continuation assignments](subagents.md#audio_loaded) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Owned Intel macOS VM null-audio timing (partial); Physical TS Neo ARM/FEX audio when online.
 
@@ -1599,24 +1268,15 @@ Related failure to probe: Low sound CPU is mistaken for proof no music loop.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-- [mac-audio.sol.md](evidence/handover/mac-audio.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/vendor-offline-v2-verdict.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/miles-offline-v2.json`
-
 <a id="leader-blink"></a>
 
 ## leader blink
 
 Leader-head animations have intended timing instead of rapid blinking.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: unresolved runtime observation.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1631,19 +1291,15 @@ Related failure to probe: Every redraw advances animation rather than time.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-
 <a id="resolution-native"></a>
 
 ## resolution native
 
 Native-resolution window, integer Auto/x1..x6 pixels and dynamic resizing.
 
-Acceptance: open. Priority P0.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1658,21 +1314,15 @@ Related failure to probe: Windowedx3 resource stale; DPI conversion applied twic
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- [release-deploy.md](evidence/handover/release-deploy.md)
-- [ui-layout-4k31b.sol.md](evidence/handover/creative-qa/ui-layout-4k31b.sol.md)
-
 <a id="window-hidpi"></a>
 
 ## window hidpi
 
 Only renderer window and correct DPI/placement across desktops and task switch.
 
-Acceptance: open. Priority P1.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1687,20 +1337,15 @@ Related failure to probe: Nested KDE/GNOME return warps mouse outside owned wind
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-
 <a id="settings-chrome"></a>
 
 ## settings chrome
 
 Settings icons and native Accept/Cancel chrome are correct; launcher app searchable/icon present.
 
-Acceptance: open. Priority P1.
+Spawn the `neo_release` subagent described in [the continuation assignments](subagents.md#neo_release) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1715,20 +1360,15 @@ Related failure to probe: Accessory progress app steals game activation.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [startup-progress.sol.md](evidence/handover/startup-progress.sol.md)
-- [release-deploy.sol.md](evidence/handover/release-deploy.sol.md)
-
 <a id="fps-counter-details"></a>
 
 ## fps counter details
 
 FPS details include separate CPU preparation, GPU execution, CPU passes and optional GPU passes.
 
-Acceptance: open. Priority P1.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1743,22 +1383,15 @@ Related failure to probe: Accumulated readback windows look like per-frame pass 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-- `/mnt/datasets/c3r-build/root-worker-gaps-sol/extraction.json`
-- `/mnt/datasets/c3r-build/root-worker-gaps-sol/test.log`
-
 <a id="gpu-worker-isolation"></a>
 
 ## gpu worker isolation
 
 All GPU upload/draw/acquire work is off OS main thread; main cursor remains live.
 
-Acceptance: open. Priority P0.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1773,25 +1406,15 @@ Related failure to probe: Blocked window surface binding deadlocks GPU waiting o
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [native-thread-init.sol.md](evidence/handover/native-thread-init.sol.md)
-- [worker-cpu-prefix.sol.md](evidence/handover/worker-cpu-prefix.sol.md)
-- [worker-prefix-independent-review.sol.json](evidence/handover/worker-prefix-independent-review.sol.json)
-- [ui-command-transactions.sol.md](evidence/handover/ui-command-transactions.sol.md)
-- `/mnt/datasets/c3r-build/root-worker-gaps-sol/extraction.json`
-- `/mnt/datasets/c3r-build/root-worker-gaps-sol/test.log`
-
 <a id="gpu-transactions"></a>
 
 ## gpu transactions
 
 Resize/lost surfaces/cancelled epochs/failure replies preserve image-mapping pairing.
 
-Acceptance: open. Priority P0.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1806,28 +1429,15 @@ Related failure to probe: Latest progress crosses FIFO ack cutoff; frame Arc ret
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [ui-present-metadata.sol.md](evidence/handover/ui-present-metadata.sol.md)
-- [worker-cpu-prefix.sol.md](evidence/handover/worker-cpu-prefix.sol.md)
-- [worker-prefix-independent-review.sol.json](evidence/handover/worker-prefix-independent-review.sol.json)
-- [ui-command-transactions.sol.md](evidence/handover/ui-command-transactions.sol.md)
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-- [prepared-update-scope.sol.md](evidence/handover/prepared-update-scope.sol.md)
-- `/mnt/datasets/c3r-build/root-union-validation-sol/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/root-aggregate-review.json`
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/release-validation.json`
-
 <a id="gpu-three-buffers"></a>
 
 ## gpu three buffers
 
 Small frame controls stay immutable across three in-flight GPU submissions.
 
-Acceptance: open. Priority P0.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa AMD RADV numeric GPU; Native Windows Vulkan and minimum WARP.
 
@@ -1842,25 +1452,15 @@ Related failure to probe: Static frame passes while dynamic full redraw reuses w
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [renderer-sync.sol.md](evidence/handover/renderer-sync.sol.md)
-- [windows-protocol48.sol.md](evidence/handover/windows-protocol48.sol.md)
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-- [prepared-update-scope.sol.md](evidence/handover/prepared-update-scope.sol.md)
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- [native-captured-smoke-union-results.json](evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json)
-- [native-app-status.md](evidence/handover/creative-qa/text-perf-sol/native-app-status.md)
-
 <a id="gpu-no-cpu-render"></a>
 
 ## gpu no cpu render
 
 GPU shader paths draw solid UI/text/indexed/direct art; CPU only state/layout/oracle.
 
-Acceptance: open. Priority P1.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1875,21 +1475,15 @@ Related failure to probe: A new UI fallback synthesizes CPU fill images instead 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- [ui-commands-atomic.sol.md](evidence/handover/ui-commands-atomic.sol.md)
-- [glyph-cache-independent-oracle.sol.md](evidence/handover/glyph-cache-independent-oracle.sol.md)
-
 <a id="platform-linux-dualstack"></a>
 
 ## platform linux dualstack
 
 Wine dual-stack native Linux remains correct with game rendering disabled.
 
-Acceptance: open. Priority P0.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine existing assets.
 
@@ -1903,21 +1497,15 @@ Related failure to probe: Standalone external viewer accidentally used while cla
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.sol.md](evidence/handover/release-deploy.sol.md)
-- [native-thread-init.sol.md](evidence/handover/native-thread-init.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-
 <a id="platform-mac-dualstack"></a>
 
 ## platform mac dualstack
 
 Actual single-process Intel macOS game/native runtime plus Apple ARM/FEX.
 
-Acceptance: open. Priority P0.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: runtime menu verified gameplay open.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -1931,28 +1519,15 @@ Related failure to probe: Menu-only startup mistaken for complete gameplay cover
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- [native-thread-init.sol.md](evidence/handover/native-thread-init.sol.md)
-- [mac-audio.sol.md](evidence/handover/mac-audio.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- `/mnt/datasets/c3r-build/launcher-cleanup-sol/audit.json`
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/vendor-offline-v2-verdict.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/miles-offline-v2.json`
-- [sol-root-macneo-priority-freeze-review.json](evidence/handover/sol-root-macneo-priority-freeze-review.json)
-- [priority3be-reconciliation.json](evidence/handover/creative-qa/priority3be-reconciliation.json)
-
 <a id="platform-metal"></a>
 
 ## platform metal
 
 Physical A18 Metal/FEX rendering, music and performance.
 
-Acceptance: open. Priority P0.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: blocked only physical device offline.
+Acceptance: open. Priority P0.
 
 Venues: Physical TS Neo only after reconnect; no builds there.
 
@@ -1966,20 +1541,15 @@ Related failure to probe: Intel SwiftShader correctness extrapolated to ARM shad
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.sol.md](evidence/handover/release-deploy.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-
 <a id="platform-windows"></a>
 
 ## platform windows
 
 Windows primary Vulkan correctness with minimum D3D compatibility.
 
-Acceptance: open. Priority P1.
+Spawn the `windows_guest` subagent described in [the continuation assignments](subagents.md#windows_guest) to finish this work.
 
-Implementation record: numeric native verified actual gameplay open.
+Acceptance: open. Priority P1.
 
 Venues: Owned Windows VM; no game-asset transfers.
 
@@ -1994,21 +1564,15 @@ Related failure to probe: CPU adapter software correctness counted as hardware p
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [windows-vulkan.sol.md](evidence/handover/windows-vulkan.sol.md)
-- [windows-protocol48.sol.md](evidence/handover/windows-protocol48.sol.md)
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/wine-direct-results.json`
-
 <a id="platform-pointer-api"></a>
 
 ## platform pointer api
 
 Portable pointer constraints and keyboard capture behave on Windows/Wayland/macOS.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2023,46 +1587,15 @@ Related failure to probe: UI tests only cover simulated layout and miss composit
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results-controls.md`
-
-<a id="vm-template"></a>
-
-## vm template
-
-Prepared desktop snapshot clones boot/login/SSH/read-only assets cleanly under10GB shared cap.
-
-Acceptance: covered with scope limits. Priority P2.
-
-Implementation record: operational evidence complete.
-
-Venues: Owned Intel macOS VM descriptor and prepared template.
-
-Next actions:
-
-1. Clone prepared template; verify login, help, read-only mounts, manifests and memory scope
-
-Acceptance oracle: Fresh clone reaches usable desktop and tools, existing assets untouched; allVMRSS total bounded.
-
-Related failure to probe: Warm existing work VM mistaken for reusable snapshot proof.
-
-Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
-
-Evidence:
-
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-
 <a id="release-pairing"></a>
 
 ## release pairing
 
 Five matched binaries plus launcher app deploy immediately after build/protocol/shader gate.
 
-Acceptance: open. Priority P0.
+Spawn the `neo_release` subagent described in [the continuation assignments](subagents.md#neo_release) to finish this work.
 
-Implementation record: artifacts verified deployment blocked physical offline.
+Acceptance: open. Priority P0.
 
 Venues: Papa immutable artifacts now; Physical TS Neo when online.
 
@@ -2077,25 +1610,15 @@ Related failure to probe: Offline successful build reported as completed Mac dep
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.sol.md](evidence/handover/release-deploy.sol.md)
-- [native-thread-init.sol.md](evidence/handover/native-thread-init.sol.md)
-- `/mnt/datasets/c3r-build/root-union-validation-sol/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/root-aggregate-review.json`
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/release-validation.json`
-- [sol-root-macneo-priority-freeze-review.json](evidence/handover/sol-root-macneo-priority-freeze-review.json)
-- [priority3be-reconciliation.json](evidence/handover/creative-qa/priority3be-reconciliation.json)
-
 <a id="performance-4k-static"></a>
 
 ## performance 4k static
 
 Verify 240 FPS AMD iGPU at3840 x 2160, static/cached and forced dynamic work separately.
 
-Acceptance: failed goal not achieved. Priority P0.
+Spawn the `performance_240` subagent described in [the continuation assignments](subagents.md#performance_240) to finish this work.
 
-Implementation record: performance goal unverified.
+Acceptance: failed goal not achieved. Priority P0.
 
 Venues: Papa AMD RADV only, isolated GPU timing session.
 
@@ -2110,24 +1633,15 @@ Related failure to probe: 4K window actually3832x2106; empty/cached benchmark re
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-- [renderer-sync.sol.md](evidence/handover/renderer-sync.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- [actual-App866-dynamic-summary.json](evidence/handover/creative-qa/actual-App866-dynamic-summary.json)
-- `/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/timing-window-summary.json`
-- [native-app-status.md](evidence/handover/creative-qa/text-perf-sol/native-app-status.md)
-
 <a id="performance-4k-dynamic"></a>
 
 ## performance 4k dynamic
 
 240 FPS AMD iGPU target holds under forced world/UI redraw and realistic interactions.
 
-Acceptance: failed goal not achieved. Priority P0.
+Spawn the `performance_240` subagent described in [the continuation assignments](subagents.md#performance_240) to finish this work.
 
-Implementation record: performance goal unverified.
+Acceptance: failed goal not achieved. Priority P0.
 
 Venues: Papa AMD RADV only, exclusive timing; existing game assets.
 
@@ -2143,26 +1657,15 @@ Related failure to probe: Scene publisher33ms or worker timeout4ms constrains up
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-- [renderer-sync.sol.md](evidence/handover/renderer-sync.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- [tiles555-oracle-results.json](evidence/handover/creative-qa/shader-perf-sol/tiles555-oracle-results.json)
-- [tiles555-artifact.json](evidence/handover/creative-qa/shader-perf-sol/tiles555-artifact.json)
-- [actual-App866-dynamic-summary.json](evidence/handover/creative-qa/actual-App866-dynamic-summary.json)
-- `/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/timing-window-summary.json`
-- [native-app-status.md](evidence/handover/creative-qa/text-perf-sol/native-app-status.md)
-
 <a id="performance-delays"></a>
 
 ## performance delays
 
 Audit arbitrary waits/locks without removing necessary pacing/lost-wake safeguards blindly.
 
-Acceptance: open. Priority P0.
+Spawn the `performance_240` subagent described in [the continuation assignments](subagents.md#performance_240) to finish this work.
 
-Implementation record: measurement required.
+Acceptance: open. Priority P0.
 
 Venues: Papa CPU trace + AMD RADV exclusive timing.
 
@@ -2177,27 +1680,15 @@ Related failure to probe: Removing lost-wake timeout reintroduces Mac hang; trea
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [renderer-sync.sol.md](evidence/handover/renderer-sync.sol.md)
-- [gpu-worker.sol.md](evidence/handover/gpu-worker.sol.md)
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-- [worker-cpu-prefix.sol.md](evidence/handover/worker-cpu-prefix.sol.md)
-- [worker-prefix-independent-review.sol.json](evidence/handover/worker-prefix-independent-review.sol.json)
-- [ui-command-transactions.sol.md](evidence/handover/ui-command-transactions.sol.md)
-- [actual-App866-dynamic-summary.json](evidence/handover/creative-qa/actual-App866-dynamic-summary.json)
-- `/mnt/datasets/c3r-build/native-app-qualification-sol/final866-native1-dual1-r1/timing-window-summary.json`
-- [native-app-status.md](evidence/handover/creative-qa/text-perf-sol/native-app-status.md)
-
 <a id="diplomacy-ring-arrow"></a>
 
 ## diplomacy ring arrow
 
 Configurable flashing active arrow and diplomacy rings across views.
 
-Acceptance: open. Priority P2.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: not individually audited.
+Acceptance: open. Priority P2.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2212,19 +1703,15 @@ Related failure to probe: War ring becomes peace colour only in animation.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-
 <a id="turn-focus"></a>
 
 ## turn focus
 
 AI combat/turn animations focus requested pane without moving independent pane.
 
-Acceptance: open. Priority P1.
+Spawn the `combat_validation` subagent described in [the continuation assignments](subagents.md#combat_validation) to finish this work.
 
-Implementation record: not individually audited.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2238,19 +1725,15 @@ Related failure to probe: Parked native focus drives wrong viewport.
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-
 <a id="city-worked-alt"></a>
 
 ## city worked alt
 
 City worked-tile Alt targets agree with displayed independent city camera.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: successor source fixed targeted CPU tests passed native runtime pending.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2264,23 +1747,15 @@ Related failure to probe: Old native camera index selects different tile.
 
 Evidence limit: Original handover explicitly lists this open. Current city_drawn_targets covers citizen heads and units only; no end-to-end worked-tile Alt result found. Do not assert absent implementation without completing control-tree/layout audit.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-- [army-units.sol.md](evidence/handover/army-units.sol.md)
-- `/mnt/datasets/c3r-build/city-worked-alt-sol-evidence/`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/cpu-results.json`
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/windows-ui-results.json`
-
 <a id="architecture-transport"></a>
 
 ## architecture transport
 
 Viewer transport async ownership does not block game/publisher or grow unbounded.
 
-Acceptance: open. Priority P2.
+Spawn the `cpu_timing` subagent described in [the continuation assignments](subagents.md#cpu_timing) to finish this work.
 
-Implementation record: original todo not a proven defect.
+Acceptance: open. Priority P2.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2294,20 +1769,15 @@ Related failure to probe: Transport remains non-tokio despite recommendation; se
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-
 <a id="regression-start-exit"></a>
 
 ## regression start exit
 
 New game/retire/exit/restart clears world mode and resources.
 
-Acceptance: open. Priority P0.
+Spawn the `game_soak` subagent described in [the continuation assignments](subagents.md#game_soak) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2322,28 +1792,15 @@ Related failure to probe: Previous session notice serial/asset epoch reused acro
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [scenario-crash.sol.md](evidence/handover/scenario-crash.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- [mac-audio.sol.md](evidence/handover/mac-audio.sol.md)
-- [sol-orchestrator-current.json](evidence/handover/sol-orchestrator-current.json)
-- `/mnt/datasets/c3r-build/launcher-cleanup-sol/audit.json`
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-- `/mnt/datasets/c3r-build/army-checkpoint-86663ea8/allocator-results.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/vendor-offline-v2-verdict.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/miles-offline-v2.json`
-- `/mnt/datasets/c3r-build/release-1019/artifacts/86663ea806b7f38ef447a5f4de553adc4b402e7f63e697762e15d0b5d7c9989e/wine-direct-results.json`
-
 <a id="settings-fog-and-territory"></a>
 
 ## settings fog and territory
 
 Show territory and clean-map presets/categories update intended views immediately.
 
-Acceptance: open. Priority P1.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2357,19 +1814,15 @@ Related failure to probe: Category visibility correct in base sprites but wrong 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [mac-fps-music.sol.md](evidence/handover/mac-fps-music.sol.md)
-
 <a id="viewport-separators"></a>
 
 ## viewport separators
 
 High-contrast dividers and capture-release hint stay visible over unexplored world.
 
-Acceptance: open. Priority P2.
+Spawn the `world_fidelity` subagent described in [the continuation assignments](subagents.md#world_fidelity) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P2.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2383,19 +1836,15 @@ Related failure to probe: Solid rectangles accidentally clipped/no atlas while t
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-
 <a id="save-load-input"></a>
 
 ## save load input
 
 Keyboard/mouse operate new-game, load/save and full turn in each supported runtime.
 
-Acceptance: open. Priority P0.
+Spawn the `game_soak` subagent described in [the continuation assignments](subagents.md#game_soak) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P0.
 
 Venues: Papa Wine using existing local game assets; Owned Intel macOS VM using existing read-only assets.
 
@@ -2409,24 +1858,15 @@ Related failure to probe: Unit tests pass but launcher/load dialog size mapping 
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [release-deploy.sol.md](evidence/handover/release-deploy.sol.md)
-- [vm-snapshot.sol.md](evidence/handover/vm-snapshot.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-- [mac-audio.sol.md](evidence/handover/mac-audio.sol.md)
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/vendor-offline-v2-verdict.json`
-- `/mnt/datasets/c3r-build/vm-qa31b-sol/miles-offline-v2.json`
-
 <a id="ui-read-only-constraints"></a>
 
 ## ui read only constraints
 
 Sol visual/GUI acceptance permitted without touching Nexus/assets/system settings.
 
-Acceptance: open. Priority P0.
+Spawn the `game_soak` subagent described in [the continuation assignments](subagents.md#game_soak) to finish this work.
 
-Implementation record: authorized test method.
+Acceptance: open. Priority P0.
 
 Venues: Owned local test UI/VM only.
 
@@ -2441,19 +1881,15 @@ Related failure to probe: Mistaken handover restriction prevents the actual visu
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-
 <a id="nvidia-failure-handling"></a>
 
 ## nvidia failure handling
 
 Unsupported explicit NVIDIA option should fail clearly rather than hang invisible.
 
-Acceptance: open. Priority P2.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: not individually audited.
+Acceptance: open. Priority P2.
 
 Venues: Papa CPU argument/error tests; never run NVIDIA GPU.
 
@@ -2467,19 +1903,15 @@ Related failure to probe: Flag selects unavailableGPU then music-only background
 
 Evidence limit: Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.
 
-Evidence:
-
-- [00-orchestrator.md](evidence/handover/00-orchestrator.md)
-
 <a id="ui-background-sampling"></a>
 
 ## ui background sampling
 
 Selectable discard/dither/interpolate background sampling and original native settings buttons.
 
-Acceptance: open. Priority P1.
+Spawn the `ui_acceptance` subagent described in [the continuation assignments](subagents.md#ui_acceptance) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine existing assets; Papa AMD RADV numeric GPU.
 
@@ -2494,24 +1926,15 @@ Related failure to probe: Metal Naga loop drops last sample despite RADV passing
 
 Evidence limit: This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.
 
-Evidence:
-
-- [release-deploy.md](evidence/handover/release-deploy.md)
-- [preview-smear.sol.md](evidence/handover/preview-smear.sol.md)
-- [union-package-test-results.json](evidence/handover/creative-qa/shader-perf-sol/union-package-test-results.json)
-- [native-captured-smoke-union-results.json](evidence/handover/creative-qa/shader-perf-sol/native-captured-smoke-union-results.json)
-- `/mnt/datasets/c3r-build/higher-depth-fp16-sol/strict-candidate-results.json`
-- `/mnt/datasets/c3r-build/higher-depth-fp16-sol/one_pixel-dual0.log`
-
 <a id="bombard-range"></a>
 
 ## bombard range
 
 Bombard command displays correct range/path and action overlays.
 
-Acceptance: open. Priority P1.
+Spawn the `combat_validation` subagent described in [the continuation assignments](subagents.md#combat_validation) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine existing assets; Papa AMD RADV numeric GPU.
 
@@ -2526,20 +1949,15 @@ Related failure to probe: Native overlay only produced for original game viewpor
 
 Evidence limit: This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.
 
-Evidence:
-
-- [targeting-cursors.sol.md](evidence/handover/targeting-cursors.sol.md)
-- `/mnt/datasets/c3r-build/input-runtime31b-sol/results.md`
-
 <a id="mirrored-cursor"></a>
 
 ## mirrored cursor
 
 Translated pointer in a menu pane keeps arrow shape while physical pointer outside.
 
-Acceptance: open. Priority P1.
+Spawn the `pointer_input` subagent described in [the continuation assignments](subagents.md#pointer_input) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine existing assets; Papa AMD RADV numeric GPU.
 
@@ -2553,19 +1971,15 @@ Related failure to probe: World targeting cursor replaces translated menu arrow.
 
 Evidence limit: This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.
 
-Evidence:
-
-- [slider-arrow-keys.sol.md](evidence/handover/slider-arrow-keys.sol.md)
-
 <a id="windows-ephemeral-template"></a>
 
 ## windows ephemeral template
 
 Windows golden VM clones are small,2GB RAM,30GB disk,offline-ready and usable for testing.
 
-Acceptance: open. Priority P2.
+Spawn the `windows_guest` subagent described in [the continuation assignments](subagents.md#windows_guest) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P2.
 
 Venues: Papa Wine existing assets; Papa AMD RADV numeric GPU.
 
@@ -2579,20 +1993,15 @@ Related failure to probe: Existing warm VM hides missing first-boot driver/accou
 
 Evidence limit: This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.
 
-Evidence:
-
-- [windows-vm.sol.md](evidence/handover/windows-vm.sol.md)
-- [windows-protocol48.sol.md](evidence/handover/windows-protocol48.sol.md)
-
 <a id="low-game-resolution"></a>
 
 ## low game resolution
 
 Original game runs at supported low resolution independent of native renderer output.
 
-Acceptance: open. Priority P1.
+Spawn the `platform_runtime` subagent described in [the continuation assignments](subagents.md#platform_runtime) to finish this work.
 
-Implementation record: reported implemented not feature runtime verified.
+Acceptance: open. Priority P1.
 
 Venues: Papa Wine existing assets; Papa AMD RADV numeric GPU.
 
@@ -2606,7 +2015,3 @@ Acceptance oracle: Original low resolution supported by actual Civ3 build; rende
 Related failure to probe: Native game client follows desktop4K and consumes translation/memory needlessly.
 
 Evidence limit: This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.
-
-Evidence:
-
-- [release-deploy.sol.md](evidence/handover/release-deploy.sol.md)

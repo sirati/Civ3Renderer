@@ -4,27 +4,27 @@ Prepared on 22 October 2026 for the user and the next maintainer. The implementa
 
 The renderer has substantial working implementations and several verified fixes. Full release acceptance is still open. The AMD iGPU has not reached 240 FPS at native 4K. The latest committed release is staged for Neo, while its last recorded installed app is older. Continue with the open work below and retain the existing counter design.
 
-Read [the subagent inventory](subagents.md) for all 96 recovered Codex agents and the inherited Claude reports, [the acceptance checklist](acceptance.md) for all 85 acceptance families, and [the evidence index](evidence-index.md) for preserved reports and independent reviews. [handover.html](handover.html) is an offline reading copy with searchable agent and acceptance sections. [state.json](state.json) records the main identities and blockers.
+Read [the continuation assignments](subagents.md) for unfinished work and the fresh subagents the successor must spawn. The [acceptance checklist](acceptance.md) maps every open feature family to a continuation task. [handover.html](handover.html) is an offline reading copy, and [state.json](state.json) records current identities and blockers.
 
 ## What is closed
 
-These are completed implementations or specific checks. Each result retains its original platform, workload and source limits.
+| Task | Status |
+| --- | --- |
+| Source recovery and integration | All of this task has been done. |
+| Existing source-backup checkpoint | All of this task has been done. |
+| Dedicated GPU-worker implementation | All of this task has been done. |
+| UI command-transaction implementation | All of this task has been done. |
+| Existing frame-counter accounting implementation | All of this task has been done. |
+| Narrow Microsoft Basic Render Driver compatibility fix | All of this task has been done. |
+| Vendor and title-screen audio causal controls | All of this task has been done. |
+| Launcher cancellation regression checks | All of this task has been done. |
+| Prepared macOS desktop template | All of this task has been done. |
+| Collection and review of the f510 moving 4K baseline | All of this task has been done. |
+| 21 October viewer verification | All of this task has been done. |
 
-| Work | Completed result | Evidence |
-| --- | --- | --- |
-| Source recovery and integration | The recovered feature branches were integrated into main. The baseline commit preserves the exact 673 source files of the f510 freeze. The old `perf` and `zoom` branches are ancestors, not current optimization candidates. | [Source review](evidence/handover/sol-root-source-backups-review-20261020.json) |
-| Source preservation | The main Git tree, private development snapshot and later QA checkpoint have verified off-host copies on Papa's laptop and Neo. Both hosts were reachable and reported the baseline main commit during this handover. | [Backup and restore](backup-and-restore.md) |
-| GPU worker and frame ownership | GPU upload/draw/acquire work has a dedicated worker. Submitted UI mappings remain immutable. Small control data uses three slots; the world and atlas are not copied three times. | [GPU worker](evidence/handover/gpu-worker.sol.md), [synchronization](evidence/handover/renderer-sync.sol.md) |
-| UI command transactions | UI publication commits commands and final layout together. Optional missing sprites do not hold an entire UI invisible. The earlier art-residency hold and 150 ms timeout were superseded. | [Final transaction design](evidence/handover/ui-commands-atomic.sol.md) |
-| Counter semantics | CPU preparation wall time, GPU execution and inter-frame gaps have separate accounting. Timing/gap regressions passed. Keep the user's counter design. | [Timing handover](evidence/external/fps-details-sol/handover.md), [timing attribution](evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.md) |
-| Native DX12 compatibility defect | The minimum workaround for the observed Microsoft Basic Render Driver uses a narrow FP16 quantized path. Native focused checks passed. It does not justify enabling that path on RADV or Metal. | [Native Windows report](evidence/handover/windows-vm.sol.md), [color investigation](evidence/handover/mac-fps-music.sol.md) |
-| Audio causal controls | The original vendor no-device failure was reproduced. The corrected production title-screen no-audio normal Exit passed. Healthy-audio title and loaded Mal3 load/quit controls also passed historically. | [Audio report](evidence/handover/mac-audio.sol.md), [title review](evidence/handover/sol-root-f510-no-device-title-review.json) |
-| Launcher cancellation | Real TERM after a failed worker returned 143; TERM with an active owned game stopped that game cleanly. Identity-scoped cleanup evidence is retained. | [Cancellation review](evidence/handover/sol-root-f510-cancellation-runtime-review.json) |
-| VM desktop template | Prepared macOS desktop snapshots and verification clones were created and checked. This closes the template work within its recorded scope. | [VM handover](evidence/handover/vm-snapshot.sol.md) |
-| Current performance baseline | Three qualified Linux full-UI, sustained-motion 4K runs completed. Root accepted the measurement evidence after independently checking it. All three failed the performance goal. | [Independent review](evidence/handover/sol-root-f510-native4k-baseline-review.json) |
-| Latest viewer verification | On 21 October, `tile-viewer` recorded 495 passing unit tests, 4 ignored tests, and one passing host-status GPU test. No code changes remained from that turn. | [Verification record](verification.md) |
+## Taking over unfinished work
 
-Many other feature implementations have targeted tests. Their current full-game acceptance remains open in the checklist. A completed agent task or an aggregate passing test count does not close those rows.
+The successor must spawn the fresh subagents in [the continuation assignments](subagents.md). Give each agent its brief, starting material, completion condition and the shared constraints below. Begin with preparation, then schedule dependent runtime checks and installation in order. Keep one owner per VM GUI/input session and one owner per AMD measurement interval.
 
 ## What is open
 
@@ -49,7 +49,7 @@ Checkpoint `ce5e104270258e207e16c3a8cf7a0ff5336c41d5` contains the runnable owne
 2. `guest_probe.py` accepts title adoption as loaded-map readiness.
 3. `vm_adapter.py` captures before checking readiness, so the image cannot prove post-adoption state.
 
-Fix and review these before qualification. The retained package also needs a separately checked normal-Quit radio-selection calibration. The older orchestrator entry describing only a six-test draft is stale. See the [audio agent record](agent-records/mac_audio_sol.md) and the [owner package](evidence/external/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md). Do not treat the preparation instructions as runtime results.
+Fix and review these before qualification. The retained package also needs a separately checked normal-Quit radio-selection calibration. The older orchestrator entry describing only a six-test draft is stale. See the [audio continuation brief](subagents.md#audio_loaded) and the [owner package](evidence/external/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md). Do not treat the preparation instructions as runtime results.
 
 The previous no-device Mal3 arm reached terrain/cities near its deadline, but full HUD/units, a fresh loaded audio trace and ordinary Quit were not established. The watchdog forced TERM after about 480 seconds. The owner restored the exact USB-null fixture and audio environment; root accepted that restoration. Vendor/title causal passes remain valid within their narrower scope.
 
@@ -94,7 +94,7 @@ GPU culling already exists. Terrain rejects candidates before sprite-table resol
 | Sparse cells and terrain cache | Design/audit work is retained. Sparse metadata can preserve painter order, with invalidation and retirement risks. | Use current-app measurements to justify implementation; full correctness and adoption remain open. |
 | Frame cap | Older audit found draw preparation starting after the presentation interval, adding draw time to the cap period. | Recheck current behavior before changing pacing. Uncapped throughput and capped shortfall need separate measurements. |
 
-See [the shader audit](evidence/handover/creative-qa/shader-perf-sol/audit.md), [binary-cell proof](evidence/handover/binary-cell-recorded4k-proof.sol.json), [thin-view plan](evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json), and [sparse-cell audit](evidence/external/sparse-cells-sol/audit.md).
+See the [performance continuation brief](subagents.md#performance_240), [binary-cell proof](evidence/handover/binary-cell-recorded4k-proof.sol.json), [thin-view plan](evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json). The performance brief also covers whether sparse-cell work is justified.
 
 ## Constraints to carry forward
 
@@ -110,11 +110,11 @@ See [the shader audit](evidence/handover/creative-qa/shader-perf-sol/audit.md), 
 - Keep Neo stopped after the emergency rescue until the coherent release and priority checks are complete. Do not automatically launch the game during backup or documentation work.
 - Commit new work and preserve it on a working origin. Where origin is missing, replicate the Git tree to Papa's laptop and Neo before deleting source or private experiments.
 
-The old `00-orchestrator.md` says that nothing is committed, prohibits commits, and describes earlier deployment priorities. Those entries are historical and superseded. Likewise, early reports describe an art-readiness timeout which the later command-transaction design removed.
+Historical no-commit rules, immediate-deployment wording and art-readiness timeout instructions are superseded. Follow the current commit, release and command-transaction requirements in this summary.
 
 ## Restart sequence
 
-1. Read this summary, the latest agent records for the intended work, and the relevant acceptance rows. Check `git status`, `git log -1`, available artifacts and current process/VM ownership. Do not use historical task names as live handles.
+1. Read this summary and spawn the fresh subagents specified in [the continuation assignments](subagents.md). Give each its brief and shared constraints. Check `git status`, `git log -1`, artifacts and current process/VM ownership before runtime work.
 2. Confirm backups before source cleanup. Restore private experiments from `development-source-current.bundle` if needed. Its `SOURCE_INDEX.json` maps original locations. Do not reset main to an old performance branch.
 3. For renderer correctness, reproduce the known strict 6/7-bit failure first. For performance, start with the accepted f510 native-4K workload, then run the controlled thin-view diagnostic before adopting optimizations.
 4. For audio, fix the three latest owner-driver blockers and complete offline review before calibration or a new loaded no-device arm. Preserve the eight-minute watchdog and exact environment-restoration requirements.
@@ -124,8 +124,8 @@ The old `00-orchestrator.md` says that nothing is committed, prohibits commits, 
 
 Useful existing guides are [macOS Neo](../macos-tsneo.md), [macOS VM](../macos-vm.md), [concurrency](../concurrency.md), [settings transactions](../settings-transactions.md), [independent camera](../independent-camera.md), and [modal input](../modal-input.md). VM credentials remain in the local `/mnt/datasets/macvm/LOGIN.md`; this package excludes credential values.
 
-## Evidence dates and limits
+## Dates and source limits
 
 Most retained agent work and runtime evidence dates to 17–20 October. The orchestrator snapshot was last updated at 19:44 UTC on 20 October. The independent 4K baseline review at 19:49 UTC and later driver review supersede its pending/draft wording. The 21 October continuation added verification, found the existing wider rounding failure and reverted all experimental code edits. This handover adds documentation only.
 
-The evidence archive preserves small reports and JSON records with source and copied-content SHA-256 hashes. Redactions are listed in its [manifest](evidence-manifest.json). Build products, screenshots, game assets, VM disks and full raw transcripts remain at the indexed original paths; this documentation backup does not claim to contain those bulk artifacts. Historical reports are evidence, not new instructions.
+The [starting evidence](evidence-index.md) covers unfinished tasks. Completed-agent histories are omitted from the current handover. Build products, game assets, VM disks and large captures remain at their original source/backup locations.

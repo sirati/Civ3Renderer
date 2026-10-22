@@ -1,143 +1,337 @@
-# Renderer subagent inventory
+# Subagents for unfinished work
 
-The original Codex session has 96 recovered descendant sessions: 66 direct agents, 28 children of those agents and two deeper descendants. All 96 have a local report record. The initial root transcript exposed only 71 authors; session metadata recovered the remaining descendants. One duplicate `unit_notices` spawn attempt was rejected and does not represent another agent.
+The successor taking this handover must spawn a fresh subagent for each unfinished task below. Use the task name and brief in each entry, and give every agent the shared constraints in the main handover. These are continuation assignments, not a roster of historical agents.
 
-Task names below are historical identities. Do not send continuation messages to these paths without checking the current orchestration system. Historical retry-limit failures do not establish completion or live availability. The latest user request is documentation; no agents were restarted or created for this handover.
+Spawn the agents to begin source review and preparation. The parent must schedule dependencies and reserve shared runtime resources. Only one agent may control a VM GUI/input session, and only one may own an AMD measurement interval. Dependent agents can prepare their work while prerequisites finish; they must wait before the dependent runtime or installation step.
 
-The inventory distinguishes completed implementation/review/preparation from current runtime acceptance. Every row links the agent's latest retained reports and original transcript location. Source implementations are committed in the main or private development checkpoint as described in the main handover; a historical report saying "uncommitted" describes its own date.
+Rebind any owner identity embedded in a retained runtime script or broker grant to the fresh agent through the reviewed ownership procedure. Never reuse a historical lease as current authorization.
 
-## Inherited Claude handovers
+The parent owns integration, acceptance decisions, source commits and off-host backups. A passed review or completed preparation task is not reopened merely because its feature still needs runtime acceptance. Completed tasks are listed only as "All of this task has been done" in the main summary.
 
-These eleven task reports and the old orchestrator report were present when the Sol continuation resumed. They preserve the earlier Claude/Opus work, including test recipes, source changes and remaining issues. Later Sol reports and user instructions supersede their no-commit rules, old source identities and obsolete readiness policy.
+## Continuation tasks
 
-| Inherited task | Original report | Sol continuation |
+| Task | Spawn a fresh subagent | Remaining work |
 | --- | --- | --- |
-| army-units | [Original](evidence/handover/army-units.md) | [Continuation](evidence/handover/army-units.sol.md) |
-| mac-fps-music | [Original](evidence/handover/mac-fps-music.md) | [Continuation](evidence/handover/mac-fps-music.sol.md) |
-| preview-smear | [Original](evidence/handover/preview-smear.md) | [Continuation](evidence/handover/preview-smear.sol.md) |
-| scenario-crash | [Original](evidence/handover/scenario-crash.md) | [Continuation](evidence/handover/scenario-crash.sol.md) |
-| slider-arrow-keys | [Original](evidence/handover/slider-arrow-keys.md) | [Continuation](evidence/handover/slider-arrow-keys.sol.md) |
-| targeting-cursors | [Original](evidence/handover/targeting-cursors.md) | [Continuation](evidence/handover/targeting-cursors.sol.md) |
-| text-fit-atomic-ui | [Original](evidence/handover/text-fit-atomic-ui.md) | [Continuation](evidence/handover/text-fit-atomic-ui.sol.md) |
-| tile-popup-menus | [Original](evidence/handover/tile-popup-menus.md) | [Continuation](evidence/handover/tile-popup-menus.sol.md) |
-| tile-popup-render-shadow | [Original](evidence/handover/tile-popup-render-shadow.md) | [Continuation](evidence/handover/tile-popup-render-shadow.sol.md) |
-| unit-notices | [Original](evidence/handover/unit-notices.md) | [Continuation](evidence/handover/unit-notices.sol.md) |
-| release-deploy | [Original](evidence/handover/release-deploy.md) | [Continuation](evidence/handover/release-deploy.sol.md) |
+| [Native 4K performance and candidate attribution](#performance_240) | `performance_240` | Reach and verify sustained 240 FPS on the AMD RADV iGPU at native 3840 by 2160 with full UI and realistic motion. Preserve the counter design. Continue the controlled thin-view diagnostic before adopting binary-cell, glyph-skip, sparse-cell or terrain-cache changes. Test candidates against the unchanged baseline with matched correctness and timing. |
+| [CPU busy measurement and concurrency acceptance](#cpu_timing) | `cpu_timing` | Measure actual CPU busy time separately from host build/encode wall time. Verify GPU-worker isolation, immutable frame/mapping ownership, three small control slots and bounded transport under resize, cancellation and failures. Keep the current counter layout and existing GPU gap semantics. |
+| [Six-bit and seven-bit color correctness](#wider_color) | `wider_color` | Resolve the strict wider-depth subpixel rounding failure and qualify the isolated wider-integer implementation. Keep RADV on its proven UNORM path until a replacement passes the numerical oracle. Do not broaden the Microsoft Basic Render Driver FP16 workaround. |
+| [Loaded-save audio failure and normal Quit](#audio_loaded) | `audio_loaded` | Finish the loaded Mal3 no-device causal test and macOS music/CPU soak. Fix the owner driver before running it. Preserve the eight-minute watchdog, identity-safe cleanup and exact USB-null environment restoration. |
+| [Camera arrival and accelerated combat](#combat_validation) | `combat_validation` | Verify visible battles at 1x and 4x, camera arrival before animation, minimum keep-visible AI focus, army presentation and movement bonuses. Use matched initial state and compare RNG plus stable unit outcomes. |
+| [Settings and UI runtime acceptance](#ui_acceptance) | `ui_acceptance` | Finish current-game acceptance for UI command atomicity, settings preview/Accept/Cancel, scale confirmation/rollback, menu fit, C3X modal painter order, F1 smooth scrolling, text fit, popup identity/freezing/dismissal, loading/status UI and background sampling. |
+| [Scenario switching and loading cost](#scenario_loading) | `scenario_loading` | Finish rapid scenario-selection/roundtrip acceptance, optional preview lifecycle, memory bounds, capture entry and fractional preview geometry. Attribute remaining late HUD/art adoption delays without conflating load time and frame GPU cost. |
+| [Pointer independence and input acceptance](#pointer_input) | `pointer_input` | Finish common pointer API, cursor/game-asset busy animation, capture/release, barriers, sensitivity, Alt navigation, native slider/City/F1 targets and translated menu cursor acceptance across supported display setups. |
+| [World and city correctness in independent views](#world_fidelity) | `world_fidelity` | Finish current-source correctness for terrain/cities/districts, off-camera units, national palettes, crisp zoom, independent panes and fog/clean-map controls, notices, city transitions, diplomacy overlays and indexed smoke/shadows. |
+| [Native Windows guest acceptance](#windows_guest) | `windows_guest` | Execute the prepared native Windows guest matrix and complete the small offline-ready ephemeral template requirements. Use Vulkan as the primary backend and preserve the minimum observed DX12 compatibility behavior. |
+| [Dual-stack and physical Metal runtime acceptance](#platform_runtime) | `platform_runtime` | Finish current matched Linux/Intel macOS/physical Apple ARM64 runtime acceptance, native resolution and HiDPI behavior. Verify the intended ARM-native Wine/FEX plus Metal setup and explicit unsupported GPU-option failure behavior. |
+| [Matched successor release on Neo](#neo_release) | `neo_release` | Finish the coherent release and priority runtime gates, then install and verify the matched staged successor on Neo. Keep source freezes, shader identity, all five runtime files and starter/bundle artifacts coherent. |
+| [Save and full-game lifecycle acceptance](#game_soak) | `game_soak` | Finish new-game/save/load/reload/end-turn/scenario/city/retire/restart soak using the current paired runtime. Check bounded memory, responsive input, world-mode reset and owned-process cleanup. |
 
-[Old orchestrator](evidence/handover/00-orchestrator.md) is historical. The [current summary](README.md) resolves superseded instructions and release identities. The [evidence index](evidence-index.md) includes additional GPU, UI, Windows, audio, loading, cache and independent-review reports produced after the initial task files.
+<a id="performance_240"></a>
 
-## Recovered branches and Linux features
+## Native 4K performance and candidate attribution
 
-| Agent | Work delivered | Current disposition |
-| --- | --- | --- |
-| [advisor_portrait](agent-records/advisor_portrait.md) | Transfers popup-owned portraits with their parent position, scale and bounds. | 14 interface-parts tests passed; live popup acceptance open. |
-| [alt_controls](agent-records/alt_controls.md) | Native Alt targets for status orb, unit portrait and cargo icons. | Focused source/platform tests passed; current full-game Alt acceptance open. |
-| [alt_prefs_tabs](agent-records/alt_prefs_tabs.md) | Suppresses hidden Preferences targets and underlying controls under popups. | Focused tests passed; later aggregate source supersedes unfinished-peer compile warnings. |
-| [alt_setup](agent-records/alt_setup.md) | Alt navigation for title/New Game groups and editable seed using native hit maps. | Focused tests passed; live setup acceptance open. |
-| [alt_sliders](agent-records/alt_sliders.md) | Alt slider preview/commit/rollback and cancellation behavior. | Focused transaction/navigation tests passed; current settings runtime acceptance open. |
-| [camera_decouple](agent-records/camera_decouple.md) | Parks native world camera, publishes semantic AI focus and keeps animations independent; restores native fallback on viewer loss. | Source tests and binary audit passed; live AI/fallback/populated-map acceptance open. |
-| [capture_edge](agent-records/capture_edge.md) | Captured-edge confinement, corners and single-axis lines with normal release. | Viewer/check tests passed; platform runtime acceptance open. |
-| [capture_sensitivity](agent-records/capture_sensitivity.md) | Configurable captured relative sensitivity with fractional preservation and scale tests. | Targeted settings/Preferences tests passed; live ratios/focus boundaries open. |
-| [city_fit](agent-records/city_fit.md) | City UI fitting and isolation from A/B clean-map filters. | Eight focused tests passed; live current city acceptance open. |
-| [civilopedia_alt](agent-records/civilopedia_alt.md) | Civilopedia/scenario anchors and clipping that excludes hidden controls across panes. | Focused package suites passed; later wire revisions supersede historical version 35. |
-| [clean_map](agent-records/clean_map.md) | Per-camera Game/Normal/Custom masks, 13 categories and separate district-resource layers. | Renderer/scene/bridge checks passed; PCGames offsets verified, other executables have scope limits. |
-| [edge_brightness](agent-records/edge_brightness.md) | Outer fog/terrain boundary brightness and false-coastline fixes. | 11 focused tests and i686 check passed; broad visual acceptance open. |
-| [edge_scroll_speed](agent-records/edge_scroll_speed.md) | Edge-scroll behavior and focus arbitration so stale AI focus cannot override later selection. | Viewer tests passed; later captured AI keep-visible policy belongs to army_units. |
-| [effects](agent-records/effects.md) | Fixed smoke/effects palette growth and tested simultaneous views and paired infantry combat. | Targeted checks passed; nuclear/SAM/SDI and exact presentation latency open. |
-| [integration_qa](agent-records/integration_qa.md) | Combined control/camera/notice/boundary plans, artifact verifier and signed-artifact launch gate. | Preparation passed; final recorded report did not execute the combined runtime matrix. |
-| [menu_active_view](agent-records/menu_active_view.md) | Menus retain their opening view, scale and clipped hitboxes while oversized panels can pan. | Focused tests passed; full current UI acceptance open. |
-| [minimap](agent-records/minimap.md) | Independent Geography/Territory sources and immediate minimap invalidation for HUD/advisor. | Targeted bridge/sys tests passed; current feature acceptance open. |
-| [native_alt_sliders](agent-records/native_alt_sliders.md) | Native slider transaction routing clears stale world input before callbacks. | Seven tests and i686 check passed at its checkpoint. |
-| [nvidia_launcher](agent-records/nvidia_launcher.md) | Explicit NVIDIA PCI selection and an asset-free headless verification helper. | Historical preparation only; current AMD-only constraint supersedes any NVIDIA run plan. |
-| [pending_input](agent-records/pending_input.md) | Recovered pan, hover and targeting branches and signed integration into zoom. | Integrated; desktop HiDPI and exact origin still lacked live checks. |
-| [perf_review](agent-records/perf_review.md) | Independent source review of performance/failure-latch changes at 22cd2e4. | Review passed for its source scope; runtime qualification separate. |
-| [performance](agent-records/performance.md) | Recovered performance pipeline, async art growth, failure latching and benchmark helpers. Historical 22cd2e4 measurements exceeded 240 FPS in some workloads, with long tails and lower advisor rates. | Historical benchmark complete; steady 4K at 240 FPS and current workload acceptance open. |
-| [pointer_constraints](agent-records/pointer_constraints.md) | Wayland walls, gap crossing, lock hints, cancellation and hotplug recovery, merged via signed fixes. | Targeted live checks passed; GNOME and live fractional scaling remain unverified. |
-| [qa_prepare](agent-records/qa_prepare.md) | Added exhausted-movement notices and active-view menu/Preferences reopening checks to combined plan. | Plan prepared; runtime evidence is separate. |
-| [retirement](agent-records/retirement.md) | Retirement/render-owner fixes and cleanup audit. Preserved unique saves and all 35 retention targets; final report identified six old task-owned prefixes. | Source recovery recorded; cleanup inventory is historical, not a new deletion instruction. |
-| [scale_review](agent-records/scale_review.md) | Menu-pan cancellation, release hover mapping and camera redraw/presentation fixes. | Focused scaling passed; early zoom-box failures handed to owners, not a current full pass. |
-| [scenario_preview](agent-records/scenario_preview.md) | Scenario cancellation and stale-result protection; later raised the view budget to 32 with a worker-layout regression. | Implementation recorded; current scenario roundtrip acceptance open. |
-| [settings_buttons](agent-records/settings_buttons.md) | Preferences placement inherits Menu panel, clips its background and retains tabs/popups. | Implementation recorded; later successor settings work supersedes early test blockers. |
-| [smooth_menus](agent-records/smooth_menus.md) | Optional clipped intermediate row scrolling with correct visible-row hit mapping and release cancellation. | Focused CPU/GPU checks passed; later F1 user regression requires full-game acceptance. |
-| [unit_drag_orders](agent-records/unit_drag_orders.md) | Civ IV style order gestures and rescaling of pending destinations without synthetic confirmations. | 19 order tests passed; current runtime acceptance open. |
-| [unit_notices](agent-records/unit_notices.md) | Native message expiry audit and Windows-1252 Unicode correction. | Continued by unit_notices_sol; older concurrent build blockers are historical. |
-| [unit_visibility](agent-records/unit_visibility.md) | Collects units outside the native A camera through native selection, fog and detection rules. | Targeted tests passed; full current B-view runtime acceptance open. |
-| [vm_qa](agent-records/vm_qa.md) | Windows VM combined matrix and save-preserving capture/trace helpers. | Prepared, unlaunched in final report; native guest matrix remains open. |
-| [world_input](agent-records/world_input.md) | Independent world input and stationary-pointer refresh after accepted presentation. | Focused tests and viewer suite passed at its checkpoint; live input matrix open. |
-| [zoom_detail](agent-records/zoom_detail.md) | World magnifiers use full-resolution art after Z zoom-out while preserving input/coverage. | Focused tests passed; current runtime acceptance open. |
-| [zoom_pointer](agent-records/zoom_pointer.md) | Top-strip barriers, floating magnifier placement, capture release and smooth-menu setting hook. | Implementation and focused tests recorded; combined live geometry acceptance open. |
+Spawn a fresh subagent named performance_240 to continue this unfinished task.
 
-## Platform integration and settings
+Brief to give the subagent:
 
-| Agent | Work delivered | Current disposition |
-| --- | --- | --- |
-| [macos_bridge](agent-records/macos_bridge.md) | Single-process bridge integration, camera/live-source checks and Wine platform tests. | 443 Wine tests passed at 3a91 source; current matched macOS acceptance remains separate. |
-| [macos_icon](agent-records/macos_icon.md) | AppKit icon integration and corrected color-managed native icon oracle. | Targeted native checks passed; installation identity tracked separately. |
-| [macos_pointer](agent-records/macos_pointer.md) | Common physical-pixel pointer/keyboard API, platform backends and Preferences fence/drag review. | Targeted checks passed; live cross-platform pointer and stalled-GPU cursor acceptance open. |
-| [macos_transport](agent-records/macos_transport.md) | Native macOS transport, release helpers and read-only SMB recovery. | Multiple historical source preparations; latest current identities are in the release section. A later retry-limit failure is not task completion. |
-| [macos_vm](agent-records/macos_vm.md) | macOS VM setup and verified complete game transfer to Neo with fonts/mods/saves retained. | Transfer verified; execution acceptance handed to native/runtime owners. |
-| [macos_vm_presentation](agent-records/macos_vm_presentation.md) | Native presentation, ARM64 cross-build validation and corrected Metal art/mask tests. | 774 tests passed at historical candidate; later f510 acceptance is separate. |
-| [macos_vm_templates](agent-records/macos_vm_templates.md) | Prepared reusable macOS snapshots and verified stopped clone instances. | Template work covered with scope limits; liveness must be rechecked. |
-| [pointer_vm_qa](agent-records/pointer_vm_qa.md) | VM pointer/UI tests and original vendor-only audio control after VM audio correction. | Vendor control exited 0; later retry failure is historical, not a current live handle. |
-| [rust_launcher](agent-records/rust_launcher.md) | Rust native Wine/FEX launcher, recovery/comparison behavior and Neo/Intel VM guide. | Documentation and targeted implementation settled; current runtime acceptance separate. |
-| [settings_transaction](agent-records/settings_transaction.md) | Deferred persistence, preview/cancel/accept behavior and native slider transactions. | 51 focused tests and Windows check passed at freeze; live UI/audio sequence open. |
-| [ui_background_dither](agent-records/ui_background_dither.md) | Texture-only background sampling with alpha masks and later preload overflow saturation/admission fix. | Focused CPU/GPU tests passed; later upscaling/preview behavior needs current acceptance. |
-| [ui_feature_audit](agent-records/ui_feature_audit.md) | Menu scale/fit and texture-only background behavior; scenario preview lifecycle coordination. | Focused evidence and recipe prepared; current UI acceptance matrix open. |
+Reach and verify sustained 240 FPS on the AMD RADV iGPU at native 3840 by 2160 with full UI and realistic motion. Preserve the counter design. Continue the controlled thin-view diagnostic before adopting binary-cell, glyph-skip, sparse-cell or terrain-cache changes. Test candidates against the unchanged baseline with matched correctness and timing.
 
-## Sol continuation and later investigations
+First action: Inspect the accepted f510 baseline and thin-view plan. Bind the exact source, shader pair, 18-camera workload and attachments. Run controlled free/text/glyph-metadata axes under an exclusive AMD measurement reservation.
 
-| Agent | Work delivered | Current disposition |
-| --- | --- | --- |
-| [army_units](agent-records/army_units.md) | Army membership/national colors/aggregate stats; atomic UI review; captured AI keep-visible and protocol 50 camera-arrival backpressure; combat diagnostics and outcomes. | Implemented fixes and targeted tests recorded. f510 diagnostic PE build/11-test gate and matched battles remain open. |
-| [glyph_cache_sol](agent-records/glyph_cache_sol.md) | Glyph-camera/cache audits and isolated wider integer path with continuation, retirement and worker integration. | Source/preparation reviews passed; private compiler/numerical GPU/adoption checks remain open. |
-| [mac_audio_sol](agent-records/mac_audio_sol.md) | Miles/native audio ownership, no-device causality, loaded/quit controls and independent driver review. | Vendor/title passes scoped valid. Latest review finds log truncation, title-vs-map readiness and pre-adoption capture blockers. |
-| [mac_fps_music](agent-records/mac_fps_music.md) | Mac frame/music diagnosis, narrow DX12 FP16 compatibility fix, GPU timing/counter work and controlled culling preparation. | Narrow compatibility tests passed. 240 FPS, CPU-busy attribution and physical music soak remain open. |
-| [preview_smear](agent-records/preview_smear.md) | Fractional preview geometry, native DX12 signed-ceil correction and later PE art-loading attribution. | Targeted correctness passed; full rapid scenario switching and load-cost acceptance open. |
-| [release_deploy_sol](agent-records/release_deploy_sol.md) | Source freezes, cross-builds, paired artifacts, signed app staging/install, identity-safe cancellation, cleanup inventories and off-host Git backups. | Neo 3be installed, f510 staged only. Source backups closed; release runtime acceptance open. |
-| [scenario_crash](agent-records/scenario_crash.md) | Atlas-generation/readiness/cancellation fixes plus independent wider-candidate orchestration reviews. | Targeted source work recorded; final wider review clears preparation only, not compiler/GPU/runtime acceptance. |
-| [shader_perf_sol](agent-records/shader_perf_sol.md) | Shader audit, dual-source subpixel, binary-cell recorded4K gate and private actual-app/thin-view preparation. | Recorded cell-only correctness passed; strict wider rounding, app A/B/adoption and 240 FPS remain open. |
-| [slider_arrow_keys](agent-records/slider_arrow_keys.md) | Selected custom/native slider stepping, preview rollback, startup/failure cleanup reviews and acceptance-ledger reconciliation. | Targeted source tests recorded; ledgers retain open runtime checks and were later superseded in specific facts. |
-| [sparse_cells_sol](agent-records/sparse_cells_sol.md) | Read-only sparse-cell compaction audit with painter-order, invalidation and retirement risks. | Design delivered; implementation deferred pending current-app attribution. |
-| [startup_progress_sol](agent-records/startup_progress_sol.md) | Native startup status/error/cancel UI and readiness; Intel CPU tests; audio lifetime/cancellation/combat diagnostic reviews; corrected offline comparator. | Scoped tests passed. Comparator successor2 has 27 pure tests and independent review; real matched battle evidence open. |
-| [targeting_cursors](agent-records/targeting_cursors.md) | Move-only tile snapping, invalid-target game icon, native Windows numeric tests and animated busy cursor wake scheduling. | Focused checks passed; full current cursor/platform acceptance open. |
-| [text_fit_atomic_ui](agent-records/text_fit_atomic_ui.md) | Native GDI text metrics/sign, final command transactions, independent glyph oracle and Preferences screenshot disposition. | Targeted evidence recorded. Art-wait UiHold design superseded; full UI/fidelity acceptance open. |
-| [text_perf_sol](agent-records/text_perf_sol.md) | GPU glyph cache/exactness and main-scene reuse work; pointer fixture fixes; accepted actual f510 native4K baseline. | Three moving runs accepted around 43–44 FPS. 240 FPS failed; CPU busy and broader acceptance open. |
-| [tile_popup_menus](agent-records/tile_popup_menus.md) | Popup sizing/placement/freezing/dismissal and opaque modal painter order over Preferences. | Targeted final9b AMD modal gate passed; live current popup/C3X acceptance open. |
-| [tile_popup_render_shadow](agent-records/tile_popup_render_shadow.md) | Indexed shadow capture/preload/trace support, real-art pixel correction, compatibility review and native combat wait scaling. | Targeted pixels/checks passed; resized indexed smoke gaps and actual 4x combat runtime proof open. |
-| [unit_notices_sol](agent-records/unit_notices_sol.md) | Bounded notice deduplication and viewer-clock leases; canonical scene remains immutable; later combat comparator review. | Focused tests passed; final comparator successor2 review passed offline, native battle/persistence proof open. |
-| [vm_snapshot_sol](agent-records/vm_snapshot_sol.md) | macOS snapshot/restore/GUI ownership, no-device causal controls and restoration; later runnable loaded-audio owner driver ce5e104. | Template/restoration closed within scope. Loaded no-device arm incomplete and latest driver has three review blockers. |
+Completion condition: The actual full-UI workload meets the 240 FPS target in repeated sustained moving runs, with correct pixels and separately reported full submissions, cache reuse, presentation rates and timing loss. Host-load and frame-gap limits remain explicit.
 
-## Nested agents
+Resource and ownership rules: Exclusive AMD GPU measurement; no competing builds, captures, hashing or VM activity during measured intervals.
 
-| Agent | Work delivered | Current disposition |
-| --- | --- | --- |
-| [alt_setup/setup_decode](agent-records/alt_setup--setup_decode.md) | Verified native editable-seed vtable, callbacks and buffer fields. | Read-only evidence delivered to parent; no live setup acceptance. |
-| [camera_decouple/ai_focus_evidence](agent-records/camera_decouple--ai_focus_evidence.md) | Disassembly and callsite evidence for native AI/move/bombard camera events and visibility. | Evidence delivered; parent owns final implementation. |
-| [camera_decouple/animation_independence](agent-records/camera_decouple--animation_independence.md) | Keeps off-camera units/effects in native animation membership without changing elapsed timing. | 11 bridge, 2 Wine/i686 tests and 36 binary checks passed; live acceptance open. |
-| [clean_map/clean_engine](agent-records/clean_map--clean_engine.md) | Audited native flags and district/resource category separation. | Parent corrected category ownership; no runtime claim from review. |
-| [clean_map/clean_render](agent-records/clean_map--clean_render.md) | Per-camera 13-category filtering and cache invalidation in renderer/reference paths. | Strict AMD suites passed at its checkpoint; current feature acceptance separate. |
-| [glyph_cache_sol/wider_retirement_design](agent-records/glyph_cache_sol--wider_retirement_design.md) | Resumable reach discovery preserves the current cell and counts metadata visits across yields. | Parser checks passed; compiler/GPU gates open. |
-| [glyph_cache_sol/wider_worker_integration](agent-records/glyph_cache_sol--wider_worker_integration.md) | Separates wider acquisition from CPU preparation and restores periodic diagnostics. | Rustfmt parsing passed; build/GPU gates open. |
-| [macos_bridge/scaled_ui_capture](agent-records/macos_bridge--scaled_ui_capture.md) | Captures resized native blits, clipping, palette/opacity and fixed-point sampling with cache identity. | Focused model/screen tests passed; generated-surface resizing remains unsupported. |
-| [macos_pointer/wayland_backend](agent-records/macos_pointer--wayland_backend.md) | Wayland physical-pixel capture, exclusions, lock hints and focus-aware constraints. | Six focused tests passed; live compositor coverage separate. |
-| [macos_pointer/window_backends](agent-records/macos_pointer--window_backends.md) | Window backend support and forwarded-key ordering through translated WM_CHAR. | 20 unit and 2 Wine hook tests passed; current platform acceptance separate. |
-| [pending_input/hover](agent-records/pending_input--hover.md) | Recovered context-row geometry and local feedback across native/in-process views. | Signed c5035cb integrated; small tooltip differences and combined QA limits retained. |
-| [pending_input/hover/ui_verify](agent-records/pending_input--hover--ui_verify.md) | Compared context rows, hover/press states and Preferences tabs against game/mirror images. | Context rows exact; small menu tooltip/reference differences retained; not isolated performance. |
-| [pending_input/pan_live](agent-records/pending_input--pan_live.md) | Native/in-process pan, momentum, walls, capture and fractional-scale live checks. | Checks passed; desktop HiDPI and exact origin untested; view-budget defect handed to owner. |
-| [pending_input/targeting](agent-records/pending_input--targeting.md) | Recovered targeting fixes including settler radius and cursor capture evidence. | Signed source integrated; unique saves/evidence preserved, owned scratch stopped/removed. |
-| [pending_input/targeting/live_tester](agent-records/pending_input--targeting--live_tester.md) | Live native/in-process target and cursor checks plus resource shutdown. | Artifacts preserved; VNC/sessions stopped; exact evidence in parent report. |
-| [performance/async_growth_design](agent-records/performance--async_growth_design.md) | Async art-growth and startup-failure latch with negative readiness controls. | Signed 22cd2e4 and 194 bridge tests recorded; no false readiness after capture failure. |
-| [performance/frame_cap](agent-records/performance--frame_cap.md) | Reviewed strict cap semantics and draw-start pacing overhead. | Explained avoidable capped shortfall; current behavior must be rechecked before changes. |
-| [performance/live_tester](agent-records/performance--live_tester.md) | Measured recovered source panning/advisor/drag workloads. | Some rates exceed 240; p99 gaps and advisor rates leave steady 240 FPS unproven. |
-| [performance/recover_benchmarks](agent-records/performance--recover_benchmarks.md) | Built immutable 22cd2e4 benchmark helpers and retained source/binary manifests. | CPU build passed; no GPU or output-equivalence claim from helper preparation. |
-| [performance/review_performance](agent-records/performance--review_performance.md) | Independent hash and metric audit of 757 run files, 72 review artifacts, 36 phase rows. | Historical evidence accepted; moving-frame and cold-feedback limits preserved. |
-| [pointer_constraints/live_verification](agent-records/pointer_constraints--live_verification.md) | Live walls, scrolling, City focus, modifiers and hotplug checks. | Passed on signed fixes; private sessions stopped. |
-| [pointer_constraints/protocol_review](agent-records/pointer_constraints--protocol_review.md) | Fixed pending lock hint commitment after Locked and cancellation behavior. | Seven tests passed; integrated by parent. |
-| [retirement/retire_crash_review](agent-records/retirement--retire_crash_review.md) | Reviewed underlay ownership/filtering across recursive surfaces/copies. | No concrete findings in final ownership fix; no runtime claim from review. |
-| [retirement/retire_inproc_test](agent-records/retirement--retire_inproc_test.md) | In-process retirement tests and ownership/shutdown inventory. | Retained evidence; no broad ownership claim for older prefixes. |
-| [retirement/retire_window_test](agent-records/retirement--retire_window_test.md) | Native retirement tests, prefix ownership and save-preservation audit. | Unique saves hash-matched retained copies; older prefix ownership remains separately documented. |
-| [scenario_preview/preview_review](agent-records/scenario_preview--preview_review.md) | Shared cancellable image loading, native compilation cancellation and stale-result rejection. | Signed fixes and focused CPU checks recorded; no live claim. |
-| [ui_background_dither/background_metadata](agent-records/ui_background_dither--background_metadata.md) | Identified 55 pure texture rectangles across 13 sources, excluding controls/bevels/text. | Read-only metadata delivered; title art remains nearest. |
-| [ui_background_dither/source_alpha_split](agent-records/ui_background_dither--source_alpha_split.md) | Added complementary alpha/background-mask and nearest/dither/clip/move regressions. | 28 menu tests passed at checkpoint. |
-| [ui_feature_audit/scenario_preview_lifecycle](agent-records/ui_feature_audit--scenario_preview_lifecycle.md) | Publishes complete scenario menu before optional preview work; cancels/drains stale selection and clears absent world. | 9 preview and 4 scheduler tests plus i686 check passed; rapid-switch runtime acceptance open. |
-| [world_input/engine_mouse](agent-records/world_input--engine_mouse.md) | Native independent-camera input hooks, key dispatch, city-focus protection and stale-target clearing. | 48 sys tests passed; parent completed later integration. |
+Acceptance rows: [performance-4k-static](acceptance.md#performance-4k-static), [performance-4k-dynamic](acceptance.md#performance-4k-dynamic), [performance-delays](acceptance.md#performance-delays).
+
+Starting material:
+
+- [sol-root-f510-native4k-baseline-review.json](evidence/handover/sol-root-f510-native4k-baseline-review.json)
+- [actual-App-f510-native4k-results.json](evidence/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json)
+- [actual-App-f510-camera-stage-map.json](evidence/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json)
+- [thin-view-diagnostic-plan.json](evidence/external/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json)
+- [binary-cell-recorded4k-proof.sol.json](evidence/handover/binary-cell-recorded4k-proof.sol.json)
+
+<a id="cpu_timing"></a>
+
+## CPU busy measurement and concurrency acceptance
+
+Spawn a fresh subagent named cpu_timing to continue this unfinished task.
+
+Brief to give the subagent:
+
+Measure actual CPU busy time separately from host build/encode wall time. Verify GPU-worker isolation, immutable frame/mapping ownership, three small control slots and bounded transport under resize, cancellation and failures. Keep the current counter layout and existing GPU gap semantics.
+
+First action: Locate the viewer profiling and worker timing paths. Add a measured thread/process CPU-time source and a controlled check that distinguishes blocked wall time from CPU execution. Reproduce the stale/failure/resize paths against current source.
+
+Completion condition: The displayed CPU metric has a tested meaning and bounded overhead; cursor independence, command/image pairing and bounded queues hold during GPU stalls, surface loss and worker failure. No world/atlas triplication or production Rust locks are introduced.
+
+Resource and ownership rules: Owned CPU build target; coordinate affected shared viewer files and any GPU stall test with the parent.
+
+Acceptance rows: [architecture](acceptance.md#architecture), [fps-counter-details](acceptance.md#fps-counter-details), [gpu-worker-isolation](acceptance.md#gpu-worker-isolation), [gpu-transactions](acceptance.md#gpu-transactions), [gpu-three-buffers](acceptance.md#gpu-three-buffers), [gpu-no-cpu-render](acceptance.md#gpu-no-cpu-render), [architecture-transport](acceptance.md#architecture-transport).
+
+Starting material:
+
+- [actual-App-f510-timing-attribution-audit.json](evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.json)
+- [verification.md](verification.md)
+
+<a id="wider_color"></a>
+
+## Six-bit and seven-bit color correctness
+
+Spawn a fresh subagent named wider_color to continue this unfinished task.
+
+Brief to give the subagent:
+
+Resolve the strict wider-depth subpixel rounding failure and qualify the isolated wider-integer implementation. Keep RADV on its proven UNORM path until a replacement passes the numerical oracle. Do not broaden the Microsoft Basic Render Driver FP16 workaround.
+
+First action: Reproduce bits=6, material=0, dst=0, x=5, y=0 returning [0,0,251,37] instead of [0,0,255,37] in both dual-source and fallback paths. Inspect the private wider compiler/qualification package before building it.
+
+Completion condition: Strict six-bit and seven-bit tests pass while RGB444/RGB555, alpha, clipping, glyphs and ordinary rendering remain correct. Continuation/retirement bounds and worker behavior pass compiler and runtime checks. The inventory-only switch is never counted as a correctness pass.
+
+Resource and ownership rules: Owned CPU target followed by a separately scheduled exclusive AMD GPU gate.
+
+Starting material:
+
+- [verification.md](verification.md)
+- [cpu-gate-plan.json](evidence/external/wider-integer-sol/compiler-gate/cpu-gate-plan.json)
+- [package-manifest.json](evidence/external/wider-integer-sol/gpu-qualification-v2/package-manifest.json)
+
+<a id="audio_loaded"></a>
+
+## Loaded-save audio failure and normal Quit
+
+Spawn a fresh subagent named audio_loaded to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish the loaded Mal3 no-device causal test and macOS music/CPU soak. Fix the owner driver before running it. Preserve the eight-minute watchdog, identity-safe cleanup and exact USB-null environment restoration.
+
+First action: Restore the ce5e104 private QA checkpoint. Fix bridge-log truncation, title adoption incorrectly satisfying loaded-map readiness, and capture occurring before readiness. Extend offline checks, then separately calibrate the normal-Quit radio selection before a new qualified arm.
+
+Completion condition: Fresh post-adoption full-HUD/unit images and a current loaded native-audio trace establish the intended state; ordinary Quit produces a natural success exit without external signals or survivors. Restore the original audio/VM environment after every outcome. Music soak on physical Neo is recorded separately.
+
+Resource and ownership rules: Sole VM GUI/input and audio-fixture owner; coordinate physical Neo checks with platform_runtime. No VM operation while performance timing owns a quiet interval.
+
+Acceptance rows: [audio-music](acceptance.md#audio-music).
+
+Starting material:
+
+- [REVIEW.md](evidence/external/quit-audio-sol/loaded-owner-driver-sol/REVIEW.md)
+- [README.md](README.md)
+
+<a id="combat_validation"></a>
+
+## Camera arrival and accelerated combat
+
+Spawn a fresh subagent named combat_validation to continue this unfinished task.
+
+Brief to give the subagent:
+
+Verify visible battles at 1x and 4x, camera arrival before animation, minimum keep-visible AI focus, army presentation and movement bonuses. Use matched initial state and compare RNG plus stable unit outcomes.
+
+First action: Build the reviewed f510 combat diagnostic successor and run its pending 11-test gate. Prepare matched battles and the corrected offline comparator; check actual event provenance before interpreting timings.
+
+Completion condition: Matched battles have equivalent RNG and stable unit results at both speeds; camera movement completes before visible combat begins; no per-tile recentering, hidden-unit disclosure, stuck arrival or unintended global/audio clock change appears.
+
+Resource and ownership rules: Owned CPU diagnostic build, then one scheduled game/VM GUI owner. Match source/artifact identities with the parent.
+
+Acceptance rows: [unit-animation](acceptance.md#unit-animation), [unit-army](acceptance.md#unit-army), [unit-movement-bonuses](acceptance.md#unit-movement-bonuses), [turn-focus](acceptance.md#turn-focus), [bombard-range](acceptance.md#bombard-range).
+
+Starting material:
+
+- [README.md](evidence/external/combat-diagnostics-army/f510-outcomes-rebind/README.md)
+- [verification-manifest.json](evidence/external/combat-diagnostics-army/f510-outcomes-rebind/verification-manifest.json)
+- [proof.json](evidence/external/combat-diagnostics-army/offline-comparator-successor2/proof.json)
+
+<a id="ui_acceptance"></a>
+
+## Settings and UI runtime acceptance
+
+Spawn a fresh subagent named ui_acceptance to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish current-game acceptance for UI command atomicity, settings preview/Accept/Cancel, scale confirmation/rollback, menu fit, C3X modal painter order, F1 smooth scrolling, text fit, popup identity/freezing/dismissal, loading/status UI and background sampling.
+
+First action: Use the assigned acceptance rows to run cold/warm Preferences and F1 cases at multiple scales, then C3X and terrain/context popups. Check command publication without waiting for every optional sprite. Preserve exact source, scene and screenshot/trace identities.
+
+Completion condition: Each assigned acceptance oracle passes in the current actual game, including Cancel restoration, ten-second scale rollback, coherent first-frame UI, clipped hit targets, full-row F1 scrolling and usable modal placement. Fix and recheck concrete failures before closing rows.
+
+Resource and ownership rules: One scheduled GUI owner; CPU-only recipe/preparation may proceed independently. Coordinate changes to shared UI files.
+
+Acceptance rows: [text-native](acceptance.md#text-native), [text-tooltip-fit](acceptance.md#text-tooltip-fit), [ui-command-atomic](acceptance.md#ui-command-atomic), [ui-settings-transactions](acceptance.md#ui-settings-transactions), [ui-menu-scale](acceptance.md#ui-menu-scale), [ui-c3x-modal](acceptance.md#ui-c3x-modal), [ui-screen-placement](acceptance.md#ui-screen-placement), [ui-other-pane](acceptance.md#ui-other-pane), [slider-edit](acceptance.md#slider-edit), [menu-hover](acceptance.md#menu-hover), [menu-smooth-scroll](acceptance.md#menu-smooth-scroll), [popup-world-scale](acceptance.md#popup-world-scale), [popup-freeze-dismiss](acceptance.md#popup-freeze-dismiss), [popup-tile-identity](acceptance.md#popup-tile-identity), [popup-resource-shadows](acceptance.md#popup-resource-shadows), [host-busy](acceptance.md#host-busy), [startup-window](acceptance.md#startup-window), [leader-blink](acceptance.md#leader-blink), [ui-background-sampling](acceptance.md#ui-background-sampling).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)
+- [settings-transactions.md](../settings-transactions.md)
+- [modal-input.md](../modal-input.md)
+
+<a id="scenario_loading"></a>
+
+## Scenario switching and loading cost
+
+Spawn a fresh subagent named scenario_loading to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish rapid scenario-selection/roundtrip acceptance, optional preview lifecycle, memory bounds, capture entry and fractional preview geometry. Attribute remaining late HUD/art adoption delays without conflating load time and frame GPU cost.
+
+First action: Run the rapid-switch/reopen cases with generation and memory tracking. Instrument per-source FLC metadata calls and PE art-job stages around the reported 30–36 second gap after GPU uploads.
+
+Completion condition: Repeated quick switches never leave a black/stale preview, lost menu or corrupt atlas/glyph state; preview visibility follows human-playable nations; memory is bounded and load-stage timings identify any remaining delay. Warm startup behavior is measured.
+
+Resource and ownership rules: Owned instrumentation/build target and one scheduled actual-game GUI owner; reuse read-only game assets.
+
+Acceptance rows: [preview-human-visibility](acceptance.md#preview-human-visibility), [preview-progressive](acceptance.md#preview-progressive), [preview-smear](acceptance.md#preview-smear), [preview-capture](acceptance.md#preview-capture), [scenario-generation](acceptance.md#scenario-generation), [scenario-memory](acceptance.md#scenario-memory), [startup-warm-time](acceptance.md#startup-warm-time).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)
+- [civ3-map-rendering.md](../civ3-map-rendering.md)
+
+<a id="pointer_input"></a>
+
+## Pointer independence and input acceptance
+
+Spawn a fresh subagent named pointer_input to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish common pointer API, cursor/game-asset busy animation, capture/release, barriers, sensitivity, Alt navigation, native slider/City/F1 targets and translated menu cursor acceptance across supported display setups.
+
+First action: Run focus/multiple-window/boundary and sensitivity-ratio checks, then an observable OS-cursor check during a controlled GPU-only stall. Cover captured and free input, magnifier barriers, invalid targeting and right-drag orders.
+
+Completion condition: Assigned input/cursor oracles pass without duplicate native input or leaked slider arrows. The OS cursor remains responsive during the stall; HiDPI/fractional geometry, capture handoff, targeting and Alt actions match their displayed coordinates.
+
+Resource and ownership rules: Exclusive GUI/input during live checks; coordinate GPU stall work with cpu_timing and the AMD owner.
+
+Acceptance rows: [magnifier-layout](acceptance.md#magnifier-layout), [magnifier-hit](acceptance.md#magnifier-hit), [cursor-os](acceptance.md#cursor-os), [cursor-captured](acceptance.md#cursor-captured), [cursor-scale](acceptance.md#cursor-scale), [cursor-target-modes](acceptance.md#cursor-target-modes), [cursor-civ4-drag](acceptance.md#cursor-civ4-drag), [capture-entry](acceptance.md#capture-entry), [capture-sensitivity](acceptance.md#capture-sensitivity), [alt-navigation](acceptance.md#alt-navigation), [alt-f1-city](acceptance.md#alt-f1-city), [platform-pointer-api](acceptance.md#platform-pointer-api), [mirrored-cursor](acceptance.md#mirrored-cursor).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)
+- [world-input.md](../world-input.md)
+- [native-alt-sliders.md](../native-alt-sliders.md)
+
+<a id="world_fidelity"></a>
+
+## World and city correctness in independent views
+
+Spawn a fresh subagent named world_fidelity to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish current-source correctness for terrain/cities/districts, off-camera units, national palettes, crisp zoom, independent panes and fog/clean-map controls, notices, city transitions, diplomacy overlays and indexed smoke/shadows.
+
+First action: Use independent A/B and magnifier views of the same real save. Compare the assigned pixel/state oracles, including C3X resource layers, City worked tiles, repeated notices, resized indexed smoke and rapid Next City transitions.
+
+Completion condition: All assigned feature oracles pass with original game pixels disabled. Separate pane settings and unit visibility remain correct outside the native parked camera, and no outstanding smoke/indexed path is silently omitted.
+
+Resource and ownership rules: One scheduled actual-game GUI owner and separate AMD pixel checks as needed; do not duplicate game assets.
+
+Acceptance rows: [world-pixel-fidelity](acceptance.md#world-pixel-fidelity), [districts](acceptance.md#districts), [city-labels-all](acceptance.md#city-labels-all), [unit-visibility](acceptance.md#unit-visibility), [unit-palette-memory](acceptance.md#unit-palette-memory), [zoom-crisp](acceptance.md#zoom-crisp), [split-independent](acceptance.md#split-independent), [split-fog](acceptance.md#split-fog), [smoke-resized-indexed](acceptance.md#smoke-resized-indexed), [city-state-sync](acceptance.md#city-state-sync), [notices-expire](acceptance.md#notices-expire), [diplomacy-ring-arrow](acceptance.md#diplomacy-ring-arrow), [city-worked-alt](acceptance.md#city-worked-alt), [settings-fog-and-territory](acceptance.md#settings-fog-and-territory), [viewport-separators](acceptance.md#viewport-separators).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)
+- [clean-map.md](../clean-map.md)
+- [per-view-layers.md](../per-view-layers.md)
+- [unit-map-notices.md](../unit-map-notices.md)
+
+<a id="windows_guest"></a>
+
+## Native Windows guest acceptance
+
+Spawn a fresh subagent named windows_guest to continue this unfinished task.
+
+Brief to give the subagent:
+
+Execute the prepared native Windows guest matrix and complete the small offline-ready ephemeral template requirements. Use Vulkan as the primary backend and preserve the minimum observed DX12 compatibility behavior.
+
+First action: Inspect the existing VM and matrix without starting unrelated guests. Verify read-only fixtures and matched artifacts, then run the native guest cases. Papa Wine tests are supporting evidence only.
+
+Completion condition: The native guest matrix passes with explicit adapter/backend identity; the required small clones are usable and within resource limits. Keep hardware acceleration claims separate from pure CPU tests and software-adapter results.
+
+Resource and ownership rules: Renderer VMs together remain within the c3r-vms.slice 10 GB cap. Never operate wayland-host.
+
+Acceptance rows: [platform-windows](acceptance.md#platform-windows), [windows-ephemeral-template](acceptance.md#windows-ephemeral-template).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)
+- [macos-vm.md](../macos-vm.md)
+
+<a id="platform_runtime"></a>
+
+## Dual-stack and physical Metal runtime acceptance
+
+Spawn a fresh subagent named platform_runtime to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish current matched Linux/Intel macOS/physical Apple ARM64 runtime acceptance, native resolution and HiDPI behavior. Verify the intended ARM-native Wine/FEX plus Metal setup and explicit unsupported GPU-option failure behavior.
+
+First action: Bind the current source and all native/PE artifacts. Use the Intel macOS VM for permitted preparatory checks; coordinate any physical Neo run with the release owner after priority checks and installation. Recheck adapter identity and game-window suppression.
+
+Completion condition: Current-source startup/input/drawing/exit works on the assigned platforms, renderer output remains native-resolution with supported game modes, and physical Metal/FEX fidelity/performance is recorded. No VM SwiftShader test is claimed as Metal proof.
+
+Resource and ownership rules: Cross-build only on Papa. No physical Neo compilation or automatic game launch. Reserve physical/VM GUI ownership.
+
+Acceptance rows: [platform-linux-dualstack](acceptance.md#platform-linux-dualstack), [platform-mac-dualstack](acceptance.md#platform-mac-dualstack), [platform-metal](acceptance.md#platform-metal), [resolution-native](acceptance.md#resolution-native), [window-hidpi](acceptance.md#window-hidpi), [nvidia-failure-handling](acceptance.md#nvidia-failure-handling), [low-game-resolution](acceptance.md#low-game-resolution).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)
+- [macos-tsneo.md](../macos-tsneo.md)
+- [macos-vm.md](../macos-vm.md)
+
+<a id="neo_release"></a>
+
+## Matched successor release on Neo
+
+Spawn a fresh subagent named neo_release to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish the coherent release and priority runtime gates, then install and verify the matched staged successor on Neo. Keep source freezes, shader identity, all five runtime files and starter/bundle artifacts coherent.
+
+First action: Verify that Neo still has the last recorded protocol49 3be set and that protocol50 f510 remains staged. Inspect actual outstanding priority gates before replacing any file. Prepare rollback and verification from the existing release procedure.
+
+Completion condition: The intended source-bound successor is installed as a matching signed set with searchable app/icon, verified runtime hashes and explicit runtime acceptance results. Installation alone does not close music, performance or feature acceptance.
+
+Resource and ownership rules: Parent coordinates publication after relevant priority checks. Cross-build on Papa; no automatic Neo launch.
+
+Dependent execution must wait for the relevant results from `audio_loaded`, `ui_acceptance`, `combat_validation`.
+
+Acceptance rows: [release-pairing](acceptance.md#release-pairing), [settings-chrome](acceptance.md#settings-chrome).
+
+Starting material:
+
+- [README.md](README.md)
+- [macos-tsneo.md](../macos-tsneo.md)
+
+<a id="game_soak"></a>
+
+## Save and full-game lifecycle acceptance
+
+Spawn a fresh subagent named game_soak to continue this unfinished task.
+
+Brief to give the subagent:
+
+Finish new-game/save/load/reload/end-turn/scenario/city/retire/restart soak using the current paired runtime. Check bounded memory, responsive input, world-mode reset and owned-process cleanup.
+
+First action: Prepare the recorded save/load/turn cases and run them only after the relevant current-source smoke and input checks. Preserve unique saves, logs and identity-bound failures.
+
+Completion condition: The full lifecycle sequence passes without leaked processes or unbounded memory, state and world mode reset on exit/restart, and no evidence relies only on title-screen or synthetic tests.
+
+Resource and ownership rules: One scheduled game/GUI owner; share the same asset tree and preserve unique saves before cleanup.
+
+Dependent execution must wait for the relevant results from `ui_acceptance`, `pointer_input`, `scenario_loading`.
+
+Acceptance rows: [regression-start-exit](acceptance.md#regression-start-exit), [save-load-input](acceptance.md#save-load-input), [ui-read-only-constraints](acceptance.md#ui-read-only-constraints).
+
+Starting material:
+
+- [acceptance.md](acceptance.md)

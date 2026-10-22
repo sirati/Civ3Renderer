@@ -67,16 +67,15 @@
     "failed_goal_not_achieved": 2
   },
   "agents": {
-    "direct": 66,
-    "depth_2": 28,
-    "depth_3": 2,
-    "total": 96,
-    "current_liveness_inferred": false
+    "scope": "Unfinished work only",
+    "continuation_tasks": 13,
+    "spawn_required_on_takeover": true,
+    "task_index": "agent-index.json"
   },
-  "evidence_records": 289,
+  "evidence_records": 13,
   "backup_directories": {
     "existing": "20261020T1918Z",
-    "handover_successor": "20261022-handover",
+    "handover_successor": "20261022-handover-open",
     "local_root": "/mnt/datasets/c3r-source-backups",
     "laptop_root": "/home/sirati/civ3r-source-backups",
     "neo_root": "/Users/sirati/civ3r-source-backups"
