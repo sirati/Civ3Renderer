@@ -73,6 +73,8 @@ pub mod ui_screen;
 pub mod loading_cursor;
 pub mod ui_transaction;
 #[cfg(windows)]
+pub mod ui_wheel;
+#[cfg(windows)]
 pub mod ui_trace;
 pub mod units;
 pub mod unit_notices;
