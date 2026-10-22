@@ -45,6 +45,8 @@
 //! at 32 pixels, from the system's `user32.dll` (see `syscursor`): one
 //! image, `size`×`size` (drawn from its top-left); clear where the system
 //! has no such cursor (real Windows keeps its cursors in files instead).
+//! With `rotations = <n>`: `n` images instead, the cursor turned clockwise
+//! in `n` equal steps (see `rotate`), each a square of its diagonal.
 
 use render_desc::ImageLoader;
 use tile_render::RgbaImage;
@@ -286,6 +288,15 @@ fn system_cursor_spec(spec: &str) -> Result<(u32, u32), String> {
     Ok((id.parse().map_err(|_| err())?, size))
 }
 
+/// An image's `rotations = <n>` (1 to 360), if it has one.
+fn rotations(options: &toml::Table) -> Result<Option<u32>, String> {
+    let Some(value) = options.get("rotations") else { return Ok(None) };
+    match value.as_integer() {
+        Some(n @ 1..=360) => Ok(Some(n as u32)),
+        _ => Err(format!("rotations: expected 1 to 360, not {value}")),
+    }
+}
+
 /// A `system-cursor:` source's image: the cursor at the top-left of a
 /// `size`×`size` image (cut if larger); clear (logged) where the system has
 /// none.
@@ -327,7 +338,10 @@ impl ImageLoader for Civ3Loader {
     fn sizes(&self, source: &str, options: &toml::Table) -> Result<Vec<(u32, u32)>, String> {
         if let Some(spec) = source.strip_prefix("system-cursor:") {
             let (_, size) = system_cursor_spec(spec)?;
-            return Ok(vec![(size, size)]);
+            return Ok(match rotations(options)? {
+                Some(n) => vec![(crate::rotate::frame_side(size), crate::rotate::frame_side(size)); n as usize],
+                None => vec![(size, size)],
+            });
         }
         if let Some(spec) = source.strip_prefix("font:") {
             let sizes = crate::fonts::glyph_sizes(&self.files, &font_spec(spec)?.0)?;
@@ -430,7 +444,11 @@ impl ImageLoader for Civ3Loader {
 
     fn load(&self, source: &str, options: &toml::Table) -> Result<Vec<RgbaImage>, String> {
         if let Some(spec) = source.strip_prefix("system-cursor:") {
-            return Ok(vec![system_cursor(&self.files, spec)?]);
+            let cursor = system_cursor(&self.files, spec)?;
+            return Ok(match rotations(options)? {
+                Some(n) => crate::rotate::turned(&cursor, n),
+                None => vec![cursor],
+            });
         }
         if let Some(spec) = source.strip_prefix("font:") {
             let font = font_of(&self.files, spec)?;

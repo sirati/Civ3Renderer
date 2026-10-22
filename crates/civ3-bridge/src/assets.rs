@@ -96,14 +96,16 @@ mod tests {
         if !Path::new(&install).is_dir() {
             return eprintln!("no Civ III install, skipped");
         }
-        let compiled = compile(BUILTIN_DESC, GameFiles::complete(&install)).unwrap();
+        // (With the loading cursor, as the bridge compiles it, `live`.)
+        let desc = format!("{BUILTIN_DESC}{}", crate::loading_cursor::description());
+        let compiled = compile(&desc, GameFiles::complete(&install)).unwrap();
         let name = "Std_Terrain_Images/0";
         let s = compiled.atlas.sprites[compiled.sprite_names.iter().position(|n| n == name).unwrap()];
         // One copy of the art: full size, with the box to sample.
         assert_eq!((s.width, s.height), (128, 64));
         assert_eq!((s.box_x, s.box_y, s.box_w, s.box_h), (1, 0, 126, 64));
         // The tables alone agree with the full compile.
-        let layout = compile_as(BUILTIN_DESC, GameFiles::complete(&install), Pixels::TablesOnly, render_desc::ANY_DEVICE_PAGE).unwrap();
+        let layout = compile_as(&desc, GameFiles::complete(&install), Pixels::TablesOnly, render_desc::ANY_DEVICE_PAGE).unwrap();
         assert_eq!(layout.sprite_names, compiled.sprite_names);
         let sizes = |c: &Compiled| c.atlas.sprites.iter().map(|s| (s.width, s.height, s.anchor_x, s.anchor_y, s.downscaled)).collect::<Vec<_>>();
         assert_eq!(sizes(&layout), sizes(&compiled));
@@ -141,9 +143,11 @@ mod tests {
         assert_eq!(anchor("Viewer@cursors/14"), (32, 32, -15, -16));
         assert_eq!(compiled.sets_with_prefix("Viewer@capture/").map(|(n, _)| n).collect::<Vec<_>>(), ["Viewer@capture/9"]);
         // The busy indicator's art (tile-viewer `host_status`): the wait
-        // cursor centred on its anchor, the parchment from its corner.
+        // cursor's turning hourglass centred on its anchor, the parchment
+        // from its corner.
         use tile_viewer::host_status as hs;
-        assert_eq!(anchor(hs::ICON_SPRITE), (32, 32, -16, -16));
+        assert_eq!(hs::ICON_SPRITE, scene::loading_cursor::SET);
+        assert_eq!(anchor(hs::ICON_SPRITE), (46, 46, -23, -23));
         assert_eq!(anchor(hs::PANEL_SPRITE), (320, 36, 0, 0));
         // Drawn: framed parchment, the accent line in the text's colour, at
         // the anchor's scale.
