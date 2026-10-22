@@ -1269,6 +1269,14 @@ fn publish(
                 None
             }
         };
+        // A context menu (or the tile box) opened by a click on an open
+        // screen, e.g. a city screen garrison unit's menu: the game put it
+        // at that click on the screen, where it stays with the screen.
+        let popup_on_screen = screen_open.is_some() && popup_and_canvas.zip(ui.as_ref()).is_some_and(|((_, canvas), f)| {
+            f.forms.iter().find(|t| t.1 == canvas)
+                .and_then(|t| crate::interface_parts::click_popup(game.build, t.0, || None))
+                .is_some()
+        });
         let popup_canvases: Vec<u32> = native_ui.as_ref().into_iter()
             .flat_map(|native| native.modal_stack).filter(|&form| form != 0)
             .map(|form| form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)
@@ -1957,6 +1965,7 @@ fn publish(
                 _ => None,
             },
             popup_anchor,
+            popup_on_screen: popup_on_screen && popup.is_some(),
             // A unit command waits for its tile (`crate::targeting`):
             // the game's own mode, whatever gave the command.
             targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
