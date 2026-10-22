@@ -50,7 +50,10 @@ builtin civ3r_native.dll and its native unixlib from CIV3R_NATIVE_DIR
 i386-windows/civ3r_native.dll and <arch>-unix/civ3r_native.so).
 The separate viewer and Windows IFC23.dll are installed in
 ~/Library/Application Support/civ3r/bin, or selected with
-CIV3R_VIEWER_BIN and CIV3R_BRIDGE. Game assets are never installed by this tool.";
+CIV3R_VIEWER_BIN and CIV3R_BRIDGE. Game assets are never installed by this tool.
+Network games need Microsoft's DirectPlay: its eight files in
+~/Library/Application Support/civ3r/directplay (or CIV3R_DIRECTPLAY_DIR) are
+installed into the Wine prefix once, with native DLL overrides.";
 
 /// Wine's directory of native unixlibs for this host (`get_so_dir`).
 const UNIX_DIR: &str = if cfg!(target_arch = "aarch64") {
@@ -69,6 +72,8 @@ struct Options {
     /// The former separate viewer process instead of the in-process one.
     separate_viewer: bool,
     bridge: PathBuf,
+    /// Microsoft's DirectPlay files for network games (`install_directplay`).
+    directplay: PathBuf,
     wine: OsString,
     prefix: PathBuf,
     game: PathBuf,
@@ -104,6 +109,9 @@ impl Options {
             bridge: environment("CIV3R_BRIDGE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join("bin/IFC23.dll")),
+            directplay: environment("CIV3R_DIRECTPLAY_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("directplay")),
             wine: environment("CIV3R_WINE")
                 .or_else(|| environment("WINE"))
                 .unwrap_or_else(|| "wine".into()),
@@ -699,49 +707,215 @@ fn initialize_registry(
     if values.is_empty() {
         return Ok(None);
     }
-    let (output, _) = output_log(log)?;
-    let deadline = Instant::now() + START_TIMEOUT;
+    let step = WineStep::new(
+        wine,
+        options,
+        prefix,
+        settings,
+        private,
+        log,
+        signal,
+        "Wine registry initialization",
+    )?;
     for (key, name, kind, value) in values {
-        let interrupted = signal.load(Ordering::Relaxed);
+        let args = [
+            "reg.exe", "add", key, "/v", name, "/t", kind, "/d", value, "/f", "/reg:32",
+        ];
+        if let Some(status) = step.run(&args, name)? {
+            return Ok(Some(status));
+        }
+    }
+    Ok(None)
+}
+
+/// One-time prefix work done with short Wine commands before the game
+/// starts, all under one deadline, their output in one log.
+struct WineStep<'a> {
+    wine: &'a wine_compat::Runtime,
+    options: &'a Options,
+    prefix: &'a Path,
+    settings: &'a Path,
+    private: &'a Path,
+    log: &'a Path,
+    output: File,
+    signal: &'a AtomicUsize,
+    deadline: Instant,
+    what: &'static str,
+}
+
+impl<'a> WineStep<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        wine: &'a wine_compat::Runtime,
+        options: &'a Options,
+        prefix: &'a Path,
+        settings: &'a Path,
+        private: &'a Path,
+        log: &'a Path,
+        signal: &'a AtomicUsize,
+        what: &'static str,
+    ) -> Result<Self> {
+        Ok(Self {
+            wine,
+            options,
+            prefix,
+            settings,
+            private,
+            log,
+            output: output_log(log)?.0,
+            signal,
+            deadline: Instant::now() + START_TIMEOUT,
+            what,
+        })
+    }
+
+    /// Runs `wine args...`; `Some(signal)` if interrupted, an error if it
+    /// fails or the deadline passes.
+    fn run(&self, args: &[&str], item: &str) -> Result<Option<i32>> {
+        let interrupted = self.signal.load(Ordering::Relaxed);
         if interrupted != 0 {
             return Ok(Some(interrupted as i32));
         }
-        let mut command = wine.command();
-        configure(&mut command, options, prefix, settings);
+        let mut command = self.wine.command();
+        configure(&mut command, self.options, self.prefix, self.settings);
         command
-            .args([
-                "reg.exe", "add", key, "/v", name, "/t", kind, "/d", value, "/f", "/reg:32",
-            ])
-            .current_dir(private)
+            .args(args)
+            .current_dir(self.private)
             .stdin(Stdio::null())
-            .stdout(output.try_clone()?)
-            .stderr(output.try_clone()?);
+            .stdout(self.output.try_clone()?)
+            .stderr(self.output.try_clone()?);
         let child = ManagedChild::spawn_wine(&mut command)?;
         loop {
-            let interrupted = signal.load(Ordering::Relaxed);
+            let interrupted = self.signal.load(Ordering::Relaxed);
             if interrupted != 0 {
                 return Ok(Some(interrupted as i32));
             }
             if let Some(status) = child.status()? {
                 if !status.success() {
                     return Err(format!(
-                        "Wine registry initialization failed for {name}; see {}",
-                        log.display()
+                        "{} failed for {item}; see {}",
+                        self.what,
+                        self.log.display()
                     )
                     .into());
                 }
-                break;
+                return Ok(None);
             }
-            if Instant::now() >= deadline {
-                return Err(format!(
-                    "Wine registry initialization timed out; see {}",
-                    log.display()
-                )
-                .into());
+            if Instant::now() >= self.deadline {
+                return Err(
+                    format!("{} timed out; see {}", self.what, self.log.display()).into(),
+                );
             }
             thread::sleep(POLL_INTERVAL);
         }
     }
+}
+
+/// Microsoft's DirectPlay files, as `winetricks directplay` installs them
+/// (nix/directplay.nix). Civ III hosts, finds and joins network games through
+/// DirectPlay 8; Wine's builtin dpnet stubs `IDirectPlay8Peer::Host` and
+/// `EnumHosts`.
+const DIRECTPLAY_FILES: [&str; 8] = [
+    "dplaysvr.exe",
+    "dplayx.dll",
+    "dpmodemx.dll",
+    "dpnet.dll",
+    "dpnhpast.dll",
+    "dpnhupnp.dll",
+    "dpnsvr.exe",
+    "dpwsockx.dll",
+];
+const DIRECTPLAY_REGISTER: [&str; 4] = ["dplayx.dll", "dpnet.dll", "dpnhpast.dll", "dpnhupnp.dll"];
+/// In the prefix: written once the files are in place and registered.
+const DIRECTPLAY_MARKER: &str = "civ3r-directplay";
+
+/// `HKCU\Software\Wine\DllOverrides` with every DirectPlay file native.
+fn directplay_overrides() -> String {
+    let mut reg = String::from("REGEDIT4\r\n\r\n[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]\r\n");
+    for file in DIRECTPLAY_FILES {
+        let name = file.strip_suffix(".dll").unwrap_or(file);
+        reg.push_str(&format!("\"{name}\"=\"native\"\r\n"));
+    }
+    reg
+}
+
+/// Whether the prefix's 32-bit system directory already holds exactly the
+/// files in `source` and the marker says they were registered.
+fn directplay_current(source: &Path, system: &Path, prefix: &Path) -> bool {
+    prefix.join(DIRECTPLAY_MARKER).is_file()
+        && DIRECTPLAY_FILES.iter().all(|file| {
+            matches!(
+                (fs::read(source.join(file)), fs::read(system.join(file))),
+                (Ok(a), Ok(b)) if a == b
+            )
+        })
+}
+
+/// Installs native DirectPlay into the prefix once (`tools/install-directplay`
+/// does the same on Linux): the files from `source` into the 32-bit system
+/// directory, native DLL overrides, and the four DLLs registered with the
+/// 32-bit regsvr32. Without the files the game still starts; only network
+/// games are unavailable.
+fn install_directplay(
+    wine: &wine_compat::Runtime,
+    options: &Options,
+    prefix: &Path,
+    settings: &Path,
+    private: &Path,
+    log: &Path,
+    signal: &AtomicUsize,
+) -> Result<Option<i32>> {
+    let source = &options.directplay;
+    if !DIRECTPLAY_FILES.iter().all(|file| source.join(file).is_file()) {
+        eprintln!(
+            "civ3-play-macos: no DirectPlay files in {}; network games will not work",
+            source.display()
+        );
+        return Ok(None);
+    }
+    let windows = prefix.join("drive_c/windows");
+    let (system, regsvr32) = if windows.join("syswow64").is_dir() {
+        (windows.join("syswow64"), r"C:\windows\syswow64\regsvr32.exe")
+    } else if windows.join("system32").is_dir() {
+        (windows.join("system32"), r"C:\windows\system32\regsvr32.exe")
+    } else {
+        eprintln!(
+            "civ3-play-macos: the prefix {} has no system directory yet; DirectPlay is installed at the next start",
+            prefix.display()
+        );
+        return Ok(None);
+    };
+    if directplay_current(source, &system, prefix) {
+        return Ok(None);
+    }
+    let _ = fs::remove_file(prefix.join(DIRECTPLAY_MARKER));
+    for file in DIRECTPLAY_FILES {
+        install_copy(&system, &source.join(file), file)?;
+    }
+    let reg = log.with_extension("reg");
+    fs::write(&reg, directplay_overrides())?;
+    let reg_windows = windows_path(&reg)?;
+    let step = WineStep::new(
+        wine,
+        options,
+        prefix,
+        settings,
+        private,
+        log,
+        signal,
+        "DirectPlay installation",
+    )?;
+    let steps = std::iter::once(["regedit.exe", "/S", reg_windows.as_str()])
+        .chain(DIRECTPLAY_REGISTER.map(|dll| [regsvr32, "/s", dll]));
+    for args in steps {
+        let interrupted = step.run(&args, args[2]);
+        if !matches!(interrupted, Ok(None)) {
+            let _ = fs::remove_file(&reg);
+            return interrupted;
+        }
+    }
+    let _ = fs::remove_file(&reg);
+    fs::write(prefix.join(DIRECTPLAY_MARKER), "installed\n")?;
     Ok(None)
 }
 
@@ -930,6 +1104,22 @@ pub fn launch(
         &settings,
         &private,
         &log.with_extension("registry.log"),
+        &signal,
+    )? {
+        return Ok(status);
+    }
+    stage(
+        &progress,
+        "Installing DirectPlay",
+        "Network games need Microsoft's DirectPlay in the Wine prefix. This runs once.",
+    );
+    if let Some(status) = install_directplay(
+        &wine,
+        &options,
+        &prefix,
+        &settings,
+        &private,
+        &log.with_extension("directplay.log"),
         &signal,
     )? {
         return Ok(status);

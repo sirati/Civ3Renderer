@@ -839,7 +839,13 @@ tools/civ3-native start --game-render   # the game drawing its own window as wel
 To play on your own Wayland desktop, `tools/civ3-play` starts the game the
 same way without `nix develop`. Run `tools/civ3-play setup` once: it takes
 the runtime libraries (vulkan-loader, wayland, libxkbcommon, libglvnd) from
-Wine's closure, keeps them as GC roots and adds a `.desktop` entry. Wine,
+Wine's closure, keeps them as GC roots and adds a `.desktop` entry. It also
+installs Microsoft's DirectPlay into the prefix (`tools/install-directplay`,
+files from the flake's `directplay` package with a fixed hash). Civ III's LAN
+and Direct IP games go through DirectPlay 8, and Wine's builtin `dpnet`
+stubs `Host`, `EnumHosts` and `Connect`. The macOS launcher does the same
+from `runtime/directplay` ([TS Neo](docs/macos-tsneo.md)). Steam's
+multiplayer is a separate problem; see [Steam multiplayer](docs/steam-multiplayer.md). Wine,
 the prefix and the native dir go under `~/.local/share/civ3r` (`wine-wow64`,
 `wine-civ3-wow64`, `native`). Original pixels stay off by default. `--compare`
 shows the original renderer for comparison, `--map` enables only map pixels,

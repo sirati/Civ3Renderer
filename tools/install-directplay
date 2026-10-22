@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Installs Microsoft's DirectPlay into a Wine prefix, as `winetricks
+# directplay` does, without its download or prompts. Civ III hosts, finds
+# and joins LAN and direct-IP games through DirectPlay 8 (dpnet); Wine's
+# builtin dpnet stubs IDirectPlay8Peer::Host and EnumHosts, so a hosted
+# game never gets its own player and no game is ever found.
+#
+#   tools/install-directplay [DIR]
+#
+# DIR holds dplaysvr.exe dplayx.dll dpmodemx.dll dpnet.dll dpnhpast.dll
+# dpnhupnp.dll dpnsvr.exe dpwsockx.dll (x86). Default: the flake's
+# `directplay` package (nix/directplay.nix), built here.
+#
+# Env: WINEPREFIX (required); WINE, a directory with bin/wine or the wine
+# executable itself (default: wine on PATH). The 32-bit system directory is
+# syswow64 in a 64-bit (WoW64) prefix, else system32. The files go there,
+# are set to native in HKCU\Software\Wine\DllOverrides, and dplayx, dpnet,
+# dpnhpast and dpnhupnp are registered with the 32-bit regsvr32. A rerun
+# with the same files does nothing (marker civ3r-directplay in the prefix).
+set -euo pipefail
+die() { echo "install-directplay: $*" >&2; exit 1; }
+files=(dplaysvr.exe dplayx.dll dpmodemx.dll dpnet.dll dpnhpast.dll dpnhupnp.dll dpnsvr.exe dpwsockx.dll)
+register=(dplayx.dll dpnet.dll dpnhpast.dll dpnhupnp.dll)
+
+[ -n "${WINEPREFIX:-}" ] || die "WINEPREFIX is not set"
+[ -d "$WINEPREFIX/drive_c/windows" ] || die "no Wine prefix at $WINEPREFIX"
+w=${WINE:-wine}
+if [ -x "$w/bin/wine" ]; then w=$w/bin/wine; fi
+command -v "$w" >/dev/null || die "no Wine at $w"
+wineserver=$(dirname "$(command -v "$w")")/wineserver
+
+src=${1:-}
+if [ -z "$src" ]; then
+  repo=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+  src=$(nix build --no-link --print-out-paths "$repo#directplay" | head -1)/i386
+fi
+for f in "${files[@]}"; do [ -s "$src/$f" ] || die "$src has no $f"; done
+
+if [ -d "$WINEPREFIX/drive_c/windows/syswow64" ]; then
+  sys=$WINEPREFIX/drive_c/windows/syswow64; regsvr32='C:\windows\syswow64\regsvr32.exe'
+else
+  sys=$WINEPREFIX/drive_c/windows/system32; regsvr32='C:\windows\system32\regsvr32.exe'
+fi
+marker=$WINEPREFIX/civ3r-directplay
+stamp=$(cd "$src" && cksum "${files[@]}")
+same=1
+for f in "${files[@]}"; do cmp -s "$src/$f" "$sys/$f" || { same=0; break; }; done
+if [ $same = 1 ] && [ "$(cat "$marker" 2>/dev/null)" = "$stamp" ]; then
+  echo "install-directplay: already installed in $WINEPREFIX"
+  exit 0
+fi
+
+for f in "${files[@]}"; do
+  rm -f "$sys/$f"   # Wine's builtin placeholder
+  cp "$src/$f" "$sys/$f"
+  chmod 644 "$sys/$f"
+done
+reg=$(mktemp "${TMPDIR:-/tmp}/directplay-XXXXXX.reg")
+trap 'rm -f "$reg"' EXIT
+{
+  printf 'REGEDIT4\r\n\r\n[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]\r\n'
+  for f in "${files[@]}"; do
+    case $f in *.exe) n=$f ;; *) n=${f%.dll} ;; esac
+    printf '"%s"="native"\r\n' "$n"
+  done
+} > "$reg"
+export WINEDEBUG=${WINEDEBUG:--all} WINEDLLOVERRIDES="mscoree,mshtml=;${WINEDLLOVERRIDES:-}"
+"$w" regedit /S "Z:${reg//\//\\}"
+for f in "${register[@]}"; do "$w" "$regsvr32" /s "$f" || die "regsvr32 $f failed"; done
+"$wineserver" -w
+grep -qi '^"dpnet"="native"' "$WINEPREFIX/user.reg" || die "the DLL overrides did not reach $WINEPREFIX/user.reg"
+echo "$stamp" > "$marker"
+echo "install-directplay: DirectPlay installed in $sys"

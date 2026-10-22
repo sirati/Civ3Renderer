@@ -144,18 +144,43 @@ explicit original-map-only diagnostic option.
 
 ## Multiplayer needs native DirectPlay
 
-Civ III's network games use DirectPlay 8 (`dpnet.dll`). Wine's builtin
-`dpnet` cannot host or find games. `IDirectPlay8Peer::Host` and `EnumHosts`
-are stubs that return success without creating a session. The host's own
-player then stays "Connecting" and the game never starts. The Wine log
-shows `fixme:dpnet:IDirectPlay8PeerImpl_Host ... stub`. The private prefix
-has only Wine's builtin DirectPlay DLLs. Multiplayer needs Microsoft's
-32-bit DirectPlay installed into the prefix, for example with
-`winetricks directplay`. That puts `dpnet`, `dpnhpast`, `dpnhupnp`,
-`dpwsockx`, `dplayx`, `dpmodemx`, `dpnsvr.exe` and `dplaysvr.exe` from the
-DirectX redistributable into `syswow64`, sets them to native in
-`DllOverrides`, and registers the DLLs. This affects Linux the same way:
-the stub is in Wine, not in the Mac driver.
+Civ III's LAN and Direct IP games use DirectPlay 8 (`dpnet.dll`). The
+Internet entry fails at the dead GameSpy servers and falls back to the
+same local-games lobby. Wine's builtin `dpnet` stubs
+`IDirectPlay8Peer::Host`, `EnumHosts` and `Connect`. They return success
+without creating a session, so the host's own player never appears and no
+game is found or joined. The Wine log shows
+`fixme:dpnet:IDirectPlay8PeerImpl_Host ... stub`.
+
+The launcher installs Microsoft's 32-bit DirectPlay into the prefix once, as
+`winetricks directplay` does. Its eight files (`dpnet`, `dpnhpast`,
+`dpnhupnp`, `dpwsockx`, `dplayx`, `dpmodemx`, `dpnsvr.exe`, `dplaysvr.exe`)
+come from `runtime/directplay` (`CIV3R_DIRECTPLAY_DIR`). The launcher
+copies them into `syswow64`, imports `"name"="native"` into
+`HKCU\Software\Wine\DllOverrides`, and runs the 32-bit `regsvr32` for
+`dplayx`, `dpnet`, `dpnhpast` and `dpnhupnp`. The marker
+`native-wine/prefix/civ3r-directplay` records that this is done. Without the
+files the game starts and says that network games will not work.
+
+The files come from the DirectX 9.0c redistributable (February 2010). Build
+them on papa with `nix build .#directplay` (`nix/directplay.nix`, fixed
+hash). Copy `result/i386/*` to `runtime/directplay` on the Mac. Do not run
+Nix on TS Neo. `tools/install-directplay DIR` does the same installation by
+hand, for example on a prefix whose launcher predates this step:
+
+```sh
+c3r_root=/Users/sirati/civ3r-tsneo-20261019
+WINE="$c3r_root/native-wine/runtime/dist/bin/wine" \
+WINEPREFIX="$c3r_root/native-wine/prefix" \
+DYLD_FALLBACK_LIBRARY_PATH="$c3r_root/native-wine/runtime/dist/ext/lib" \
+WINEARCH=win64 FEX_DISKCACHE=1 \
+  tools/install-directplay "$c3r_root/runtime/directplay"
+```
+
+These are 32-bit x86 PE DLLs like the game's own `sound.dll`, `binkw32.dll`
+and `Mss32.dll`, and `dpnsvr.exe` is a separate 32-bit process. Under new
+WoW64, FEX runs them as it runs the game. DirectPlay uses only Winsock,
+threads and COM, all of them Wine's.
 
 ## Renderer inside the game's process
 
@@ -188,6 +213,7 @@ comparison. `IFC23.dll`, `civ3r_native.dll`, `civ3r_native.so` and
 | Native ARM64 Wine executable | `native-wine/runtime/dist/bin/wine` |
 | Private Wine prefix | `native-wine/prefix` |
 | Generated glyph data | `runtime/fonts` |
+| Microsoft DirectPlay (x86) for network games | `runtime/directplay` |
 | Session logs | `runtime/logs` |
 | Private game and new saves | `runtime/game/Civilization III Complete/Conquests` |
 
