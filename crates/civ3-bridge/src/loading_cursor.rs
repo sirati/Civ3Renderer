@@ -1,45 +1,44 @@
-//! Optional game-art animation beside the native loading bar.
+//! The loading cursor beside the native loading bar: the wait cursor's
+//! hourglass, turning (`scene::loading_cursor`, `assets/civ3/
+//! loading-cursor.toml`). Optional art: a missing system cursor leaves
+//! clear frames, never a pending or failed UI group.
 use crate::ui::Frame;
 
-pub const SOURCE: &str = "Art/Animations/Cursor/Cursor.flc";
-pub const BAR_SET: &str = "Viewer@loading_bar/0";
 // PcGames constructor0x628c90 stores this class; draw0x628eb0 paints the
 // two complementary native text clips. It is not inferred from colours.
 pub const FORM: u32 = 0x67_24F8;
 const GAP: i32 = 4;
-const WIDTH: i32 = 46;
-const HEIGHT: i32 = 23;
+/// The square the turning hourglass stays in.
+const ENVELOPE: i32 = scene::loading_cursor::ENVELOPE as i32;
 
-/// Include the optional asset only when its native header is supported.
-/// The same resulting description crosses to the renderer, so missing art
+/// The loading cursor's description, appended to the game's. It loads
+/// the system's wait cursor, which is clear where there is none, so it
 /// cannot break the first compile or hold a mandatory UI group pending.
-pub fn description(files: &civ3_assets::GameFiles) -> &'static str {
-    let supported = files.read(SOURCE).ok().and_then(|bytes| civ3_assets::flc::layout(&bytes).ok())
-        .is_some_and(|layout| (layout.width, layout.height) == (93, 46)
-            && u16::from_le_bytes([layout.header[6], layout.header[7]]) == scene::loading_cursor::FRAME_COUNT as u16
-            && layout.frames >= scene::loading_cursor::FRAME_COUNT as usize);
-    if supported { include_str!("../../../assets/civ3/loading-cursor.toml") } else { "" }
+pub fn description() -> &'static str {
+    include_str!("../../../assets/civ3/loading-cursor.toml")
 }
 
-/// Place the motif to the left of the bar, centred on its native form.
+/// Place the hourglass to the left of the bar, centred on its native form.
 /// Keeping this beside its form's first draw preserves popup painter order.
 pub fn at_draw(frame: &Frame, draw: usize) -> Option<menu::screen::Element> {
     frame.forms.iter().find_map(|&(class, canvas, (x, y), (w, h))| {
         (class == FORM && w > 0 && h > 0 && frame.form_draws.iter().any(|(c, r)| *c == canvas && r.start == draw && !r.is_empty()))
             .then(|| {
-                let at = (x - GAP - WIDTH, y + h / 2 - HEIGHT / 2);
-                menu::screen::Element::Sprite { name: BAR_SET.into(), at,
-                    clip: [at.0, at.1, at.0 + WIDTH, at.1 + HEIGHT], scale_den: 0, palette: String::new() }
+                let slot = (x - GAP - ENVELOPE, y + h / 2 - ENVELOPE / 2);
+                // (Its frames' anchor, where the hourglass turns: the middle.)
+                let at = (slot.0 + ENVELOPE / 2, slot.1 + ENVELOPE / 2);
+                menu::screen::Element::Sprite { name: scene::loading_cursor::SET.into(), at,
+                    clip: [slot.0, slot.1, slot.0 + ENVELOPE, slot.1 + ENVELOPE], scale_den: 0, palette: String::new() }
             })
     })
 }
 
 pub fn is_optional(element: &menu::screen::Element) -> bool {
-    matches!(element, menu::screen::Element::Sprite { name, .. } if name == BAR_SET)
+    matches!(element, menu::screen::Element::Sprite { name, .. } if name == scene::loading_cursor::SET)
 }
 
 pub fn extend_bounds(class: u32, bounds: [i32; 4]) -> [i32; 4] {
-    if class == FORM { [bounds[0] - WIDTH - GAP, bounds[1], bounds[2], bounds[3]] } else { bounds }
+    if class == FORM { [bounds[0] - ENVELOPE - GAP, bounds[1], bounds[2], bounds[3]] } else { bounds }
 }
 
 #[cfg(test)]
@@ -47,56 +46,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_optional_loading_art_does_not_change_a_description() {
-        let files = civ3_assets::GameFiles::with_roots(Vec::new());
-        assert_eq!(description(&files), "");
-        assert!(is_optional(&menu::screen::Element::Sprite { name: BAR_SET.into(), at: (0, 0), clip: [0; 4], scale_den: 0, palette: String::new() }));
+    fn the_loading_cursor_is_optional_and_only_widens_the_loading_form() {
+        assert!(description().contains("system-cursor:32514/32"), "the wait cursor's hourglass");
+        assert!(!description().contains("Cursor.flc"), "not the unit-selection ring");
+        assert!(is_optional(&menu::screen::Element::Sprite { name: scene::loading_cursor::SET.into(), at: (0, 0), clip: [0; 4], scale_den: 0, palette: String::new() }));
         assert_eq!(extend_bounds(0x66b3d8, [0, 0, 1024, 768]), [0, 0, 1024, 768], "parent/advisor bounds never grow");
+        assert_eq!(extend_bounds(FORM, [100, 0, 1024, 768]), [64, 0, 1024, 768]);
     }
 
     #[test]
-    fn game_cursor_asset_has_exact_display_order_transparency_and_shared_frames() {
-        let root = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-        let files = civ3_assets::GameFiles::complete(&root);
-        if files.resolve(SOURCE).is_err() { return eprintln!("game cursor fixture unavailable"); }
-        let text = description(&files);
-        assert!(!text.is_empty());
-        let desc = render_desc::Description::parse(&format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n{text}")).unwrap();
-        let loader = civ3_assets::loader::Civ3Loader::new(files.clone());
+    fn hourglass_frames_turn_in_twelve_steps_and_sit_left_of_the_loading_bar() {
+        // The system's wait cursor from the Wine prefix if there is one
+        // (clear frames if not).
+        let prefix = std::env::var("WINEPREFIX").unwrap_or_else(|_| "/mnt/datasets/winvm/wine-civ3".into());
+        let files = civ3_assets::GameFiles::with_roots(vec![std::path::Path::new(&prefix).join("drive_c/Games")]);
+        let desc = render_desc::Description::parse(&format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n{}", description())).unwrap();
+        let loader = civ3_assets::loader::Civ3Loader::new(files);
         let compiled = desc.compile(&loader, 256).unwrap();
         let layout = desc.compile_layout(&loader, 256).unwrap();
-        assert_eq!(compiled.sprite_names, layout.sprite_names);
-        let animation = civ3_assets::flc::decode(&files.read(SOURCE).unwrap()).unwrap();
-        assert_eq!((animation.speed_ms, animation.header_frames), (83, 30));
-        for (set_name, size) in [(scene::loading_cursor::SET, (93, 46)), (BAR_SET, (46, 23))] {
-            let set = compiled.set(set_name).unwrap().0;
-            for frame in 0..30 {
-                let sprite = compiled.sets.frame(set, frame).unwrap();
-                let expected = compiled.sprite_names.iter().position(|name| name == &format!("{}/{}", if set_name == BAR_SET { "Viewer@loading_bar_frame" } else { "Viewer@loading_cursor_frame" }, frame)).unwrap();
-                assert_eq!(sprite.0 as usize, expected);
-                let art = &compiled.atlas.sprites[expected];
-                assert_eq!((art.width, art.height), size);
-            }
-            assert!(compiled.sets.frame(set, 30).is_none(), "closing delta frame must never display");
-        }
-        // The shared native frames retain every palette pixel, including
-        // clear magenta, before the GPU chooses an animation phase.
-        let native = compiled.set(scene::loading_cursor::SET).unwrap().0;
-        for frame in 0..30 {
-            let id = compiled.sets.frame(native, frame).unwrap();
+        assert_eq!(compiled.sprite_names, layout.sprite_names, "sizes without pixels match the pixels");
+        let set = compiled.set(scene::loading_cursor::SET).unwrap().0;
+        for frame in 0..scene::loading_cursor::FRAME_COUNT {
+            let id = compiled.sets.frame(set, frame).unwrap();
+            assert_eq!(compiled.sprite_names[id.0 as usize], format!("Viewer@loading_cursor_frame/{frame}"));
             let art = &compiled.atlas.sprites[id.0 as usize];
-            assert_eq!(art.palette, 0);
-            let source = &animation.frames[frame as usize];
-            for (i, &index) in source.pixels.iter().enumerate() {
-                let rgb = source.palette.get(index);
-                let expected = if index == 255 { [0; 4] } else { [rgb.0, rgb.1, rgb.2, 255] };
-                let actual = compiled.atlas.pages[art.page as usize].get(art.atlas_x + i as u32 % 93, art.atlas_y + i as u32 / 93);
-                // Transparent RGB is immaterial; alpha and every visible
-                // source palette colour must be exact.
-                assert_eq!(actual[3], expected[3]);
-                if index != 255 { assert_eq!(actual, expected); }
-            }
+            assert_eq!((art.width, art.height), (scene::loading_cursor::FRAME_SIDE, scene::loading_cursor::FRAME_SIDE));
+            assert_eq!((art.anchor_x, art.anchor_y), (-23, -23), "hot spot in the middle");
         }
+        assert!(compiled.sets.frame(set, scene::loading_cursor::FRAME_COUNT).is_none(), "twelve steps, no more");
+
         let frame = Frame {
             forms: vec![(FORM, 40, (100, 80), (200, 24))],
             form_draws: vec![(40, 0..1)],
@@ -106,18 +84,26 @@ mod tests {
         let items = crate::ui_screen::items(&frame, &[], &[], 0);
         let fonts = crate::text::Fonts::default();
         let sprites = crate::ui_screen::sprites(&items, &fonts, &compiled, u32::MAX, false);
-        assert_eq!(sprites[0].ticks_per_frame, scene::loading_cursor::TICKS_PER_FRAME);
+        assert_eq!(sprites[0].ticks_per_frame, scene::loading_cursor::TICKS_PER_FRAME, "turned by the viewer's clock");
         let id = compiled.sets.frame(tile_render::SpriteSetId::from_raw(sprites[0].set), 0).unwrap();
         let art = &compiled.atlas.sprites[id.0 as usize];
-        assert_eq!((sprites[0].x + art.anchor_x, sprites[0].y + art.anchor_y), (50, 81), "ring is on the left, not over the progress text");
-        assert_eq!(sprites[0].clip, Some([50, 81, 96, 104]));
+        // The 32x32 slot: left of the form with a gap, centred on its middle.
+        assert_eq!((sprites[0].x + art.anchor_x, sprites[0].y + art.anchor_y), (57, 69));
+        assert_eq!((sprites[0].x, sprites[0].y), (80, 92), "turning about the form's middle row");
+        assert_eq!(sprites[0].clip, Some([64, 76, 96, 108]), "hourglass on the left, not over the progress text");
         let absent = crate::text::readiness_tests::fixture_art(&[], "");
         assert_eq!(crate::ui_screen::readiness(items.iter(), &fonts, &absent, false), crate::ui_screen::Readiness::Ready);
-        assert_eq!(crate::ui_screen::sprites(&items, &fonts, &absent, u32::MAX, false).len(), 1, "missing optional ring leaves the progress background visible");
-        let palette = &animation.frames[0].palette;
-        assert_eq!(palette.get(255), civ3_assets::Rgb(255, 0, 255));
-        assert!(animation.frames[0].pixels.contains(&255));
-        assert_ne!(animation.frames[0].pixels, animation.frames[1].pixels);
+        assert_eq!(crate::ui_screen::sprites(&items, &fonts, &absent, u32::MAX, false).len(), 1, "missing optional hourglass leaves the progress background visible");
+
+        // With Wine's hourglass at hand: frame 0 is it, upright and whole.
+        let dll = std::path::Path::new(&prefix).join("drive_c/windows/syswow64/user32.dll");
+        if !dll.is_file() { return eprintln!("no Wine prefix: hourglass pixels not checked"); }
+        let cursor = civ3_assets::syscursor::find(&[dll], 32514, 32).unwrap();
+        let first = &compiled.atlas.sprites[compiled.sets.frame(set, 0).unwrap().0 as usize];
+        let page = &compiled.atlas.pages[first.page as usize];
+        let opaque = (0..46 * 46).filter(|i| page.get(first.atlas_x + i % 46, first.atlas_y + i / 46)[3] != 0).count();
+        let source = cursor.rgba.chunks(4).filter(|p| p[3] != 0).count();
+        assert_eq!(opaque, source, "upright frame: the hourglass's own pixels");
     }
 }
 

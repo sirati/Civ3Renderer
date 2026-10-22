@@ -2,9 +2,9 @@
 //! sprites by their sets in the render description (`Viewer@cursors/<k>`,
 //! cell `k` of `Art\cursor.pcx`), the system's resize pointers as such.
 //! The system's busy pointers (`IDC_WAIT`, `IDC_APPSTARTING`) stay the
-//! semantic busy states: the viewer composites the game's animated selection
-//! ring beside its arrow for those states. Cell 12 is the "NEW UNIT"
-//! arrow, not a busy icon. The plain
+//! semantic busy states: for those the viewer shows the wait cursor's
+//! hourglass, turning (`scene::loading_cursor`), as its own pointer. Cell
+//! 12 is the "NEW UNIT" arrow, not a busy icon. The plain
 //! arrow, which the game leaves to the system, is shown with the game's
 //! own arrow art (cell 0) unless `CIV3R_SYSTEM_ARROW=1`.
 

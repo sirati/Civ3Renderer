@@ -386,7 +386,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     }
     let (name, mut text) = description()?;
     let install = install_root()?;
-    text += crate::loading_cursor::description(&civ3_assets::GameFiles::complete(&install));
+    text += crate::loading_cursor::description();
     // Rings around foreign units, if asked for (`crate::rings`).
     let rings = crate::rings::Rings::from_env();
     text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
