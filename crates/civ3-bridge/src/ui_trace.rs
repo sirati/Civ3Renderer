@@ -696,6 +696,19 @@ fn watch(e: &Event) {
     }
 }
 
+/// On the game's thread only: the screen as of its last present
+/// (`UiModel::committed_frame`), with nothing another thread composes in
+/// between (`crate::detached` keeps a popup's picture from it).
+pub fn committed_frame_now() -> Option<Frame> {
+    with_model(false, |m| m.committed_frame())
+}
+
+/// On the game's thread only: canvas `canvas` (of a form of class
+/// `vtable`) as it is drawn now (`UiModel::canvas_frame`).
+pub fn canvas_frame_now(canvas: u32, vtable: u32) -> Option<Frame> {
+    with_model(false, |m| m.canvas_frame(canvas, vtable)).flatten()
+}
+
 /// The latest view, asking the game's thread for a newer one.
 fn view() -> Option<std::sync::Arc<UiView>> {
     if !CAPTURE.ready() { return None }

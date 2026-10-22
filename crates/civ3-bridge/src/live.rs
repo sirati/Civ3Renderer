@@ -726,6 +726,8 @@ fn publish(
     // in views of their own (corner, hint, screen, popup).
     let mut items_memos: [Memo<_, Vec<ui_screen::Item>>; 4] = Default::default();
     let mut part_memos: [Memo<_, Vec<scene::FreeSprite>>; 4] = Default::default();
+    // The kept popups' sprites, per slot (`crate::detached`).
+    let mut detached_memos: [Memo<_, Vec<scene::FreeSprite>>; crate::detached::MAX_KEPT] = Default::default();
     // Bumped whenever `compiled` changes (new art, a growth): the memos of
     // what is made of the art key on it.
     let mut art_generation = 0u64;
@@ -1253,7 +1255,7 @@ fn publish(
         let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
         let popup_and_canvas = match (ui, modal) {
             (Some(f), m) if matches!(shown, Shown::Map(..)) || screen_open.is_some() => {
-                let modal_popup = m.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4).and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c)));
+                let modal_popup = m.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4).filter(|&c| c != crate::detached::hidden_canvas()).and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c)));
                 modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c))))
             }
             // Between games: a popup over the title or a setup screen (those
@@ -1311,6 +1313,7 @@ fn publish(
         let popup_canvases: Vec<u32> = native_ui.as_ref().into_iter()
             .flat_map(|native| native.modal_stack).filter(|&form| form != 0)
             .map(|form| form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)
+            .filter(|&canvas| canvas != crate::detached::hidden_canvas())
             .chain(popup_and_canvas.map(|(_, canvas)| canvas))
             .fold(Vec::new(), |mut out, canvas| { if !out.contains(&canvas) { out.push(canvas); } out });
         let (ui_below, popup_frames) = match ui {
@@ -1983,6 +1986,18 @@ fn publish(
         for (id, rect, items) in &popup_layers {
             crate::interface_parts::part_view(&mut scene, *id, *rect, part_sprites(popup_part_memo, items));
         }
+        // The tile boxes the viewer keeps (`crate::detached`), over the map
+        // only: a screen opening over it closes them.
+        if !on_map {
+            crate::detached::close_all();
+        }
+        let detached = crate::detached::kept();
+        for ((index, kept), memo) in detached.iter().enumerate().zip(detached_memos.iter_mut()) {
+            let sprites = memo.get((kept.serial, art_key), || {
+                ui_screen::sprites(&ui_screen::items(&kept.frame, files.roots(), generated, unit_colors), &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)
+            });
+            crate::interface_parts::part_view(&mut scene, crate::detached::entry(index, kept).view, kept.rect, sprites);
+        }
         if popup.is_some() && on_map {
             // The popup's subject: older drivers' games bring it into view
             // first (the middle of the game's view stands for it). With the
@@ -2020,6 +2035,7 @@ fn publish(
             },
             popup_anchor,
             popup_on_screen: popup_on_screen && popup.is_some(),
+            detached: detached.iter().enumerate().map(|(index, kept)| crate::detached::entry(index, kept)).collect(),
             // A unit command waits for its tile (`crate::targeting`):
             // the game's own mode, whatever gave the command.
             targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
@@ -2548,6 +2564,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
             }
             Input::Edge { x, y } => forwarder.edge = (x, y),
             // On the game's thread, in order with the popup's own loop.
+            Input::CloseDetached { serial } => crate::detached::close(serial),
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");
