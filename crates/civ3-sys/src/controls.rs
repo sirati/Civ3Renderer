@@ -129,6 +129,11 @@ const KEYED: u32 = 0x100_0000;
 const BUTTON_VTABLES: [u32; 4] = [0x66_56C0, 0x66_5F20, 0x67_1550, 0x66_7188];
 /// `Context_Menu` and its subclass.
 pub const CONTEXT_MENU_VTABLES: [u32; 2] = [0x67_1AC0, 0x66_B240];
+/// The list a combo box opens (measured: the Science Advisor's "need
+/// direction" tech box): a modal form of its own, composed over the dialog
+/// holding the box (its frame; the entries are a list form, 0x666908,
+/// inside it). The box itself is a form of vtable 0x672328.
+pub const COMBO_LIST_VTABLES: [u32; 1] = [0x67_2160];
 /// A check box group's form part (`CheckBox` + 0x20).
 const CHECKBOX_VTABLE: u32 = 0x67_1C70;
 /// Where every list box's draw thunk (vtable +0x58) ends.
