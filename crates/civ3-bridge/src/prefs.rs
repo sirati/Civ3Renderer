@@ -45,18 +45,18 @@ pub const TAB_CLEAN_MAP: &str = "clean_map";
 /// The values the panel shows: the tab, every control of the settings
 /// (`viewer_settings::controls`) by its key, the rendered and the window
 /// size (`resolution.realised`, `resolution.window`, as "W×H") for a window
-/// of `window` physical pixels on a desktop scaled `desktop` times, and the
-/// pixel scale in effect (`resolution.effective`, e.g. "Auto (×2)").
-pub fn values(settings: &Settings, tab: &str, window: (u32, u32), desktop: f64) -> BTreeMap<String, Value> {
+/// of `window` physical pixels, and the pixel scale in effect
+/// (`resolution.effective`, e.g. "×3").
+pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<String, Value> {
     let mut out: BTreeMap<String, Value> = settings.controls().into_iter().map(|(k, v)| (k, to_value(v))).collect();
     out.insert(TAB.into(), Value::Text(tab.into()));
-    let (w, h) = settings.resolution.realised(window, desktop);
+    let (w, h) = settings.resolution.realised(window);
     out.insert("resolution.realised".into(), Value::Text(format!("{w}×{h}")));
     out.insert("resolution.window".into(), Value::Text(format!("{}×{}", window.0, window.1)));
     let r = &settings.resolution;
-    let mut effective = r.describe_pixel_scale(desktop);
-    if r.pixel_scale_in(window, desktop) < r.effective_pixel_scale(desktop) {
-        effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window, desktop));
+    let mut effective = r.describe_pixel_scale();
+    if r.pixel_scale_in(window) < r.effective_pixel_scale() {
+        effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window));
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
     let height = settings.layout.zoom_box_height;
@@ -235,9 +235,9 @@ pub struct Prefs {
     /// Where the game's Preferences screen is while it is open (see
     /// [`screen_area`]).
     open: Option<[i32; 4]>,
-    /// The viewer's window in physical pixels and the desktop's scale
-    /// (`Input::Window`; the rendered size depends on them), or before it
-    /// told them, the size it arranges the game's screen in.
+    /// The viewer's window in physical pixels (`Input::Window`; the
+    /// rendered size depends on it), or before it told it, the size it
+    /// arranges the game's screen in.
     window: (u32, u32),
     /// A popup of the game is open over the screen (e.g. C3X's info box):
     /// the input is all the game's, the popup's buttons may lie over our
@@ -256,11 +256,12 @@ pub struct Prefs {
     /// Whether Ctrl and Shift are held (for the reset, [`RESET_KEY`]).
     ctrl: bool,
     shift: bool,
-    /// The desktop's scale at the renderer's window, and whether the
-    /// renderer told its window (`Input::Window`) rather than the driver's
-    /// screen only.
-    desktop: f64,
+    /// Whether the renderer told its window (`Input::Window`) rather than
+    /// the driver's screen only.
     native: bool,
+    /// The first run's Preferences are still to be shown
+    /// (`Settings::first_run`): they open on the Resolution tab.
+    first_run: bool,
 }
 
 /// Where the renderer's settings are kept: `CIV3R_SETTINGS` (a Windows path,
@@ -309,13 +310,25 @@ impl Prefs {
     /// The settings saved at `path` (the defaults if there are none), and
     /// the panel.
     pub fn load(path: PathBuf) -> Self {
+        // (An unreadable file is not a first run: nothing saves over it
+        // unasked.)
         let settings = Settings::load(&path).unwrap_or_else(|e| {
             log::warn!("settings: {e}; using the defaults (saved when changes are accepted)");
-            Settings::default()
+            Settings { first_run: viewer_settings::FirstRun::done(), ..Settings::default() }
         });
+        let first_run = !settings.first_run.preferences_shown;
+        if first_run {
+            log::info!("settings: first run, Preferences open on the Resolution tab once the title menu is up");
+        }
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, desktop: 1.0, native: false }
+        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run }
+    }
+
+    /// Whether the first run's Preferences are still to be shown (the
+    /// title menu should open them, `crate::first_run`).
+    pub fn first_run_pending(&self) -> bool {
+        self.first_run
     }
 
     /// The settings (sent to the viewer with every scene).
@@ -404,7 +417,15 @@ impl Prefs {
             }
             match input {
                 Input::Window { width, height, scale_milli } => {
-                    (self.window, self.desktop, self.native) = ((width, height), scale_milli.max(1) as f64 / 1000.0, true);
+                    // The first run's sizes, at the first window it tells
+                    // (saved with the first run's marker).
+                    if self.first_run && !self.native {
+                        self.settings.resolution.seed_for_desktop(f64::from(scale_milli) / 1000.0, height);
+                        log::info!("settings: first run on a desktop at {scale_milli}‰: {:?}", self.settings.resolution);
+                        if let Some(draft) = &mut self.draft { draft.resolution = self.settings.resolution.clone(); }
+                        self.project_settings();
+                    }
+                    (self.window, self.native) = ((width, height), true);
                 }
                 Input::Resized { width, height } => self.follow_window((width, height)),
                 _ => {}
@@ -733,6 +754,14 @@ impl Prefs {
             log::info!("preferences screen {}", if open.is_some() { "open: our tabs over it" } else { "closed" });
             self.state = PanelState::default();
             self.tab = TAB_GAME.into();
+            // The first run's: on the Resolution tab, and never again
+            // (saved now, whatever the user does with them).
+            if opening && self.first_run {
+                self.first_run = false;
+                self.tab = TAB_RESOLUTION.into();
+                self.settings.first_run.preferences_shown = true;
+                self.save();
+            }
             self.draft = open.map(|_| self.settings.clone());
             self.preview = None;
             if opening {
@@ -785,7 +814,7 @@ impl Prefs {
     }
 
     fn values(&self) -> BTreeMap<String, Value> {
-        let mut values = values(self.editing(), &self.tab, self.window, self.desktop);
+        let mut values = values(self.editing(), &self.tab, self.window);
         let mut changes = changed_controls(&self.settings, self.editing());
         if let Some((original, current)) = self.native_original.as_ref().zip(self.native_current.as_ref()) {
             changes.extend(original.changes(current));
@@ -961,21 +990,16 @@ mod tests {
         let mut s = Settings::default();
         s.resolution.pixel_scale = 3;
         s.layout.split = Split::Vertical1To1;
-        let v = values(&s, TAB_LAYOUT, (3840, 2160), 2.0);
+        let v = values(&s, TAB_LAYOUT, (3840, 2160));
         assert_eq!(v[TAB], Value::Text("layout".into()));
         assert_eq!(v["resolution.pixel_scale"], Value::Text("3".into()));
         assert_eq!(v["resolution.realised"], Value::Text("1280×720".into()));
         assert_eq!(v["resolution.window"], Value::Text("3840×2160".into()));
         assert_eq!(v["resolution.effective"], Value::Text("×3".into()));
-        // Auto on a desktop at 200 %: rendered at half the window.
-        s.resolution.pixel_scale = viewer_settings::Resolution::AUTO;
-        let v = values(&s, TAB_RESOLUTION, (3840, 2160), 2.0);
-        assert_eq!(v["resolution.pixel_scale"], Value::Text("auto".into()));
-        assert_eq!(v["resolution.realised"], Value::Text("1920×1080".into()));
-        assert_eq!(v["resolution.effective"], Value::Text("Auto (×2)".into()));
-        // ×1 at 200 %: rendered at the window's size, at once.
+        // ×1 (the default, Retina too): rendered at the window's size.
         s.resolution.pixel_scale = 1;
-        let v = values(&s, TAB_RESOLUTION, (3840, 2160), 2.0);
+        let v = values(&s, TAB_RESOLUTION, (3840, 2160));
+        assert_eq!(v["resolution.pixel_scale"], Value::Text("1".into()));
         assert_eq!(v["resolution.realised"], Value::Text("3840×2160".into()));
         assert_eq!(v["resolution.effective"], Value::Text("×1".into()));
         assert_eq!(v["layout.split"], Value::Text("Vertical1To1".into()));
@@ -1094,9 +1118,50 @@ mod tests {
         let path = std::env::temp_dir().join(format!("civ3r-prefs-test-{}-{name}", std::process::id())).join("settings.toml");
         let _ = std::fs::remove_file(&path);
         let mut p = Prefs::load(path.clone());
+        // (Opened by the user, not the first run's.)
+        p.first_run = false;
         let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
         p.update(Some(&f), Some(FORM), (1024, 768), None);
         (p, path)
+    }
+
+    #[test]
+    fn the_first_run_opens_on_the_resolution_tab_once_and_remembers_it() {
+        let dir = std::env::temp_dir().join(format!("civ3r-prefs-test-{}-first-run", std::process::id()));
+        let path = dir.join("settings.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+        let shown = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+        // No settings file: the first run.
+        let mut p = Prefs::load(path.clone());
+        assert!(p.first_run_pending());
+        // A Retina window: ×1, the old sizes on the sliders, at once.
+        p.route(vec![Input::Window { width: 3258, height: 1904, scale_milli: 2000 }], (1024, 768));
+        let seeded = p.settings().resolution.clone();
+        assert_eq!((seeded.pixel_scale, seeded.frame_scale, seeded.world_scale, seeded.scale_menus), (1, 2.0, 2.0, true));
+        // (Only at the first window: moved to another display, it stays.)
+        p.route(vec![Input::Window { width: 1920, height: 1080, scale_milli: 1000 }], (1024, 768));
+        assert_eq!(p.settings().resolution, seeded);
+        p.update(Some(&Frame::default()), Some(FORM), (1024, 768), None);
+        assert!(p.first_run_pending() && !path.exists(), "not before Preferences open");
+        p.update(Some(&shown), Some(FORM), (1024, 768), None);
+        assert_eq!((p.tab.as_str(), p.first_run_pending()), (TAB_RESOLUTION, false));
+        let saved = Settings::load(&path).unwrap();
+        assert!(saved.first_run.preferences_shown, "saved at once");
+        assert_eq!(saved.resolution, seeded, "with the first run's sizes");
+        assert!(!p.dirty(), "nothing for Cancel to ask about");
+        // Closed without a change, opened again: the game's tab.
+        p.update(Some(&Frame::default()), Some(FORM), (1024, 768), None);
+        p.update(Some(&shown), Some(FORM), (1024, 768), None);
+        assert_eq!(p.tab, TAB_GAME);
+        // The next launch: not again.
+        assert!(!Prefs::load(path.clone()).first_run_pending());
+        // An existing install's file without the marker: not a first run.
+        std::fs::write(&path, "[resolution]\npixel_scale = 2\n").unwrap();
+        assert!(!Prefs::load(path.clone()).first_run_pending());
+        // An unreadable one neither (nothing is saved over it unasked).
+        std::fs::write(&path, "[layout]\nsplit = 7\n").unwrap();
+        assert!(!Prefs::load(path.clone()).first_run_pending());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn click(p: &mut Prefs, x: i32, y: i32) -> Vec<Input> {
@@ -1241,7 +1306,7 @@ mod tests {
         assert!(!path.exists());
         // The pixel scale on the Resolution tab.
         assert!(click(&mut p, 220, 55).is_empty());
-        assert!(click(&mut p, 156 + 2 * 66 + 10, 170).is_empty());
+        assert!(click(&mut p, 90 + 2 * 66 + 10, 170).is_empty());
         assert_eq!(p.editing().resolution.pixel_scale, 3);
         let preview = p.settings_preview().unwrap();
         p.route(vec![Input::SettingsPreviewDecision {session:preview.session,id:preview.id,keep:true}], (1024,768));
@@ -1261,9 +1326,9 @@ mod tests {
         assert_eq!(p.settings().resolution.background_sampling, viewer_settings::BackgroundSampling::Nearest);
         assert!(click(&mut p, 580, 495).is_empty());
         assert_eq!(p.editing().resolution.background_sampling, viewer_settings::BackgroundSampling::Dither);
-        // Auto, the first.
+        // ×1, the first.
         assert!(click(&mut p, 90 + 10, 170).is_empty());
-        assert_eq!(p.editing().resolution.pixel_scale, viewer_settings::Resolution::AUTO);
+        assert_eq!(p.editing().resolution.pixel_scale, 1);
         // Closed and opened again: the game's tab.
         p.update(Some(&Frame::default()), Some(FORM), (1024, 768), None);
         assert!(!p.is_open());
@@ -1908,7 +1973,7 @@ mod tests {
         let stored = std::fs::read(&path).unwrap();
         let active = prefs.settings().clone();
         assert!(click(&mut prefs, 220, 55).is_empty());
-        assert!(click(&mut prefs, 300, 170).is_empty());
+        assert!(click(&mut prefs, 232, 170).is_empty());
         let preview = prefs.settings_preview().unwrap();
         prefs.route(vec![Input::SettingsPreviewDecision {session:preview.session,id:preview.id,keep:true}], (1024,768));
         let draft = prefs.editing().clone();
@@ -1985,15 +2050,15 @@ mod tests {
             matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 305
         }).unwrap();
         let active_resolution = prefs.settings().resolution.clone();
-        let before_window = active_resolution.realised((2048, 1536), 2.0);
-        let before_pixel_scale = active_resolution.pixel_scale_in((2048, 1536), 2.0);
+        let before_window = active_resolution.realised((2048, 1536));
+        let before_pixel_scale = active_resolution.pixel_scale_in((2048, 1536));
         prefs.route(vec![Input::Slider { id: slider.id, action: SliderAction::Begin, value: 0 }], (1024, 768));
         for value in [0, 500_000, 750_000] {
             assert!(prefs.route(vec![Input::Slider { id: slider.id, action: SliderAction::Preview, value }], (1024, 768)).is_empty());
             assert_ne!(prefs.editing().resolution.menu_scale_percent, active_resolution.menu_scale_percent);
             assert_eq!(prefs.settings().resolution, active_resolution);
-            assert_eq!(prefs.settings().resolution.realised((2048, 1536), 2.0), before_window);
-            assert_eq!(prefs.settings().resolution.pixel_scale_in((2048, 1536), 2.0), before_pixel_scale);
+            assert_eq!(prefs.settings().resolution.realised((2048, 1536)), before_window);
+            assert_eq!(prefs.settings().resolution.pixel_scale_in((2048, 1536)), before_pixel_scale);
             assert_eq!(prefs.looks(&Fonts::default()).iter().map(|look| (look.id, look.rect)).collect::<Vec<_>>(), before);
             assert!(!path.exists());
         }
@@ -2483,7 +2548,7 @@ mod tests {
         assert!(click(&mut prefs, 220, 55).is_empty());
         let fonts = Fonts::default();
         let before_draws = prefs.draws(&fonts);
-        let old = prefs.looks(&fonts).into_iter().find(|look| look.rect == [288, 160, 58, 32]).unwrap();
+        let old = prefs.looks(&fonts).into_iter().find(|look| look.rect == [222, 160, 58, 32]).unwrap();
         assert!(!old.shown.selected);
         let scene = LookScene {
             interactables: vec![scene::Interactable { id: old.id, rect: old.rect, kind: old.kind, ..Default::default() }],
@@ -2493,12 +2558,12 @@ mod tests {
         };
         let mut feedback = Feedback::default();
         for down in [true, false] {
-            feedback.sent(&Input::MouseButton { button: scene::Button::Left, down, x: 298, y: 170 }, &scene, 0.0);
+            feedback.sent(&Input::MouseButton { button: scene::Button::Left, down, x: 232, y: 170 }, &scene, 0.0);
         }
         feedback.replacements(&scene, 0.01);
         assert!(!feedback.drawn().iter().any(|(_, state)| state.selected), "pixel scale cannot be selected over the old derived readout");
         assert_eq!(prefs.draws(&fonts), before_draws);
-        assert!(click(&mut prefs, 298, 170).is_empty());
+        assert!(click(&mut prefs, 232, 170).is_empty());
         assert_eq!(prefs.settings().resolution.pixel_scale, 3);
         assert_eq!(prefs.settings_preview().unwrap().pixel_scale, 3);
         let complete = prefs.draws(&fonts);
@@ -2625,11 +2690,11 @@ mod tests {
     fn successive_multiplier_revert_restores_previous_kept_value_and_accept_saves_it() {
         let (mut p, path) = open_prefs("successive-multiplier-preview");
         click(&mut p,220,55);
-        click(&mut p,298,170);
+        click(&mut p,232,170);
         let first = p.settings_preview().unwrap();
         assert_eq!(first.pixel_scale,3);
         p.route(vec![Input::SettingsPreviewDecision {session:first.session,id:first.id,keep:true}], (1024,768));
-        click(&mut p,364,170);
+        click(&mut p,298,170);
         let second = p.settings_preview().unwrap();
         assert_eq!((second.previous_pixel_scale,second.pixel_scale),(3,4));
         p.route(vec![Input::SettingsPreviewDecision {session:second.session,id:second.id,keep:false}], (1024,768));

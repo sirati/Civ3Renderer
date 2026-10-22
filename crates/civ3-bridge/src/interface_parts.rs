@@ -1040,7 +1040,7 @@ mod tests {
                         s.interface.screen_view = Some(POPUP_VIEW);
                         settings.screen_place = ScreenPlace { vertical: place, horizontal: place };
                     }
-                    let mut plan = scaling::plan((480, 360), 2.0, s.screen_size, &Resolution { pixel_scale, ..Default::default() });
+                    let mut plan = scaling::plan((480, 360), s.screen_size, &Resolution { pixel_scale, ..Default::default() });
                     plan.menu.zoom = scaling::ratio(menu_scale);
                     let mut l = layout::Layout::default();
                     l.apply_settings(&settings);

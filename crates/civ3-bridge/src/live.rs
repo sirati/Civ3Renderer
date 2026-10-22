@@ -582,6 +582,10 @@ fn publish(
     let mut stale_inputs = crate::stale_input::BatchFilter::default();
     let mut last_input_take = std::time::Instant::now();
     let mut title = menu::MenuState::default();
+    // The first run's Preferences, opened from the title menu once it is
+    // up (`crate::first_run`), and where its row was last round.
+    let mut first_run = crate::first_run::FirstRun::default();
+    let mut first_run_round = crate::first_run::Round::default();
     let mut art = units::UnitArt::new(compiler.files(&folders));
     let mut have = units::Needed::default();
     // (Loaded on a thread of their own: text waits for no font.)
@@ -1070,6 +1074,11 @@ fn publish(
             }
         };
         ui_trace::set_skipping(matches!(shown, Shown::Map(..)));
+        let mut inputs = inputs;
+        first_run_round.pending = prefs.first_run_pending();
+        first_run_round.ready &= matches!(shown, Shown::Title(_));
+        let opening = first_run.inputs(first_run_round, &inputs, std::time::Instant::now());
+        inputs.extend(opening);
         forward_input(&game, &mut input, inputs);
         prefs.native_inputs_posted(input.window);
         if input.viewport == (0, 0) {
@@ -1113,6 +1122,13 @@ fn publish(
                 let font = civ3_assets::fonts::FontStyle { face: run.face.clone(), height: run.height.abs(), weight: run.weight, italic: run.italic };
                 label_env.text_width(&font, &run.text)
             }));
+        }
+        // (For the first run, next round: the title's Preferences row, and
+        // whether the title is up with nothing loading or over it.)
+        if prefs.first_run_pending() {
+            let building = whole_wanted || schedule.pending() || schedule.running() || !pending_growths.is_empty() || !art_thread.idle();
+            first_run_round.target = native_title.and_then(|_| crate::setup_controls::preferences(&controls));
+            first_run_round.ready = input.viewport != (0, 0) && !building && modal.is_none() && !prefs.is_open();
         }
         // Our preferences tabs' controls are over the game's.
         let prefs_looks = prefs.looks(&fonts);
