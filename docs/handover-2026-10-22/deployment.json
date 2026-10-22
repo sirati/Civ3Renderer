@@ -1,30 +1,44 @@
 {
   "status": "installed_window_verified_visual_acceptance_pending",
-  "installed_at_utc": "2026-10-22T16:44:49.871342+00:00",
-  "source": "b9abc70760ae5aaa4c110aec5e79ad91ac12628ce6087a3918f71619d2f1c873",
-  "git_commit": "41edad8ce53211ad08f3069b15bc59df14d4b4be",
-  "scene_protocol": 50,
+  "installed_at_utc": "2026-10-22T18:32:38.538510+00:00",
+  "source": "5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87",
+  "git_commit": "89992d3",
+  "scene_protocol": 51,
   "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
   "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
   "changes_since_baseline": [
     "fee4096 Avoid per-file volume queries that deadlock startup on Neo",
     "32cb02c Notify the window only for frames the render worker presents",
-    "41edad8 Wake the startup window each second so its elapsed count advances"
+    "41edad8 Wake the startup window each second so its elapsed count advances",
+    "66f5a50 city-screen unit context menu at the click",
+    "52b267e modal full-window canvas measured by its board",
+    "feffb60 process ends without DLL detach; launcher stops the game after the viewer closes",
+    "ab38c7d list highlight stays under the pointer while smooth-scrolling",
+    "631391b hourglass busy cursor",
+    "d3d8f45 canvas rendered at window/pixel scale",
+    "9050fc7 pixel scale x1 default, Auto removed, first-run Preferences",
+    "89992d3 test follow-up"
   ],
   "app": "/Users/sirati/Applications/Civilization III.app",
   "runtime_sha256": {
-    "civ3r-viewer": "d94df1a99dfa76d34b51946bbd83501903ff5db0fb953db24efb62b0b6014519",
-    "civ3-play-macos": "6fe340f2a7e1f9c7b9fa9d46fccd25851963455742a3dc560a236f0911e8eb96",
-    "IFC23.dll": "28c16d27bdea2f8bb29fbf4b328be120f1ae0d518fa9cfb29c03cb6e54b83fd0",
-    "civ3r_native.so": "1a2b66f20838e92097fe92af59a65f5c4702af9ff7d1cf7d234938fab22c1759",
+    "civ3r-viewer": "a1d75a19990a2d3eea613f0857a376abbaa56e91b6232889a6056b292f419836",
+    "civ3-play-macos": "1043a5c48af8984d9da0a1a9a85b2e7eb3399297c4df2d827523c116904f4a8d",
+    "IFC23.dll": "fbd92c7a229a57c4aa7811ff469b70449c3f26e1f122921bf3a5b258bf1aa77d",
+    "civ3r_native.so": "729ada121064a6b83ee088a839a3bb0934a66283d0263ce63b745bfe62cab03a",
     "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935"
   },
   "app_starter_sha256": "da03b844870eea3d95e3b7b9d738accb23751ef74a055b2723de1fcad61f003e",
   "signatures_verified": true,
   "searchable_app_verified": true,
   "remote_hashes_verified_after_install": true,
-  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T164448336184Z",
+  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T183236802703Z",
   "previous_installs_on_22_october": [
+    {
+      "source": "b9abc70760ae5aaa4c110aec5e79ad91ac12628ce6087a3918f71619d2f1c873",
+      "commit": "41edad8",
+      "installed_at_utc": "2026-10-22T16:44:49.871342+00:00",
+      "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T164448336184Z"
+    },
     {
       "source": "2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331",
       "commit": "32cb02c",
@@ -46,32 +60,37 @@
     }
   ],
   "tests_before_deploy": {
-    "civ3r_launcher": "27 passed, 3 ignored (plus 2 passed in a second test binary)",
-    "note": "tile-viewer and civ3-bridge passed at 32cb02c; 41edad8 changes only crates/civ3r-launcher/src/startup.rs"
+    "civ3_bridge": "462 passed, 4 ignored (Papa host)",
+    "coordinator": "scene, civ3-assets, tile-viewer (505), civ3r-launcher, civ3r-native and viewer-settings passed on Papa"
   },
-  "runtime_acceptance": "In-process (dual stack) at 41edad8: 3 of 3 guarded launches of the installed app via open attached in 8-10 s; no civ3r-viewer process; no --separate-viewer; window owned by the Wine game process and on screen; ARM64 unixlib mapped from runtime/native; viewer started in the log; civ3-app-macos stop left no processes in 5-6 s. Loaded map/HUD, input and in-game Quit not verified by the agent.",
+  "runtime_acceptance": "In-process (dual stack) at 89992d3: 3 of 3 guarded launches of the installed app via open attached in 9-11 s; no civ3r-viewer process; no --separate-viewer; window owned by the Wine game process and on screen; ARM64 unixlib mapped from runtime/native; viewer started in the log. Viewer-closed backstop, triggered by writing the launcher's CIV3R_VIEWER_CLOSED_FILE marker: game process gone 5-6 s later; in a fourth run with no fallback stop, launcher, wineserver, winedevice and that run's Wine services gone within 10 s; no Dock entries left. Not covered: closing the real viewer window, and all visual checks.",
   "receipts": {
-    "install-20261022T164448336184Z.json": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-41edad8/install-20261022T164448336184Z.json",
-      "sha256": "f970a742af34fa17a716f773b0348d0886d2ab1c22d21aac34e7f130ae3d8adf"
+    "install-20261022T183236802703Z.json": {
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/install-20261022T183236802703Z.json",
+      "sha256": "6325974975d64ca1f027de4f52378cf921759dbdd8b2d7db36a09c30c7186049"
     },
     "cross-manifest.json": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-41edad8/cross-manifest.json",
-      "sha256": "581e4b91262cad11349dc8015a1bf452e4caf47232fa72959d45d52f829cc159"
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/cross-manifest.json",
+      "sha256": "fc777de7dc3f605f574f3d1ae2205413e193376514faeff5744ef26c8e04d905"
     },
     "deploy log": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-41edad8/deploy-neo-41edad8-b9abc70760ae5aaa4c110aec5e79ad91ac12628ce6087a3918f71619d2f1c873.log",
-      "sha256": "1b2d35fde7b92ee3f83886dc40026e03f1b56fb08a304c431ec5e46eaf7bb73a"
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/deploy-neo-8999-5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87.log",
+      "sha256": "b40fa2356a74f06eeb98df7caa66fe700d3efec8ab7a30027004a4924c84b480"
     },
-    "startup title diagnostic": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-41edad8/startup-title-diag.tgz",
-      "sha256": "6a14d1731af4944f503ed1b90e0c4e6eed35df8c3fcf654615ae98c3c28ae1c3"
+    "install log": {
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/install-neo-8999-5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87.log",
+      "sha256": "00ed44ff05cb3d7749848eef8dfac7f2576b663c7300488e84b9bc01a6880a5f"
+    },
+    "bridge tests": {
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/neo-deploy-8999-bridge-tests.log",
+      "sha256": "e50c82a8f631a2fa3c694cba53bd19bb4c4bffb202fb062843c96fb440701518"
     }
   },
   "verification_record": "evidence/neo-window/verification.json",
   "intel_comparison_record": "evidence/macos-vm/verification.json",
   "renderer_mode": "in-process (dual stack); installed config has no --separate-viewer",
   "install_incident": "The install step stopped the user's running game (launcher 40873, game 40874) with SIGTERM; deploy log lines 15-16. The helper now refuses while a game runs unless CIV3R_DEPLOY_STOP_RUNNING=1.",
-  "startup_title_check": "Window titles are not readable through CGWindowListCopyWindowInfo on Neo (no kCGWindowName without screen recording). A temporary launcher from the same snapshot, adding only an eprintln of each title it sets, ran once from HOME and was deleted. During the unchanged stage 'Waiting for the game' the title went 1,2,3,4,5,6 s at t=1.19,2.00,3.00,4.00,5.00,6.00 s.",
-  "known_issue": "In-game actions stall for seconds to about a minute on Neo (user report); under investigation."
+  "startup_title_check": "crates/civ3r-launcher/src/startup.rs is unchanged since 41edad8; the title-count proof from that build applies.",
+  "known_issue": "In-game actions stall for 47-77 s on Neo since 20 Oct (in-process renderer era); a separate-viewer A/B by the user is pending (~/Civ3 separate viewer (A-B test).command).",
+  "install_safeguard": "The first install attempt refused (exit 76) while the user's game ran; it was rerun after that game had ended. No game was stopped."
 }
