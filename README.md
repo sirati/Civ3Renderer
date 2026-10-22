@@ -475,7 +475,7 @@ keeps the menus (and a city screen's map) 1:1 over the window and resizes
 only the world. The game's minimap also marks what the split pane and the insets show
 (`CIV3R_VIEW_RECT_COLOR`, `R;G;B`, yellow by default). Zoomed views show
 text drawn at their zoom from the font's outlines (`text=sharp`, Ctrl+Shift+T;
-`pixel`: the 1:1 text's pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
+`pixel`: the 1:1 text's pixels scaled; `window`: a frame at a pixel scale composed at the window's resolution for text at its size there, at the full GPU cost). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
 second ring around foreign units by diplomacy: war, mutual defence,
 peace.
 
@@ -510,9 +510,13 @@ interface is and where its input goes. The viewer draws the world itself
 at the window's size divided by the pixel scale n, a whole number, each
 rendered pixel an exact n×n box (nearest pixel, never fractional; what is
 left of the window, under n pixels, is a border). Auto, the default, is
-the desktop's scale rounded down (2 at 200 %, 1 at 150 %). Text is the
-exception: with `text=sharp` (the default) the frame is composed at the
-window's own resolution, art still in exact n×n boxes, and the game's
+the desktop's scale rounded down (2 at 200 %, 1 at 150 %). The whole
+frame, interface and text included, is rendered at that size and
+enlarged once onto the window, so ×n renders n² times fewer pixels
+(`scaling::drawn_on_canvas`); text in zoomed views is still drawn from
+outlines, at the canvas's resolution. Only with `text=window` in
+`TILE_VIEWER_LAYOUT` is the frame composed at the window's own resolution,
+every window pixel rendered whatever n, art still in exact n×n boxes, and the game's
 text (Lucida Sans, the face the game installs) is drawn from its outlines
 at the size it shows on the window: its em times the menu or view zoom
 times n, at the game's pens and advances scaled. Menus and popups scaled

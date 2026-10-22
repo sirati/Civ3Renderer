@@ -779,6 +779,14 @@ impl TileRenderer {
         self.reused
     }
 
+    /// The size of the picture frames are composed in before they are shown
+    /// on the target (`Present::canvas`), once one has been: what the views
+    /// are rendered at. (None: none yet, or every frame drawn straight
+    /// into the target.)
+    pub fn composed_size(&self) -> Option<(u32, u32)> {
+        self.scratch.as_ref().map(|s| (s.main.width(), s.main.height()))
+    }
+
     /// The GPU timer, if timing is on.
     pub fn timer(&mut self) -> Option<&mut crate::timing::GpuTimer> {
         self.timer.as_mut()
