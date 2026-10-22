@@ -5,11 +5,11 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{StartCause, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
@@ -314,8 +314,23 @@ impl ApplicationHandler<Update> for Startup {
             event_loop.exit();
         }
     }
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            self.paint();
+        }
+    }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        event_loop.set_control_flow(ControlFlow::Wait);
+        // The elapsed seconds are shown while starting: wake for each one, or
+        // a slow stage looks like a hung launcher.
+        let counting = self.surface.is_some()
+            && self.result.is_none()
+            && self.cancel.load(Ordering::Relaxed) == 0
+            && renderable(self.ready, false, self.occluded);
+        event_loop.set_control_flow(if counting {
+            ControlFlow::WaitUntil(self.started + next_second(self.started.elapsed()))
+        } else {
+            ControlFlow::Wait
+        });
     }
 }
 
@@ -335,6 +350,11 @@ fn renderable(ready: bool, finished: bool, occluded: bool) -> bool {
     !occluded && (!ready || finished)
 }
 
+/// The first whole second after `elapsed`, when the shown count changes.
+fn next_second(elapsed: Duration) -> Duration {
+    Duration::from_secs(elapsed.as_secs() + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,6 +368,12 @@ mod tests {
                 assert!(!renderable(ready, finished, true));
             }
         }
+    }
+    #[test]
+    fn the_elapsed_count_wakes_at_the_next_whole_second() {
+        assert_eq!(next_second(Duration::ZERO), Duration::from_secs(1));
+        assert_eq!(next_second(Duration::from_millis(1999)), Duration::from_secs(2));
+        assert_eq!(next_second(Duration::from_secs(2)), Duration::from_secs(3));
     }
     #[test]
     fn completed_result_preserves_success_and_error_unless_interrupted() {
