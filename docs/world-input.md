@@ -24,6 +24,12 @@ The tile box is drawn at the world's zoom in that view (`PopupAnchor::world_scal
 
 While one of these popups is open, the map stays put: no edge scrolling, dragging, map wheel or captured motion. A press anywhere outside its body, or capturing the mouse again, sends `Input::DismissPopup` and does nothing else. On the game's thread the bridge synchronously delivers Escape on the window UI thread only if the popup is still open. This avoids queued duplicate dismissals reaching the map after the popup closes: the context menu's key handler 0x61AA80 clears its selection and closes, and the tile box's 0x5AAFD0 closes on Escape or Enter. A world press that still reaches the bridge under such a popup dismisses it the same way and swallows its release. It shows no "Not while this window is open" notice; those are for full screens.
 
+## Popups opened at a click on a screen
+
+A screen can open a context menu too. A right click on a unit in the city screen's garrison strip (`Units_Rect`, City_Form+0x684C, the strip 295..768 x 715..768 of the 1024x768 screen) reaches `City_Form`'s right-click handler 0x420030 on the release. It finds the unit (0x420B60) and builds its menu with `Context_Menu_open` (0x4224C0 -> 0x61A3B0) at the click, whether or not the unit can still move. A unit that cannot move gets a one-row menu, "Activate". Base_Form calls that handler only when the press and release reach the same form (0x608AF0 records the form, 0x608B70 checks it).
+
+These menus are not world anchored, because the click was not on the map. The bridge sets `Interface::popup_on_screen` instead when the open popup is a context menu or the tile box and a named screen is open. The viewer then keeps the popup where the game put it on that screen. It moves and scales with the screen, floating or placed in A or B, and it takes its clicks there. Without the flag, such a popup was treated as a modal over the screen (`scaling::MODAL_TOP`) and drawn near the top middle of the window, far from the click. On the city screen it covered the city's name and was easily missed.
+
 ## Validation
 
 Automated coverage includes input wire round trips, normal/Z and wrapped tile conversion, hover beyond the original camera in free and captured modes, pending-move coalescing and input ordering, confirmation identity checks, and cancellation after a modal or unit change. The sys layer checks every native entry point against its recovered PCGames bytes before installing hooks.
