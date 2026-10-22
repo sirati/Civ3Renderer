@@ -19,7 +19,7 @@ use objc2_foundation::{
 
 use super::app_state::ApplicationDelegate;
 use super::cursor::{default_cursor, invisible_cursor};
-use super::cursor_confinement::{locked_position, PointerState, Region};
+use super::cursor_confinement::{locked_position, view_pixels, PointerState, Region};
 use super::monitor::flip_window_screen_coordinates;
 use super::{app, cursor_system};
 use crate::error::ExternalError;
@@ -1151,8 +1151,8 @@ impl WinitView {
         // this typed AppKit getter takes no pointers or caller-owned storage.
         let window_point = unsafe { self.window().mouseLocationOutsideOfEventStream() };
         let at = self.convertPoint_fromView(window_point, None);
-        let scale = self.scale_factor();
-        (at.x * scale, at.y * scale)
+        let size = self.frame().size;
+        view_pixels((at.x, at.y), (size.width, size.height), self.scale_factor())
     }
 
     pub(super) fn set_cursor_confinement(&self, bounds: Option<[i32; 4]>, exclusions: &[[i32; 4]]) -> Result<(), ExternalError> {
@@ -1231,7 +1231,10 @@ impl WinitView {
         }
 
         let scale = self.scale_factor();
-        let mut position = LogicalPosition::new(view_point.x, view_point.y).to_physical::<f64>(scale);
+        // (The bottom boundary, where the pointer rests on the last row, is
+        // that row: `view_pixels`.)
+        let (px, py) = view_pixels((view_point.x, view_point.y), (frame.size.width, frame.size.height), scale);
+        let mut position = crate::dpi::PhysicalPosition::new(px, py);
         // SAFETY: AppKit supplied a live NSEvent to this main-thread
         // callback. Its typed scalar type getter has no additional state.
         let motion = matches!(unsafe { event.r#type() }, NSEventType::MouseMoved | NSEventType::LeftMouseDragged | NSEventType::RightMouseDragged | NSEventType::OtherMouseDragged);

@@ -2554,13 +2554,14 @@ impl Present {
 
     /// The canvas pixel under target point `p` (e.g. the pointer). Points
     /// on the target beside the picture count as on its nearest edge pixel
-    /// (the target's edge is the picture's); points off the target are
-    /// mapped as they are.
+    /// (the target's edge is the picture's), its far boundary too (macOS
+    /// reports the pointer resting on the bottom row as `y == height`);
+    /// points further off the target are mapped as they are.
     pub fn to_canvas(&self, (x, y): (f64, f64)) -> (i32, i32) {
         let s = self.factor();
         let axis = |v: f64, at: i32, len: u32, t: u32| {
             let c = ((v - at as f64) / s).floor() as i64;
-            let on_target = v >= 0.0 && v < t as f64;
+            let on_target = v >= 0.0 && v <= t as f64;
             (if on_target { c.clamp(0, len.max(1) as i64 - 1) } else { c }) as i32
         };
         (axis(x, self.at.0, self.canvas.0, self.target.0), axis(y, self.at.1, self.canvas.1, self.target.1))

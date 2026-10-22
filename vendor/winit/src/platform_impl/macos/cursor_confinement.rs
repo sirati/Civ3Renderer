@@ -65,6 +65,25 @@ impl Region {
     }
 }
 
+/// A point of the flipped view (`point`, in points; origin top-left) in
+/// physical view pixels, for a view `size` points large at `scale`
+/// physical pixels a point.
+///
+/// AppKit's own y axis grows upwards. Flipped, the topmost pointer position
+/// is 0, but the pointer resting on the bottom row reports the view's bottom
+/// boundary itself, `y == height`: one past the last pixel row, which edge
+/// scrolling, confinement and lock entry all treat as outside the window.
+/// A position on a far boundary belongs to that edge's last pixel, as one
+/// on a near boundary belongs to its first, so that all four edges behave
+/// alike. Points further out (a drag past the window) stay where they are.
+pub(super) fn view_pixels(point: (f64, f64), size: (f64, f64), scale: f64) -> (f64, f64) {
+    let axis = |v: f64, len: f64| {
+        let (v, len) = (v * scale, (len * scale).round());
+        if len >= 1.0 && v >= len && v < len + 1.0 { len - 1.0 } else { v }
+    };
+    (axis(point.0, size.0), axis(point.1, size.1))
+}
+
 /// A key window can receive a capture shortcut while the system pointer is
 /// over another window or the menu bar. Detachment alone would route the
 /// next click there. Keep an inside pointer where it is; otherwise place it
@@ -211,6 +230,36 @@ mod tests {
         let region = Region::new([0, 0, 800, 600], &[[300, 200, 200, 150]]).unwrap();
         assert_eq!(region.advance((400.0, 250.0), (30.0, 20.0)), (400.0, 250.0));
         assert_eq!(region.advance((250.0, 250.0), (f64::NAN, 20.0)), (250.0, 250.0));
+    }
+
+    /// AppKit coordinates as a window 800×600 points large reports them:
+    /// Cocoa's y from the bottom, flipped by the view (`height − y`).
+    #[test]
+    fn the_bottom_boundary_is_the_last_row_like_the_top_one_is_the_first() {
+        let size = (800.0, 600.0);
+        let flipped = |cocoa: (f64, f64)| (cocoa.0, size.1 - cocoa.1);
+        for scale in [1.0, 2.0, 3.0] {
+            let (w, h) = (size.0 * scale, size.1 * scale);
+            // Resting on the bottom row: Cocoa y 0, the view's boundary.
+            assert_eq!(view_pixels(flipped((400.0, 0.0)), size, scale), (400.0 * scale, h - 1.0));
+            // Resting on the top row: Cocoa y at the top, 0.
+            assert_eq!(view_pixels(flipped((400.0, 600.0)), size, scale), (400.0 * scale, 0.0));
+            // Left and right boundaries alike; corners both ways.
+            assert_eq!(view_pixels(flipped((0.0, 300.0)), size, scale), (0.0, 300.0 * scale));
+            assert_eq!(view_pixels(flipped((800.0, 300.0)), size, scale), (w - 1.0, 300.0 * scale));
+            assert_eq!(view_pixels(flipped((800.0, 0.0)), size, scale), (w - 1.0, h - 1.0));
+            // Inside, fractions kept (one physical pixel from the bottom too).
+            assert_eq!(view_pixels((12.25, 34.5), size, scale), (12.25 * scale, 34.5 * scale));
+            assert_eq!(view_pixels((10.0, 600.0 - 1.0 / scale), size, scale), (10.0 * scale, h - 1.0));
+            // Dragged further out: as it is.
+            assert_eq!(view_pixels((10.0, 650.0), size, scale), (10.0 * scale, 650.0 * scale));
+            assert_eq!(view_pixels((-5.0, 10.0), size, scale), (-5.0 * scale, 10.0 * scale));
+            // The bottom row is inside the window's region and lock entry
+            // keeps it there instead of recentring.
+            let at = view_pixels(flipped((400.0, 0.0)), size, scale);
+            assert!(Region::new([0, 0, w as i32, h as i32], &[]).unwrap().contains(at));
+            assert_eq!(locked_position(at, (w, h)), Some(at));
+        }
     }
 
     #[test]
