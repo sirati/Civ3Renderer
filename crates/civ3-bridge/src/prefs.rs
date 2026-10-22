@@ -1303,6 +1303,12 @@ mod tests {
         assert!(p.editing().input.smooth_menu_scrolling);
         assert!(click(&mut p, 560, 297).is_empty());
         assert!(!p.editing().input.smooth_menu_scrolling);
+        // Alt mode in menus: on by default, off, on again.
+        assert!(p.editing().input.alt_in_menus);
+        assert!(click(&mut p, 560, 541).is_empty());
+        assert!(!p.editing().input.alt_in_menus);
+        assert!(click(&mut p, 560, 541).is_empty());
+        assert!(p.editing().input.alt_in_menus);
         assert_eq!(p.settings(), &Settings::default());
         assert!(!path.exists());
         // The pixel scale on the Resolution tab.
