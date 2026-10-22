@@ -132,9 +132,12 @@ explicit original-map-only diagnostic option.
 ## Renderer inside the game's process
 
 The launcher runs the renderer inside the game's Wine process, as the Linux
-native mode does. Wine loads the builtin `civ3r_native.dll` (i686) from
-`runtime/native/i386-windows` and its unixlib, an ARM64 Mach-O dylib, from
-`runtime/native/aarch64-unix/civ3r_native.so`. The 32-bit game calls it
+native mode does. At each launch the launcher copies the builtin
+`civ3r_native.dll` (i686) from `runtime/native/i386-windows` into the private
+game folder, because Wine loads a builtin only if a copy is on the Windows
+search path; Wine maps that byte-identical copy. Its unixlib, an ARM64
+Mach-O dylib, is loaded from `runtime/native/aarch64-unix/civ3r_native.so`
+(through `WINEDLLPATH`). The 32-bit game calls it
 through new WoW64 under FEX. Wine's Mac driver runs `NSApplication` on the
 process's main thread; the game's threads are secondary Wine threads. The
 viewer window attaches to Wine's application on the main thread (winit's

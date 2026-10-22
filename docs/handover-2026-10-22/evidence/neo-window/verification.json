@@ -47,9 +47,21 @@
   "launch_checks_after_install": {
     "method": "open of the installed app in the logged-in GUI session, no environment overrides; CGWindowListCopyWindowInfo for the game process; civ3-app-macos stop",
     "runs": [
-      {"viewer_attached_s": 10, "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0", "stop": "rc 0, no owned processes after 4 s"},
-      {"viewer_attached_s": 8, "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0", "stop": "rc 0, no owned processes after 6 s"},
-      {"viewer_attached_s": 9, "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0", "stop": "rc 0, no owned processes after 4 s"}
+      {
+        "viewer_attached_s": 10,
+        "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0",
+        "stop": "rc 0, no owned processes after 4 s"
+      },
+      {
+        "viewer_attached_s": 8,
+        "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0",
+        "stop": "rc 0, no owned processes after 6 s"
+      },
+      {
+        "viewer_attached_s": 9,
+        "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0",
+        "stop": "rc 0, no owned processes after 4 s"
+      }
     ],
     "same_checks_at_fee4096_only": "3 of 3 passed"
   },
@@ -71,8 +83,68 @@
       "deploy-32cb02c/neo-deploy-32cb02c-tile-viewer.log": "a89da536ac435e556711e671d6bb74c4c344925401017974446396f10bc184e0",
       "deploy-32cb02c/neo-deploy-32cb02c-civ3-bridge.log": "c525e5e4677eee3af1393d9ba5b663b960877e0a93892761bd5a56195f9b5008",
       "deploy-32cb02c/install-20261022T161802311336Z.json": "8f3d9fb4180edc9c8511a4233e2b8abf94d83734857d7f52896d54ac74333279",
-      "deploy-32cb02c/cross-manifest.json": "290ba5ee9e36d0292527bff0907f5de87817f428a4ff0fddcee33aa183191d22"
+      "deploy-32cb02c/cross-manifest.json": "290ba5ee9e36d0292527bff0907f5de87817f428a4ff0fddcee33aa183191d22",
+      "deploy-32cb02c/c3r-ev-dual.tgz": "f86a3f0dc919ad41bbe8e93123aba8d3bb45913637bbff3d5c80b13899d3c902"
     }
   },
-  "neo_cleanup": "Seven WINEDEBUG trace logs (about 220 MB) removed from runtime/logs after archiving them on Papa; all /tmp/c3r-* test files on Neo removed. Untraced session logs kept."
+  "neo_cleanup": "Eight WINEDEBUG trace logs removed from runtime/logs after archiving them on Papa; all /tmp/c3r-* test files on Neo removed. Untraced session logs kept.",
+  "in_process_dual_stack_checks": {
+    "method": "Installed app via open, no overrides; civ3r-viewer process polled every second; launcher command line; CGWindowList owner; lsof of the game process; Wine log; civ3-app-macos stop.",
+    "runs": [
+      {
+        "launcher_pid": 37225,
+        "game_pid": 37231,
+        "attached_s": 9,
+        "separate_viewer_flag": false,
+        "civ3r_viewer_process_seen": false,
+        "viewer_log_created": false,
+        "window_owner": "Hadron Loader (Wine game process) 37231, onscreen",
+        "launcher_windows": 0,
+        "unixlib_mapped": "runtime/native/aarch64-unix/civ3r_native.so",
+        "log": [
+          "civ3r-native: art 1 compiled",
+          "civ3r-native: viewer started",
+          "tile_viewer::host_app attached to the host application on the main thread"
+        ],
+        "stop": "rc 0, no owned processes after 5 s"
+      },
+      {
+        "launcher_pid": 37635,
+        "game_pid": 37638,
+        "attached_s": 9,
+        "separate_viewer_flag": false,
+        "civ3r_viewer_process_seen": false,
+        "viewer_log_created": false,
+        "window_owner": "Hadron Loader (Wine game process) 37638, onscreen",
+        "launcher_windows": 0,
+        "unixlib_mapped": "runtime/native/aarch64-unix/civ3r_native.so",
+        "log": [
+          "civ3r-native: art 1 compiled",
+          "civ3r-native: viewer started",
+          "tile_viewer::host_app attached to the host application on the main thread"
+        ],
+        "stop": "rc 0, no owned processes after 4 s"
+      },
+      {
+        "launcher_pid": 38032,
+        "game_pid": 38036,
+        "attached_s": 8,
+        "separate_viewer_flag": false,
+        "civ3r_viewer_process_seen": false,
+        "viewer_log_created": false,
+        "window_owner": "Hadron Loader (Wine game process) 38036, onscreen",
+        "launcher_windows": 0,
+        "unixlib_mapped": "runtime/native/aarch64-unix/civ3r_native.so",
+        "log": [
+          "civ3r-native: art 1 compiled",
+          "civ3r-native: viewer started",
+          "tile_viewer::host_app attached to the host application on the main thread"
+        ],
+        "stop": "rc 0, no owned processes after 4 s"
+      }
+    ],
+    "pe_dll": "A separate launch with WINEDEBUG=+module shows Wine mapping civ3r_native.dll from the launcher-made copy in the private game folder; that copy and runtime/native/i386-windows/civ3r_native.dll both hash 4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935. lsof does not list the PE image.",
+    "installed_config": "civ3r-app.conf has no --separate-viewer argument and sets CIV3R_NATIVE_DIR=runtime/native; the launcher defaults to in-process on macOS.",
+    "earlier_launches": "The six earlier launches (3 at fee4096, 3 at 32cb02c) were also in-process: window owned by the Wine game process, civ3r_native::unix_side viewer started and host_app attached in each Wine log, and no *.viewer.log written since 20 October. They did not poll for a civ3r-viewer process or record mapped libraries."
+  }
 }

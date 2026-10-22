@@ -1,6 +1,6 @@
 # Civ III renderer handover
 
-The installed Neo release is **Civilization III**, protocol 50, Git commit `32cb02c`, source snapshot `2a6f97d5…`. Its files, signature and registration were verified, and the native renderer window now opens: 3 of 3 launches of the installed app attached the viewer in 8–10 s, put its window on screen and stopped cleanly. Installation evidence is in [deployment.json](deployment.json).
+The installed Neo release is **Civilization III**, protocol 50, Git commit `32cb02c`, source snapshot `2a6f97d5…`. Its files, signature and registration were verified, and the native renderer window now opens with the renderer inside the game's Wine process (dual stack, no separate viewer): in 3 of 3 launches of the installed app the viewer attached in 8–9 s, the Wine game process owned the on-screen window, and the app stopped cleanly. Installation evidence is in [deployment.json](deployment.json).
 
 The earlier f510 install never showed its window because startup deadlocked inside Wine on Neo. Commit `fee4096` removes the trigger. The loaded map/HUD, input and the in-game Quit on Neo are still unverified, because the agent has no screen-recording or input permission there. See [the scoped verification](verification.md).
 

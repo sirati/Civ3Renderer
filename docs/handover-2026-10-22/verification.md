@@ -14,7 +14,10 @@ Ruled out on Neo: preloading (`CIV3R_PRELOAD=off` hangs too), the FEX code cache
 | `cargo test -p civ3-bridge` at `32cb02c` | 457 passed, 4 ignored. | Papa host. |
 | `cargo test -p civ3-assets --lib` at `fee4096` | 22 passed, 1 ignored. | Papa host. |
 | f510 GUI-session launches before the fix | 4 of 4 hung before the first art compile. | Neo. |
-| Installed `32cb02c` via `open` | 3 of 3: viewer attached in 8–10 s, window on screen (CoreGraphics), `civ3-app-macos stop` left no owned processes in 4–6 s. | Neo; no screenshots. |
+| Installed `32cb02c` via `open`, first set | 3 of 3: in-process viewer attached in 8–10 s, window on screen (CoreGraphics), `civ3-app-macos stop` left no owned processes in 4–6 s. | Neo; no screenshots. |
+| Installed `32cb02c` via `open`, in-process (dual stack) checks | 3 of 3: no `--separate-viewer`, no `civ3r-viewer` process or viewer log, window owned by the Wine game process, ARM64 `civ3r_native.so` mapped from `runtime/native/aarch64-unix`, log shows art 1 compiled, `viewer started` and attachment to the host application; viewer attached in 8–9 s; clean stop in 4–5 s. | Neo; no screenshots. |
+
+All launches ran the renderer inside the game's Wine process (dual stack). Wine maps the i686 `civ3r_native.dll` from the copy the launcher places in the private game folder, byte-identical to `runtime/native/i386-windows/civ3r_native.dll`; a `+module` trace shows this.
 
 Not verified on Neo: the loaded map/HUD, input and the in-game Quit. Terminal is denied screen recording there and no available session has input rights; the permissions were not changed. The [Neo record](evidence/neo-window/verification.json) lists hashes, failed attempts and the retained evidence archives on Papa.
 

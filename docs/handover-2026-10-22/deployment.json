@@ -24,14 +24,25 @@
   "remote_hashes_verified_after_install": true,
   "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T161802311336Z",
   "previous_installs_on_22_october": [
-    {"source": "94ebdb638dfe612eae580a69af13c6b10b7f6a2b1401047f33f172193bb41ad4", "commit": "fee4096", "installed_at_utc": "2026-10-22T15:59:47Z", "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T155947378699Z"},
-    {"source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703", "commit": "8106ae5", "installed_at_utc": "2026-10-22T10:44:43.866983+00:00", "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z", "runtime_result": "startup deadlock; no native window"}
+    {
+      "source": "94ebdb638dfe612eae580a69af13c6b10b7f6a2b1401047f33f172193bb41ad4",
+      "commit": "fee4096",
+      "installed_at_utc": "2026-10-22T15:59:47Z",
+      "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T155947378699Z"
+    },
+    {
+      "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+      "commit": "8106ae5",
+      "installed_at_utc": "2026-10-22T10:44:43.866983+00:00",
+      "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z",
+      "runtime_result": "startup deadlock; no native window"
+    }
   ],
   "tests_before_deploy": {
     "tile_viewer": "495 passed, 4 ignored; host GPU test 1 passed",
     "civ3_bridge": "457 passed, 4 ignored"
   },
-  "runtime_acceptance": "3 of 3 launches of the installed app via open: viewer attached in 8-10 s, window on screen, civ3-app-macos stop left no owned processes. Loaded map/HUD, input and in-game Quit not verified: no screen-recording or input permission available to the agent.",
+  "runtime_acceptance": "In-process (dual stack): 3 of 3 launches of the installed app via open ran the renderer inside the Wine game process (no civ3r-viewer process, no --separate-viewer, window owned by the game process, ARM64 unixlib mapped from runtime/native), viewer attached in 8-9 s and civ3-app-macos stop left no owned processes. Loaded map/HUD, input and in-game Quit not verified: no screen-recording or input permission available to the agent.",
   "receipts": {
     "install-20261022T161802311336Z.json": {
       "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-32cb02c/install-20261022T161802311336Z.json",
@@ -47,5 +58,6 @@
     }
   },
   "verification_record": "evidence/neo-window/verification.json",
-  "intel_comparison_record": "evidence/macos-vm/verification.json"
+  "intel_comparison_record": "evidence/macos-vm/verification.json",
+  "renderer_mode": "in-process (dual stack); installed config has no --separate-viewer"
 }
