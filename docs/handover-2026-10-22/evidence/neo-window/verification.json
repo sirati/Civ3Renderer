@@ -1,0 +1,78 @@
+{
+  "status": "neo_native_window_opens_visual_acceptance_pending",
+  "recorded_date": "2026-10-22",
+  "installed_commit": "32cb02c723bd78cec92a17a982bcc65c9bc2fe21",
+  "fix_commit": "fee4096",
+  "source_archive_sha256": "2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331",
+  "scene_protocol": 50,
+  "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
+  "failure": {
+    "symptom": "Startup stopped after the GPU limits probe. The renderer never compiled art 1 or logged 'viewer started', so no native window appeared.",
+    "mechanism": "Stack samples of the hung game process: the bridge's inproc-init thread was suspended (usr1_handler, then wait_suspend) inside NtQueryVolumeInformationFile and virtual_locked_server_call, holding Wine's virtual-memory lock. The game thread then waited on that lock, or spun, indefinitely.",
+    "trigger": "Rust std exists()/is_dir()/fs::read call GetFileInformationByHandle. Under Wine that is a mountmgr volume ioctl (code 0x6d4084), completed asynchronously by SIGUSR1. Case-insensitive asset path resolution issued about 1,500 of them at startup (1,191 on inproc-init alone, with 74 signals).",
+    "not_fixed": "The signal arriving inside a section where Wine should block it is a defect of the ARM64 Wine/FEX build. The fix removes the trigger, not that defect.",
+    "ruled_out": [
+      "Preloading: CIV3R_PRELOAD=off hangs the same way.",
+      "FEX code cache: FEX_DISKCACHE=0 hangs the same way.",
+      "macOS update: none since 2026-09-29 (26.6).",
+      "f510 code: the f7b0 release that worked on 21 October hangs the same way now; its IFC23.dll and civ3r_native libraries are byte-identical to f510's."
+    ],
+    "unexplained": "What changed on Neo between the last good run (21 October) and 22 October is unknown.",
+    "invalid_attempts": "The first launches over SSH could not reach WindowServer (winemac.drv loaded and unloaded) and do not represent the user's launch. All later runs were in the logged-in GUI session."
+  },
+  "before_fix_gui_runs": {
+    "f510_installed_app_or_terminal": "4 of 4 hung",
+    "f510_preload_off": "hung",
+    "f510_fex_diskcache_off": "hung",
+    "f7b0_previous_release": "hung"
+  },
+  "fix": "civ3-assets resolves path components from cached directory listings and reads whole files with files::read_file, which skips the metadata() size hint. Font sheets, BIQ files and the bridge's opacity PCX reads use it.",
+  "mountmgr_ioctls_from_renderer_threads_at_startup": {
+    "before": "about 1,500",
+    "after": 1
+  },
+  "tests_on_papa_at_32cb02c": {
+    "tile_viewer": "495 passed, 4 ignored; host GPU test 1 passed",
+    "civ3_bridge": "457 passed, 4 ignored",
+    "civ3_assets_lib_at_fee4096": "22 passed, 1 ignored"
+  },
+  "installed_sha256": {
+    "civ3-play-macos": "52a23f6ce78be278fcb6aa423965a007e758c468fad1e6a5388bc70340974a51",
+    "civ3r-viewer": "d94df1a99dfa76d34b51946bbd83501903ff5db0fb953db24efb62b0b6014519",
+    "IFC23.dll": "692a89d5667febe01b232766f83e130502dcc685f278c178447828a4e70974f4",
+    "civ3r_native.so": "cf4b831cd86ab444d425e50300cc9963c9e873c8ac29b82e3518426e346812a1",
+    "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935",
+    "app_starter": "da03b844870eea3d95e3b7b9d738accb23751ef74a055b2723de1fcad61f003e"
+  },
+  "launch_checks_after_install": {
+    "method": "open of the installed app in the logged-in GUI session, no environment overrides; CGWindowListCopyWindowInfo for the game process; civ3-app-macos stop",
+    "runs": [
+      {"viewer_attached_s": 10, "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0", "stop": "rc 0, no owned processes after 4 s"},
+      {"viewer_attached_s": 8, "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0", "stop": "rc 0, no owned processes after 6 s"},
+      {"viewer_attached_s": 9, "window": "819x984 at 1632,36, onscreen, alpha 1, layer 0", "stop": "rc 0, no owned processes after 4 s"}
+    ],
+    "same_checks_at_fee4096_only": "3 of 3 passed"
+  },
+  "not_verified": [
+    "Screenshots: Neo denies Terminal screen recording, and no session available to the agent has accessibility (input) rights. Permissions were not changed.",
+    "Loaded map/HUD, keyboard/mouse input and the in-game Quit on Neo.",
+    "The stop used civ3-app-macos stop (SIGTERM to the launcher), not the game's Quit menu."
+  ],
+  "retained_evidence_on_papa": {
+    "directory": "/mnt/datasets/c3r-build/neo-window-fix-evidence",
+    "files": {
+      "before/c3r-ev-before.tgz": "d303ef1711b549bfc7b72f0b32849d3c8fbc31a847714e221671e7eab940f030",
+      "before/c3r-ev-traces.tgz": "1594a85c069044be623ceab1828be83440f5a97c3e3f589b8b8511becf75fd42",
+      "before/c3r-ev-alltraces.tgz": "279230c3ebc4f7352bd68c179430b7865570ec9a26abfca765b1ff543f7a9b7e",
+      "after/c3r-ev-after.tgz": "05ba774dd7d9a326bbcde9b42369ae29570bcb4bddd557d10e3ee01f54aaccb8",
+      "after/deploy-neo-window-94ebdb638dfe612eae580a69af13c6b10b7f6a2b1401047f33f172193bb41ad4.log": "bacffb638f4eef6345bd9979a6145c0dee392833688b3dcd3b7c30409acff302",
+      "deploy-32cb02c/c3r-ev-32cb02c.tgz": "5bd7c36546c3e9e6c27e2bace487cce9d614d4b86c2b8f5618deee59cb34ffb4",
+      "deploy-32cb02c/deploy-neo-32cb02c-2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331.log": "2e28c89c67b14fecceba01025174589b7823f22083cf6d7b748a83401aebe060",
+      "deploy-32cb02c/neo-deploy-32cb02c-tile-viewer.log": "a89da536ac435e556711e671d6bb74c4c344925401017974446396f10bc184e0",
+      "deploy-32cb02c/neo-deploy-32cb02c-civ3-bridge.log": "c525e5e4677eee3af1393d9ba5b663b960877e0a93892761bd5a56195f9b5008",
+      "deploy-32cb02c/install-20261022T161802311336Z.json": "8f3d9fb4180edc9c8511a4233e2b8abf94d83734857d7f52896d54ac74333279",
+      "deploy-32cb02c/cross-manifest.json": "290ba5ee9e36d0292527bff0907f5de87817f428a4ff0fddcee33aa183191d22"
+    }
+  },
+  "neo_cleanup": "Seven WINEDEBUG trace logs (about 220 MB) removed from runtime/logs after archiving them on Papa; all /tmp/c3r-* test files on Neo removed. Untraced session logs kept."
+}

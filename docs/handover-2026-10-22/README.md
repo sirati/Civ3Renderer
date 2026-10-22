@@ -1,8 +1,8 @@
 # Civ III renderer handover
 
-The installed Neo release is **Civilization III**, protocol 50, source f510. Its files, signatures, icon and registration were verified, but the user now reports that the native game window never appears. Successful installation did not establish a working launch. Installation evidence is in [deployment.json](deployment.json).
+The installed Neo release is **Civilization III**, protocol 50, Git commit `32cb02c`, source snapshot `2a6f97d5…`. Its files, signature and registration were verified, and the native renderer window now opens: 3 of 3 launches of the installed app attached the viewer in 8–10 s, put its window on screen and stopped cleanly. Installation evidence is in [deployment.json](deployment.json).
 
-Neo is currently unavailable and must not be contacted. The same-source normal packaged app passed the Intel macOS VM check, including the native window, title/menu, loaded map/HUD, keyboard/mouse input and ordinary exit. This does not establish that ARM64/FEX/Metal works or that architecture is the only difference. See [the scoped verification](verification.md).
+The earlier f510 install never showed its window because startup deadlocked inside Wine on Neo. Commit `fee4096` removes the trigger. The loaded map/HUD, input and the in-game Quit on Neo are still unverified, because the agent has no screen-recording or input permission there. See [the scoped verification](verification.md).
 
 Sound and the 240 FPS frame target are low priority P3. Six-bit/seven-bit pixel attribution is P4. They do not block deployment. Keep completed and accepted agents out of this handover.
 
@@ -23,19 +23,20 @@ Sound and the 240 FPS frame target are low priority P3. Six-bit/seven-bit pixel 
 | 21 October viewer verification | All of this task has been done. |
 | Latest coherent release installed on Neo | All of this task has been done. |
 | Intel macOS VM native-window check | All of this task has been done. |
+| Neo startup deadlock (no native window) | Fixed in `fee4096`, installed with `32cb02c`; window verified 3 of 3 launches. |
 
 ## Unfinished work
 
 | Priority | Task | Next action |
 | --- | --- | --- |
-| P0 | Native renderer window never appears on Neo | Wait for Neo to become available. Then inspect its normal app launch, ARM64 Wine/FEX, Metal and package environment against the accepted Intel control. Do not contact Neo now or repeat the completed VM task. |
+| P0 | Neo visual acceptance | The window opens. Someone at Neo, or the user after granting screen recording and accessibility, still has to confirm the title UI, a loaded map/HUD, input and the in-game Quit. |
 | P1 | Combat camera arrival and speed | Finish the diagnostic build and matched 1x/4x battles with RNG and stable-outcome comparison. |
 | P3 | Sound | Fix the loaded-save audio driver and finish its qualified loaded/normal-Quit test and music soak. |
 | P3 | CPU busy attribution | Add actual CPU busy timing while preserving the existing counter design. |
 | P3 | Native 4K at 240 FPS | Continue controlled thin-view attribution and qualified optimization from the recorded 43–44 FPS baseline. |
 | P4 | Six-bit/seven-bit pixel attribution | Continue the strict rounding investigation and private wider-color qualification. |
 
-No agents are active. When later resuming unfinished work, use [the continuation briefs](subagents.md) and respect its priority. The Neo issue waits for device availability. Do not automatically start the backlog. Completed implementation and accepted reviews do not need new agents just because a historical checklist contains broader test suggestions.
+No agents are active. When later resuming unfinished work, use [the continuation briefs](subagents.md) and respect its priority. Do not automatically start the backlog. Completed implementation and accepted reviews do not need new agents just because a historical checklist contains broader test suggestions.
 
 The [acceptance checklist](acceptance.md) is a reference to the older feature ledger, not a list of active subagents. [Deferred work](deferred-work.md) retains sound, numerical and performance details without making them deployment gates. [handover.html](handover.html) is the offline reading copy.
 
@@ -43,16 +44,16 @@ The [acceptance checklist](acceptance.md) is a reference to the older feature le
 
 | Item | Current identity |
 | --- | --- |
-| Neo app | `/Users/sirati/Applications/Civilization III.app`, bundle ID `org.sirati.civ3r`. User reports missing native game window. |
-| Installed at | 22 October 2026, 10:44:43 UTC. |
-| Source freeze | `f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703`, 673 source entries, protocol 50. |
-| Implementation baseline | Git commit `8106ae5a4debbe247cb5e64523d4972474f4fe39`. Later handover commits change documentation only. |
+| Neo app | `/Users/sirati/Applications/Civilization III.app`, bundle ID `org.sirati.civ3r`. Native window verified; visual map/HUD/Quit check pending. |
+| Installed at | 22 October 2026, 16:18:03 UTC. Rollback backup `runtime/releases/app-backup-20261022T161802311336Z`. |
+| Installed source | Git commit `32cb02c723bd78cec92a17a982bcc65c9bc2fe21`, snapshot `2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331`, protocol 50. |
+| Implementation baseline | Git commit `8106ae5a4debbe247cb5e64523d4972474f4fe39` (f510 snapshot, 673 entries), plus code commits `fee4096` (Neo startup deadlock) and `32cb02c` (Wayland redraw freeze). Other handover commits change documentation only. |
 | Primary shader | `43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4`. |
 | Fallback shader | `bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281`. |
 | Private source | Development snapshot `6162a7debb8adcc78eac147611eeb1539c7e78c8`; loaded-audio QA checkpoint `ce5e104270258e207e16c3a8cf7a0ff5336c41d5`. Restore from the separate development backup. |
 | Origin | `/home/sirati/Projects/civ3-renderer-old` is missing. Use the verified off-host Git backup fallback. |
 
-The five runtime files are `civ3-play-macos`, `civ3r-viewer`, `IFC23.dll`, `aarch64-unix/civ3r_native.so` and `i386-windows/civ3r_native.dll`. Keep them paired with the app starter and bundle artifacts. All five installed hashes and the starter were independently checked after installation. No runtime gameplay acceptance is inferred from that check.
+The five runtime files are `civ3-play-macos`, `civ3r-viewer`, `IFC23.dll`, `aarch64-unix/civ3r_native.so` and `i386-windows/civ3r_native.dll`. Keep them paired with the app starter and bundle artifacts. All five installed hashes, the starter and the app signature were independently checked after installation. Launch checks are recorded separately; no gameplay acceptance is inferred.
 
 The [restore guide](backup-and-restore.md) covers main/private/FEX backups and worktrees. [state.json](state.json) gives machine-readable identities and priorities. [Verification](verification.md) records existing tests and their scope.
 
@@ -67,7 +68,7 @@ The [restore guide](backup-and-restore.md) covers main/private/FEX backups and w
 - Renderer VMs share `c3r-vms.slice` with a combined 10 GB cap. The macOS `work` VM uses SSH port 22390. Never operate `wayland-host`.
 - Reserve one owner for VM GUI/input and one for AMD measurements. Do not reuse historical leases. Sol GUI/screenshot work is authorized.
 - The user authorized the latest Neo deployment. Old audio, wider-color and FPS deployment holds are superseded. Do not auto-launch the game during source backup or documentation work.
-- Neo is unavailable. Do not contact it or attempt a deployment/backup there during this VM investigation. Keep source committed and preserve reachable backups; record Neo replication as pending.
+- Neo is reachable again. Launch tests there must run inside the logged-in GUI session (`open`, or a Terminal `.command`); runs started over SSH cannot reach WindowServer and do not represent the user's launch. Do not change its privacy permissions without the user.
 - Commit work and use a working origin, or replicate the Git tree to Papa's laptop and Neo before source cleanup.
 
 ## Next session

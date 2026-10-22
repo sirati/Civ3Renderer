@@ -7,15 +7,16 @@
   "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
   "fallback_shader_sha256": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
   "neo_last_recorded_install": {
-    "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+    "source": "2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331",
+    "git_commit": "32cb02c723bd78cec92a17a982bcc65c9bc2fe21",
     "protocol": 50,
-    "installed_at_utc": "2026-10-22T10:44:43.866983+00:00",
+    "installed_at_utc": "2026-10-22T16:18:03.563286+00:00",
     "app": "/Users/sirati/Applications/Civilization III.app",
-    "f510_staged_only": false,
     "installation_acceptance": "accepted",
-    "runtime_acceptance": "user_reports_native_window_never_appears; Intel control passed; Neo unavailable",
+    "runtime_acceptance": "native window opens and stops cleanly in 3 of 3 launches; map/HUD, input and in-game Quit visually unverified",
     "auto_launch": false,
-    "record": "deployment.json"
+    "record": "deployment.json",
+    "verification": "evidence/neo-window/verification.json"
   },
   "origin": {
     "path": "/home/sirati/Projects/civ3-renderer-old",
@@ -77,14 +78,15 @@
     "task_index": "agent-index.json",
     "active_agents": 0
   },
-  "evidence_records": 38,
+  "evidence_records": 39,
   "backup_directories": {
     "existing": "20261020T1918Z",
     "handover_successor": "20261022-vm-window",
+    "neo_window_successor": "20261022-neo-window",
     "local_root": "/mnt/datasets/c3r-source-backups",
     "laptop_root": "/home/sirati/civ3r-source-backups",
     "neo_root": "/Users/sirati/civ3r-source-backups",
-    "neo_replication": "pending; host unavailable; no contact allowed"
+    "neo_replication": "see 20261022-neo-window/backup-receipt.json"
   },
   "documentation_only": false,
   "priority_policy": {
@@ -94,10 +96,10 @@
     "six_and_seven_bit_pixel_attribution": "P4",
     "low_priority_tasks_are_deployment_gates": false
   },
-  "repository_changes": "documentation_and_runtime_evidence_only",
+  "repository_changes": "code fixes fee4096 and 32cb02c plus documentation and runtime evidence",
   "deployment_performed": true,
-  "neo_available": false,
-  "neo_contact_allowed": false,
+  "neo_available": true,
+  "neo_contact_allowed": true,
   "active_task": null,
   "macos_vm_check": {
     "status": "accepted",
@@ -115,5 +117,16 @@
     "same_binary_gpu_reruns_passed": 2,
     "record": "evidence/macos-vm/verification.json",
     "scope": "Intel Wine/SwiftShader/AppKit bitmap; ARM64 Wine/FEX and physical Metal untested"
+  },
+  "code_commits_after_baseline": [
+    "fee4096",
+    "32cb02c"
+  ],
+  "neo_window_check": {
+    "status": "window_verified_visual_check_pending",
+    "launches_passed": 3,
+    "launches_total": 3,
+    "startup_deadlock_fixed_in": "fee4096",
+    "record": "evidence/neo-window/verification.json"
   }
 }

@@ -26,9 +26,11 @@ The private snapshot preserved 55,602 source/harness/text files. Root checked co
 
 ## Handover successor backup
 
-The handover checkpoint uses a new directory, `20261022-vm-window`, under the local and Papa-laptop backup roots. Neo replication is pending while Neo is unavailable; no connection to Neo is allowed during this investigation. Its `civ3-renderer.bundle` contains the committed documentation, selected Intel VM runtime evidence and all available main-repository refs. Its `backup-receipt.json` records the actual documentation commit, bundle SHA-256, restored main ref, and per-host integrity verification. Consult that receipt for the completed transfer result. It is outside the Git commit whose identity it records.
+The handover checkpoint uses a new directory, `20261022-vm-window`, under the local and Papa-laptop backup roots. Its `civ3-renderer.bundle` contains the committed documentation, selected Intel VM runtime evidence and all available main-repository refs. Its `backup-receipt.json` records the actual documentation commit, bundle SHA-256, restored main ref, and per-host integrity verification. It is outside the Git commit whose identity it records. Neo was unavailable when it was made; the directory was copied to Neo unchanged once Neo was reachable again, and that replication is recorded in the next checkpoint's receipt.
 
-The previous development/FEX archives remain in `20261020T1918Z`; do not assume the new main bundle contains them. Retain both backup directories together.
+The Neo startup-fix checkpoint uses `20261022-neo-window` under all three backup roots (local, Papa's laptop and Neo). Its bundle contains all main-repository refs, including the fix `fee4096`, the installed `32cb02c` and the documentation commit recording that install. Its `backup-receipt.json` records the commit, bundle SHA-256 and per-host verification, and the Neo replication of `20261022-vm-window`. Consult that receipt for the transfer result.
+
+The previous development/FEX archives remain in `20261020T1918Z`; do not assume the newer main bundles contain them. Retain all backup directories together.
 
 ## Restore into a new directory
 

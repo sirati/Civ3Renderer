@@ -2,6 +2,22 @@
 
 The six-bit/seven-bit investigation below is P4 backlog. It is not a deployment prerequisite. The current Neo installation is verified in [deployment.json](deployment.json).
 
+## Neo startup fix and 32cb02c install
+
+On Neo the f510 install never showed its window. Startup deadlocked inside Wine: stack samples show the bridge's `inproc-init` thread suspended inside a volume-information query while holding Wine's virtual-memory lock, and the game thread waiting on that lock. Each such query is a mountmgr ioctl that Wine completes asynchronously with a signal. Rust's `exists()`, `is_dir()` and `fs::read` made about 1,500 of them during case-insensitive asset path resolution. A signal arriving where Wine should block it is a defect of the ARM64 Wine/FEX build; commit `fee4096` removes the trigger by resolving paths from directory listings and reading files without the metadata call. Startup now makes 1 such query from renderer threads.
+
+Ruled out on Neo: preloading (`CIV3R_PRELOAD=off` hangs too), the FEX code cache (`FEX_DISKCACHE=0` hangs too) and an OS update (none since 29 September). The f7b0 release that worked on 21 October hangs the same way now, with byte-identical bridge and native libraries, so something on Neo changed after 21 October; what changed is unknown. Early runs over SSH could not reach WindowServer and are not counted.
+
+| Check | Result | Scope |
+| --- | --- | --- |
+| `cargo test -p tile-viewer` at `32cb02c` | 495 passed, 4 ignored; host GPU test passed 1/1. | Papa, AMD RADV. |
+| `cargo test -p civ3-bridge` at `32cb02c` | 457 passed, 4 ignored. | Papa host. |
+| `cargo test -p civ3-assets --lib` at `fee4096` | 22 passed, 1 ignored. | Papa host. |
+| f510 GUI-session launches before the fix | 4 of 4 hung before the first art compile. | Neo. |
+| Installed `32cb02c` via `open` | 3 of 3: viewer attached in 8–10 s, window on screen (CoreGraphics), `civ3-app-macos stop` left no owned processes in 4–6 s. | Neo; no screenshots. |
+
+Not verified on Neo: the loaded map/HUD, input and the in-game Quit. Terminal is denied screen recording there and no available session has input rights; the permissions were not changed. The [Neo record](evidence/neo-window/verification.json) lists hashes, failed attempts and the retained evidence archives on Papa.
+
 ## Latest recorded checks
 
 The 21 October continuation left the implementation tree clean at `8106ae5a4debbe247cb5e64523d4972474f4fe39`. Experimental wider-color edits were tried, failed to preserve RGB444/RGB555 behavior and were fully reverted. No performance measurement or accepted optimization was added.
@@ -51,4 +67,4 @@ Fresh x86_64 native and paired PE builds use f510/protocol 50. Independent revie
 
 The [verification receipt](evidence/macos-vm/verification.json) binds the source, artifacts and evidence. Retained images show the [title](evidence/macos-vm/044-production-title-ready.png), [loaded map](evidence/macos-vm/050-production-map-final-check.png), [Quit confirmation](evidence/macos-vm/051-map-exit-menu.png) and [desktop after exit](evidence/macos-vm/052-normal-exit.png). Help output, heartbeat logs and CLI bypasses are not the basis for acceptance.
 
-The Intel VM uses SwiftShader Vulkan and AppKit bitmap presentation, while Neo uses ARM64 Wine/FEX and Metal. The launcher also selects an Intel-only compatibility runtime in [wine_compat.rs](../../crates/civ3r-launcher/src/unix/wine_compat.rs). VM configuration changes Wine/prefix, asset/font paths and graphics settings, and disables asset preloading. Its startup-status client stayed blank without a Metal device, but the actual native renderer appeared and worked. High host load caused slow software presentation and stale input drops. This control does not qualify performance, physical Metal or Neo's installed package environment, and cannot identify ARM64 as the sole cause. Neo was not contacted. Its missing-window issue remains open until the device is available.
+The Intel VM uses SwiftShader Vulkan and AppKit bitmap presentation, while Neo uses ARM64 Wine/FEX and Metal. The launcher also selects an Intel-only compatibility runtime in [wine_compat.rs](../../crates/civ3r-launcher/src/unix/wine_compat.rs). VM configuration changes Wine/prefix, asset/font paths and graphics settings, and disables asset preloading. Its startup-status client stayed blank without a Metal device, but the actual native renderer appeared and worked. High host load caused slow software presentation and stale input drops. This control does not qualify performance, physical Metal or Neo's installed package environment, and cannot identify ARM64 as the sole cause. Neo was not contacted during this VM check; the later Neo investigation is recorded above.

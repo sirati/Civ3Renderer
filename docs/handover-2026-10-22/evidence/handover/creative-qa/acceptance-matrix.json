@@ -1289,23 +1289,23 @@
       "id": "platform-mac-dualstack",
       "requirement": "Actual single-process Intel macOS game/native runtime plus Apple ARM/FEX",
       "priority": "P0",
-      "implementation_status": "intel_window_map_input_exit_verified_neo_startup_open",
+      "implementation_status": "intel_window_map_input_exit_verified_neo_window_opens_visual_check_open",
       "acceptance_status": "open",
       "next_test": {
         "venues": [
-          "Neo only after device availability"
+          "Neo GUI session with the user or granted screen-recording and accessibility permissions"
         ],
         "actions": [
-          "Inspect actual normal Neo bundle/starter launch and ARM64 Wine/FEX/Metal logs, comparing against the accepted Intel control.",
-          "Verify visible native window, loaded map/HUD, keyboard/mouse input and ordinary exit on Neo after a minimal evidence-based fix if needed."
+          "Launch the installed app via open in the logged-in GUI session.",
+          "Confirm title UI, a loaded map/HUD, keyboard/mouse input and the in-game Quit on Neo, with screenshots."
         ],
         "oracle": "Actual working native renderer on Neo with matched source/artifacts and retained cleanup evidence.",
         "similar_bug_probe": "Intel SwiftShader/bitmap success mistaken for ARM64/FEX/Metal or Neo package acceptance."
       },
-      "evidence_limit": "Intel control accepted in evidence/macos-vm/verification.json. ARM64 Wine/FEX, physical Metal and Neo installed environment remain unverified; Neo is unavailable.",
+      "evidence_limit": "Intel control accepted in evidence/macos-vm/verification.json. Neo window opens 3 of 3 (evidence/neo-window/verification.json); Neo map/HUD, input and in-game Quit are visually unverified.",
       "current_assignment": true,
       "continuation_task": "neo_native_window",
-      "current_runtime_report": "Same-source f510/protocol50 Intel VM control passed native window, map/HUD, input and ordinary exit. Neo missing-window issue remains unresolved; no Neo contact while unavailable."
+      "current_runtime_report": "Neo startup deadlock fixed in fee4096; 32cb02c installed; viewer attaches, window on screen and clean stop in 3 of 3 launches. Visual acceptance pending."
     },
     {
       "id": "platform-metal",

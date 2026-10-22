@@ -1,25 +1,26 @@
 [
   {
     "task_name": "neo_native_window",
-    "title": "Neo native window startup",
-    "status": "waiting_for_neo",
+    "title": "Neo visual acceptance",
+    "status": "window_fixed_visual_check_pending",
     "priority": "P0",
-    "spawn_instruction": "Do not contact Neo or start this task while Neo is unavailable. When access resumes and this unfinished task is resumed, spawn a fresh subagent named neo_native_window. Do not repeat the accepted Intel VM task or restart the backlog.",
-    "brief": "User reports that the installed f510 native game window never appears on Neo. The same-source Intel VM control passed. Inspect the normal Neo app/starter, ARM64 Wine/FEX, Metal and package environment without assuming an architecture-specific cause.",
-    "first_step": "After Neo becomes available, bind the actual installed bundle/runtime and inspect normal-launch logs and processes. Compare with the accepted Intel control; preserve any failing attempt before making a minimal fix.",
+    "spawn_instruction": "When this task resumes, spawn a fresh subagent named neo_native_window. Do not repeat the accepted Intel VM task or restart the backlog. Do not change Neo privacy permissions without the user.",
+    "brief": "The Neo startup deadlock is fixed (fee4096) and 32cb02c is installed. Three launches of the installed app attached the viewer, showed the window on screen and stopped cleanly. The title UI, a loaded map/HUD, input and the in-game Quit on Neo are not yet visually verified: Neo denies screen recording to Terminal, and no available session has input rights.",
+    "first_step": "Ask the user to perform the visual check, or to grant screen recording and accessibility for the test session. Launch inside the logged-in GUI session, not over SSH.",
     "done_when": "The actual native window on Neo shows usable game UI and a loaded map/HUD, accepts input and exits ordinarily, with source/artifact identities and cleanup evidence retained.",
-    "resources": "One owned Neo GUI/input session when available, Papa-only cross-builds and existing assets. Neo is currently off limits.",
+    "resources": "One owned Neo GUI/input session, Papa-only cross-builds and existing assets.",
     "family_ids": [
       "platform-mac-dualstack"
     ],
     "evidence": [
       "deployment.json",
       "verification.md",
+      "evidence/neo-window/verification.json",
       "evidence/macos-vm/verification.json",
       "../macos-tsneo.md"
     ],
     "depends_on": [
-      "Neo availability"
+      "User visual check or granted screen-recording and accessibility permissions"
     ],
     "deployment_gate": false
   },

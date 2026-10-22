@@ -6,7 +6,7 @@ Sound and the 240 FPS target are P3. Six-bit and seven-bit pixel attribution is 
 
 | Priority | Unfinished task | Fresh subagent when resumed |
 | --- | --- | --- |
-| P0 | [Neo native window startup](#neo_native_window) | `neo_native_window`, only after Neo is available |
+| P0 | [Neo visual acceptance](#neo_native_window) | `neo_native_window`; needs the user or granted permissions |
 | P1 | [Camera arrival and accelerated combat](#combat_validation) | `combat_validation` |
 | P3 | [Sound and loaded-save audio follow-up](#audio_loaded) | `audio_loaded` |
 | P3 | [CPU busy attribution](#cpu_timing) | `cpu_timing` |
@@ -15,15 +15,15 @@ Sound and the 240 FPS target are P3. Six-bit and seven-bit pixel attribution is 
 
 <a id="neo_native_window"></a>
 
-## Neo native window startup
+## Neo visual acceptance
 
-Neo is unavailable and must not be contacted. No agent is active. When Neo becomes available and this unfinished task resumes, spawn a fresh subagent named neo_native_window. Do not restart the backlog or repeat the accepted Intel VM check.
+No agent is active. When this task resumes, spawn a fresh subagent named neo_native_window. Do not restart the backlog or repeat the accepted Intel VM check.
 
-The user reports no native game window on the installed f510 Neo build. The same-source Intel VM control passed. Inspect the actual Neo app/starter launch and bind its package, logs, Wine/FEX and Metal environment. Compare against [the scoped VM evidence](verification.md). Do not infer an ARM64 cause from the Intel result alone.
+The startup deadlock that kept the native window from appearing is fixed (`fee4096`), and `32cb02c` is installed. Three launches of the installed app via `open` attached the viewer, put the window on screen and stopped cleanly; see [the Neo record](evidence/neo-window/verification.json). What remains is visual: the title UI, a loaded map/HUD, keyboard/mouse input and the in-game Quit on Neo.
 
-Require a visible usable native renderer window, real game UI, a loaded map/HUD and ordinary exit on Neo. Preserve source/artifact identities, screenshots and failed attempts. Isolate and minimally fix the actual failure. Cross-build any change on Papa.
+Neo denies Terminal screen recording, and no session available to the agent has accessibility (input) rights. Ask the user to do the check or to grant those permissions; do not change them yourself. Run launches inside the logged-in GUI session, not over SSH. Preserve screenshots and failed attempts, and cross-build any change on Papa.
 
-Use one owned Neo GUI/input session and existing assets when access resumes. See [the Neo guide](../macos-tsneo.md) and [installation identity](deployment.json).
+Use one owned Neo GUI/input session and existing assets. See [the Neo guide](../macos-tsneo.md) and [installation identity](deployment.json).
 
 <a id="combat_validation"></a>
 

@@ -1,6 +1,6 @@
 {
   "updated_date": "2026-10-22",
-  "scope": "Evidence needed for unfinished work, including the scoped Intel comparison for the unresolved Neo launch. Completed-agent rosters and histories are excluded.",
+  "scope": "Evidence needed for unfinished work, including the Neo startup-fix record and the scoped Intel comparison. Completed-agent rosters and histories are excluded.",
   "files": [
     {
       "source": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/thin-view-diagnostic/thin-view-diagnostic-plan.json",
@@ -85,9 +85,9 @@
     {
       "copy": "evidence/handover/creative-qa/acceptance-matrix.json",
       "source": "/mnt/datasets/c3r-build/handover/creative-qa/acceptance-matrix.json",
-      "transformation": "Historical checklist with current priorities and actual unfinished assignments; accepted Intel control recorded separately from unresolved Neo startup.",
-      "copy_sha256": "f411e2dc15e85da06485fbcccfd9d974ff13505b613014b46393ae4c58b0d9de",
-      "copy_bytes": 91088
+      "transformation": "Historical checklist with current priorities and actual unfinished assignments; Neo window fixed, visual check pending; Intel control recorded separately.",
+      "copy_sha256": "d0f7bb0a26a505757ad1f1904b71780be2923676c9eb4a640eaaac4725263cdd",
+      "copy_bytes": 91064
     },
     {
       "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
@@ -352,6 +352,15 @@
       "source_sha256": "fa2de5e83c0f868c58b5a4bcdff2a430d85e741f9e5d01324ae82eaf06e0c41d",
       "copy_bytes": 6004,
       "copy_sha256": "fa2de5e83c0f868c58b5a4bcdff2a430d85e741f9e5d01324ae82eaf06e0c41d",
+      "redactions": []
+    },
+    {
+      "source": "/mnt/datasets/c3r-build/neo-window-fix-evidence/verification.json",
+      "copy": "evidence/neo-window/verification.json",
+      "source_bytes": 6049,
+      "source_sha256": "396454f649910fa7952d11b7476c6a2ea330187d209f9ee9fbe764ef75aebe55",
+      "copy_bytes": 6049,
+      "copy_sha256": "396454f649910fa7952d11b7476c6a2ea330187d209f9ee9fbe764ef75aebe55",
       "redactions": []
     }
   ]

@@ -1,42 +1,51 @@
 {
-  "status": "installed_and_accepted",
-  "installed_at_utc": "2026-10-22T10:44:43.866983+00:00",
-  "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "status": "installed_window_verified_visual_acceptance_pending",
+  "installed_at_utc": "2026-10-22T16:18:03.563286+00:00",
+  "source": "2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331",
+  "git_commit": "32cb02c723bd78cec92a17a982bcc65c9bc2fe21",
   "scene_protocol": 50,
+  "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
   "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+  "changes_since_baseline": [
+    "fee4096 Avoid per-file volume queries that deadlock startup on Neo",
+    "32cb02c Notify the window only for frames the render worker presents"
+  ],
   "app": "/Users/sirati/Applications/Civilization III.app",
   "runtime_sha256": {
-    "civ3r-viewer": "9c7cd815c2243728be1484b6dd03ebe00b7b95b20b841e968a225cf4de9d5151",
-    "civ3-play-macos": "6f5688b29a7a7bf6cbcc701f97d884493092474dd8a58ddf85361cc73c41afda",
-    "IFC23.dll": "71d3fa9488b4eeda83e1ddc28de79aac9ed6d618368f0500ef1bf0251e3b5e69",
-    "civ3r_native.so": "3de5db8eb70f88c3c4da83ec004786cbde85404629fabbcf6ca2e83749875ab8",
+    "civ3r-viewer": "d94df1a99dfa76d34b51946bbd83501903ff5db0fb953db24efb62b0b6014519",
+    "civ3-play-macos": "52a23f6ce78be278fcb6aa423965a007e758c468fad1e6a5388bc70340974a51",
+    "IFC23.dll": "692a89d5667febe01b232766f83e130502dcc685f278c178447828a4e70974f4",
+    "civ3r_native.so": "cf4b831cd86ab444d425e50300cc9963c9e873c8ac29b82e3518426e346812a1",
     "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935"
   },
-  "app_starter_sha256": "9c8b6950d270da978acdf9ecac89917bb6bb118395d42b2dd61c3677f64a32a9",
+  "app_starter_sha256": "da03b844870eea3d95e3b7b9d738accb23751ef74a055b2723de1fcad61f003e",
   "signatures_verified": true,
   "searchable_app_verified": true,
-  "icon_sha256": "7f82e6481019ad30792227d9f4cde3bf0076676f01aea6706d21f8d40ca2a4f2",
-  "parent_independent_remote_hashes_verified": true,
-  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z",
-  "game_launched": false,
-  "runtime_acceptance": "User reports native game window never appears on Neo. Same-source Intel macOS VM control passed window, map, input and ordinary exit. Neo unavailable; ARM64 Wine/FEX, Metal and installed Neo environment unverified.",
+  "remote_hashes_verified_after_install": true,
+  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T161802311336Z",
+  "previous_installs_on_22_october": [
+    {"source": "94ebdb638dfe612eae580a69af13c6b10b7f6a2b1401047f33f172193bb41ad4", "commit": "fee4096", "installed_at_utc": "2026-10-22T15:59:47Z", "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T155947378699Z"},
+    {"source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703", "commit": "8106ae5", "installed_at_utc": "2026-10-22T10:44:43.866983+00:00", "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z", "runtime_result": "startup deadlock; no native window"}
+  ],
+  "tests_before_deploy": {
+    "tile_viewer": "495 passed, 4 ignored; host GPU test 1 passed",
+    "civ3_bridge": "457 passed, 4 ignored"
+  },
+  "runtime_acceptance": "3 of 3 launches of the installed app via open: viewer attached in 8-10 s, window on screen, civ3-app-macos stop left no owned processes. Loaded map/HUD, input and in-game Quit not verified: no screen-recording or input permission available to the agent.",
   "receipts": {
-    "deployment-summary.json": {
-      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/deployment-summary.json",
-      "sha256": "c62ea03e9388419d95a7b73125432659888ccaa3060feeaa8c0798c3f333356b"
+    "install-20261022T161802311336Z.json": {
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-32cb02c/install-20261022T161802311336Z.json",
+      "sha256": "8f3d9fb4180edc9c8511a4233e2b8abf94d83734857d7f52896d54ac74333279"
     },
-    "final-install-verification.json": {
-      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/final-install-verification.json",
-      "sha256": "3524bf63a4fbefd1ee0d051110453ea1653aee77ec6398b076b7e96484fe4e88"
+    "cross-manifest.json": {
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-32cb02c/cross-manifest.json",
+      "sha256": "290ba5ee9e36d0292527bff0907f5de87817f428a4ff0fddcee33aa183191d22"
     },
-    "local-source-verification.json": {
-      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/local-source-verification.json",
-      "sha256": "aca9c3e44769c4a65af3050cfd3ba5f2ab6e8f9725eaf03396a4e9ff000d7675"
-    },
-    "parent-install-review.json": {
-      "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/parent-install-review.json",
-      "sha256": "f2a655e9f353a349123bbd11c6dddc6feefe2853b6964fd918b811140968d65b"
+    "deploy log": {
+      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-32cb02c/deploy-neo-32cb02c-2a6f97d5272fbd4ec36fe905387a9f5e754206592e09a185e91e36dbe6416331.log",
+      "sha256": "2e28c89c67b14fecceba01025174589b7823f22083cf6d7b748a83401aebe060"
     }
   },
+  "verification_record": "evidence/neo-window/verification.json",
   "intel_comparison_record": "evidence/macos-vm/verification.json"
 }
