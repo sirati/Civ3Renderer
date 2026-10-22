@@ -17,8 +17,11 @@ import unittest
 LAUNCHER = Path(os.environ.get("CIV3R_TEST_LAUNCHER",
     str(Path(os.environ.get("CARGO_TARGET_DIR", "target")) / "debug/civ3-play-macos"))).resolve()
 
+DIRECTPLAY_FILES = ['dplaysvr.exe', 'dplayx.dll', 'dpmodemx.dll', 'dpnet.dll',
+                    'dpnhpast.dll', 'dpnhupnp.dll', 'dpnsvr.exe', 'dpwsockx.dll']
+
 class MacLauncherTests(unittest.TestCase):
-    def run_case(self, *, viewer_fails=False, wine_exit=0, extra=(), occupied=False, other_source=False, source_alias=False, viewer_address="127.0.0.1:45678", interrupt=False, occupied_bridge=False, runtime_in_source=False, prefix_in_source=False, grandchild=False, viewer_fallback=False, viewer_ignores_term=False, registry_fails=False, font_cache=None, existing_rules_links=False, missing_rules=False, legacy_private_state=False, planted_state_link=False, existing_private_state=False, write_private_state=False, planted_history_link=False, render_env=None, viewer_exit=0, native_close=None):
+    def run_case(self, *, viewer_fails=False, wine_exit=0, extra=(), occupied=False, other_source=False, source_alias=False, viewer_address="127.0.0.1:45678", interrupt=False, occupied_bridge=False, runtime_in_source=False, prefix_in_source=False, grandchild=False, viewer_fallback=False, viewer_ignores_term=False, registry_fails=False, font_cache=None, existing_rules_links=False, missing_rules=False, legacy_private_state=False, planted_state_link=False, existing_private_state=False, write_private_state=False, planted_history_link=False, render_env=None, viewer_exit=0, native_close=None, directplay=False):
         temp = tempfile.TemporaryDirectory(prefix="civ3r-mac-launch-")
         self.addCleanup(temp.cleanup)
         base = Path(temp.name)
@@ -110,6 +113,14 @@ if len(sys.argv)>1 and sys.argv[1]=='reg.exe':
     with open(os.environ['TEST_REGISTRY'],'a') as output:
         output.write(json.dumps({'argv':sys.argv[1:],'prefix':os.environ['WINEPREFIX']})+'\\n')
     sys.exit(7 if os.environ.get('TEST_REGISTRY_FAIL')=='1' else 0)
+if len(sys.argv)>1 and (sys.argv[1]=='regedit.exe' or sys.argv[1].endswith('regsvr32.exe')):
+    entry={'argv':sys.argv[1:],'prefix':os.environ['WINEPREFIX']}
+    if sys.argv[1]=='regedit.exe':
+        # Z:\\path\\file.reg -> the file, read while it exists.
+        entry['reg']=pathlib.Path(sys.argv[3][2:].replace('\\\\','/')).read_text()
+    with open(os.environ['TEST_DIRECTPLAY'],'a') as output:
+        output.write(json.dumps(entry)+'\\n')
+    sys.exit(0)
 if os.environ.get('TEST_GRANDCHILD')=='1':
     helper=subprocess.Popen([sys.executable,'-c','import time; time.sleep(3600)'])
     pathlib.Path(os.environ['TEST_GRANDCHILD_PID']).write_text(str(helper.pid))
@@ -175,7 +186,19 @@ sys.exit(int(os.environ.get('TEST_WINE_EXIT','0')))
                    TEST_REGISTRY_FAIL="1" if registry_fails else "0",
                    TEST_WRITE_PRIVATE_STATE="1" if write_private_state else "0",
                    TEST_SCRATCH_NAMES=json.dumps(scratch_names),
-                   TEST_HISTORY_NAMES=json.dumps(history_names))
+                   TEST_HISTORY_NAMES=json.dumps(history_names),
+                   TEST_DIRECTPLAY=str(base / 'directplay.jsonl'))
+        if directplay:
+            # The redistributable's files, and a WoW64 prefix whose syswow64
+            # has Wine's placeholders ("current": the same files, installed).
+            system = home / 'prefix/drive_c/windows/syswow64'
+            system.mkdir(parents=True)
+            (home / 'directplay').mkdir(parents=True, exist_ok=True)
+            for name in DIRECTPLAY_FILES:
+                (home / 'directplay' / name).write_bytes(b'microsoft ' + name.encode())
+                (system / name).write_bytes(b'microsoft ' + name.encode() if directplay == 'current' else b'wine placeholder')
+            if directplay == 'current':
+                (home / 'prefix/civ3r-directplay').write_text('installed\n')
         if native_close is not None:
             native = base / "native"
             unix_dir = "aarch64-unix" if os.uname().machine in ("arm64", "aarch64") else "x86_64-unix"
@@ -355,6 +378,36 @@ sys.exit(int(os.environ.get('TEST_WINE_EXIT','0')))
                 self.assertNotIn('existing game',value)
             else: self.assertEqual(value,'1')
         self.assertTrue(entries[-1]['argv'][entries[-1]['argv'].index('/d')+1].endswith('\\'))
+
+    def test_directplay_is_installed_once_into_syswow64_with_native_overrides(self):
+        base, home, result=self.run_case(directplay=True)
+        # (The exit code belongs to the fake game; these check the install.)
+        system=home/'prefix/drive_c/windows/syswow64'
+        for name in DIRECTPLAY_FILES:
+            self.assertEqual((system/name).read_bytes(),b'microsoft '+name.encode())
+        self.assertTrue((home/'prefix/civ3r-directplay').is_file())
+        entries=[json.loads(line) for line in (base/'directplay.jsonl').read_text().splitlines()]
+        self.assertTrue(all(entry['prefix']==str(home/'prefix') for entry in entries))
+        self.assertEqual(entries[0]['argv'][0:2],['regedit.exe','/S'])
+        reg=entries[0]['reg']
+        self.assertIn('[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]',reg)
+        for name in ['dplaysvr.exe','dplayx','dpmodemx','dpnet','dpnhpast','dpnhupnp','dpnsvr.exe','dpwsockx']:
+            self.assertIn('"%s"="native"'%name,reg)
+        self.assertEqual([entry['argv'] for entry in entries[1:]],
+            [['C:\\windows\\syswow64\\regsvr32.exe','/s',dll] for dll in ['dplayx.dll','dpnet.dll','dpnhpast.dll','dpnhupnp.dll']])
+        self.assertFalse(list((home/'logs').glob('*.reg')),'override file left behind')
+        self.assertTrue((base/'capture.json').exists(),'game did not start')
+
+    def test_installed_directplay_runs_no_wine_commands(self):
+        base, _, result=self.run_case(directplay='current')
+        self.assertTrue((base/"capture.json").exists(),result.stderr)
+        self.assertFalse((base/'directplay.jsonl').exists())
+
+    def test_missing_directplay_files_still_start_the_game(self):
+        base, _, result=self.run_case()
+        self.assertTrue((base/"capture.json").exists(),result.stderr)
+        self.assertIn('network games will not work',result.stderr)
+        self.assertFalse((base/'directplay.jsonl').exists())
 
     def test_registry_failure_starts_neither_viewer_nor_game(self):
         base, _, result=self.run_case(registry_fails=True)

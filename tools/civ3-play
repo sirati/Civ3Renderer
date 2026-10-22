@@ -7,7 +7,8 @@
 #
 #   tools/civ3-play [--map] [--window] [--nvidia] [--scale S] [--show-game-window] [--compare] [--compatibility-fallback]
 #                                                   start the game
-#   tools/civ3-play setup                           find the runtime libraries, add the .desktop entry
+#   tools/civ3-play setup                           find the runtime libraries, install DirectPlay
+#                                                   into the prefix (tools/install-directplay), add the .desktop entry
 #   tools/civ3-play stop                            end the game (wineserver -k of the prefix)
 #
 #   --map      enable only the original map pixels for diagnostics
@@ -44,7 +45,8 @@
 #   native            WINEDLLPATH: i386-windows/civ3r_native.dll, x86_64-unix/civ3r_native.so
 #                     (tools/install-native with CIV3R_NATIVE_DIR, or copied there)
 #   runtime-libs      LD_LIBRARY_PATH of vulkan-loader, wayland, libxkbcommon, libglvnd (setup)
-#   gcroots/          GC roots of those, and of wayland-utils (wayland-info: the desktop's scale)
+#   gcroots/          GC roots of those, of wayland-utils (wayland-info: the desktop's scale)
+#                     and of Microsoft's DirectPlay files (nix/directplay.nix)
 #   logs/             Wine's output, one file per start (the bridge logs to civ3-bridge.log in the game folder)
 set -euo pipefail
 if [ "$(uname -s)" = Darwin ]; then
@@ -83,6 +85,15 @@ setup() {
   path=$(nix build --no-link --print-out-paths --inputs-from "$repo" nixpkgs#wayland-utils | head -1)
   nix-store --add-root "$home/gcroots/wayland-utils" --indirect -r "$path" >/dev/null
   echo "wayland-info: $wayland_info"
+  # Network games (LAN, direct IP) need Microsoft's DirectPlay: Wine's
+  # builtin dpnet cannot host or connect. Fetched with a fixed hash.
+  if [ -d "$WINEPREFIX/drive_c/windows" ]; then
+    path=$(nix build --no-link --print-out-paths "$repo#directplay" | head -1)
+    nix-store --add-root "$home/gcroots/directplay" --indirect -r "$path" >/dev/null
+    WINE=$WINE "$repo/tools/install-directplay" "$path/i386"
+  else
+    echo "DirectPlay: no prefix at $WINEPREFIX yet; run setup again once the game is installed"
+  fi
   local apps=${XDG_DATA_HOME:-$HOME/.local/share}/applications me
   me=$(readlink -f "$0")
   mkdir -p "$apps"
@@ -153,6 +164,8 @@ esac
 [ -f "$native/x86_64-unix/civ3r_native.so" ] || die "no native renderer in $native (tools/install-native)"
 [ -n "${WAYLAND_DISPLAY:-}" ] || die "WAYLAND_DISPLAY is not set (needs a Wayland session)"
 [ -s "$libs_file" ] && [ -x "$wayland_info" ] || setup >/dev/null
+[ -f "$WINEPREFIX/civ3r-directplay" ] ||
+  echo "civ3-play: DirectPlay is not installed in $WINEPREFIX; network games need it (tools/civ3-play setup)" >&2
 [ -n "$scale" ] || scale=$(desktop_scale)
 
 export WINEDLLPATH=$native
