@@ -1,5 +1,7 @@
 # Renderer verification record
 
+The six-bit/seven-bit investigation below is P4 backlog. It is not a deployment prerequisite. The current Neo installation is verified in [deployment.json](deployment.json).
+
 ## Latest recorded checks
 
 The 21 October continuation left the implementation tree clean at `8106ae5a4debbe247cb5e64523d4972474f4fe39`. Experimental wider-color edits were tried, failed to preserve RGB444/RGB555 behavior and were fully reverted. No performance measurement or accepted optimization was added.
@@ -35,8 +37,8 @@ Do not broaden the Microsoft Basic Render Driver FP16 workaround to RADV. Its ex
 
 The evidence contains aggregate host, Wine PE, Intel macOS CPU, native Windows and GPU suites at several different source freezes. Their totals overlap and their platform coverage differs. Keep each source-bound result separate. In particular, Papa Wine execution does not substitute for a native Windows guest, Intel macOS SwiftShader does not establish Metal performance, and synthetic numeric tests do not establish full-game UI acceptance.
 
-## Handover checks
+## Handover and installation checks
 
-The documentation task checks local document links, the 13 unfinished continuation tasks, all 85 acceptance families, valid JSON, archive hashes, and Git backup restoration. It makes no renderer source changes and does not launch the game, VM or physical Neo app.
+The handover checks local links, the actual unfinished tasks, current priorities, JSON and copied evidence hashes. The latest installation also has a separate parent review of six fresh remote hashes and the strict app signature, recorded in [deployment.json](deployment.json). No game launch or gameplay acceptance follows from installation verification.
 
-The offline HTML copy received static structure and link checks. Visual browser verification was unavailable. Two headless preview attempts returned "the browser exited unexpectedly"; the collaborative browser then failed to start with "Target page, context or browser has been closed".
+The offline reading copy receives static structure/link checks. Visual browser preview was unavailable because the headless browser exited unexpectedly and the collaborative browser could not start.

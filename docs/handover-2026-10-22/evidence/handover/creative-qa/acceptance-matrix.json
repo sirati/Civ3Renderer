@@ -2,7 +2,7 @@
   "schema_version": 2,
   "updated_date": "2026-10-22",
   "source_ledger_generated_utc": "2026-10-20T19:44:28.950836+00:00",
-  "scope": "Task requirements and unfinished acceptance only. Completed tasks have a completion statement and no subagent history.",
+  "scope": "Historical feature ledger with current low-priority overrides. It is not a roster of unfinished agents and does not reopen completed/accepted work.",
   "acceptance_families": [
     {
       "id": "architecture",
@@ -23,7 +23,7 @@
         "similar_bug_probe": "Hidden original window still burning GDI CPU; audit request never serviced on a static screen"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "current_assignment": false
     },
     {
       "id": "world-pixel-fidelity",
@@ -44,7 +44,7 @@
         "similar_bug_probe": "Nonwrapping edges default to ocean instead of land continuation; darkness seams"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "districts",
@@ -65,7 +65,7 @@
         "similar_bug_probe": "District art only follows parked game camera"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "city-labels-all",
@@ -86,7 +86,7 @@
         "similar_bug_probe": "Labels disappear only at wrap seam or when native camera is parked"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "unit-visibility",
@@ -107,12 +107,12 @@
         "similar_bug_probe": "Animation offset or HP overlay clipped by A"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "unit-animation",
       "requirement": "Unit motion/action/combat/explosions and active highlight are complete",
-      "priority": "P0",
+      "priority": "P1",
       "implementation_status": "reported_implemented_not_feature_runtime_verified",
       "acceptance_status": "open",
       "next_test": {
@@ -128,7 +128,9 @@
         "similar_bug_probe": "Attack ring flashes incorrect peace colour; smoke missing"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "combat_validation"
+      "historical_priority": "P0",
+      "continuation_task": "combat_validation",
+      "current_assignment": true
     },
     {
       "id": "unit-army",
@@ -149,7 +151,9 @@
         "similar_bug_probe": "Real-owner flag wrongly uses hidden-nationality body palette"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "combat_validation"
+      "historical_priority": "P1",
+      "continuation_task": "combat_validation",
+      "current_assignment": true
     },
     {
       "id": "unit-movement-bonuses",
@@ -169,7 +173,9 @@
         "similar_bug_probe": "Army min-member movement wrong when member types share base movement but differ bonuses"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "combat_validation"
+      "historical_priority": "P1",
+      "continuation_task": "combat_validation",
+      "current_assignment": true
     },
     {
       "id": "unit-palette-memory",
@@ -189,7 +195,7 @@
         "similar_bug_probe": "Scenario roundtrip accumulates unused country-specific atlas pages"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "zoom-crisp",
@@ -210,7 +216,7 @@
         "similar_bug_probe": "Z changes logical layout, icon size or held cursor scale"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "text-native",
@@ -231,7 +237,7 @@
         "similar_bug_probe": "Glyph0 boxes, raw ANSI/Unicode punctuation drift, positive lfHeight sign inversion"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "text-tooltip-fit",
@@ -252,7 +258,7 @@
         "similar_bug_probe": "Warm-only success hides first-use font width drift"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "ui-command-atomic",
@@ -273,7 +279,7 @@
         "similar_bug_probe": "Fresh native modal targets paired with old draw group; sprite source ID reuse between Presents"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "ui-settings-transactions",
@@ -295,7 +301,7 @@
         "similar_bug_probe": "Changing one control commits other draft; Escape/modal close accidentally saves"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "ui-menu-scale",
@@ -316,7 +322,7 @@
         "similar_bug_probe": "Only title or only setup screen uses wrong popup classification"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "ui-c3x-modal",
@@ -337,7 +343,7 @@
         "similar_bug_probe": "Pointer pane picks placement rather than stored screen preference"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "ui-screen-placement",
@@ -358,7 +364,7 @@
         "similar_bug_probe": "Single sub-dialog moves but parent/border stays behind"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "ui-other-pane",
@@ -379,7 +385,7 @@
         "similar_bug_probe": "Global modal workaround disables both views for any screen"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "split-independent",
@@ -400,7 +406,7 @@
         "similar_bug_probe": "White camera viewport shows whole window; B objects depend on A"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "split-fog",
@@ -421,7 +427,7 @@
         "similar_bug_probe": "Global mask hides units in all panes; zoomed-pass camera sees unrelated UI glyphs"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "magnifier-layout",
@@ -442,7 +448,7 @@
         "similar_bug_probe": "Strip height control omitted or shared setting silently ignored"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "magnifier-hit",
@@ -463,7 +469,7 @@
         "similar_bug_probe": "Barrier includes blank box margin or blocks entire top of window"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "preview-human-visibility",
@@ -483,7 +489,7 @@
         "similar_bug_probe": "Changing selected nation leaves previous scenario reveal mask"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "preview-progressive",
@@ -504,7 +510,7 @@
         "similar_bug_probe": "Late old preview overwrites current selection or blocks nation selection"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "preview-smear",
@@ -525,7 +531,7 @@
         "similar_bug_probe": "Direct-at-zoom path differs from source-picture path across Vulkan/Metal/DX12"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "preview-capture",
@@ -545,7 +551,7 @@
         "similar_bug_probe": "Doubleclick stale scenario captures old world"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "scenario-generation",
@@ -566,7 +572,7 @@
         "similar_bug_probe": "Empty growth leaps pending nonempty growth; abandoned unsent generation stalls preload"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "scenario-memory",
@@ -587,7 +593,7 @@
         "similar_bug_probe": "Latest slot retains full initial atlas forever or old native source map"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "cursor-os",
@@ -608,7 +614,7 @@
         "similar_bug_probe": "Cursor-build completion needs another frame to become visible"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "cursor-captured",
@@ -629,7 +635,7 @@
         "similar_bug_probe": "Window re-entry warps pointer from another compositor surface"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "cursor-scale",
@@ -650,7 +656,7 @@
         "similar_bug_probe": "Icon art cached for wrong DPI generation"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "cursor-target-modes",
@@ -671,7 +677,7 @@
         "similar_bug_probe": "Policy unit tests pass while actual game field lags or native routine evaluates parked tile"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "cursor-civ4-drag",
@@ -692,7 +698,7 @@
         "similar_bug_probe": "Release swallowed by different pane/magnifier"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "capture-entry",
@@ -712,7 +718,7 @@
         "similar_bug_probe": "Capture gesture propagates release as command"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "capture-sensitivity",
@@ -732,7 +738,7 @@
         "similar_bug_probe": "Physical OS pointer or Alt navigation inherits multiplier"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "alt-navigation",
@@ -753,7 +759,7 @@
         "similar_bug_probe": "Nearest Euclidean target ignores requested direction; text-only rows snap into blank center"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "alt-f1-city",
@@ -774,7 +780,7 @@
         "similar_bug_probe": "City worked-tile targets remain tied to native camera"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "slider-edit",
@@ -795,7 +801,7 @@
         "similar_bug_probe": "Keyboard edit renews stale slider address after modal closes"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "menu-hover",
@@ -816,7 +822,7 @@
         "similar_bug_probe": "Live targeting state uses newer sprite source table than committed draws"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "menu-smooth-scroll",
@@ -837,7 +843,7 @@
         "similar_bug_probe": "MouseMove for obsolete frame delivered after latest pointer"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "popup-world-scale",
@@ -857,7 +863,7 @@
         "similar_bug_probe": "World popup classification accidentally treats advisor UI as tile content"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "popup-freeze-dismiss",
@@ -877,7 +883,7 @@
         "similar_bug_probe": "Queued double dismiss posts extra Escape after modal closes"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "popup-tile-identity",
@@ -898,7 +904,7 @@
         "similar_bug_probe": "Hover moves native camera after menu-open and replaces target"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "popup-resource-shadows",
@@ -919,7 +925,7 @@
         "similar_bug_probe": "Resized colour-table path bypasses indexed smoke/shadow handling"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "smoke-resized-indexed",
@@ -939,7 +945,7 @@
         "similar_bug_probe": "Unscaled fixed but scaled shadows still route plain-resized blit"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "city-state-sync",
@@ -960,7 +966,7 @@
         "similar_bug_probe": "One-tile offset; UI local hover hides game-thread hang"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "notices-expire",
@@ -981,7 +987,7 @@
         "similar_bug_probe": "Stale serial revives after removal or expiry clip hides unrelated sprites"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "host-busy",
@@ -1002,7 +1008,7 @@
         "similar_bug_probe": "GPU pending mistaken for game-dead heartbeat"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "startup-window",
@@ -1023,7 +1029,7 @@
         "similar_bug_probe": "GPU-init-hidden viewer leaves gap after launcher progress closes"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "startup-warm-time",
@@ -1044,12 +1050,12 @@
         "similar_bug_probe": "Existing registry contains value in wrong32/64-bit view"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "scenario_loading"
+      "current_assignment": false
     },
     {
       "id": "audio-music",
       "requirement": "macOS music plays continuously without short loops or excessive sound CPU",
-      "priority": "P0",
+      "priority": "P3",
       "implementation_status": "reported_implemented_not_feature_runtime_verified",
       "acceptance_status": "open",
       "next_test": {
@@ -1065,7 +1071,9 @@
         "similar_bug_probe": "Low sound CPU is mistaken for proof no music loop"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "audio_loaded"
+      "historical_priority": "P0",
+      "continuation_task": "audio_loaded",
+      "current_assignment": true
     },
     {
       "id": "leader-blink",
@@ -1086,7 +1094,7 @@
         "similar_bug_probe": "Every redraw advances animation rather than time"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "resolution-native",
@@ -1107,7 +1115,7 @@
         "similar_bug_probe": "Windowedx3 resource stale; DPI conversion applied twice"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     },
     {
       "id": "window-hidpi",
@@ -1128,7 +1136,7 @@
         "similar_bug_probe": "Nested KDE/GNOME return warps mouse outside owned window"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     },
     {
       "id": "settings-chrome",
@@ -1149,12 +1157,12 @@
         "similar_bug_probe": "Accessory progress app steals game activation"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "neo_release"
+      "current_assignment": false
     },
     {
       "id": "fps-counter-details",
       "requirement": "FPS details include separate CPU preparation, GPU execution, CPU passes and optional GPU passes",
-      "priority": "P1",
+      "priority": "P3",
       "implementation_status": "reported_implemented_not_feature_runtime_verified",
       "acceptance_status": "open",
       "next_test": {
@@ -1170,7 +1178,9 @@
         "similar_bug_probe": "Accumulated readback windows look like per-frame pass timing"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "historical_priority": "P1",
+      "continuation_task": "cpu_timing",
+      "current_assignment": true
     },
     {
       "id": "gpu-worker-isolation",
@@ -1191,7 +1201,7 @@
         "similar_bug_probe": "Blocked window surface binding deadlocks GPU waiting on main"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "current_assignment": false
     },
     {
       "id": "gpu-transactions",
@@ -1212,7 +1222,7 @@
         "similar_bug_probe": "Latest progress crosses FIFO ack cutoff; frame Arc retained until main mutates"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "current_assignment": false
     },
     {
       "id": "gpu-three-buffers",
@@ -1233,7 +1243,7 @@
         "similar_bug_probe": "Static frame passes while dynamic full redraw reuses wrong control slot"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "current_assignment": false
     },
     {
       "id": "gpu-no-cpu-render",
@@ -1254,7 +1264,7 @@
         "similar_bug_probe": "A new UI fallback synthesizes CPU fill images instead of procedural solids"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "current_assignment": false
     },
     {
       "id": "platform-linux-dualstack",
@@ -1273,7 +1283,7 @@
         "similar_bug_probe": "Standalone external viewer accidentally used while claiming dual-stack"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     },
     {
       "id": "platform-mac-dualstack",
@@ -1293,7 +1303,7 @@
         "similar_bug_probe": "Menu-only startup mistaken for complete gameplay coverage"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     },
     {
       "id": "platform-metal",
@@ -1312,7 +1322,7 @@
         "similar_bug_probe": "Intel SwiftShader correctness extrapolated to ARM shader/performance"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     },
     {
       "id": "platform-windows",
@@ -1332,7 +1342,7 @@
         "similar_bug_probe": "CPU adapter software correctness counted as hardware performance"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "windows_guest"
+      "current_assignment": false
     },
     {
       "id": "platform-pointer-api",
@@ -1353,39 +1363,25 @@
         "similar_bug_probe": "UI tests only cover simulated layout and miss compositor confinement"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "vm-template",
       "requirement": "Prepared macOS desktop template",
       "acceptance_status": "covered_with_scope_limits",
-      "completion_note": "All of this task has been done."
+      "completion_note": "All of this task has been done.",
+      "current_assignment": false
     },
     {
       "id": "release-pairing",
-      "requirement": "Five matched binaries plus launcher app deploy immediately after build/protocol/shader gate",
-      "priority": "P0",
-      "implementation_status": "artifacts_verified_deployment_blocked_physical_offline",
-      "acceptance_status": "open",
-      "next_test": {
-        "venues": [
-          "Papa immutable artifacts now",
-          "Physical TS Neo when online"
-        ],
-        "actions": [
-          "Validate current 31b archive hashes/protocol48/SPV embeds and signature installation record",
-          "When online stop cleanly and atomic install then test"
-        ],
-        "oracle": "All5same frozen source, starter installed; previous release backup; no partial3filemix",
-        "similar_bug_probe": "Offline successful build reported as completed Mac deployment"
-      },
-      "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "neo_release"
+      "requirement": "Install the latest coherent matched release on Neo",
+      "acceptance_status": "accepted",
+      "completion_note": "All of this task has been done."
     },
     {
       "id": "performance-4k-static",
       "requirement": "Verify 240 FPS AMD iGPU at3840 x 2160, static/cached and forced dynamic work separately",
-      "priority": "P0",
+      "priority": "P3",
       "implementation_status": "performance_goal_unverified",
       "acceptance_status": "failed_goal_not_achieved",
       "next_test": {
@@ -1400,12 +1396,14 @@
         "similar_bug_probe": "4K window actually3832x2106; empty/cached benchmark reported as full redraw"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "performance_240"
+      "historical_priority": "P0",
+      "continuation_task": "performance_240",
+      "current_assignment": true
     },
     {
       "id": "performance-4k-dynamic",
       "requirement": "240 FPS AMD iGPU target holds under forced world/UI redraw and realistic interactions",
-      "priority": "P0",
+      "priority": "P3",
       "implementation_status": "performance_goal_unverified",
       "acceptance_status": "failed_goal_not_achieved",
       "next_test": {
@@ -1421,12 +1419,14 @@
         "similar_bug_probe": "Scene publisher33ms or worker timeout4ms constrains updates; main static idle cadence hides delay"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "performance_240"
+      "historical_priority": "P0",
+      "continuation_task": "performance_240",
+      "current_assignment": true
     },
     {
       "id": "performance-delays",
       "requirement": "Audit arbitrary waits/locks without removing necessary pacing/lost-wake safeguards blindly",
-      "priority": "P0",
+      "priority": "P3",
       "implementation_status": "measurement_required",
       "acceptance_status": "open",
       "next_test": {
@@ -1441,7 +1441,9 @@
         "similar_bug_probe": "Removing lost-wake timeout reintroduces Mac hang; treating defaultvsync60 as GPU limit"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "performance_240"
+      "historical_priority": "P0",
+      "continuation_task": "performance_240",
+      "current_assignment": true
     },
     {
       "id": "diplomacy-ring-arrow",
@@ -1462,7 +1464,7 @@
         "similar_bug_probe": "War ring becomes peace colour only in animation"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "turn-focus",
@@ -1482,7 +1484,9 @@
         "similar_bug_probe": "Parked native focus drives wrong viewport"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "combat_validation"
+      "historical_priority": "P1",
+      "continuation_task": "combat_validation",
+      "current_assignment": true
     },
     {
       "id": "city-worked-alt",
@@ -1502,7 +1506,7 @@
         "similar_bug_probe": "Old native camera index selects different tile"
       },
       "evidence_limit": "Original handover explicitly lists this open. Current city_drawn_targets covers citizen heads and units only; no end-to-end worked-tile Alt result found. Do not assert absent implementation without completing control-tree/layout audit.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "architecture-transport",
@@ -1522,7 +1526,7 @@
         "similar_bug_probe": "Transport remains non-tokio despite recommendation; separate implementation style from proven runtime defect"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "cpu_timing"
+      "current_assignment": false
     },
     {
       "id": "regression-start-exit",
@@ -1543,7 +1547,7 @@
         "similar_bug_probe": "Previous session notice serial/asset epoch reused across reconnect"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "game_soak"
+      "current_assignment": false
     },
     {
       "id": "settings-fog-and-territory",
@@ -1563,7 +1567,7 @@
         "similar_bug_probe": "Category visibility correct in base sprites but wrong in zoomed replacements"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "viewport-separators",
@@ -1583,7 +1587,7 @@
         "similar_bug_probe": "Solid rectangles accidentally clipped/no atlas while text visible"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "world_fidelity"
+      "current_assignment": false
     },
     {
       "id": "save-load-input",
@@ -1603,7 +1607,7 @@
         "similar_bug_probe": "Unit tests pass but launcher/load dialog size mapping prevents reaching map"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "game_soak"
+      "current_assignment": false
     },
     {
       "id": "ui-read-only-constraints",
@@ -1623,7 +1627,7 @@
         "similar_bug_probe": "Mistaken handover restriction prevents the actual visual tests user requested"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "game_soak"
+      "current_assignment": false
     },
     {
       "id": "nvidia-failure-handling",
@@ -1642,7 +1646,7 @@
         "similar_bug_probe": "Flag selects unavailableGPU then music-only background process"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     },
     {
       "id": "ui-background-sampling",
@@ -1663,7 +1667,7 @@
         "similar_bug_probe": "Metal Naga loop drops last sample despite RADV passing"
       },
       "evidence_limit": "This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.",
-      "continuation_task": "ui_acceptance"
+      "current_assignment": false
     },
     {
       "id": "bombard-range",
@@ -1684,7 +1688,9 @@
         "similar_bug_probe": "Native overlay only produced for original game viewport"
       },
       "evidence_limit": "This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.",
-      "continuation_task": "combat_validation"
+      "historical_priority": "P1",
+      "continuation_task": "combat_validation",
+      "current_assignment": true
     },
     {
       "id": "mirrored-cursor",
@@ -1704,7 +1710,7 @@
         "similar_bug_probe": "World targeting cursor replaces translated menu arrow"
       },
       "evidence_limit": "This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.",
-      "continuation_task": "pointer_input"
+      "current_assignment": false
     },
     {
       "id": "windows-ephemeral-template",
@@ -1724,7 +1730,7 @@
         "similar_bug_probe": "Existing warm VM hides missing first-boot driver/account setup"
       },
       "evidence_limit": "This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.",
-      "continuation_task": "windows_guest"
+      "current_assignment": false
     },
     {
       "id": "low-game-resolution",
@@ -1745,7 +1751,7 @@
         "similar_bug_probe": "Native game client follows desktop4K and consumes translation/memory needlessly"
       },
       "evidence_limit": "This read-only audit performed no new execution; final application feature acceptance remains separate from numerical unit coverage.",
-      "continuation_task": "platform_runtime"
+      "current_assignment": false
     }
   ]
 }

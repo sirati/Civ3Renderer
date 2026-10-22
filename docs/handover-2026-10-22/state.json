@@ -7,13 +7,15 @@
   "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
   "fallback_shader_sha256": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
   "neo_last_recorded_install": {
-    "source": "3be94d8ba5388f1759cf425d28c771631a71cef336351b3df032afc86018764c",
-    "protocol": 49,
-    "installed_at_utc": "2026-10-20T13:07:54.527761+00:00",
+    "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+    "protocol": 50,
+    "installed_at_utc": "2026-10-22T10:44:43.866983+00:00",
     "app": "/Users/sirati/Applications/Civilization III.app",
-    "f510_staged_only": true,
-    "runtime_acceptance": "open",
-    "auto_launch": false
+    "f510_staged_only": false,
+    "installation_acceptance": "accepted",
+    "runtime_acceptance": "not exercised",
+    "auto_launch": false,
+    "record": "deployment.json"
   },
   "origin": {
     "path": "/home/sirati/Projects/civ3-renderer-old",
@@ -62,23 +64,34 @@
     "dual_and_fallback": true
   },
   "acceptance_counts": {
-    "open": 82,
+    "open": 81,
     "covered_with_scope_limits": 1,
+    "accepted": 1,
     "failed_goal_not_achieved": 2
   },
   "agents": {
-    "scope": "Unfinished work only",
-    "continuation_tasks": 13,
-    "spawn_required_on_takeover": true,
+    "scope": "Actual unfinished work only; completed and accepted agents excluded",
+    "continuation_tasks": 5,
+    "spawn_required_when_resuming": true,
+    "spawn_all_backlog_automatically": false,
     "task_index": "agent-index.json"
   },
   "evidence_records": 13,
   "backup_directories": {
     "existing": "20261020T1918Z",
-    "handover_successor": "20261022-handover-open",
+    "handover_successor": "20261022-neo-priorities",
     "local_root": "/mnt/datasets/c3r-source-backups",
     "laptop_root": "/home/sirati/civ3r-source-backups",
     "neo_root": "/Users/sirati/civ3r-source-backups"
   },
-  "documentation_only": true
+  "documentation_only": false,
+  "priority_policy": {
+    "sound": "P3",
+    "fps_240": "P3",
+    "cpu_busy_attribution": "P3",
+    "six_and_seven_bit_pixel_attribution": "P4",
+    "low_priority_tasks_are_deployment_gates": false
+  },
+  "repository_changes": "documentation_only",
+  "deployment_performed": true
 }
