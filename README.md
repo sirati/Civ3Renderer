@@ -283,6 +283,9 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   with the dialog, and the list a combo box in a dialog opens (a modal
   form of its own) is drawn over that dialog, moved and scaled exactly as
   it, and takes the clicks on it (`scene::Interface::modal_attached`).
+  The tile box does not block the other view: the game closes
+  it at once and the viewer keeps its picture in the clicked view until a
+  press or Esc there (docs/world-input.md, "Popups the viewer keeps").
   Both map views keep their own cameras. The city panel's
   internal map follows its panel. The explicit `ui=pane` shortcut still
   fits the entire game window. **Open menus in mouse view** is enabled by

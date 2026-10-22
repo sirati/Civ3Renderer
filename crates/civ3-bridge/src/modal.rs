@@ -407,6 +407,11 @@ mod live {
     }
 
     fn on_modal(call: &modal_pump::Call) -> u32 {
+        // A tile box the viewer keeps closes before the loop waits for
+        // anything (`crate::detached`): the loop then ends.
+        if LIVE.get().is_some_and(|live| crate::detached::on_modal_pass(&live.game)) {
+            return 0;
+        }
         run_pending();
         call.original()
     }

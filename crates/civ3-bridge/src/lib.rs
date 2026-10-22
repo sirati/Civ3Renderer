@@ -32,6 +32,7 @@ pub mod city_site;
 pub mod cursor;
 pub mod district_art;
 pub mod districts;
+pub mod detached;
 pub mod edge;
 pub mod first_run;
 pub mod effects;

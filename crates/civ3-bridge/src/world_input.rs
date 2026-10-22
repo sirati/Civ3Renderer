@@ -180,7 +180,7 @@ fn native_tile(
 
 #[cfg(windows)]
 pub use live::{
-    attach_window, barrier, click_popup_open, endpoint_ready, install, last_press, leave_world,
+    attach_window, barrier, click_popup_open, close_click_popup_now, endpoint_ready, game_window, install, last_press, leave_world,
     pointer_tile, popup_tile, post_button, post_dismiss, post_move, post_order, ready, wake, Press,
 };
 
@@ -788,6 +788,18 @@ mod live {
         true
     }
 
+    /// The game's window, once attached (on any thread; its input only on
+    /// the game's).
+    pub fn game_window() -> Option<Window> {
+        WINDOW.get().copied()
+    }
+
+    /// Closes the popup the game opened at a map click now, as the player
+    /// does (`dismiss_click_popup`); from the game's thread only.
+    pub fn close_click_popup_now(game: &Civ3) -> bool {
+        game_window().is_some_and(|window| dismiss_click_popup(game, window))
+    }
+
     fn dispatch(live: &Live, window: Window, pending: Pending) {
         let game = &live.game;
         if pending.event == Event::Dismiss {
@@ -908,7 +920,8 @@ mod live {
                 if under_screen {
                     screen_button(live, b, down, tile, p);
                 } else {
-                    button(live, b, down, double, p);
+                    // (A tile box it opens is the viewer's to keep.)
+                    crate::detached::scoped(game, || button(live, b, down, double, p));
                 }
             }
             Event::Order {

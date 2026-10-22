@@ -454,6 +454,28 @@ impl UiModel {
         self.shown.as_ref().map_or_else(Frame::default, |layers| self.compose_layers(layers))
     }
 
+    /// Canvas `canvas` alone as it is drawn now, its (0, 0) at the screen's
+    /// (a form's picture whether or not the game shows it: what a popup
+    /// showed when it closes, `crate::detached`); none if nothing was drawn
+    /// into it or its size is unknown.
+    pub fn canvas_frame(&self, canvas: u32, vtable: u32) -> Option<Frame> {
+        let ops = self.canvases.get(&canvas)?;
+        let size = *self.sizes.get(&canvas)?;
+        let clip = [0, 0, size.0, size.1];
+        let mut frame = Frame::default();
+        frame.forms.push((vtable, canvas, (0, 0), size));
+        frame.draws = ops.iter().flat_map(|op| self.resolve(op, 0)).filter_map(|op| screen_draw(op, (0, 0), clip)).map(|mut d| {
+            if let ScreenDraw::Surface { image, size, .. } = &mut d {
+                if let Some(&s) = self.sizes.get(image) {
+                    *size = s;
+                }
+            }
+            d
+        }).collect();
+        frame.form_draws.push((canvas, 0..frame.draws.len()));
+        Some(frame)
+    }
+
     /// `layer` as it is on the back buffer now, everywhere.
     fn piece(&self, layer: &Layer) -> Piece {
         let ops = match layer {
