@@ -1510,6 +1510,23 @@ only = [9]
 anchor_marks = [228, 152, 24]
 group = "Viewer@capture"
 
+# The Alt mode's attractors (tile-viewer `snap::ATTRACTOR_SPRITES`): the
+# same crosshair at 60 % opacity in the middle of each view, where a click
+# goes back into the game in that view.
+[images.attractor]
+source = "Art/cursor.pcx"
+opacity = 153
+
+[sheets.attractor]
+image = "attractor"
+cell = [32, 32]
+grid = [23, 1]
+origin = [1, 1]
+spacing = [1, 0]
+only = [9]
+anchor_marks = [228, 152, 24]
+group = "Viewer@attractor"
+
 # The game's wait cursor: it has none of its own (cursor.pcx cell 12 is
 # the "NEW UNIT" arrow; its executables hold no cursors); while busy it
 # shows the system's IDC_WAIT (32514), under Wine the hourglass of Wine's
@@ -1670,6 +1687,71 @@ cell = [64, 2]
 grid = [1, 1]
 anchor = [0, 0]
 group = "Viewer@divider_h"
+
+# The divider's glass (tile-viewer `layout::glass`, `glass_sprite`): one
+# pixel across the gap each, tiled along it over the panes' pictures. A's
+# edge a light highlight, the middle a parchment frost, B's edge a soft
+# shadow: the world shows through, tinted, and the band stays readable
+# over black (unexplored) and bright terrain alike.
+[images.viewer_glass_light_v]
+source = "solid:255,248,228,120:1x64"
+
+[sheets.viewer_glass_light_v]
+image = "viewer_glass_light_v"
+cell = [1, 64]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@glass_light_v"
+
+[images.viewer_glass_frost_v]
+source = "solid:214,200,160,112:1x64"
+
+[sheets.viewer_glass_frost_v]
+image = "viewer_glass_frost_v"
+cell = [1, 64]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@glass_frost_v"
+
+[images.viewer_glass_shadow_v]
+source = "solid:24,18,10,110:1x64"
+
+[sheets.viewer_glass_shadow_v]
+image = "viewer_glass_shadow_v"
+cell = [1, 64]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@glass_shadow_v"
+
+[images.viewer_glass_light_h]
+source = "solid:255,248,228,120:64x1"
+
+[sheets.viewer_glass_light_h]
+image = "viewer_glass_light_h"
+cell = [64, 1]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@glass_light_h"
+
+[images.viewer_glass_frost_h]
+source = "solid:214,200,160,112:64x1"
+
+[sheets.viewer_glass_frost_h]
+image = "viewer_glass_frost_h"
+cell = [64, 1]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@glass_frost_h"
+
+[images.viewer_glass_shadow_h]
+source = "solid:24,18,10,110:64x1"
+
+[sheets.viewer_glass_shadow_h]
+image = "viewer_glass_shadow_h"
+cell = [64, 1]
+grid = [1, 1]
+anchor = [0, 0]
+group = "Viewer@glass_shadow_h"
 
 # The arrow (cell 0) at half opacity: the button-snapping pointer's ghost
 # at the element the next move would pick (tile-viewer `snap`; the

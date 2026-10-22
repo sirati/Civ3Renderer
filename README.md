@@ -308,14 +308,22 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   the other view. An open popup moves fully into A where it fits; one
   the game opens at a click (a context menu) opens where that click was
   made, e.g. at the world cursor in B. While a popup is open the mouse is
-  let go, so the pointer can reach it; it is captured again when the
-  popup closes. A screen (an advisor, the city screen, the menu, the
-  Civilopedia) opening lets go of the mouse the same way, the pointer put
+  let go, so the pointer can reach it. A screen (an advisor, the city
+  screen, the menu, Preferences, the Civilopedia) opening lets go of the
+  mouse the same way, the pointer put
   on its main control where the screen shows (the city screen's production
   box; else the screen's middle; on Wayland through a pointer lock and a
   position hint; where the system pointer cannot be
-  moved at all it stays where it is), and the mouse is captured again,
-  the world cursor where it was, when the screen closes.
+  moved at all it stays where it is). No menu ever captures the mouse
+  again while any menu is still open, however they follow each other (a
+  popup giving way to a screen, one screen to the next, a popup over a
+  screen outliving it); once none has been open for 0.2 s the mouse is
+  captured again, the world cursor where it was before the first menu.
+  While a popup is open, or a screen floats over the world, a click on the
+  world does not capture the mouse; beside a screen placed in the other
+  pane it does (to play there). Losing the window's focus forgets a
+  capture waiting for the menus to close; back in the window, a click
+  captures the mouse (`tile_viewer::layout::capture`).
 - **Smooth world movement**: a view following game focus requests
   glides there by pixels (a critically damped spring that keeps its
   velocity when the target moves) instead of jumping a tile at a time.
@@ -328,7 +336,12 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   and moved more than 4 pixels grabs it, the map follows the pointer 1:1
   and slides on when let go (with the pointer's velocity, slowing by
   friction as Apple's scroll views do); a shorter press is a click, sent
-  on when the button comes up. The middle button
+  on when the button comes up. With `Drag` the window's edges do nothing,
+  so the mouse is never captured: a click into the view following the
+  world cursor is a click on the world there, the divider and the system
+  hold the pointer nowhere (it may leave the window; while a right-drag
+  previews a unit order the edges still scroll), and switching to `Drag`
+  lets go of a captured mouse. The middle button
   drags in either mode. Panning A preserves its exact pixel position
   after release, including when smooth movement is enabled. Each view
   keeps its own sub-pixel position while panned and is drawn at the
@@ -372,9 +385,17 @@ when the checked PCGames hooks and native world-input endpoint are ready;
 an unsupported executable or failed dependency keeps the original camera.
 See [the camera contract](docs/independent-camera.md) for diagnostics.
 
-While the mouse is free the divider between A and B is a wall except in
-its middle third (drawn without the line) and where the unit's order
-buttons are: the pointer pushed against it stays in its view (the system
+The divider between A and B is a band of frosted glass across the 4-pixel
+gap (`tile_viewer::layout::glass`, in every map movement mode): each
+pane's picture goes on under its half, tinted with a parchment frost, a
+light edge on A's side and a soft shadow on B's, readable over black and
+bright terrain alike; it costs two small views and a few translucent
+sprites. It shows where the divider holds the pointer back (all of it
+while captured, and all of it with `Drag`, where nothing does).
+While the mouse is free the divider is a wall except in
+its middle third (no glass there) and along the rows of the unit's order
+buttons (whether their strip reaches over the gap or is cut there): the
+pointer pushed against it stays in its view (the system
 pointer is moved back where the platform allows; on Wayland the compositor
 holds it out of the walls through a pointer confinement, which also keeps
 it in the window while the mouse is free) and scrolls that view
@@ -452,12 +473,25 @@ pointer. Selecting a slider starts editing without changing its value.
 Mouse movement then adjusts that slider while the pointer stays still; the
 next left click accepts the preview and a right click discards it. Esc,
 Alt, losing focus, or closing its tab also restores its original value.
-A click clicks the element, never the map; the view following the
-world cursor is a target too, and a click on it captures the mouse again.
+A click clicks the element, never the map. Each view of a split (and a
+single view following the world cursor) has an attractor, the game's
+crosshair drawn translucent in its middle while the mode is on and the
+mouse free: the pointer is drawn to it, and a click there ends the mode
+and goes back into the game in that view, capturing the mouse in the view
+following the world cursor (where it may: not with `Drag` or under a menu),
+else putting the free pointer there; neither the press nor its release
+reaches the game.
 Turned off, the pointer stays where it ended: on the interface the system
 pointer shows there (a captured mouse is let go), on the capture view the
 world cursor goes on.
 (`snap_updates_per_second`, `snap_ghost_fps` in the viewer's settings.)
+**Alt mode in menus** (`input.alt_in_menus`, the Layout tab, on by
+default) turns the mode on by itself whenever a menu opens (a screen,
+popup, dialog or context menu with something to snap to, the window in
+front) and off when the last one closes; Esc then is the menu's (it
+closes it), Alt or Ctrl turn the mode off until the menus are all closed.
+In the world it does nothing: there Alt turns the mode on, and a mode the
+player turned on stays when menus come and go.
 A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
 arrow over the active unit. Clicks are routed to the game where its view
