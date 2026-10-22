@@ -1206,6 +1206,25 @@ at = [552, 584]
 size = [398, 36]
 show_if = "tab=layout"
 
+# Button snapping (the Alt mode) by itself while a menu is open.
+[[panels.preferences.items]]
+checkbox = "input.alt_in_menus"
+at = [552, 628]
+size = [398, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Alt mode in menus"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Menus open with the cursor snapping to buttons. On the map, press Alt."
+style = "caption"
+at = [552, 650]
+size = [398, 36]
+show_if = "tab=layout"
+
 # Each map view can follow Civ III or choose its own detail.
 [[panels.preferences.items]]
 choice = "tab"
