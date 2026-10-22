@@ -78,7 +78,7 @@ fn stage(gpu: &Headless, r: &TileRenderer, encoder: &mut wgpu::CommandEncoder,
     let steps = Steps { renderer: r, device: &gpu.device, control_slot: slot,
         params: &r.control_uploads[slot].params, world, bind_group: &r.bind_group.as_ref().unwrap()[slot],
         frame: 0, named_palettes: r.named_palettes, timer: None,
-        quantized_float: r.quantized_float, cell_indices: &r.cell_indices };
+        quantized_float: r.quantized_float, cell_indices: &r.cell_indices, onto_target: false };
     steps.draw(encoder, &texture.create_view(&Default::default()), texture,
         ([0.0, 0.0, SIZE.0 as f32, SIZE.1 as f32], [0, 0, SIZE.0, SIZE.1]), camera, view,
         (art, (art == 2).then_some(camera.origin)), selected, 0,

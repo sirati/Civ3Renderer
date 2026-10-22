@@ -76,6 +76,13 @@ pub struct Camera {
     /// from slots (e.g. a fog of war of its own). Views of one binding
     /// share its slots; a binding the world does not have is the shared one.
     pub binding: u32,
+    /// Drawn after the picture is shown on the target, straight onto it in
+    /// its pixels and direct colour (no world: `cells` false), however the
+    /// picture was composed and scaled: a small panel at the window's
+    /// resolution over a picture composed smaller (a pixel scale's
+    /// confirmation), at the cost of its own pixels only. Such views come
+    /// last; `origin` and `viewport` are in target pixels.
+    pub on_target: bool,
 }
 
 /// How a scaled view samples sprites with the explicit UI background role
@@ -124,6 +131,7 @@ impl Camera {
             hidden_categories: 0,
             background_sampling: BackgroundSampling::Dither,
             binding: crate::world::SHARED_BINDING,
+            on_target: false,
         }
     }
 

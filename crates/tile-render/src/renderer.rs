@@ -2228,8 +2228,13 @@ impl TileRenderer {
         // The picture of the views but the overlays drawn last, if this
         // frame's are the same (then only the overlays are drawn, over a
         // copy of it without the last frame's).
-        let overlay_from = overlay_from.min(cameras.len());
-        let overlays = overlay_from < cameras.len();
+        // The views drawn onto the target after the picture
+        // (`Camera::on_target`; with the others where the target is the
+        // picture). They neither touch the canvas nor make it be kept.
+        let on_target = if direct { cameras.len() } else { cameras.iter().position(|c| c.on_target).unwrap_or(cameras.len()) };
+        debug_assert!(cameras[on_target..].iter().all(|c| c.on_target && !c.cells), "on-target views come last and show no world");
+        let overlay_from = overlay_from.min(on_target);
+        let overlays = overlay_from < on_target;
         let markers = self.markers.iter().filter(|m| m.view == tile_render_shared::ALL_VIEWS || (m.view as usize) < overlay_from || m.flags & tile_render_shared::FREE_EXCEPT_VIEW != 0);
         let markers: Vec<_> = markers.copied().collect();
         let period = host_period(markers.iter().map(|s| s.ticks_per_frame)
@@ -2241,7 +2246,7 @@ impl TileRenderer {
         // view. Restoring the canvas alone cannot restore that group's
         // unfinished source picture, so draw these arrangements in full.
         // (One drawn at its zoom from its start has an empty picture.)
-        let cacheable = !direct && placements[overlay_from..].iter().all(|p| p.source.is_none_or(|r| r[2] == 0 || r[3] == 0));
+        let cacheable = !direct && placements[overlay_from..on_target].iter().all(|p| p.source.is_none_or(|r| r[2] == 0 || r[3] == 0));
         let same = cacheable && reuse_frames() && self.drawn.as_ref() == Some(&key) && self.scratch.is_some();
         let reuse = same && (!self.overlaid || self.base.is_some());
         // An overlay can return after a newer picture was drawn without
@@ -2311,8 +2316,8 @@ impl TileRenderer {
         } else {
             (self.pipeline(device, if self.tiles555 && bits == 5 && !self.quantized_float { P::Tiles555 } else { P::TilesQuantized }), self.free_pipelines(device, 1))
         };
-        let steps = Steps { renderer: self, device, control_slot, params: &self.control_uploads[control_slot].params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), quantized_float: self.quantized_float, cell_indices: &self.cell_indices };
-        for (v, place) in placements.iter().enumerate() {
+        let steps = Steps { renderer: self, device, control_slot, params: &self.control_uploads[control_slot].params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), quantized_float: self.quantized_float, cell_indices: &self.cell_indices, onto_target: false };
+        for (v, place) in placements.iter().enumerate().take(on_target) {
             if reuse && v < overlay_from {
                 continue;
             }
@@ -2383,6 +2388,19 @@ impl TileRenderer {
         self.picture_bits = bits;
         let shown = self.output_picture(device, queue, encoder, target, copies, clear, present, self.timed(|| "output".into()));
         debug_assert!(shown, "a composed frame has an internal canvas");
+        // The views on the target, in its pixels and colours.
+        if on_target < cameras.len() {
+            let onto = Steps { renderer: self, device, control_slot, params: &self.control_uploads[control_slot].params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), quantized_float: false, cell_indices: &self.cell_indices, onto_target: true };
+            let whole = [0, 0, target_size.0 as i32, target_size.1 as i32];
+            let pipelines = (self.pipeline(device, P::Tiles), self.free_pipelines(device, 0));
+            for (v, place) in placements.iter().enumerate().skip(on_target) {
+                let rect = place.rect;
+                if let Some(scissor) = clipped(place.scissor, whole) {
+                    let viewport = [rect[0] as f32, rect[1] as f32, rect[2] as f32, rect[3] as f32];
+                    onto.draw(encoder, &view, target, (viewport, scissor), &place.drawn, v, (u32::from(place.art), None), place.steps_at_one(), 0, pipelines);
+                }
+            }
+        }
         self.flush_controls(queue, control_slot);
         true
     }
@@ -2655,6 +2673,9 @@ struct Steps<'a> {
     timer: Option<&'a crate::timing::GpuTimer>,
     quantized_float: bool,
     cell_indices: &'a wgpu::Buffer,
+    /// Drawing onto the caller's target (`Camera::on_target`): in direct
+    /// colour whatever the world's colour model, no native palette steps.
+    onto_target: bool,
 }
 
 impl Steps<'_> {
@@ -2697,15 +2718,15 @@ impl Steps<'_> {
             let params = FrameParams {
                 named_palettes: self.named_palettes, corner_cuts,
                 host_tick_ms: self.renderer.host_tick_ms,
-                quantized_float: u32::from(self.quantized_float && world.color.bits() != 0),
+                quantized_float: u32::from(self.quantized_float && world.color.bits() != 0 && !self.onto_target),
                 // Text coverage is viewport-local even when this ordinary
                 // stage draws into an offset source or target rectangle.
                 target_x: bounds.0[0] as i32, target_y: bounds.0[1] as i32,
                 // The layers as the view's binding draws them.
                 layer_table: crate::world::table_of(&world.tables, camera.binding),
-                ..camera.frame_params(&world.grid, world.color, self.frame, &pass, v as u32, art, scaled_at, world.reach)
+                ..camera.frame_params(&world.grid, if self.onto_target { crate::ColorModel::Direct } else { world.color }, self.frame, &pass, v as u32, art, scaled_at, world.reach)
             };
-            let sprites = sprites && (world.smoke_count == 0 || self.native_step_visible(i, &params, bounds, texture, (v as u32, camera.cells)));
+            let sprites = sprites && (world.smoke_count == 0 || self.onto_target || self.native_step_visible(i, &params, bounds, texture, (v as u32, camera.cells)));
             if !cells && !sprites { continue; }
             // Pack only steps that actually draw, with one unique aligned
             // block per draw. This keeps the single upload small even when
@@ -2738,7 +2759,7 @@ impl Steps<'_> {
                 active.draw_indexed(indices, 0, 0..params.cols * params.rows * pass.count);
             }
             if sprites {
-                if world.smoke_count == 0 {
+                if world.smoke_count == 0 || self.onto_target {
                     draw_free(active, world, i, free, (v as u32, camera.cells, art), glyph_cache.as_ref());
                 } else {
                     self.draw_native_free(encoder, &mut render, into, texture, bounds, &params, offset as u32, i, free, (v as u32, camera.cells), glyph_cache.as_ref());
