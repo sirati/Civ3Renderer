@@ -205,12 +205,22 @@ pub(crate) fn compatibility_fallback() -> bool {
     COMPATIBILITY.load(Relaxed)
 }
 
+/// Ends the game's process now, while the game still runs. The log is
+/// written first. The game's DLLs get no detach (`inproc::process::terminate`):
+/// `sound.dll` would otherwise wait forever for its sound thread, and the
+/// process would stay without a window, unable to quit.
+pub(crate) fn end_process(code: u32) -> ! {
+    log::info!("ending the game's process ({code})");
+    log::logger().flush();
+    inproc::process::terminate(code)
+}
+
 /// Unrecoverable replacement failure must never switch pixel rendering on.
 /// Native output recovery is available only through an explicit compat mode.
 pub(crate) fn replacement_failed(message: &str) {
     log::error!("{message}");
     eprintln!("civ3-renderer: {message}");
-    if !compatibility_fallback() { std::process::exit(1); }
+    if !compatibility_fallback() { end_process(1); }
 }
 
 fn enabled() -> bool {

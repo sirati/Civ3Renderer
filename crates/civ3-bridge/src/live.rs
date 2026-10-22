@@ -2358,7 +2358,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
     }
     let Some(window) = forwarder.game_window() else {
         if inputs.iter().any(|input| matches!(input, Input::Quit)) {
-            if !crate::ui_trace::compatibility_fallback() { std::process::exit(0); }
+            if !crate::ui_trace::compatibility_fallback() { crate::ui_trace::end_process(0); }
             crate::native_camera::viewer_gone(*game, forwarder.main_view);
             crate::ui_trace::restore_original_drawing();
             inproc::hidden::set_hiding(false);
@@ -2472,7 +2472,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
             // The viewer is gone (closed, or it failed to start): the
             // game's own window is shown, rather than nothing at all.
             Input::Quit => {
-                if !crate::ui_trace::compatibility_fallback() { std::process::exit(0); }
+                if !crate::ui_trace::compatibility_fallback() { crate::ui_trace::end_process(0); }
                 // The viewer may disappear before physical modifier releases
                 // arrive. Retire them in the same owned window queue before
                 // its native UI becomes the fallback input target.

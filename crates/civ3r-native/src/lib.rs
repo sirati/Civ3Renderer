@@ -440,12 +440,42 @@ mod unix_side {
         STATUS_SUCCESS
     }
 
-    /// Tells the driver the viewer is gone when dropped, however it ends.
+    /// Tells the driver the viewer is gone when dropped, however it ends,
+    /// and tells the launcher (`viewer_closed_marker`).
     struct QuitWhenStopped(scene::InputSender);
     impl Drop for QuitWhenStopped {
         fn drop(&mut self) {
             let _ = self.0.send(scene::Input::Quit);
+            viewer_closed_marker(std::env::var_os("CIV3R_VIEWER_CLOSED_FILE").map(PathBuf::from));
         }
+    }
+
+    /// Writes the launcher's file for a closed viewer (`CIV3R_VIEWER_CLOSED_FILE`).
+    /// The launcher sees only the game's process, not this window. If that
+    /// process is still running a few seconds after the file appears, the
+    /// launcher stops it, even if the game's side is stuck.
+    fn viewer_closed_marker(path: Option<PathBuf>) {
+        let Some(path) = path else { return };
+        let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+        if let Err(e) = std::fs::write(&temporary, b"viewer-closed\n").and_then(|()| std::fs::rename(&temporary, &path)) {
+            let _ = std::fs::remove_file(&temporary);
+            log::warn!("civ3r-native: telling the launcher the viewer closed ({}): {e}", path.display());
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn a_closed_viewer_leaves_the_launchers_file_and_nothing_else() {
+        let dir = std::env::temp_dir().join(format!("civ3r-native-closed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("viewer-closed");
+        viewer_closed_marker(None);
+        assert!(!path.exists());
+        viewer_closed_marker(Some(path.clone()));
+        assert_eq!(std::fs::read(&path).unwrap(), b"viewer-closed\n");
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["viewer-closed"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The viewer on a native thread of its own (Wayland and Vulkan take
