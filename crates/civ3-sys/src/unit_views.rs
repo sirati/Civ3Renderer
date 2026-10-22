@@ -156,9 +156,79 @@ pub fn effect_viewer(game: Civ3, player: i32) -> Result<i32, Civ3Error> {
     Ok(Ptr32::<i32>::new(game.addrs.leaders + player as u32 * L::LEADER_SIZE + 0x1C).read()?)
 }
 
+inproc::fastcall_hook! {
+    /// `bool Main_Screen_Form::tile_in_view(this, x, y, margin_x,
+    /// margin_y)` (PCGames 0x4E6AB0): strictly inside the native map's
+    /// tile bounds (`Main_Screen_Form+0x4E70..0x4E7C`), which stay parked.
+    pub mod fortify_tile_in_view(screen, edx; x, y, margin_x, margin_y) -> u32;
+}
+
+/// The Fortify order (`Main_Screen_Form` 0x4D8930, reached only from
+/// `issue_command`'s `UCV_Fortify` case) asks this before animating. In
+/// view, it plays the blocking FORTIFY one-shot (0x4F01B0). The animator
+/// ticks run while the FLC changes type (0x4026A0), and that change
+/// starts the action's WAV. Out of view, it only requests FORTIFY and
+/// `Unit::set_state` (0x5B2D50) immediately replaces the request. Then
+/// neither the animation nor its sound plays.
+pub const FORTIFY_IN_VIEW_SITE: (u32, [u8; 5]) = (0x4D_8949, [0xE8, 0x62, 0xE1, 0x00, 0x00]);
+
+/// The answer for the Fortify order while the native camera is parked.
+/// The parked bounds only cover tiles 0..4, so they no longer say what the
+/// player sees. The renderer shows every tile the player currently sees.
+/// Fogged or unexplored tiles keep the original instant fortify.
+pub fn action_tile_in_view(original: bool, parked: bool, on_map: bool, player_sees: bool) -> bool {
+    original || (parked && on_map && player_sees)
+}
+
+/// Lets the Fortify order play its animation and sound wherever the
+/// renderer shows the unit. Without parking, the native answer is kept.
+pub fn install_action_view(game: Civ3) -> Result<fortify_tile_in_view::Installed, inproc::hook::HookError> {
+    if game.build != Build::PcGames { return Err(inproc::hook::HookError::Unsupported); }
+    let (site, bytes) = FORTIFY_IN_VIEW_SITE;
+    fortify_tile_in_view::install_call_site(site, &bytes, move |call| {
+        let original = call.original();
+        if original & 0xFF != 0 || call.screen != game.addrs.main_screen_form || !crate::native_camera::active() {
+            return original;
+        }
+        let (x, y) = (call.x as i32, call.y as i32);
+        let seen = || -> Result<(bool, bool), Civ3Error> {
+            let map = game.map()?;
+            let on_map = (0..map.width).contains(&x) && (0..map.height).contains(&y) && (x ^ y) & 1 == 0;
+            if !on_map { return Ok((false, false)); }
+            let viewer = effect_viewer(game, game.view()?.player_civ)?;
+            Ok((true, effect_tile_visible(&game.tile_record(x, y)?, viewer)))
+        };
+        let (on_map, player_sees) = seen().unwrap_or((false, false));
+        let shown = action_tile_in_view(false, true, on_map, player_sees);
+        log::debug!("fortify at ({x}, {y}): parked native view says out of view; renderer shows it: {shown}");
+        if shown { 1 } else { original }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fortify_animates_where_the_player_sees_the_unit_while_parked() {
+        // The native answer always wins when it says "in view".
+        assert!(action_tile_in_view(true, false, false, false));
+        assert!(action_tile_in_view(true, true, true, false));
+        // Parked: the renderer's world view decides, not tiles 0..4.
+        assert!(action_tile_in_view(false, true, true, true));
+        assert!(!action_tile_in_view(false, true, true, false), "a fogged tile keeps the instant fortify");
+        assert!(!action_tile_in_view(false, true, false, true), "off-map or wrong-parity coordinates");
+        // Not parked (comparison, viewer gone): the native camera is real.
+        assert!(!action_tile_in_view(false, false, true, true));
+    }
+
+    #[test]
+    fn fortify_site_calls_the_view_test() {
+        let (site, bytes) = FORTIFY_IN_VIEW_SITE;
+        assert_eq!(bytes[0], 0xE8);
+        let target = site.wrapping_add(5).wrapping_add(i32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as u32);
+        assert_eq!(target, 0x4E_6AB0);
+    }
 
     #[test]
     #[cfg(target_pointer_width = "32")]
