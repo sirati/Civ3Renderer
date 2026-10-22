@@ -58,7 +58,7 @@ fn start() -> tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])> {
                 let image = match files.iter().position(|(p, _)| *p == path) {
                     Some(i) => files[i].1.clone(),
                     None => {
-                        let image = std::fs::read(&path).ok().and_then(|bytes| civ3_assets::pcx::decode(&bytes).ok()).map(Arc::new);
+                        let image = civ3_assets::files::read_file(&path).ok().and_then(|bytes| civ3_assets::pcx::decode(&bytes).ok()).map(Arc::new);
                         if image.is_none() {
                             log::debug!("UI mirror: opacity of {path}: not readable as a PCX");
                         }

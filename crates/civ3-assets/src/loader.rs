@@ -354,7 +354,7 @@ impl ImageLoader for Civ3Loader {
     /// expansions').
     fn font(&self, source: &str) -> Result<Vec<u8>, String> {
         let path = self.files.resolve(source).or_else(|_| self.files.resolve(&format!("../{source}"))).map_err(|e| e.to_string())?;
-        std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
+        crate::files::read_file(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
 
     /// The files `source` and the files its options name (palettes, masks)

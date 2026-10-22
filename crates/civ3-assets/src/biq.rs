@@ -293,7 +293,7 @@ impl Biq {
     }
 
     pub fn open(path: &std::path::Path) -> std::io::Result<Biq> {
-        let bytes = std::fs::read(path)?;
+        let bytes = crate::files::read_file(path)?;
         Biq::read(&bytes).map_err(std::io::Error::other)
     }
 

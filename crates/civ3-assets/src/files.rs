@@ -75,16 +75,30 @@ impl GameFiles {
 
     pub fn read(&self, rel: &str) -> Result<Vec<u8>, FileError> {
         let path = self.resolve(rel)?;
-        std::fs::read(&path).map_err(|source| FileError::Io { path, source })
+        read_file(&path).map_err(|source| FileError::Io { path, source })
     }
 
+    /// `name` in `dir`, found in the directory's (cached) listing: the
+    /// exact name first, else any case. No `exists()`/`metadata()` per
+    /// component: under Wine those open the file and query its volume
+    /// through mountmgr (an asynchronous ioctl completed by signal), once
+    /// per path component of every art file.
     fn child(&self, dir: &Path, name: &str) -> Option<PathBuf> {
-        let exact = dir.join(name);
-        if exact.exists() {
-            return Some(exact);
+        if name == "." || name == ".." {
+            return Some(dir.join(name));
         }
+        let entries = self.listing(dir);
+        let exact = std::ffi::OsStr::new(name);
+        if let Some((_, path)) = entries.iter().find(|(_, p)| p.file_name() == Some(exact)) {
+            return Some(path.clone());
+        }
+        let lower = name.to_lowercase();
+        entries.iter().find(|(n, _)| *n == lower).map(|(_, p)| p.clone())
+    }
+
+    fn listing(&self, dir: &Path) -> Listing {
         let cached = self.dir_cache.load().and_then(|m| m.get(dir).cloned());
-        let entries = cached.unwrap_or_else(|| {
+        cached.unwrap_or_else(|| {
             // Two threads missing at once both list the directory; the
             // first listing stored is kept.
             let listing: Listing = Arc::new(
@@ -101,15 +115,23 @@ impl GameFiles {
                 Some(map)
             });
             listing
-        });
-        let lower = name.to_lowercase();
-        entries.iter().find(|(n, _)| *n == lower).map(|(_, p)| p.clone())
+        })
     }
+}
+
+/// The whole file at `path`, like `std::fs::read` but without its
+/// `metadata()` size hint (under Wine, a volume query through mountmgr).
+pub fn read_file(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(u64::MAX).read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
     if name.is_empty() {
-        return dir.is_dir().then(|| dir.to_owned());
+        // (Listable rather than `is_dir()`: no volume query under Wine.)
+        return std::fs::read_dir(dir).is_ok().then(|| dir.to_owned());
     }
     let lower = name.to_lowercase();
     std::fs::read_dir(dir)
