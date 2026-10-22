@@ -3,14 +3,14 @@
   "implementation_baseline_commit": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
   "source_manifest": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
   "source_files": 673,
-  "scene_protocol": 50,
+  "scene_protocol": 51,
   "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
   "fallback_shader_sha256": "bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281",
   "neo_last_recorded_install": {
-    "source": "b9abc70760ae5aaa4c110aec5e79ad91ac12628ce6087a3918f71619d2f1c873",
-    "git_commit": "41edad8ce53211ad08f3069b15bc59df14d4b4be",
-    "protocol": 50,
-    "installed_at_utc": "2026-10-22T16:44:49.871342+00:00",
+    "source": "5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87",
+    "git_commit": "89992d3",
+    "protocol": 51,
+    "installed_at_utc": "2026-10-22T18:32:38.538510+00:00",
     "app": "/Users/sirati/Applications/Civilization III.app",
     "installation_acceptance": "accepted",
     "runtime_acceptance": "native window opens and stops cleanly in 3 of 3 launches; map/HUD, input and in-game Quit visually unverified",
@@ -121,7 +121,15 @@
   "code_commits_after_baseline": [
     "fee4096",
     "32cb02c",
-    "41edad8"
+    "41edad8",
+    "66f5a50",
+    "52b267e",
+    "feffb60",
+    "ab38c7d",
+    "631391b",
+    "d3d8f45",
+    "9050fc7",
+    "89992d3"
   ],
   "neo_window_check": {
     "status": "window_verified_visual_check_pending",
@@ -130,5 +138,5 @@
     "startup_deadlock_fixed_in": "fee4096",
     "record": "evidence/neo-window/verification.json"
   },
-  "neo_known_issue": "in-game action stalls (seconds to about a minute)"
+  "neo_known_issue": "in-game action stalls of 47-77 s since 20 Oct; separate-viewer A/B pending"
 }
