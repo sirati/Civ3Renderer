@@ -1214,8 +1214,9 @@ mod window_resolution_tests {
 
     /// The user's case: the game's title rows and Preferences labels
     /// (Lucida Sans, the game's sizes and glyph metrics) on TS Neo's
-    /// 3274×2048 screen, in a 3258×1904 window at desktop scale 2 (pixel
-    /// scale 2), menus at their size or scaled to the window. Every run is
+    /// 3274×2048 screen, in a 3258×1904 window at desktop scale 2 and the
+    /// default pixel scale ×1 (every window pixel rendered), menus scaled
+    /// to 100 % and 75 % of the window. Every run is
     /// drawn from the face's outlines at the window's resolution (not in
     /// 2×2 boxes), at its em times its scale on the window, within its
     /// scaled 1:1 layout (pens and advances), and nothing of it comes from
@@ -1258,23 +1259,23 @@ mod window_resolution_tests {
                 ..Default::default()
             };
             let rect_of = |s: &scene::FreeSprite| rect_of(&compiled, s);
-            for scale_menus in [false, true] {
-                let settings = viewer_settings::Resolution { scale_menus, ..Default::default() };
-                let plan = tile_viewer::scaling::plan((3258, 1904), 2.0, screen, &settings).for_scene(&scene, rect_of);
-                assert_eq!((plan.present.zoom, plan.canvas()), ((2, 1), (1629, 952)), "TS Neo's pixel scale 2");
+            for menu_scale_percent in [100.0, 75.0] {
+                let settings = viewer_settings::Resolution { scale_menus: true, menu_scale_percent, ..Default::default() };
+                let plan = tile_viewer::scaling::plan((3258, 1904), screen, &settings).for_scene(&scene, rect_of);
+                assert_eq!((plan.present.zoom, plan.canvas()), ((1, 1), (3258, 1904)), "TS Neo at the default ×1");
                 let mut layout = tile_viewer::layout::Layout::default();
                 layout.driver_screen = Some(plan.screen);
                 layout.menu_scale = plan.menu.zoom;
                 let mut frame = layout.frame(&scene, plan.canvas(), (0, 0, 0, 0), vec![], None);
                 tile_viewer::scaling::arrange_panned(&plan, &scene, &mut frame, &mut layout.menu_pan, rect_of);
                 let drawn = tile_viewer::scaling::drawn(&frame.cameras, &frame.copies, plan.present, |zoom| layout.zoomed_art(zoom));
-                assert_eq!((drawn.pixel_box, drawn.present.canvas, drawn.present.zoom), (2, (3258, 1904), (1, 1)), "{name}: composed at the window's resolution");
+                assert_eq!((drawn.pixel_box, drawn.present.canvas, drawn.present.zoom), (1, (3258, 1904), (1, 1)), "{name}: composed at the window's resolution");
                 let menu = frame.view_cameras[0].unwrap() as usize;
                 let camera = drawn.cameras[menu];
                 assert!(camera.zoomed_art, "{name}: text from outlines");
                 let zoom = camera.zoom.0 as f64 / camera.zoom.1 as f64;
-                let what = format!("{name}, menus scaled {scale_menus}, {zoom}x on the window");
-                assert!(zoom >= 2.0 && (zoom - 2.0 * frame.cameras[menu].zoom.0 as f64 / frame.cameras[menu].zoom.1 as f64).abs() < 1e-9, "{what}");
+                let what = format!("{name}, menus at {menu_scale_percent} %, {zoom}x on the window");
+                assert!(zoom > 1.0 && (zoom - frame.cameras[menu].zoom.0 as f64 / frame.cameras[menu].zoom.1 as f64).abs() < 1e-9, "{what}");
                 let world = tile_viewer::scene_world_for(&compiled, &scene, &frame.view_cameras);
                 let picture = tile_render::reference::render_views(&world, &compiled.atlas, &drawn.cameras, drawn.present.target, 0, [0, 0, 0, 255]);
                 // Without the outline glyphs nothing of the text is drawn.
@@ -1282,13 +1283,10 @@ mod window_resolution_tests {
                 sheets.free.retain(|s| s.text.is_none());
                 let rest = tile_render::reference::render_views(&sheets, &compiled.atlas, &drawn.cameras, drawn.present.target, 0, [0, 0, 0, 255]);
                 assert!(rest.pixels.iter().all(|p| p[..3] == [0, 0, 0]), "{what}: no 1:1 glyph sheet is drawn");
-                // (For looking at: the window's pixels as drawn now, and as
-                // the canvas's picture in 2×2 boxes showed them before.)
+                // (For looking at: the window's pixels as drawn.)
                 if let Some(dir) = std::env::var_os("CIV3R_TEXT_DUMP") {
-                    let before = tile_render::reference::render_views(&world, &compiled.atlas, &frame.cameras, plan.canvas(), 0, [0, 0, 0, 255]);
                     let save = |file: String, f: &dyn Fn(u32, u32) -> [u8; 4]| image::RgbaImage::from_fn(drawn.present.target.0, drawn.present.target.1, |x, y| image::Rgba(f(x, y))).save(std::path::Path::new(&dir).join(file)).unwrap();
-                    save(format!("{name}-{scale_menus}-window.png"), &|x, y| picture.get(x, y));
-                    save(format!("{name}-{scale_menus}-boxes.png"), &|x, y| before.get((x / 2).min(before.width - 1), (y / 2).min(before.height - 1)));
+                    save(format!("{name}-{menu_scale_percent}-window.png"), &|x, y| picture.get(x, y));
                 }
                 // Driver pixel (x, y) on the window (its top-left).
                 let base = (camera.origin.0 - camera.screen_shift.0, camera.origin.1 - camera.screen_shift.1);

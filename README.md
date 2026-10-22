@@ -475,7 +475,7 @@ keeps the menus (and a city screen's map) 1:1 over the window and resizes
 only the world. The game's minimap also marks what the split pane and the insets show
 (`CIV3R_VIEW_RECT_COLOR`, `R;G;B`, yellow by default). Zoomed views show
 text drawn at their zoom from the font's outlines (`text=sharp`, Ctrl+Shift+T;
-`pixel`: the 1:1 text's pixels scaled; `window`: a frame at a pixel scale composed at the window's resolution for text at its size there, at the full GPU cost). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
+`pixel`: the 1:1 text's pixels scaled). `CIV3R_UNIT_RINGS=on` (or e.g. `war=invert,peace=0;200;0,width=3`) draws a
 second ring around foreign units by diplomacy: war, mutual defence,
 peace.
 
@@ -502,6 +502,14 @@ prefix's `Z:` drive). The bridge sends them to the viewer as TOML in
 `scene::Update::Settings`, starting with the first scene, so the native
 viewer follows the same accepted file.
 
+The first run (no settings file yet, `civ3_bridge::first_run`): once the
+title menu is up, settled and nothing loads, the bridge opens Preferences
+by clicking the title's Preferences row, on the Resolution tab, and saves
+`[first_run] preferences_shown = true` as they open, whatever the user
+does then; they never open by themselves again. A settings file without
+that marker (an existing install) or one that cannot be read counts as
+done.
+
 Resolution (`tile_viewer::scaling`, `civ3_bridge::game_size`): our
 rendering resolution is apart from the game's screen. The game's screen
 is fixed when it starts, at the desktop's logical size (3840x2160 at
@@ -509,20 +517,17 @@ is fixed when it starts, at the desktop's logical size (3840x2160 at
 interface is and where its input goes. The viewer draws the world itself
 at the window's size divided by the pixel scale n, a whole number, each
 rendered pixel an exact n×n box (nearest pixel, never fractional; what is
-left of the window, under n pixels, is a border). Auto, the default, is
-the desktop's scale rounded down (2 at 200 %, 1 at 150 %). The whole
-frame, interface and text included, is rendered at that size and
-enlarged once onto the window, so ×n renders n² times fewer pixels
-(`scaling::drawn_on_canvas`); text in zoomed views is still drawn from
-outlines, at the canvas's resolution. Only with `text=window` in
-`TILE_VIEWER_LAYOUT` is the frame composed at the window's own resolution,
-every window pixel rendered whatever n, art still in exact n×n boxes, and the game's
-text (Lucida Sans, the face the game installs) is drawn from its outlines
-at the size it shows on the window: its em times the menu or view zoom
-times n, at the game's pens and advances scaled. Menus and popups scaled
-by the menu scale or to fit get the same text at pixel scale 1; at 1:1
-the game's own glyph pixels are drawn as before
-(`tile_viewer::scaling::drawn`, `Camera::boxed`). A larger
+left of the window, under n pixels, is a border). ×1, the default, on a
+high-density (Retina) display too, renders every window pixel; the
+frame, world and menu scales size things there. The whole frame,
+interface and text included, is rendered at the window's size over n
+and enlarged once onto the window, so ×n renders n² times fewer pixels
+(`tile_viewer::scaling::drawn`). The game's text (Lucida Sans, the face
+the game installs) in menus and views zoomed by the menu scale or to fit
+is drawn from its outlines at its size in that picture, at the game's
+pens and advances scaled; at 1:1 the game's own glyph pixels are drawn
+as before. Only the few seconds' confirmation of a new pixel scale is
+composed at the window's resolution, so it stays readable at ×6. A larger
 rendering resolution shows more of the world about the same middle, not
 the same world larger. The game's interface is drawn at its own pixels
 times the frame scale (the frame's panels, each kept at its side or
@@ -852,7 +857,9 @@ On a scaled desktop the game runs at its logical size: `civ3-play` reads
 the desktop's scale (2 at 200 %, 1.5 at 150 %; `--scale S` overrides it)
 and passes it on (`CIV3R_SCALE`): the bridge reports the display that
 many times smaller to the game (the nearest of its display modes of that
-shape), and the viewer's pixel scale Auto is it rounded down.
+shape). The viewer's pixel scale does not follow it (×1 unless chosen);
+on the first run the frame and world scales start at it rounded down,
+and menus at the share of the window a standard menu had at that scale.
 
 On Windows (and in the Windows VM, DX12 WARP) the bridge runs the viewer as
 a window of the game's own 32-bit process instead; `vendor/wgpu-hal` carries

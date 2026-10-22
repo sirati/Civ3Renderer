@@ -4,6 +4,19 @@
 use crate::{text::TextRun, ui::{Frame, ScreenDraw}};
 use civ3_sys::controls::{Control, ControlKind, TitleLayout};
 
+/// The title menu's row that opens Preferences (in every language: the
+/// rows are the game's, in its order).
+pub const PREFERENCES_ROW: u64 = 7;
+
+fn row_id(row: u64) -> u64 {
+    (0x9F_86C0u64 << 32) | 0x6000_0000 | row
+}
+
+/// The Preferences row among [`title`]'s controls, where it is drawn.
+pub fn preferences(controls: &[Control]) -> Option<[i32; 4]> {
+    controls.iter().find(|c| c.id == row_id(PREFERENCES_ROW)).map(|c| c.rect)
+}
+
 pub fn title(frame: &Frame, layout: TitleLayout, mut text_width: impl FnMut(&TextRun) -> i32) -> Vec<Control> {
     let mut controls = Vec::new();
     for row in layout.first..11 {
@@ -18,7 +31,7 @@ pub fn title(frame: &Frame, layout: TitleLayout, mut text_width: impl FnMut(&Tex
         controls.push(Control {
             rect: [x, y, width.saturating_add(20), layout.row_height],
             kind: ControlKind::Button,
-            id: (0x9F_86C0u64 << 32) | 0x6000_0000 | row as u64,
+            id: row_id(row as u64),
         });
     }
     controls
@@ -58,6 +71,10 @@ mod tests {
         assert_eq!(controls.len(), 10);
         assert_eq!(controls[0].rect, [648, 480, 133, 38]);
         assert_eq!(controls[9].rect, [648, 822, 107, 38]);
+        // The first run opens Preferences from its row.
+        assert_eq!(labels[PREFERENCES_ROW as usize], "Preferences");
+        assert_eq!(preferences(&controls), Some([648, 442 + 7 * 38, 107, 38]));
+        assert_eq!(preferences(&[]), None);
         assert_eq!(title(&model.shown_frame(), layout, |_| 87).len(), 10);
         assert_eq!(title(&frame, TitleLayout { first: 0, ..layout }, |_| 87).len(), 11);
         assert!(title(&Frame::default(), layout, |_| 87).is_empty());
@@ -89,7 +106,7 @@ mod tests {
         }], ..Default::default() };
         for pixel_scale in 1..=6 {
             for menu_scale in [0.5, 1.0] {
-                let mut plan = scaling::plan((3840, 2160), 2.0, scene.screen_size,
+                let mut plan = scaling::plan((3840, 2160), scene.screen_size,
                     &viewer_settings::Resolution { pixel_scale, ..Default::default() });
                 plan.menu.zoom = scaling::ratio(menu_scale);
                 let mut l = Layout::default();

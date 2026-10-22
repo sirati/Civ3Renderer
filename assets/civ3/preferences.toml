@@ -9,7 +9,7 @@
 # `layout.orientation` "vertical" or "horizontal"), and
 # `resolution.realised` / `resolution.window`, the rendered and the window
 # size as "W×H", `resolution.effective` the pixel scale in effect ("×3",
-# "Auto (×2)").
+# "×2, ×1 in this small window").
 #
 # Art: the game's own where it has pieces (parchment buttons in three
 # states from the player setup screen, the checkboxes, the Preferences
@@ -304,21 +304,9 @@ at = [90, 105]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
-text = "Render at the window's resolution divided by n, each pixel an n×n box (Auto: the desktop's scale, rounded down)."
+text = "Render at the window's resolution divided by n, each pixel an n×n box: fewer pixels for the GPU to draw."
 style = "label"
 at = [90, 130]
-show_if = "tab=resolution"
-
-[[panels.preferences.items]]
-choice = "resolution.pixel_scale"
-value = "auto"
-at = [90, 160]
-size = [58, 32]
-text = "Auto"
-style = "tab"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
@@ -326,7 +314,7 @@ repeat = ["1", "2", "3", "4", "5", "6"]
 spacing = [66, 0]
 choice = "resolution.pixel_scale"
 value = "{item}"
-at = [156, 160]
+at = [90, 160]
 size = [58, 32]
 text = "×{item}"
 style = "tab"

@@ -33,6 +33,7 @@ pub mod cursor;
 pub mod district_art;
 pub mod districts;
 pub mod edge;
+pub mod first_run;
 pub mod effects;
 pub mod game_render;
 pub mod game_size;
