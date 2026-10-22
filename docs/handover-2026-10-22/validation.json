@@ -5,7 +5,7 @@
   "active_agents": 0,
   "evidence_records_verified": 39,
   "markdown_links_verified": 72,
-  "html_sha256": "fcc1372565aca6e37fb1bf6f9753a8b1d63acf8f3bfc30db139b04d73dcc9b61",
+  "html_sha256": "12a3246f08b412dcff96bee181f291241fd8f4275fe409bb8574e9eddcdb2947",
   "runtime_verdict": "Neo: renderer in-process (dual stack); viewer attaches, Wine game process owns the on-screen window, clean stop (3 of 3, installed app via open). Map/HUD, input and in-game Quit on Neo unverified. Intel VM control passed.",
   "priorities_preserved": {
     "sound": "P3",

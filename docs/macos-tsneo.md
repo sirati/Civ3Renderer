@@ -48,6 +48,12 @@ The release helper `/mnt/datasets/c3r-build/release-1019/deploy-cross.sh`
 cross-compiles the binaries on papa and installs them with a manifest,
 backups and the app entry's `bundle` command.
 
+Never stop a game the deploy did not start: the user may be playing. The
+helper's install step refuses (exit 76) while a game, launcher or wineserver
+runs on Neo, and stops it only with `CIV3R_DEPLOY_STOP_RUNNING=1`. Set that
+only when told to stop the running game. Check for a running game before any
+test launch too, and stop only launches you started.
+
 After moving an installation, regenerate the bundle on the Mac using the
 already cross-built app entry. This writes its configuration, converts the
 original game icon with `sips` and `iconutil`, signs ad hoc, clears quarantine
