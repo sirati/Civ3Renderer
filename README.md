@@ -330,7 +330,12 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   friction as Apple's scroll views do); a shorter press is a click, sent
   on when the button comes up. The middle button
   drags in either mode. Panning A preserves its exact pixel position
-  after release, including when smooth movement is enabled. A follows
+  after release, including when smooth movement is enabled. Each view
+  keeps its own sub-pixel position while panned and is drawn at the
+  nearest pixel; the next drag, slide, edge scroll or wheel step goes on
+  from that position, so pans chain without drift at any pixel scale.
+  While a drag or slide moves a view, the unit or game request it
+  follows does not pull it back. A follows
   new game camera requests, including AI movement and combat, without
   moving B. In UnitMouse roles, selecting another unit resumes following
   that unit. The native game's parked camera does not pull A back to a
