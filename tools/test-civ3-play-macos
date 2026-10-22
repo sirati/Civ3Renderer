@@ -18,7 +18,7 @@ LAUNCHER = Path(os.environ.get("CIV3R_TEST_LAUNCHER",
     str(Path(os.environ.get("CARGO_TARGET_DIR", "target")) / "debug/civ3-play-macos"))).resolve()
 
 class MacLauncherTests(unittest.TestCase):
-    def run_case(self, *, viewer_fails=False, wine_exit=0, extra=(), occupied=False, other_source=False, source_alias=False, viewer_address="127.0.0.1:45678", interrupt=False, occupied_bridge=False, runtime_in_source=False, prefix_in_source=False, grandchild=False, viewer_fallback=False, viewer_ignores_term=False, registry_fails=False, font_cache=None, existing_rules_links=False, missing_rules=False, legacy_private_state=False, planted_state_link=False, existing_private_state=False, write_private_state=False, planted_history_link=False, render_env=None, viewer_exit=0):
+    def run_case(self, *, viewer_fails=False, wine_exit=0, extra=(), occupied=False, other_source=False, source_alias=False, viewer_address="127.0.0.1:45678", interrupt=False, occupied_bridge=False, runtime_in_source=False, prefix_in_source=False, grandchild=False, viewer_fallback=False, viewer_ignores_term=False, registry_fails=False, font_cache=None, existing_rules_links=False, missing_rules=False, legacy_private_state=False, planted_state_link=False, existing_private_state=False, write_private_state=False, planted_history_link=False, render_env=None, viewer_exit=0, native_close=None):
         temp = tempfile.TemporaryDirectory(prefix="civ3r-mac-launch-")
         self.addCleanup(temp.cleanup)
         base = Path(temp.name)
@@ -130,6 +130,17 @@ if os.environ.get('TEST_WRITE_PRIVATE_STATE')=='1':
 if os.environ.get('TEST_VIEWER_FALLBACK')=='1':
     time.sleep(0.5)
     pathlib.Path(os.environ['TEST_GAME_COMPLETED']).write_text('native game continued after viewer close')
+if os.environ.get('TEST_NATIVE_CLOSE'):
+    # The title menu showed, then the in-process viewer's window closes
+    # (tile_viewer and civ3r_native write these files).
+    pathlib.Path(os.environ['CIV3R_STARTUP_READY_FILE']).write_text('menu-presented\\n')
+    pathlib.Path(os.environ['CIV3R_VIEWER_CLOSED_FILE']).write_text('viewer-closed\\n')
+    if os.environ['TEST_NATIVE_CLOSE']=='stuck':
+        # A game process that can no longer end itself or answer TERM.
+        signal.signal(signal.SIGTERM,signal.SIG_IGN)
+        while True: time.sleep(1)
+    time.sleep(6.5)
+    pathlib.Path(os.environ['TEST_GAME_COMPLETED']).write_text('native game continued after viewer close')
 while os.environ.get('TEST_WINE_HANG')=='1': time.sleep(1)
 sys.exit(int(os.environ.get('TEST_WINE_EXIT','0')))
 ''')
@@ -165,6 +176,14 @@ sys.exit(int(os.environ.get('TEST_WINE_EXIT','0')))
                    TEST_WRITE_PRIVATE_STATE="1" if write_private_state else "0",
                    TEST_SCRATCH_NAMES=json.dumps(scratch_names),
                    TEST_HISTORY_NAMES=json.dumps(history_names))
+        if native_close is not None:
+            native = base / "native"
+            unix_dir = "aarch64-unix" if os.uname().machine in ("arm64", "aarch64") else "x86_64-unix"
+            for part in ["i386-windows/civ3r_native.dll", unix_dir + "/civ3r_native.so"]:
+                (native / part).parent.mkdir(parents=True, exist_ok=True)
+                (native / part).write_bytes(b"stand-in in-process renderer")
+            env.update(CIV3R_NATIVE_DIR=str(native), TEST_NATIVE_CLOSE=native_close)
+            extra = ('--in-process', *extra)
         for key in ['CIV3R_GAME','CIV3R_SCALE','WGPU_BACKEND','CIV3R_SETTINGS','CIV3R_FONT_CACHE','CIV3R_GAME_RENDER']:
             env.pop(key,None)
         if font_cache is not None:
@@ -447,6 +466,21 @@ sys.exit(int(os.environ.get('TEST_WINE_EXIT','0')))
         base, _, result=self.run_case(viewer_fallback=True,grandchild=True)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertFalse((base/'game-completed').exists())
+
+    def test_in_process_viewer_close_kills_a_game_that_cannot_end_itself(self):
+        started=time.monotonic()
+        base, home, result=self.run_case(native_close='stuck')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('native viewer closed; stopping owned game',result.stderr)
+        self.assertLess(time.monotonic()-started,14)
+        capture=json.loads((base/'capture.json').read_text())
+        self.assertEqual(Path(capture['env']['CIV3R_VIEWER_CLOSED_FILE']).name,'viewer-closed')
+        self.assertTrue(Path(capture['env']['CIV3R_VIEWER_CLOSED_FILE']).parent.name.startswith('session.'))
+
+    def test_in_process_viewer_close_keeps_the_game_in_explicit_compatibility(self):
+        base, _, result=self.run_case(native_close='continue',extra=('--compatibility-fallback',))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue((base/'game-completed').exists())
 
     def test_default_viewer_crash_reports_failure_and_stops_owned_game(self):
         base, _, result=self.run_case(viewer_fallback=True,viewer_exit=19)

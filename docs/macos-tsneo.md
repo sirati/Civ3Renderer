@@ -24,7 +24,14 @@ Terminal command below, in a window. Press Cmd-Space, type
 open "$HOME/Applications/Civilization III.app"
 ```
 
-Closing the viewer window ends the game. To stop it from a shell, run
+Closing the viewer window ends the game. The bridge ends the process with
+`TerminateProcess`, not `ExitProcess`. `ExitProcess` kills the game's other
+threads and then runs each DLL's detach. The game's `sound.dll` then waits
+forever for its dead sound thread, and the process stays with only a Dock
+icon that cannot quit. If the process still runs 5 seconds after the window
+closed, the launcher stops its process group (TERM, then KILL). The in-process
+viewer tells the launcher through the session file `CIV3R_VIEWER_CLOSED_FILE`.
+To stop it from a shell, run
 `"$HOME/Applications/Civilization III.app/Contents/MacOS/civ3-app-macos" stop`.
 This sends SIGTERM to the launcher, which stops the viewer and game it owns.
 Use the executable inside the installed app bundle for `stop`. The raw
@@ -134,6 +141,21 @@ for comparison. `--compatibility-fallback` explicitly permits recovery to
 the original renderer after viewer loss. `--show-game-window` changes only
 window visibility; it does not enable original pixels. `--map` is the
 explicit original-map-only diagnostic option.
+
+## Multiplayer needs native DirectPlay
+
+Civ III's network games use DirectPlay 8 (`dpnet.dll`). Wine's builtin
+`dpnet` cannot host or find games. `IDirectPlay8Peer::Host` and `EnumHosts`
+are stubs that return success without creating a session. The host's own
+player then stays "Connecting" and the game never starts. The Wine log
+shows `fixme:dpnet:IDirectPlay8PeerImpl_Host ... stub`. The private prefix
+has only Wine's builtin DirectPlay DLLs. Multiplayer needs Microsoft's
+32-bit DirectPlay installed into the prefix, for example with
+`winetricks directplay`. That puts `dpnet`, `dpnhpast`, `dpnhupnp`,
+`dpwsockx`, `dplayx`, `dpmodemx`, `dpnsvr.exe` and `dplaysvr.exe` from the
+DirectX redistributable into `syswow64`, sets them to native in
+`DllOverrides`, and registers the DLLs. This affects Linux the same way:
+the stub is in Wine, not in the Mac driver.
 
 ## Renderer inside the game's process
 

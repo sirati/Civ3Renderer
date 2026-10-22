@@ -306,6 +306,8 @@ impl Drop for Session {
     fn drop(&mut self) {
         let _ = fs::remove_file(self.path("token"));
         let _ = fs::remove_file(self.path("ready"));
+        let _ = fs::remove_file(self.path("menu-ready"));
+        let _ = fs::remove_file(self.path("viewer-closed"));
         let _ = fs::remove_dir(&self.0);
     }
 }
@@ -933,6 +935,9 @@ pub fn launch(
         return Ok(status);
     }
     let menu_ready = session.path("menu-ready");
+    // Written by the in-process viewer when its window closes
+    // (`civ3r_native`). There is no viewer process to follow then.
+    let viewer_closed = session.path("viewer-closed");
     stage(
         &progress,
         "Starting Wine",
@@ -972,14 +977,17 @@ pub fn launch(
             path.push(more);
         }
         overrides.push("civ3r_native=b;");
-        command.env("WINEDLLPATH", path).env(
-            "CIV3R_VIEWER",
-            if options.fullscreen {
-                "native-fullscreen"
-            } else {
-                "native"
-            },
-        );
+        command
+            .env("CIV3R_VIEWER_CLOSED_FILE", &viewer_closed)
+            .env("WINEDLLPATH", path)
+            .env(
+                "CIV3R_VIEWER",
+                if options.fullscreen {
+                    "native-fullscreen"
+                } else {
+                    "native"
+                },
+            );
         println!(
             "civ3-play-macos: renderer inside the game's process; its log is in the game log and {}",
             wine_log.display()
@@ -1058,6 +1066,10 @@ pub fn launch(
         let game_status = game.status()?;
         let viewer_status = match &viewer {
             Some(viewer) if follow_viewer => viewer.status()?,
+            // The in-process viewer closed. The game's side may be unable to
+            // end its own process (a DLL detach waiting for a dead thread),
+            // so its process group is stopped after the same timeout.
+            None if follow_viewer && viewer_closed.is_file() => Some(ExitStatus::from_raw(0)),
             _ => None,
         };
         if viewer_status.is_some() && viewer_gone.is_none() {
