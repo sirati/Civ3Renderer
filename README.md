@@ -211,7 +211,16 @@ by default and independent of smooth world movement. The game receives
 wheel input immediately; confirmed row changes slide through the list's
 bounds, and clicks follow the visible row. Lists without matching rows
 across an update change immediately. Alt button snapping keeps its own
-scroll behavior.
+scroll behavior. During a slide the list shows the game's newest drawing
+except for rows that have already left the game's list. The game draws
+its highlight under the pointer into the list (a list box's selection
+that follows the pointer). The viewer learns that highlight from the
+game's drawing when the game's pointer moves onto a row and lights it
+with no click or key: what the highlight adds and which colours it
+changes must turn the row's plain drawing into its lit one exactly and
+back. A learned highlight is drawn on the row under the pointer in every
+frame of a slide, and for up to 0.3 s after it until the game shows the
+same row lit.
 
 The game decides what its interface shows; how a control looks under the
 pointer the viewer draws itself, at its own frame rate
