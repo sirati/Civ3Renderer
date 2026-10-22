@@ -1,5 +1,28 @@
 [
   {
+    "task_name": "macos_vm_window",
+    "title": "Native window startup in the macOS VM",
+    "status": "in_progress",
+    "priority": "P0",
+    "active_agent_path": "/root/macos_vm_window",
+    "model": "gpt-6.1-sol",
+    "spawn_instruction": "Exactly one agent is already running for this task. Continue it without restarting other agents; check actual liveness before creating any replacement.",
+    "brief": "User reports that the deployed f510 native game window never appears on Neo. Verify the same source through the normal packaged app/starter and default startup-window handling in the Intel macOS VM. Isolate and minimally fix any shared failure. Neo is unavailable and must not be contacted.",
+    "first_step": "Check the owned VM and prepare the complete matching x86_64 source-bound runtime. Launch through the Aqua session using normal app behavior; use CLI/status-window bypasses only as diagnostic comparisons.",
+    "done_when": "Evidence shows the actual native renderer window, usable game/menu and a real loaded map/HUD with normal exit where healthy. Preserve failed attempts and source/artifact bindings. A VM pass is scoped to Intel macOS and does not establish ARM64/FEX/Metal correctness.",
+    "resources": "Sole agent and sole VM GUI/input owner. Keep renderer VMs within their combined10GB slice limit, cross-build only on Papa, and use existing read-only assets.",
+    "family_ids": [
+      "platform-mac-dualstack"
+    ],
+    "evidence": [
+      "README.md",
+      "deployment.json",
+      "../macos-vm.md"
+    ],
+    "depends_on": [],
+    "deployment_gate": false
+  },
+  {
     "task_name": "combat_validation",
     "title": "Camera arrival and accelerated combat",
     "status": "open",

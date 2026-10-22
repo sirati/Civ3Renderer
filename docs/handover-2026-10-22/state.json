@@ -13,7 +13,7 @@
     "app": "/Users/sirati/Applications/Civilization III.app",
     "f510_staged_only": false,
     "installation_acceptance": "accepted",
-    "runtime_acceptance": "not exercised",
+    "runtime_acceptance": "user_reports_native_window_never_appears",
     "auto_launch": false,
     "record": "deployment.json"
   },
@@ -71,18 +71,20 @@
   },
   "agents": {
     "scope": "Actual unfinished work only; completed and accepted agents excluded",
-    "continuation_tasks": 5,
+    "continuation_tasks": 6,
     "spawn_required_when_resuming": true,
     "spawn_all_backlog_automatically": false,
-    "task_index": "agent-index.json"
+    "task_index": "agent-index.json",
+    "active_agents": 1
   },
   "evidence_records": 13,
   "backup_directories": {
     "existing": "20261020T1918Z",
-    "handover_successor": "20261022-neo-priorities",
+    "handover_successor": "20261022-vm-window",
     "local_root": "/mnt/datasets/c3r-source-backups",
     "laptop_root": "/home/sirati/civ3r-source-backups",
-    "neo_root": "/Users/sirati/civ3r-source-backups"
+    "neo_root": "/Users/sirati/civ3r-source-backups",
+    "neo_replication": "pending; host unavailable; no contact allowed"
   },
   "documentation_only": false,
   "priority_policy": {
@@ -93,5 +95,14 @@
     "low_priority_tasks_are_deployment_gates": false
   },
   "repository_changes": "documentation_only",
-  "deployment_performed": true
+  "deployment_performed": true,
+  "neo_available": false,
+  "neo_contact_allowed": false,
+  "active_task": {
+    "name": "macos_vm_window",
+    "agents": 1,
+    "model": "gpt-6.1-sol",
+    "venue": "Intel macOS VM",
+    "neo_contact": false
+  }
 }

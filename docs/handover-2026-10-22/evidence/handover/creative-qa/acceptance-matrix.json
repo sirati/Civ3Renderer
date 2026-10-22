@@ -1303,7 +1303,9 @@
         "similar_bug_probe": "Menu-only startup mistaken for complete gameplay coverage"
       },
       "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
-      "current_assignment": false
+      "current_assignment": true,
+      "continuation_task": "macos_vm_window",
+      "current_runtime_report": "User reports missing native renderer window on Neo; one Intel macOS VM test agent active; Neo unavailable."
     },
     {
       "id": "platform-metal",

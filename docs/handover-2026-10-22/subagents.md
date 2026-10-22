@@ -6,11 +6,24 @@ Sound and the 240 FPS target are P3. Six-bit and seven-bit pixel attribution is 
 
 | Priority | Unfinished task | Fresh subagent when resumed |
 | --- | --- | --- |
+| P0 | [Native window startup in the macOS VM](#macos_vm_window) | One active agent, `macos_vm_window`; do not duplicate |
 | P1 | [Camera arrival and accelerated combat](#combat_validation) | `combat_validation` |
 | P3 | [Sound and loaded-save audio follow-up](#audio_loaded) | `audio_loaded` |
 | P3 | [CPU busy attribution](#cpu_timing) | `cpu_timing` |
 | P3 | [Native 4K performance and candidate attribution](#performance_240) | `performance_240` |
 | P4 | [Six-bit and seven-bit pixel attribution](#wider_color) | `wider_color` |
+
+<a id="macos_vm_window"></a>
+
+## Native window startup in the macOS VM
+
+Exactly one fresh GPT-6.1 Sol agent is running as `/root/macos_vm_window`. Continue this task without restarting other agents. Check actual liveness before creating a replacement.
+
+The user reports no native game window on the installed f510 Neo build. Test that source in the Intel macOS VM through the normal packaged app and starter, including default startup-window behavior. A direct CLI pass with diagnostic bypasses is not the primary acceptance test.
+
+Require a visible usable native renderer window, real game UI, a loaded map/HUD and normal exit when healthy. Preserve source/artifact identities, screenshots and failed attempts. Isolate and minimally fix any shared failure. An Intel VM pass does not prove ARM64/FEX/Metal, or establish architecture as the sole cause.
+
+Neo is unavailable and must not be contacted. Use one owned VM GUI/input session, the combined10GB VM cap, Papa-only cross-builds and existing read-only assets. See [the VM guide](../macos-vm.md) and [installation identity](deployment.json).
 
 <a id="combat_validation"></a>
 

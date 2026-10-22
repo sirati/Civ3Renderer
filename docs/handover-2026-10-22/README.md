@@ -1,6 +1,8 @@
 # Civ III renderer handover
 
-The latest coherent release is installed on Neo as **Civilization III**, protocol 50, source f510. Installation, matching runtime files, signatures, icon and app search are verified. The game was left closed. Installation evidence is in [deployment.json](deployment.json).
+The installed Neo release is **Civilization III**, protocol 50, source f510. Its files, signatures, icon and registration were verified, but the user now reports that the native game window never appears. Successful installation did not establish a working launch. Installation evidence is in [deployment.json](deployment.json).
+
+Neo is currently unavailable and must not be contacted. One fresh agent is checking the normal packaged app in the Intel macOS VM. It must demonstrate a visible, usable renderer window and real game UI. A VM pass alone cannot establish that ARM64/FEX/Metal works or that architecture is the only difference.
 
 Sound and the 240 FPS frame target are low priority P3. Six-bit/seven-bit pixel attribution is P4. They do not block deployment. Keep completed and accepted agents out of this handover.
 
@@ -25,13 +27,14 @@ Sound and the 240 FPS frame target are low priority P3. Six-bit/seven-bit pixel 
 
 | Priority | Task | Next action |
 | --- | --- | --- |
+| P0 | Native renderer window never appears | Use the one active macOS VM agent to reproduce the normal app launch, isolate any shared failure and verify the actual window. Do not restart the backlog agents or contact Neo. |
 | P1 | Combat camera arrival and speed | Finish the diagnostic build and matched 1x/4x battles with RNG and stable-outcome comparison. |
 | P3 | Sound | Fix the loaded-save audio driver and finish its qualified loaded/normal-Quit test and music soak. |
 | P3 | CPU busy attribution | Add actual CPU busy timing while preserving the existing counter design. |
 | P3 | Native 4K at 240 FPS | Continue controlled thin-view attribution and qualified optimization from the recorded 43–44 FPS baseline. |
 | P4 | Six-bit/seven-bit pixel attribution | Continue the strict rounding investigation and private wider-color qualification. |
 
-When resuming an unfinished task, the successor must spawn the corresponding fresh subagent from [the continuation briefs](subagents.md). Respect these priorities; do not automatically start the backlog. Completed implementation and accepted reviews do not need new agents just because a historical checklist contains broader test suggestions.
+The window-startup test already has one active agent. Continue that task without duplicating it. When later resuming other unfinished work, use [the continuation briefs](subagents.md) and respect its priority. Do not automatically start the backlog. Completed implementation and accepted reviews do not need new agents just because a historical checklist contains broader test suggestions.
 
 The [acceptance checklist](acceptance.md) is a reference to the older feature ledger, not a list of active subagents. [Deferred work](deferred-work.md) retains sound, numerical and performance details without making them deployment gates. [handover.html](handover.html) is the offline reading copy.
 
@@ -39,7 +42,7 @@ The [acceptance checklist](acceptance.md) is a reference to the older feature le
 
 | Item | Current identity |
 | --- | --- |
-| Neo app | `/Users/sirati/Applications/Civilization III.app`, bundle ID `org.sirati.civ3r`. Search for Civilization III to launch. |
+| Neo app | `/Users/sirati/Applications/Civilization III.app`, bundle ID `org.sirati.civ3r`. User reports missing native game window. |
 | Installed at | 22 October 2026, 10:44:43 UTC. |
 | Source freeze | `f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703`, 673 source entries, protocol 50. |
 | Implementation baseline | Git commit `8106ae5a4debbe247cb5e64523d4972474f4fe39`. Later handover commits change documentation only. |
@@ -63,6 +66,7 @@ The [restore guide](backup-and-restore.md) covers main/private/FEX backups and w
 - Renderer VMs share `c3r-vms.slice` with a combined 10 GB cap. The macOS `work` VM uses SSH port 22390. Never operate `wayland-host`.
 - Reserve one owner for VM GUI/input and one for AMD measurements. Do not reuse historical leases. Sol GUI/screenshot work is authorized.
 - The user authorized the latest Neo deployment. Old audio, wider-color and FPS deployment holds are superseded. Do not auto-launch the game during source backup or documentation work.
+- Neo is unavailable. Do not contact it or attempt a deployment/backup there during this VM investigation. Keep source committed and preserve reachable backups; record Neo replication as pending.
 - Commit work and use a working origin, or replicate the Git tree to Papa's laptop and Neo before source cleanup.
 
 ## Next session

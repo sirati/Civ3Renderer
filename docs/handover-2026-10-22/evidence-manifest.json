@@ -86,8 +86,8 @@
       "copy": "evidence/handover/creative-qa/acceptance-matrix.json",
       "source": "/mnt/datasets/c3r-build/handover/creative-qa/acceptance-matrix.json",
       "transformation": "Historical task checklist with current priority overrides, accepted installation and actual unfinished continuation assignments only.",
-      "copy_sha256": "eef74ad655474ff8ba96f62b9ee7afd170773e9be6a02f6c5a476ee3ef668a63",
-      "copy_bytes": 90669
+      "copy_sha256": "29faf58e1bb33933761fb20d817d3f9057b9ae46b4469fb30cc0597915c33f8f",
+      "copy_bytes": 90856
     },
     {
       "source": "/mnt/datasets/c3r-build/handover/creative-qa/text-perf-sol/actual-App-f510-camera-stage-map.json",
