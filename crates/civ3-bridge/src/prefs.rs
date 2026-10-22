@@ -1428,12 +1428,12 @@ mod tests {
     fn capture_sensitivity_slider_drafts_its_limits_and_shows_the_multiplier() {
         let (mut p, path) = open_prefs("capture-sensitivity");
         assert!(click(&mut p, 330, 55).is_empty());
-        assert_eq!(p.editing().input.capture_sensitivity, 1.0);
+        assert_eq!(p.editing().input.capture_sensitivity, 3.0);
         assert!(click(&mut p, 850, 355).is_empty());
-        assert_eq!(p.editing().input.capture_sensitivity, 5.0);
+        assert_eq!(p.editing().input.capture_sensitivity, 10.0);
         assert_eq!(p.settings().input.capture_sensitivity, p.editing().input.capture_sensitivity);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
-        assert!(texts.contains(&"5x".to_owned()), "{texts:?}");
+        assert!(texts.contains(&"10x".to_owned()), "{texts:?}");
         assert!(click(&mut p, 553, 355).is_empty());
         assert_eq!(p.editing().input.capture_sensitivity, 0.1);
         assert_eq!(p.settings().input.capture_sensitivity, p.editing().input.capture_sensitivity);
