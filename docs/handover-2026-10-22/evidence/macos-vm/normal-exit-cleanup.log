@@ -1,0 +1,20 @@
+7319 /Users/c3r/civ3r-window-f510/runtime/session.2105e507df4a10b8562e8b89efdf689df0eb6d7944cd16bb3f676db052842e9e/wine-compat/lib/wine/../../bin/wineserver
+7326 C:\windows\system32\services.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7328 C:\windows\system32\winedevice.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7330 C:\windows\system32\plugplay.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7334 C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7336 C:\windows\system32\winedevice.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7338 C:\windows\system32\rpcss.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7676 zsh -c pgrep -alf "civ3|wine"; test ! -e /Users/c3r/civ3r-window-f510/runtime/launch.lock && echo launch-lock-released; tail -12 /Users/c3r/civ3r-window-f510/evidence/app-1792675688-7295.log
+launch-lock-released
+2026-10-22 15:28:15.762 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+2026-10-22 15:28:16.093 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+2026-10-22 15:28:16.298 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+2026-10-22 15:28:16.326 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+civ3-play-macos: prepared private Wine 11.0_1 SS-return compatibility at /Users/c3r/civ3r-window-f510/runtime/session.2105e507df4a10b8562e8b89efdf689df0eb6d7944cd16bb3f676db052842e9e/wine-compat
+civ3-play-macos: renderer inside the game's process; its log is in the game log and /Users/c3r/civ3r-window-f510/runtime/logs/session-1792675726413599000-7295.wine.log
+civ3-play-macos: game log /Users/c3r/civ3r-window-f510/runtime/game/Civilization III Complete/Conquests/civ3-bridge.log
+2026-10-22 15:28:47.167 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+2026-10-22 15:28:47.486 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+2026-10-22 15:28:47.520 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.
+2026-10-22 15:29:00.788 civ3-play-macos[7295:508429] [CAMetalLayer nextDrawable] returning nil because device is nil.

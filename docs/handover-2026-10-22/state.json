@@ -13,7 +13,7 @@
     "app": "/Users/sirati/Applications/Civilization III.app",
     "f510_staged_only": false,
     "installation_acceptance": "accepted",
-    "runtime_acceptance": "user_reports_native_window_never_appears",
+    "runtime_acceptance": "user_reports_native_window_never_appears; Intel control passed; Neo unavailable",
     "auto_launch": false,
     "record": "deployment.json"
   },
@@ -75,9 +75,9 @@
     "spawn_required_when_resuming": true,
     "spawn_all_backlog_automatically": false,
     "task_index": "agent-index.json",
-    "active_agents": 1
+    "active_agents": 0
   },
-  "evidence_records": 13,
+  "evidence_records": 38,
   "backup_directories": {
     "existing": "20261020T1918Z",
     "handover_successor": "20261022-vm-window",
@@ -94,15 +94,26 @@
     "six_and_seven_bit_pixel_attribution": "P4",
     "low_priority_tasks_are_deployment_gates": false
   },
-  "repository_changes": "documentation_only",
+  "repository_changes": "documentation_and_runtime_evidence_only",
   "deployment_performed": true,
   "neo_available": false,
   "neo_contact_allowed": false,
-  "active_task": {
-    "name": "macos_vm_window",
-    "agents": 1,
-    "model": "gpt-6.1-sol",
-    "venue": "Intel macOS VM",
-    "neo_contact": false
+  "active_task": null,
+  "macos_vm_check": {
+    "status": "accepted",
+    "source": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+    "protocol": 50,
+    "native_window": true,
+    "loaded_map_hud": true,
+    "keyboard_mouse_input": true,
+    "ordinary_exit_observed": true,
+    "numeric_exit_code_observed": false,
+    "owned_process_survivors": false,
+    "tests_passed": 560,
+    "tests_ignored": 8,
+    "initial_gpu_environment_failures": 2,
+    "same_binary_gpu_reruns_passed": 2,
+    "record": "evidence/macos-vm/verification.json",
+    "scope": "Intel Wine/SwiftShader/AppKit bitmap; ARM64 Wine/FEX and physical Metal untested"
   }
 }

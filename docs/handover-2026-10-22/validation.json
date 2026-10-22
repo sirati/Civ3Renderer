@@ -1,16 +1,26 @@
 {
   "checked_date": "2026-10-22",
-  "scope": "Runtime failure recorded separately from installation; one VM agent active; no Neo contact permitted.",
+  "scope": "Intel native-window/map/input/ordinary-exit control accepted; Neo startup remains unresolved and waits for device availability; no active agents or Neo contact.",
   "unfinished_continuation_tasks": 6,
-  "active_agents": 1,
-  "evidence_records_verified": 13,
-  "markdown_links_verified": 62,
-  "html_sha256": "769eb020c3868a28507088ea3ff7a901b5b33d78bbf734232dcfea28460f76d5",
-  "runtime_verdict": "pending macOS VM test; user reports missing native window on Neo",
+  "active_agents": 0,
+  "evidence_records_verified": 38,
+  "markdown_links_verified": 70,
+  "html_sha256": "60dae990021bd3fc00f2005a7e97a974417d177185d9869e3f5e1421ea16c001",
+  "runtime_verdict": "Intel VM control passed; Neo native-window failure unresolved; ARM64/FEX/Metal and Neo package environment unverified.",
   "priorities_preserved": {
     "sound": "P3",
     "fps240": "P3",
     "six_seven_bit": "P4"
   },
-  "visual_preview": "Previously unavailable; local links/JSON checked."
+  "visual_preview": "Previously unavailable; local links/JSON checked.",
+  "html_links_verified": 58,
+  "runtime_tests": {
+    "unique_passed": 560,
+    "ignored": 8,
+    "initial_gpu_environment_failures": 2,
+    "same_binary_reruns_passed": 2
+  },
+  "source_entries_checked_against_baseline": 673,
+  "runtime_artifact_hashes_checked": 6,
+  "cpu_test_binary_hashes_checked": 8
 }

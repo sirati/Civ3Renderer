@@ -1,0 +1,33 @@
+
+running 28 tests
+test startup::gpu::gpu_tests::startup_vector_text_uses_the_existing_shader_path ... ignored, requires an explicit GPU lease
+test startup::gpu::tests::text_layout_uploads_only_visible_rows_and_bounds_large_windows ... ok
+test startup::gpu::tests::unsupported_unicode_remains_visible_as_a_gpu_outline ... ok
+test startup::signals::tests::closed_ui_receiver_releases_signal_reader ... ok
+test startup::signals::tests::closing_without_a_signal_wakes_and_joins_reader ... ok
+test startup::signals::tests::signal_child ... ignored, invoked only by the bounded owning subprocess tests
+test startup::signals::tests::term_after_lifecycle_worker_completion_wakes_retained_receiver ... ok
+test startup::signals::tests::term_before_worker_completion_cannot_be_replaced_by_failure ... ok
+test startup::tests::completed_result_preserves_success_and_error_unless_interrupted ... ok
+test startup::tests::hidden_and_occluded_windows_never_render_but_failure_can_show ... ok
+test startup::tests::worker_panic_keeps_the_diagnostic ... ok
+test unix::owned_debuggers::tests::only_the_automatic_debugger_role_is_eligible_after_ownership ... ok
+test unix::tests::cancellation_releases_the_owned_process_group ... ok
+test unix::tests::clean_game_exit_before_a_menu_is_a_startup_failure ... ok
+test unix::tests::fex_x87_defaults_to_reduced_precision_unless_set ... ok
+test unix::tests::hardware_tso_defaults_on_unless_set ... ok
+test unix::tests::saved_32_bit_registry_values_are_recognised ... ok
+test unix::tests::scale_rejects_nonfinite_and_shell_numeric_extensions ... ok
+test unix::tests::session_end_reports_game_failures_over_viewer_exit ... ok
+test unix::tests::status_peek_keeps_leader_reserved_until_group_cleanup ... ok
+test unix::tests::wine_path_preserves_spaces_and_backslash_converts_only_separators ... ok
+test unix::wine_compat::tests::child_library_path_prefers_private_and_preserves_inherited_entries ... ok
+test unix::wine_compat::tests::complete_files_publish_with_final_permissions ... ok
+test unix::wine_compat::tests::entry_limit_failure_cleans_owned_view_without_following_links ... ok
+test unix::wine_compat::tests::exact_image_and_private_view_are_verified ... ignored, requires CIV3R_TEST_WINE_ROOT with the external official Wine 11.0_1 runtime
+test unix::wine_compat::tests::jump_targets_stub_and_stub_preserves_original_return ... ok
+test unix::wine_compat::tests::malformed_and_unknown_images_are_rejected_before_indexing ... ok
+test unix::wine_compat::tests::unknown_executable_is_rejected_without_creating_a_view ... ok
+
+test result: ok. 25 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.37s
+

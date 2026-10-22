@@ -19,7 +19,7 @@
   "parent_independent_remote_hashes_verified": true,
   "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T104443255543Z",
   "game_launched": false,
-  "runtime_acceptance": "User reports native game window never appears; Intel macOS VM investigation underway; Neo unavailable.",
+  "runtime_acceptance": "User reports native game window never appears on Neo. Same-source Intel macOS VM control passed window, map, input and ordinary exit. Neo unavailable; ARM64 Wine/FEX, Metal and installed Neo environment unverified.",
   "receipts": {
     "deployment-summary.json": {
       "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/deployment-summary.json",
@@ -37,5 +37,6 @@
       "path": "/mnt/datasets/c3r-build/deploy-neo-latest-20261022/parent-install-review.json",
       "sha256": "f2a655e9f353a349123bbd11c6dddc6feefe2853b6964fd918b811140968d65b"
     }
-  }
+  },
+  "intel_comparison_record": "evidence/macos-vm/verification.json"
 }

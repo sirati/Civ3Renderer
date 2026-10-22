@@ -1,0 +1,27 @@
+
+running 22 tests
+test delta_predecessor_tests::consumed_batch_requires_full_recovery_from_an_older_predecessor ... ok
+test delta_predecessor_tests::legacy_take_changes_also_advances_the_delta_predecessor ... ok
+test delta_predecessor_tests::matching_control_only_and_empty_batches_keep_incremental_invalidation ... ok
+test loading_cursor::tests::native_cursor_cadence_keeps_frame_order_and_wraps ... ok
+test tests::a_driver_may_be_shared_without_a_lock ... ok
+test tests::a_waiting_renderer_wakes_for_each_batch_at_once ... ok
+test tests::host_statuses_are_kept_by_the_display_and_alone_are_no_new_scene ... ok
+test tests::settings_go_once_when_they_change_and_are_taken_once ... ok
+test tests::settings_preview_metadata_repeats_neither_lease_nor_settings_and_clears_explicitly ... ok
+test tests::slots_and_bindings_travel_incrementally ... ok
+test tests::the_display_says_what_changed ... ok
+test tests::the_driver_wakes_the_renderer_and_the_cursor_travels ... ok
+test tests::updates_and_input_cross_threads ... ok
+test wire::camera_arrival_tests::combat_area_and_receipts_round_trip_without_losing_serial_or_bounds ... ok
+test wire::tests::all_message_types_reject_a_mismatched_runtime_before_decoding_payloads ... ok
+test wire::tests::map_wheel_preferences_update_without_refocusing_the_camera ... ok
+test wire::tests::menu_fit_roundtrips_and_rejects_the_previous_protocol ... ok
+test wire::tests::minimal_control_looks_roundtrip ... ok
+test wire::tests::native_palette_blend_round_trips_in_commands_and_look_recipes ... ok
+test wire::tests::semantic_camera_repeats_and_shutdown_cross_the_wire ... ok
+test wire::tests::sprite_lifetimes_round_trip_diff_and_apply ... ok
+test wire::tests::updates_and_input_round_trip ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
