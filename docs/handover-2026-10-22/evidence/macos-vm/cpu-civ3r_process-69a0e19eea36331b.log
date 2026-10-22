@@ -1,0 +1,15 @@
+
+running 6 tests
+test macos::discovery_tests::discovery_fixture ... ignored, unsigned native subprocess fixture for environment discovery
+test macos::discovery_tests::marked_discovery_preserves_an_unmarked_same_prefix_client ... 
+running 1 test
+
+running 1 test
+ok
+test macos::tests::atomic_audit_token_rejects_stale_identity_and_preserves_its_errno_contract ... ok
+test tests::darwin_arguments_cannot_impersonate_an_environment_marker ... ok
+test tests::darwin_empty_argv_entries_do_not_shift_the_environment_boundary ... ok
+test tests::marker_is_an_exact_environment_entry ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

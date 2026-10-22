@@ -1,0 +1,148 @@
+[
+  {
+    "kCGWindowLayer" : 2147483630,
+    "kCGWindowMemoryUsage" : 6384,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 153,
+    "kCGWindowOwnerName" : "Window Server",
+    "kCGWindowNumber" : 4,
+    "kCGWindowStoreType" : 2,
+    "kCGWindowBounds" : {
+      "X" : 698,
+      "Height" : 32,
+      "Y" : 289,
+      "Width" : 32
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowLayer" : 25,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 342,
+    "kCGWindowOwnerName" : "Control Center",
+    "kCGWindowNumber" : 25,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 1025,
+      "Height" : 24,
+      "Y" : 0,
+      "Width" : 38
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowLayer" : 25,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 456,
+    "kCGWindowOwnerName" : "Spotlight",
+    "kCGWindowNumber" : 27,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 1063,
+      "Height" : 24,
+      "Y" : 0,
+      "Width" : 31
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowLayer" : 25,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 342,
+    "kCGWindowOwnerName" : "Control Center",
+    "kCGWindowNumber" : 24,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 1094,
+      "Height" : 24,
+      "Y" : 0,
+      "Width" : 34
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowLayer" : 25,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 342,
+    "kCGWindowOwnerName" : "Control Center",
+    "kCGWindowNumber" : 19,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 1128,
+      "Height" : 24,
+      "Y" : 0,
+      "Width" : 152
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowName" : "Menubar",
+    "kCGWindowLayer" : 24,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 1,
+    "kCGWindowOwnerPID" : 153,
+    "kCGWindowOwnerName" : "Window Server",
+    "kCGWindowNumber" : 21,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 0,
+      "Height" : 24,
+      "Y" : 0,
+      "Width" : 1280
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowLayer" : 20,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 340,
+    "kCGWindowOwnerName" : "Dock",
+    "kCGWindowNumber" : 11,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 0,
+      "Height" : 800,
+      "Y" : 0,
+      "Width" : 1280
+    },
+    "kCGWindowAlpha" : 1
+  },
+  {
+    "kCGWindowLayer" : 0,
+    "kCGWindowMemoryUsage" : 2176,
+    "kCGWindowIsOnscreen" : true,
+    "kCGWindowSharingState" : 0,
+    "kCGWindowOwnerPID" : 7340,
+    "kCGWindowOwnerName" : "wine",
+    "kCGWindowNumber" : 57,
+    "kCGWindowStoreType" : 1,
+    "kCGWindowBounds" : {
+      "X" : 132,
+      "Height" : 663,
+      "Y" : 46,
+      "Width" : 1016
+    },
+    "kCGWindowAlpha" : 1
+  }
+]7295 /Users/c3r/civ3r-window-f510/runtime/bin/civ3-play-macos --game /Users/c3r/civ3-assets/Conquests --window --in-process
+7319 /Users/c3r/civ3r-window-f510/runtime/session.2105e507df4a10b8562e8b89efdf689df0eb6d7944cd16bb3f676db052842e9e/wine-compat/lib/wine/../../bin/wineserver
+7326 C:\windows\system32\services.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7328 C:\windows\system32\winedevice.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7330 C:\windows\system32\plugplay.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7332 C:\windows\system32\explorer.exe /desktop CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7334 C:\windows\system32\svchost.exe -k LocalServiceNetworkRestricted CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7336 C:\windows\system32\winedevice.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7338 C:\windows\system32\rpcss.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll
+7340 Z:\Users\c3r\civ3r-window-f510\runtime\game\Civilization III Complete\Conquests\Civ3Conquests.exe CIV3R_BRIDGE=/Users/c3r/civ3r-window-f510/runtime/bin/IFC23.dll

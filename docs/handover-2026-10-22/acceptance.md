@@ -2,7 +2,7 @@
 
 This is the older feature ledger, retained as reference. Its broad open statuses do not identify unfinished agents and do not reopen work already completed and accepted. Only the actual unfinished tasks in [the continuation briefs](subagents.md) receive subagent assignments.
 
-The current user priorities override old P0 entries for sound and the frame target to P3; six-bit/seven-bit pixel attribution is P4. The Neo files are installed, but the user reports that the native game window never appears; one VM test is active. These low-priority tasks do not gate deployment.
+The current user priorities override old P0 entries for sound and the frame target to P3; six-bit/seven-bit pixel attribution is P4. The Neo files are installed, but the user reports that the native game window never appears. The Intel VM control passed; the Neo issue waits for device availability. These low-priority tasks do not gate deployment.
 
 | Family | Recorded status | Current continuation assignment |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ The current user priorities override old P0 entries for sound and the frame targ
 | gpu-three-buffers | open | None |
 | gpu-no-cpu-render | open | None |
 | platform-linux-dualstack | open | None |
-| platform-mac-dualstack | User reports missing native window | P0: `macos_vm_window` |
+| platform-mac-dualstack | Intel VM passed; Neo native window unresolved | P0: `neo_native_window`, waits for Neo |
 | platform-metal | open | None |
 | platform-windows | open | None |
 | platform-pointer-api | open | None |

@@ -1,0 +1,91 @@
+{
+  "status": "accepted_intel_macos_native_window_control",
+  "completed_at_utc": "2026-10-22T13:51:21.910298+00:00",
+  "source_archive_sha256": "f51034b34b94eeb3bc3a8dcfbd2e4faf8eabc6350721b7f7172da7b406504703",
+  "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
+  "scene_protocol": 50,
+  "source_entries": 673,
+  "build": "Fresh x86_64 native components and paired i686 PE components cross-built on Papa; no guest build.",
+  "production_source_changes": [],
+  "launch": "Production-generated app through Aqua open; LSUIElement=true; default startup window enabled.",
+  "confirmed": [
+    "native renderer title/menu",
+    "real loaded qa-city.SAV map, units, terrain, minimap and HUD",
+    "keyboard and mouse input",
+    "ordinary Quit confirmation closes native window, game and launcher",
+    "launch lock absent and no owned processes after natural service exit"
+  ],
+  "ordinary_exit_code": "Not directly observable through Finder open; no numeric success exit code is claimed.",
+  "tests": {
+    "unique_passed": 560,
+    "ignored": 8,
+    "initial_invocation": "558 passed, 2 GPU tests failed NoAdapter because no VM graphics environment was supplied; 8 ignored.",
+    "rerun": "Both exact failed GPU tests passed with SwiftShader/Vulkan environment, same binary; gpu-tests-rerun.log.",
+    "native_gui": "Production-generated app, LSUIElement=true, default startup window; visible native title/menu, real save chooser/confirmation, real map/HUD, keyboard Esc and mouse quit confirmation, ordinary exit."
+  },
+  "initial_failures": [
+    "Initial CPU invocation omitted VM Vulkan environment: 493 tile-viewer tests passed, two GPU tests failed NoAdapter. Full logs retained.",
+    "Initial fast keyboard input suffered stale-input drops; slow host VNC input entered a correct filename.",
+    "Bounded map-cell observation ended on Saved Game confirmation, not a game crash; screenshot 048 preserves it."
+  ],
+  "limitations": [
+    "Intel x86_64 Wine 11 new WoW64 with private launcher SS-return compatibility; no ARM64 or FEX execution.",
+    "SwiftShader CPU Vulkan plus AppKit bitmap presentation; no physical Metal GPU.",
+    "VM config changes Wine/prefix, assets/font paths and graphics environment; CIV3R_PRELOAD=off as documented for VM diagnostic setup.",
+    "VM startup status client is blank and CAMetalLayer reports no device; status title updates and actual native renderer subsequently appears.",
+    "Papahost load exceeded 90 during GUI testing. Slow software presentation and stale input drops are retained in logs.",
+    "Neo installed bundle, ARM64 Wine/FEX and physical Metal remain untested."
+  ],
+  "neo_contacted": false,
+  "neo_runtime_issue": "Unresolved; wait for Neo availability before investigation.",
+  "vm_final_state": "work remains running and idle; 3072 MiB guest RAM; combined renderer slice MemoryMax=10000000000, swap=0; unrelated guests untouched.",
+  "independent_review": {
+    "source_entries_checked_against_baseline": 673,
+    "source_hash_mismatches": [],
+    "runtime_artifact_hashes_checked": 6,
+    "cpu_test_binary_hashes_checked": 8,
+    "images_visually_reviewed": [
+      "044-production-title-ready.png",
+      "050-production-map-final-check.png",
+      "051-map-exit-menu.png",
+      "052-normal-exit.png"
+    ],
+    "test_logs_reviewed": "558 initially passed, 2 failed NoAdapter, 8 ignored. Both exact failed tests passed with the same binary after the VM Vulkan environment was supplied.",
+    "cleanup_evidence_reviewed": [
+      "normal-exit-cleanup.log",
+      "owned-wine-service-cleanup.log",
+      "final-owned-process-check.log"
+    ]
+  },
+  "original_runtime_result": {
+    "path": "/mnt/datasets/c3r-build/vm-window-f510-20261022/result.json",
+    "sha256": "06168253a3ca1eb83687e06fb2514e641885e510906cd3168b887d053bec8b95"
+  },
+  "retained_raw_directory": "/mnt/datasets/c3r-build/vm-window-f510-20261022",
+  "evidence": {
+    "044-production-title-ready.png": "evidence/macos-vm/044-production-title-ready.png",
+    "050-production-map-final-check.png": "evidence/macos-vm/050-production-map-final-check.png",
+    "051-map-exit-menu.png": "evidence/macos-vm/051-map-exit-menu.png",
+    "052-normal-exit.png": "evidence/macos-vm/052-normal-exit.png",
+    "runtime-binding.json": "evidence/macos-vm/runtime-binding.json",
+    "source-manifest.json": "evidence/macos-vm/source-manifest.json",
+    "production-title-ready-identity.log": "evidence/macos-vm/production-title-ready-identity.log",
+    "production-files-sha256.log": "evidence/macos-vm/production-files-sha256.log",
+    "final-deployed-manifest.log": "evidence/macos-vm/final-deployed-manifest.log",
+    "game-runtime-mappings.log": "evidence/macos-vm/game-runtime-mappings.log",
+    "final-owned-process-check.log": "evidence/macos-vm/final-owned-process-check.log",
+    "owned-wine-service-cleanup.log": "evidence/macos-vm/owned-wine-service-cleanup.log",
+    "final-vm-memory.log": "evidence/macos-vm/final-vm-memory.log",
+    "gpu-tests-rerun.log": "evidence/macos-vm/gpu-tests-rerun.log",
+    "production-runtime.conf": "evidence/macos-vm/production-runtime.conf",
+    "cpu-civ3_app_macos-3ecb3e7ab73e3140.log": "evidence/macos-vm/cpu-civ3_app_macos-3ecb3e7ab73e3140.log",
+    "cpu-civ3_play_macos-cd4ca01989fe11a1.log": "evidence/macos-vm/cpu-civ3_play_macos-cd4ca01989fe11a1.log",
+    "cpu-civ3r_launcher-61b9a4a1127b3d6e.log": "evidence/macos-vm/cpu-civ3r_launcher-61b9a4a1127b3d6e.log",
+    "cpu-civ3r_process-69a0e19eea36331b.log": "evidence/macos-vm/cpu-civ3r_process-69a0e19eea36331b.log",
+    "cpu-civ3r_sync-ed6aeee231a69829.log": "evidence/macos-vm/cpu-civ3r_sync-ed6aeee231a69829.log",
+    "cpu-scene-688fc5f369ff86b7.log": "evidence/macos-vm/cpu-scene-688fc5f369ff86b7.log",
+    "cpu-tile_viewer-f7b8e1d7201cd0f7.log": "evidence/macos-vm/cpu-tile_viewer-f7b8e1d7201cd0f7.log",
+    "cpu-wine-unixlib.log": "evidence/macos-vm/cpu-wine-unixlib.log",
+    "normal-exit-cleanup.log": "evidence/macos-vm/normal-exit-cleanup.log"
+  }
+}

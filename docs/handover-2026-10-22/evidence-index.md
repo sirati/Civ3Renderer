@@ -17,5 +17,6 @@ Only the still-unfinished [continuation tasks](subagents.md) have agent assignme
 | [actual-App-f510-native4k-results.json](evidence/handover/creative-qa/text-perf-sol/actual-App-f510-native4k-results.json) | performance_240 |
 | [actual-App-f510-timing-attribution-audit.json](evidence/handover/creative-qa/text-perf-sol/actual-App-f510-timing-attribution-audit.json) | cpu_timing |
 | [sol-root-f510-native4k-baseline-review.json](evidence/handover/sol-root-f510-native4k-baseline-review.json) | performance_240 |
+| [Intel macOS comparison receipt](evidence/macos-vm/verification.json) | neo_native_window; Intel control accepted, Neo startup unresolved |
 
-The [manifest](evidence-manifest.json) records original locations, copied-file hashes and the checklist transformation. Large logs, assets, builds and private source remain at their retained paths and in the [source backups](backup-and-restore.md).
+The [manifest](evidence-manifest.json) records original locations, copied-file hashes and the checklist transformation. The Intel comparison includes its screenshots, configuration, source/artifact bindings and test/cleanup logs. Large logs, assets, builds and private source remain at their retained paths and in the [source backups](backup-and-restore.md).

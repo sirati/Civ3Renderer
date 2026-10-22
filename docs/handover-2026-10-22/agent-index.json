@@ -1,25 +1,26 @@
 [
   {
-    "task_name": "macos_vm_window",
-    "title": "Native window startup in the macOS VM",
-    "status": "in_progress",
+    "task_name": "neo_native_window",
+    "title": "Neo native window startup",
+    "status": "waiting_for_neo",
     "priority": "P0",
-    "active_agent_path": "/root/macos_vm_window",
-    "model": "gpt-6.1-sol",
-    "spawn_instruction": "Exactly one agent is already running for this task. Continue it without restarting other agents; check actual liveness before creating any replacement.",
-    "brief": "User reports that the deployed f510 native game window never appears on Neo. Verify the same source through the normal packaged app/starter and default startup-window handling in the Intel macOS VM. Isolate and minimally fix any shared failure. Neo is unavailable and must not be contacted.",
-    "first_step": "Check the owned VM and prepare the complete matching x86_64 source-bound runtime. Launch through the Aqua session using normal app behavior; use CLI/status-window bypasses only as diagnostic comparisons.",
-    "done_when": "Evidence shows the actual native renderer window, usable game/menu and a real loaded map/HUD with normal exit where healthy. Preserve failed attempts and source/artifact bindings. A VM pass is scoped to Intel macOS and does not establish ARM64/FEX/Metal correctness.",
-    "resources": "Sole agent and sole VM GUI/input owner. Keep renderer VMs within their combined10GB slice limit, cross-build only on Papa, and use existing read-only assets.",
+    "spawn_instruction": "Do not contact Neo or start this task while Neo is unavailable. When access resumes and this unfinished task is resumed, spawn a fresh subagent named neo_native_window. Do not repeat the accepted Intel VM task or restart the backlog.",
+    "brief": "User reports that the installed f510 native game window never appears on Neo. The same-source Intel VM control passed. Inspect the normal Neo app/starter, ARM64 Wine/FEX, Metal and package environment without assuming an architecture-specific cause.",
+    "first_step": "After Neo becomes available, bind the actual installed bundle/runtime and inspect normal-launch logs and processes. Compare with the accepted Intel control; preserve any failing attempt before making a minimal fix.",
+    "done_when": "The actual native window on Neo shows usable game UI and a loaded map/HUD, accepts input and exits ordinarily, with source/artifact identities and cleanup evidence retained.",
+    "resources": "One owned Neo GUI/input session when available, Papa-only cross-builds and existing assets. Neo is currently off limits.",
     "family_ids": [
       "platform-mac-dualstack"
     ],
     "evidence": [
-      "README.md",
       "deployment.json",
-      "../macos-vm.md"
+      "verification.md",
+      "evidence/macos-vm/verification.json",
+      "../macos-tsneo.md"
     ],
-    "depends_on": [],
+    "depends_on": [
+      "Neo availability"
+    ],
     "deployment_gate": false
   },
   {

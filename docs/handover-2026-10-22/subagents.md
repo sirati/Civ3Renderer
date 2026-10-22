@@ -6,24 +6,24 @@ Sound and the 240 FPS target are P3. Six-bit and seven-bit pixel attribution is 
 
 | Priority | Unfinished task | Fresh subagent when resumed |
 | --- | --- | --- |
-| P0 | [Native window startup in the macOS VM](#macos_vm_window) | One active agent, `macos_vm_window`; do not duplicate |
+| P0 | [Neo native window startup](#neo_native_window) | `neo_native_window`, only after Neo is available |
 | P1 | [Camera arrival and accelerated combat](#combat_validation) | `combat_validation` |
 | P3 | [Sound and loaded-save audio follow-up](#audio_loaded) | `audio_loaded` |
 | P3 | [CPU busy attribution](#cpu_timing) | `cpu_timing` |
 | P3 | [Native 4K performance and candidate attribution](#performance_240) | `performance_240` |
 | P4 | [Six-bit and seven-bit pixel attribution](#wider_color) | `wider_color` |
 
-<a id="macos_vm_window"></a>
+<a id="neo_native_window"></a>
 
-## Native window startup in the macOS VM
+## Neo native window startup
 
-Exactly one fresh GPT-6.1 Sol agent is running as `/root/macos_vm_window`. Continue this task without restarting other agents. Check actual liveness before creating a replacement.
+Neo is unavailable and must not be contacted. No agent is active. When Neo becomes available and this unfinished task resumes, spawn a fresh subagent named neo_native_window. Do not restart the backlog or repeat the accepted Intel VM check.
 
-The user reports no native game window on the installed f510 Neo build. Test that source in the Intel macOS VM through the normal packaged app and starter, including default startup-window behavior. A direct CLI pass with diagnostic bypasses is not the primary acceptance test.
+The user reports no native game window on the installed f510 Neo build. The same-source Intel VM control passed. Inspect the actual Neo app/starter launch and bind its package, logs, Wine/FEX and Metal environment. Compare against [the scoped VM evidence](verification.md). Do not infer an ARM64 cause from the Intel result alone.
 
-Require a visible usable native renderer window, real game UI, a loaded map/HUD and normal exit when healthy. Preserve source/artifact identities, screenshots and failed attempts. Isolate and minimally fix any shared failure. An Intel VM pass does not prove ARM64/FEX/Metal, or establish architecture as the sole cause.
+Require a visible usable native renderer window, real game UI, a loaded map/HUD and ordinary exit on Neo. Preserve source/artifact identities, screenshots and failed attempts. Isolate and minimally fix the actual failure. Cross-build any change on Papa.
 
-Neo is unavailable and must not be contacted. Use one owned VM GUI/input session, the combined10GB VM cap, Papa-only cross-builds and existing read-only assets. See [the VM guide](../macos-vm.md) and [installation identity](deployment.json).
+Use one owned Neo GUI/input session and existing assets when access resumes. See [the Neo guide](../macos-tsneo.md) and [installation identity](deployment.json).
 
 <a id="combat_validation"></a>
 

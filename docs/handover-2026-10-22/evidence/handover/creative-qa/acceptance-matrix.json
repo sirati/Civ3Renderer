@@ -1289,23 +1289,23 @@
       "id": "platform-mac-dualstack",
       "requirement": "Actual single-process Intel macOS game/native runtime plus Apple ARM/FEX",
       "priority": "P0",
-      "implementation_status": "runtime_menu_verified_gameplay_open",
+      "implementation_status": "intel_window_map_input_exit_verified_neo_startup_open",
       "acceptance_status": "open",
       "next_test": {
         "venues": [
-          "Papa Wine using existing local game assets",
-          "Owned Intel macOS VM using existing read-only assets"
+          "Neo only after device availability"
         ],
         "actions": [
-          "Reproduce31b title runtime then load existing save/start scenario and interact on map"
+          "Inspect actual normal Neo bundle/starter launch and ARM64 Wine/FEX/Metal logs, comparing against the accepted Intel control.",
+          "Verify visible native window, loaded map/HUD, keyboard/mouse input and ordinary exit on Neo after a minimal evidence-based fix if needed."
         ],
-        "oracle": "Same PID maps i686 game, bridge, shim, native unixlib; AppKit main+GPUworker; bounded stop",
-        "similar_bug_probe": "Menu-only startup mistaken for complete gameplay coverage"
+        "oracle": "Actual working native renderer on Neo with matched source/artifacts and retained cleanup evidence.",
+        "similar_bug_probe": "Intel SwiftShader/bitmap success mistaken for ARM64/FEX/Metal or Neo package acceptance."
       },
-      "evidence_limit": "Aggregate unit counts and partial runtime checks do not establish full feature acceptance. New reconciled evidence is scoped individually to source, shader, adapter and workload.",
+      "evidence_limit": "Intel control accepted in evidence/macos-vm/verification.json. ARM64 Wine/FEX, physical Metal and Neo installed environment remain unverified; Neo is unavailable.",
       "current_assignment": true,
-      "continuation_task": "macos_vm_window",
-      "current_runtime_report": "User reports missing native renderer window on Neo; one Intel macOS VM test agent active; Neo unavailable."
+      "continuation_task": "neo_native_window",
+      "current_runtime_report": "Same-source f510/protocol50 Intel VM control passed native window, map/HUD, input and ordinary exit. Neo missing-window issue remains unresolved; no Neo contact while unavailable."
     },
     {
       "id": "platform-metal",

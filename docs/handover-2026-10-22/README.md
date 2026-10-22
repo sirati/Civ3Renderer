@@ -2,7 +2,7 @@
 
 The installed Neo release is **Civilization III**, protocol 50, source f510. Its files, signatures, icon and registration were verified, but the user now reports that the native game window never appears. Successful installation did not establish a working launch. Installation evidence is in [deployment.json](deployment.json).
 
-Neo is currently unavailable and must not be contacted. One fresh agent is checking the normal packaged app in the Intel macOS VM. It must demonstrate a visible, usable renderer window and real game UI. A VM pass alone cannot establish that ARM64/FEX/Metal works or that architecture is the only difference.
+Neo is currently unavailable and must not be contacted. The same-source normal packaged app passed the Intel macOS VM check, including the native window, title/menu, loaded map/HUD, keyboard/mouse input and ordinary exit. This does not establish that ARM64/FEX/Metal works or that architecture is the only difference. See [the scoped verification](verification.md).
 
 Sound and the 240 FPS frame target are low priority P3. Six-bit/seven-bit pixel attribution is P4. They do not block deployment. Keep completed and accepted agents out of this handover.
 
@@ -22,19 +22,20 @@ Sound and the 240 FPS frame target are low priority P3. Six-bit/seven-bit pixel 
 | Collection and review of the f510 moving 4K baseline | All of this task has been done. |
 | 21 October viewer verification | All of this task has been done. |
 | Latest coherent release installed on Neo | All of this task has been done. |
+| Intel macOS VM native-window check | All of this task has been done. |
 
 ## Unfinished work
 
 | Priority | Task | Next action |
 | --- | --- | --- |
-| P0 | Native renderer window never appears | Use the one active macOS VM agent to reproduce the normal app launch, isolate any shared failure and verify the actual window. Do not restart the backlog agents or contact Neo. |
+| P0 | Native renderer window never appears on Neo | Wait for Neo to become available. Then inspect its normal app launch, ARM64 Wine/FEX, Metal and package environment against the accepted Intel control. Do not contact Neo now or repeat the completed VM task. |
 | P1 | Combat camera arrival and speed | Finish the diagnostic build and matched 1x/4x battles with RNG and stable-outcome comparison. |
 | P3 | Sound | Fix the loaded-save audio driver and finish its qualified loaded/normal-Quit test and music soak. |
 | P3 | CPU busy attribution | Add actual CPU busy timing while preserving the existing counter design. |
 | P3 | Native 4K at 240 FPS | Continue controlled thin-view attribution and qualified optimization from the recorded 43–44 FPS baseline. |
 | P4 | Six-bit/seven-bit pixel attribution | Continue the strict rounding investigation and private wider-color qualification. |
 
-The window-startup test already has one active agent. Continue that task without duplicating it. When later resuming other unfinished work, use [the continuation briefs](subagents.md) and respect its priority. Do not automatically start the backlog. Completed implementation and accepted reviews do not need new agents just because a historical checklist contains broader test suggestions.
+No agents are active. When later resuming unfinished work, use [the continuation briefs](subagents.md) and respect its priority. The Neo issue waits for device availability. Do not automatically start the backlog. Completed implementation and accepted reviews do not need new agents just because a historical checklist contains broader test suggestions.
 
 The [acceptance checklist](acceptance.md) is a reference to the older feature ledger, not a list of active subagents. [Deferred work](deferred-work.md) retains sound, numerical and performance details without making them deployment gates. [handover.html](handover.html) is the offline reading copy.
 

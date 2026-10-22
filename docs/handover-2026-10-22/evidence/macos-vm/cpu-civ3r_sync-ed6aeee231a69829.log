@@ -1,0 +1,15 @@
+
+running 10 tests
+test tests::a_handled_token_takes_no_later_payload ... ok
+test tests::a_move_after_its_token_closed_is_delivered_by_the_next ... ok
+test tests::another_key_does_not_join ... ok
+test tests::concurrent_producer_and_consumer_deliver_everything_once_in_order ... ok
+test tests::latest_publishes_and_clears_without_a_writer_waiting ... ok
+test tests::mailbox_keeps_order_across_threads ... ok
+test tests::moves_join_the_pending_token_until_a_barrier ... ok
+test tests::retracted_payloads_are_dropped ... ok
+test tests::tokens_wrap_without_zero ... ok
+test tests::wake_returns_at_once_when_rung_and_collapses_rings ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
