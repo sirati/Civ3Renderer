@@ -450,6 +450,12 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         if let Err(e) = crate::native_camera::install(game) {
             log::warn!("native camera remains active: {e}");
         }
+        // Fortify's in-view test reads the parked camera. Without this it
+        // skips its animation and the sound that animation starts.
+        match civ3_sys::unit_views::install_action_view(game) {
+            Ok(hook) => std::mem::forget(hook),
+            Err(e) => log::warn!("fortify animation limited to the parked native view: {e}"),
+        }
     }
     // The go-to path the map shows (`crate::targeting`, found on the
     // game's thread).
