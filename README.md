@@ -521,7 +521,10 @@ size" selects 25–100% of the canvas height for a standard 1024×768 menu;
 width and aspect ratio can limit the result. The title and setup screens
 count as their 1024×768 menu, not the game's cleared full-window
 background, so at 100% they touch the top and bottom of the canvas
-(bars only at the sides) like other menus. Small popups use that same
+(bars only at the sides) like other menus. A modal screen whose opaque
+canvas covers the game's whole window around a 1024×768 board (the Hall
+of Fame, the victory screen) counts as that board, not its black clear,
+and shows at the title's size. Small popups use that same
 reference scale. Existing per-view advisor and City placement still
 applies. The defaults are off and 100%; old saved menu multipliers are
 removed without being interpreted as percentages. Pointer input and Alt

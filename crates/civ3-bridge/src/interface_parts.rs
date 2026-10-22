@@ -285,7 +285,7 @@ pub fn popup(frame: &Frame, canvas: u32, screen: Option<usize>, size: (i32, i32)
     if screen.is_some_and(|s| index <= s) {
         return None;
     }
-    let (first, [x, y, w, h]) = part_from(frame, index, size)?;
+    let (first, [x, y, w, h]) = part_from(frame, index, size, true)?;
     let bounds = popup_portraits(frame, first, [x, y, w, h]).into_iter().filter_map(|i| reach(&frame.draws[i]))
         .fold([x, y, x + w, y + h], |a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
     Some((first, [bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]]))
@@ -356,7 +356,7 @@ pub fn split_popup(frame: &Frame, first: usize, rect: [i32; 4]) -> (Frame, Frame
     // rectangle, which might reach another picture farther above it.
     let source = frame.form_draws.iter().filter(|(_, r)| !r.is_empty() && r.start >= first).min_by_key(|(_, r)| r.start)
         .and_then(|(canvas, _)| frame.forms.iter().rposition(|f| f.1 == *canvas))
-        .and_then(|index| part_from(frame, index, (rect[0] + rect[2], rect[1] + rect[3])))
+        .and_then(|index| part_from(frame, index, (rect[0] + rect[2], rect[1] + rect[3]), true))
         .map_or(rect, |(_, r)| r);
     let attached: Vec<_> = popup_portraits(frame, first, source).into_iter().filter(|&i| i < first).collect();
     let (below, mut above) = split_at(frame, first);
@@ -414,7 +414,7 @@ pub fn active_screen_part(frame: &Frame, index: usize, build: civ3_sys::Build, s
     // A game menu owns its frame rather than an advisor's shared
     // background. Keep it separate even if it fills the driver's window.
     let is_menu = civ3_sys::ui_hooks::screen_forms(build).iter().any(|s| s.0 == form.0 && s.1 == "Menu");
-    if is_menu { part_from(frame, index, size) } else { screen_part(frame, index, size) }
+    if is_menu { part_from(frame, index, size, false) } else { screen_part(frame, index, size) }
 }
 
 /// The named screen (form `index` of `frame.forms`) as a part of its own,
@@ -432,13 +432,13 @@ pub fn screen_part(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usi
         if !in_menus { break; }
         bottom -= 1;
     }
-    let (first, rect) = (bottom..=index).find_map(|i| part_from(frame, i, size))?;
+    let (first, rect) = (bottom..=index).find_map(|i| part_from(frame, i, size, false))?;
     (rect[2] < size.0 || rect[3] < size.1).then_some((first, rect))
 }
 
 /// Form `index` of `frame.forms` from its first draw on, with the frame the
 /// game draws round it straight onto the screen just before it.
-fn part_from(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usize, [i32; 4])> {
+fn part_from(frame: &Frame, index: usize, size: (i32, i32), modal: bool) -> Option<(usize, [i32; 4])> {
     let (_, canvas, (x, y), (w, h)) = frame.forms[index];
     let mut first = frame.form_draws.iter().find(|(c, _)| *c == canvas).map(|(_, r)| r.start)?;
     let mut bounds = [x, y, x + w, y + h];
@@ -448,8 +448,19 @@ fn part_from(frame: &Frame, index: usize, size: (i32, i32)) -> Option<(usize, [i
         // leader and advisor onto one transparent full-window canvas.
         // Use only this part and what is above it, never the map/HUD
         // canvases below it, so the complete UI can fit in the opening view.
-        if let Some(content) = frame.draws[first..].iter().filter_map(reach)
-            .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]) {
+        // An opaque full-window canvas (the Hall of Fame, the victory
+        // screen: a 1024 by 768 board in its middle) starts with a fill of
+        // all of it, black where the form never draws. That clear is its
+        // backdrop, not its size, as the cleared window under the title is
+        // (`menu_popup`); measured as content it made the board's screen
+        // window-sized, and the viewer shrank all of it to fit. Only for
+        // modal parts: a named screen of the whole window (the city screen)
+        // keeps its margins over the frame under it.
+        let backdrop = |d: &ScreenDraw| modal && matches!(d, ScreenDraw::Fill { .. })
+            && reach(d).is_some_and(|r| r[0] <= 0 && r[1] <= 0 && r[2] >= size.0 && r[3] >= size.1);
+        let content = |all: bool| frame.draws[first..].iter().filter(|d| all || !backdrop(d)).filter_map(reach)
+            .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
+        if let Some(content) = content(false).or_else(|| content(true)) {
             bounds = content;
         }
     }
@@ -905,6 +916,49 @@ mod tests {
         let mut f = setup(vec![big(x + 262, y + 234, 500, 300)]);
         f.forms[1] = (0x22, 2, (x + 262, y + 234), (500, 300));
         assert_eq!(menu_popup(&f, 2, size), Some((n, [x + 262, y + 234, 500, 300])));
+    }
+
+    /// TS Neo: the Hall of Fame from the title in a 3274 by 2048 window. Its
+    /// form (as the victory screen's) has an opaque canvas of the whole
+    /// window, black where it never draws, with its 1024 by 768 board in
+    /// the middle. That board is its size: as a modal part (the game's
+    /// modal stack) it is placed and scaled as the title's 1024 by 768,
+    /// not as a window-sized dialog shrunk to fit the viewer's canvas.
+    #[test]
+    fn an_opaque_full_window_canvas_is_measured_by_its_board_not_its_backdrop() {
+        let size = (3274, 2048);
+        let clip = [0, 0, 3274, 2048];
+        let big = |x, y, w, h| ScreenDraw::Fill { rect: [x, y, w, h], rgb: [1, 2, 3], alpha: 255, clip };
+        let (x, y) = (1125, 640);
+        let title = vec![big(0, 0, 3274, 2048), big(x, y, 1024, 768), big(1, 2010, 60, 20), big(1600, 2010, 80, 20)];
+        let n = title.len();
+        let board = ScreenDraw::Image {
+            path: "Art/Advisors/hall_o_fame_background.pcx".into(), rect: [0, 0, 1024, 768], x, y,
+            keyed: false, clip, mask: None, palette: None, opacity: 255,
+        };
+        let hall = |own: Vec<ScreenDraw>| {
+            let mut draws = title.clone();
+            draws.extend(own);
+            let to = draws.len();
+            Frame { draws, forms: vec![(0x11, 1, (0, 0), size), (0x66_D1F0, 2, (0, 0), size)],
+                form_draws: vec![(1, 0..n), (2, n..to)], underlay_draws: vec![] }
+        };
+        let black = ScreenDraw::Fill { rect: [0, 0, 3274, 2048], rgb: [0, 0, 0], alpha: 255, clip };
+        let f = hall(vec![black.clone(), board.clone(), big(x + 100, y + 200, 300, 20)]);
+        assert_eq!(popup(&f, 2, None, size), Some((n, [x, y, 1024, 768])));
+        let (below, parts) = split_modal_stack(&f, &[2], None, size);
+        assert_eq!((below.draws.len(), parts.len(), parts[0].rect), (n, 1, [x, y, 1024, 768]));
+        assert_eq!(parts[0].frame.draws.len(), 3, "the backdrop stays with its screen");
+        // As large as the title under it: a screen of its own, no popup.
+        assert_eq!(menu_popup(&f, 2, size), None);
+        // A translucent shade of the whole window is a backdrop as well.
+        let shade = ScreenDraw::Fill { rect: [0, 0, 3274, 2048], rgb: [0, 0, 0], alpha: 128, clip };
+        assert_eq!(popup(&hall(vec![shade, board.clone()]), 2, None, size), Some((n, [x, y, 1024, 768])));
+        // A full-window picture is content; a canvas showing nothing but
+        // its clear keeps the whole window.
+        let picture = ScreenDraw::Image { path: "Art/wide.pcx".into(), rect: [0, 0, 3274, 2048], x: 0, y: 0, keyed: false, clip, mask: None, palette: None, opacity: 255 };
+        assert_eq!(popup(&hall(vec![black.clone(), picture, board]), 2, None, size), Some((n, [0, 0, 3274, 2048])));
+        assert_eq!(popup(&hall(vec![black]), 2, None, size), Some((n, [0, 0, 3274, 2048])));
     }
 
     fn advisor_popup_frame() -> Frame {
