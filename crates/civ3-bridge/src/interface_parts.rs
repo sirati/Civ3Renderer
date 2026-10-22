@@ -341,11 +341,28 @@ fn popup_portraits(frame: &Frame, first: usize, [x, y, w, h]: [i32; 4]) -> Vec<u
         // have no such UI owner.
         let map_or_unowned = i < menus_from || frame.underlay_draws.iter().any(|r| r.contains(&i))
             || !frame.form_draws.iter().any(|(_, r)| r.contains(&i));
-        if i < first && !map_or_unowned { return None; }
+        if i < first && !map_or_unowned && !head_form(frame, i, first) { return None; }
         let r = reach(draw)?;
         let overlap = intersect(r, near);
         (overlap[2] > overlap[0] && overlap[3] > overlap[1]).then_some(i)
     }).collect()
+}
+
+/// Draw `i` (an advisor picture before the popup's first draw `first`) is
+/// on a form of its own that the game composes for the popup's head: the
+/// form holds advisor pictures only, and no other form draws between it
+/// and the popup (only the popup's own frame, drawn straight onto the
+/// screen, or another such head form). The Science Advisor's "our
+/// Researchers need direction" shows its head that way: a 148x109 form
+/// (vtable 0x671218) whose bottom edge meets the dialog's top border,
+/// composed just before the dialog. An advisor screen's head under a
+/// dialog is not: that form also holds the screen.
+fn head_form(frame: &Frame, i: usize, first: usize) -> bool {
+    let owner = |i: usize| frame.form_draws.iter().find(|(_, r)| r.contains(&i)).map(|(c, _)| *c);
+    let only_heads = |canvas: u32| frame.form_draws.iter().filter(|(c, _)| *c == canvas)
+        .flat_map(|(_, r)| r.clone()).all(|j| frame.draws.get(j).is_some_and(advisor_portrait));
+    let Some(canvas) = owner(i) else { return false };
+    only_heads(canvas) && (i + 1..first).all(|j| owner(j).is_none_or(only_heads))
 }
 
 /// Split off a popup and its advisor picture. Draws from the map canvas
@@ -380,6 +397,10 @@ pub struct PopupPart {
     pub canvas: u32,
     pub rect: [i32; 4],
     pub frame: Frame,
+    /// Part of the dialog under it, not a dialog of its own: the list a
+    /// combo box of that dialog opened (`civ3_sys::controls::COMBO_LIST_VTABLES`).
+    /// It goes where that dialog goes (`scene::Interface::modal_attached`).
+    pub attached: bool,
 }
 
 /// Remove the complete visible modal stack before measuring the named screen.
@@ -393,10 +414,16 @@ pub fn split_modal_stack(frame: &Frame, canvases: &[u32], screen: Option<usize>,
         if parts.iter().any(|part: &PopupPart| part.canvas == canvas) { continue; }
         let Some((first, rect)) = popup(&below, canvas, screen, size) else { continue };
         let (parent, own) = split_popup(&below, first, rect);
-        parts.push(PopupPart { canvas, rect, frame: own });
+        let combo_list = frame.forms.iter().rfind(|f| f.1 == canvas).is_some_and(|f| civ3_sys::controls::COMBO_LIST_VTABLES.contains(&f.0));
+        parts.push(PopupPart { canvas, rect, frame: own, attached: combo_list });
         below = parent;
     }
     parts.reverse();
+    // (Attached to a dialog under it only: a combo box's list over a screen
+    // is a popup of its own.)
+    if let Some(bottom) = parts.first_mut() {
+        bottom.attached = false;
+    }
     (below, parts)
 }
 
@@ -1001,6 +1028,71 @@ mod tests {
         let (below, above) = split_popup(&f, 5, [700, 400, 500, 300]);
         assert!(crate::ui::reaches_clip(&below.draws[1]));
         assert!(!above.draws.iter().any(advisor_portrait));
+    }
+
+    /// The Science Advisor's "our Researchers need direction" as traced
+    /// (WWII in the Pacific, 1920x1080): its head on a form of its own
+    /// (vtable 0x671218, 148x109) whose bottom meets the dialog's frame,
+    /// the dialog, and the list its tech combo box opened on top of it (a
+    /// form of vtable 0x672160 inside a frame drawn onto the screen).
+    fn science_advisor_frame(list_open: bool) -> Frame {
+        const HEAD: u32 = 0x9B_98BC;
+        let mut f = frame();
+        f.draws.truncate(4);
+        f.forms.truncate(6);
+        f.form_draws.truncate(3);
+        f.forms.push((0x67_1218, HEAD, (850, 0), (148, 109)));
+        f.draws.push(ScreenDraw::Image {
+            path: "Conquests\\WWII in the Pacific\\art\\SmallHeads\\popupScience.pcx".into(), rect: [9, 494, 135, 106], x: 858, y: 3,
+            keyed: true, clip: [850, 0, 998, 109], mask: None, palette: None, opacity: 255,
+        });
+        f.form_draws.push((HEAD, 4..5));
+        // The dialog's frame (drawn onto the screen) and its form.
+        f.draws.push(fill(634, 109, 370, 250));
+        f.forms.push((0x66_6408, 0x9B_7784, (637, 144), (364, 212)));
+        f.draws.push(fill(637, 144, 364, 212));
+        f.form_draws.push((0x9B_7784, 6..7));
+        if list_open {
+            f.draws.push(fill(608, 250, 376, 231));
+            f.forms.push((0x67_2160, 0x22_72D0, (611, 253), (370, 225)));
+            f.draws.push(fill(611, 253, 370, 225));
+            f.form_draws.push((0x22_72D0, 8..9));
+        }
+        f
+    }
+
+    #[test]
+    fn an_advisor_head_on_a_form_of_its_own_goes_with_its_popup_and_a_combo_list_is_attached() {
+        let size = (1920, 1080);
+        let f = science_advisor_frame(false);
+        // The head belongs to the dialog: the popup's rectangle reaches up to it.
+        assert_eq!(popup(&f, 0x9B_7784, None, size), Some((5, [634, 3, 370, 356])));
+        let (below, parts) = split_modal_stack(&f, &[0x9B_7784], None, size);
+        assert_eq!(parts.len(), 1);
+        assert!(!crate::ui::reaches_clip(&below.draws[4]), "the head leaves the menus under the popup");
+        assert_eq!(parts[0].frame.draws.iter().filter(|d| advisor_portrait(d)).count(), 1);
+        assert!(!parts[0].attached);
+
+        // Its combo box opened: the list is a modal layer of its own on
+        // top, attached to the dialog; the head stays with the dialog.
+        let f = science_advisor_frame(true);
+        let (below, parts) = split_modal_stack(&f, &[0x9B_7784, 0x22_72D0], None, size);
+        assert_eq!(parts.iter().map(|p| (p.canvas, p.rect, p.attached)).collect::<Vec<_>>(),
+            vec![(0x9B_7784, [634, 3, 370, 356], false), (0x22_72D0, [608, 250, 376, 231], true)]);
+        assert!(!crate::ui::reaches_clip(&below.draws[4]));
+        assert_eq!(parts[0].frame.draws.iter().filter(|d| advisor_portrait(d)).count(), 1);
+        assert_eq!(parts[1].frame.draws.len(), 2, "the list's frame and form, nothing of the dialog");
+        // A combo box list with no dialog under it (over a screen) is a
+        // popup of its own.
+        let (_, parts) = split_modal_stack(&f, &[0x22_72D0], None, size);
+        assert_eq!(parts.len(), 1);
+        assert!(!parts[0].attached);
+
+        // A form holding more than the head (an advisor screen) keeps it.
+        let mut f = science_advisor_frame(false);
+        f.draws.insert(5, fill(850, 0, 10, 10));
+        f.form_draws = f.form_draws.iter().map(|(c, r)| (*c, if *c == 0x9B_98BC { 4..6 } else if r.start >= 5 { r.start + 1..r.end + 1 } else { r.clone() })).collect();
+        assert_eq!(popup(&f, 0x9B_7784, None, size), Some((6, [634, 109, 370, 250])));
     }
 
     #[test]

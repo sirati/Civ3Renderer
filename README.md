@@ -278,7 +278,12 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   their actual panel fills A or B as far as its aspect ratio allows (left
   or bottom, right or top), one place per orientation. Context menus and
   the right-click tile information box are the exceptions: they open at
-  the click. Both map views keep their own cameras. The city panel's
+  the click. A dialog's advisor head (some dialogs draw it on a form of
+  its own above them, e.g. the Science Advisor's "need direction") goes
+  with the dialog, and the list a combo box in a dialog opens (a modal
+  form of its own) is drawn over that dialog, moved and scaled exactly as
+  it, and takes the clicks on it (`scene::Interface::modal_attached`).
+  Both map views keep their own cameras. The city panel's
   internal map follows its panel. The explicit `ui=pane` shortcut still
   fits the entire game window. **Open menus in mouse view** is enabled by
   default and applies with Floating: the game menu, Preferences and

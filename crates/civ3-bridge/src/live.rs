@@ -659,6 +659,8 @@ fn publish(
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>, Option<scene::SettingsPreview>) = (Vec::new(), None, None);
     // The open popup's canvas and where it is anchored (`scene::Interface::popup_anchor`).
     let mut popup_anchor_state: Option<(u32, Option<scene::PopupAnchor>)> = None;
+    // (The popup layers last logged: logged again when they change.)
+    let mut popup_layers_logged: Vec<(u32, [i32; 4], bool)> = Vec::new();
     // When a popup anchored at a map click last showed (one an entry of it
     // opens, e.g. a city menu's "Terrain details", belongs to that click).
     let mut click_popup_seen: Option<std::time::Instant> = None;
@@ -1426,6 +1428,11 @@ fn publish(
         }).collect();
         let popup_items: Vec<_> = popup_layers.iter().flat_map(|(_, _, items)| items.iter().cloned()).collect();
         let popup_view = popup_layers.last().map(|(id, _, _)| *id);
+        let layers_now: Vec<(u32, [i32; 4], bool)> = popup_frames.iter().map(|p| (p.canvas, p.rect, p.attached)).collect();
+        if layers_now != popup_layers_logged {
+            log::info!("popup layers (bottom to top; canvas, rect, attached to the one under it): {:x?} of canvases {:x?}", layers_now, popup_canvases);
+            popup_layers_logged = layers_now;
+        }
         let screen_items = ui_screen_part.as_ref().map(|f| with_tabs(screen_memo, f)).unwrap_or_default();
         // City labels, made from the world as world sprites, so every view
         // shows them (§10.8), in place of those the game drew on its map
@@ -1994,6 +2001,7 @@ fn publish(
             capture_hint: (map_hint || preview_hint).then_some(crate::interface_parts::HINT_VIEW),
             popup: popup_view,
             modal_stack: scene::ModalStack(std::array::from_fn(|index| popup_layers.get(index).map(|(id, _, _)| *id))),
+            modal_attached: std::array::from_fn(|index| popup_frames.get(index).is_some_and(|part| part.attached)),
             screen_view: screen_part.map(|_| crate::interface_parts::SCREEN_VIEW),
             // Where the pointer goes when the screen opens: the city
             // screen's production box (its largest own button).
