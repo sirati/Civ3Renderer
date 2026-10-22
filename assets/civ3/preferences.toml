@@ -1165,6 +1165,47 @@ at = [552, 484]
 size = [398, 36]
 show_if = "tab=layout"
 
+[[panels.preferences.items]]
+text = "Unit buttons (two views)"
+style = "label"
+at = [552, 530]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.unit_buttons"
+value = "Spanning"
+at = [552, 552]
+size = [150, 26]
+text = "Spanning"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1|Horizontal1To1"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "layout.unit_buttons"
+value = "ActiveView"
+at = [710, 552]
+size = [150, 26]
+text = "Active view"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1|Horizontal1To1"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "Spanning: across both views, a gap at the divider. Active view: in the mouse's view."
+style = "caption"
+at = [552, 584]
+size = [398, 36]
+show_if = "tab=layout"
+
 # Each map view can follow Civ III or choose its own detail.
 [[panels.preferences.items]]
 choice = "tab"

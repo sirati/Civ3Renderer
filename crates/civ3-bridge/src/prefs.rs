@@ -891,6 +891,7 @@ fn changed_controls(active: &Settings, draft: &Settings) -> Vec<String> {
         "layout.zoom" => "Zoom mode".into(),
         "layout.zoom_place" => "Zoom placement".into(),
         "layout.roles" => "View roles".into(),
+        "layout.unit_buttons" => "Unit buttons".into(),
         _ => key.split('.').skip(1).collect::<Vec<_>>().join(" ").replace('_', " "),
     };
     let display = |value: &ControlValue| match value {
