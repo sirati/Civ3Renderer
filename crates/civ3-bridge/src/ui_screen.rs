@@ -1188,6 +1188,34 @@ pub fn minimap_point(items: &[Item], world: &crate::world::Civ3World, tile: (i32
     })
 }
 
+/// The interface's minimap for the renderer (`scene::Scene::minimap`): its
+/// picture's place and visible part on the screen, and the world pixels
+/// it spans. The game maps it linearly (§17.7, as `minimap::view_rect`):
+/// tile x·w/width, y·h/(height − 1), a tile's footprint starting at
+/// (64·x, 32·y) world pixels (half that zoomed out).
+pub fn minimap_area(items: &[Item], world: &crate::world::Civ3World, zoomed_out: bool) -> Option<scene::Minimap> {
+    let (width, height) = (world.width, world.height);
+    if width <= 0 || height <= 1 {
+        return None;
+    }
+    let (sx, sy) = if zoomed_out { (32, 16) } else { (64, 32) };
+    items.iter().find_map(|i| {
+        let Item::Element(Element::Dynamic { name, size, rect: [rx, ry, rw, rh], at: (x, y), clip }, _) = i else { return None };
+        if name != "minimap" || size.0 == 0 || size.1 == 0 {
+            return None;
+        }
+        // (Its drawn part, inside the clip.)
+        let (left, top) = ((*x).max(clip[0]), (*y).max(clip[1]));
+        let (right, bottom) = ((x + rw).min(clip[2]), (y + rh).min(clip[3]));
+        (right > left && bottom > top).then_some(scene::Minimap {
+            at: (x - rx, y - ry),
+            size: *size,
+            shown: [left, top, right - left, bottom - top],
+            world: (width * sx, (height - 1) * sy),
+        })
+    })
+}
+
 /// Marks `views` (world pixel rectangles x, y, w, h, the renderer's own
 /// views) on the interface's minimap like the game marks its own view
 /// (§17.7: their tile range as one-pixel lines), in `color`: fills right
@@ -1406,6 +1434,26 @@ mod view_mark_tests {
         let mut expected = vec![minimap];
         mark_views(&mut expected, &world, &[shown], false, [255, 255, 255]);
         assert_eq!(items, expected);
+    }
+
+    #[test]
+    fn the_minimap_area_points_where_the_game_puts_its_tiles() {
+        let world = crate::world::Civ3World { width: 40, height: 40, tiles: vec![Default::default(); 800], ..Default::default() };
+        // Its left 50 pixels clipped away.
+        let minimap = Item::Element(Element::Dynamic { name: "minimap".into(), size: (200, 100), rect: [0, 0, 200, 100], at: (30, 960), clip: [80, 0, 1920, 1080] }, false);
+        let items = vec![minimap];
+        let area = minimap_area(&items, &world, false).unwrap();
+        assert_eq!(area, scene::Minimap { at: (30, 960), size: (200, 100), shown: [80, 960, 150, 100], world: (40 * 64, 39 * 32) });
+        for tile in [(10, 10), (21, 5), (38, 38), (30, 20)] {
+            let p = minimap_point(&items, &world, tile).unwrap();
+            let w = area.world_at(p).unwrap();
+            // Within a tile of where its footprint starts (64·x, 32·y).
+            assert!((w.0 - 64 * tile.0).abs() <= 64 && (w.1 - 32 * tile.1).abs() <= 32, "{tile:?}: {p:?} -> {w:?}");
+        }
+        // Clipped away: not pointed at. Zoomed out: half the world pixels.
+        assert_eq!(area.world_at((60, 1000)), None);
+        assert_eq!(minimap_area(&items, &world, true).unwrap().world, (40 * 32, 39 * 16));
+        assert_eq!(minimap_area(&[], &world, false), None);
     }
 
     #[test]
