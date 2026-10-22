@@ -16,6 +16,7 @@ mod setup;
 pub use setup::{TitleLayout, title_layout};
 pub mod advisors;
 pub mod screens;
+pub mod wheel;
 
 /// Reads the game's memory (`None` where it cannot be read).
 pub trait Mem {

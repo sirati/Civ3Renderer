@@ -434,6 +434,9 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     if let Err(e) = crate::native_sliders::install(game) {
         log::warn!("no transactional native sliders: {e}");
     }
+    if let Err(e) = crate::ui_wheel::install(game) {
+        log::warn!("no wheel on the interface where the game has none: {e}");
+    }
     let world_input_ready = crate::world_input::install(game).map_err(|e| {
         log::warn!("no world interactions beyond the game camera: {e}");
     }).is_ok();

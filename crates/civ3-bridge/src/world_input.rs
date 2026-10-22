@@ -524,6 +524,9 @@ mod live {
             if let Some(result) = crate::prefs::handle_message(message) {
                 return Some(result);
             }
+            if let Some(result) = crate::ui_wheel::handle_message(message) {
+                return Some(result);
+            }
             if message.id == live.message {
                 // (No borrow lasts into dispatch: native handlers may run a
                 // nested message loop that comes back here.)

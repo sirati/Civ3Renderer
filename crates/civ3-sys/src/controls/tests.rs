@@ -3,20 +3,20 @@ use std::collections::HashMap;
 
 /// Game memory as bytes at addresses.
 #[derive(Default)]
-struct Fake(HashMap<u32, u8>);
+pub(super) struct Fake(HashMap<u32, u8>);
 
 impl Fake {
-    fn put(&mut self, at: u32, v: u32) {
+    pub(super) fn put(&mut self, at: u32, v: u32) {
         for (i, b) in v.to_le_bytes().into_iter().enumerate() {
             self.0.insert(at + i as u32, b);
         }
     }
-    fn bytes(&mut self, at: u32, bytes: &[u8]) {
+    pub(super) fn bytes(&mut self, at: u32, bytes: &[u8]) {
         for (i, b) in bytes.iter().enumerate() {
             self.0.insert(at + i as u32, *b);
         }
     }
-    fn rect(&mut self, at: u32, r: [i32; 4]) {
+    pub(super) fn rect(&mut self, at: u32, r: [i32; 4]) {
         for (i, v) in r.into_iter().enumerate() {
             self.put(at + 4 * i as u32, v as u32);
         }
@@ -24,7 +24,7 @@ impl Fake {
 
     /// A form at `addr`: its vtable, status, place (`left, top, right,
     /// bottom`, in its parent's pixels if `parent`), children.
-    fn form(&mut self, addr: u32, vtable: u32, status1: u32, shown: bool, rect: [i32; 4], parent: u32, children: &[u32]) {
+    pub(super) fn form(&mut self, addr: u32, vtable: u32, status1: u32, shown: bool, rect: [i32; 4], parent: u32, children: &[u32]) {
         self.put(addr, vtable);
         self.put(addr + STATUS1, status1 | if parent != 0 { RELATIVE } else { 0 });
         self.put(addr + STATUS2, shown as u32);
@@ -52,14 +52,14 @@ impl Mem for Fake {
     }
 }
 
-const BUTTON: u32 = 0x66_56C0;
-const PANEL: u32 = 0x67_1218;
+pub(super) const BUTTON: u32 = 0x66_56C0;
+pub(super) const PANEL: u32 = 0x67_1218;
 
-fn sites() -> Sites {
+pub(super) fn sites() -> Sites {
     Sites { roots: 0x100, root_count: 0x200, modal: 0x300, companion: 0x304, main_gui: 0x9F_DB10, advisor: 0x9A_FD58 }
 }
 
-fn with_roots(m: &mut Fake, roots: &[u32]) {
+pub(super) fn with_roots(m: &mut Fake, roots: &[u32]) {
     m.put(0x200, roots.len() as u32);
     for (i, r) in roots.iter().enumerate() {
         m.put(0x100 + 4 * i as u32, *r);
@@ -137,7 +137,7 @@ fn the_interface_panel_s_buttons_are_known_by_their_place() {
 
 /// A list box's form part at `f` (G = f − 0x64, its item list at
 /// f + 0x578, as the generic list box), its draw thunk at `thunk`.
-fn list(m: &mut Fake, f: u32, status1: u32, layout: ItemLayout, count: i32, first: i32, shown: i32) {
+pub(super) fn list(m: &mut Fake, f: u32, status1: u32, layout: ItemLayout, count: i32, first: i32, shown: i32) {
     let vtable = 0x70_0000;
     let thunk = 0x71_0000;
     m.form(f, vtable, status1, true, [100, 100, 300, 260], 0, &[]);
@@ -167,7 +167,7 @@ fn list(m: &mut Fake, f: u32, status1: u32, layout: ItemLayout, count: i32, firs
     with_roots(m, &[f]);
 }
 
-const ROWS: ItemLayout = ItemLayout { x0: 4, y0: 2, gap: 1, variable: false, rows: 8, width: 200, height: 19 };
+pub(super) const ROWS: ItemLayout = ItemLayout { x0: 4, y0: 2, gap: 1, variable: false, rows: 8, width: 200, height: 19 };
 
 #[test]
 fn a_list_box_shows_its_entries_and_scrolls_with_the_wheel() {

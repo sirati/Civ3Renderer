@@ -1538,7 +1538,7 @@ What a pointer aid (the viewer's button snapping) needs: the screen rectangles o
 - Status1 & 2: the form itself never takes the mouse (its children do);
 - keyed forms (Status1 & 0x1000000, not & 0x100): a colour-key pixel of the canvas lets the click through.
 
-No enabled flag is read on the mouse path: a disabled control is hidden, or its owner ignores the event [?]. Wheel `0x62C6D0` goes to the hit form's `vt+0x64(delta, x, y)`.
+No enabled flag is read on the mouse path: a disabled control is hidden, or its owner ignores the event [?]. Wheel `0x62C6D0` goes to the hit form's `vt+0x64(delta, x, y)`. Never to its parents; `Base_Form`'s slot is `ret 0xC` (0x411680), kept by buttons, scroll bars, text boxes, the Civilopedia, F4 Foreign, the Hall of Fame, the file dialog (0x668C08), diplomacy and popups. Overridden by list boxes (0x618E40, only with Status1 & 8, which also makes the form's vertical `Scroll_Bar` at +0x26C, 0x603D10), the city screen 0x425840, F1 0x5228D0, F3 0x575F10, F5 0x4FBD10, F7 0x5D1490, F8 0x543330, Trade 0x5AFA50, Espionage 0x52B2D0, the MP lobby and setup screens (0x482B10, 0x4932A0, 0x4994A0) and the map 0x4DE460. `civ3_sys::controls::wheel` routes the dropped ones to the arrow command of the bar beside the pointer (0x60DEB0: 1 up, 2 down), a parent screen's own handler, or diplomacy's painted tree arrows (regions 3/4 right, 5/6 left, clicked through vt+0x74).
 
 **Classes** (no RTTI; names from the C3X header [H] or matched by structure):
 

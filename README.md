@@ -205,6 +205,14 @@ the frame on a tile the command takes, and the go-to path (the game's own
 path finder, run on the game's thread) with its marker and turn count; the
 command's pointer is the game's cursor.
 
+The wheel (and trackpad scrolling) also scrolls what the game itself
+never let it: the Civilopedia's articles and lists, the Foreign advisor,
+the Hall of Fame, the load/save file list, text boxes, any vertical
+scroll bar under the pointer, the advisors' lists with the pointer on one
+of their buttons, and diplomacy's trade trees. The bridge does each notch
+as the game's own arrow click on that control (`civ3_bridge::ui_wheel`);
+these step without the smooth slide.
+
 The Layout tab's **Smooth scrolling in menu lists** option animates rows
 in scrollable lists, including the city's production chooser. It is off
 by default and independent of smooth world movement. The game receives
