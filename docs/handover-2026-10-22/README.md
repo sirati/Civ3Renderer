@@ -1,6 +1,6 @@
 # Civ III renderer handover
 
-The installed Neo release is **Civilization III**, protocol 51, Git commit `89992d3`, source snapshot `5cbabf18…`. Its files, signature and registration were verified, and the native renderer window now opens with the renderer inside the game's Wine process (dual stack, no separate viewer): in 3 of 3 launches of the installed app the viewer attached in 8–9 s, the Wine game process owned the on-screen window, and the app stopped cleanly. Installation evidence is in [deployment.json](deployment.json).
+The installed Neo release is **Civilization III**, protocol 52, Git commit `dfbee72`, source snapshot `57a56361…`. Its files, signature and registration were verified, and the native renderer window now opens with the renderer inside the game's Wine process (dual stack, no separate viewer): in 3 of 3 launches of the installed app the viewer attached in 9–15 s, the Wine game process owned the on-screen window, and the app stopped cleanly. On its first launch the launcher installed Microsoft DirectPlay into the prefix (eight files, native DLL overrides). Installation evidence is in [deployment.json](deployment.json).
 
 The earlier f510 install never showed its window because startup deadlocked inside Wine on Neo. Commit `fee4096` removes the trigger. The loaded map/HUD, input and the in-game Quit on Neo are still unverified, because the agent has no screen-recording or input permission there. See [the scoped verification](verification.md).
 
@@ -45,8 +45,8 @@ The [acceptance checklist](acceptance.md) is a reference to the older feature le
 | Item | Current identity |
 | --- | --- |
 | Neo app | `/Users/sirati/Applications/Civilization III.app`, bundle ID `org.sirati.civ3r`. Native window verified; visual map/HUD/Quit check pending. |
-| Installed at | 22 October 2026, 18:32:38 UTC. Rollback backup `runtime/releases/app-backup-20261022T183236802703Z`. |
-| Installed source | Git commit `89992d3`, snapshot `5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87`, protocol 51. |
+| Installed at | 22 October 2026, 21:28:45 UTC. Rollback backup `runtime/releases/app-backup-20261022T212843904838Z`. |
+| Installed source | Git commit `dfbee72`, snapshot `57a56361575e8f9753ed3272a90c1ac2c8aa61f6ecf01438b73c1172c4cf1c20`, protocol 52. |
 | Implementation baseline | Git commit `8106ae5a4debbe247cb5e64523d4972474f4fe39` (f510 snapshot, 673 entries), plus code commits `fee4096` (Neo startup deadlock) and `32cb02c` (Wayland redraw freeze). Other handover commits change documentation only. |
 | Primary shader | `43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4`. |
 | Fallback shader | `bbde10b5e91a3e54c337eab67c2e5acce8abf384657043eb46bbe056ea799281`. |

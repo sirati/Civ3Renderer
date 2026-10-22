@@ -1,38 +1,49 @@
 {
   "status": "installed_window_verified_visual_acceptance_pending",
-  "installed_at_utc": "2026-10-22T18:32:38.538510+00:00",
-  "source": "5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87",
-  "git_commit": "89992d3",
-  "scene_protocol": 51,
+  "installed_at_utc": "2026-10-22T21:28:45.600494+00:00",
+  "source": "57a56361575e8f9753ed3272a90c1ac2c8aa61f6ecf01438b73c1172c4cf1c20",
+  "git_commit": "dfbee72",
+  "scene_protocol": 52,
   "shader_sha256": "43961a92338f6b5b1f5ebd12dfdc806057fe43d8bfeb50abdb7872d274b601c4",
   "implementation_baseline": "8106ae5a4debbe247cb5e64523d4972474f4fe39",
-  "changes_since_baseline": [
-    "fee4096 Avoid per-file volume queries that deadlock startup on Neo",
-    "32cb02c Notify the window only for frames the render worker presents",
-    "41edad8 Wake the startup window each second so its elapsed count advances",
-    "66f5a50 city-screen unit context menu at the click",
-    "52b267e modal full-window canvas measured by its board",
-    "feffb60 process ends without DLL detach; launcher stops the game after the viewer closes",
-    "ab38c7d list highlight stays under the pointer while smooth-scrolling",
-    "631391b hourglass busy cursor",
-    "d3d8f45 canvas rendered at window/pixel scale",
-    "9050fc7 pixel scale x1 default, Auto removed, first-run Preferences",
-    "89992d3 test follow-up"
+  "changes_since_previous_install": [
+    "c4ca840 pixel-scale confirmation drawn on the window, not the whole frame",
+    "7f6e14f / f488560 captured mouse sensitivity default 3x, up to 10x",
+    "4ae9e94 Fortify animation and sound away from the parked native camera",
+    "5c1cafc wheel scrolls every vertical game list",
+    "1bb9cc4 Load Scenario screen shows the scenario map",
+    "29d48d1 DirectPlay installed into the prefix for LAN and Direct IP games",
+    "ebefb27 advisor head and combo list stay with their popup",
+    "3861abe each view's interface laid out below its zoom strip",
+    "522c961 unit-button gap at the divider or in the active view",
+    "48541b0 right-click tile box no longer blocks the other view",
+    "0959503 continuous panning; followers no longer pull a dragged view",
+    "e555802 wheel pans the map in every mode; right click on the minimap moves view B",
+    "54497fa macOS bottom edge (last pixel row) scrolls",
+    "041e629 Alt mode in menus setting (input.alt_in_menus, default on)",
+    "b67475e mouse modes, glass divider, attractors in both views",
+    "dfbee72 merge fix-ups"
   ],
   "app": "/Users/sirati/Applications/Civilization III.app",
   "runtime_sha256": {
-    "civ3r-viewer": "a1d75a19990a2d3eea613f0857a376abbaa56e91b6232889a6056b292f419836",
-    "civ3-play-macos": "1043a5c48af8984d9da0a1a9a85b2e7eb3399297c4df2d827523c116904f4a8d",
-    "IFC23.dll": "fbd92c7a229a57c4aa7811ff469b70449c3f26e1f122921bf3a5b258bf1aa77d",
-    "civ3r_native.so": "729ada121064a6b83ee088a839a3bb0934a66283d0263ce63b745bfe62cab03a",
+    "civ3r-viewer": "91a13af52cb3c2c35a308ea9b9b5430c40568dd5b2e4f2b702b80d05c90ff560",
+    "civ3-play-macos": "564ea99fa201350fae8633ae9d0d551cda4f93778467931bdbdbd3598eb1c265",
+    "IFC23.dll": "0bd12a33408ea30fcacaf3ffd8573f586d11b0424da654156690dcb5090790fe",
+    "civ3r_native.so": "546fb45b460430119b498794c9ccc884253308dadf4dfb2c6d86f736160e10f8",
     "civ3r_native.dll": "4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935"
   },
   "app_starter_sha256": "da03b844870eea3d95e3b7b9d738accb23751ef74a055b2723de1fcad61f003e",
   "signatures_verified": true,
   "searchable_app_verified": true,
   "remote_hashes_verified_after_install": true,
-  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T183236802703Z",
+  "rollback_backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T212843904838Z",
   "previous_installs_on_22_october": [
+    {
+      "source": "5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87",
+      "commit": "89992d3",
+      "installed_at_utc": "2026-10-22T18:32:38.538510+00:00",
+      "backup": "/Users/sirati/civ3r-tsneo-20261019/runtime/releases/app-backup-20261022T183236802703Z"
+    },
     {
       "source": "b9abc70760ae5aaa4c110aec5e79ad91ac12628ce6087a3918f71619d2f1c873",
       "commit": "41edad8",
@@ -60,37 +71,60 @@
     }
   ],
   "tests_before_deploy": {
-    "civ3_bridge": "462 passed, 4 ignored (Papa host)",
-    "coordinator": "scene, civ3-assets, tile-viewer (505), civ3r-launcher, civ3r-native and viewer-settings passed on Papa"
+    "workspace": "Reported by the coordinator (not rerun by the deploy agent): workspace tests pass on Papa at dfbee72 except tile-render --test subpixel_coverage, which fails the same way on main before these changes (known GPU blend issue)",
+    "build_gates": "cargo check civ3-bridge (i686) passed; shader embedded once in IFC23.dll, civ3r-viewer and civ3r_native.so; civ3r_native.dll marked Wine builtin"
   },
-  "runtime_acceptance": "In-process (dual stack) at 89992d3: 3 of 3 guarded launches of the installed app via open attached in 9-11 s; no civ3r-viewer process; no --separate-viewer; window owned by the Wine game process and on screen; ARM64 unixlib mapped from runtime/native; viewer started in the log. Viewer-closed backstop, triggered by writing the launcher's CIV3R_VIEWER_CLOSED_FILE marker: game process gone 5-6 s later; in a fourth run with no fallback stop, launcher, wineserver, winedevice and that run's Wine services gone within 10 s; no Dock entries left. Not covered: closing the real viewer window, and all visual checks.",
+  "runtime_acceptance": "In-process (dual stack) at dfbee72: 3 of 3 guarded launches of the installed app via open (each refuses if any game process already runs); viewer attached after 15, 9 and 9 s; no civ3r-viewer process; no --separate-viewer; window owned by the Wine game process and on screen; ARM64 unixlib mapped from runtime/native; viewer started in the log; civ3-app-macos stop rc 0 with no owned processes 4 s later. Not covered: closing the real viewer window, all visual checks, hosting or joining a network game.",
+  "directplay": {
+    "source": "nix build .#directplay on Papa (nix/directplay.nix, fixed hash), result/i386/* copied to runtime/directplay on Neo",
+    "files_sha256": {
+      "dplaysvr.exe": "e3ee1e2d903237131ba42c770f07e7eceaa3574b4ce718062a4e3c1f9cdbf893",
+      "dplayx.dll": "f50362966d69446f3f562946e77cb72ba8058abcddfadac4d2b0841e07434c3c",
+      "dpmodemx.dll": "200753c96fd4ceac9b9bbed12a4b74d5c25df522cb32820dfc58d3d193be8eec",
+      "dpnet.dll": "b3f41e537797abc414fda5136a864865c37e7324b55a9a5705c6761ff9a8e816",
+      "dpnhpast.dll": "ab9743ce54837735f0e1cb8840ac58d578093078bc80e0dd91219dc37e5a703d",
+      "dpnhupnp.dll": "59e74dd3de40e22aac95133cf746be32cb0de40e4fc801cf63be13d9e2ca8134",
+      "dpnsvr.exe": "1ff263d2c1a97d422f94dd3d0872b1fa49de99b825ba64a5bf06f483a1849ac7",
+      "dpwsockx.dll": "0725598871b2f1f65ccd0235683873346c8024a38dead045bce20526af65654d"
+    },
+    "installed_by": "launcher, first guarded launch (session-1792704547751246000-96757.directplay.log): regsvr32 registered dplayx, dpnet, dpnhpast and dpnhupnp",
+    "prefix_syswow64_matches_files": true,
+    "dll_overrides": "HKCU\\Software\\Wine\\DllOverrides: dplaysvr.exe, dplayx, dpmodemx, dpnet, dpnhpast, dpnhupnp, dpnsvr.exe, dpwsockx = native",
+    "marker": "native-wine/prefix/civ3r-directplay",
+    "before": "no marker, empty DllOverrides, Wine builtin dpnet.dll in syswow64",
+    "network_game_tested": false
+  },
   "receipts": {
-    "install-20261022T183236802703Z.json": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/install-20261022T183236802703Z.json",
-      "sha256": "6325974975d64ca1f027de4f52378cf921759dbdd8b2d7db36a09c30c7186049"
+    "install-20261022T212843904838Z.json": {
+      "path": "/mnt/datasets/c3r-build/neo-deploy-dfbee72-evidence/install-20261022T212843904838Z.json",
+      "sha256": "18330f40ce402ad3be92d4cdb42bc8e3f48a47e10b4280783f96fef236ca01e3"
     },
     "cross-manifest.json": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/cross-manifest.json",
-      "sha256": "fc777de7dc3f605f574f3d1ae2205413e193376514faeff5744ef26c8e04d905"
+      "path": "/mnt/datasets/c3r-build/neo-deploy-dfbee72-evidence/cross-manifest.json",
+      "sha256": "1b77c1ceff89f9bb5a72696a18c87181edc720032a6eac4e659244ba75184b39"
     },
-    "deploy log": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/deploy-neo-8999-5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87.log",
-      "sha256": "b40fa2356a74f06eeb98df7caa66fe700d3efec8ab7a30027004a4924c84b480"
+    "build log": {
+      "path": "/mnt/datasets/c3r-build/neo-deploy-dfbee72-evidence/build-dfbee72.log",
+      "sha256": "6fc43ca20f0710281de82b840d67f76879020480c8f9b62951fc7f0e90d6b10d"
     },
     "install log": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/install-neo-8999-5cbabf188b853799e48941d2a5da78415a5d3914ce2cd9db61e0c4d544c89b87.log",
-      "sha256": "00ed44ff05cb3d7749848eef8dfac7f2576b663c7300488e84b9bc01a6880a5f"
+      "path": "/mnt/datasets/c3r-build/neo-deploy-dfbee72-evidence/install-neo-dfbee72-57a56361575e8f9753ed3272a90c1ac2c8aa61f6ecf01438b73c1172c4cf1c20.log",
+      "sha256": "618de965428323524ec9900a72e8cfba21a78f7970a2a684f554974e3e4abd55"
     },
-    "bridge tests": {
-      "path": "/mnt/datasets/c3r-build/neo-window-fix-evidence/deploy-89992d3/neo-deploy-8999-bridge-tests.log",
-      "sha256": "e50c82a8f631a2fa3c694cba53bd19bb4c4bffb202fb062843c96fb440701518"
+    "launch evidence": {
+      "path": "/mnt/datasets/c3r-build/neo-deploy-dfbee72-evidence/c3r-ev-dfbee72.tgz",
+      "sha256": "3e58ab8e29e8c9e25553a2fac8d49d8eb17bf633e49f954fdc19963afab97872"
+    },
+    "DirectPlay result": {
+      "path": "/mnt/datasets/c3r-build/neo-deploy-dfbee72-evidence/directplay-result.txt",
+      "sha256": "11a7118a11fc2ae2cbf20930944f9b9fafda780f1e205a6b364a347de72347fc"
     }
   },
   "verification_record": "evidence/neo-window/verification.json",
   "intel_comparison_record": "evidence/macos-vm/verification.json",
   "renderer_mode": "in-process (dual stack); installed config has no --separate-viewer",
-  "install_incident": "The install step stopped the user's running game (launcher 40873, game 40874) with SIGTERM; deploy log lines 15-16. The helper now refuses while a game runs unless CIV3R_DEPLOY_STOP_RUNNING=1.",
+  "install_safeguard": "Neo was checked for Civ3/Wine/launcher processes right before installing (none) and the installer's own check passed; CIV3R_DEPLOY_STOP_RUNNING unset. No game was stopped except the three this deploy launched.",
+  "source_packaging": "release-1019/package-source.py with the untracked .claude/ directory excluded (742 files, git head dfbee72)",
   "startup_title_check": "crates/civ3r-launcher/src/startup.rs is unchanged since 41edad8; the title-count proof from that build applies.",
-  "known_issue": "In-game actions stall for 47-77 s on Neo since 20 Oct (in-process renderer era); a separate-viewer A/B by the user is pending (~/Civ3 separate viewer (A-B test).command).",
-  "install_safeguard": "The first install attempt refused (exit 76) while the user's game ran; it was rerun after that game had ended. No game was stopped."
+  "known_issue": "In-game actions stall for 47-77 s on Neo since 20 Oct (in-process renderer era); a separate-viewer A/B by the user is pending (~/Civ3 separate viewer (A-B test).command)."
 }
