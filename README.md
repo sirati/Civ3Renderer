@@ -475,7 +475,8 @@ On the Load Scenario screen the highlighted scenario's world shows beside
 the dialog as its players start with it (what they have explored, the
 rest black), fitted to what is revealed (docs §19); a double-click on it
 explores it twice as big with the mouse captured (Ctrl lets it go, Esc
-or a double-click goes back).
+or a double-click goes back). The dialog's small map of the scenario is
+made from the same world, as the game makes it (bright terrain, all of it).
 With a split, `ui=pane` (Ctrl+Shift+U) fits the game's whole screen, its
 menus too, into the main pane as one picture (views stacked into one
 scaled picture, `Camera::stacked`; its one-pixel lines kept); `ui=window`

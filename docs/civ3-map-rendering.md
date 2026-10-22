@@ -1893,6 +1893,8 @@ The scene asks the viewer for the screen at the left and the world beside it (`s
 
 Beyond downscale 2 the renderer samples sprites on the cells' grid (`tile_render_shared::placed`): sampled from each crop box's own corner, as the game does at 2, tiles cropped to different boxes left about one pixel per tile vertex uncovered (black dots on the sea; isolated black pixels in the preview of WWII in the Pacific: 5005 before, 830 after).
 
+The dialog's own map of the scenario (above "Map Size", 230 × 110 at 1920 × 1080) is a navigator's terrain image (`PCX_1`, §17.4) that the game builds pixel by pixel and copies onto the form's canvas: the whole map in bright terrain colours, nothing explored, owned or built marked (*WWII in the Pacific*: interior ocean (0, 66, 82), desert (239, 239, 181), the table's colours one step lower from the blend's truncation) [D]. The mirror takes a copy onto a form of class 0x66EAB0 whose source is a navigator's `PCX_1` (that navigator's selected source at +4 is its +0x18 or +0x2D0, its size at +0xB10/+0xB14 plausible; `civ3_sys::ui_hooks::form_surface`) as the generated surface `scenario-map`, and the bridge makes its pixels from the previewed world (`minimap::scenario_map`). Where the navigator sits in the form was not read statically [?]; before this the copy was dropped and the frame showed empty parchment.
+
 Not covered: a scenario without a map of its own shows none; saved games (`.sav`, the Load Game file picker, another code path) are not previewed.
 
 ### 19.4 What a scenario reveals at the start [M]
