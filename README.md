@@ -341,9 +341,16 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   that unit. The native game's parked camera does not pull A back to a
   tile. Toggling Z keeps the views and captured cursor on the same map
   locations; the magnifier keeps full-detail art. The mouse wheel pans the
-  view under the pointer using the game's scroll-speed setting, vertically
-  by default and horizontally with Shift. Ctrl+wheel changes that view's
-  zoom. Map dragging is disabled while the mouse is
+  view under the pointer in every map movement mode (captured: the world
+  cursor's view), a wheel line by the game's scroll-speed setting,
+  vertically by default and horizontally with Shift. A tilt wheel or a
+  trackpad's sideways scroll pans sideways; a trackpad pans with the
+  fingers, pixel for pixel and diagonally. Over the interface the wheel
+  stays the interface's. Ctrl+wheel changes that view's zoom. With a
+  split, a right click on the minimap moves B there (gliding with smooth
+  movement); the game does not get that click, and its camera does not
+  pull B back. Without a split the right click goes to the game as
+  before. Map dragging is disabled while the mouse is
   captured. In `Drag` mode, a short right click opens the unit menu. Drag
   the right button to preview the selected unit's native go-to route, then
   release it and left click the destination tile to confirm. While the

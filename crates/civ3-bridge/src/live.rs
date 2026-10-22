@@ -1498,6 +1498,12 @@ fn publish(
             }
             ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
         }
+        // Where the renderer may point at the minimap (not under a menu,
+        // where a click is the menu's).
+        let minimap = match shown {
+            Shown::Map(world, view) if !crate::modal::modal_open(&game) => ui_screen::minimap_area(&ui_items, world, view.zoomed_out),
+            _ => None,
+        };
         // (Our tabs where no part draws the screen: on top.)
         menu_items.extend(prefs_items.take().unwrap_or_default());
         // Every detected popup is an overlay of its own. Its parent screen
@@ -1880,6 +1886,7 @@ fn publish(
             scene.camera_focus = camera_focus;
             scene.camera_arrival = camera_arrival;
             scene.map_wheel_step = civ3_sys::native_camera::map_wheel_step(game).unwrap_or_default();
+            scene.minimap = minimap;
             // The tiny native tile range has no authority over renderer art.
             if scene.camera_focus.is_some() {
                 scene.view_mut(crate::scene_map::GAME_VIEW).view.cull = None;
@@ -2487,6 +2494,8 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 let (x, y) = forwarder.city_map.map_or((x, y), |m| m.to_game((x, y)));
                 window.wheel(delta, x, y, forwarder.held)
             }
+            // (The renderer's own; its `Wheel` notches are the game's.)
+            Input::Scroll { .. } => {}
             Input::Key { vk, down, text } => {
                 log::debug!("input: key {vk:#x} {}", if down { "down" } else { "up" });
                 key(window, vk, down, text)
