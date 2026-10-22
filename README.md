@@ -374,8 +374,8 @@ scale 1) and saves them: the way out of settings that make the game hard to
 use. The pointer settings stay. The keys do not reach the game.
 
 The Layout tab's **Captured mouse sensitivity** multiplier changes only
-captured relative movement, from 0.1 to 5 times its normal speed. The
-default is 1. Normal pointing, menu snapping and dragging keep their own
+captured relative movement, from 0.1 to 10 times its normal speed. The
+default is 3. Normal pointing, menu snapping and dragging keep their own
 speed. At a captured view's edge, the system pointer stays inside that
 view; when only one axis is unlocked, it stays on a line along that axis.
 
