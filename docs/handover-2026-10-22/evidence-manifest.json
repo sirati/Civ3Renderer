@@ -357,10 +357,10 @@
     {
       "source": "/mnt/datasets/c3r-build/neo-window-fix-evidence/verification.json",
       "copy": "evidence/neo-window/verification.json",
-      "source_bytes": 6049,
-      "source_sha256": "396454f649910fa7952d11b7476c6a2ea330187d209f9ee9fbe764ef75aebe55",
-      "copy_bytes": 6049,
-      "copy_sha256": "396454f649910fa7952d11b7476c6a2ea330187d209f9ee9fbe764ef75aebe55",
+      "source_bytes": 9273,
+      "source_sha256": "0d4b5086d77ad2d3668afc15e15516cfcbf138f1e8bb275fd5db32da07aca1fd",
+      "copy_bytes": 9273,
+      "copy_sha256": "0d4b5086d77ad2d3668afc15e15516cfcbf138f1e8bb275fd5db32da07aca1fd",
       "redactions": []
     }
   ]
