@@ -375,11 +375,13 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   trackpad's sideways scroll pans sideways; a trackpad pans with the
   fingers, pixel for pixel and diagonally. Over the interface the wheel
   stays the interface's. Ctrl+wheel changes that view's zoom. With a
-  split, a right click on the minimap moves B there (gliding with smooth
-  movement); the game does not get that click, and its camera does not
-  pull B back. Without a split the right click goes to the game as
-  before. Map dragging is disabled while the mouse is
-  captured. In `Drag` mode, a short right click opens the unit menu. Drag
+  split, a left or right click with the free pointer on the minimap moves
+  B there (gliding with smooth movement). The game does not get the press
+  or release, so A and the game camera stay put, and the game does not pull
+  B back. Without a split both buttons go to the game as before. Captured
+  world-cursor clicks keep their usual world actions. Map dragging is
+  disabled while the mouse is captured. In `Drag` mode, a short right
+  click opens the unit menu. Drag
   the right button to preview the selected unit's native go-to route, then
   release it and left click the destination tile to confirm. While the
   right button is held, the preview scrolls the map at its edge. Release
