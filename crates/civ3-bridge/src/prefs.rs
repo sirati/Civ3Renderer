@@ -1642,20 +1642,20 @@ mod tests {
         assert_eq!(p.editing().layout.zoom, Zoom::Mouse111);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && !shown.contains(&"Strip height".to_string()) && shown.contains(&"50%".to_string()), "{shown:?}");
-        assert!(!shown.iter().any(|t| t == "Top margin" || t == "Drop" || t == "Keep mouse out"), "{shown:?}");
+        assert!(!shown.iter().any(|t| t == "Top margin" || t == "Gap when moved" || t == "Keep mouse out"), "{shown:?}");
         assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(texts(&p).contains(&"5%".to_string()));
         // The floating boxes share that one slider (no Auto, no own
-        // height), and have their top margin (2.5%), their drop below the
-        // mouse (30%) and the keep-the-mouse-out option.
+        // height), and have their top margin (2.5%), the gap they move below
+        // their resting place by (2.5%) and the keep-the-mouse-out option.
         assert!(click(&mut p, 500, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating131);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && shown.contains(&"5%".to_string()), "{shown:?}");
         assert!(shown.contains(&"Floating box 1:3:1".to_string()));
         assert!(!shown.iter().any(|t| t == "Auto"), "{shown:?}");
-        assert!(["Top margin", "2.5%", "Drop", "30%", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
+        assert!(["Top margin", "2.5%", "Gap when moved", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
         assert_eq!(p.settings(), p.editing());
@@ -1668,14 +1668,14 @@ mod tests {
         let row = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 421 };
         let slide = |x| Input::MouseMove { x, y: 421 };
         assert!(p.route(vec![row(true, 450), slide(800), row(false, 800)], (1024, 768)).is_empty());
-        assert_eq!(p.editing().layout.zoom_box_top, 0.2);
+        assert_eq!(p.editing().layout.zoom_box_top, 0.05);
         assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
-        assert!(["20%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
+        assert!(["5%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
         assert_eq!(p.settings(), p.editing());
         assert!(click(&mut p, 780, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
-        assert!(["Box height", "50%", "Top margin", "Drop"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
+        assert!(["Box height", "50%", "Top margin", "Gap when moved"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
         // The magnification, for every zoom: 2×, its steps 1.5× to 4×.
         assert!(["Magnification", "2×"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
         let mag = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 321 };
