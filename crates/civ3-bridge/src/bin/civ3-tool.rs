@@ -288,6 +288,19 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             println!("minimap: {same} of {} pixels identical ({pct:.2}%); {white} of the others white in the game", w * h);
             Ok(ExitCode::SUCCESS)
         }
+        Some("scenario-map") => {
+            // The Load Scenario screen's own small map of the scenario
+            // (docs §19.3), at the size the game makes it.
+            let usage = "scenario-map SCENARIO.biq OUT.png";
+            let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+            let p = ifc23::preview::load(install.as_ref(), args.get(1).ok_or(usage)?).map_err(|e| e.to_string())?;
+            let out = args.get(2).ok_or(usage)?;
+            let size = ifc23::minimap::scenario_map_size(&p.world);
+            let pixels = ifc23::minimap::scenario_map(&p.world, size);
+            image::save_buffer(out, &pixels, size.0, size.1, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
+            println!("{out}: {}x{} of a {}x{} map", size.0, size.1, p.world.width, p.world.height);
+            Ok(ExitCode::SUCCESS)
+        }
         Some("preview") => {
             let usage = "preview SCENARIO.biq OUT.png [--viewport WxH]";
             preview(args.get(1).ok_or(usage)?, args.get(2).ok_or(usage)?, viewport(args)?)
