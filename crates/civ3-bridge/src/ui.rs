@@ -13,6 +13,9 @@ use std::sync::Arc;
 
 use crate::text::TextRun;
 
+mod display_list;
+use display_list::DisplayList;
+
 /// Where a sprite's pixels come from.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Source {
@@ -234,11 +237,14 @@ pub struct UiModel {
     /// Where sprites come from (shared with snapshots, copied on write).
     sprites: Arc<HashMap<u32, Source>>,
     /// Display lists of canvases (and every other drawn-into image).
-    canvases: HashMap<u32, Vec<Op>>,
+    canvases: HashMap<u32, DisplayList>,
     /// What each form's canvas showed when the game last put it on the
     /// screen (each operation with what it resolves to): the frame is made
     /// of these, never of a canvas the game is still painting.
     presented: HashMap<u32, Snapshot>,
+    /// Per snapshot in `presented` of a list copying no other surface: the
+    /// revision of the list it was taken of.
+    presented_from: HashMap<u32, u64>,
     /// What the screen is composed of, bottom to top, as the last paint
     /// composed it (forms later composed on their own update their place).
     order: Vec<Layer>,
@@ -382,7 +388,7 @@ impl UiModel {
     /// How much the model holds: canvases, their operations, the presented
     /// ones (for diagnostics).
     pub fn stats(&self) -> (usize, usize, usize) {
-        let ops = self.canvases.values().map(Vec::len).sum();
+        let ops = self.canvases.values().map(DisplayList::len).sum();
         let presented = self.presented.values().map(|v| v.iter().map(|(_, r)| r.len()).sum::<usize>()).sum();
         (self.canvases.len(), ops, presented)
     }
@@ -707,7 +713,7 @@ impl UiModel {
                 if from == canvas {
                     let window = [src[0], src[1], src[0] + src[2], src[1] + src[3]];
                     let d = (x - src[0], y - src[1]);
-                    let ops = self.canvases.get(&canvas).cloned().unwrap_or_default();
+                    let ops = self.canvases.get(&canvas).map(DisplayList::to_vec).unwrap_or_default();
                     let moved: Vec<Op> = ops.into_iter().filter_map(|op| crop_move(op, window, d, keyed)).collect();
                     if !keyed {
                         self.occlude(canvas, [x, y, src[2], src[3]]);
@@ -755,11 +761,12 @@ impl UiModel {
                         // selection every frame): drop what lies inside.
                         let [x, y, w, h] = rect;
                         let inside = |l: i32, t: i32, r: i32, b: i32| l >= x && t >= y && r <= x + w && b <= y + h;
-                        ops.retain(|op| match op {
-                            Op::Fill { rect: [fx, fy, fw, fh], .. } => !inside(*fx, *fy, fx + fw, fy + fh),
-                            Op::Text(run, _) => !inside(run.x, run.y, run.x + 1, run.y + 1),
-                            Op::Flc { x, y, .. } => !inside(*x, *y, x + 1, y + 1),
-                            Op::Image { .. } | Op::ResizedImage { .. } => true,
+                        // What lies inside starts inside.
+                        ops.remove_where([x, y, x + w, y + h], |op| match op {
+                            Op::Fill { rect: [fx, fy, fw, fh], .. } => inside(*fx, *fy, fx + fw, fy + fh),
+                            Op::Text(run, _) => inside(run.x, run.y, run.x + 1, run.y + 1),
+                            Op::Flc { x, y, .. } => inside(*x, *y, x + 1, y + 1),
+                            Op::Image { .. } | Op::ResizedImage { .. } => false,
                         });
                     }
                     return;
@@ -799,7 +806,7 @@ impl UiModel {
                     // The next frame of an animation replaces the one there
                     // (a leader head is redrawn every few frames).
                     if let Some(ops) = self.canvases.get_mut(&canvas) {
-                        ops.retain(|op| !matches!(op, Op::Flc { path: p, x: px, y: py, .. } if *p == path && (*px, *py) == (x, y)));
+                        ops.remove_where([x, y, x, y], |op| matches!(op, Op::Flc { path: p, x: px, y: py, .. } if *p == path && (*px, *py) == (x, y)));
                     }
                     self.push(canvas, Op::Flc { path, chunk, x, y, clip, plain });
                 }
@@ -809,11 +816,23 @@ impl UiModel {
                 if self.sizes.get(&canvas) != Some(&size) {
                     Arc::make_mut(&mut self.sizes).insert(canvas, size);
                 }
-                let shown: Vec<_> = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
-                // The same content keeps its snapshot (what the window shows
-                // of it is then known to be unchanged).
-                if self.presented.get(&canvas).is_none_or(|old| **old != shown) {
-                    self.presented.insert(canvas, Arc::new(shown));
+                // A list unchanged since its snapshot, copying no other
+                // surface, shows what the snapshot has (taken anew, every
+                // operation resolved and compared, at every paint, it cost
+                // the game's thread as much as the canvas holds).
+                let list = self.canvases.get(&canvas).map(|ops| (ops.revision(), ops.copies_surfaces()));
+                let unchanged = matches!(list, Some((revision, false)) if self.presented_from.get(&canvas) == Some(&revision) && self.presented.contains_key(&canvas));
+                if !unchanged {
+                    let shown: Vec<_> = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
+                    // The same content keeps its snapshot (what the window shows
+                    // of it is then known to be unchanged).
+                    if self.presented.get(&canvas).is_none_or(|old| **old != shown) {
+                        self.presented.insert(canvas, Arc::new(shown));
+                    }
+                    match list {
+                        Some((revision, false)) => self.presented_from.insert(canvas, revision),
+                        _ => self.presented_from.remove(&canvas),
+                    };
                 }
                 self.compositing = true;
                 let layer = Layer::Form { canvas, vtable, origin, size, clip, keyed };
@@ -836,6 +855,8 @@ impl UiModel {
                     // every form ever opened. Partial presents keep their
                     // old snapshots alive through `shown`'s Arcs.
                     self.presented.retain(|canvas, _| self.order.iter().any(|layer| matches!(layer, Layer::Form { canvas: c, .. } if c == canvas)));
+                    let presented = &self.presented;
+                    self.presented_from.retain(|canvas, _| presented.contains_key(canvas));
                 }
             }
             Event::PresentBegin => self.presenting = Some(Vec::new()),
@@ -862,7 +883,7 @@ impl UiModel {
         let [x, y, w, h] = rect;
         let inside = |[l, t, r, b]: [i32; 4]| l >= x && t >= y && r <= x + w && b <= y + h;
         if let Some(ops) = self.canvases.get_mut(&canvas) {
-            ops.retain(|op| !inside(op_bounds(op)));
+            ops.remove_where([x, y, x + w, y + h], |op| inside(op_bounds(op)));
         }
     }
 
@@ -935,9 +956,7 @@ impl UiModel {
         // background, every few seconds); their lists, every copy of them,
         // and so the screen would grow without end.
         if overdraws_itself(&op) {
-            if let Some(i) = ops.iter().rposition(|o| *o == op) {
-                ops.remove(i);
-            }
+            ops.remove_last_equal(&op);
         }
         // A leader head's frame covers every earlier one at its place: the
         // game draws the head opaquely over its last frame, from the
@@ -947,7 +966,7 @@ impl UiModel {
         // the dialog's list until the cap below drops its background.
         if let Op::Flc { x, y, plain: true, .. } = &op {
             let at = (*x, *y);
-            ops.retain(|o| !matches!(o, Op::Flc { x, y, plain: true, .. } if (*x, *y) == at));
+            ops.remove_where([at.0, at.1, at.0, at.1], |o| matches!(o, Op::Flc { x, y, plain: true, .. } if (*x, *y) == at));
         }
         if ops.len() >= MAX_OPS {
             // The initial opaque fill still supplies pixels where later
@@ -975,13 +994,10 @@ impl UiModel {
     pub fn compact(&mut self, canvas: u32) {
         let size = self.sizes.get(&canvas).copied();
         let Some(ops) = self.canvases.get(&canvas) else { return };
-        let shown = shown_ops(ops, |op| visible_bounds(op, size), |op| self.opaque(op));
+        let held: Vec<&Op> = ops.iter().collect();
+        let shown = shown_ops(&held, |op| visible_bounds(op, size), |op| self.opaque(op));
         let ops = self.canvases.get_mut(&canvas).expect("looked up above");
-        let mut i = 0;
-        ops.retain(|_| {
-            i += 1;
-            shown[i - 1]
-        });
+        ops.retain_marked(&shown);
         let len = ops.len();
         if self.compacted.len() > 2 * self.canvases.len() + COMPACT_MIN {
             let canvases = &self.canvases;
@@ -1299,12 +1315,13 @@ fn visible_bounds(op: &Op, size: Option<(i32, i32)>) -> [i32; 4] {
 /// Which of `ops` (oldest first) still show: false for one whose `bounds`
 /// lie entirely under `opaque` operations drawn after it (their bounds
 /// together). Nothing empty counts as covered.
-fn shown_ops(ops: &[Op], bounds: impl Fn(&Op) -> [i32; 4], opaque: impl Fn(&Op) -> bool) -> Vec<bool> {
-    let mut cover: Vec<[i32; 4]> = Vec::new();
+fn shown_ops<O: std::borrow::Borrow<Op>>(ops: &[O], bounds: impl Fn(&Op) -> [i32; 4], opaque: impl Fn(&Op) -> bool) -> Vec<bool> {
+    let mut cover = display_list::Cover::default();
     let mut shown = vec![true; ops.len()];
     for (i, op) in ops.iter().enumerate().rev() {
+        let op = op.borrow();
         let b = bounds(op);
-        if b[2] > b[0] && b[3] > b[1] && covered(b, &cover) {
+        if b[2] > b[0] && b[3] > b[1] && cover.covers(b) {
             shown[i] = false;
             continue;
         }
@@ -1315,11 +1332,12 @@ fn shown_ops(ops: &[Op], bounds: impl Fn(&Op) -> [i32; 4], opaque: impl Fn(&Op) 
     shown
 }
 
-/// Whether the rectangles in `cover` together cover `rect`.
-fn covered(rect: [i32; 4], cover: &[[i32; 4]]) -> bool {
+/// Whether the rectangles in `cover` together cover `rect` (giving up,
+/// false, once what is left of it is in more than [`MAX_FRAGMENTS`]).
+fn covered(rect: [i32; 4], cover: impl IntoIterator<Item = [i32; 4]>) -> bool {
     let mut left = vec![rect];
     for c in cover {
-        left = left.into_iter().flat_map(|r| subtract(r, *c)).collect();
+        left = left.into_iter().flat_map(|r| subtract(r, c)).collect();
         if left.is_empty() {
             return true;
         }
@@ -1466,6 +1484,9 @@ pub mod indices {
         if name.eq_ignore_ascii_case("territory.pcx") { &[0, 1] } else { &[] }
     }
 }
+
+#[cfg(test)]
+mod occlusion_tests;
 
 #[cfg(test)]
 mod tests {
@@ -2394,7 +2415,7 @@ mod tests {
             file("frame.pcx", [0, 0, 100, 30], 0, 0, true),
             // 7: what the redraw draws on top.
             Op::Text(text(5, 15, "row again"), ALL),
-        ]);
+        ].into());
         m.compact(300);
         let kept = &m.canvases[&300];
         assert_eq!(kept.len(), 6);
@@ -2408,9 +2429,9 @@ mod tests {
         let mut m = UiModel::new(vec![], vec![]);
         m.apply(Event::Size { image: 300, size: (100, 30) });
         let ops = vec![Op::Text(text(5, 15, "a"), ALL), file("tile.pcx", [0, 0, 100, 30], 0, 0, true), Op::Text(text(5, 15, "b"), ALL), file("bg.pcx", [0, 0, 100, 30], 0, 0, false), Op::Text(text(5, 15, "c"), ALL)];
-        m.canvases.insert(300, ops.clone());
+        m.canvases.insert(300, ops.clone().into());
         m.compact(300);
-        assert_eq!(m.canvases[&300], ops[3..]);
+        assert_eq!(m.canvases[&300].to_vec(), ops[3..]);
         // Text is covered by its generous bounds, clipped to the canvas.
         let shown = shown_ops(&[Op::Text(text(5, 15, "a"), ALL), Op::Fill { rect: [0, 0, 100, 16], rgb: [0; 3], alpha: 255 }], |op| visible_bounds(op, Some((100, 30))), |_| true);
         assert_eq!(shown, [true, true], "its descent reaches below the fill");
