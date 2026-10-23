@@ -15,6 +15,9 @@
 //!   in red, 1-pixel lines along its diamond's edges, under the fog of war
 //!   (the map's grid pass, `Map_Renderer::m36`, 0x4C57C0);
 //!
+//! - the map grid (`Map_Renderer::m35`, 0x4C5590), when it is on: the
+//!   same diamond edges as the range outline, of every tile, in grey.
+//!
 //! The pointer (the command's own cell of `Art/Cursor.pcx`) is the game's
 //! cursor, which the scene carries anyway (`crate::cursor`).
 //!
@@ -39,6 +42,12 @@ const MODES: i32 = 23;
 const TARGET_SET: &str = "TargetTile/0";
 /// The go-to path's colour: pure red (RGB555 0x7C00).
 const PATH_RGB: [u8; 3] = [255, 0, 0];
+/// The map grid's colour: `Map_Renderer.field_2C0` = RGB555 0x318C (565:
+/// 0x630C, the same grey), set at 0x5F440A.
+const GRID_RGB: [u8; 3] = [99, 99, 99];
+/// The grid goes out in blocks of this many half-tile columns and rows
+/// (8 x 8 tiles, one sprite), the tiles that fill no whole block one by one.
+const GRID_BLOCK: (i32, i32) = (16, 8);
 /// The go-to marker's frame of the cursor animation (0x4E46B2: always 1).
 const MARKER_FRAME: i32 = 1;
 /// The turn count's font: `get_font(16, 1)` = Lucida Sans 16 bold.
@@ -177,7 +186,18 @@ fn pixel_entries(out: &mut String, name: &str, group: &str, index: usize, points
     let (x0, y0) = (points.iter().map(|p| p.0).min().unwrap_or(0), points.iter().map(|p| p.1).min().unwrap_or(0));
     let (x1, y1) = (points.iter().map(|p| p.0).max().unwrap_or(0), points.iter().map(|p| p.1).max().unwrap_or(0));
     let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
-    let rects: Vec<String> = points.iter().map(|(x, y)| format!("{r},{g},{b},255:{},{},1,1", x - x0, y - y0)).collect();
+    // (Each run along a row one rectangle.)
+    let mut sorted = points.to_vec();
+    sorted.sort_unstable_by_key(|&(x, y)| (y, x));
+    sorted.dedup();
+    let mut runs: Vec<(i32, i32, i32)> = Vec::new();
+    for (x, y) in sorted {
+        match runs.last_mut() {
+            Some((rx, ry, n)) if *ry == y && *rx + *n == x => *n += 1,
+            _ => runs.push((x, y, 1)),
+        }
+    }
+    let rects: Vec<String> = runs.iter().map(|(x, y, n)| format!("{r},{g},{b},255:{},{},{n},1", x - x0, y - y0)).collect();
     let _ = writeln!(
         out,
         "[images.{name}]\nsource = \"rects:{w}x{h};{}\"\n\n[sheets.{name}]\nimage = \"{name}\"\ncell = [{w}, {h}]\ngrid = [1, 1]\nanchor = [{x0}, {y0}]\ngroup = \"{group}\"\nfirst_index = {index}\nscaling = \"keep\"\n",
@@ -216,7 +236,24 @@ fn lines_description() -> String {
         }
         let n = if half { 2 } else { 1 };
         pixel_entries(&mut out, &format!("range_tile_{zoom}"), &format!("RangeTile@{zoom}"), 0, &range_outline(128 / n, 64 / n), PATH_RGB);
+        pixel_entries(&mut out, &format!("grid_tile_{zoom}"), &format!("GridTile@{zoom}"), 0, &range_outline(128 / n, 64 / n), GRID_RGB);
+        pixel_entries(&mut out, &format!("grid_block_{zoom}"), &format!("GridBlock@{zoom}"), 0, &grid_block(128 / n, 64 / n), GRID_RGB);
     }
+    out
+}
+
+/// The pixels the grid sets for a block of [`GRID_BLOCK`] (from a tile
+/// box's top-left, tiles of `w × h`): every tile's diamond, as the range
+/// outline's.
+fn grid_block(w: i32, h: i32) -> Vec<(i32, i32)> {
+    let one = range_outline(w, h);
+    let (cols, rows) = GRID_BLOCK;
+    let mut out: Vec<(i32, i32)> = (0..rows)
+        .flat_map(|r| (0..cols).filter(move |c| (c + r) % 2 == 0).map(move |c| (c, r)))
+        .flat_map(|(c, r)| one.iter().map(move |&(x, y)| (x + w / 2 * c, y + h / 2 * r)))
+        .collect();
+    out.sort_unstable();
+    out.dedup();
     out
 }
 
@@ -295,6 +332,40 @@ pub fn range_sprites(world: &Civ3World, compiled: &Compiled, zoomed_out: bool) -
                 continue;
             }
             out.push(scene::FreeSprite { set: set.raw(), x: 64 * x, y: 32 * y, after_pass: pass, ticks_per_frame: 1, ..Default::default() });
+        }
+    }
+    out
+}
+
+/// The map grid (see the module's documentation), when it is on: a world
+/// sprite per block of [`GRID_BLOCK`] tiles and one per tile left over at
+/// the map's east and south edges (full-size world pixels, at the box's
+/// top-left), drawn after the pass before the fog of war as the range
+/// outline.
+pub fn grid_sprites(world: &Civ3World, compiled: &Compiled, zoomed_out: bool) -> Vec<scene::FreeSprite> {
+    if !world.targeting.grid || world.width <= 0 || world.height <= 0 {
+        return Vec::new();
+    }
+    let zoom = if zoomed_out { 2 } else { 1 };
+    let (Some((block, _)), Some((tile, _))) = (compiled.set(&format!("GridBlock@{zoom}/0")), compiled.set(&format!("GridTile@{zoom}/0"))) else {
+        return Vec::new();
+    };
+    let pass = crate::ui_screen::under_pass(compiled);
+    let (block, tile) = (block.raw(), tile.raw());
+    let sprite = |set: u32, (x, y): (i32, i32)| scene::FreeSprite { set, x: 64 * x, y: 32 * y, after_pass: pass, ticks_per_frame: 1, ..Default::default() };
+    let (cols, rows) = GRID_BLOCK;
+    let (full_x, full_y) = (world.width / cols * cols, world.height / rows * rows);
+    let mut out = Vec::new();
+    for by in (0..full_y).step_by(rows as usize) {
+        for bx in (0..full_x).step_by(cols as usize) {
+            out.push(sprite(block, (bx, by)));
+        }
+    }
+    for y in 0..world.height {
+        for x in (y & 1..world.width).step_by(2) {
+            if (x >= full_x || y >= full_y) && world.tile(x, y).is_some() {
+                out.push(sprite(tile, (x, y)));
+            }
         }
     }
     out
@@ -587,5 +658,44 @@ mod tests {
         assert_eq!(step_between((99, 11), (1, 11), &world), Some((2, 0)));
         assert_eq!(step_between((0, 10), (99, 11), &world), Some((-1, 1)));
         assert_eq!(step_between((10, 10), (14, 10), &world), None);
+    }
+
+    #[test]
+    fn the_grid_outlines_every_tile_once() {
+        struct NoFiles;
+        impl render_desc::ImageLoader for NoFiles {
+            fn load(&self, source: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+                Err(format!("no file {source}"))
+            }
+        }
+        let desc = format!("grid = {{ layout = \"staggered\", step = [64, 32] }}\n{}", lines_description());
+        let compiled = render_desc::Description::parse(&desc).unwrap().compile(&NoFiles, 4096).unwrap();
+        let (w, h) = (100, 44);
+        let tiles = vec![crate::world::Civ3Tile::default(); (w / 2 * h) as usize];
+        let mut world = Civ3World { width: w, height: h, wrap_x: true, tiles, ..Default::default() };
+        assert!(grid_sprites(&world, &compiled, false).is_empty(), "off");
+        world.targeting.grid = true;
+        for zoomed_out in [false, true] {
+            let (block, _) = compiled.set(&format!("GridBlock@{}/0", if zoomed_out { 2 } else { 1 })).unwrap();
+            // The tiles each sprite outlines.
+            let mut outlined: Vec<(i32, i32)> = Vec::new();
+            for s in grid_sprites(&world, &compiled, zoomed_out) {
+                let (x, y) = (s.x / 64, s.y / 32);
+                if s.set == block.raw() {
+                    let (cols, rows) = GRID_BLOCK;
+                    outlined.extend((0..rows).flat_map(|r| (0..cols).filter(move |c| (c + r) % 2 == 0).map(move |c| (x + c, y + r))));
+                } else {
+                    outlined.push((x, y));
+                }
+            }
+            outlined.sort_unstable();
+            let mut every: Vec<(i32, i32)> = (0..h).flat_map(|y| (y & 1..w).step_by(2).map(move |x| (x, y))).collect();
+            every.sort_unstable();
+            assert_eq!(outlined, every);
+        }
+        // A block's pixels are its tiles' outlines.
+        let block = grid_block(128, 64);
+        assert!(range_outline(128, 64).iter().all(|p| block.contains(p)));
+        assert!(range_outline(128, 64).iter().all(|&(x, y)| block.contains(&(x + 64 * 3, y + 32 * 5))));
     }
 }
