@@ -724,6 +724,16 @@ impl Trace {
                         t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Text { run, clip });
                     }
                 }
+                // The forms composed and which draws each made (what tells
+                // the screens apart, docs §16.12).
+                Some("ui_form") if f.len() >= 7 => {
+                    let v = (1..7).map(|k| n(k)).collect::<Result<Vec<_>, _>>()?;
+                    t.ui.get_or_insert_with(Default::default).forms.push((v[0] as u32, v[1] as u32, (v[2] as i32, v[3] as i32), (v[4] as i32, v[5] as i32)));
+                }
+                Some("#") if f.get(1) == Some(&"ui_canvas_draws") && f.len() >= 5 => {
+                    let (canvas, start, end) = (n(2)? as u32, n(3)? as usize, n(4)? as usize);
+                    t.ui.get_or_insert_with(Default::default).form_draws.push((canvas, start..end));
+                }
                 Some("zoomed_out") => t.view.zoomed_out = n(1)? != 0,
                 Some("scenario_folder") => t.scenario_folder = Some(f[1..].join(" ")),
                 Some("search_root") => t.search_roots.push(f[1..].join(" ")),
@@ -1013,6 +1023,16 @@ mod navigator_trace_tests {
             assert_eq!(Trace::parse(text).unwrap().world.navigator_modes, NavigatorModes { main, advisor });
         }
         assert!(Trace::parse("navigator_modes 1").is_err());
+    }
+    #[test]
+    fn a_ui_trace_keeps_its_forms_and_what_each_drew() {
+        // As `crate::trace` writes them: the forms composed, bottom to top,
+        // and per canvas the range of draws it made.
+        let trace = Trace::parse("ui_form 0x66b570 0x9fdd84 0 0 1920 1080\nui_form 0x66e838 0xc887fc 448 156 1024 768\n# ui_canvas_draws 0x9fdd84 0 1\n# ui_canvas_draws 0xc887fc 1 2\nui_fill 0 0 1920 1080 0 0 0 0 0 1920 1080\nui_fill 448 156 1024 768 1 2 3 0 0 1920 1080\n").unwrap();
+        let ui = trace.ui.unwrap();
+        assert_eq!(ui.forms, [(0x66_B570, 0x9F_DD84, (0, 0), (1920, 1080)), (0x66_E838, 0xC8_87FC, (448, 156), (1024, 768))]);
+        assert_eq!(ui.form_draws, [(0x9F_DD84, 0..1), (0xC8_87FC, 1..2)]);
+        assert_eq!(ui.draws.len(), 2);
     }
     #[test]
     fn indexed_ui_trace_retains_palette_transparency_and_blend_levels() {

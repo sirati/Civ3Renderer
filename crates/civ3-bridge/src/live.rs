@@ -681,7 +681,8 @@ fn publish(
     let folders_changed = Arc::new(std::sync::atomic::AtomicU64::new(0));
     // The map screen's interface: while it is composed, a game runs.
     let main_gui = civ3_sys::ui_hooks::main_gui_canvas(game.build);
-    let end_of_game = civ3_sys::ui_hooks::end_of_game_forms(game.build);
+    // Whether the game has ended (the screens after it show over Main_GUI).
+    let mut game_over = crate::interface_parts::GameOver::default();
     // (Measuring: when this round of the publisher began, and since when a
     // scene has been held back.)
     let mut round_began: Option<std::time::Instant> = None;
@@ -948,7 +949,10 @@ fn publish(
         // Neither once the game has ended: the screens after it (the
         // victory screen, the replay, the top cities, the ranking, the hall of
         // fame) show over Main_GUI, round a map the game leaves black.
-        let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui) && !f.forms.iter().any(|f| end_of_game.contains(&f.0)));
+        // (Demographics and the histograph are among them, after the
+        // replay: the game they come after has ended, `GameOver`.)
+        let ended = match &ui { Some(f) => game_over.update(f, game.build), None => game_over.ended() };
+        let in_game = ui.as_ref().is_none_or(|f| f.forms.iter().any(|f| f.1 == main_gui) && !ended);
         // The Load Scenario screen, and the world of the scenario it shows.
         let load_screen = ui.as_ref().filter(|_| !in_game).and_then(|f| crate::preview::screen(f, game.build));
         // The first complete scenario menu goes out before its optional
@@ -995,7 +999,7 @@ fn publish(
             // A highlighted scenario also changes the game's tables before
             // its menu opens. Between games those tables do not choose the
             // title's art folders.
-            _ if !in_game && !ui.as_ref().is_some_and(|f| f.forms.iter().any(|f| end_of_game.contains(&f.0))) => ArtFolders::default(),
+            _ if !in_game && !ended => ArtFolders::default(),
             _ => ArtFolders::of(&game),
         };
         mark(&mut profile, "preview update", &mut t);
@@ -1404,10 +1408,16 @@ fn publish(
         // menus over it (screens and popups), which a viewer may scale
         // differently: between games (and over a previewed scenario) all of
         // it is menus.
+        // After a game its screens show over the frame as the advisors did
+        // (a part of their own, `screen_part`), the frame round them.
         let (frame_ui, menu_ui) = match (&visible_ui, shown) {
             (Some(f), Shown::Map(..)) => {
                 let (frame, menus) = ui_screen::split(f, ui_screen::menus_from(f));
                 (Some(frame), Some(menus))
+            }
+            (Some(f), Shown::Title(_)) if ended && screen_part.is_some() => {
+                let (frame, menus) = ui_screen::split(f, ui_screen::menus_from(f));
+                (Some(crate::interface_parts::after_game_frame(&frame, game.build)), Some(menus))
             }
             (Some(f), Shown::Title(_) | Shown::Preview(..)) => (None, Some(f.clone())),
             (None, _) => (None, None),
