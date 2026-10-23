@@ -1204,6 +1204,51 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
 }
 
 
+/// `points` (a line's, in order) as rectangles (x, y, w, h): each run of
+/// neighbours along a row or a column one rectangle.
+pub fn line_runs(points: &[(i32, i32)]) -> Vec<[i32; 4]> {
+    let mut out: Vec<[i32; 4]> = Vec::new();
+    for &(x, y) in points {
+        if let Some(r) = out.last_mut() {
+            let [l, t, w, h] = *r;
+            // Along the row (the run so far one high).
+            if h == 1 && y == t && (x == l + w || x == l - 1) {
+                *r = [l.min(x), t, w + 1, 1];
+                continue;
+            }
+            if w == 1 && x == l && (y == t + h || y == t - 1) {
+                *r = [l, t.min(y), 1, h + 1];
+                continue;
+            }
+        }
+        out.push([x, y, 1, 1]);
+    }
+    out
+}
+
+/// The pixels of a 1-pixel line, endpoints included (Bresenham).
+pub fn line_points((x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> Vec<(i32, i32)> {
+    let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
+    let (sx, sy) = ((x1 - x0).signum(), (y1 - y0).signum());
+    let (mut x, mut y, mut err) = (x0, y0, dx + dy);
+    let mut out = Vec::new();
+    loop {
+        out.push((x, y));
+        if (x == x1 && y == y1) || out.len() > 4096 {
+            return out;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
 /// The pixels of a line of the game's line drawer, as rectangles (x, y, w,
 /// h). Measured (§10.9): along the major axis every step from the start up
 /// to, not including, the larger end gets `width` pixels from
@@ -2551,5 +2596,63 @@ mod tests {
             load_scenario_change(&mut unknown, selection);
         }
         assert!(unknown.stats().1 > 40 * 10);
+    }
+}
+
+#[cfg(test)]
+mod line_tests {
+    use super::*;
+
+    fn pixels(rects: &[[i32; 4]]) -> Vec<(i32, i32)> {
+        let mut out: Vec<(i32, i32)> = rects.iter().flat_map(|&[x, y, w, h]| (0..w).flat_map(move |i| (0..h).map(move |j| (x + i, y + j)))).collect();
+        out.sort_unstable();
+        out
+    }
+
+    #[test]
+    fn a_lines_runs_cover_its_pixels_once() {
+        for (from, to) in [((0, 32), (64, 0)), ((64, 0), (128, 32)), ((10, 10), (10, 40)), ((5, 5), (40, 5)), ((40, 40), (3, 1)), ((0, 0), (7, 30)), ((3, 3), (3, 3))] {
+            let points = line_points(from, to);
+            let runs = line_runs(&points);
+            let mut expected = points.clone();
+            expected.sort_unstable();
+            assert_eq!(pixels(&runs), expected, "{from:?} -> {to:?}");
+        }
+    }
+
+    #[test]
+    fn a_tile_edge_takes_one_rectangle_a_row() {
+        // The grid's and range outline's diamond edges: 2 pixels a row.
+        let runs = line_runs(&line_points((0, 32), (64, 0)));
+        assert_eq!(runs.len(), 33);
+        assert_eq!(line_runs(&line_points((10, 10), (10, 40))), [[10, 10, 1, 31]]);
+        assert_eq!(line_runs(&line_points((40, 5), (5, 5))), [[5, 5, 36, 1]]);
+    }
+
+    /// The map grid's redraw as the mirror took it (a 1×1 fill per pixel)
+    /// and as runs (`cargo test --release -- --ignored grid_redraw_cost
+    /// --nocapture`); the renderer's image is not mirrored at all now.
+    #[test]
+    #[ignore]
+    fn grid_redraw_cost() {
+        let lines: Vec<((i32, i32), (i32, i32))> = (0..1750).flat_map(|i| {
+            let (x, y) = (64 * (i % 50) * 2 % 3200, 32 * (i / 50));
+            [((x, y + 32), (x + 64, y)), ((x + 64, y), (x + 128, y + 32)), ((x + 64, y + 64), (x + 128, y + 32)), ((x, y + 32), (x + 64, y + 64))]
+        }).collect();
+        for runs in [false, true] {
+            let mut m = UiModel::new(vec![], vec![]);
+            m.apply(Event::Size { image: 7, size: (3300, 1200) });
+            let t = std::time::Instant::now();
+            let mut events = 0;
+            for &(a, b) in &lines {
+                let points = line_points(a, b);
+                let rects = if runs { line_runs(&points) } else { points.iter().map(|&(x, y)| [x, y, 1, 1]).collect() };
+                for rect in rects {
+                    events += 1;
+                    m.apply(Event::Fill { canvas: 7, rect, rgb: [99; 3], alpha: 255, clip: None });
+                }
+            }
+            println!("runs {runs}: {} lines, {events} fills, {:?}", lines.len(), t.elapsed());
+        }
     }
 }

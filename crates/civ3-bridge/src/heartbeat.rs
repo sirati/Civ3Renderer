@@ -163,6 +163,41 @@ impl StallWatch {
     }
 }
 
+/// How long a window of [`BusyWatch`] is, and how much of it in our hooks
+/// gets it into the log.
+const BUSY_WINDOW_MS: u64 = 5_000;
+const BUSY_FROM_MS: u64 = 500;
+
+/// Notes the windows of [`BUSY_WINDOW_MS`] in which the bridge's hooks took
+/// [`BUSY_FROM_MS`] or more of the game's thread, stalled or not (frames of
+/// a unit's move that come slowly): the rest of the window is the game's
+/// own code, or waiting. Polled by the publisher; its lines go to the log.
+#[derive(Default)]
+pub struct BusyWatch {
+    /// The window's start (by `now_ms`) and the hook totals then.
+    window: Option<(u64, inproc::hook_time::Snapshot)>,
+}
+
+impl BusyWatch {
+    pub fn poll(&mut self, now: u64, hooks: impl FnOnce() -> inproc::hook_time::Snapshot) -> Option<String> {
+        match &self.window {
+            Some((began, _)) if now.saturating_sub(*began) < BUSY_WINDOW_MS => None,
+            _ => {
+                let snap = hooks();
+                let line = self.window.take().and_then(|(began, start)| {
+                    let (ms, entries, top) = snap.since(&start, 6);
+                    (ms >= BUSY_FROM_MS).then(|| {
+                        let top: Vec<String> = top.iter().map(|(name, ms, calls)| format!("{name} {ms} ms in {calls} calls")).collect();
+                        format!("game thread: {ms} of the last {} ms inside the bridge's hooks ({entries} entries from the game): {}", now - began, top.join(", "))
+                    })
+                });
+                self.window = Some((now, snap));
+                line
+            }
+        }
+    }
+}
+
 fn describe(what: &str, start: &inproc::hook_time::Snapshot, noticed_at: u32, now: &inproc::hook_time::Snapshot) -> String {
     let (ms, entries, top) = now.since(start, 6);
     let top: Vec<String> = top.iter().map(|(name, ms, calls)| format!("{name} {ms} ms in {calls} calls")).collect();
@@ -173,6 +208,18 @@ fn describe(what: &str, start: &inproc::hook_time::Snapshot, noticed_at: u32, no
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_windows_are_reported_with_their_hooks() {
+        use inproc::hook_time::Snapshot;
+        let at = |ms: u64, calls: u64| Snapshot { nanos: ms * 1_000_000, calls, hooks: vec![("pcx_line", ms * 1_000_000, calls)] };
+        let mut w = BusyWatch::default();
+        assert_eq!(w.poll(0, || at(0, 0)), None, "the first window starts");
+        assert_eq!(w.poll(4_000, || unreachable!()), None);
+        assert_eq!(w.poll(5_000, || at(100, 10)), None, "a quiet window");
+        let busy = w.poll(10_200, || at(2_100, 50)).unwrap();
+        assert_eq!(busy, "game thread: 2000 of the last 5200 ms inside the bridge's hooks (40 entries from the game): pcx_line 2000 ms in 40 calls");
+    }
 
     #[test]
     fn a_stall_is_reported_with_the_hooks_it_spent_its_time_in() {

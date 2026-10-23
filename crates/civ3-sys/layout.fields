@@ -390,6 +390,7 @@ Main_Screen_Form field_2E1AC
 # The range a targeting command reaches, outlined tile by tile in the map's
 # grid pass (0x4C57C0, docs §10.15).
 Map Renderer
+Map_Renderer MapGrid_Flag
 Map_Renderer b_Action_Mode
 Map_Renderer Action_Mode_Range
 Map_Renderer Action_Mode_CenterX

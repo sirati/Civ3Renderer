@@ -59,6 +59,11 @@ pub struct Targeting {
     /// The tiles the command reaches, which the map outlines (see
     /// [`RangeGrid`]), while it shows them.
     pub range_grid: Option<RangeGrid>,
+    /// The map grid is on (`Map_Renderer.MapGrid_Flag`, toggled by
+    /// `m68_Toggle_Grid` 0x5F43B0; C3X sets it from `GridOn` of
+    /// conquests.ini when a game loads): the grid pass (`m35`, 0x4C5590)
+    /// draws every tile's diamond in grey (`field_2C0`, 0x5F440A).
+    pub grid: bool,
 }
 
 /// The range of a targeting command the map's grid pass outlines tile by
@@ -1234,6 +1239,7 @@ impl Civ3 {
             start: (self.screen(f + 4)?, self.screen(f + 8)?),
             pointer_tile: self.tile_under_mouse()?,
             range_grid: self.range_grid()?,
+            grid: self.map_field::<i32>(L::MAP_RENDERER + L::MAP_RENDERER_MAPGRID_FLAG)? != 0,
         })
     }
 

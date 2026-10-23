@@ -144,6 +144,7 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         ifc23::effects::place(&trace.world, &trace.view, art, compiled, &mut scene);
 
         // Choosing a target (§10.15), as live draws it.
+        scene.sprites.extend(ifc23::targeting::grid_sprites(&trace.world, compiled, trace.view.zoomed_out));
         scene.sprites.extend(ifc23::targeting::range_sprites(&trace.world, compiled, trace.view.zoomed_out));
         scene.sprites.extend(ifc23::targeting::sprites(&trace.world, trace.view.zoomed_out, art, compiled));
         let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
