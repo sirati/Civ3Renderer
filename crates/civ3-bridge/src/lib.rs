@@ -22,6 +22,7 @@ pub fn recv_bounded<T>(rx: &mut tokio::sync::mpsc::UnboundedReceiver<T>, poll: s
     }
 }
 
+pub mod anim_steps;
 pub mod art;
 pub mod art_schedule;
 pub mod assets;
@@ -79,6 +80,7 @@ pub mod ui_wheel;
 pub mod ui_trace;
 pub mod units;
 pub mod unit_notices;
+pub mod unit_slides;
 #[cfg(any(windows, test))]
 pub mod unit_views;
 pub mod world;

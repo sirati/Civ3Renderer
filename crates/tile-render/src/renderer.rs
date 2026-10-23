@@ -2274,10 +2274,14 @@ impl TileRenderer {
                 }));
             }
         }
-        if !reuse {
+        // The views drawn through a source texture need it even when the
+        // picture is reused: its overlays are drawn again, and one may have
+        // an empty source (which a reused picture allows) on a renderer that
+        // never made the texture yet.
+        if placements.iter().any(|p| p.source.is_some()) {
             let source_extent = placements.iter().filter_map(|p| p.source).fold((1, 1), |(w, h), r| (w.max(r[0] + r[2]), h.max(r[1] + r[3])));
-            if placements.iter().any(|p| p.source.is_some()) {
-                let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true, internal_format);
+            let s = scratch_for(&mut self.sources, device, &self.output_layout, &self.output_params, source_extent, true, internal_format);
+            if !reuse {
                 let timed = self.timer.as_ref().and_then(|t| t.pass(|| "clear sources".into()));
                 drop(begin_pass(encoder, &s.main.create_view(&Default::default()), wgpu::LoadOp::Clear(background), timed));
             }

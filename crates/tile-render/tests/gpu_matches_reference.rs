@@ -1397,6 +1397,33 @@ fn scaled_overlays_redraw_their_sources_without_old_markers() {
     }
 }
 
+/// A reused picture redraws its overlays. A scaled overlay drawn at its
+/// zoom from its start (no world, clipped to the target) has an empty
+/// source picture, which allows the reuse; the renderer must still have the
+/// source texture it draws through, though it never needed one before
+/// (the viewer's "GPU worker failed: created above" at startup).
+#[test]
+fn a_reused_picture_with_a_new_empty_source_overlay_draws() {
+    let gpu = Headless::new().expect("GPU");
+    let grid = Grid { cols: 12, rows: 20, layout: Layout::Staggered, wrap_x: true, wrap_y: false, step: (64, 32) };
+    let (mut world, atlas) = scene_with(grid, false);
+    world.color = ColorModel::Quantized { bits: 5 };
+    let size = (320, 200);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
+    renderer.set_world(&gpu.device, &world);
+    let main = Camera { x: 100, y: 50, ..Camera::new(size) };
+    let plain = [main, Camera { cells: false, ..Camera::new(size) }];
+    for _ in 0..2 {
+        gpu.render_layered(&mut renderer, &plain, 1, &[], Present::unscaled(size), 0, CLEAR);
+    }
+    assert!(renderer.reused());
+    let clipped = [main, Camera { cells: false, zoom: (2, 1), target_clip: Some([0, 0, 320, 200]), ..Camera::new(size) }];
+    let got = gpu.render_layered(&mut renderer, &clipped, 1, &[], Present::unscaled(size), 0, CLEAR);
+    assert!(renderer.reused(), "the same picture under the new overlay");
+    assert_same(&got, &reference::render_views(&world, &atlas, &clipped, size, 0, CLEAR), "empty-source overlay over a reused picture");
+}
+
 /// An atlas uploaded a page at a time while the one before is drawn draws
 /// as one set at once, once taken.
 #[test]
