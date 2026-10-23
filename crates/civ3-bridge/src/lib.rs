@@ -80,6 +80,7 @@ pub mod ui_wheel;
 pub mod ui_trace;
 pub mod units;
 pub mod unit_notices;
+pub mod unit_slides;
 #[cfg(any(windows, test))]
 pub mod unit_views;
 pub mod world;

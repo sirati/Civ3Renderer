@@ -402,7 +402,11 @@ Game camera requests reach A as explicit events, including another request
 for the same tile. Visibility and show-moves preferences still decide which
 AI actions request focus. B and the zoom view keep their own positions.
 Native animation updates include visible units and effects across the map,
-using the original elapsed time once. Window size, UI canvases and the city
+using the original elapsed time once. A unit the game slides to the next
+tile (with "animate movement" on) moves in the viewer at the viewer's frame
+rate, over the slide's own 100 ms (a tenth with Shift); the game draws one
+frame of the slide and waits out the rest of its schedule
+(docs/independent-animations.md, "Unit slides"). Window size, UI canvases and the city
 screen's internal map retain their normal geometry. Parking activates only
 when the checked PCGames hooks and native world-input endpoint are ready;
 an unsupported executable or failed dependency keeps the original camera.

@@ -461,6 +461,11 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             Ok(hook) => std::mem::forget(hook),
             Err(e) => log::warn!("fortify animation limited to the parked native view: {e}"),
         }
+        // Sliding units move in the renderer, at its frame rate; the
+        // game's slide keeps its schedule without drawing frames.
+        if let Err(e) = crate::unit_slides::install(game) {
+            log::warn!("unit slides stay with the game's frames: {e}");
+        }
     }
     // The go-to path the map shows (`crate::targeting`, found on the
     // game's thread).
@@ -1228,7 +1233,9 @@ fn publish(
         // Publish it even while combat waits for the viewer to expose its tile.
         let camera_focus = matches!(state.0, Shown::Map(..)).then(|| crate::native_camera::focus(game)).flatten();
         let camera_arrival = civ3_sys::native_camera::arrival(game).filter(|a| camera_focus.is_some_and(|f| f.serial == a.serial)).map(|a| scene::CameraArrival { serial: a.serial, bounds: a.bounds });
-        let unchanged = last.as_ref() == Some(&state) && last_notices == notice_state && last_camera_focus == camera_focus && last_camera_arrival == camera_arrival && !deferred;
+        // (A unit sliding to the next tile moves on in every round.)
+        let unchanged = last.as_ref() == Some(&state) && last_notices == notice_state && last_camera_focus == camera_focus && last_camera_arrival == camera_arrival && !deferred
+            && !crate::unit_slides::busy(std::time::Instant::now());
         // (A new frame of the game's menu: see `preview_deferred`.)
         let menu_changed = last.as_ref().is_none_or(|l| l.2 != state.2);
         last_notices = notice_state.clone();
@@ -1871,7 +1878,10 @@ fn publish(
                 }
                 let accessibility = &prefs.settings().accessibility;
                 let rings = compiler.ring_override.clone().unwrap_or_else(|| crate::rings::Rings::configured(accessibility, None));
-                units::place_accessible(world, view, &mut art, &compiled, rings.as_ref(), &mut unit_memory, &mut scene, accessibility);
+                // Units the game slides to the next tile: where their slides
+                // have them, the renderer moving them on (`crate::unit_slides`).
+                let sliding = crate::unit_slides::shown(std::time::Instant::now(), world.units.iter().map(|u| (u.id, (u.x, u.y))));
+                units::place_sliding(world, view, &mut art, &compiled, rings.as_ref(), &mut unit_memory, &mut scene, accessibility, &sliding);
                 crate::effects::place(world, view, &mut art, &compiled, &mut scene);
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {

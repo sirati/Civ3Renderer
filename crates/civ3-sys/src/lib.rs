@@ -39,6 +39,7 @@ pub mod sliders;
 pub mod targeting;
 pub mod city_work;
 pub mod ui_hooks;
+pub mod unit_slide;
 pub mod unit_views;
 pub mod world;
 pub mod world_input;
