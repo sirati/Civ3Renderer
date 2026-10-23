@@ -901,6 +901,8 @@ impl Trace {
                         start: (n(6)? as i32, n(7)? as i32),
                         pointer_tile: Some((n(8)? as i32, n(9)? as i32)).filter(|&(x, y)| x >= 0 && y >= 0),
                         range_grid: Some(civ3_sys::world::RangeGrid { centre: (n(10)? as i32, n(11)? as i32), range: n(12)? as i32 }).filter(|g| g.range >= 0),
+                        // (Not in older traces.)
+                        grid: n(13).is_ok_and(|g| g != 0),
                     }
                 }
                 Some("goto_path") => {

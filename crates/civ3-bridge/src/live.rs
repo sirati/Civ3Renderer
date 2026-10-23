@@ -1879,6 +1879,7 @@ fn publish(
                 }
                 // Choosing a target (§10.15): ours, whether or not the game
                 // draws its map.
+                scene.sprites.extend(crate::targeting::grid_sprites(world, &compiled, view.zoomed_out));
                 scene.sprites.extend(crate::targeting::range_sprites(world, &compiled, view.zoomed_out));
                 scene.sprites.extend(crate::targeting::sprites(world, view.zoomed_out, &mut art, &compiled));
                 // The point of interest: the active unit.
