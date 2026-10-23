@@ -34,6 +34,17 @@ pub const PANELS: &str = include_str!("../../../assets/civ3/preferences.toml");
 const PANEL: &str = "preferences";
 const DISCARD_PANEL: &str = "preferences_discard";
 const ACTION: &str = "dialog.action";
+const UNDO: &str = "dialog.undo";
+
+/// Numeric controls whose previews do not resize Preferences or change
+/// native game timing / frame pacing. Menu sizing stays accepted until OK
+/// so a drag cannot move its own track or change native pointer mapping.
+const LIVE_SLIDERS: &[&str] = &[
+    "resolution.frame_scale", "resolution.world_scale",
+    "layout.separator_width", "layout.zoom_magnification_step",
+    "layout.zoom_strip", "layout.zoom_box_top", "layout.zoom_box_drop",
+    "input.snap_updates_per_second", "input.capture_sensitivity",
+];
 
 /// The value naming the tab shown, and its options.
 pub const TAB: &str = "tab";
@@ -344,7 +355,9 @@ impl Prefs {
             self.effective.resolution.background_sampling = draft.resolution.background_sampling;
             self.effective.resolution.pixel_scale = draft.resolution.pixel_scale;
             self.effective.display.cursor_size = draft.display.cursor_size;
-            self.effective.input.capture_sensitivity = draft.input.capture_sensitivity;
+            for key in LIVE_SLIDERS {
+                self.effective.restore_number_control(key, draft);
+            }
         }
     }
 
@@ -549,6 +562,10 @@ impl Prefs {
                         self.action(value, &mut out);
                         continue;
                     }
+                    if control == UNDO {
+                        self.undo_slider(value);
+                        continue;
+                    }
                 }
                 if let Some(draft) = self.draft.as_mut() {
                     let previous = draft.resolution.pixel_scale;
@@ -615,6 +632,19 @@ impl Prefs {
 
     fn editing(&self) -> &Settings {
         self.draft.as_ref().unwrap_or(&self.settings)
+    }
+
+    fn undo_slider(&mut self, key: &str) {
+        // Only sliders can be undone, and the saved value is authoritative,
+        // including values loaded from disk outside today's slider steps.
+        let slider = self.panels.as_ref().and_then(|p| p.panel(PANEL)).and_then(|p| p.slider_range(key));
+        if slider.is_none() { return; }
+        let Some(ControlValue::Number(original)) = self.settings.control(key) else { return };
+        if let Some(draft) = &mut self.draft {
+            draft.restore_number_control(key, &self.settings);
+        }
+        self.state.values.insert(key.into(), Value::Number(original));
+        self.project_settings();
     }
 
     fn dirty(&self) -> bool {
@@ -815,6 +845,11 @@ impl Prefs {
 
     fn values(&self) -> BTreeMap<String, Value> {
         let mut values = values(self.editing(), &self.tab, self.window);
+        for (key, accepted) in self.settings.controls() {
+            if matches!(accepted, ControlValue::Number(_)) {
+                values.insert(format!("dialog.changed.{key}"), Value::On(self.editing().control(&key).as_ref() != Some(&accepted)));
+            }
+        }
         let mut changes = changed_controls(&self.settings, self.editing());
         if let Some((original, current)) = self.native_original.as_ref().zip(self.native_current.as_ref()) {
             changes.extend(original.changes(current));
@@ -1066,7 +1101,7 @@ mod tests {
         assert_eq!(panel.size(), (1024, 768));
         let s = Settings::default();
         for control in panel.controls() {
-            assert!(control == TAB || control == ACTION || s.control(control).is_some(), "{control}");
+            assert!(control == TAB || control == ACTION || control == UNDO || s.control(control).is_some(), "{control}");
             if let Some((min, max, step)) = panel.slider_range(control) {
                 let r = viewer_settings::controls::range(control).unwrap();
                 assert_eq!((min, max, step), (r.min, r.max, r.step), "{control}");
@@ -1539,7 +1574,9 @@ mod tests {
         let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 371 };
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
-        assert_eq!(p.settings(), &Settings::default());
+        let mut live = Settings::default();
+        live.layout.zoom_strip = 0.5;
+        assert_eq!(p.settings(), &live);
         let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
         assert!(texts(&p).contains(&"Strip height".to_string()));
         // A box at the mouse is sized by it too: the slider shows, as the
@@ -1564,7 +1601,7 @@ mod tests {
         assert!(["Top margin", "2.5%", "Drop", "30%", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
-        assert_eq!(p.settings(), &Settings::default());
+        assert_eq!(p.settings(), &live);
         assert!(texts(&p).contains(&"50%".to_string()));
         assert!(!p.editing().layout.zoom_box_block_pointer);
         assert!(click(&mut p, 100, 523).is_empty());
@@ -1578,7 +1615,9 @@ mod tests {
         assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
         assert!(["20%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
-        assert_eq!(p.settings(), &Settings::default());
+        live.layout.zoom_box_top = 0.2;
+        live.layout.zoom_box_drop = 0.0;
+        assert_eq!(p.settings(), &live);
         assert!(click(&mut p, 780, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
         assert!(["Box height", "50%", "Top margin", "Drop"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
@@ -1592,7 +1631,8 @@ mod tests {
         assert!(p.route(vec![mag(true, 440), along(0), mag(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_magnification, 1.5);
         assert!(texts(&p).iter().any(|s| s == "1.5×"));
-        assert_eq!(p.settings(), &Settings::default());
+        live.layout.zoom_magnification = 1.5;
+        assert_eq!(p.settings(), &live);
         assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(!p.editing().layout.menu_zoom);
@@ -1610,7 +1650,7 @@ mod tests {
         assert_eq!(p.editing().layout.zoom, Zoom::Off);
         assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height") || t == "Drop" || t == "Top margin" || t == "Magnification" || t.ends_with('×')));
         assert!(click(&mut p, 330, 55).is_empty());
-        assert!(click(&mut p, 479, 551).is_empty());
+        assert!(click(&mut p, 438, 551).is_empty());
         assert_eq!(p.editing().layout.separator_width, 16);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -1714,7 +1754,7 @@ mod tests {
             assert!(send(&mut prefs, SliderAction::Preview, 1_000_000).is_empty());
             let preview = prefs.editing().clone();
             assert_ne!(preview, Settings::default());
-            assert_eq!(prefs.settings(), &Settings::default());
+            assert_eq!(prefs.settings(), &preview, "world scale previews during the edit");
             assert!(!path.exists());
             match close {
                 "cancel" => { assert!(send(&mut prefs, SliderAction::Cancel, 0).is_empty()); }
@@ -1732,7 +1772,7 @@ mod tests {
             } else {
                 assert_eq!(prefs.editing(), &Settings::default(), "{close}");
             }
-            assert_eq!(prefs.settings(), &Settings::default());
+            assert_eq!(prefs.settings(), prefs.editing());
             assert!(!path.exists());
             assert!(prefs.state.slider_edit.is_none());
             let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -1775,7 +1815,7 @@ mod tests {
         let routed = snap.tick(&mut layout, &scene, 1.1, rates);
         assert!(prefs.route(routed, (1024, 768)).is_empty());
         assert_ne!(prefs.editing(), &Settings::default());
-        assert_eq!(prefs.settings(), &Settings::default());
+        assert_eq!(prefs.settings(), prefs.editing(), "world scale previews before Alt release");
         assert!(!path.exists());
         assert_eq!(snap.snapper.pointer(), pointer);
         for down in [true, false] {
@@ -2081,6 +2121,196 @@ mod tests {
         }
     }
 
+    /// Run explicitly with Civ III installed. Uses the same panel art,
+    /// font metrics and screen sprites as the live bridge, on the CPU.
+    #[test]
+    #[ignore = "requires Civ III art; writes screenshots to C3R_PREFS_SHOTS or /tmp/c3r-prefs-undo-shots"]
+    fn preferences_undo_headless_screenshots() {
+        use menu::screen::{Element, Region, ScreenArt};
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        let files = civ3_assets::GameFiles::complete(&install);
+        let directory = PathBuf::from(std::env::var("C3R_PREFS_SHOTS").unwrap_or_else(|_| "/tmp/c3r-prefs-undo-shots".into()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let (mut prefs, _) = open_prefs("headless-shots");
+        click(&mut prefs, 220, 55);
+        click(&mut prefs, 530, 377); // A changed Game frame slider.
+        let mut fonts = Fonts::default();
+        for (name, hover) in [("changed-slider", false), ("undo-tooltip", true)] {
+            prefs.route(vec![Input::MouseMove { x: if hover { 771 } else { 100 }, y: 377 }], (1024, 768));
+            let runs = items(&prefs.draws(&fonts)).into_iter().filter_map(|i| match i { Item::Text(r, ..) => Some(r), _ => None }).collect::<Vec<_>>();
+            fonts.add(&files, &runs);
+            let background = Element::Image { region: Region { source: "Art/interface/x_pref background.pcx".into(), rect: [0, 0, 1024, 768], keyed: false, mask: None, palette: None }, at: (0, 0), clip: [0, 0, 1024, 768] };
+            let mut draw_items = vec![Item::Element(background, false)];
+            draw_items.extend(items(&prefs.draws(&fonts)));
+            let mut art = ScreenArt::default();
+            art.add(&draw_items.iter().filter_map(|i| match i { Item::Element(e, _) => Some(e.clone()), _ => None }).collect::<Vec<_>>());
+            let description = format!("grid = {{ layout = 'orthogonal', step = [1, 1] }}\n{}\n{}\n{}", Prefs::description(), crate::ui_screen::description(&art), fonts.description());
+            let compiled = crate::assets::compile(&description, civ3_assets::GameFiles::with_roots(files.roots().to_vec())).unwrap();
+            let sprites = crate::ui_screen::sprites(&draw_items, &fonts, &compiled, 0, false);
+            let scene = scene::Scene { views: vec![scene::ViewState { id: 0, view: scene::View { interface_only: true, ..Default::default() }, overlay: sprites }], ..Default::default() };
+            let world = tile_viewer::scene_world(&compiled, &scene);
+            let picture = tile_render::reference::render(&world, &compiled.atlas, &tile_render::Camera::new((1024, 768)), 0, [0, 0, 0, 255]);
+            image::save_buffer(directory.join(format!("{name}.png")), picture.as_bytes(), picture.width, picture.height, image::ColorType::Rgba8).unwrap();
+        }
+    }
+
+    /// Find a slider through its declared geometry, as the viewer does.
+    fn slider_for(prefs: &Prefs, key: &str) -> menu::panel::ControlLooks {
+        let table: toml::Table = toml::from_str(PANELS).unwrap();
+        let item = table["panels"][PANEL]["items"].as_array().unwrap().iter()
+            .find(|i| i.get("slider").and_then(|v| v.as_str()) == Some(key)).unwrap();
+        let at = item["at"].as_array().unwrap();
+        prefs.looks(&Fonts::default()).into_iter().find(|look| matches!(look.kind, scene::InteractableKind::Slider { .. })
+            && look.rect[..2] == [at[0].as_integer().unwrap() as i32, at[1].as_integer().unwrap() as i32]).unwrap()
+    }
+
+    fn show_slider(prefs: &mut Prefs, key: &str) {
+        prefs.tab = if key.starts_with("layout.zoom") { TAB_ZOOM }
+            else if key.starts_with("resolution.") || key.starts_with("display.") { TAB_RESOLUTION }
+            else { TAB_LAYOUT }.into();
+        prefs.route(vec![], (1024, 768));
+    }
+
+    #[test]
+    fn every_live_slider_previews_during_drag_and_rolls_back_or_accepts_without_early_save() {
+        use scene::SliderAction::*;
+        for control in LIVE_SLIDERS {
+            for finish in ["discard", "closed", "accept"] {
+                let (mut prefs, path) = open_prefs(&format!("live-{control}-{finish}"));
+                prefs.settings.layout.zoom = Zoom::Floating131;
+                prefs.draft = Some(prefs.settings.clone());
+                prefs.project_settings();
+                prefs.settings.save(&path).unwrap();
+                let stored = std::fs::read(&path).unwrap();
+                let accepted = prefs.settings.clone();
+                show_slider(&mut prefs, control);
+                let slider = slider_for(&prefs, control);
+                let send = |prefs: &mut Prefs, action, value| prefs.route(vec![Input::Slider { id: slider.id, action, value }], (1024, 768));
+                send(&mut prefs, Begin, 0);
+                send(&mut prefs, Preview, 1_000_000);
+                assert_ne!(prefs.editing().control(control), accepted.control(control), "{control}");
+                assert_eq!(prefs.settings().control(control), prefs.editing().control(control), "{control} must preview before release");
+                assert_eq!(prefs.settings, accepted, "accepted settings remain unchanged");
+                assert_eq!(std::fs::read(&path).unwrap(), stored);
+                send(&mut prefs, Cancel, 0);
+                assert_eq!(prefs.settings(), &accepted, "slider Cancel restores preview for {control}");
+                send(&mut prefs, Begin, 0);
+                send(&mut prefs, Preview, 1_000_000);
+                send(&mut prefs, Commit, 0);
+                let changed = prefs.settings().clone();
+                match finish {
+                    "accept" => {
+                        key(&mut prefs, VK_RETURN);
+                        assert_eq!(prefs.settings(), &changed);
+                        assert_eq!(Settings::load(&path).unwrap(), changed);
+                    }
+                    "discard" => {
+                        key(&mut prefs, VK_ESCAPE);
+                        assert!(prefs.confirming_discard);
+                        key(&mut prefs, VK_RETURN); // Keep editing retains preview.
+                        assert_eq!(prefs.settings(), &changed);
+                        key(&mut prefs, VK_ESCAPE);
+                        key(&mut prefs, 0x59);
+                        assert_eq!(prefs.settings(), &accepted);
+                        assert_eq!(std::fs::read(&path).unwrap(), stored);
+                    }
+                    _ => {
+                        prefs.update(None, None, (1024, 768), None);
+                        assert_eq!(prefs.settings(), &accepted);
+                        assert_eq!(std::fs::read(&path).unwrap(), stored);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mouse_drags_preview_frame_and_world_while_dialog_stays_fixed_and_undo_uses_latest_accept() {
+        let (mut prefs, path) = open_prefs("mouse-preview-latest-accept");
+        click(&mut prefs, 220, 55);
+        let opening = prefs.settings().resolution.clone();
+        let menu = tile_viewer::scaling::plan((2048, 1536), (1024, 768), &opening).menu;
+        for control in ["resolution.frame_scale", "resolution.world_scale"] {
+            let slider = slider_for(&prefs, control);
+            let [x, y, w, h] = slider.rect;
+            let down = Input::MouseButton { button: scene::Button::Left, down: true, x: x+10, y: y+h/2 };
+            assert!(prefs.route(vec![down], (1024, 768)).is_empty());
+            assert_eq!(prefs.settings().control(control), Some(ControlValue::Number(0.5)));
+            assert!(prefs.route(vec![Input::MouseMove { x: x+w/2, y: y+h/2 }], (1024, 768)).is_empty());
+            assert_eq!(prefs.settings().control(control), Some(ControlValue::Number(1.75)), "motion previews before release");
+            assert_eq!(tile_viewer::scaling::plan((2048, 1536), (1024, 768), &prefs.settings().resolution).menu, menu);
+            assert_eq!(slider_for(&prefs, control).rect, slider.rect);
+            assert!(!path.exists());
+            prefs.route(vec![Input::MouseButton { button: scene::Button::Left, down: false, x: x+w/2, y: y+h/2 }], (1024, 768));
+        }
+        key(&mut prefs, VK_RETURN);
+        let saved = std::fs::read(&path).unwrap();
+        prefs.update(None, None, (1024, 768), None);
+        let frame = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+        prefs.update(Some(&frame), Some(FORM), (1024, 768), None);
+        click(&mut prefs, 220, 55);
+        for _ in 0..2 {
+            click(&mut prefs, 658, 409);
+            assert_eq!(prefs.settings().resolution.world_scale, 3.0);
+            click(&mut prefs, 771, 409);
+            assert_eq!(prefs.settings().resolution.world_scale, 1.75, "undo uses this session's accepted value");
+            assert!(!prefs.dirty(), "undoing the only edit leaves a clean dialog");
+            assert_eq!(std::fs::read(&path).unwrap(), saved);
+        }
+    }
+
+    #[test]
+    fn every_slider_has_conditional_undo_and_the_exact_tooltip() {
+        use scene::SliderAction::*;
+        let table: toml::Table = toml::from_str(PANELS).unwrap();
+        let items = table["panels"][PANEL]["items"].as_array().unwrap();
+        let mut checked = 0;
+        for item in items.iter().filter(|i| i.get("slider").is_some()) {
+            let control = item["slider"].as_str().unwrap();
+            let (mut prefs, path) = open_prefs(&format!("undo-{control}"));
+            prefs.settings.resolution.scale_menus = true;
+            prefs.settings.display.max_fps = 120;
+            prefs.settings.layout.zoom = Zoom::Floating131;
+            prefs.draft = Some(prefs.settings.clone());
+            prefs.project_settings();
+            let accepted = prefs.settings.clone();
+            show_slider(&mut prefs, control);
+            let undo = items.iter().find(|i| i.get("choice").and_then(|v| v.as_str()) == Some(UNDO)
+                && i["value"].as_str() == Some(control)).unwrap();
+            let at = undo["at"].as_array().unwrap();
+            let at = (at[0].as_integer().unwrap() as i32, at[1].as_integer().unwrap() as i32);
+            let find_undo = |p: &Prefs| p.looks(&Fonts::default()).into_iter().find(|look| look.rect == [at.0, at.1, 23, 23]);
+            assert!(find_undo(&prefs).is_none(), "unchanged {control}");
+            let slider = slider_for(&prefs, control);
+            let range = viewer_settings::controls::range(control).unwrap();
+            let value = if accepted.control(control) == Some(ControlValue::Number(range.max)) { 0 } else { 1_000_000 };
+            prefs.route(vec![Input::Slider { id: slider.id, action: Begin, value: 0 },
+                Input::Slider { id: slider.id, action: Preview, value },
+                Input::Slider { id: slider.id, action: Commit, value: 0 }], (1024, 768));
+            let look = find_undo(&prefs).unwrap_or_else(|| panic!("changed {control} needs undo"));
+            assert_eq!(look.kind, scene::InteractableKind::Button, "Alt target");
+            assert!(look.states.iter().any(|(state, draws)| state.pointer == scene::PointerState::Hover
+                && draws.iter().any(|d| matches!(d, Draw::Text(t) if t.text == "Undo to current state"))), "immediate viewer tooltip for {control}");
+            prefs.route(vec![Input::MouseMove { x: at.0 + 11, y: at.1 + 11 }], (1024, 768));
+            assert!(prefs.draws(&Fonts::default()).iter().any(|d| matches!(d, Draw::Text(t) if t.text == "Undo to current state")));
+            // Undo remains reachable after disabling its parent slider.
+            if control == "resolution.menu_scale_percent" { prefs.draft.as_mut().unwrap().resolution.scale_menus = false; }
+            if control == "display.fps_limit" { prefs.draft.as_mut().unwrap().display.max_fps = 0; }
+            prefs.route(vec![], (1024, 768));
+            assert!(find_undo(&prefs).is_some());
+            // Unrelated draft edits survive the per-slider restore.
+            prefs.draft.as_mut().unwrap().display.show_fps = !accepted.display.show_fps;
+            assert!(click(&mut prefs, at.0 + 11, at.1 + 11).is_empty());
+            assert_eq!(prefs.editing().control(control), accepted.control(control));
+            assert_eq!(prefs.settings().control(control), accepted.control(control));
+            assert!(find_undo(&prefs).is_none(), "restored {control}");
+            assert_ne!(prefs.editing().display.show_fps, accepted.display.show_fps);
+            assert!(!path.exists(), "undo never saves");
+            checked += 1;
+        }
+        assert_eq!(checked, 13);
+    }
+
     #[test]
     fn base_ui_scale_drafts_half_steps_accepts_and_can_be_discarded() {
         let (mut prefs, path) = open_prefs("base-ui-scale");
@@ -2129,7 +2359,7 @@ mod tests {
             assert_eq!(prefs.settings().resolution, active_resolution);
             assert_eq!(prefs.settings().resolution.realised((2048, 1536)), before_window);
             assert_eq!(prefs.settings().resolution.pixel_scale_in((2048, 1536)), before_pixel_scale);
-            assert_eq!(prefs.looks(&Fonts::default()).iter().map(|look| (look.id, look.rect)).collect::<Vec<_>>(), before);
+            assert_eq!(prefs.looks(&Fonts::default()).iter().filter(|look| before.iter().any(|(id, _)| *id == look.id)).map(|look| (look.id, look.rect)).collect::<Vec<_>>(), before);
             assert!(!path.exists());
         }
         assert!(key(&mut prefs, VK_RETURN).is_empty());
@@ -2186,7 +2416,7 @@ mod tests {
         assert_eq!(prefs.editing().resolution.menu_scale_percent, 25.0);
         // The draft only: nothing applied or saved, the dialog the same size.
         assert_eq!(prefs.settings().resolution.menu_scale_percent, 100.0);
-        assert_eq!(rects(&prefs), before);
+        assert_eq!(rects(&prefs).into_iter().filter(|(id, _)| before.iter().any(|(old, _)| id == old)).collect::<Vec<_>>(), before);
         assert!(!path.exists());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
