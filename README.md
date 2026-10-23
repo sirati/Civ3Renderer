@@ -193,9 +193,13 @@ canvas (scrolling, opaque covers, clip rectangles and colour keys
 followed); the screen is composed from the canvases' current content —
 regions of the game's art files (alpha-masked where the game masks them),
 fills, translucent shades, lines, text and unit animation frames, clipped —
-that the `menu` crate's run-time screens draw. The map canvas is mirrored
-without the map itself (ours): the city labels on it go under our fog of
-war; the unit overlay is left out (we draw units, on layers of their tiles: docs §10.13). Pictures the game makes
+that the `menu` crate's run-time screens draw. While the map is shown, the
+world's canvases (the map renderer's image, the map canvas and the unit
+overlay) are not mirrored: the renderer draws all of them from the game's
+state (terrain, the map grid, fog, units on layers of their tiles: docs
+§10.13, city labels, the targeting overlays). Only the text on the map
+canvas is kept (whether the game's view shows its labels);
+`CIV3R_MAP_LABELS=mirror` mirrors those canvases as before. Pictures the game makes
 pixel by pixel (the minimap) are generated from the world state and sent
 as run-time sprite pixels. See `docs/civ3-map-rendering.md` §16, §17.
 While a unit command waits for its tile (bombard, the air missions, go-to)
@@ -203,7 +207,8 @@ the bridge draws what the game shows from the game's state
 (`civ3_bridge::targeting`, docs §10.14): the outline of the tiles in range,
 the frame on a tile the command takes, and the go-to path (the game's own
 path finder, run on the game's thread) with its marker and turn count; the
-command's pointer is the game's cursor.
+command's pointer is the game's cursor. The map grid (Ctrl+G, or `GridOn`
+in conquests.ini with C3X) is drawn the same way.
 
 The wheel (and trackpad scrolling) also scrolls what the game itself
 never let it: the Civilopedia's articles and lists, the Foreign advisor,
