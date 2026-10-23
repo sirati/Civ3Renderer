@@ -932,11 +932,38 @@ pub fn place_accessible(
     rings: Option<&crate::rings::Rings>, memory: &mut UnitMemory, scene: &mut Scene,
     accessibility: &viewer_settings::accessibility::Accessibility,
 ) {
+    place_sliding(world, view, art, compiled, rings, memory, scene, accessibility, &HashMap::new());
+}
+
+/// [`place_accessible`] with the units the game slides to the next tile
+/// (`crate::unit_slides`) where their slides show them: one on its way
+/// at the start of it, as free sprites drawn after the units (over the
+/// unit under it, as the game draws a moving unit), with a
+/// [`scene::Motion`] the renderer moves them along; one held at its next
+/// tile on its layers there.
+#[allow(clippy::too_many_arguments)]
+pub fn place_sliding(
+    world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &Compiled,
+    rings: Option<&crate::rings::Rings>, memory: &mut UnitMemory, scene: &mut Scene,
+    accessibility: &viewer_settings::accessibility::Accessibility,
+    sliding: &HashMap<i32, crate::unit_slides::Shown>,
+) {
     let (units_pass, under_units) = unit_passes(compiled);
     // (A description without unit layers: all free.)
     let layered = compiled.layer_index("unit_body").is_some();
     let shape = scene.shape;
-    let units: Vec<&Civ3Unit> = world.units.iter().filter(|u| u.visible).collect();
+    let slid: Vec<Civ3Unit>;
+    let units: Vec<&Civ3Unit> = if sliding.is_empty() {
+        memory.slide_tiles.clear();
+        world.units.iter().filter(|u| u.visible).collect()
+    } else {
+        slid = slid_units(&world.units, sliding, &mut memory.slide_tiles);
+        slid.iter().collect()
+    };
+    let on_way = |u: &Civ3Unit| match sliding.get(&u.id) {
+        Some(&crate::unit_slides::Shown::Sliding { serial, way, ms, .. }) => Some((serial, way, ms)),
+        _ => None,
+    };
     let slots = if layered { slots(world, view, &units, (shape.cols, shape.rows)) } else { vec![None; units.len()] };
     log::trace!("units: {} on layers, {} as free sprites", slots.iter().filter(|s| s.is_some()).count(), slots.iter().filter(|s| s.is_none()).count());
     memory.begin();
@@ -945,6 +972,18 @@ pub fn place_accessible(
         let (col, row) = ((u.x >> 1) as u32, u.y as u32);
         let pieces = accessible_pieces(pieces(world, art, u, rings), accessibility);
         let pieces = memory.drawable(world, art, compiled, u, pieces);
+        if let Some((serial, way, ms)) = on_way(u) {
+            // The renderer moves these on (`scene::Motion`).
+            let first = scene.sprites.len() as u32;
+            for p in &pieces {
+                let after = if p.part == Part::Ring { under_units } else { units_pass };
+                scene.sprites.extend(free_sprite(compiled, p, after));
+                scene.sprites.extend(smoke_free_sprite(compiled, p, after));
+            }
+            log::debug!("units: unit {} slides as sprites {first}..{} ({:?})", u.id, scene.sprites.len(), pieces.iter().map(|p| (p.part, p.at)).collect::<Vec<_>>());
+            scene.motions.push(scene::Motion { serial, sprites: (first, scene.sprites.len() as u32), way, duration_ms: ms });
+            continue;
+        }
         free_tail |= accessibility.hud_scale() != 1.0 || slot.is_none() || pieces.iter().any(|p| smoke_set(compiled, p).is_some());
         for p in pieces {
             // Inverting rings under the units (a layer cannot invert).
@@ -967,6 +1006,40 @@ pub fn place_accessible(
     }
 }
 
+/// The visible units as sliding shows them (`place_sliding`): a sliding
+/// unit at the start of its way, a held one at the end. The other units on
+/// a sliding unit's first tile stay as first published with its slide
+/// (`tiles`, by slide serial), until the slide's telling ends: the game
+/// lists the unit under a moving one only while it moves, and between the
+/// slide's end and its next animator frame it lists neither on the old
+/// tile (`crate::unit_views` reads the units beyond its camera at those
+/// frames), so the unit under would vanish for a moment.
+fn slid_units(units: &[Civ3Unit], sliding: &HashMap<i32, crate::unit_slides::Shown>, tiles: &mut HashMap<u64, Vec<Civ3Unit>>) -> Vec<Civ3Unit> {
+    use crate::unit_slides::Shown;
+    tiles.retain(|serial, _| sliding.values().any(|s| matches!(s, Shown::Sliding { serial: n, .. } if n == serial)));
+    let mut out = Vec::with_capacity(units.len() + 2);
+    for u in units.iter().filter(|u| u.visible) {
+        match sliding.get(&u.id) {
+            Some(&Shown::Sliding { serial, from, .. }) => {
+                let tile = ((from.0 - 64).div_euclid(64), (from.1 - 32).div_euclid(32));
+                let here = |v: &&Civ3Unit| v.visible && v.id != u.id && (v.x, v.y) == tile;
+                let kept = tiles.entry(serial).or_insert_with(|| units.iter().filter(here).cloned().collect());
+                // Those the game no longer lists at all, just before it (the
+                // animator draws the unit under before the moving one).
+                for k in kept.iter() {
+                    if !units.iter().any(|v| v.id == k.id && v.visible) && !out.iter().any(|o: &Civ3Unit| o.id == k.id) {
+                        out.push(k.clone());
+                    }
+                }
+                out.push(Civ3Unit { pixel: from, ..u.clone() });
+            }
+            Some(&Shown::Held(at)) => out.push(Civ3Unit { pixel: at, ..u.clone() }),
+            None => out.push(u.clone()),
+        }
+    }
+    out
+}
+
 /// What units drew last, so that a unit whose new animation has no art
 /// yet (it is being built) goes on showing its last frame rather than
 /// vanish (see [`UnitMemory::drawable`]).
@@ -978,6 +1051,9 @@ pub struct UnitMemory {
     seen: std::collections::HashSet<i32>,
     /// Per unit whose body art is missing: its animation and since when.
     missing: HashMap<i32, (i32, std::time::Instant)>,
+    /// Per slide (`crate::unit_slides::Shown::Sliding` serial), the other
+    /// units on the tile it began on, as first published with it.
+    slide_tiles: HashMap<u64, Vec<Civ3Unit>>,
 }
 
 /// [`Part`] as a map key.
@@ -1874,6 +1950,75 @@ mod tests {
                 assert!(drawn == picture(&all_free), "selected {selected:?}, zoomed out {zoomed_out}: layers and free sprites differ");
             }
         }
+    }
+
+    /// A sliding unit goes at the start of its way; the units on its first
+    /// tile stay as its slide first saw them, though the game stops listing
+    /// the one under it before its slide is told to the end; a held unit
+    /// goes to the end of its way.
+    #[test]
+    fn sliding_units_keep_the_unit_under_them_until_the_telling_ends() {
+        use crate::unit_slides::Shown;
+        let at = |id, x: i32, y: i32| Civ3Unit { id, x, y, pixel: (64 * x + 64, 32 * y + 32), visible: true, ..Default::default() };
+        let sliding = HashMap::from([(1, Shown::Sliding { serial: 9, from: (64 * 6 + 64, 32 * 4 + 32), way: (64, 32), ms: 100 })]);
+        let mut tiles = HashMap::new();
+        // First seen: the unit under (2) is listed before the moving one.
+        let first = slid_units(&[at(2, 6, 4), Civ3Unit { moving: true, ..at(1, 6, 4) }, at(3, 0, 0)], &sliding, &mut tiles);
+        assert_eq!(first.iter().map(|u| u.id).collect::<Vec<_>>(), [2, 1, 3]);
+        // The slide ended, the game no longer lists unit 2 (nor 1 there).
+        let later = slid_units(&[at(3, 0, 0), Civ3Unit { pixel: (64 * 7 + 64, 32 * 5 + 32), ..at(1, 7, 5) }], &sliding, &mut tiles);
+        assert_eq!(later.iter().map(|u| (u.id, u.pixel)).collect::<Vec<_>>(), [(3, (64, 32)), (2, (448, 160)), (1, (448, 160))],
+            "kept just before the slider, which is drawn at the start of its way");
+        // A unit the game lists elsewhere moved on: not kept.
+        let moved = slid_units(&[at(2, 2, 2), at(1, 6, 4)], &sliding, &mut tiles);
+        assert_eq!(moved.iter().map(|u| (u.id, (u.x, u.y))).collect::<Vec<_>>(), [(2, (2, 2)), (1, (6, 4))]);
+        // Held: at the end of the way; the slide's tile memory is let go.
+        let held = HashMap::from([(1, Shown::Held((512, 192)))]);
+        let shown = slid_units(&[at(1, 6, 4)], &held, &mut tiles);
+        assert_eq!(shown[0].pixel, (512, 192));
+        assert!(tiles.is_empty());
+    }
+
+    /// The sliding unit's pieces go out as free sprites at the start of its
+    /// way with one `scene::Motion` over exactly them; the unit under it
+    /// stays on the layers (`CIV3_INSTALL`; skipped without it).
+    #[test]
+    fn a_sliding_unit_is_told_as_one_motion_over_its_free_sprites() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).join("Art").is_dir() {
+            return eprintln!("no Civ III installation, skipped");
+        }
+        let (width, height) = (16, 16);
+        let mut world = Civ3World {
+            width, height, player: 1, color_tables: vec![0, 3],
+            unit_type_keys: vec!["PRTO_Bomber".into()], unit_type_stats: vec![[12, 1, 1, 0, 2, 0, 0]], experience_hit_points: vec![3],
+            tiles: vec![crate::world::Civ3Tile { city: -1, ..Default::default() }; (width * height / 2) as usize],
+            ..Default::default()
+        };
+        let at = |id, x: i32, y: i32| Civ3Unit { id, x, y, civ: 1, pixel: (64 * x + 64, 32 * y + 32), animation: 1, direction: 3, visible: true, ..Default::default() };
+        world.units = vec![at(2, 6, 4), Civ3Unit { moving: true, pixel: (64 * 6 + 64 + 20, 32 * 4 + 32 + 10), ..at(1, 6, 4) }];
+        let mut art = UnitArt::new(civ3_assets::GameFiles::complete(&install));
+        let text = format!("{}{}", crate::assets::BUILTIN_DESC, Needed::of(&world, &mut art).description());
+        let compiled = crate::assets::compile(&text, civ3_assets::GameFiles::complete(&install)).unwrap();
+        let view = Civ3View { tile_x: (0, width - 1), tile_y: (0, height - 1), ..Default::default() };
+        let mapper = crate::scene_map::Mapper::new(&compiled);
+        let from = (64 * 6 + 64, 32 * 4 + 32);
+        let sliding = HashMap::from([(1, crate::unit_slides::Shown::Sliding { serial: 77, from, way: (64, 32), ms: 100 })]);
+        let mut scene = mapper.scene(&world, &view, (1100, 600), 0);
+        scene.sprites.push(scene::FreeSprite::default());
+        place_sliding(&world, &view, &mut art, &compiled, None, &mut UnitMemory::default(), &mut scene, &Default::default(), &sliding);
+        assert_eq!(scene.motions.len(), 1);
+        let m = &scene.motions[0];
+        assert_eq!((m.serial, m.way, m.duration_ms), (77, (64, 32), 100));
+        assert_eq!(m.sprites.0, 1, "after the sprites already there");
+        let moving = &scene.sprites[m.sprites.0 as usize..m.sprites.1 as usize];
+        let body = pieces(&world, &mut art, &Civ3Unit { pixel: from, ..world.units[1].clone() }, None);
+        assert_eq!(moving.len(), body.len());
+        assert!(moving.iter().any(|s| (s.x, s.y) == from), "the body at the start of the way, not where the game had it");
+        assert_eq!(m.sprites.1 as usize, scene.sprites.len(), "nothing else free: the unit under stays on its layers");
+        let body_layer = compiled.layer_index("unit_body").unwrap();
+        let tiles = tile_viewer::scene_world(&compiled, &scene);
+        assert_ne!(tiles.get(tile_render::LayerId(body_layer), 3, 4), 0, "the unit under on its tile's layer");
     }
 
     /// Army type 0 (no attack or defence of its own, one move, `UTA_Army`),
