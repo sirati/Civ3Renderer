@@ -1,6 +1,6 @@
 //! The renderer's own preferences, as tabs of the game's Preferences screen:
 //! "CivIII" (the game's own preferences, mirrored as they are), "Resolution"
-//! and "Layout" (the viewer's settings, `viewer_settings::Settings`). The
+//! and "Layout" / "Zoom" (the viewer's settings, `viewer_settings::Settings`). The
 //! tabs and their content are a panel of the menu crate
 //! (`assets/civ3/preferences.toml`) laid over the mirrored screen; what the
 //! panel takes of the pointer input never reaches the game.
@@ -40,6 +40,7 @@ pub const TAB: &str = "tab";
 pub const TAB_GAME: &str = "civ3";
 pub const TAB_RESOLUTION: &str = "resolution";
 pub const TAB_LAYOUT: &str = "layout";
+pub const TAB_ZOOM: &str = "zoom";
 pub const TAB_CLEAN_MAP: &str = "clean_map";
 
 /// The values the panel shows: the tab, every control of the settings
@@ -1182,18 +1183,18 @@ mod tests {
             Control { rect: [795, 28, 150, 28], kind: ControlKind::Button, id: 4 },
             Control { rect: [975, 718, 32, 28], kind: ControlKind::Button, id: 5 },
         ];
-        for (tab, tab_x, visible_body) in [(TAB_GAME, 110, None), (TAB_RESOLUTION, 220, Some(0)), (TAB_LAYOUT, 330, Some(1)), (TAB_CLEAN_MAP, 440, Some(2))] {
+        for (tab, tab_x, visible_body) in [(TAB_GAME, 110, None), (TAB_RESOLUTION, 220, Some(0)), (TAB_LAYOUT, 330, Some(1)), (TAB_CLEAN_MAP, 440, Some(2)), (TAB_ZOOM, 550, None)] {
             assert!(click(&mut p, tab_x, 55).is_empty());
             assert_eq!(p.tab, tab);
             let looks = p.looks(&Fonts::default());
             for (n, rect) in body_targets.iter().enumerate() {
                 assert_eq!(looks.iter().any(|l| l.rect == *rect), visible_body == Some(n), "{tab}: {rect:?}");
             }
-            for rect in [[60, 40, 105, 32], [170, 40, 105, 32], [280, 40, 105, 32], [390, 40, 105, 32]] {
+            for rect in [[60, 40, 105, 32], [170, 40, 105, 32], [280, 40, 105, 32], [390, 40, 105, 32], [500, 40, 105, 32]] {
                 assert!(looks.iter().any(|l| l.rect == rect), "missing tab {rect:?} on {tab}");
             }
             if tab == TAB_GAME {
-                assert_eq!(looks.len(), 4, "only our tabs: no text Accept or Cancel");
+                assert_eq!(looks.len(), 5, "only our tabs: no text Accept or Cancel");
             }
             let mut visible = native.to_vec();
             p.retain_native_controls(&mut visible);
@@ -1285,17 +1286,19 @@ mod tests {
         assert_eq!(p.editing().layout.split, Split::Vertical2To1);
         assert_eq!(p.settings(), &Settings::default());
         // Roles: unit and mouse; screens on the right; the zoom right of the split.
-        assert!(click(&mut p, 230, 440).is_empty());
+        assert!(click(&mut p, 230, 238).is_empty());
         assert!(click(&mut p, 814, 159).is_empty());
-        assert!(click(&mut p, 340, 240).is_empty());
+        assert!(click(&mut p, 550, 55).is_empty());
+        assert!(click(&mut p, 450, 148).is_empty());
+        assert!(click(&mut p, 330, 55).is_empty());
         let draft = p.editing().clone();
         assert_eq!(draft.layout.roles, Roles::UnitMouse);
         assert_eq!(draft.layout.screen_place.vertical, Place::RightOrTop);
         assert_eq!(draft.layout.zoom_place, Place::RightOrTop);
         // Map movement: dragging, then edge scrolling again.
-        assert!(click(&mut p, 400, 635).is_empty());
+        assert!(click(&mut p, 400, 433).is_empty());
         assert_eq!(p.editing().input.map_movement, viewer_settings::MapMovement::Drag);
-        assert!(click(&mut p, 250, 635).is_empty());
+        assert!(click(&mut p, 250, 433).is_empty());
         assert_eq!(p.editing().input.map_movement, viewer_settings::MapMovement::EdgeScroll);
         assert!(click(&mut p, 560, 297).is_empty());
         assert!(p.editing().input.smooth_menu_scrolling);
@@ -1403,8 +1406,8 @@ mod tests {
         for name in viewer_settings::Layout::SCREENS.iter().filter(|n| !n.starts_with('F')) {
             assert!(!shown.iter().any(|t| t == name), "no row for {name}");
         }
-        // (The other "Floating": the zoom placement's.)
-        assert_eq!(shown.iter().filter(|t| *t == "Floating").count(), 2, "{shown:?}");
+        // Zoom placement now has its own tab.
+        assert_eq!(shown.iter().filter(|t| *t == "Floating").count(), 1, "{shown:?}");
         // The places are icon buttons (window glyphs), named below them.
         let looks = p.looks(&Fonts::default());
         for (x, value) in [(552, "Floating"), (658, "LeftOrBottom"), (764, "RightOrTop")] {
@@ -1511,8 +1514,8 @@ mod tests {
         assert!(click(&mut p, 814, 159).is_empty());
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         let count = |s: &str| texts.iter().filter(|t| *t == s).count();
-        // (One "Right": the zoom placement's, greyed out.)
-        assert_eq!((count("Top"), count("Bottom"), count("Right"), count("Left")), (1, 1, 1, 1));
+        // Only the horizontal screen placement labels are on this tab.
+        assert_eq!((count("Top"), count("Bottom"), count("Right"), count("Left")), (1, 1, 0, 0));
         // "B" in three split pictures and the free roles one; no words in the
         // unit and mouse one: the game's unit icon and pointer.
         assert_eq!((count("B"), count("Mouse"), count("Unit")), (4, 0, 0));
@@ -1521,76 +1524,85 @@ mod tests {
         assert!(["Prefs@unit_small/0", "Prefs@mouse_small/0"].iter().all(|s| sprites.iter().any(|n| n == s)), "{sprites:?}");
         let place = p.editing().layout.screen_place;
         assert_eq!((place.horizontal, place.vertical), (Place::RightOrTop, Place::Floating));
+        assert!(click(&mut p, 550, 55).is_empty());
+        assert_eq!(p.tab, TAB_ZOOM);
         // The height slider shows with every zoom but Off.
         assert!(!texts.iter().any(|t| t.ends_with('%')));
-        assert!(click(&mut p, 430, 330).is_empty());
+        assert!(click(&mut p, 780, 268).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::TopStrip);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         assert!(texts.contains(&"20%".to_string()), "{texts:?}");
         // Dragging the strip's slider to its right end: 50%.
-        let drag = |x| Input::MouseMove { x, y: 360 };
-        let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 360 };
-        assert!(p.route(vec![b(true, 230), drag(800), b(false, 800)], (1024, 768)).is_empty());
+        let drag = |x| Input::MouseMove { x, y: 371 };
+        let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 371 };
+        assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
         assert_eq!(p.settings(), &Settings::default());
         let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
         assert!(texts(&p).contains(&"Strip height".to_string()));
         // A box at the mouse is sized by it too: the slider shows, as the
         // box's height; to its left end: 5%.
-        assert!(click(&mut p, 140, 330).is_empty());
+        assert!(click(&mut p, 200, 268).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Mouse111);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && !shown.contains(&"Strip height".to_string()) && shown.contains(&"50%".to_string()), "{shown:?}");
         assert!(!shown.iter().any(|t| t == "Top margin" || t == "Drop" || t == "Keep mouse out"), "{shown:?}");
-        assert!(p.route(vec![b(true, 230), drag(0), b(false, 0)], (1024, 768)).is_empty());
+        assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(texts(&p).contains(&"5%".to_string()));
         // The floating boxes share that one slider (no Auto, no own
         // height), and have their top margin (2.5%), their drop below the
         // mouse (30%) and the keep-the-mouse-out option.
-        assert!(click(&mut p, 290, 300).is_empty());
+        assert!(click(&mut p, 500, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating131);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && shown.contains(&"5%".to_string()), "{shown:?}");
         assert!(shown.contains(&"Floating box 1:3:1".to_string()));
         assert!(!shown.iter().any(|t| t == "Auto"), "{shown:?}");
         assert!(["Top margin", "2.5%", "Drop", "30%", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
-        assert!(p.route(vec![b(true, 230), drag(800), b(false, 800)], (1024, 768)).is_empty());
+        assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
         assert_eq!(p.settings(), &Settings::default());
         assert!(texts(&p).contains(&"50%".to_string()));
         assert!(!p.editing().layout.zoom_box_block_pointer);
-        assert!(click(&mut p, 348, 362).is_empty());
+        assert!(click(&mut p, 100, 523).is_empty());
         assert!(p.editing().layout.zoom_box_block_pointer);
-        assert!(click(&mut p, 348, 362).is_empty());
+        assert!(click(&mut p, 100, 523).is_empty());
         assert!(!p.editing().layout.zoom_box_block_pointer);
-        let row = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 391 };
-        let slide = |x| Input::MouseMove { x, y: 391 };
-        assert!(p.route(vec![row(true, 230), slide(800), row(false, 800)], (1024, 768)).is_empty());
+        let row = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 421 };
+        let slide = |x| Input::MouseMove { x, y: 421 };
+        assert!(p.route(vec![row(true, 450), slide(800), row(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_top, 0.2);
-        assert!(p.route(vec![row(true, 425), slide(0), row(false, 0)], (1024, 768)).is_empty());
+        assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
         assert!(["20%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
         assert_eq!(p.settings(), &Settings::default());
-        assert!(click(&mut p, 430, 300).is_empty());
+        assert!(click(&mut p, 780, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
         assert!(["Box height", "50%", "Top margin", "Drop"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
         // The magnification, for every zoom: 2×, its steps 1.5× to 4×.
         assert!(["Magnification", "2×"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
-        let mag = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 273 };
-        let along = |x| Input::MouseMove { x, y: 273 };
+        let mag = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 321 };
+        let along = |x| Input::MouseMove { x, y: 321 };
         assert!(p.route(vec![mag(true, 440), along(1000), mag(false, 1000)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_magnification, 4.0);
         assert!(texts(&p).iter().any(|s| s == "4×"));
-        assert!(p.route(vec![mag(true, 440), along(300), mag(false, 300)], (1024, 768)).is_empty());
+        assert!(p.route(vec![mag(true, 440), along(0), mag(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_magnification, 1.5);
         assert!(texts(&p).iter().any(|s| s == "1.5×"));
         assert_eq!(p.settings(), &Settings::default());
-        assert!(p.route(vec![b(true, 230), drag(0), b(false, 0)], (1024, 768)).is_empty());
+        assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
-        assert!(click(&mut p, 140, 300).is_empty());
+        assert!(p.editing().layout.zoom_rounded && p.editing().layout.zoom_glass);
+        assert!(click(&mut p, 100, 573).is_empty());
+        assert!(click(&mut p, 100, 608).is_empty());
+        assert!(!p.editing().layout.zoom_rounded && !p.editing().layout.zoom_glass);
+        assert!(click(&mut p, 200, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Off);
         assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height") || t == "Drop" || t == "Top margin" || t == "Magnification" || t.ends_with('×')));
+        assert!(click(&mut p, 330, 55).is_empty());
+        assert!(click(&mut p, 479, 551).is_empty());
+        assert_eq!(p.editing().layout.separator_width, 16);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
