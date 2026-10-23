@@ -51,6 +51,12 @@ face = "Lucida Sans"
 height = 11
 color = [72, 60, 36]
 
+[styles.ruler]
+face = "Lucida Sans"
+height = 9
+color = [72, 60, 36]
+disabled_color = [150, 140, 116]
+
 [styles.icon]
 face = "Lucida Sans"
 height = 14
@@ -294,7 +300,7 @@ show_if = "tab=resolution|layout|clean_map"
 [[panels.preferences.items]]
 image = "section"
 at = [70, 95]
-size = [882, 120]
+size = [882, 170]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
@@ -323,6 +329,32 @@ hover = "button_hover"
 selected = "button_selected"
 show_if = "tab=resolution"
 
+# The 20-pixel knob travels 330 pixels: centres 119, 185, ... 449,
+# exactly under the centres of the six pixel-scale buttons above.
+[[panels.preferences.items]]
+slider = "resolution.base_ui_scale"
+tick_step = 0.5
+tick_label_step = 1
+tick_style = "ruler"
+at = [109, 220]
+size = [350, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 1.0
+max = 6.0
+step = 0.5
+decimals = 1
+text = "{value}×"
+style = "label"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+text = "Base UI scale"
+style = "label"
+at = [90, 199]
+show_if = "tab=resolution"
+
 [[panels.preferences.items]]
 text = "Rendered at {resolution.realised}"
 style = "heading"
@@ -337,25 +369,25 @@ show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 image = "section"
-at = [70, 235]
-size = [882, 190]
+at = [70, 280]
+size = [882, 150]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 text = "Scale"
 style = "heading"
-at = [90, 245]
+at = [90, 288]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
-text = "Menu size can follow the window. Game frame and map keep their own scales."
+text = "Menu size can follow the window. Frame and map scales are relative to the base."
 style = "label"
-at = [90, 270]
+at = [90, 310]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 checkbox = "resolution.scale_menus"
-at = [90, 306]
+at = [90, 339]
 size = [160, 23]
 text = "Scale menus"
 style = "label"
@@ -366,7 +398,10 @@ show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 slider = "resolution.menu_scale_percent"
-at = [260, 305]
+tick_step = 25
+tick_label_step = 25
+tick_style = "ruler"
+at = [260, 334]
 size = [408, 23]
 normal = "track"
 knob = "knob"
@@ -383,12 +418,15 @@ enable_if = "resolution.scale_menus"
 [[panels.preferences.items]]
 text = "Game frame"
 style = "label"
-at = [90, 350]
+at = [90, 371]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 slider = "resolution.frame_scale"
-at = [260, 345]
+tick_step = 0.5
+tick_label_step = 1
+tick_style = "ruler"
+at = [260, 366]
 size = [408, 23]
 normal = "track"
 knob = "knob"
@@ -404,12 +442,15 @@ show_if = "tab=resolution"
 [[panels.preferences.items]]
 text = "World map"
 style = "label"
-at = [90, 390]
+at = [90, 403]
 show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 slider = "resolution.world_scale"
-at = [260, 385]
+tick_step = 0.5
+tick_label_step = 1
+tick_style = "ruler"
+at = [260, 398]
 size = [408, 23]
 normal = "track"
 knob = "knob"
@@ -560,6 +601,9 @@ show_if = "tab=resolution"
 
 [[panels.preferences.items]]
 slider = "display.fps_limit"
+tick_step = 60
+tick_label_step = 60
+tick_style = "ruler"
 at = [500, 568]
 size = [320, 23]
 enable_if = "display.limit_fps"
@@ -823,6 +867,9 @@ show_if = "tab=layout & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_strip"
+tick_step = 0.05
+tick_label_step = 0.25
+tick_style = "ruler"
 at = [180, 352]
 size = [100, 23]
 normal = "track"
@@ -858,6 +905,9 @@ show_if = "tab=layout & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_box_top"
+tick_step = 0.05
+tick_label_step = 0.1
+tick_style = "ruler"
 at = [180, 380]
 size = [100, 23]
 normal = "track"
@@ -880,6 +930,9 @@ show_if = "tab=layout & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_box_drop"
+tick_step = 0.1
+tick_label_step = 0.25
+tick_style = "ruler"
 at = [380, 380]
 size = [90, 23]
 normal = "track"
@@ -969,6 +1022,9 @@ show_if = "tab=layout"
 
 [[panels.preferences.items]]
 slider = "input.snap_updates_per_second"
+tick_step = 5
+tick_label_step = 5
+tick_style = "ruler"
 at = [250, 572]
 size = [200, 23]
 normal = "track"
@@ -1171,6 +1227,9 @@ show_if = "tab=layout"
 
 [[panels.preferences.items]]
 slider = "input.capture_sensitivity"
+tick_step = 1
+tick_label_step = 1
+tick_style = "ruler"
 at = [552, 344]
 size = [300, 23]
 normal = "track"
@@ -1198,6 +1257,9 @@ show_if = "tab=layout"
 
 [[panels.preferences.items]]
 slider = "animation.combat_speed"
+tick_step = 0.5
+tick_label_step = 1
+tick_style = "ruler"
 at = [552, 446]
 size = [300, 23]
 normal = "track"
