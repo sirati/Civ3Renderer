@@ -930,7 +930,7 @@ show_if = "tab=layout & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_box_drop"
-tick_step = 0.1
+tick_step = 0.05
 tick_label_step = 0.25
 tick_style = "ruler"
 at = [380, 380]
