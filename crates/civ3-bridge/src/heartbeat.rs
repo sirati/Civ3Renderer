@@ -105,6 +105,8 @@ pub fn install() -> Result<(), String> {
     let (peek, wait) = (slot("PeekMessageA")?, slot("WaitMessage")?);
     beat();
     let peek = hooks::peek_message_a::install_slot(peek, |c| {
+        // jgl pumps on the game's thread only: whose hook time to count.
+        inproc::hook_time::watch_current_thread();
         beat();
         c.original()
     }).map_err(|e| format!("PeekMessageA: {e}"))?;
@@ -117,9 +119,76 @@ pub fn install() -> Result<(), String> {
     Ok(())
 }
 
+/// Staleness (ms) from which the game's thread counts as stalled for
+/// [`StallWatch`], and below which it answers again.
+const STALL_FROM_MS: u32 = 1_000;
+const ANSWERS_BELOW_MS: u32 = 500;
+/// How often a stall still going on is reported.
+const STALL_REPORT_EVERY_MS: u64 = 10_000;
+
+/// Notes how much of a stall of the game's thread (no message pump for
+/// [`STALL_FROM_MS`] or more) it spent inside our hooks
+/// (`inproc::hook_time`): the rest is the game's own code (and what the
+/// emulator does for it). Polled by the publisher; its lines go to the log.
+#[derive(Default)]
+pub struct StallWatch {
+    /// The stall in progress: the hook totals when it was noticed, at what
+    /// staleness, and when it was last reported (by `now_ms`).
+    current: Option<(inproc::hook_time::Snapshot, u32, u64)>,
+}
+
+impl StallWatch {
+    /// With the game thread's staleness `stale` (ms) at `now` (ms, any
+    /// monotonic clock) and the hook totals `hooks`: a line to log when a
+    /// stall ends, or every [`STALL_REPORT_EVERY_MS`] while it lasts.
+    pub fn poll(&mut self, stale: u32, now: u64, hooks: impl FnOnce() -> inproc::hook_time::Snapshot) -> Option<String> {
+        match &mut self.current {
+            None if stale >= STALL_FROM_MS => {
+                self.current = Some((hooks(), stale, now));
+                None
+            }
+            None => None,
+            Some((start, noticed_at, _)) if stale < ANSWERS_BELOW_MS => {
+                // (The stall lasted until the last beat: `stale` ago.)
+                let line = describe("answers again after", start, *noticed_at, &hooks());
+                self.current = None;
+                Some(line)
+            }
+            Some((start, noticed_at, reported)) if now.saturating_sub(*reported) >= STALL_REPORT_EVERY_MS => {
+                *reported = now;
+                Some(describe(&format!("{stale} ms without its message pump, still going on;"), start, *noticed_at, &hooks()))
+            }
+            Some(_) => None,
+        }
+    }
+}
+
+fn describe(what: &str, start: &inproc::hook_time::Snapshot, noticed_at: u32, now: &inproc::hook_time::Snapshot) -> String {
+    let (ms, entries, top) = now.since(start, 6);
+    let top: Vec<String> = top.iter().map(|(name, ms, calls)| format!("{name} {ms} ms in {calls} calls")).collect();
+    format!("game thread: {what} a stall; since it was noticed ({noticed_at} ms in) {ms} ms inside the bridge's hooks ({entries} entries from the game): {}",
+        if top.is_empty() { "none".to_string() } else { top.join(", ") })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stall_is_reported_with_the_hooks_it_spent_its_time_in() {
+        use inproc::hook_time::Snapshot;
+        let at = |ns: u64, calls: u64| Snapshot { nanos: ns, calls, hooks: vec![("text_out", ns, calls)] };
+        let mut w = StallWatch::default();
+        assert_eq!(w.poll(400, 0, || at(0, 0)), None);
+        assert_eq!(w.poll(1_200, 100, || at(5_000_000, 10)), None, "noticed: nothing to say yet");
+        assert_eq!(w.poll(3_000, 5_000, || unreachable!()), None);
+        let still = w.poll(11_000, 10_100, || at(9_000_000, 30)).unwrap();
+        assert!(still.contains("11000 ms without its message pump, still going on") && still.contains("4 ms inside") && still.contains("text_out 4 ms in 20 calls"), "{still}");
+        assert_eq!(w.poll(12_000, 12_000, || unreachable!()), None, "reported every 10 s");
+        let end = w.poll(3, 13_000, || at(25_000_000, 40)).unwrap();
+        assert!(end.starts_with("game thread: answers again after a stall; since it was noticed (1200 ms in) 20 ms inside"), "{end}");
+        assert_eq!(w.poll(3, 14_000, || unreachable!()), None);
+    }
 
     #[test]
     fn staleness_is_the_time_since_the_last_beat_unless_waiting_for_messages() {
