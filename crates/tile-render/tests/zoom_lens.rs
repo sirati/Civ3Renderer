@@ -188,6 +188,9 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
             (vec![base], vec![copy])
         } else { (vec![base,lens], Vec::new()) };
         let image = gpu.render_presented(&mut renderer, &cameras, &copies, present, 0, [0,0,0,255]);
+        let plain_cameras: Vec<_> = cameras.iter().map(|c| Camera { lens: None, ..*c }).collect();
+        let plain_copies: Vec<_> = copies.iter().map(|c| tile_render::ScreenCopy { lens: None, ..*c }).collect();
+        let plain = gpu.render_presented(&mut renderer, &plain_cameras, &plain_copies, present, 0, [0,0,0,255]);
         let empty: Vec<_> = cameras.iter().map(|c| Camera { cells: false, ..*c }).collect();
         let reflections = gpu.render_presented(&mut renderer, &empty, &copies, present, 0, [0,0,0,255]);
         // Track transmitted line contrast against a black control render.
@@ -196,26 +199,67 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
             let light = reflections.get(x,y)[ch] as f32;
             (image.get(x,y)[ch] as f32 - light) / (255.0 - light).max(1.0)
         };
+        let mut max_fringe_chroma = 0.0_f32;
         for y in 40..96 { for x in 40..96 {
             let pixel = image.get(x,y);
             assert!(*pixel[..3].iter().min().unwrap() < 250,
                 "scale {scale}, menu {menu}: a refracted line clips the corner highlight at {x}/{y}");
+            let channels = [contrast(x,y,0), contrast(x,y,1), contrast(x,y,2)];
+            let lo = channels.iter().copied().fold(1.0_f32, f32::min);
+            let hi = channels.iter().copied().fold(0.0_f32, f32::max);
+            max_fringe_chroma = max_fringe_chroma.max(hi-lo);
         } }
+        assert!(max_fringe_chroma < 0.38,
+            "scale {scale}, menu {menu}: saturated corner dashes, chroma {max_fringe_chroma}");
         let intercept = if menu { -80 + 192*scale } else { 96*scale };
         let displacement = |y| {
             let baseline = (2*y as i32 + intercept) as u32;
-            let peak = (baseline-4..baseline+124).max_by(|&a,&b| contrast(a,y,0).total_cmp(&contrast(b,y,0))).unwrap();
-            peak as i32 - baseline as i32
+            let peak = (baseline-4..baseline+124).max_by(|&a,&b| contrast(a,y,1).total_cmp(&contrast(b,y,1))).unwrap();
+            // Boxed menu art can give a line several equal peak pixels. Its
+            // contrast centroid avoids jumping between opposite plateau ends.
+            let floor = (baseline-4..baseline+124).map(|x| contrast(x,y,1)).min_by(f32::total_cmp).unwrap();
+            let (mut weight, mut moment) = (0.0, 0.0);
+            for x in peak-8..=peak+8 {
+                let value = (contrast(x,y,1) - floor).max(0.0);
+                weight += value;
+                moment += value * (x as i32-baseline as i32) as f32;
+            }
+            let bent = moment / weight;
+            // Measure against the same boxed source phase. The analytic line
+            // intercept can be several pixels from the centre of a thick box.
+            let floor = (baseline-12..=baseline+12).map(|x| plain.get(x,y)[1]).min().unwrap();
+            let (mut weight, mut moment) = (0.0, 0.0);
+            for x in baseline-12..=baseline+12 {
+                let value = plain.get(x,y)[1].saturating_sub(floor) as f32;
+                weight += value;
+                moment += value * (x as i32-baseline as i32) as f32;
+            }
+            bent - moment / weight
         };
         let shifts: Vec<_> = [63,60,57,54,51,48,45,42,41].into_iter().map(displacement).collect();
         eprintln!("scale {scale}, menu {menu}, line displacement across 24px bevel: {shifts:?}");
-        assert!(shifts[0].abs() <= 3, "scale {scale}, menu {menu}, clear face continuity: {shifts:?}");
-        assert!(shifts[4] >= 12 && shifts[8] >= 85, "scale {scale}, menu {menu}, broad visible refraction: {shifts:?}");
-        for pair in shifts.windows(2) { assert!(pair[1] >= pair[0], "scale {scale}, menu {menu}, continuously increasing bend: {shifts:?}"); }
+        assert!(shifts[0].abs() <= 3.0, "scale {scale}, menu {menu}, clear face continuity: {shifts:?}");
+        assert!(shifts[4] >= 12.0 && shifts[8] >= 85.0, "scale {scale}, menu {menu}, broad visible refraction: {shifts:?}");
+        // Allow half a physical pixel for the centroid of boxed source art.
+        // The shared analytic corner-ray test checks exact monotonicity.
+        for pair in shifts.windows(2) { assert!(pair[1] + 0.5 >= pair[0], "scale {scale}, menu {menu}, continuously increasing bend: {shifts:?}"); }
         let baseline = (82 + intercept) as u32;
-        let peak = |c| (baseline+70..baseline+124).max_by(|&a,&b| contrast(a,41,c).total_cmp(&contrast(b,41,c))).unwrap();
-        let fringe = peak(0).abs_diff(peak(2));
-        assert!((2..=8).contains(&fringe), "scale {scale}, menu {menu}, resolved red/blue fringe: {fringe}px");
+        // Integrated edge positions resolve subtle dispersion even when both
+        // channel peaks occupy the same pixel. Isolated RGB rays used to move
+        // these peaks several pixels apart and produce coloured dashes.
+        let centroid = |c| {
+            let floor = (baseline+70..baseline+124).map(|x| contrast(x,41,c)).min_by(f32::total_cmp).unwrap();
+            let (mut weight, mut moment) = (0.0, 0.0);
+            for x in baseline+70..baseline+124 {
+                let value = (contrast(x,41,c) - floor).max(0.0);
+                weight += value;
+                moment += value * (x-baseline) as f32;
+            }
+            moment / weight
+        };
+        let fringe = (centroid(0) - centroid(2)).abs();
+        eprintln!("scale {scale}, menu {menu}, red/blue centroid separation: {fringe:.3}px");
+        assert!((0.03..=1.5).contains(&fringe), "scale {scale}, menu {menu}, subtle red/blue fringe: {fringe}px");
     } }
 }
 
@@ -243,6 +287,17 @@ fn presented_glass_keeps_physical_width_and_smooth_corners() {
     assert!((40..64).map(|y| boxed.get(300,y)[2]).max().unwrap() >= 100, "visible unseen-light streak on black");
     assert_eq!(boxed.get(300,64), [0,0,0,255], "the face stays clear");
     assert_ne!(boxed.get(56,56), boxed.get(57,56), "the corner is shaded per physical pixel");
+    for image in [&full, &boxed] {
+        for profile in [
+            (216..240).map(|y| image.get(340,y)).collect::<Vec<_>>(),
+            (616..640).map(|x| image.get(x,140)).collect(),
+        ] {
+            assert!(profile.iter().any(|p| p[0].max(p[2]) >= 100),
+                "a secondary crest glint lights the bottom/right: {profile:?}");
+            assert!(profile.iter().filter(|p| p[0].max(p[2]) >= 40).count() >= 4,
+                "bottom/right light spans several physical pixels: {profile:?}");
+        }
+    }
 }
 
 /// A floating world lens sits below driver UI. Final-resolution shading
@@ -387,15 +442,23 @@ fn capture_glass_review_at_4k() {
             lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
         let image = gpu.render_presented(&mut renderer, &cams, &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
         let background = if grid { "grid" } else if background { "map" } else { "black" };
-        save(format!("glass4-{background}-4k-scale{scale}.png"), &image);
+        save(format!("glass5-{background}-4k-scale{scale}.png"), &image);
         let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-        save(format!("glass4-{background}-corner-3x-scale{scale}.png"), &crop);
+        save(format!("glass5-{background}-corner-3x-scale{scale}.png"), &crop);
         if !grid && background == "black" {
             let mut empty = *cams.last().unwrap(); empty.cells = false;
-            let image = gpu.render_presented(&mut renderer, &[empty], &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
-            save(format!("glass4-empty-black-4k-scale{scale}.png"), &image);
+            // Independently build and render each empty-black scale. Identical
+            // output is valid for window-pixel optics, but cannot be a cached
+            // scale-1 image or an accidentally copied file.
+            let mut empty_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+            empty_renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+            empty_renderer.set_world(&gpu.device, &world);
+            eprintln!("independent empty-black scale {scale}: canvas {}x{}, lens {}x{}, rim {} composition pixels",
+                3840/scale, 2160/scale, empty.viewport.0, empty.viewport.1, empty.lens.unwrap().rim);
+            let image = gpu.render_presented(&mut empty_renderer, &[empty], &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, scale, [0,0,0,255]);
+            save(format!("glass5-empty-black-4k-scale{scale}.png"), &image);
             let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-            save(format!("glass4-empty-black-corner-3x-scale{scale}.png"), &crop);
+            save(format!("glass5-empty-black-corner-3x-scale{scale}.png"), &crop);
         }
       } }
     }

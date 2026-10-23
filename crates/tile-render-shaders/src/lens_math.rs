@@ -69,7 +69,7 @@ pub fn surface(p: &LensParams, x: f32, y: f32) -> Surface {
         let bend = ray * (1.0 - weight) + corner_ray * weight;
         (bend, if ray > 0.001 { bend / ray } else { 1.0 })
     } else { (ray, 1.0) };
-    let dispersion = rim * 0.07 * slope * t / (1.0 + slope) * ray_scale;
+    let dispersion = rim * 0.025 * slope * t / (1.0 + slope) * ray_scale;
     let line = lx - p.width * 0.683 - (ly - rim * 0.43) * 0.38;
     let scratch_end = (1.0 - ((ly - rim * 0.43) / (rim * 0.34)).abs()).max(0.0);
     let scratch = (1.0 - line.abs() / (rim * 0.035).max(0.4)).max(0.0) * scratch_end;
@@ -92,6 +92,13 @@ fn band(x: f32, centre: f32, width: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Broad, overlapping spectral responses keep most of the achromatic ray.
+/// Three isolated RGB wavelengths turn fine source lines into coloured dashes.
+pub fn dispersed(red: [f32; 3], centre: [f32; 3], blue: [f32; 3]) -> [f32; 3] {
+    [centre[0] + (red[0] - centre[0]) * 0.35,
+     centre[1], centre[2] + (blue[2] - centre[2]) * 0.35]
+}
+
 /// Finite softboxes and reflected room light illuminate even a black backdrop.
 /// No colour or light is added beyond the inner edge of the bevel.
 pub fn shade(s: &Surface, rgb: [f32; 3]) -> [f32; 3] {
@@ -105,30 +112,34 @@ pub fn shade(s: &Surface, rgb: [f32; 3]) -> [f32; 3] {
     let (rx, ry) = (2.0 * nz * normal_x, 2.0 * nz * normal_y);
     let reflected_z = 2.0 * nz * nz - 1.0;
     let [u, v] = s.position;
-    let sky_band = band(reflected_z + rx * 0.16 + ry * 0.09, 0.32, 0.44)
+    let sky_band = band(reflected_z + rx * 0.16 + ry * 0.09, 0.32, 0.32)
         * (0.65 + 0.35 * band(u + v * 0.27, -0.14, 0.68));
-    let room_band = band(reflected_z - rx * 0.28 + ry * 0.13, -0.35, 0.24)
+    let room_band = band(reflected_z - rx * 0.28 + ry * 0.13, -0.35, 0.18)
         * (0.32 + 0.68 * band(u - v * 0.43, 0.19, 0.52));
     let back_band = band(reflected_z + rx * 0.12 - ry * 0.21, -0.73, 0.18)
         * (0.45 + 0.55 * band(u + v * 0.61, 0.29, 0.63));
     let streak = (-normal_x * 0.30 - normal_y * 0.40 + nz * 0.866).max(0.0).powi(20);
     let softbox = 0.18 + 0.82 * band(u + v * 0.15, -0.34, 0.78);
-    let crest_band = band(reflected_z + rx * 0.12 - ry * 0.08, 0.68, 0.12) * softbox * cool;
+    // A narrow reflected strip gives the polished crest its glint. A second
+    // room light reaches the bottom/right, including over an empty black face.
+    let secondary = 0.45 + 0.55 * band(u - v * 0.37, 0.12, 0.62);
+    let crest_band = band(reflected_z + rx * 0.12 - ry * 0.08, 0.68, 0.18)
+        * (softbox * cool + secondary * warm * 0.48 + 0.06);
     let back_streak = (normal_x * 0.38 + normal_y * 0.48 + nz * 0.79).max(0.0).powi(24)
-        * (0.35 + 0.65 * band(u - v * 0.37, 0.12, 0.62));
+        * secondary;
     let inner_line = (1.0 - ((s.depth - 0.93) / 0.07).abs()).max(0.0);
     let fade = smooth(0.0, 0.18, t);
-    let reflection = (0.035 + 0.32 * fresnel) * fade;
+    let reflection = (0.018 + 0.32 * fresnel) * fade;
     let mut out = [0.0; 3];
     for c in 0..3 {
         let sky = [0.58, 0.79, 1.0][c];
         let room = [1.0, 0.80, 0.56][c];
         let light = reflection * (0.45 + cool * 1.25) * sky
-            + fade * (sky_band * (0.38 + cool * 0.22) * sky
-                + room_band * (0.22 + warm * 0.65) * room
-                + back_band * (0.22 + warm * 0.50) * sky
-                + streak * softbox * 2.5 + crest_band * 0.65 * sky
-                + back_streak * 2.0 * room);
+            + fade * (sky_band * (0.10 + cool * 0.12) * sky
+                + room_band * (0.10 + warm * 0.28) * room
+                + back_band * (0.25 + warm * 0.55) * sky
+                + streak * softbox * 0.18 + crest_band * 3.6
+                + back_streak * 0.8 * room);
         let light = light * (1.0 - s.flaw_shadow * fade)
             + fade * (s.scratch * (0.45 + cool * 0.65) + s.bubble_light * 1.15);
         let transmitted = rgb[c] * (1.0 - fresnel * 0.55 * fade)
@@ -159,6 +170,42 @@ pub fn composite(s: &Surface, glass: [f32; 3], backdrop: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn polished_rim_keeps_transmitted_contrast_outside_a_narrow_glint() {
+        let p = LensParams { width: 600.0, height: 200.0, radius: 56.0, rim: 24.0, ..Default::default() };
+        let profile: Vec<_> = (0..24).map(|y| shade(&surface(&p, 300.0, y as f32 + 0.5), [0.0; 3])[1]).collect();
+        let peak = profile.iter().copied().fold(0.0_f32, f32::max);
+        assert!(peak > 0.62, "a visible crest glint on black: {profile:?}");
+        assert!(profile.iter().filter(|&&v| v > peak * 0.75).count() <= 3,
+            "the crest stays narrow rather than frosting the bevel: {profile:?}");
+        for y in [5.5, 8.5, 11.5, 20.5] {
+            let s = surface(&p, 300.0, y);
+            let dark = shade(&s, [0.25; 3]);
+            let light = shade(&s, [0.65; 3]);
+            for c in 0..3 { assert!(light[c] - dark[c] > 0.28,
+                "transmitted detail loses too much contrast at {y}: {dark:?}/{light:?}"); }
+        }
+        for y in 0..240 {
+            let s = surface(&p, 300.0, y as f32 * 0.1);
+            let white = shade(&s, [0.9; 3]);
+            assert!(white.iter().all(|&v| v < 0.99), "the glint clips a bright line: {white:?}");
+        }
+        assert_eq!(shade(&surface(&p, 300.0, 25.0), [0.2, 0.4, 0.6]), [0.2, 0.4, 0.6]);
+    }
+
+    #[test]
+    fn overlapping_spectral_samples_keep_fringe_colour_bounded() {
+        // An isolated line hit by only one wavelength must retain a faint
+        // fringe, rather than becoming a fully saturated red or blue dash.
+        for red in [0.0, 1.0] { for green in [0.0, 1.0] { for blue in [0.0, 1.0] {
+            let rgb = dispersed([red; 3], [green; 3], [blue; 3]);
+            let lo = rgb.iter().copied().fold(1.0_f32, f32::min);
+            let hi = rgb.iter().copied().fold(0.0_f32, f32::max);
+            assert!(hi - lo <= 0.351, "isolated spectral samples create saturated confetti: {rgb:?}");
+        } } }
+        assert_eq!(dispersed([0.2, 0.4, 0.6], [0.2, 0.4, 0.6], [0.2, 0.4, 0.6]), [0.2, 0.4, 0.6]);
+    }
 
     #[test]
     fn corner_rays_preserve_line_order_and_cannot_cross_the_centre() {

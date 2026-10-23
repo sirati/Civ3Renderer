@@ -459,7 +459,7 @@ fn apply_lens<P: LensPixel>(out: &mut [P], backdrop: &[P], (w, h): (u32, u32), c
             let base = backdrop[i].rgb(bits);
             let background = if lens.glass { lens_math::halo(&s, base, lens.rim) } else { base };
             let glass = if lens.glass {
-                lens_math::shade(&s, [sample(1.0)[0], sample(0.0)[1], sample(-1.0)[2]])
+                lens_math::shade(&s, lens_math::dispersed(sample(1.0), sample(0.0), sample(-1.0)))
             } else { [if s.distance > -p.rim*0.5 { 0.78 } else { 0.08 }; 3] };
             out[i] = P::from_rgb(lens_math::composite(&s, glass, background), bits);
         }

@@ -960,7 +960,7 @@ pub fn output_fs(
             let backdrop = if params.lens_glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
             let glass = if params.lens_glass != 0 {
                 let (r, g, b) = (sample(1.0), sample(0.0), sample(-1.0));
-                lens_math::shade(&s, [r[0], g[1], b[2]])
+                lens_math::shade(&s, lens_math::dispersed(r, g, b))
             } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
             let rgb = lens_math::composite(&s, glass, backdrop);
             *output = Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
@@ -1050,7 +1050,7 @@ pub fn lens_fs(
             lens_sample(face, x - s.nx * bend, y - s.ny * bend, bounds, p.bits, p.quantized_float)
         };
         let (r, g, b) = (fetch(1.0), fetch(0.0), fetch(-1.0));
-        lens_math::shade(&s, [r[0], g[1], b[2]])
+        lens_math::shade(&s, lens_math::dispersed(r, g, b))
     } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
     let rgb = lens_math::composite(&s, glass, backdrop);
     let encode = |v: f32| if p.output_bits == 0 { v } else {
