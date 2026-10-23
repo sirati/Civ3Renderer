@@ -196,9 +196,28 @@ pub(crate) fn rgba(pixels: &[u16]) -> Vec<u8> {
     }).collect()
 }
 
+/// The size the Load Scenario screen makes its map of a scenario in
+/// (0x59EA10, docs §19.3): 230 × 110, lower when the map is at least twice
+/// as wide as high (110 / (width / height)), narrower when it is higher than
+/// wide (230 / (height / width)), in whole ratios; the width made even.
+pub fn scenario_map_size(world: &Civ3World) -> (u32, u32) {
+    let (w, h) = (world.width, world.height);
+    let (mut width, mut height) = (230, 110);
+    if w > 0 && h > 0 {
+        let ratio = w / h;
+        if ratio > 1 {
+            height = 110 / ratio;
+        } else if ratio < 1 {
+            width = 230 / (h / w);
+        }
+    }
+    ((width + (width & 1)) as u32, height as u32)
+}
+
 /// The Load Scenario screen's map of a scenario (`SCENARIO_MAP`, docs
-/// §19.1): its navigator's terrain image as the game keeps it, the whole
-/// map in bright terrain colours, nothing explored, owned or built shown.
+/// §19.3): the form's own image filled by the navigator's terrain
+/// rasterizer, the whole map in bright terrain colours, nothing explored,
+/// owned or built shown.
 pub fn scenario_map(world: &Civ3World, size: (u32, u32)) -> Vec<u8> {
     rgba(&terrain(world, size).bright)
 }
@@ -360,6 +379,20 @@ mod mode_tests {
     /// game showed them (its screenshot: (0, 66, 82) and (239, 239, 181), the
     /// bright colours one step lower from the bilinear blend's truncation),
     /// whatever the viewer has explored, with no city squares or territory.
+    #[test]
+    fn the_scenario_map_takes_the_maps_proportions_in_whole_ratios() {
+        let size = |width, height| scenario_map_size(&Civ3World { width, height, ..Default::default() });
+        // WWII in the Pacific, square-ish maps: the whole box.
+        assert_eq!(size(136, 120), (230, 110));
+        assert_eq!(size(100, 100), (230, 110));
+        assert_eq!(size(100, 199), (230, 110));
+        // Twice as wide or more: lower; higher than twice: narrower.
+        assert_eq!(size(200, 100), (230, 55));
+        assert_eq!(size(300, 100), (230, 36));
+        assert_eq!(size(50, 100), (116, 110));
+        assert_eq!(size(30, 100), (76, 110));
+    }
+
     #[test]
     fn scenario_map_is_the_whole_bright_terrain_image() {
         let (width, height) = (136, 120);

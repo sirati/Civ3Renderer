@@ -748,54 +748,51 @@ pub struct FormSurface {
     pub name: &'static str,
 }
 
-/// The [`FormSurface`]s of `build`: the summary replay's map (its
-/// navigator's political image, 426×202 in the games measured, copied onto
-/// the replay's canvas. The navigator is at form +0x51E4 and the source image
-/// at navigator +0x2D0, rather than its explored-only image at +0x858).
-pub fn form_surfaces(build: Build) -> &'static [FormSurface] {
-    match build {
-        Build::PcGames => &[FormSurface { vtable: 0x66_E838, offset: L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2, name: "replay-map" }],
-        Build::Gog | Build::Steam => &[],
-    }
-}
-
 /// The name of the Load Scenario screen's map of the highlighted scenario.
 pub const SCENARIO_MAP: &str = "scenario-map";
 
-/// Forms that copy a navigator's terrain image (`PCX_1`, navigator +0x18)
-/// onto their canvas, where the navigator's place is not known statically:
-/// the Load Scenario (and Conquests!) screen, class 0x66EAB0 (docs §19.1),
-/// whose scenario map is the whole map in bright terrain colours.
-fn navigator_terrain_forms(build: Build) -> &'static [(u32, &'static str)] {
+/// The Load Scenario (and Conquests!) screen, class 0x66EAB0 (docs §19.1,
+/// §19.3), keeps its map of the scenario in an image of its own at +0x59C:
+/// 0x59EA10 makes it (230 × 110, or narrower or lower in the map's
+/// proportions) and fills it with the navigator's terrain rasterizer
+/// 0x57A760 when the scenario has a map; its draw 0x59EAC0 copies it
+/// (0x5FCB30 at 0x59F0FB) centred into the box at (623, 531).
+const SCENARIO_FORM: u32 = 0x66_EAB0;
+const SCENARIO_FORM_MAP_IMAGE: u32 = 0x59C;
+
+/// The [`FormSurface`]s of `build`: the summary replay's map (its
+/// navigator's political image, 426×202 in the games measured, copied onto
+/// the replay's canvas. The navigator is at form +0x51E4 and the source image
+/// at navigator +0x2D0, rather than its explored-only image at +0x858), and
+/// the Load Scenario screen's map of the scenario.
+pub fn form_surfaces(build: Build) -> &'static [FormSurface] {
     match build {
-        Build::PcGames => &[(0x66_EAB0, SCENARIO_MAP)],
+        Build::PcGames => &[
+            FormSurface { vtable: 0x66_E838, offset: L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2, name: "replay-map" },
+            FormSurface { vtable: SCENARIO_FORM, offset: SCENARIO_FORM_MAP_IMAGE, name: SCENARIO_MAP },
+        ],
         Build::Gog | Build::Steam => &[],
     }
 }
 
-/// Whether `image` is a navigator's terrain image (`PCX_1`): the navigator
-/// it would be part of has its selected source (+4) at its terrain or
-/// political image, and a size (`read`: a 32-bit word of memory).
-fn navigator_terrain(image: u32, read: impl Fn(u32) -> Option<u32>) -> bool {
-    let navigator = image.wrapping_sub(L::NAVIGATOR_DATA_PCX_1);
-    let source = read(navigator.wrapping_add(4));
-    let size = |o: u32| read(navigator.wrapping_add(o)).is_some_and(|v| (1..=4096).contains(&v));
-    (source == Some(image) || source == Some(navigator.wrapping_add(L::NAVIGATOR_DATA_PCX_2)))
-        && size(L::NAVIGATOR_DATA_MINI_MAP_WIDTH2)
-        && size(L::NAVIGATOR_DATA_MINI_MAP_HEIGHT2)
+/// The form a canvas belongs to (the canvas is at its +4 + the base form's
+/// canvas offset).
+fn form_of_canvas(canvas: u32) -> u32 {
+    canvas.wrapping_sub(4 + crate::layout::BASE_FORM_DATA_CANVAS)
+}
+
+/// The [`FormSurface`] of `surfaces` that `image`, copied onto `canvas` of
+/// the form of class `vtable`, is: one of that form's own.
+fn find_form_surface(surfaces: &[FormSurface], image: u32, canvas: u32, vtable: u32) -> Option<FormSurface> {
+    let form = form_of_canvas(canvas);
+    surfaces.iter().find(|s| form.wrapping_add(s.offset) == image && s.vtable == vtable).copied()
 }
 
 /// The [`FormSurface`] that `image`, copied onto `canvas` (a form's
 /// canvas), is: one of the form's own.
 pub fn form_surface(build: Build, image: u32, canvas: u32) -> Option<FormSurface> {
-    let form = canvas.wrapping_sub(4 + crate::layout::BASE_FORM_DATA_CANVAS);
-    let vtable = Ptr32::<u32>::new(form).read().ok()?;
-    if let Some(s) = form_surfaces(build).iter().find(|s| form.wrapping_add(s.offset) == image) {
-        return (vtable == s.vtable).then_some(*s);
-    }
-    let &(_, name) = navigator_terrain_forms(build).iter().find(|f| f.0 == vtable)?;
-    navigator_terrain(image, |a| Ptr32::<u32>::new(a).read().ok())
-        .then_some(FormSurface { vtable, offset: image.wrapping_sub(form), name })
+    let vtable = Ptr32::<u32>::new(form_of_canvas(canvas)).read().ok()?;
+    find_form_surface(form_surfaces(build), image, canvas, vtable)
 }
 
 #[cfg(test)]
@@ -803,26 +800,18 @@ mod form_surface_tests {
     use super::*;
 
     #[test]
-    fn a_navigators_terrain_image_is_recognised_by_its_navigator() {
-        let nav = 0x0123_0000u32;
-        let image = nav + L::NAVIGATOR_DATA_PCX_1;
-        let memory = |source: u32, w: u32, h: u32| {
-            move |a: u32| match a {
-                a if a == nav + 4 => Some(source),
-                a if a == nav + L::NAVIGATOR_DATA_MINI_MAP_WIDTH2 => Some(w),
-                a if a == nav + L::NAVIGATOR_DATA_MINI_MAP_HEIGHT2 => Some(h),
-                _ => None,
-            }
-        };
-        // Either source selected: the terrain image is the navigator's.
-        assert!(navigator_terrain(image, memory(image, 230, 110)));
-        assert!(navigator_terrain(image, memory(nav + L::NAVIGATOR_DATA_PCX_2, 230, 110)));
-        // Any other image: its "source" points nowhere of its own, or it has no size.
-        assert!(!navigator_terrain(image, memory(0x0999_0000, 230, 110)));
-        assert!(!navigator_terrain(image, memory(image, 0, 110)));
-        assert!(!navigator_terrain(image, memory(image, 230, 100_000)));
-        assert!(!navigator_terrain(image + 4, memory(image, 230, 110)));
-        assert_eq!(navigator_terrain_forms(Build::PcGames), &[(0x66_EAB0, SCENARIO_MAP)]);
+    fn the_scenario_screens_own_map_image_is_its_scenario_map() {
+        let form = 0x0123_0000u32;
+        let canvas = form + 4 + crate::layout::BASE_FORM_DATA_CANVAS;
+        let surfaces = form_surfaces(Build::PcGames);
+        let found = find_form_surface(surfaces, form + 0x59C, canvas, 0x66_EAB0);
+        assert_eq!(found.map(|s| s.name), Some(SCENARIO_MAP));
+        // Not another form's image at that place, nor another image of it.
+        assert_eq!(find_form_surface(surfaces, form + 0x59C, canvas, 0x66_E838), None);
+        assert_eq!(find_form_surface(surfaces, form + 0x5A0, canvas, 0x66_EAB0), None);
+        // The replay's map stays its own.
+        let replay = form + L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2;
+        assert_eq!(find_form_surface(surfaces, replay, canvas, 0x66_E838).map(|s| s.name), Some("replay-map"));
     }
 }
 
