@@ -901,6 +901,7 @@ cell = [1024, 768]
 grid = [1, 1]
 group = "Title"
 scaling = "keep"
+sampling = "ui-background"
 
 [images.title_dots]
 source = "Art/x_title buttons.PCX"
@@ -1564,6 +1565,7 @@ grid = [1, 1]
 anchor = [0, 0]
 scaling = "keep"
 group = "Viewer@busy_panel"
+sampling = "ui-background"
 
 [images.viewer_busy]
 source = "system-cursor:32514/32"

@@ -734,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn full_native_mixed_art_dithers_only_verified_background_behind_separate_controls_and_text() {
+    fn full_native_background_pictures_filter_behind_separate_controls_and_text() {
         let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
         if !std::path::Path::new(&install).is_dir() { return eprintln!("no Civ III assets for native mixed-art regression"); }
         let files = civ3_assets::GameFiles::complete(&install);
@@ -801,7 +801,7 @@ mod tests {
                         let inside_texture = texture.iter().any(|&[tx, ty, w, h]| sx >= tx && sy >= ty && sx - tx < w && sy - ty < h);
                         let overlay = (280..580).contains(&sx) && (180..250).contains(&sy);
                         if !inside_texture || overlay {
-                            assert_eq!(actual.get(x, y), ordinary.get(x, y), "baked control, border or separate overlay changed: {source}, ({x}, {y})");
+                            assert_eq!(actual.get(x, y), ordinary.get(x, y), "baked control or separate overlay changed: {source}, ({x}, {y})");
                             assert_eq!(gpu_image.get(x, y), gpu_original.get(x, y), "GPU changed nearest native controls/text: {source}, ({x}, {y})");
                         } else {
                             if actual.get(x, y) != ordinary.get(x, y) { changed += 1; }
@@ -809,11 +809,7 @@ mod tests {
                             if opacity == 255 { assert_eq!(gpu_image.get(x, y), actual.get(x, y), "GPU and CPU {mode:?} background differ: {source}, zoom {num}/{den}, ({x}, {y})"); }
                         }
                     } }
-                    if texture.is_empty() {
-                        assert_eq!((changed, gpu_changed), (0, 0), "illustrated title art must retain its original samples");
-                    } else {
-                        assert!(changed > 200 && gpu_changed > 200, "full mixed native art left its verified patterned background untreated: {source}, CPU{changed}/GPU{gpu_changed} changed pixels");
-                    }
+                    assert!(changed > 200 && gpu_changed > 200, "native background picture left untreated: {source}, CPU{changed}/GPU{gpu_changed} changed pixels");
                     eprintln!("native mixed background {source}, {mode:?}, opacity {opacity}, zoom {num}/{den}: CPU{changed}/GPU{gpu_changed} changed texture pixels; controls/text exact");
                     if opacity == 255 && (num, den) == (1, 2) {
                         if let Some(directory) = std::env::var_os("C3R_BACKGROUND_EVIDENCE_DIR") {
@@ -926,97 +922,114 @@ mod tests {
         assert!(art.regions.iter().any(|region| region.source == "art/PopUpAndMenuBackground.pcx" && region.rect == [60, 66, 222, 18]));
         let source = format!("grid = {{ layout = 'orthogonal', step = [1, 1] }}\n{}", description(&art));
         let compiled = render_desc::Description::parse(&source).unwrap().compile_layout(&Sizes, 2048).unwrap();
-        let mut pure = 0;
-        let mut controls = 0;
-        for region in &art.regions {
-            let [x, y, w, h] = region.rect;
-            let name = format!("Screen@{}#{x},{y},{w},{h}{}/0", region.source, if region.keyed { "k" } else { "" });
-            let sprite = compiled.atlas.sprites[compiled.sprite(&name).unwrap().0 as usize];
-            if region.source.to_ascii_lowercase().ends_with("popupandmenubackground.pcx") {
-                pure += 1;
-                assert_eq!(sprite.sampling, 1, "explicit UI background sampling role");
-                assert_eq!((sprite.sampling_origin_x, sprite.sampling_origin_y), (60, 66));
-            } else if region.source.eq_ignore_ascii_case("art/popupborders.pcx") && region.rect == [265, 46, 46, 44] {
-                pure += 1;
-                assert_eq!(sprite.sampling, 1, "pure native popup interior must retain its background role");
-                assert_eq!((sprite.sampling_origin_x, sprite.sampling_origin_y), (265, 46));
-            } else {
-                controls += 1;
-                assert_eq!(sprite.sampling, 0, "native border/control art must keep nearest sampling");
-            }
-        }
-        assert_eq!((pure, controls), (2, 1));
         let draws = sprites(&captured[..3], &Fonts::default(), &compiled, 0, false);
-        assert_eq!(draws.len(), 4, "a partly textured native frame splits without moving its geometry");
-        assert!(draws.iter().any(|draw| (draw.x, draw.y) == (529, 265)));
-        assert_eq!(draws.iter().filter(|draw| (draw.x, draw.y) == (469, 199)).count(), 2);
+        assert_eq!(draws.len(), 3, "parchment, frame and interior each keep their original geometry");
+        for (draw, origin) in draws.iter().zip([(60, 66), (251, 1), (265, 46)]) {
+            let set = tile_render::SpriteSetId::from_raw(draw.set);
+            let id = compiled.sets.frame(set, 0).unwrap();
+            let sprite = compiled.atlas.sprites[id.0 as usize];
+            assert_eq!(sprite.sampling, 1, "every captured background piece, including the native frame");
+            assert_eq!((sprite.sampling_origin_x, sprite.sampling_origin_y), origin);
+        }
+        assert_eq!((draws[0].x, draws[0].y), (529, 265));
+        assert_eq!((draws[1].x, draws[1].y), (469, 199));
     }
 
     #[test]
-    fn every_preloaded_native_parchment_crop_has_background_sampling_and_other_art_does_not() {
+    fn preloaded_native_background_frames_panels_and_pictures_are_tagged() {
         let art = crate::preload::ArtList::parse(crate::preload::BUILTIN_LIST).screen;
-        let generated = description(&art);
-        let table: toml::Table = generated.parse().unwrap();
+        let table: toml::Table = description(&art).parse().unwrap();
         let images = table["images"].as_table().unwrap();
         let sheets = table["sheets"].as_table().unwrap();
-        let mut tagged = std::collections::BTreeMap::<String, usize>::new();
-        let mut regions = Vec::new();
-        let mut partial = 0;
-        let mut controls = 0;
-        for sheet in sheets.values() {
-            let source = images[sheet["image"].as_str().unwrap()]["source"].as_str().unwrap().to_ascii_lowercase();
-            if let Some(sampling) = sheet.get("sampling") {
-                assert_eq!(sampling.as_str(), Some("ui-background"));
-                if let Some(keep) = sheet.get("alpha_keep") {
-                    partial += 1;
-                    let group = sheet["group"].as_str().unwrap().strip_suffix("#background").unwrap();
-                    let base = sheets.values().find(|base| base["group"].as_str() == Some(group)).unwrap();
-                    assert_eq!(base.get("alpha_clear"), Some(keep), "a full mixed native source must split as complementary masks");
-                    assert!(base.get("sampling").is_none(), "the baked controls and borders retain nearest sampling");
-                    assert_eq!(base["origin"], sheet["origin"]);
-                    assert_eq!(base["cell"], sheet["cell"]);
-                    continue;
-                }
-                *tagged.entry(source.clone()).or_default() += 1;
-                let origin = sheet["origin"].as_array().unwrap().iter().map(|v| v.as_integer().unwrap()).collect::<Vec<_>>();
-                let cell = sheet["cell"].as_array().unwrap().iter().map(|v| v.as_integer().unwrap()).collect::<Vec<_>>();
-                regions.push((source, [origin[0], origin[1], cell[0], cell[1]]));
-            } else { controls += 1; }
-        }
-        let expected = [
-            ("art/popupandmenubackground.pcx", 27),
-            ("art/civilopedia/civilopediabackground.pcx", 2),
-            ("art/popupborders.pcx", 38),
-            ("art/advisors/culture.pcx", 12),
-            ("art/advisors/foreign.pcx", 12),
-            ("art/advisors/science_ancient.pcx", 12),
-            ("art/advisors/science_industrial_new.pcx", 10),
-            ("art/advisors/domestic.pcx", 5),
-            ("art/advisors/military.pcx", 5),
-            ("art/advisors/trade.pcx", 5),
-        ].into_iter().map(|(source, count)| (source.to_owned(), count)).collect();
-        assert_eq!(tagged, expected, "must classify actual native repaint sources, not a custom cover-only fixture");
-        assert_eq!(partial, 42, "full mixed native pictures also need their verified background interiors");
-        assert!(controls > 350, "borders, mixed native art and controls must remain exact nearest");
+        let tagged = |source: &str, rect: [i64; 4]| {
+            sheets.values().any(|sheet| {
+                let path = images[sheet["image"].as_str().unwrap()]["source"].as_str().unwrap();
+                let Some(origin) = sheet.get("origin").and_then(toml::Value::as_array) else { return false };
+                let cell = sheet["cell"].as_array().unwrap();
+                path.eq_ignore_ascii_case(source) && [origin[0].as_integer().unwrap(), origin[1].as_integer().unwrap(), cell[0].as_integer().unwrap(), cell[1].as_integer().unwrap()] == rect
+                    && sheet.get("sampling").and_then(toml::Value::as_str) == Some("ui-background")
+            })
+        };
+        // These used to be completely nearest, or only partly tagged.
         for (source, rect) in [
-            ("art/popupandmenubackground.pcx", [0, 0, 1023, 327]),
+            ("art/x_title.pcx", [0, 0, 1024, 768]),
             ("art/popupandmenubackground.pcx", [60, 44, 222, 283]),
-            ("art/civilopedia/civilopediabackground.pcx", [226, 130, 418, 570]),
-            ("art/popupborders.pcx", [265, 46, 46, 44]),
-            ("art/popupborders.pcx", [375, 88, 16, 2]),
-            ("art/advisors/culture.pcx", [745, 362, 28, 35]),
-            ("art/advisors/science_industrial_new.pcx", [745, 395, 28, 35]),
-        ] {
-            assert!(regions.contains(&(source.to_owned(), rect)), "missing inspected native background {source} {rect:?}");
-        }
-        for (source, rect) in [
-            ("art/civilopedia/civilopediabackground.pcx", [172, 11, 677, 734]),
             ("art/popupborders.pcx", [251, 1, 60, 44]),
-            ("art/advisors/domestic.pcx", [745, 362, 28, 35]),
-            ("art/advisors/military.pcx", [745, 329, 28, 35]),
-            ("art/advisors/science_industrial_new.pcx", [745, 362, 28, 35]),
-        ] {
-            assert!(!regions.contains(&(source.to_owned(), rect)), "native frame/separator/arrow must not receive background sampling: {source} {rect:?}");
+            ("art/popupborders.pcx", [375, 132, 60, 3]),
+            ("art/popupborders.pcx", [432, 46, 3, 44]),
+            ("art/advisors/culture.pcx", [0, 0, 1024, 768]),
+            ("art/advisors/military.pcx", [66, 156, 958, 612]),
+            ("art/advisors/dialogbox.pcx", [0, 0, 206, 132]),
+            ("art/diplomacy/talk_offer.pcx", [297, 50, 438, 517]),
+        ] { assert!(tagged(source, rect), "missing complete background piece: {source} {rect:?}"); }
+        for source in ["art/interface/menuButtons.pcx", "art/x_title buttons.pcx", "art/civilopedia/icons/unitsmall.pcx", "art/exitBox-backgroundStates.pcx"] {
+            let found: Vec<_> = sheets.values().filter(|sheet| images[sheet["image"].as_str().unwrap()]["source"].as_str().unwrap().eq_ignore_ascii_case(source)).collect();
+            assert!(!found.is_empty(), "must exercise actual preloaded foreground art: {source}");
+            assert!(found.iter().all(|sheet| sheet.get("sampling").is_none()), "foreground received filtering: {source}");
+        }
+        let builtin = render_desc::Description::parse(crate::assets::BUILTIN_DESC).unwrap();
+        assert_eq!(builtin.sheets["title"].sampling, render_desc::Sampling::UiBackground, "the standalone title uses the same role as its captured copies");
+    }
+
+    #[test]
+    fn every_composed_popup_piece_uses_the_selected_mode_at_small_and_large_scales() {
+        struct Checker;
+        impl render_desc::ImageLoader for Checker {
+            fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+                Ok(vec![tile_render::RgbaImage::from_fn(1024, 768, |x, y| {
+                    let v = if (x + y) % 2 == 0 { 0 } else { 255 };
+                    [v, v, v, 255]
+                })])
+            }
+        }
+        let clip = [0, 0, 60, 60];
+        let image = |source: &str, rect, at| Element::Image { region: Region { source: source.into(), rect, keyed: true, mask: None, palette: None }, at, clip };
+        let elements = vec![
+            image("Art/PopUpandMenuBackground.pcx", [0, 0, 48, 48], (6, 6)),
+            image("Art/popupborders.pcx", [251, 1, 48, 6], (6, 0)),
+            image("Art/popupborders.pcx", [251, 129, 48, 6], (6, 54)),
+            image("Art/popupborders.pcx", [251, 46, 6, 48], (0, 6)),
+            image("Art/popupborders.pcx", [429, 46, 6, 48], (54, 6)),
+            image("Art/Advisors/dialogbox.pcx", [0, 0, 24, 24], (18, 18)),
+            image("Art/interface/menuButtons.pcx", [1, 1, 12, 12], (24, 24)),
+        ];
+        let mut art = ScreenArt::default(); art.add(&elements);
+        let compiled = render_desc::Description::parse(&format!("grid = {{ layout = 'orthogonal', step = [1, 1] }}\n{}", description(&art))).unwrap().compile(&Checker, 256).unwrap();
+        let items: Vec<_> = elements.into_iter().map(|e| Item::Element(e, false)).collect();
+        let free = sprites(&items, &Fonts::default(), &compiled, 0, false);
+        assert_eq!(free.len(), 7);
+        let mut world = compiled.world(1, 1, false, false);
+        world.free = free.iter().map(|s| tile_viewer::placed_sprite(&compiled, s, Some(0), None)).collect();
+        let gpu = tile_render::Headless::new().expect("RADV for composed popup sampling");
+        let adapter = gpu.adapter.get_info();
+        assert_eq!(adapter.vendor, 0x1002); assert_eq!(adapter.backend, wgpu::Backend::Vulkan);
+        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas); renderer.set_world(&gpu.device, &world);
+        for (num, den) in [(1, 2), (2, 3), (1, 1), (3, 2), (2, 1), (3, 1)] {
+            let camera = tile_render::Camera { cells: false, hairline: true, zoom: (num, den), background_sampling: tile_render::BackgroundSampling::Nearest, ..tile_render::Camera::new((60 * num / den, 60 * num / den)) };
+            let nearest = gpu.render(&mut renderer, &camera, 0, [17, 23, 31, 255]);
+            for mode in [tile_render::BackgroundSampling::Nearest, tile_render::BackgroundSampling::Dither, tile_render::BackgroundSampling::Interpolate] {
+                let camera = tile_render::Camera { background_sampling: mode, ..camera };
+                let actual = gpu.render(&mut renderer, &camera, 0, [17, 23, 31, 255]);
+                let expected = tile_render::reference::render(&world, &compiled.atlas, &camera, 0, [17, 23, 31, 255]);
+                assert_background_pixels(&actual, &expected, &format!("composed popup {mode:?}, zoom {num}/{den}"));
+                let mut changed = [0; 6];
+                for y in 0..actual.height { for x in 0..actual.width {
+                    let (sx, sy) = (x * den / num, y * den / num);
+                    if (24..36).contains(&sx) && (24..36).contains(&sy) {
+                        assert_eq!(actual.get(x, y), nearest.get(x, y), "foreground control changed");
+                        continue;
+                    }
+                    let piece = if sy < 6 { 1 } else if sy >= 54 { 2 } else if sx < 6 { 3 } else if sx >= 54 { 4 }
+                        else if (18..42).contains(&sx) && (18..42).contains(&sy) { 5 } else { 0 };
+                    changed[piece] += usize::from(actual.get(x, y) != nearest.get(x, y));
+                } }
+                if num == den || mode == tile_render::BackgroundSampling::Nearest {
+                    assert_eq!(changed, [0; 6], "native size and explicit nearest must stay exact");
+                } else {
+                    assert!(changed.iter().all(|&n| n > 0), "{mode:?}, zoom {num}/{den}: untreated background pieces {changed:?}");
+                }
+            }
         }
     }
 
