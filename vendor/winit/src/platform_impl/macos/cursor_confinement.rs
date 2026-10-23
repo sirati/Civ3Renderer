@@ -23,6 +23,38 @@ impl Region {
         })
     }
 
+    /// Physical pixels from `at` to the nearest place the pointer may not
+    /// go (the bounds' edge or a hole); 0 outside the region.
+    pub fn clearance(&self, (x, y): (f64, f64)) -> f64 {
+        if !self.contains((x, y)) {
+            return 0.0;
+        }
+        let [x0, y0, x1, y1] = self.bounds;
+        let mut d = (x - x0).min(x1 - 1.0 - x).min(y - y0).min(y1 - 1.0 - y);
+        for &[hx0, hy0, hx1, hy1] in &self.holes {
+            let dx = (hx0 - x).max(x - (hx1 - 1.0)).max(0.0);
+            let dy = (hy0 - y).max(y - (hy1 - 1.0)).max(0.0);
+            d = d.min(dx.hypot(dy));
+        }
+        d.max(0.0)
+    }
+
+    /// Where the hardware pointer, last at `from`, says it is now
+    /// (`reported`) while it moved freely: there, unless on the way it
+    /// crossed into a place it may not go; then where [`Region::advance`]
+    /// stops it.
+    pub fn follow(&self, from: (f64, f64), reported: (f64, f64)) -> (f64, f64) {
+        if !reported.0.is_finite() || !reported.1.is_finite() {
+            return from;
+        }
+        let stopped = self.advance(from, (reported.0 - from.0, reported.1 - from.1));
+        if (stopped.0 - reported.0).abs() < 0.5 && (stopped.1 - reported.1).abs() < 0.5 && self.contains(reported) {
+            reported
+        } else {
+            stopped
+        }
+    }
+
     pub fn contains(&self, (x, y): (f64, f64)) -> bool {
         let inside = |[x0, y0, x1, y1]: [f64; 4]| x >= x0 && y >= y0 && x < x1 && y < y1;
         x.is_finite() && y.is_finite() && inside(self.bounds) && !self.holes.iter().copied().any(inside)
@@ -101,17 +133,39 @@ pub(super) fn locked_position(at: (f64, f64), size: (f64, f64)) -> Option<(f64, 
     }
 }
 
+/// How near (points) to a place the pointer may not go a region starts to
+/// hold it ([`PointerState::held`]). Detached, the pointer moves only when
+/// the application's main thread handles the mouse's events, which lags
+/// behind the mouse whenever that thread is busy (drawing, or the host's
+/// own work in a Wine process); so it is detached only near a wall. A
+/// motion event crossing this band in one step (a very fast flick) is
+/// still stopped at the wall, warped back from wherever the window server
+/// had put it.
+pub(super) const HOLD_DISTANCE: f64 = 96.0;
+
 #[derive(Debug, Default)]
 pub(super) struct PointerState {
     pub locked: bool,
     pub region: Option<Region>,
+    /// Whether the region currently holds the pointer: detached from the
+    /// mouse and placed by the application ([`Region::advance`]). Away from
+    /// every wall ([`HOLD_DISTANCE`]) the pointer stays attached to the
+    /// mouse and the window server moves it, without waiting for the
+    /// application's main thread.
+    pub held: bool,
     pub position: (f64, f64),
     pub menu_depth: u32,
     menu_suspended: bool,
 }
 
 impl PointerState {
-    pub fn disassociated(&self) -> bool { self.locked || self.region.is_some() }
+    pub fn disassociated(&self) -> bool { self.locked || (self.region.is_some() && self.held) }
+
+    /// Whether the region should hold the pointer at `at` (`scale`
+    /// physical pixels a point).
+    pub fn holds_at(&self, at: (f64, f64), scale: f64) -> bool {
+        self.region.as_ref().is_some_and(|r| r.clearance(at) < HOLD_DISTANCE * scale.max(1.0))
+    }
 
     pub fn begin_menu(&mut self, focused: bool) -> bool {
         self.menu_depth = self.menu_depth.saturating_add(1);
@@ -128,6 +182,7 @@ impl PointerState {
     pub fn release(&mut self) {
         self.locked = false;
         self.region = None;
+        self.held = false;
     }
 }
 
@@ -287,6 +342,7 @@ mod tests {
         state.release();
         assert!(!state.disassociated());
         state.region = Region::new([0, 0, 800, 600], &[]);
+        state.held = true;
         assert!(state.disassociated());
         state.release();
         assert!(!state.disassociated());
@@ -347,5 +403,41 @@ mod tests {
         correction.warp((407.0, 310.0), (600.0, 450.0));
         correction.warp((600.0, 450.0), (200.0, 100.0));
         assert_eq!(correction.motion((-203.0, -205.0)), (4.0, 5.0));
+    }
+
+    /// Away from every wall the pointer stays attached to the mouse (the
+    /// window server moves it, however busy the application is); near one
+    /// the region holds it, and a free move that crossed a wall is put
+    /// back at the wall.
+    #[test]
+    fn only_a_pointer_near_a_wall_is_held() {
+        // An 800×600 window, a divider at x 400..402.
+        let region = Region::new([0, 0, 800, 600], &[[400, 0, 2, 600]]).unwrap();
+        assert_eq!(region.clearance((100.0, 300.0)), 100.0);
+        assert_eq!(region.clearance((390.0, 300.0)), 10.0);
+        assert_eq!(region.clearance((300.0, 5.0)), 5.0, "the window's edge is a wall too");
+        assert_eq!(region.clearance((401.0, 300.0)), 0.0, "inside the divider");
+        let mut state = PointerState { region: Some(region.clone()), ..Default::default() };
+        for scale in [1.0, 2.0] {
+            assert!(!state.holds_at((200.0, 300.0), scale));
+            assert!(state.holds_at((390.0, 300.0), scale));
+            assert_eq!(state.holds_at((300.0, 300.0), scale), scale == 2.0, "the band is in points");
+        }
+        state.held = false;
+        assert!(!state.disassociated(), "a region not holding the pointer leaves it attached");
+        state.held = true;
+        assert!(state.disassociated());
+        state.release();
+        assert!(!state.held && state.region.is_none());
+        // A free move: where the window server put it, unless it crossed
+        // the divider in one event.
+        assert_eq!(region.follow((100.0, 300.0), (180.5, 310.25)), (180.5, 310.25));
+        assert_eq!(region.follow((300.0, 300.0), (700.0, 310.0)), (399.0, 310.0));
+        assert_eq!(region.follow((300.0, 300.0), (f64::NAN, 310.0)), (300.0, 300.0));
+        assert_eq!(region.follow((300.0, 300.0), (900.0, 300.0)), (399.0, 300.0), "leaving the window");
+        // A one-pixel line (an axis held at the world's edge) always holds.
+        let line = Region::new([100, 300, 600, 1], &[]).unwrap();
+        let state = PointerState { region: Some(line), ..Default::default() };
+        assert!(state.holds_at((400.0, 300.0), 1.0));
     }
 }

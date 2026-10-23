@@ -1103,8 +1103,9 @@ impl WinitView {
         let mut state = self.ivars().pointer_state.borrow_mut();
         if state.disassociated() {
             cursor_system::associate(true)?;
-            state.release();
         }
+        // (A region that does not hold the pointer right now is let go too.)
+        state.release();
         Ok(())
     }
 
@@ -1135,6 +1136,7 @@ impl WinitView {
             let mut state = self.ivars().pointer_state.borrow_mut();
             state.locked = true;
             state.region = None;
+            state.held = false;
             state.position = position;
         }
         if position != at {
@@ -1175,11 +1177,21 @@ impl WinitView {
             self.release_pointer()?;
             return Err(ExternalError::Ignored);
         }
-        self.detach_pointer()?;
         let mut state = self.ivars().pointer_state.borrow_mut();
+        let was_held = state.disassociated();
         state.position = at;
         state.locked = false;
         state.region = Some(region);
+        // Detached only near a wall (`HOLD_DISTANCE`): elsewhere the
+        // window server keeps moving the pointer with the mouse.
+        state.held = state.holds_at(at, self.scale_factor());
+        let hold = state.held;
+        drop(state);
+        if hold {
+            self.detach_pointer()?;
+        } else if was_held {
+            cursor_system::associate(true)?;
+        }
         Ok(())
     }
 
@@ -1238,25 +1250,44 @@ impl WinitView {
         // SAFETY: AppKit supplied a live NSEvent to this main-thread
         // callback. Its typed scalar type getter has no additional state.
         let motion = matches!(unsafe { event.r#type() }, NSEventType::MouseMoved | NSEventType::LeftMouseDragged | NSEventType::RightMouseDragged | NSEventType::OtherMouseDragged);
-        let next = {
+        // (The warp to make, and whether to attach or detach the pointer.)
+        let (next, attach) = {
             let mut state = self.ivars().pointer_state.borrow_mut();
             if let Some(region) = &state.region {
-                let delta = if motion { app::mouse_delta(event) } else { (0.0, 0.0) };
-                let next = region.advance(state.position, (delta.0 * scale, delta.1 * scale));
-                let changed = next != state.position;
+                let (next, changed) = if state.held {
+                    // Detached: placed here from the mouse's motion.
+                    let delta = if motion { app::mouse_delta(event) } else { (0.0, 0.0) };
+                    let next = region.advance(state.position, (delta.0 * scale, delta.1 * scale));
+                    (next, next != state.position)
+                } else {
+                    // Attached: the window server moved it; put it back
+                    // only if it went where it may not.
+                    let reported = (px, py);
+                    let next = region.follow(state.position, reported);
+                    (next, next != reported)
+                };
                 state.position = next;
                 position = crate::dpi::PhysicalPosition::new(next.0, next.1);
-                changed.then_some(next)
+                let hold = state.holds_at(next, scale);
+                let attach = (hold != state.held).then_some(!hold);
+                state.held = hold;
+                (changed.then_some(next), attach)
             } else {
-                None
+                (None, None)
             }
         };
-        if let Some(next) = next {
-            if let Err(error) = self.warp_pointer(next) {
-                // A failed warp must not leave an invisible global grab.
-                tracing::warn!("releasing cursor confinement after warp failure: {error}");
-                let _ = self.release_pointer();
-            }
+        // Detach before warping onto a wall, so that the warp keeps it
+        // detached; attach once it is clear of every wall again.
+        let result = match attach {
+            Some(false) => self.detach_pointer(),
+            _ => Ok(()),
+        }
+        .and_then(|()| next.map_or(Ok(()), |next| self.warp_pointer(next)))
+        .and_then(|()| if attach == Some(true) { cursor_system::associate(true) } else { Ok(()) });
+        if let Err(error) = result {
+            // A failed warp must not leave an invisible global grab.
+            tracing::warn!("releasing cursor confinement after warp failure: {error}");
+            let _ = self.release_pointer();
         }
 
         self.update_modifiers(event, false);
