@@ -132,6 +132,10 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &r
         }
     }
     if !under.is_empty() {
+        // (Ranges into the sprites move with them.)
+        let n = under.len() as u32;
+        for m in &mut scene.motions { m.sprites = (m.sprites.0 + n, m.sprites.1 + n); }
+        for l in &mut scene.sprite_lifetimes { l.sprites = (l.sprites.0 + n, l.sprites.1 + n); }
         scene.sprites.splice(0..0, under);
     }
     scene.sprites.extend(over);
