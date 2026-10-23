@@ -64,8 +64,8 @@ class LauncherGpuTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             return dict(item.split("=", 1) for item in capture.read_text().split("\0") if item)
 
-    def test_intel_default_does_not_inherit_prime_offload(self):
-        env = self.launch(inherited={
+    def test_intel_does_not_inherit_prime_offload(self):
+        env = self.launch("--intel", inherited={
             "__NV_PRIME_RENDER_OFFLOAD": "1",
             "__VK_LAYER_NV_optimus": "NVIDIA_only",
             "VK_ICD_FILENAMES": "/stale/nvidia.json",
@@ -98,10 +98,19 @@ class LauncherGpuTests(unittest.TestCase):
         self.assertEqual(env["TILE_RENDER_ADAPTER"], "intel")
         self.assertNotIn("__NV_PRIME_RENDER_OFFLOAD", env)
 
-    def test_default_keeps_custom_adapter_filter_and_driver_override(self):
-        env = self.launch(inherited={"TILE_RENDER_ADAPTER": "custom gpu"})
-        self.assertEqual(env["TILE_RENDER_ADAPTER"], "custom gpu")
-        self.assertEqual(env["VK_DRIVER_FILES"], env["CIV3R_VK_DRIVER_FILES"])
+    def test_default_keeps_the_inherited_gpu_setup(self):
+        inherited = {
+            "TILE_RENDER_ADAPTER": "custom gpu",
+            "VK_DRIVER_FILES": "/forwarded/sv_icd.json",
+            "VK_ICD_FILENAMES": "/session/icd.json",
+            "__EGL_VENDOR_LIBRARY_FILENAMES": "/session/egl.json",
+            "__NV_PRIME_RENDER_OFFLOAD": "1",
+        }
+        env = self.launch(inherited=inherited)
+        for key, value in inherited.items():
+            self.assertEqual(env[key], value, key)
+        self.assertNotIn("__GLX_VENDOR_LIBRARY_NAME", env)
+        self.assertNotIn("VK_LOADER_DEBUG", env)
 
 
     def test_default_and_diagnostics_window_keep_legacy_pixels_disabled(self):

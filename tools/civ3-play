@@ -5,7 +5,7 @@
 # tests), this needs no `nix develop`: the runtime libraries the unixlib
 # loads are nix store paths found once by `setup`.
 #
-#   tools/civ3-play [--map] [--window] [--nvidia] [--scale S] [--show-game-window] [--compare] [--compatibility-fallback]
+#   tools/civ3-play [--map] [--window] [--intel|--nvidia] [--scale S] [--show-game-window] [--compare] [--compatibility-fallback]
 #                                                   start the game
 #   tools/civ3-play setup                           find the runtime libraries, install DirectPlay
 #                                                   into the prefix (tools/install-directplay), add the .desktop entry
@@ -15,7 +15,11 @@
 #   --compare (or --compare-game) draw the original game beside the renderer
 #   --compatibility-fallback allow native game recovery if the viewer is lost
 #   --window   the viewer in a window instead of fullscreen
-#   --nvidia   the renderer on the NVIDIA GPU instead of the Intel iGPU, with
+#              Without --intel or --nvidia the GPU setup is the one the
+#              launcher was started with (Vulkan drivers, EGL, adapter):
+#              nothing about it is changed.
+#   --intel    the renderer on the Intel iGPU, its Vulkan driver alone
+#   --nvidia   the renderer on the NVIDIA GPU, with
 #              PRIME offload (its EGL vendor stays available too; if the
 #              Vulkan driver does not load or cannot show the viewer's
 #              window, the renderer uses the Intel
@@ -138,7 +142,7 @@ stop) "$WINE/bin/wineserver" -k 2>/dev/null || true; echo "stopped"; exit 0 ;;
 -h|--help|help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 esac
 
-map=off viewer=native-fullscreen gpu=intel gpu_explicit=0 scale= game_window=hide game_render=${CIV3R_GAME_RENDER:-off}
+map=off viewer=native-fullscreen gpu=inherit gpu_explicit=0 scale= game_window=hide game_render=${CIV3R_GAME_RENDER:-off}
 while [ $# -gt 0 ]; do case $1 in
   --map) map=on ;;
   --window) viewer=native ;;
@@ -182,6 +186,10 @@ if awk -v s="$scale" 'BEGIN { exit !(s > 1) }'; then export CIV3R_SCALE=$scale; 
 if [ $game_window = show ]; then export CIV3R_GAME_WINDOW=show; else unset CIV3R_GAME_WINDOW; fi
 export LD_LIBRARY_PATH="$(cat "$libs_file")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 unset DISPLAY   # the prefix uses winewayland; nothing falls back to XWayland
+# Without --intel or --nvidia the GPU setup is the one the launcher was
+# started with (its Vulkan drivers, EGL and GLX vendors and adapter filter
+# untouched): whatever driver the session provides, e.g. a forwarded one.
+if [ $gpu != inherit ]; then
 # Keep the game's GLX on Mesa. EGL is selected below: NVIDIA's Vulkan
 # ICD initializes EGL too, so hiding its EGL vendor breaks that driver.
 export __GLX_VENDOR_LIBRARY_NAME=mesa
@@ -218,11 +226,12 @@ if [ "$gpu_explicit" = 1 ]; then export TILE_RENDER_ADAPTER=$gpu; fi
 # GPUs, together with TILE_RENDER_ADAPTER.)
 if [ -n "${CIV3R_VK_DRIVER_FILES:-}" ]; then export VK_DRIVER_FILES=$CIV3R_VK_DRIVER_FILES
 elif [ -f "${files%%:*}" ]; then export VK_DRIVER_FILES=$files; else unset VK_DRIVER_FILES; fi
+fi
 
 mkdir -p "$home/logs"
 { ls -1t "$home/logs"/civ3-play-*.log 2>/dev/null || true; } | tail -n +20 | xargs -r rm -f
 log=$home/logs/civ3-play-$(date +%Y%m%d-%H%M%S).log
-echo "civ3-play: renderer on $gpu ($TILE_RENDER_ADAPTER), viewer $viewer, game map $map, scale $scale"
+echo "civ3-play: renderer on $gpu (${TILE_RENDER_ADAPTER:-any adapter}), viewer $viewer, game map $map, scale $scale"
 echo "civ3-play: Wine's output in $log"
 echo "civ3-play: the bridge's log in $game/civ3-bridge.log"
 cd "$game"

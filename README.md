@@ -914,9 +914,11 @@ the prefix and the native dir go under `~/.local/share/civ3r` (`wine-wow64`,
 `wine-civ3-wow64`, `native`). Original pixels stay off by default. `--compare`
 shows the original renderer for comparison, `--map` enables only map pixels,
 and `--compatibility-fallback` permits original-renderer recovery. The
-renderer uses the Intel iGPU unless `--nvidia` (if that GPU cannot show
-the viewer's window, the renderer falls back to the default one and the
-launcher says so), and `--window` shows the viewer in a window. Explicit
+renderer uses whatever GPU setup the launcher is started with (Vulkan
+drivers, EGL, adapter filter: nothing is changed, so a session's own or
+forwarded driver is used). `--intel` and `--nvidia` choose one (if that
+GPU cannot show the viewer's window, the renderer falls back to the
+default one and the launcher says so), and `--window` shows the viewer in a window. Explicit
 `--nvidia` or `--intel` overrides an inherited `TILE_RENDER_ADAPTER`.
 The NVIDIA path allows both installed EGL vendors: forcing Mesa alone
 also breaks NVIDIA's Vulkan initialization and can crash Wine. Intel
