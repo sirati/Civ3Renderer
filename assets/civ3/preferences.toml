@@ -4,7 +4,7 @@
 # (`x_pref background.pcx`, 1024x768): the panel is laid over it.
 #
 # Values (`civ3_bridge::prefs` fills them in): `tab` ("civ3", "resolution",
-# "layout"), every control of `viewer_settings::controls` by its key
+# "layout", "zoom", "clean_map"), every control of `viewer_settings::controls` by its key
 # (`layout.split`, `resolution.scale_menus`, `resolution.menu_scale_percent`, ...,
 # `layout.orientation` "vertical" or "horizontal"), and
 # `resolution.realised` / `resolution.window`, the rendered and the window
@@ -293,7 +293,7 @@ selected = "button_selected"
 image = "cover"
 at = [49, 79]
 size = [924, 611]
-show_if = "tab=resolution|layout|clean_map"
+show_if = "tab=resolution|layout|zoom|clean_map"
 
 # ------------------------------------------------ Resolution
 
@@ -699,264 +699,15 @@ align = "center"
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-text = "Zoom placement"
+text = "Roles"
 style = "heading"
 at = [72, 205]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-text = "(vertical splits)"
-style = "caption"
-at = [222, 208]
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom_place"
-value = "Floating"
-at = [72, 227]
-size = [104, 26]
-text = "Floating"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-disabled = "button_disabled"
-enable_if = "layout.split=Vertical1To1|Vertical2To1"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom_place"
-value = "LeftOrBottom"
-at = [184, 227]
-size = [104, 26]
-text = "Left"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-disabled = "button_disabled"
-enable_if = "layout.split=Vertical1To1|Vertical2To1"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom_place"
-value = "RightOrTop"
-at = [296, 227]
-size = [104, 26]
-text = "Right"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-disabled = "button_disabled"
-enable_if = "layout.split=Vertical1To1|Vertical2To1"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-text = "Zoom box"
-style = "heading"
-at = [72, 265]
-show_if = "tab=layout"
-
-# How much every zoom enlarges the world: steps of
-# `Layout::MAGNIFICATIONS` (1.5×, 2×, 3×, 4×), labelled by the bridge.
-[[panels.preferences.items]]
-text = "Magnification"
-style = "label"
-at = [300, 267]
-show_if = "tab=layout & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
-
-[[panels.preferences.items]]
-slider = "layout.zoom_magnification_step"
-at = [400, 262]
-size = [80, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
-min = 0
-max = 3
-step = 1
-decimals = 0
-text = "{layout.zoom_magnification_label}"
-style = "label"
-show_if = "tab=layout & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Off"
-at = [72, 287]
-size = [140, 26]
-text = "Off"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Floating131"
-at = [220, 287]
-size = [140, 26]
-text = "Floating box 1:3:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Floating171"
-at = [368, 287]
-size = [140, 26]
-text = "Floating box 1:7:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Mouse111"
-at = [72, 318]
-size = [140, 26]
-text = "At the mouse 1:1:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Mouse131"
-at = [220, 318]
-size = [140, 26]
-text = "At the mouse 1:3:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "TopStrip"
-at = [368, 318]
-size = [140, 26]
-text = "Strip at the top"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-text = "Strip height"
-style = "label"
-at = [72, 357]
-show_if = "tab=layout & layout.zoom=TopStrip"
-
-[[panels.preferences.items]]
-text = "Box height"
-style = "label"
-at = [72, 357]
-show_if = "tab=layout & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
-
-[[panels.preferences.items]]
-slider = "layout.zoom_strip"
-tick_step = 0.05
-tick_label_step = 0.25
-tick_style = "ruler"
-at = [180, 352]
-size = [100, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
-min = 0.05
-max = 0.5
-step = 0.05
-decimals = 0
-percent = true
-text = "{value}%"
-style = "label"
-show_if = "tab=layout & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
-
-# A floating box: its space below the top, how far it drops below the
-# mouse that comes to it, or that it keeps the mouse out instead.
-[[panels.preferences.items]]
-checkbox = "layout.zoom_box_block_pointer"
-at = [340, 356]
-size = [180, 16]
-normal = "check_off"
-hover = "check_hover"
-selected = "check_on"
-text = "Keep mouse out"
-style = "label"
-show_if = "tab=layout & layout.zoom=Floating131|Floating171"
-
-[[panels.preferences.items]]
-text = "Top margin"
-style = "label"
-at = [72, 385]
-show_if = "tab=layout & layout.zoom=Floating131|Floating171"
-
-[[panels.preferences.items]]
-slider = "layout.zoom_box_top"
-tick_step = 0.05
-tick_label_step = 0.1
-tick_style = "ruler"
-at = [180, 380]
-size = [100, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
-min = 0.0
-max = 0.2
-step = 0.005
-decimals = 1
-percent = true
-text = "{value}%"
-style = "label"
-show_if = "tab=layout & layout.zoom=Floating131|Floating171"
-
-[[panels.preferences.items]]
-text = "Drop"
-style = "label"
-at = [340, 385]
-show_if = "tab=layout & layout.zoom=Floating131|Floating171"
-
-[[panels.preferences.items]]
-slider = "layout.zoom_box_drop"
-tick_step = 0.05
-tick_label_step = 0.25
-tick_style = "ruler"
-at = [380, 380]
-size = [90, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
-min = 0.0
-max = 0.5
-step = 0.025
-decimals = 1
-percent = true
-text = "{value}%"
-style = "label"
-show_if = "tab=layout & layout.zoom=Floating131|Floating171"
-
-[[panels.preferences.items]]
-text = "Roles"
-style = "heading"
-at = [72, 407]
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
 choice = "layout.roles"
 value = "Free"
-at = [72, 429]
+at = [72, 227]
 size = [104, 64]
 icon = "roles_free_{layout.split}"
 normal = "button"
@@ -967,7 +718,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 choice = "layout.roles"
 value = "UnitMouse"
-at = [184, 429]
+at = [184, 227]
 size = [104, 64]
 icon = "roles_unit_{layout.split}"
 normal = "button"
@@ -980,7 +731,7 @@ repeat = ["Both moved freely", "Unit and mouse"]
 spacing = [112, 0]
 text = "{item}"
 style = "caption"
-at = [72, 496]
+at = [72, 294]
 size = [104, 14]
 align = "center"
 show_if = "tab=layout"
@@ -988,18 +739,18 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "A follows the active unit;"
 style = "caption"
-at = [300, 440]
+at = [300, 238]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "B holds the mouse and follows it."
 style = "caption"
-at = [300, 456]
+at = [300, 254]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 checkbox = "layout.smooth_world_movement"
-at = [72, 524]
+at = [72, 322]
 size = [440, 16]
 normal = "check_off"
 hover = "check_hover"
@@ -1011,13 +762,13 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Input"
 style = "heading"
-at = [72, 549]
+at = [72, 347]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Snap updates per second"
 style = "label"
-at = [72, 577]
+at = [72, 375]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -1025,7 +776,7 @@ slider = "input.snap_updates_per_second"
 tick_step = 5
 tick_label_step = 5
 tick_style = "ruler"
-at = [250, 572]
+at = [250, 370]
 size = [200, 23]
 normal = "track"
 knob = "knob"
@@ -1041,19 +792,19 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "(Alt: the cursor snaps to buttons)"
 style = "caption"
-at = [72, 600]
+at = [72, 398]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Map movement"
 style = "label"
-at = [72, 627]
+at = [72, 425]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 choice = "input.map_movement"
 value = "EdgeScroll"
-at = [184, 622]
+at = [184, 420]
 size = [140, 26]
 text = "Edge scrolling"
 style = "button"
@@ -1065,7 +816,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 choice = "input.map_movement"
 value = "Drag"
-at = [332, 622]
+at = [332, 420]
 size = [140, 26]
 text = "Drag (Civ IV style)"
 style = "button"
@@ -1077,13 +828,13 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Drag mode: left/middle drag map; right click unit menu."
 style = "caption"
-at = [72, 650]
+at = [72, 448]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Right drag previews; left click its target confirms."
 style = "caption"
-at = [72, 668]
+at = [72, 466]
 show_if = "tab=layout"
 
 # ------------------------------------------------ Layout, screen locations
@@ -1988,3 +1739,319 @@ text = "No, keep editing"
 style = "button"
 normal = "button"
 hover = "button_hover"
+
+[[panels.preferences.items]]
+choice = "tab"
+value = "zoom"
+at = [500, 40]
+size = [105, 32]
+text = "Zoom"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+
+[[panels.preferences.items]]
+image = "section"
+at = [70, 95]
+size = [882, 560]
+show_if = "tab=zoom"
+[[panels.preferences.items]]
+text = "Zoom placement"
+style = "heading"
+at = [90, 105]
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+text = "(vertical splits)"
+style = "caption"
+at = [250, 108]
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_place"
+value = "Floating"
+at = [90, 135]
+size = [104, 26]
+text = "Floating"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_place"
+value = "LeftOrBottom"
+at = [250, 135]
+size = [104, 26]
+text = "Left"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_place"
+value = "RightOrTop"
+at = [410, 135]
+size = [104, 26]
+text = "Right"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+enable_if = "layout.split=Vertical1To1|Vertical2To1"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+text = "Zoom box"
+style = "heading"
+at = [90, 190]
+show_if = "tab=zoom"
+
+# How much every zoom enlarges the world: indices of
+# `Layout::MAGNIFICATIONS`, with magnifications on the ruler.
+[[panels.preferences.items]]
+text = "Magnification"
+style = "label"
+at = [90, 315]
+show_if = "tab=zoom & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_magnification_step"
+tick_step = 1
+tick_label_step = 1
+tick_labels = ["1.5×", "2×", "3×", "4×"]
+tick_style = "ruler"
+at = [280, 310]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0
+max = 3
+step = 1
+decimals = 0
+text = "{layout.zoom_magnification_label}"
+style = "label"
+show_if = "tab=zoom & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Off"
+at = [90, 220]
+size = [260, 26]
+text = "Off"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Floating131"
+at = [370, 220]
+size = [260, 26]
+text = "Floating box 1:3:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Floating171"
+at = [650, 220]
+size = [260, 26]
+text = "Floating box 1:7:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Mouse111"
+at = [90, 255]
+size = [260, 26]
+text = "At the mouse 1:1:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Mouse131"
+at = [370, 255]
+size = [260, 26]
+text = "At the mouse 1:3:1"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "TopStrip"
+at = [650, 255]
+size = [260, 26]
+text = "Strip at the top"
+style = "button"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+text = "Strip height"
+style = "label"
+at = [90, 365]
+show_if = "tab=zoom & layout.zoom=TopStrip"
+
+[[panels.preferences.items]]
+text = "Box height"
+style = "label"
+at = [90, 365]
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_strip"
+tick_step = 0.05
+tick_label_step = 0.25
+tick_style = "ruler"
+at = [280, 360]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.05
+max = 0.5
+step = 0.05
+decimals = 0
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=zoom & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+
+# A floating box: its space below the top, how far it drops below the
+# mouse that comes to it, or that it keeps the mouse out instead.
+[[panels.preferences.items]]
+checkbox = "layout.zoom_box_block_pointer"
+at = [90, 515]
+size = [180, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Keep mouse out"
+style = "label"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+text = "Top margin"
+style = "label"
+at = [90, 415]
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_box_top"
+tick_step = 0.05
+tick_label_step = 0.1
+tick_style = "ruler"
+at = [280, 410]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 0.2
+step = 0.005
+decimals = 1
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+text = "Drop"
+style = "label"
+at = [90, 465]
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_box_drop"
+tick_step = 0.05
+tick_label_step = 0.25
+tick_style = "ruler"
+at = [280, 460]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 0.5
+step = 0.025
+decimals = 1
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+
+
+[[panels.preferences.items]]
+checkbox = "layout.zoom_rounded"
+at = [90, 565]
+size = [400, 23]
+text = "Zoom uses rounded corners"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+checkbox = "layout.zoom_glass"
+at = [90, 600]
+size = [400, 23]
+text = "Zoom uses the glass effect"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+text = "Separator width (window pixels)"
+style = "label"
+at = [72, 510]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+slider = "layout.separator_width"
+tick_step = 1
+tick_label_step = 4
+tick_style = "ruler"
+at = [72, 540]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 1
+max = 16
+step = 1
+decimals = 0
+text = "{value} px"
+style = "label"
+show_if = "tab=layout"
