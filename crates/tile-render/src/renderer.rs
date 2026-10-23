@@ -2323,6 +2323,9 @@ impl TileRenderer {
             (self.pipeline(device, if self.tiles555 && bits == 5 && !self.quantized_float { P::Tiles555 } else { P::TilesQuantized }), self.free_pipelines(device, 1))
         };
         let steps = Steps { renderer: self, device, control_slot, params: &self.control_uploads[control_slot].params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), quantized_float: self.quantized_float, cell_indices: &self.cell_indices, onto_target: false };
+        if let Some(lens) = self.lens.borrow_mut().as_mut() {
+            lens.begin_frame(if reuse { overlay_from } else { 0 });
+        }
         for (v, place) in placements.iter().enumerate().take(on_target) {
             if reuse && v < overlay_from {
                 continue;
@@ -2393,7 +2396,12 @@ impl TileRenderer {
                 steps.draw(encoder, &canvas, if direct { target } else { &self.scratch.as_ref().expect("canvas").main }, (viewport, scissor), c, v, (art, Some(c.origin)), place.steps_scaled(), MAX_PASSES + 1, (canvas_tiles, canvas_free));
             }
             if let Some(params) = lens_params {
-                self.lens.borrow().as_ref().unwrap().draw(device, encoder, &canvas, &cameras[v], params, control_slot, v, self.timed(|| format!("v{v} lens rim")));
+                let lens = self.lens.borrow();
+                let lens = lens.as_ref().unwrap();
+                let texture = if direct { target } else { &self.scratch.as_ref().unwrap().main };
+                lens.capture(encoder, texture, params, v, false);
+                lens.draw(device, encoder, &canvas, &cameras[v], params, control_slot, v, None, self.timed(|| format!("v{v} lens rim")));
+                lens.capture(encoder, texture, params, v, true);
             }
         }
         if direct {
@@ -2460,7 +2468,7 @@ impl TileRenderer {
     fn output_picture(
         &self,
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::Texture,
         copies: &[ScreenCopy],
@@ -2510,6 +2518,13 @@ impl TileRenderer {
         pass.set_scissor_rect(picture[0], picture[1], picture[2], picture[3]);
         pass.set_bind_group(0, &scratch.output[control_slot], &[offset]);
         pass.draw(0..3, 0..1);
+        drop(pass);
+        if let Some(lens) = self.lens.borrow().as_ref() {
+            lens.draw_presented(device, queue, encoder, target, &scratch.main, present, control_slot, self.timer.as_ref());
+        }
+        if copies.is_empty() { return true; }
+        let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load, self.timed(|| "screen copies".into()));
+        pass.set_pipeline(self.pipeline(device, P::Output));
         for (i, c) in copies.iter().enumerate() {
             // (A copy of a scaled picture samples it at the target's pixels,
             // not the canvas's.)

@@ -129,7 +129,7 @@ fn measure_lens_gpu_cost_at_4k() {
     for scale in [1, 2] {
         for glass in [false, true] {
             let c = Camera { origin: (768/scale, 216/scale), zoom: (2, 1), x: 170, y: 180,
-                lens: glass.then_some(Lens { radius: 30.0/scale as f32, rim: 14.0/scale as f32, glass: true }),
+                lens: glass.then_some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
                 ..Camera::new((2304/scale as u32, 432/scale as u32)) };
             let cams = [Camera::new((3840/scale as u32, 2160/scale as u32)), c];
             let present = tile_render::Present { canvas: (3840/scale as u32, 2160/scale as u32), target: (3840, 2160), zoom: (scale as u32, 1), at: (0, 0) };
@@ -145,7 +145,7 @@ fn measure_lens_gpu_cost_at_4k() {
                 for times in renderer.timer().unwrap().collect(&gpu.device) {
                     if frame >= 4 {
                         spans.push(times.span);
-                        rims.extend(times.passes.iter().filter(|(label, _)| label.ends_with("lens rim")).map(|(_, ms)| *ms));
+                        rims.push(times.passes.iter().filter(|(label, _)| label.ends_with("lens rim")).map(|(_, ms)| *ms).sum::<f64>());
                     }
                 }
             }
@@ -155,24 +155,99 @@ fn measure_lens_gpu_cost_at_4k() {
     }
 }
 
-/// Track a straight survey line through three depths of the bevel. This
-/// tests visible displacement, rather than only comparing shader arithmetic.
+/// Track a whole line across the bevel at both presentation scales. The
+/// face and rim must meet continuously, then gain tens of pixels of bend.
 #[test]
-fn straight_lines_bend_sharply_toward_the_curved_crest() {
+fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let (atlas, world) = survey_grid();
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
-    let lens = Camera { cells: false, origin: (40,40), lens: Some(Lens { radius: 30.0, rim: 14.0, glass: true }), ..Camera::new((600,200)) };
-    let image = gpu.render_views(&mut renderer, &[Camera::new((700,300)),lens], (700,300), 0, [0,0,0,255]);
-    let displacement = |y| {
-        let peak = (160..250).max_by_key(|&x| image.get(x,y)[0]).unwrap();
-        peak as i32 - (2*y as i32 - 32 + 128)
+    for scale in [1, 2] { for menu in [false, true] {
+        let lens = Camera { cells: false, origin: (40/scale,40/scale),
+            lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
+            ..Camera::new((600/scale as u32,200/scale as u32)) };
+        let present = tile_render::Present { canvas: (700/scale as u32,300/scale as u32), target: (700,300), zoom: (scale as u32,1), at: (0,0) };
+        let base = Camera::new(present.canvas);
+        let image = if menu {
+            let copy = tile_render::ScreenCopy { source: [100/scale,40/scale,300/scale,100/scale], at: lens.origin, zoom: (2,1), lens: lens.lens };
+            gpu.render_presented(&mut renderer, &[base], &[copy], present, 0, [0,0,0,255])
+        } else { gpu.render_presented(&mut renderer, &[base,lens], &[], present, 0, [0,0,0,255]) };
+        let intercept = if menu { -80 + 192*scale } else { 96*scale };
+        let displacement = |y| {
+            let baseline = (2*y as i32 + intercept) as u32;
+            let peak = (baseline-4..baseline+124).max_by_key(|&x| image.get(x,y)[0]).unwrap();
+            peak as i32 - baseline as i32
+        };
+        let shifts: Vec<_> = [63,60,57,54,51,48,45,42,41].into_iter().map(displacement).collect();
+        eprintln!("scale {scale}, menu {menu}, line displacement across 24px bevel: {shifts:?}");
+        assert!(shifts[0].abs() <= 3, "scale {scale}, menu {menu}, clear face continuity: {shifts:?}");
+        assert!(shifts[4] >= 12 && shifts[8] >= 85, "scale {scale}, menu {menu}, broad visible refraction: {shifts:?}");
+        for pair in shifts.windows(2) { assert!(pair[1] >= pair[0], "scale {scale}, menu {menu}, continuously increasing bend: {shifts:?}"); }
+        let baseline = (82 + intercept) as u32;
+        let peak = |c| (baseline+70..baseline+124).max_by_key(|&x| image.get(x,41)[c]).unwrap();
+        let fringe = peak(0).abs_diff(peak(2));
+        assert!((2..=8).contains(&fringe), "scale {scale}, menu {menu}, resolved red/blue fringe: {fringe}px");
+    } }
+}
+
+/// Empty black glass isolates lighting and physical silhouette coverage from
+/// the pixelated art. Scale 2 must not turn the corner into 2x2 stair steps.
+#[test]
+fn presented_glass_keeps_physical_width_and_smooth_corners() {
+    let gpu = Headless::new().expect("Vulkan GPU");
+    let (atlas, world) = fixture(ColorModel::Direct);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let render = |renderer: &mut TileRenderer, scale: u32| {
+        let c = Camera { cells: false, origin: (40/scale as i32,40/scale as i32),
+            lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
+            ..Camera::new((600/scale,200/scale)) };
+        gpu.render_presented(renderer, &[c], &[], tile_render::Present {
+            canvas: (700/scale,300/scale), target: (700,300), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255])
     };
-    let (outer, middle, inner) = (displacement(41), displacement(46), displacement(52));
-    assert!(outer >= 18 && middle >= 4 && inner.abs() <= 3, "line displacement outer/middle/inner: {outer}/{middle}/{inner}");
-    assert!(outer > middle * 2, "displacement rises sharply at the crest");
+    let full = render(&mut renderer, 1);
+    let boxed = render(&mut renderer, 2);
+    for (i,(a,b)) in full.pixels.iter().zip(&boxed.pixels).enumerate() { for c in 0..3 {
+        assert!(a[c].abs_diff(b[c]) <= 1, "window-pixel optics at {}/{}: {a:?} vs {b:?}", i%700, i/700);
+    } }
+    assert!((40..64).map(|y| boxed.get(300,y)[2]).max().unwrap() >= 100, "visible unseen-light streak on black");
+    assert_eq!(boxed.get(300,64), [0,0,0,255], "the face stays clear");
+    assert_ne!(boxed.get(56,56), boxed.get(57,56), "the corner is shaded per physical pixel");
+}
+
+/// A floating world lens sits below driver UI. Final-resolution shading
+/// must preserve both opaque/translucent later pixels and cached replays.
+#[test]
+fn window_glass_preserves_later_interface_views_and_cached_frames() {
+    let gpu = Headless::new().expect("Vulkan GPU");
+    for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
+        let (atlas, world) = fixture(color);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        let lens = Camera { cells: false, origin: (20,20),
+            lens: Some(Lens { radius: 28.0, rim: 12.0, glass: true }), ..Camera::new((300,100)) };
+        let ui = Camera { origin: (60,20), ..Camera::new((100,24)) };
+        let before = gpu.render_views(&mut renderer, &[lens], (350,150), 0, [0,0,0,255]);
+        let after = gpu.render_views(&mut renderer, &[lens,ui], (350,150), 0, [0,0,0,255]);
+        let present = tile_render::Present { canvas: (350,150), target: (714,318), zoom: (2,1), at: (7,9) };
+        let actual = gpu.render_presented(&mut renderer, &[lens,ui], &[], present, 0, [0,0,0,255]);
+        let cached = gpu.render_presented(&mut renderer, &[lens,ui], &[], present, 0, [0,0,0,255]);
+        assert_eq!(actual, cached, "cached lens uniforms and snapshots");
+        let mut covered = 0;
+        for y in 20..32 { for x in 60..160 {
+            if before.get(x,y) == after.get(x,y) { continue; }
+            covered += 1;
+            for dy in 0..2 { for dx in 0..2 {
+                let pixel = actual.get(7+x*2+dx,9+y*2+dy);
+                for c in 0..3 { assert!(pixel[c].abs_diff(after.get(x,y)[c]) <= 1, "{color:?}: later UI at {x}/{y}: {pixel:?} vs {:?}", after.get(x,y)); }
+            } }
+        } }
+        assert!(covered > 200, "UI must actually cover the top bevel");
+    }
 }
 
 /// Check the black-background requirement independently of the CPU oracle:
@@ -217,7 +292,7 @@ fn screen_copy_lenses_preserve_corners_and_clear_menu_content() {
             let cameras = [Camera::new(size)];
             let copy = ScreenCopy { source: [40/scale as i32, 100/scale as i32, 160/scale as i32, 120/scale as i32],
                 at: (350/scale as i32, 200/scale as i32), zoom: (2,1),
-                lens: Some(Lens { radius: 30.0/scale as f32, rim: 14.0/scale as f32, glass }) };
+                lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass }) };
             let actual = gpu.render_composed(&mut renderer, &cameras, &[copy], size, 0, [0,0,0,255]);
             let expected = reference::render_composed(&world, &atlas, &cameras, &[copy], size, 0, [0,0,0,255]);
             for (a,b) in actual.pixels.iter().zip(&expected.pixels) { for ch in 0..3 {
@@ -254,13 +329,20 @@ fn capture_glass_review_at_4k() {
         if grid && !background { continue; }
         let mut cams = Vec::new();
         if background { cams.push(Camera::new((3840/scale,2160/scale))); }
-        cams.push(Camera { x: 170, y: 180, zoom: (2,1), origin: (768/scale as i32,216/scale as i32),
-            lens: Some(Lens { radius: 30.0/scale as f32, rim: 14.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
+        cams.push(Camera { x: if grid { 200 } else { 170 }, y: 180, zoom: (2,1), origin: (768/scale as i32,216/scale as i32),
+            lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
         let image = gpu.render_presented(&mut renderer, &cams, &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
         let background = if grid { "grid" } else if background { "map" } else { "black" };
-        save(format!("glass2-{background}-4k-scale{scale}.png"), &image);
+        save(format!("glass3-{background}-4k-scale{scale}.png"), &image);
         let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-        save(format!("glass2-{background}-corner-3x-scale{scale}.png"), &crop);
+        save(format!("glass3-{background}-corner-3x-scale{scale}.png"), &crop);
+        if !grid && background == "black" {
+            let mut empty = *cams.last().unwrap(); empty.cells = false;
+            let image = gpu.render_presented(&mut renderer, &[empty], &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
+            save(format!("glass3-empty-black-4k-scale{scale}.png"), &image);
+            let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
+            save(format!("glass3-empty-black-corner-3x-scale{scale}.png"), &crop);
+        }
       } }
     }
 }

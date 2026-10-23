@@ -238,7 +238,7 @@ fn apply_copies(out: &mut [[u8; 4]], (w, h): (u32, u32), copies: &[ScreenCopy]) 
         if let Some(lens) = c.lens {
             let size = ((c.source[2] as u32*n).div_ceil(d), (c.source[3] as u32*n).div_ceil(d));
             let camera = Camera { origin: c.at, lens: Some(lens), ..Camera::new(size) };
-            apply_lens(out, &finished, (w, h), &camera, 0);
+            apply_lens(out, &finished, (w, h), &camera, 0, Some(c));
         }
     }
 }
@@ -409,7 +409,7 @@ fn compose<P: LensPixel>(
                 }
             });
         }
-        if let Some(backdrop) = backdrop { apply_lens(&mut out, &backdrop, (w, h), &cameras[v], world.color.bits()); }
+        if let Some(backdrop) = backdrop { apply_lens(&mut out, &backdrop, (w, h), &cameras[v], world.color.bits(), None); }
     }
     out
 }
@@ -430,8 +430,9 @@ impl LensPixel for [u32; 3] {
     fn from_rgb(rgb: [f32; 3], bits: u32) -> Self { rgb.map(|v| quantize((v*255.0).round() as u32, bits) + QUANTIZED_BIAS) }
 }
 
-fn apply_lens<P: LensPixel>(out: &mut [P], backdrop: &[P], (w, h): (u32, u32), camera: &Camera, bits: u32) {
+fn apply_lens<P: LensPixel>(out: &mut [P], backdrop: &[P], (w, h): (u32, u32), camera: &Camera, bits: u32, copy: Option<&ScreenCopy>) {
     let lens = camera.lens.unwrap();
+    let face = out.to_vec();
     let p = tile_render_shared::LensParams { x: camera.origin.0 as f32, y: camera.origin.1 as f32, width: camera.viewport.0 as f32, height: camera.viewport.1 as f32,
         radius: lens.radius, rim: lens.rim, glass: u32::from(lens.glass), bits, ..Default::default() };
     let halo = if lens.glass { (lens.rim * 0.28).ceil() as i32 } else { 0 };
@@ -440,24 +441,27 @@ fn apply_lens<P: LensPixel>(out: &mut [P], backdrop: &[P], (w, h): (u32, u32), c
       for x in (camera.origin.0-halo).max(clip[0]).max(0)..(camera.origin.0+camera.viewport.0 as i32+halo).min(clip[2]).min(w as i32) {
         let s = lens_math::surface(&p, x as f32 + 0.5, y as f32 + 0.5);
         let i = (y*w as i32+x) as usize;
-        let sample = |d: f32| -> [f32; 3] {
-            let px = x as f32 + s.normal[0]*s.bend*d;
-            let py = y as f32 + s.normal[1]*s.bend*d;
+        let sample = |channel: f32| -> [f32; 3] {
+            let bend = s.bend + s.dispersion * channel;
+            let (px, py, image) = if let Some(copy) = copy {
+                let ratio = copy.zoom.1.max(1) as f32 / copy.zoom.0.max(1) as f32;
+                (copy.source[0] as f32 + (((x-copy.at.0) as f32+0.5)*ratio).floor() - s.nx*bend*ratio,
+                 copy.source[1] as f32 + (((y-copy.at.1) as f32+0.5)*ratio).floor() - s.ny*bend*ratio, backdrop)
+            } else { (x as f32 - s.nx*bend, y as f32 - s.ny*bend, &face[..]) };
             let (ix, iy) = (px.floor() as i32, py.floor() as i32);
             let (fx, fy) = (px-px.floor(), py-py.floor());
-            let fetch = |dx: i32, dy: i32| backdrop[(
+            let fetch = |dx: i32, dy: i32| image[(
                 (iy+dy).clamp(0, h as i32-1)*w as i32+(ix+dx).clamp(0, w as i32-1)) as usize].rgb(bits);
             let (a,b,c,d) = (fetch(0,0),fetch(1,0),fetch(0,1),fetch(1,1));
             std::array::from_fn(|ch| (a[ch]*(1.0-fx)+b[ch]*fx)*(1.0-fy)+(c[ch]*(1.0-fx)+d[ch]*fx)*fy)
         };
-        if s.distance > 0.0 {
-            out[i] = if lens.glass { P::from_rgb(lens_math::halo(&s, backdrop[i].rgb(bits), lens.rim), bits) } else { backdrop[i] };
-        } else if s.distance >= -p.rim.max(0.5) {
-            let rgb = if lens.glass {
-                let dispersion = 0.045 * (1.0 - s.normal[2]);
-                lens_math::shade(&s, [sample(1.0+dispersion)[0], sample(1.0)[1], sample(1.0-dispersion)[2]])
+        if s.distance >= -p.rim.max(0.5) {
+            let base = backdrop[i].rgb(bits);
+            let background = if lens.glass { lens_math::halo(&s, base, lens.rim) } else { base };
+            let glass = if lens.glass {
+                lens_math::shade(&s, [sample(1.0)[0], sample(0.0)[1], sample(-1.0)[2]])
             } else { [if s.distance > -p.rim*0.5 { 0.78 } else { 0.08 }; 3] };
-            out[i] = P::from_rgb(rgb, bits);
+            out[i] = P::from_rgb(lens_math::composite(&s, glass, background), bits);
         }
       }
     }

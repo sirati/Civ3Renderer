@@ -944,21 +944,25 @@ pub fn output_fs(
         if s.distance >= -p.rim.max(0.5) {
             let size = UVec2::new(params.canvas_width, params.canvas_height);
             let ratio = params.canvas_den as f32 / params.canvas_num as f32;
-            let sample = |dispersion: f32| lens_sample(source,
-                (frag.x - params.canvas_x as f32 + s.normal[0] * s.bend * dispersion) * ratio,
-                (frag.y - params.canvas_y as f32 + s.normal[1] * s.bend * dispersion) * ratio,
-                [0, 0, size.x as i32, size.y as i32], params.bits, params.quantized_float);
-            let rgb = if s.distance > 0.0 {
-                if params.lens_glass == 0 { spirv_std::arch::kill(); }
-                let base = lens_sample(source, ((frag.x - params.canvas_x as f32) * ratio).floor() + 0.5,
+            let bounds = [0, 0, size.x as i32, size.y as i32];
+            let zoom = params.zoom_den as f32 / params.zoom_num as f32;
+            let sample = |channel: f32| {
+                let bend = s.bend + s.dispersion * channel;
+                // Preserve the clear face's nearest-pixel phase, then bend
+                // in window pixels before converting to source texels.
+                let x = params.src_x as f32 + ((frag.x - p.x) * zoom).floor() + 0.5 - s.nx * bend * zoom;
+                let y = params.src_y as f32 + ((frag.y - p.y) * zoom).floor() + 0.5 - s.ny * bend * zoom;
+                lens_sample(source, x, y, bounds, params.bits, params.quantized_float)
+            };
+            let base = lens_sample(source, ((frag.x - params.canvas_x as f32) * ratio).floor() + 0.5,
                     ((frag.y - params.canvas_y as f32) * ratio).floor() + 0.5,
-                    [0, 0, size.x as i32, size.y as i32], params.bits, params.quantized_float);
-                lens_math::halo(&s, base, p.rim)
-            } else if params.lens_glass != 0 {
-                let dispersion = 0.045 * (1.0 - s.normal[2]);
-                let (r, g, b) = (sample(1.0+dispersion), sample(1.0), sample(1.0-dispersion));
+                    bounds, params.bits, params.quantized_float);
+            let backdrop = if params.lens_glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
+            let glass = if params.lens_glass != 0 {
+                let (r, g, b) = (sample(1.0), sample(0.0), sample(-1.0));
                 lens_math::shade(&s, [r[0], g[1], b[2]])
             } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
+            let rgb = lens_math::composite(&s, glass, backdrop);
             *output = Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
             return;
         }
@@ -1014,23 +1018,43 @@ pub fn lens_fs(
     #[spirv(frag_coord)] frag: Vec4,
     #[spirv(uniform, descriptor_set = 0, binding = 1)] p: &tile_render_shared::LensParams,
     #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
+    #[spirv(descriptor_set = 0, binding = 2)] face: &Image!(2D, type = f32, sampled),
+    #[spirv(descriptor_set = 0, binding = 3)] composed: &Image!(2D, type = f32, sampled),
+    #[spirv(descriptor_set = 0, binding = 4)] shaded: &Image!(2D, type = f32, sampled),
     output: &mut Vec4,
 ) {
     let s = lens_math::surface(p, frag.x, frag.y);
-    if s.distance < -p.rim.max(0.5) { spirv_std::arch::kill(); }
+    // Restore a source-pixel guard inside the bevel when re-shading boxed
+    // pixels, so no old coarse highlight leaks onto the clear face.
+    let guard = if p.sample_scale != 1.0 { 1.0 / p.sample_scale } else { 0.0 };
+    if s.distance < -p.rim.max(0.5) - guard { spirv_std::arch::kill(); }
     let bounds = [p.snapshot_x, p.snapshot_y, p.snapshot_w, p.snapshot_h];
-    let sample = |x: f32, y: f32| lens_sample(source, x, y, bounds, p.bits, p.quantized_float);
-    let rgb = if s.distance > 0.0 {
-        let base = sample(frag.x, frag.y);
-        if p.glass != 0 { lens_math::halo(&s, base, p.rim) } else { base }
+    let (x, y) = (frag.x * p.sample_scale + p.sample_x, frag.y * p.sample_scale + p.sample_y);
+    if p.check_occlusion != 0 {
+        // Compare stored texels exactly, before colour decoding. Later UI or
+        // another camera can cover a rim, including with translucent art.
+        let xy = IVec2::new(x.floor() as i32, y.floor() as i32);
+        let before: Vec4 = shaded.fetch(IVec2::new((xy.x-p.snapshot_x).clamp(0,p.snapshot_w-1), (xy.y-p.snapshot_y).clamp(0,p.snapshot_h-1)));
+        let after: Vec4 = composed.fetch(xy);
+        if before.x != after.x || before.y != after.y || before.z != after.z { spirv_std::arch::kill(); }
+    }
+    // Backdrop art retains nearest boxed pixels, even when the rim is shaded
+    // at final window resolution. Only the refracted face is interpolated.
+    let base = lens_sample(source, x.floor()+0.5, y.floor()+0.5, bounds, p.bits, p.quantized_float);
+    let backdrop = if p.glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
+    let glass = if s.distance < -p.rim.max(0.5) {
+        lens_sample(face, x.floor()+0.5, y.floor()+0.5, bounds, p.bits, p.quantized_float)
     } else if p.glass != 0 {
-        let fetch = |dispersion: f32| sample(frag.x + s.normal[0] * s.bend * dispersion, frag.y + s.normal[1] * s.bend * dispersion);
-        let dispersion = 0.045 * (1.0 - s.normal[2]);
-        let (r, g, b) = (fetch(1.0+dispersion), fetch(1.0), fetch(1.0-dispersion));
+        let fetch = |channel: f32| {
+            let bend = (s.bend + s.dispersion * channel) * p.sample_scale;
+            lens_sample(face, x - s.nx * bend, y - s.ny * bend, bounds, p.bits, p.quantized_float)
+        };
+        let (r, g, b) = (fetch(1.0), fetch(0.0), fetch(-1.0));
         lens_math::shade(&s, [r[0], g[1], b[2]])
     } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
-    let encode = |v: f32| if p.bits == 0 { v } else {
-        let q = quantize((v * 255.0 + 0.5) as u32, p.bits);
+    let rgb = lens_math::composite(&s, glass, backdrop);
+    let encode = |v: f32| if p.output_bits == 0 { v } else {
+        let q = quantize((v * 255.0 + 0.5) as u32, p.output_bits);
         if p.quantized_float != 0 { (q + tile_render_shared::FLOAT_QUANTIZED_BIAS) as f32 }
         else { (q + QUANTIZED_BIAS) as f32 / 255.0 }
     };
