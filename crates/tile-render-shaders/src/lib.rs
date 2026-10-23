@@ -20,6 +20,7 @@
 
 pub mod text;
 pub mod glyph_cache;
+mod lens_math;
 
 use spirv_std::glam::{IVec2, UVec2, UVec3, UVec4, Vec2, Vec4};
 use spirv_std::num_traits::Float;
@@ -978,4 +979,40 @@ fn round(v: f32) -> u32 {
 /// The pixel `c` (at least 0) lies in: `c` rounded down.
 fn pixel(c: f32) -> u32 {
     round(c.floor())
+}
+
+/// Restores cut-off corners and shades only the lens's narrow border.
+#[spirv(fragment)]
+pub fn lens_fs(
+    #[spirv(frag_coord)] frag: Vec4,
+    #[spirv(uniform, descriptor_set = 0, binding = 1)] p: &tile_render_shared::LensParams,
+    #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
+    output: &mut Vec4,
+) {
+    let s = lens_math::surface(p, frag.x, frag.y);
+    if s.distance < -p.rim.max(0.5) { spirv_std::arch::kill(); }
+    let sample = |x: f32, y: f32| -> Vec4 {
+        let xy = IVec2::new((x as i32 - p.snapshot_x).clamp(0, p.snapshot_w - 1), (y as i32 - p.snapshot_y).clamp(0, p.snapshot_h - 1));
+        source.fetch(xy)
+    };
+    if s.distance > 0.0 {
+        *output = sample(frag.x, frag.y);
+        return;
+    }
+    let decode = |v: f32| if p.bits == 0 { v } else { to_unorm(v, p.bits, p.quantized_float) };
+    let rgb = if p.glass != 0 {
+        let fetch = |dispersion: f32| sample(frag.x - s.nx * s.bend * dispersion, frag.y - s.ny * s.bend * dispersion);
+        let (r, g, b) = (fetch(1.035), fetch(1.0), fetch(0.965));
+        lens_math::shade(&s, [decode(r.x), decode(g.y), decode(b.z)])
+    } else {
+        let light = s.distance > -p.rim * 0.5;
+        let v = if light { 0.78 } else { 0.08 };
+        [v; 3]
+    };
+    let encode = |v: f32| if p.bits == 0 { v } else {
+        let q = quantize((v * 255.0 + 0.5) as u32, p.bits);
+        if p.quantized_float != 0 { (q + tile_render_shared::FLOAT_QUANTIZED_BIAS) as f32 }
+        else { (q + QUANTIZED_BIAS) as f32 / 255.0 }
+    };
+    *output = Vec4::new(encode(rgb[0]), encode(rgb[1]), encode(rgb[2]), 1.0);
 }

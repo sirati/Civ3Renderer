@@ -33,6 +33,9 @@ pub struct Camera {
     /// viewport origin so clipping preserves the fractional zoom phase.
     /// A stacked view inherits its group head's clip as well as its own.
     pub target_clip: Option<[i32; 4]>,
+    /// Rounded lens clip and border, in composition pixels.
+    /// For a standalone camera without stacked children.
+    pub lens: Option<Lens>,
     /// Whether the view shows the world (its cells and world-space sprites;
     /// false: only the view's own sprites, e.g. an interface on top).
     pub cells: bool,
@@ -85,6 +88,25 @@ pub struct Camera {
     pub on_target: bool,
 }
 
+/// A polished magnifier edge. Sizes are composition pixels; `Camera::boxed`
+/// scales these along with the camera so their window size is unchanged.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Lens {
+    pub radius: f32,
+    pub rim: f32,
+    pub glass: bool,
+}
+
+impl Lens {
+    /// Signed distance to the rounded rectangle; negative inside.
+    pub fn distance(self, size: (u32, u32), p: (f32, f32)) -> f32 {
+        let (w, h) = (size.0 as f32, size.1 as f32);
+        let r = self.radius.clamp(0.0, w.min(h) * 0.5);
+        let (x, y) = ((p.0 - w * 0.5).abs() - w * 0.5 + r, (p.1 - h * 0.5).abs() - h * 0.5 + r);
+        (x.max(0.0) * x.max(0.0) + y.max(0.0) * y.max(0.0)).sqrt() + x.max(y).min(0.0) - r
+    }
+}
+
 /// How a scaled view samples sprites with the explicit UI background role
 /// (`tile_render_shared::SAMPLING_UI_BACKGROUND`). Other sprites and views
 /// at 1:1 keep their ordinary nearest samples.
@@ -122,6 +144,7 @@ impl Camera {
             cull: None,
             origin: (0, 0),
             target_clip: None,
+            lens: None,
             cells: true,
             screen_shift: (0, 0),
             zoomed_art: false,
@@ -177,6 +200,7 @@ impl Camera {
             viewport: (self.viewport.0.saturating_mul(k), self.viewport.1.saturating_mul(k)),
             screen_shift: (sx + origin.0 - self.origin.0, sy + origin.1 - self.origin.1),
             target_clip: clip,
+            lens: self.lens.map(|l| Lens { radius: l.radius * k as f32, rim: l.rim * k as f32, ..l }),
             hairline: self.hairline || (!self.cells && !self.is_scaled()),
             ..*self
         }

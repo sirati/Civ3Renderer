@@ -1195,3 +1195,26 @@ mod tests {
         }
     }
 }
+
+/// Bounded lens backdrop snapshot and polished edge, in composition pixels.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(not(target_arch = "spirv"), derive(Pod, Zeroable))]
+pub struct LensParams {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub radius: f32,
+    pub rim: f32,
+    pub glass: u32,
+    pub bits: u32,
+    pub snapshot_x: i32,
+    pub snapshot_y: i32,
+    pub snapshot_w: i32,
+    pub snapshot_h: i32,
+    pub quantized_float: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+}

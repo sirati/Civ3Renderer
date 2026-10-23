@@ -2,6 +2,7 @@
 
 use std::num::NonZeroU64;
 mod smoke;
+mod lens;
 mod glyph_cache;
 pub use glyph_cache::GlyphCacheStats;
 
@@ -94,6 +95,7 @@ pub struct TileRenderer {
     output_params: [wgpu::Buffer; CONTROL_SLOTS],
     scratch: Option<Scratch>,
     smoke: std::cell::RefCell<Option<smoke::State>>,
+    lens: std::cell::RefCell<Option<lens::State>>,
     glyph_cache: std::cell::RefCell<Option<glyph_cache::State>>,
     /// Decoding of the retained canvas, independent of later world uploads.
     picture_bits: u32,
@@ -672,6 +674,7 @@ impl TileRenderer {
             output_params,
             scratch: None,
             smoke: Default::default(),
+            lens: Default::default(),
             glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
@@ -1092,6 +1095,7 @@ impl TileRenderer {
             output_params: self.output_params.clone(),
             scratch: None,
             smoke: Default::default(),
+            lens: Default::default(),
             glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
@@ -1151,7 +1155,8 @@ impl TileRenderer {
             if old._upload.is_some() { workspaces += 2 * ATLAS_TRANSFER_MAX_BATCH_BYTES; }
         }
         let mut bytes = workspaces + self.smoke.borrow().as_ref().map_or(0, smoke::State::bytes)
-            + self.glyph_cache.borrow().as_ref().map_or(0, glyph_cache::State::bytes);
+            + self.glyph_cache.borrow().as_ref().map_or(0, glyph_cache::State::bytes)
+            + self.lens.borrow().as_ref().map_or(0, lens::State::bytes);
         for texture in self.scratch.iter().map(|s| &s.main).chain(self.sources.iter().map(|s| &s.main)).chain(self.base.iter()) {
             let texel_bytes = if texture.format() == wgpu::TextureFormat::Rgba16Float { 8 } else { 4 };
             bytes += u64::from(texture.width()) * u64::from(texture.height()) * texel_bytes;
@@ -2223,8 +2228,9 @@ impl TileRenderer {
         }
         let copies = &copies[..copies.len().min(MAX_COPIES)];
         // Copies read the finished picture, and a scaled one is shown from
-        // it: then it is composed internally.
-        let direct = bits == 0 && copies.is_empty() && unscaled && world.smoke_count == 0;
+        // it: then it is composed internally. Lenses only need a bounded
+        // backdrop copy; use the caller's target directly when copyable.
+        let direct = bits == 0 && copies.is_empty() && unscaled && world.smoke_count == 0 && (cameras.iter().all(|c| c.lens.is_none()) || target.usage().contains(wgpu::TextureUsages::COPY_SRC));
         // The picture of the views but the overlays drawn last, if this
         // frame's are the same (then only the overlays are drawn, over a
         // copy of it without the last frame's).
@@ -2326,6 +2332,14 @@ impl TileRenderer {
                 let (base, canvas) = (self.base.as_ref().expect("made above"), &self.scratch.as_ref().expect("made above").main);
                 encoder.copy_texture_to_texture(canvas.as_image_copy(), base.as_image_copy(), canvas.size());
             }
+            // Snapshot only this lens's bounds before its camera draws.
+            let lens_params = if cameras[v].lens.is_some() {
+                let texture = if direct { target } else { &self.scratch.as_ref().expect("internal canvas").main };
+                let mut lens = self.lens.borrow_mut();
+                if lens.as_ref().is_some_and(|state| state.format != texture.format()) { *lens = None; }
+                lens.get_or_insert_with(|| lens::State::new(device, &self.shader, texture.format()))
+                    .snapshot(device, queue, encoder, texture, &cameras[v], control_slot, v, bits, float_encoding)
+            } else { None };
             // Its steps at zoom 1.
             let rect = place.rect;
             let scissor = match place.source {
@@ -2376,6 +2390,9 @@ impl TileRenderer {
                 let viewport = [c.origin.0 as f32, c.origin.1 as f32, c.viewport.0 as f32, c.viewport.1 as f32];
                 let art = if place.art { 2 } else { 0 };
                 steps.draw(encoder, &canvas, if direct { target } else { &self.scratch.as_ref().expect("canvas").main }, (viewport, scissor), c, v, (art, Some(c.origin)), place.steps_scaled(), MAX_PASSES + 1, (canvas_tiles, canvas_free));
+            }
+            if let Some(params) = lens_params {
+                self.lens.borrow().as_ref().unwrap().draw(device, encoder, &canvas, &cameras[v], params, control_slot, v, self.timed(|| format!("v{v} lens rim")));
             }
         }
         if direct {

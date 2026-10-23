@@ -245,7 +245,7 @@ fn apply_copies<P: Copy>(out: &mut [P], (w, h): (u32, u32), copies: &[ScreenCopy
 /// `camera::Placement`), its group is drawn at its zoom straight into the
 /// canvas: every target pixel blended with the texels its zoom-1 pixel
 /// gets, zoomed art at full resolution.
-fn compose<P: Copy>(
+fn compose<P: LensPixel>(
     world: &TileWorld,
     atlas: &Atlas,
     cameras: &[Camera],
@@ -263,6 +263,7 @@ fn compose<P: Copy>(
     let (sw, sh) = placements.iter().filter_map(|p| p.source).fold((1, 1), |(sw, sh), r| (sw.max(r[0] + r[2]), sh.max(r[1] + r[3])));
     let mut source = vec![background; (sw * sh) as usize];
     for (v, place) in placements.iter().enumerate() {
+        let backdrop = cameras[v].lens.map(|_| out.clone());
         // Draws come in target pixels from the drawn camera's origin; they
         // land in the view's rectangle, clipped to it (and to its group's
         // picture or the target).
@@ -402,8 +403,47 @@ fn compose<P: Copy>(
                 }
             });
         }
+        if let Some(backdrop) = backdrop { apply_lens(&mut out, &backdrop, (w, h), &cameras[v], world.color.bits()); }
     }
     out
+}
+
+#[path = "../../tile-render-shaders/src/lens_math.rs"]
+mod lens_math;
+
+trait LensPixel: Copy {
+    fn rgb(self, bits: u32) -> [f32; 3];
+    fn from_rgb(rgb: [f32; 3], bits: u32) -> Self;
+}
+impl LensPixel for [u8; 4] {
+    fn rgb(self, _: u32) -> [f32; 3] { [self[0] as f32 / 255.0, self[1] as f32 / 255.0, self[2] as f32 / 255.0] }
+    fn from_rgb(rgb: [f32; 3], _: u32) -> Self { [(rgb[0]*255.0).round() as u8, (rgb[1]*255.0).round() as u8, (rgb[2]*255.0).round() as u8, 255] }
+}
+impl LensPixel for [u32; 3] {
+    fn rgb(self, bits: u32) -> [f32; 3] { self.map(|v| expand(v.saturating_sub(QUANTIZED_BIAS), bits) as f32 / 255.0) }
+    fn from_rgb(rgb: [f32; 3], bits: u32) -> Self { rgb.map(|v| quantize((v*255.0).round() as u32, bits) + QUANTIZED_BIAS) }
+}
+
+fn apply_lens<P: LensPixel>(out: &mut [P], backdrop: &[P], (w, h): (u32, u32), camera: &Camera, bits: u32) {
+    let lens = camera.lens.unwrap();
+    let p = tile_render_shared::LensParams { x: camera.origin.0 as f32, y: camera.origin.1 as f32, width: camera.viewport.0 as f32, height: camera.viewport.1 as f32,
+        radius: lens.radius, rim: lens.rim, glass: u32::from(lens.glass), bits, ..Default::default() };
+    for (x, y) in camera.target_rect((w, h)) {
+        let s = lens_math::surface(&p, x as f32 + 0.5, y as f32 + 0.5);
+        let i = (y*w+x) as usize;
+        if s.distance > 0.0 { out[i] = backdrop[i]; }
+        else if s.distance >= -p.rim.max(0.5) {
+            let sample = |d: f32| {
+                let px = ((x as f32 + 0.5 - s.nx*s.bend*d) as i32).clamp(0, w as i32 - 1) as u32;
+                let py = ((y as f32 + 0.5 - s.ny*s.bend*d) as i32).clamp(0, h as i32 - 1) as u32;
+                backdrop[(py*w+px) as usize].rgb(bits)
+            };
+            let rgb = if lens.glass {
+                lens_math::shade(&s, [sample(1.035)[0], sample(1.0)[1], sample(0.965)[2]])
+            } else { [if s.distance > -p.rim*0.5 { 0.78 } else { 0.08 }; 3] };
+            out[i] = P::from_rgb(rgb, bits);
+        }
+    }
 }
 
 /// The pixels `p` whose zoom-1 pixel `floor(p·d/n)` is in `[lo, hi)`, as in
