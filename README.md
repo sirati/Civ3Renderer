@@ -266,9 +266,10 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   or *Strip height*, 5-50 %, default 20 %), sets the height of every one
   of them (older settings' own floating box height is ignored). In a
   side-by-side split `zoom_place` puts it over both views, A or B, and
-  keeps it inside that view. While the pointer is where a floating box
-  rests, the box glides below that place, a gap of `zoom_box_drop`
-  (*Gap when moved*, saved as `zoom_box_gap`, 0-10 %, default 2.5 %) of
+  keeps it inside that view. Once the pointer comes within 5 % of the
+  height of where a floating box rests, the box glides below that place,
+  a gap of `zoom_box_drop` (*Gap when moved*, saved as `zoom_box_gap`,
+  0-10 %, default 2.5 %) of
   the height below it (cut at the bottom if it does not fit), and glides
   back once the pointer leaves it; **Keep mouse out** instead blocks
   entry. Top strips always block entry and
