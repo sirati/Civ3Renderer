@@ -21,6 +21,7 @@ The message pump is `0x624B90`. It calls jgl's slot +0x124 (0x1003D430) on `[0xC
 ### Routing
 
 - Keys go to `0x608C20`. While a modal form is set in `[0xCAD384]`, only that form gets them.
+- Keys and characters: jgl's window procedure passes `WM_KEYDOWN` to the controller's key slot (0x62C590, `(vk, down)`), then to the form's key method, Base_Form 0x6087D0, which records the key at `[0xCAD3B8]` and runs 0x605EF0. That gives the key to the form's key handler (vtable +0x8C, through 0x605E00) only when `MapVirtualKeyA(vk, MAPVK_VK_TO_CHAR)` (0x665244) gives no character. Every other key, Escape and Enter among them, reaches +0x8C from its `WM_CHAR` (controller +0x10, 0x62C610 -> 0x608890 -> 0x605E00, called with the character and `[0xCAD3B8]`). So a key sent without its character is lost to these handlers (`inproc::window::Window::key_now` sends both).
 - The mouse goes through the hit test at `0x609030`. While a modal form is set, it tests only that form's tree and the companion form `[0xCAD380]`. A click that hits neither still goes to the modal form.
 
 So the map form (0x9F86C0) gets no input while a menu is open.
