@@ -2674,3 +2674,29 @@ face = "Lucida Sans"
 height = 10
 color = [240, 225, 180]
 disabled_color = [160, 150, 125]
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "accessibility.hud_size"
+at = [464, 315]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=accessibility & dialog.changed.accessibility.hud_size"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "accessibility.ring_width"
+at = [914, 535]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=accessibility & dialog.changed.accessibility.ring_width"

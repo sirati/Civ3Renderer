@@ -2198,6 +2198,7 @@ mod tests {
 
     fn show_slider(prefs: &mut Prefs, key: &str) {
         prefs.tab = if key.starts_with("layout.zoom") { TAB_ZOOM }
+            else if key.starts_with("accessibility.") { TAB_ACCESSIBILITY }
             else if key.starts_with("resolution.") || key.starts_with("display.") { TAB_RESOLUTION }
             else { TAB_LAYOUT }.into();
         prefs.route(vec![], (1024, 768));
@@ -2302,6 +2303,7 @@ mod tests {
             let (mut prefs, path) = open_prefs(&format!("undo-{control}"));
             prefs.settings.resolution.scale_menus = true;
             prefs.settings.display.max_fps = 120;
+            prefs.settings.accessibility.unit_rings = true;
             prefs.settings.layout.zoom = Zoom::Floating131;
             prefs.draft = Some(prefs.settings.clone());
             prefs.project_settings();
@@ -2340,7 +2342,7 @@ mod tests {
             assert!(!path.exists(), "undo never saves");
             checked += 1;
         }
-        assert_eq!(checked, 13);
+        assert_eq!(checked, 15);
     }
 
     #[test]
