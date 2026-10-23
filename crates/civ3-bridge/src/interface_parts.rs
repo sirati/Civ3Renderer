@@ -175,6 +175,14 @@ pub fn corner_region([x, y, w, h]: [i32; 4]) -> [i32; 4] {
     [0, 0, x + w + mx, y + h + my]
 }
 
+/// The rectangle (x, y, w, h) of the tooltip in `frame`: what the game's
+/// present drew over everything (`Frame::overlay_draws`), none if nothing.
+pub fn tooltip(frame: &Frame) -> Option<[i32; 4]> {
+    let [l, t, r, b] = frame.draws.get(frame.overlay_draws.clone())?.iter().filter_map(reach)
+        .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])?;
+    Some([l, t, r - l, b - t])
+}
+
 /// The corner's buttons (forms of the `canvases`) as a part of their own:
 /// the corner region ([`corner_region`]), grown to the tooltip shown by
 /// them (drawn straight onto the screen, on no canvas, next to them), and
@@ -248,7 +256,7 @@ pub fn region(frame: &Frame, [x, y, w, h]: [i32; 4]) -> Frame {
             (clip[2] > clip[0] && clip[3] > clip[1] && crate::ui::reaches_clip(&d)).then_some(d)
         })
         .collect();
-    Frame { draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws: Vec::new() }
+    Frame { overlay_draws: 0..0, draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws: Vec::new() }
 }
 
 /// How far from a popup's canvas the frame the game draws around it (its
@@ -514,12 +522,14 @@ fn part_from(frame: &Frame, index: usize, size: (i32, i32), modal: bool) -> Opti
 pub fn split_at(frame: &Frame, first: usize) -> (Frame, Frame) {
     let first = first.min(frame.draws.len());
     let below = Frame {
+        overlay_draws: 0..0,
         draws: frame.draws[..first].to_vec(),
         forms: frame.forms.clone(),
         form_draws: frame.form_draws.iter().filter(|(_, r)| r.end <= first).cloned().collect(),
         underlay_draws: frame.underlay_draws.iter().map(|r| r.start.min(first)..r.end.min(first)).filter(|r| !r.is_empty()).collect(),
     };
     let above = Frame {
+        overlay_draws: 0..0,
         draws: frame.draws[first..].to_vec(),
         forms: frame.forms.clone(),
         form_draws: frame.form_draws.iter().filter(|(_, r)| r.start >= first).map(|(c, r)| (*c, r.start - first..r.end - first)).collect(),
@@ -620,6 +630,7 @@ mod tests {
         // Native WW2 diplomacy owns a full-window canvas but only draws
         // the conversation, its leader and the separate advisor on it.
         let frame = Frame {
+            overlay_draws: 0..0,
             forms: vec![(0x66b3d8, 1, (0, 0), (1920, 1080)), (0x66c0d8, 2, (0, 0), (1920, 1080))],
             draws: vec![
                 fill(0, 0, 1920, 1080),
@@ -664,6 +675,7 @@ mod tests {
     /// and a popup over it.
     fn frame() -> Frame {
         Frame {
+            overlay_draws: 0..0,
             draws: vec![fill(0, 0, 1920, 1080), fill(0, 0, 160, 60), fill(21, 12, 36, 30), fill(836, 1030, 32, 32), fill(700, 400, 500, 300), fill(720, 600, 80, 30)],
             forms: vec![
                 (0x66_B3D8, 0x9F_8934, (0, 0), (1920, 1080)),
@@ -779,6 +791,7 @@ mod tests {
         let preferences = civ3_sys::ui_hooks::preferences_form(build).unwrap();
         let canvas = preferences.form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
         let mut f = Frame {
+            overlay_draws: 0..0,
             draws: vec![
                 fill(0, 0, 1920, 1080),
                 fill(21, 12, 36, 30),
@@ -845,6 +858,7 @@ mod tests {
         let build = civ3_sys::Build::PcGames;
         let preferences = civ3_sys::ui_hooks::preferences_form(build).unwrap();
         let f = Frame {
+            overlay_draws: 0..0,
             draws: vec![fill(0, 0, 1920, 1080), ScreenDraw::Image {
                 path: preferences.background.into(), rect: [100, 50, 924, 718], x: 548, y: 206,
                 keyed: false, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
@@ -864,6 +878,7 @@ mod tests {
     fn a_full_screen_game_menu_does_not_take_the_worlds_draws_with_it() {
         let build = civ3_sys::Build::PcGames;
         let f = Frame {
+            overlay_draws: 0..0,
             draws: vec![fill(0, 0, 1024, 768), fill(0, 0, 1024, 768)],
             forms: vec![(0x66_B3D8, 1, (0, 0), (1024, 768)), (0x66_DD80, 2, (0, 0), (1024, 768))],
             form_draws: vec![(1, 0..1), (2, 1..2)],
@@ -902,6 +917,7 @@ mod tests {
         // The full-window backdrop and the title, a setup screen over it,
         // a popup over that.
         let f = Frame {
+            overlay_draws: 0..0,
             draws: vec![fill(0, 0, 1920, 1080), fill(x, y, 1024, 768), fill(x, y, 1024, 768), fill(x + 262, y + 234, 500, 300)],
             forms: vec![(0x11, 1, (0, 0), (1920, 1080)), (0x22, 2, (x, y), (1024, 768)), (0x33, 3, (x + 262, y + 234), (500, 300))],
             form_draws: vec![(1, 0..2), (2, 2..3), (3, 3..4)],
@@ -910,7 +926,7 @@ mod tests {
         assert_eq!(menu_popup(&f, 3, size), Some((3, [x + 262, y + 234, 500, 300])));
         assert_eq!(menu_popup(&f, 2, size), None);
         // Nothing under it but the backdrop: no menu to be over.
-        let alone = Frame { draws: vec![fill(0, 0, 1920, 1080), fill(x, y, 500, 300)], forms: vec![(0x11, 1, (0, 0), (1920, 1080)), (0x33, 3, (x, y), (500, 300))],
+        let alone = Frame { overlay_draws: 0..0, draws: vec![fill(0, 0, 1920, 1080), fill(x, y, 500, 300)], forms: vec![(0x11, 1, (0, 0), (1920, 1080)), (0x33, 3, (x, y), (500, 300))],
             form_draws: vec![(1, 0..1), (3, 1..2)], underlay_draws: vec![] };
         assert_eq!(menu_popup(&alone, 3, size), None);
     }
@@ -932,7 +948,7 @@ mod tests {
             let from = all.len();
             all.extend(draws);
             let to = all.len();
-            Frame { draws: all, forms: vec![(0x11, 1, (0, 0), size), (0x22, 2, (x, y), (1024, 768))],
+            Frame { overlay_draws: 0..0, draws: all, forms: vec![(0x11, 1, (0, 0), size), (0x22, 2, (x, y), (1024, 768))],
                 form_draws: vec![(1, 0..n), (2, from..to)], underlay_draws: vec![] }
         };
         // Player Setup, Load Scenario, Game setup: full 1024 by 768 forms.
@@ -967,7 +983,7 @@ mod tests {
             let mut draws = title.clone();
             draws.extend(own);
             let to = draws.len();
-            Frame { draws, forms: vec![(0x11, 1, (0, 0), size), (0x66_D1F0, 2, (0, 0), size)],
+            Frame { overlay_draws: 0..0, draws, forms: vec![(0x11, 1, (0, 0), size), (0x66_D1F0, 2, (0, 0), size)],
                 form_draws: vec![(1, 0..n), (2, n..to)], underlay_draws: vec![] }
         };
         let black = ScreenDraw::Fill { rect: [0, 0, 3274, 2048], rgb: [0, 0, 0], alpha: 255, clip };
@@ -1192,6 +1208,7 @@ mod tests {
         for &(vtable, name) in civ3_sys::ui_hooks::screen_forms(build) {
             let canvas = 0x710000;
             let base = Frame {
+                overlay_draws: 0..0,
                 forms: vec![(0x66_B3D8, 1, (0, 0), size), (vtable, canvas, (448, 156), (1024, 768))],
                 draws: vec![fill(0, 0, 1920, 1080), fill(448, 156, 1024, 768)],
                 form_draws: vec![(1, 0..1), (canvas, 1..2)],
@@ -1218,6 +1235,7 @@ mod tests {
         let size = (1920, 1080);
         let screen_canvas = 0x710000;
         let mut frame = Frame {
+            overlay_draws: 0..0,
             forms: vec![(0x66_B3D8, 1, (0, 0), size), (0x66_F420, screen_canvas, (0, 0), size)],
             draws: vec![fill(0, 0, 1920, 1080), fill(448, 156, 1024, 768)],
             form_draws: vec![(1, 0..1), (screen_canvas, 1..2)], underlay_draws: vec![0..1],

@@ -156,6 +156,9 @@ pub struct Frame {
     pub form_draws: Vec<(u32, std::ops::Range<usize>)>,
     /// The draws of underlays (the map canvas: drawn under the fog of war).
     pub underlay_draws: Vec<std::ops::Range<usize>>,
+    /// The draws a present made over everything ([`Layer::Overlay`]: the
+    /// tooltip), the last ones (empty: none).
+    pub overlay_draws: std::ops::Range<usize>,
 }
 
 /// The game's colour key as 8-bit RGB (0x7C1F).
@@ -491,13 +494,17 @@ impl UiModel {
         for pieces in layers {
             let pieces = pieces.as_ref();
             match pieces.last().map(|p| &p.layer) {
-                Some(Layer::Screen(_) | Layer::Overlay(_)) => {
+                Some(last @ (Layer::Screen(_) | Layer::Overlay(_))) => {
+                    let start = frame.draws.len();
                     // In pieces, each has what reaches into it.
                     let split = pieces.len() > 1;
                     for p in pieces {
                         if let Layer::Screen(ops) | Layer::Overlay(ops) = &p.layer {
                             frame.draws.extend(ops.iter().cloned().filter_map(|op| screen_draw(op, (0, 0), p.region)).filter(|d| !split || reaches_clip(d)));
                         }
+                    }
+                    if matches!(last, Layer::Overlay(_)) {
+                        frame.overlay_draws = start..frame.draws.len();
                     }
                 }
                 Some(&Layer::Form { canvas, vtable, origin, size, .. }) => self.compose(&mut frame, canvas, vtable, origin, size, pieces),
@@ -2063,6 +2070,8 @@ mod tests {
         // of its rectangle outside a paint, box and text.
         present(&mut m, Some((100, "Fortify")), at(100));
         assert_eq!((texts(&m.shown_frame()), boxes(&m.shown_frame())), (vec!["Fortify".to_string()], 1));
+        // (Its rectangle: what the present drew over everything.)
+        assert_eq!(crate::interface_parts::tooltip(&m.shown_frame()), Some([100, 500, 150, 14]));
         // The button is painted (its rectangle): the tooltip stays whole.
         paint(&mut m, Some((100, "Fortify")), [100, 520, 132, 552]);
         assert_eq!((texts(&m.shown_frame()), boxes(&m.shown_frame())), (vec!["Fortify".to_string()], 1));
@@ -2078,6 +2087,7 @@ mod tests {
         assert_eq!((texts(&m.shown_frame()), boxes(&m.shown_frame())), (vec!["Bombard".to_string()], 1));
         // Off the buttons: its place presented with no tooltip.
         present(&mut m, None, at(300));
+        assert_eq!(crate::interface_parts::tooltip(&m.shown_frame()), None);
         assert!(texts(&m.shown_frame()).is_empty());
         assert!(texts(&m.frame()).is_empty());
         present(&mut m, None, None);

@@ -168,7 +168,7 @@ pub fn from_draw(frame: &Frame, first: usize) -> Frame {
     draws.extend(frame.draws[first.min(frame.draws.len())..].iter().cloned());
     let mut underlay_draws = vec![0..n];
     underlay_draws.extend(frame.underlay_draws.iter().filter(|r| r.start >= first).map(|r| r.start - first + n..r.end - first + n));
-    Frame { draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws }
+    Frame { overlay_draws: 0..0, draws, forms: frame.forms.clone(), form_draws: Vec::new(), underlay_draws }
 }
 
 /// Where the menus start in `frame`'s draws, over the game's main screen
@@ -210,6 +210,7 @@ pub fn split(frame: &Frame, at: usize) -> (Frame, Frame) {
     let part = |range: std::ops::Range<usize>| {
         let clip = |r: &std::ops::Range<usize>| r.start.max(range.start)..r.end.min(range.end);
         Frame {
+            overlay_draws: 0..0,
             draws: frame.draws[range.clone()].to_vec(),
             forms: frame.forms.clone(),
             form_draws: frame.form_draws.iter().map(|(c, r)| (*c, clip(r))).filter(|(_, r)| !r.is_empty()).map(|(c, r)| (c, r.start - range.start..r.end - range.start)).collect(),
@@ -1153,6 +1154,7 @@ mod tests {
         let fill = |i| ScreenDraw::Fill { rect: [i, 0, 1, 1], rgb: [0; 3], alpha: 255, clip: [0; 4] };
         let full = (1920, 1080);
         let frame = Frame {
+            overlay_draws: 0..0,
             draws: (0..10).map(fill).collect(),
             forms: vec![
                 (0x66b3d8, 1, (0, 0), full),
@@ -1899,6 +1901,7 @@ mod status_target_tests {
         };
         let canvas = 0x9F_DD84;
         let mut frame = Frame {
+            overlay_draws: 0..0,
             draws: vec![
                 // A portrait on another canvas must not become a target.
                 image(742, 514, "C:/Civ3/Art/units/units_32.pcx"),

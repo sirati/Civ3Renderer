@@ -2050,6 +2050,9 @@ fn publish(
                 _ => None,
             },
             reachable,
+            // The tooltip over the map's own screen (its panels and the
+            // unit's orders), which the viewer arranges nothing around.
+            tooltip: ui.as_ref().filter(|_| on_map).and_then(crate::interface_parts::tooltip),
             // The Load Scenario screen at the window's left, its scenario's
             // world beside it.
             beside: match shown {
