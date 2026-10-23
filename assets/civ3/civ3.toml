@@ -835,6 +835,7 @@ sample_from = "box"
 [images.movement_led]
 source = "Art/interface/MovementLED.pcx"
 transparent = [255]
+indexed = false
 
 [sheets.movement_led]
 image = "movement_led"
@@ -1796,7 +1797,7 @@ anchor = [-1, -1]
 group = "Viewer@pointer_ghost"
 
 [images.viewer_arrow]
-source = "arrow:255,220,0,255:33x48"
+source = "gilded_arrow:248,194,56,255:33x48"
 
 [sheets.viewer_arrow]
 image = "viewer_arrow"

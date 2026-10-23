@@ -771,6 +771,7 @@ pub struct Piece {
     pub at: (i32, i32),
     /// 0 alpha, else as `scene::FreeSprite::scale_den`.
     pub scale_den: u32,
+    pub tint: u32,
     /// The named palette its indexed art is drawn with (a palette of the
     /// description; empty: none).
     pub palette: String,
@@ -778,7 +779,7 @@ pub struct Piece {
 
 impl Piece {
     fn new(part: Part, set: String, at: (i32, i32)) -> Piece {
-        Piece { part, set, phase: 0, sprite: None, smoke: None, at, scale_den: 0, palette: String::new() }
+        Piece { part, set, phase: 0, sprite: None, smoke: None, at, scale_den: 0, tint: 0, palette: String::new() }
     }
 }
 
@@ -805,7 +806,7 @@ pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<
     if let (Some(rings), false, false) = (rings, in_city, u.civ == world.player) {
         let relation = world.relations.get(u.civ.max(0) as usize).copied().unwrap_or(civ3_sys::world::Relation::None);
         if let Some((name, scale_den)) = rings.sprite(relation) {
-            out.push(Piece { scale_den, ..Piece::new(Part::Ring, name, (mx - 64, my - 32)) });
+            out.push(Piece { scale_den, tint: rings.tint(relation), ..Piece::new(Part::Ring, name, (mx - 64, my - 32)) });
         }
     }
     if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
@@ -922,25 +923,33 @@ pub fn place(
     memory: &mut UnitMemory,
     scene: &mut Scene,
 ) {
+    place_accessible(world, view, art, compiled, rings, memory, scene, &Default::default());
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn place_accessible(
+    world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &Compiled,
+    rings: Option<&crate::rings::Rings>, memory: &mut UnitMemory, scene: &mut Scene,
+    accessibility: &viewer_settings::accessibility::Accessibility,
+) {
     let (units_pass, under_units) = unit_passes(compiled);
     // (A description without unit layers: all free.)
     let layered = compiled.layer_index("unit_body").is_some();
     let shape = scene.shape;
     let units: Vec<&Civ3Unit> = world.units.iter().filter(|u| u.visible).collect();
     let slots = if layered { slots(world, view, &units, (shape.cols, shape.rows)) } else { vec![None; units.len()] };
-    let invert = tile_render::Blend::Invert.scale_den();
     log::trace!("units: {} on layers, {} as free sprites", slots.iter().filter(|s| s.is_some()).count(), slots.iter().filter(|s| s.is_none()).count());
     memory.begin();
     let mut free_tail = false;
     for (u, slot) in units.into_iter().zip(slots) {
         let (col, row) = ((u.x >> 1) as u32, u.y as u32);
-        let pieces = pieces(world, art, u, rings);
+        let pieces = accessible_pieces(pieces(world, art, u, rings), accessibility);
         let pieces = memory.drawable(world, art, compiled, u, pieces);
-        free_tail |= slot.is_none() || pieces.iter().any(|p| smoke_set(compiled, p).is_some());
+        free_tail |= accessibility.hud_scale() != 1.0 || slot.is_none() || pieces.iter().any(|p| smoke_set(compiled, p).is_some());
         for p in pieces {
             // Inverting rings under the units (a layer cannot invert).
-            let Some(slot) = slot.filter(|_| !free_tail && p.scale_den != invert) else {
-                let after = if p.scale_den == invert { under_units } else { units_pass };
+            let Some(slot) = slot.filter(|_| !free_tail && p.part != Part::Ring) else {
+                let after = if p.part == Part::Ring { under_units } else { units_pass };
                 scene.sprites.extend(free_sprite(compiled, &p, after));
                 scene.sprites.extend(smoke_free_sprite(compiled, &p, after));
                 continue;
@@ -1088,7 +1097,7 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
         ticks_per_frame: 1,
         scale_den: p.scale_den,
         blend: scene::SpriteBlend::Alpha,
-        tint: 0,
+        tint: p.tint,
         zoom_art: 0,
         zoom: (0, 0),
         zoom_offset: (0, 0),
@@ -1119,13 +1128,17 @@ fn smoke_free_sprite(compiled: &Compiled, p: &Piece, after: u32) -> Option<scene
 /// rings under it): for comparing the two, and for a description without
 /// unit layers.
 pub fn free_sprites(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>) -> Vec<scene::FreeSprite> {
+    free_sprites_accessible(world, art, compiled, rings, &Default::default())
+}
+
+pub fn free_sprites_accessible(world: &Civ3World, art: &mut UnitArt, compiled: &Compiled, rings: Option<&crate::rings::Rings>, accessibility: &viewer_settings::accessibility::Accessibility) -> Vec<scene::FreeSprite> {
     let (units_pass, under_units) = unit_passes(compiled);
     let mut out = Vec::new();
     let mut memory = UnitMemory::default();
     for u in world.units.iter().filter(|u| u.visible) {
-        let pieces = pieces(world, art, u, rings);
+        let pieces = accessible_pieces(pieces(world, art, u, rings), accessibility);
         for p in memory.drawable(world, art, compiled, u, pieces) {
-            let after = if p.scale_den == tile_render::Blend::Invert.scale_den() { under_units } else { units_pass };
+            let after = if p.part == Part::Ring { under_units } else { units_pass };
             out.extend(free_sprite(compiled, &p, after));
             out.extend(smoke_free_sprite(compiled, &p, after));
         }
@@ -1221,11 +1234,67 @@ fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<Piece> {
     }
     // Stack lines: one per unit on the tile (up to 8), when there are
     // several and the unit is not moving.
-    if !u.always_on_top {
-        let n = world.unit_tiles.iter().filter(|&&(x, y, c)| x == u.x && y == u.y && c < 0).count().clamp(1, 8);
-        if n > 1 {
-            out.push(Piece::new(Part::Stack, format!("UnitHud_stack/{n}"), at));
+    if let Some(n) = stack_count(world, u) {
+        out.push(Piece::new(Part::Stack, format!("UnitHud_stack/{}", n.min(8)), at));
+    }
+    out
+}
+
+/// The exact native stack-line eligibility and count, without the art's
+/// eight-line cap. unit_tiles is the game's per-tile list, including units
+/// covered by its displayed representative, excluding contained units.
+pub fn stack_count(world: &Civ3World, u: &Civ3Unit) -> Option<usize> {
+    if u.always_on_top || world.unit_type_stats.get(u.unit_type.max(0) as usize).is_none() { return None; }
+    let n = world.unit_tiles.iter().filter(|&&(x, y, c)| x == u.x && y == u.y && c < 0).count();
+    (n > 1).then_some(n)
+}
+
+fn accessible_pieces(mut pieces: Vec<Piece>, a: &viewer_settings::accessibility::Accessibility) -> Vec<Piece> {
+    if a.stack_count { pieces.retain(|p| p.part != Part::Stack); }
+    let scale = a.hud_scale();
+    if scale != 1.0 {
+        for p in pieces.iter_mut().filter(|p| matches!(p.part, Part::Bar | Part::Frame | Part::Led | Part::Stack)) {
+            let (group, index) = p.set.rsplit_once('/').unwrap();
+            p.set = format!("{group}@size{}/{index}", a.hud_size.min(3));
+            // The prepared sheet scales about the bar's bottom centre.
+            // Keep its world origin unchanged, including in reduced views
+            // where origins halve but the native HUD retains its size.
         }
+    }
+    pieces
+}
+
+/// World text and plates use the same font and translucent brown/black
+/// backing as city labels. Each native reduced view gets its own layout.
+pub fn stack_items(world: &Civ3World, reduced: bool, a: &viewer_settings::accessibility::Accessibility, env: &mut dyn crate::city_labels::Env) -> Vec<crate::ui_screen::Item> {
+    use crate::{city_labels::LabelOp, text::TextRun, ui_screen::Item};
+    if !a.stack_count { return Vec::new(); }
+    let height = (11.0 * a.hud_scale()).round() as i32;
+    let pad = (2.0 * a.hud_scale()).round() as i32;
+    let font = civ3_assets::fonts::FontStyle { face: crate::city_labels::FACE.into(), height, weight: 700, italic: false };
+    let clip = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
+    let mut out = Vec::new();
+    let mut shown = BTreeSet::new();
+    for u in world.units.iter().filter(|u| u.visible) {
+        let Some(n) = stack_count(world, u) else { continue };
+        if !shown.insert((u.x, u.y)) { continue; }
+        let text = format!("x{n}");
+        let width = env.text_width(&font, &text);
+        let member = army_member(world, u).filter(|_| !u.moving).unwrap_or(u);
+        let div = if reduced { 2 } else { 1 };
+        // The HUD occupies the unit's left; put the count above the right
+        // edge of the disc so its plate does not cover the unit's body.
+        let (x, y) = (member.pixel.0 / div + 16, member.pixel.1 / div - 18 - pad);
+        for (rect, rgb, alpha) in [([x-pad-1, y-height-pad-1, width+2*pad+2, height+2*pad+2], [0, 0, 0], 176),
+            ([x-pad, y-height-pad, width+2*pad, height+2*pad], [74, 41, 41], 176)] {
+            out.extend(LabelOp::Fill { rect, rgb, alpha }.draws((0, 0), clip).into_iter().filter_map(|d| match d {
+                crate::ui::ScreenDraw::Fill { rect, rgb, alpha, clip } => Some(Item::Element(menu::screen::Element::Fill { rect, rgb, alpha, clip }, true)), _ => None,
+            }));
+        }
+        let run = TextRun { x, y, face: font.face.clone(), height: -height, weight: 700, italic: false, underline: false, color: [248; 3], text, backdrop: None };
+        // The dark shadow keeps the white glyphs legible over light terrain.
+        out.push(Item::Text(TextRun { x: x+1, y: y+1, color: [0; 3], ..run.clone() }, clip, true));
+        out.push(Item::Text(run, clip, true));
     }
     out
 }
@@ -1337,6 +1406,30 @@ pub mod hud {
         let stacks: Vec<String> = (2..=8).map(|n| format!("{WHITE}:{},0,4,1*{n},0,2", 4 * (n - 2))).collect();
         let _ = writeln!(out, "[images.unit_hud_stack]\nsource = \"rects:28x15;{}\"\n", stacks.join(";"));
         sheet(&mut out, ("unit_hud_stack", "UnitHud_stack"), (4, 15), 7, (5, 26), 2);
+        // Keep the original sets byte-for-byte at 1x. Additional sheets
+        // share the source pixels and carry the enlarged anchors as well.
+        let base: toml::Table = toml::from_str(&out).expect("generated HUD description");
+        for (index, scale) in viewer_settings::accessibility::HUD_SCALES.into_iter().enumerate().skip(1) {
+            let mut sheets = toml::Table::new();
+            for (name, original) in base["sheets"].as_table().unwrap() {
+                let mut sheet = original.as_table().unwrap().clone();
+                let scaled = |key: &str| toml::Value::Array(sheet[key].as_array().unwrap().iter().map(|v|
+                    toml::Value::Integer((v.as_integer().unwrap() as f32 * scale).round() as i64)).collect());
+                let resize = scaled("cell");
+                let anchor = toml::Value::Array(sheet["anchor"].as_array().unwrap().iter().enumerate().map(|(axis, v)| {
+                    let pivot = [7.0, 24.0][axis];
+                    toml::Value::Integer((pivot + (v.as_integer().unwrap() as f32 - pivot) * scale).round() as i64)
+                }).collect());
+                sheet.insert("resize".into(), resize);
+                sheet.insert("anchor".into(), anchor);
+                let group = format!("{}@size{index}", sheet["group"].as_str().unwrap());
+                sheet.insert("group".into(), group.into());
+                sheets.insert(format!("{name}_size{index}"), sheet.into());
+            }
+            let mut extra = toml::Table::new();
+            extra.insert("sheets".into(), sheets.into());
+            out.push_str(&toml::to_string(&extra).unwrap());
+        }
         out
     }
 }
@@ -1344,6 +1437,60 @@ pub mod hud {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accessibility_hud_geometry_and_stack_counts() {
+        use viewer_settings::accessibility::Accessibility;
+        let mut world = world();
+        let u = Civ3Unit { x: 4, y: 6, visible: true, state: STATE_FORTIFIED, ..Default::default() };
+        world.unit_tiles = vec![(4, 6, -1), (4, 6, -1), (4, 6, 9), (8, 8, -1)];
+        assert_eq!(stack_count(&world, &u), Some(2));
+        assert_eq!(stack_count(&world, &Civ3Unit { always_on_top: true, ..u.clone() }), None);
+        let original = hud(&world, &u, (100, 100));
+        assert!(original.iter().any(|p| p.part == Part::Stack && p.set.ends_with("/2")));
+        assert_eq!(accessible_pieces(original.clone(), &Accessibility::default()), original);
+        let desc: toml::Table = toml::from_str(&hud::description()).unwrap();
+        for (index, scale) in viewer_settings::accessibility::HUD_SCALES.into_iter().enumerate().skip(1) {
+            let a = Accessibility { hud_size: index, stack_count: true, ..Default::default() };
+            let changed = accessible_pieces(original.clone(), &a);
+            assert!(!changed.iter().any(|p| p.part == Part::Stack));
+            for p in &changed {
+                let old = original.iter().find(|q| q.part == p.part).unwrap();
+                assert_eq!(p.at, old.at, "world origins stay attached at both native downscales");
+                let group = p.set.rsplit_once('/').unwrap().0;
+                let (_, sheet) = desc["sheets"].as_table().unwrap().iter().find(|(_, s)| s["group"].as_str() == Some(group)).unwrap();
+                for axis in 0..2 {
+                    let cell = sheet["cell"][axis].as_integer().unwrap();
+                    assert_eq!(sheet["resize"][axis].as_integer().unwrap(), (cell as f32*scale).round() as i64);
+                }
+                if p.part == Part::Bar {
+                    let ax = sheet["anchor"][0].as_integer().unwrap() as f32;
+                    let ay = sheet["anchor"][1].as_integer().unwrap() as f32;
+                    assert!((ax+scale-7.0).abs() <= 0.5);
+                    assert_eq!(ay + sheet["resize"][1].as_integer().unwrap() as f32, 24.0);
+                }
+            }
+        }
+        struct Env;
+        impl crate::city_labels::Env for Env {
+            fn text_width(&mut self, f: &civ3_assets::fonts::FontStyle, t: &str) -> i32 { f.height*t.len() as i32/2 }
+            fn table_color(&mut self, _: i32) -> [u8; 3] { [0; 3] }
+            fn sprite_width(&mut self, _: &str, _: [i32; 4]) -> i32 { 0 }
+        }
+        world.units = vec![u.clone(), u.clone()];
+        for count in [2, 3, 12] {
+            world.unit_tiles = vec![(4, 6, -1); count];
+            for reduced in [false, true] {
+                let a = Accessibility { stack_count: true, hud_size: 2, ..Default::default() };
+                let items = stack_items(&world, reduced, &a, &mut Env);
+                let texts: Vec<_> = items.iter().filter_map(|i| if let crate::ui_screen::Item::Text(t, _, _) = i { Some(t) } else { None }).collect();
+                assert_eq!(texts.len(), 2, "one count per tile, plus its shadow");
+                assert!(texts.iter().all(|t| t.text == format!("x{count}") && t.height == -22));
+                assert!(accessible_pieces(hud(&world, &u, (0, 0)), &a).iter().all(|p| p.part != Part::Stack));
+                assert!(hud(&world, &u, (0, 0)).iter().any(|p| p.part == Part::Stack && p.set.ends_with(&format!("/{}", count.min(8)))));
+            }
+        }
+    }
 
     #[test]
     #[ignore = "requires read-only CIV3_INSTALL assets"]

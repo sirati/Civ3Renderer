@@ -6,7 +6,7 @@
 //! `CIV3R_UNIT_RINGS`: `on` for the defaults (war red, defence blue, peace
 //! green, 2 px), or comma-separated `war=`, `defense=`, `peace=`, `none=`
 //! with `R,G,B` in `;`-separated form (`war=255;0;0`), `invert` or `off`,
-//! and `width=N`. Unset or `off`: no rings.
+//! and `width=N`. Unset uses Accessibility preferences; `off` disables rings.
 
 use civ3_sys::world::Relation;
 
@@ -40,9 +40,35 @@ impl Default for Rings {
     }
 }
 
-const KINDS: [(&str, Relation); 4] = [("war", Relation::War), ("defense", Relation::Defense), ("peace", Relation::Peace), ("none", Relation::None)];
-
 impl Rings {
+    /// A present environment variable overrides even an enabled setting.
+    /// Invalid overrides retain the old behaviour: log and disable rings.
+    pub fn configured(settings: &viewer_settings::accessibility::Accessibility, spec: Option<&str>) -> Option<Self> {
+        if let Some(spec) = spec {
+            return Self::parse(spec).inspect_err(|e| log::warn!("CIV3R_UNIT_RINGS: {e}")).ok().flatten();
+        }
+        let style = |c: &viewer_settings::accessibility::RingColor| Some(if c.invert { RingStyle::Invert } else { RingStyle::Color(c.color) });
+        settings.unit_rings.then(|| Self { width: settings.ring_width.clamp(1, 6), war: style(&settings.war),
+            defense: style(&settings.allied), peace: style(&settings.peace), none: None })
+    }
+
+    /// White coverage masks shared by every colour and relation. All widths
+    /// are resident, so accepting Preferences never requires new ring art.
+    pub fn all_description() -> String {
+        Self::mask_image() + &(1..=8).map(Self::mask_sheet).collect::<String>()
+    }
+
+    fn mask_image() -> String {
+        // Isolate precisely the native team-disc ink (palette index 247),
+        // including its empty centre, before generating its outer outline.
+        let transparent = (0..=255).filter(|&i| i != 247).map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        format!("\n[images.unit_ring_mask]\nsource = \"Art/Cursor.pcx\"\ntransparent = [{transparent}]\nindexed = false\n")
+    }
+
+    fn mask_sheet(width: u32) -> String {
+        let width = width.clamp(1, 8);
+        format!("\n[sheets.unit_ring_width{width}]\nimage = \"unit_ring_mask\"\norigin = [259, 155]\ncell = [128, 64]\ngrid = [1, 1]\ngroup = \"UnitRing@width{width}\"\noutline = {{ width = {width}, color = [255, 255, 255, 255] }}\n\n")
+    }
     /// From `CIV3R_UNIT_RINGS`; `None` if unset, `off` or wrong (logged).
     pub fn from_env() -> Option<Rings> {
         let spec = std::env::var("CIV3R_UNIT_RINGS").ok()?;
@@ -94,32 +120,28 @@ impl Rings {
         }
     }
 
-    /// Render description entries: `UnitRing@<kind>/0`, outlines of the
+    /// Render description entries: `UnitRing@width<N>/0`, outlines of the
     /// team disc (§10.6), anchored like it.
     pub fn description(&self) -> String {
-        let mut out = String::from("\n# Unit rings (generated, CIV3R_UNIT_RINGS).\n");
-        for (kind, relation) in KINDS {
-            let Some(style) = self.style(relation) else { continue };
-            // An inverting ring only needs its shape.
-            let [r, g, b] = match style {
-                RingStyle::Color(c) => c,
-                RingStyle::Invert => [255, 255, 255],
-            };
-            out += &format!(
-                "[sheets.unit_ring_{kind}]\nimage = \"team_disc@0\"\norigin = [259, 155]\ncell = [128, 64]\ngrid = [1, 1]\ngroup = \"UnitRing@{kind}\"\noutline = {{ width = {}, color = [{r}, {g}, {b}, 255] }}\n\n",
-                self.width
-            );
-        }
-        out
+        Self::mask_image() + &Self::mask_sheet(self.width)
     }
 
     /// The ring for a unit of a civ the viewer stands `relation` with: its
     /// sprite name and `scale_den` (inverting or not), if it gets one.
     pub fn sprite(&self, relation: Relation) -> Option<(String, u32)> {
         let style = self.style(relation)?;
-        let kind = KINDS.iter().find(|k| k.1 == relation)?.0;
-        let scale_den = if style == RingStyle::Invert { tile_render::Blend::Invert.scale_den() } else { 0 };
-        Some((format!("UnitRing@{kind}/0"), scale_den))
+        let scale_den = match style {
+            RingStyle::Invert => tile_render::Blend::Invert.scale_den(),
+            RingStyle::Color(color) => tile_render::Blend::Subpixel { color }.scale_den(),
+        };
+        Some((format!("UnitRing@width{}/0", self.width.clamp(1, 8)), scale_den))
+    }
+
+    pub fn tint(&self, relation: Relation) -> u32 {
+        match self.style(relation) {
+            Some(RingStyle::Color(color)) => tile_render::Blend::Subpixel { color }.tint(),
+            _ => 0,
+        }
     }
 }
 
@@ -133,9 +155,27 @@ mod tests {
         assert_eq!(Rings::parse("on").unwrap(), Some(Rings::default()));
         let r = Rings::parse("war=invert,peace=off,none=10;20;30,width=3").unwrap().unwrap();
         assert_eq!((r.war, r.peace, r.none, r.width), (Some(RingStyle::Invert), None, Some(RingStyle::Color([10, 20, 30])), 3));
-        assert!(r.description().contains("group = \"UnitRing@none\""));
-        assert!(!r.description().contains("UnitRing@peace"));
+        assert!(r.description().contains("group = \"UnitRing@width3\""));
         assert!(Rings::parse("war=1;2").is_err());
         assert!(Rings::parse("width=0").is_err());
+    }
+
+    #[test]
+    fn settings_and_explicit_environment_precedence() {
+        use viewer_settings::accessibility::Accessibility;
+        let mut a = Accessibility::default();
+        assert_eq!(Rings::configured(&a, None), None);
+        assert_eq!(Rings::configured(&a, Some("on")), Some(Rings::default()));
+        a.unit_rings = true;
+        a.war.color = [32, 208, 216];
+        a.allied.invert = true;
+        a.ring_width = 5;
+        let r = Rings::configured(&a, None).unwrap();
+        assert_eq!((r.war, r.defense, r.peace, r.width), (Some(RingStyle::Color(a.war.color)), Some(RingStyle::Invert), Some(RingStyle::Color(a.peace.color)), 5));
+        assert_eq!(r.tint(Relation::War), 0x20d0d8);
+        assert_eq!(r.sprite(Relation::Defense).unwrap().1, tile_render::Blend::Invert.scale_den());
+        for spec in ["", "off", "invalid"] { assert_eq!(Rings::configured(&a, Some(spec)), None); }
+        let env = "war=invert,none=12;34;56,width=8";
+        assert_eq!(Rings::configured(&a, Some(env)), Rings::parse(env).unwrap());
     }
 }

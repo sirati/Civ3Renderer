@@ -300,8 +300,9 @@ struct Compiler {
     files: civ3r_sync::Latest<(ArtFolders, civ3_assets::GameFiles)>,
     name: String,
     text: String,
-    /// Rings around foreign units (their art is in `text`).
-    rings: Option<crate::rings::Rings>,
+    /// An explicit environment override, parsed once. Some(None) disables
+    /// rings; None leaves the decision to accepted settings.
+    ring_override: Option<Option<crate::rings::Rings>>,
     /// The largest atlas page the renderer takes (`assets::compile_as`).
     max_page: u32,
     /// The largest sprite the art may grow by: a picture of the game's
@@ -388,8 +389,9 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let install = install_root()?;
     text += crate::loading_cursor::description();
     // Rings around foreign units, if asked for (`crate::rings`).
-    let rings = crate::rings::Rings::from_env();
-    text += &rings.as_ref().map(|r| r.description()).unwrap_or_default();
+    let ring_override = std::env::var("CIV3R_UNIT_RINGS").ok().map(|spec|
+        crate::rings::Rings::configured(&Default::default(), Some(&spec)));
+    text += &crate::rings::Rings::all_description();
     // The generated pictures of our preferences tabs (`crate::prefs`).
     text += &crate::prefs::Prefs::description();
     // What the map shows while a command waits for its tile (`crate::targeting`).
@@ -415,7 +417,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     });
     // (Screen pictures are at most the game's screen.)
     let largest = crate::game_window::game_screen().map_or(0, |(w, h)| w.max(h));
-    let compiler = Compiler { install, files: civ3r_sync::Latest::new(), name, text, rings, max_page, largest };
+    let compiler = Compiler { install, files: civ3r_sync::Latest::new(), name, text, ring_override, max_page, largest };
     let folders = ArtFolders::of(&game);
     // Playing in the viewer's own views while a menu is open
     // (`crate::modal`, `CIV3R_MODAL_INPUT=off`: not).
@@ -1473,6 +1475,11 @@ fn publish(
             Shown::Map(world, view) => WorldItems::new(view.zoomed_out, |reduced| crate::targeting::label_items(world, reduced, &mut label_env)),
             _ => WorldItems::default(),
         };
+        let stack_items = match shown {
+            Shown::Map(world, view) => WorldItems::new(view.zoomed_out, |reduced|
+                units::stack_items(world, reduced, &prefs.settings().accessibility, &mut label_env)),
+            _ => WorldItems::default(),
+        };
         let notice_items = match shown {
             Shown::Map(_, view) => {
                 use crate::city_labels::Env as _;
@@ -1602,6 +1609,10 @@ fn publish(
         if ui_screen::add_present_art(&target_items, &mut screen_art, &mut fonts, &files, &mut absent_art) {
             recompile = true;
             wanted_for.push("go-to turns");
+        }
+        if ui_screen::add_present_art(&stack_items, &mut screen_art, &mut fonts, &files, &mut absent_art) {
+            recompile = true;
+            wanted_for.push("stack labels");
         }
         // Visible art described before that has not arrived although
         // nothing is being built (an addition that failed or was given
@@ -1836,7 +1847,9 @@ fn publish(
                 if ui.is_none() || world_labels() {
                     scene.sprites = city_site::sprites(world, &compiled);
                 }
-                units::place(world, view, &mut art, &compiled, compiler.rings.as_ref(), &mut unit_memory, &mut scene);
+                let accessibility = &prefs.settings().accessibility;
+                let rings = compiler.ring_override.clone().unwrap_or_else(|| crate::rings::Rings::configured(accessibility, None));
+                units::place_accessible(world, view, &mut art, &compiled, rings.as_ref(), &mut unit_memory, &mut scene, accessibility);
                 crate::effects::place(world, view, &mut art, &compiled, &mut scene);
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
@@ -1923,6 +1936,9 @@ fn publish(
         scene.sprites.extend(labels);
         let under_units = units::unit_passes(&compiled).1;
         scene.sprites.extend(target_items.sprites(&fonts, &compiled, under_units, outlines));
+        let mut stacks = stack_items.sprites(&fonts, &compiled, units::unit_passes(&compiled).0, outlines);
+        for sprite in &mut stacks { sprite.category |= viewer_settings::clean_map::UNITS; }
+        scene.sprites.extend(stacks);
         mark(&mut profile, "ui+label sprites", &mut t);
         // Pictures the game makes itself: the minimap (§17).
         if let Shown::Map(world, _) = shown {
