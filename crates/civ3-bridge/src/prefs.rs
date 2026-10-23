@@ -1670,8 +1670,8 @@ mod tests {
         assert!(p.route(vec![row(true, 450), slide(800), row(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_top, 0.05);
         assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
-        assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
-        assert!(["5%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
+        assert_eq!(p.editing().layout.zoom_box_drop, 0.05);
+        assert_eq!(texts(&p).iter().filter(|s| *s == "5%").count(), 2, "{:?}", texts(&p));
         assert_eq!(p.settings(), p.editing());
         assert!(click(&mut p, 780, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
