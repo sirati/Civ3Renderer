@@ -275,3 +275,35 @@ fn indexed_cover_tests_say_what_testing_every_rectangle_did() {
         assert_eq!(shown_ops(&ops, |op| visible_bounds(op, None), opaque), plain_shown(&ops, |op| visible_bounds(op, None), opaque), "seed {seed}");
     }
 }
+
+#[test]
+fn an_unchanged_canvas_keeps_its_snapshot_and_a_changed_one_or_its_copied_surface_does_not() {
+    let (form, temp) = (300, 400);
+    let mut m = UiModel::new(vec![], vec![]);
+    m.apply(Event::Size { image: temp, size: (10, 10) });
+    let paint = |m: &mut UiModel| {
+        m.apply(Event::PaintBegin);
+        m.apply(Event::Composite { canvas: form, vtable: 1, origin: (0, 0), size: (100, 100), clip: [0, 0, 100, 100], keyed: false });
+        m.apply(Event::CompositeEnd);
+        m.apply(Event::PaintEnd);
+        m.frame().draws
+    };
+    let fill = |rect: [i32; 4], rgb: [u8; 3]| ScreenDraw::Fill { rect, rgb, alpha: 255, clip: [0, 0, 100, 100] };
+    m.apply(Event::Fill { canvas: form, rect: [0, 0, 50, 50], rgb: [1, 1, 1], alpha: 255, clip: None });
+    assert_eq!(paint(&mut m), [fill([0, 0, 50, 50], [1, 1, 1])]);
+    let snapshot = m.presented[&form].clone();
+    assert_eq!(paint(&mut m), [fill([0, 0, 50, 50], [1, 1, 1])]);
+    assert!(Arc::ptr_eq(&snapshot, &m.presented[&form]), "kept");
+    m.apply(Event::Fill { canvas: form, rect: [50, 0, 50, 50], rgb: [2, 2, 2], alpha: 255, clip: None });
+    assert_eq!(paint(&mut m), [fill([0, 0, 50, 50], [1, 1, 1]), fill([50, 0, 50, 50], [2, 2, 2])]);
+    // Cleared and drawn again as it was: the same pixels, whichever list.
+    m.apply(Event::Fill { canvas: form, rect: [0, 0, 100, 100], rgb: [3, 3, 3], alpha: 255, clip: None });
+    assert_eq!(paint(&mut m), [fill([0, 0, 100, 100], [3, 3, 3])]);
+    // A sprite of another surface: what it shows follows that surface.
+    m.apply(Event::Sliced { sprite: 20, image: temp, rect: [0, 0, 10, 10] });
+    m.apply(Event::Blit { sprite: 20, canvas: form, x: 5, y: 5, clip: None, palette: None });
+    m.apply(Event::Fill { canvas: temp, rect: [0, 0, 10, 10], rgb: [4, 4, 4], alpha: 255, clip: None });
+    assert_eq!(paint(&mut m), [fill([0, 0, 100, 100], [3, 3, 3]), fill([5, 5, 10, 10], [4, 4, 4])]);
+    m.apply(Event::Fill { canvas: temp, rect: [0, 0, 10, 10], rgb: [5, 5, 5], alpha: 255, clip: None });
+    assert_eq!(paint(&mut m), [fill([0, 0, 100, 100], [3, 3, 3]), fill([5, 5, 10, 10], [5, 5, 5])]);
+}

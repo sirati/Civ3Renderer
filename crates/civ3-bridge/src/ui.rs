@@ -242,6 +242,9 @@ pub struct UiModel {
     /// screen (each operation with what it resolves to): the frame is made
     /// of these, never of a canvas the game is still painting.
     presented: HashMap<u32, Snapshot>,
+    /// Per snapshot in `presented` of a list copying no other surface: the
+    /// revision of the list it was taken of.
+    presented_from: HashMap<u32, u64>,
     /// What the screen is composed of, bottom to top, as the last paint
     /// composed it (forms later composed on their own update their place).
     order: Vec<Layer>,
@@ -813,11 +816,23 @@ impl UiModel {
                 if self.sizes.get(&canvas) != Some(&size) {
                     Arc::make_mut(&mut self.sizes).insert(canvas, size);
                 }
-                let shown: Vec<_> = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
-                // The same content keeps its snapshot (what the window shows
-                // of it is then known to be unchanged).
-                if self.presented.get(&canvas).is_none_or(|old| **old != shown) {
-                    self.presented.insert(canvas, Arc::new(shown));
+                // A list unchanged since its snapshot, copying no other
+                // surface, shows what the snapshot has (taken anew, every
+                // operation resolved and compared, at every paint, it cost
+                // the game's thread as much as the canvas holds).
+                let list = self.canvases.get(&canvas).map(|ops| (ops.revision(), ops.copies_surfaces()));
+                let unchanged = matches!(list, Some((revision, false)) if self.presented_from.get(&canvas) == Some(&revision) && self.presented.contains_key(&canvas));
+                if !unchanged {
+                    let shown: Vec<_> = self.canvases.get(&canvas).map(|ops| ops.iter().map(|op| (op.clone(), self.resolve(op, 0))).collect()).unwrap_or_default();
+                    // The same content keeps its snapshot (what the window shows
+                    // of it is then known to be unchanged).
+                    if self.presented.get(&canvas).is_none_or(|old| **old != shown) {
+                        self.presented.insert(canvas, Arc::new(shown));
+                    }
+                    match list {
+                        Some((revision, false)) => self.presented_from.insert(canvas, revision),
+                        _ => self.presented_from.remove(&canvas),
+                    };
                 }
                 self.compositing = true;
                 let layer = Layer::Form { canvas, vtable, origin, size, clip, keyed };
@@ -840,6 +855,8 @@ impl UiModel {
                     // every form ever opened. Partial presents keep their
                     // old snapshots alive through `shown`'s Arcs.
                     self.presented.retain(|canvas, _| self.order.iter().any(|layer| matches!(layer, Layer::Form { canvas: c, .. } if c == canvas)));
+                    let presented = &self.presented;
+                    self.presented_from.retain(|canvas, _| presented.contains_key(canvas));
                 }
             }
             Event::PresentBegin => self.presenting = Some(Vec::new()),

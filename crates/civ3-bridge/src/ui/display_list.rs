@@ -55,7 +55,7 @@ fn cells([l, t, r, b]: [i32; 4]) -> Option<((i32, i32), (i32, i32), i64)> {
     Some(((x0, x1), (y0, y1), (i64::from(x1) - i64::from(x0) + 1) * (i64::from(y1) - i64::from(y0) + 1)))
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(super) struct DisplayList {
     /// Oldest first; `None` where an operation was removed.
     slots: Vec<Option<Op>>,
@@ -65,6 +65,28 @@ pub(super) struct DisplayList {
     /// Slots whose bounds are inverted (their corner says nothing about
     /// where they lie): looked at by every search.
     odd: Vec<u32>,
+    /// Changes with every change of what the list holds, unique among all
+    /// lists ever made (a canvas cleared and drawn again never has an
+    /// earlier revision).
+    revision: u64,
+    /// How many operations held copy another surface (what they show
+    /// changes with it).
+    surfaces: usize,
+}
+
+fn next_revision() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+fn copies_surface(op: &Op) -> bool {
+    matches!(op, Op::Image { source: super::Source::Surface { .. }, .. })
+}
+
+impl Default for DisplayList {
+    fn default() -> Self {
+        DisplayList { slots: Vec::new(), live: 0, grid: CellMap::default(), odd: Vec::new(), revision: next_revision(), surfaces: 0 }
+    }
 }
 
 impl std::fmt::Debug for CellHasher {
@@ -92,6 +114,16 @@ impl DisplayList {
         self.slots.iter().flatten()
     }
 
+    /// See `revision`.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Whether an operation held copies another surface.
+    pub fn copies_surfaces(&self) -> bool {
+        self.surfaces > 0
+    }
+
     pub fn first(&self) -> Option<&Op> {
         self.iter().next()
     }
@@ -103,6 +135,8 @@ impl DisplayList {
     pub fn push(&mut self, op: Op) {
         let slot = u32::try_from(self.slots.len()).expect("display lists stay far below 2^32 slots");
         self.index(slot, &op);
+        self.surfaces += usize::from(copies_surface(&op));
+        self.revision = next_revision();
         self.slots.push(Some(op));
         self.live += 1;
     }
@@ -117,8 +151,10 @@ impl DisplayList {
     }
 
     fn kill(&mut self, slot: u32) {
-        if self.slots[slot as usize].take().is_some() {
+        if let Some(op) = self.slots[slot as usize].take() {
             self.live -= 1;
+            self.surfaces -= usize::from(copies_surface(&op));
+            self.revision = next_revision();
         }
     }
 
@@ -132,6 +168,7 @@ impl DisplayList {
         self.grid.clear();
         self.odd.clear();
         self.live = 0;
+        self.surfaces = 0;
         for op in ops {
             self.push(op);
         }
@@ -141,11 +178,13 @@ impl DisplayList {
     /// start (top-left, inclusive) within `starts` or are inverted can be
     /// among them (the caller's promise); the rest are not looked at.
     pub fn remove_where(&mut self, starts: [i32; 4], pred: impl Fn(&Op) -> bool) {
-        let Self { slots, live, grid, odd } = self;
+        let Self { slots, live, grid, odd, revision, surfaces } = self;
         let mut test = |slot: u32| match &slots[slot as usize] {
             Some(op) if pred(op) => {
+                *surfaces -= usize::from(copies_surface(op));
                 slots[slot as usize] = None;
                 *live -= 1;
+                *revision = next_revision();
                 false
             }
             Some(_) => true,
