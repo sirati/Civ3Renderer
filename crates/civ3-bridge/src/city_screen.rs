@@ -278,7 +278,7 @@ pub fn tile_targets(world: &crate::world::Civ3World, frame: &Frame, anchor: Anch
         // An interior rectangle of the diamond; every advertised point is
         // inside this tile. Keep the click itself at the exact tile centre.
         let (l, t, r, b) = ((cx - 32).max(bx).max(visible[0]), (cy - 16).max(by).max(visible[1]), (cx + 32).min(bx + bw).min(visible[2]), (cy + 16).min(by + bh).min(visible[3]));
-        Some(scene::Interactable {
+        Some(scene::Interactable { region: None,
             rect: [l, t, r - l, b - t], anchor: Some([cx, cy]), alt_right_click: false,
             kind: scene::InteractableKind::Button,
             id: (u64::from(*canvas) << 32) | 0x0F00_0000 | index as u64,

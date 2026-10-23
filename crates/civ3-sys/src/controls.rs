@@ -485,6 +485,12 @@ impl Control {
         advisors::cell_kind(self.id) == Some(advisors::CELL_PRODUCTION)
     }
 
+    /// A box of a check box group: its hit cell is the box alone, its
+    /// label is drawn beside it.
+    pub fn check_box(&self) -> bool {
+        self.id >> 32 != 0 && self.id as u32 & 0xF800_0000 == TAG_CHECK
+    }
+
     /// A link from the form's rich-text hit table.
     pub fn text_link(&self) -> bool {
         self.id >> 32 != 0 && self.id as u32 & 0xF800_0000 == TAG_LINK

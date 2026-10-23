@@ -1713,7 +1713,7 @@ mod tests {
         let scene = Scene {
             seq: 1,
             views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
-            interactables: vec![Interactable { alt_right_click: false, id: slider.id, rect: slider.rect, anchor: None, kind: slider.kind }],
+            interactables: vec![Interactable { region: None, alt_right_click: false, id: slider.id, rect: slider.rect, anchor: None, kind: slider.kind }],
             ..Default::default()
         };
         let mut layout = Layout::default();
@@ -1910,7 +1910,7 @@ mod tests {
             let scene = Scene {
                 seq: 1,
                 views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
-                interactables: vec![Interactable { alt_right_click: false, id: target.id, rect: target.rect, anchor: None, kind: InteractableKind::Button }],
+                interactables: vec![Interactable { region: None, alt_right_click: false, id: target.id, rect: target.rect, anchor: None, kind: InteractableKind::Button }],
                 ..Default::default()
             };
             let mut layout = Layout::default();
@@ -2090,7 +2090,7 @@ mod tests {
         let scene = Scene {
             seq: 1,
             views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
-            interactables: vec![Interactable { alt_right_click: false, id: slider.id, rect: slider.rect, anchor: None, kind: slider.kind }],
+            interactables: vec![Interactable { region: None, alt_right_click: false, id: slider.id, rect: slider.rect, anchor: None, kind: slider.kind }],
             ..Default::default()
         };
         let mut layout = Layout::default();
@@ -2234,7 +2234,7 @@ mod tests {
             let scene = Scene {
                 seq: 1,
                 views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
-                interactables: vec![Interactable { alt_right_click: false, id: selected.id, rect: selected.rect, anchor: None, kind: selected.kind }],
+                interactables: vec![Interactable { region: None, alt_right_click: false, id: selected.id, rect: selected.rect, anchor: None, kind: selected.kind }],
                 ..Default::default()
             };
             let mut layout = Layout::default();
