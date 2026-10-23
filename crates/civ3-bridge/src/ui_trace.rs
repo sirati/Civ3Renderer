@@ -325,9 +325,27 @@ fn has_pixels(object: u32) -> bool {
 /// on the form: the HUD over the map).
 fn world_canvas(canvas: u32) -> bool {
     let Some(&build) = BUILD.get() else { return false };
-    let map = build.addresses().main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
-    canvas == map || h::unit_overlay_canvas(build) == Some(canvas)
-        || (build == civ3_sys::Build::PcGames && canvas == 0x9C_7560)
+    let addrs = build.addresses();
+    let map = addrs.main_screen_form + 4 + L::BASE_FORM_DATA_CANVAS;
+    // The map renderer's own image (`bic.Map.Renderer`; PCGames 0x9C7560).
+    let renderer = addrs.bic_data + L::BIC_MAP + L::MAP_RENDERER;
+    canvas == map || canvas == renderer || h::unit_overlay_canvas(build) == Some(canvas)
+}
+
+/// Whether the game's drawing onto `canvas` is left unmirrored: while the
+/// map is shown, the canvases of the world (see [`world_canvas`]) are the
+/// renderer's, which draws all of them from the game's state (terrain,
+/// grid, fog, units, the targeting overlays, city labels: §10.15 and
+/// `crate::targeting`). Mirroring them was work for nothing, and per pixel
+/// for lines: the map grid's 4 lines per tile cost about 20 s per map
+/// redraw under FEX. Text on the map canvas is still mirrored (a few dozen
+/// labels; whether the game's view shows any). `CIV3R_MAP_LABELS=mirror`
+/// and `CIV3R_UI_SKIP=off` mirror the world canvases as before.
+fn rerendered(canvas: u32) -> bool {
+    static MIRRORED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        std::env::var("CIV3R_MAP_LABELS").as_deref() == Ok("mirror") || std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off")
+    });
+    !*MIRRORED && requested_skipping() == Some(true) && world_canvas(canvas) && !title_canvas(canvas)
 }
 
 fn title_canvas(canvas: u32) -> bool {
@@ -825,7 +843,7 @@ fn rect_xywh(at: u32) -> Option<[i32; 4]> {
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
 /// `ct`: the colour table it is drawn through (0: its own palette).
 fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
-    if SCALED_NATIVE.with(Cell::get) { return; }
+    if SCALED_NATIVE.with(Cell::get) || rerendered(canvas) { return; }
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
     // A frame of an FLC animation in its own colours (a leader head).
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
@@ -947,6 +965,7 @@ fn forget_form_surface(image: u32) {
 /// the canvas's clip rectangle (the game's copies keep to it: e.g. a list
 /// box redrawing one row through tiles of its background).
 fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
+    if rerendered(canvas) { return; }
     note_form_surface(from, canvas);
     let (mut src, mut x, mut y) = (src, x, y);
     if let Some([l, t, r, b]) = clip_of(canvas) {
@@ -962,6 +981,7 @@ fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
 }
 
 fn fill(canvas: u32, rect: [i32; 4], color: u32) {
+    if rerendered(canvas) { return; }
     size_of(canvas);
     emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: clip_of(canvas) });
 }
@@ -1102,6 +1122,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         draw(c.canvas, c.sprite, || c.original())
     });
     hook!(sprite_draw_opacity, sites.sprite_draw_opacity, |c| {
+        if rerendered(c.canvas) { return draw(c.canvas, c.sprite, || c.original()); }
         let opacity = crate::ui::sprite_opacity(c.opacity);
         let (cx, cy) = obj::sprite_crop(c.sprite).map_or((0, 0), |p| (p.0, p.1));
         let palette = BUILD.get().and_then(|&b| h::civ_color_table(b, c.ct)).map(|n| menu::screen::PaletteFrom {
@@ -1112,16 +1133,18 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     });
     hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
         // No crop offset: the stored pixels go to (x, y).
-        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
+        if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
         draw(c.dest, c.sprite, || c.original())
     });
     hook!(pcx_draw_onto, sites.pcx_draw_onto, |c| {
+        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
         if let Some((w, hh)) = obj::image_size(c.image) {
             copy(c.image, [0, 0, w, hh], c.dst, c.x as i32, c.y as i32, true);
         }
         draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy, sites.pcx_copy, |c| {
+        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
         size_of(c.dst);
         size_of(c.image);
         let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
@@ -1129,6 +1152,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy_same, sites.pcx_copy_same, |c| {
+        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
         size_of(c.dst);
         size_of(c.image);
         let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
@@ -1136,6 +1160,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy_rect, sites.pcx_copy_rect, |c| {
+        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
         size_of(c.dst);
         size_of(c.image);
         if let Some(src) = rect_xywh(c.rect) {
@@ -1144,6 +1169,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         draw(c.dst, c.image, || c.original())
     });
     hook!(pcx_copy_rects, sites.pcx_copy_rects, |c| {
+        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
         size_of(c.dst);
         size_of(c.image);
         if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
@@ -1183,8 +1209,14 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         draw(c.image, 0, || c.original())
     });
     hook!(pcx_line, sites.pcx_line, |c| {
-        for (x, y) in line_points((c.x1 as i32, c.y1 as i32), (c.x2 as i32, c.y2 as i32)) {
-            fill(c.image, [x, y, 1, 1], c.color);
+        // (The map's grid and range outline go onto the renderer's image:
+        // not mirrored, see `rerendered`.)
+        if !rerendered(c.image) {
+            size_of(c.image);
+            let (rgb, clip) = (rgb555(c.color), clip_of(c.image));
+            for rect in crate::ui::line_runs(&crate::ui::line_points((c.x1 as i32, c.y1 as i32), (c.x2 as i32, c.y2 as i32))) {
+                emit(Event::Fill { canvas: c.image, rect, rgb, alpha: 255, clip });
+            }
         }
         draw(c.image, 0, || c.original())
     });
@@ -1251,7 +1283,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     hook!(text_draw_centered, sites.text_draw_centered, |c| with_text_canvas(c.image, || c.original()));
     hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
     hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
-        emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) });
+        if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
         draw(c.dest, c.sprite, || c.original())
     });
     if let Some(site) = h::flc_load_site(game.build) {
@@ -1436,7 +1468,7 @@ fn shade(c: &h::jgl_shade::Call) -> Option<u32> {
     let rect = if c.rect == 0 { obj::image_size(canvas).map(|(w, hh)| [0, 0, w, hh]) } else { rect_xywh(c.rect) };
     let rect = rect?;
     let alpha = crate::ui::shade_alpha((c.percent as i32).clamp(0, 100) as u32);
-    if alpha != 0 {
+    if alpha != 0 && !rerendered(canvas) {
         emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: clip_of(canvas) });
     }
     Some(canvas)
@@ -1496,7 +1528,7 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
         let mut pen = None;
         with_pen(c.renderer, |p| pen = Some(*p));
         let Some(p) = pen.filter(|p| p.canvas != 0) else { return c.original() };
-        if p.alpha > 0 {
+        if p.alpha > 0 && !rerendered(p.canvas) {
             let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
             for (rect, coverage) in crate::ui::line_fills((x1, y1), (x2, y2), p.width, crate::ui::smooth_lines()) {
                 let alpha = crate::ui::covered_alpha(p.alpha, coverage);
@@ -1515,28 +1547,6 @@ fn with_text_canvas<R>(canvas: u32, f: impl FnOnce() -> R) -> R {
     r
 }
 
-/// The pixels of a 1-pixel line, endpoints included (Bresenham).
-fn line_points((x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> Vec<(i32, i32)> {
-    let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
-    let (sx, sy) = ((x1 - x0).signum(), (y1 - y0).signum());
-    let (mut x, mut y, mut err) = (x0, y0, dx + dy);
-    let mut out = Vec::new();
-    loop {
-        out.push((x, y));
-        if (x == x1 && y == y1) || out.len() > 4096 {
-            return out;
-        }
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            x += sx;
-        }
-        if e2 <= dx {
-            err += dx;
-            y += sy;
-        }
-    }
-}
 
 /// Whether the skipped canvases (the map) are left out: while a game runs.
 /// Between games the title screen is drawn on the same canvas.
@@ -1573,6 +1583,8 @@ pub fn on_map_sprite(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], 
 /// map. `table`: the blend tables. Returns whether the game's own drawing
 /// of it is skipped.
 pub fn on_map_blend(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, scale: [u32; 3], ct: u32) -> bool {
+    // (Nothing is mirrored onto the world's canvases: no tables to look up.)
+    if world_canvas(canvas) { return skips(canvas, sprite); }
     let levels = BUILD.get().and_then(|&b| blend_levels(b, table));
     match levels {
         Some(levels) => {
@@ -1602,7 +1614,7 @@ fn blend_levels(build: civ3_sys::Build, table: u32) -> Option<&'static [u8]> {
 /// A sprite drawn at (x, y) (its stored pixels at the crop offset), its
 /// palette indices as `indices` says.
 fn indexed_blit(sprite: u32, canvas: u32, x: u32, y: u32, indices: menu::screen::Indices, palette: Option<menu::screen::PaletteFrom>) {
-    if SCALED_NATIVE.with(Cell::get) { return; }
+    if SCALED_NATIVE.with(Cell::get) || rerendered(canvas) { return; }
     let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
     emit(Event::IndexedBlit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette, indices });
 }
@@ -1753,3 +1765,4 @@ mod present_snapshot_tests {
         assert_ne!(old.native, new.native, "native metadata participates in the publisher's unchanged key");
     }
 }
+
