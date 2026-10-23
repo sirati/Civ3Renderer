@@ -681,6 +681,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_victory_point_leaves_its_rivers_drawn_over_it() {
+        use crate::world::Civ3Tile;
+        // m15 asks cities, colonies, tile buildings, forts, huts, camps,
+        // ruins and mountains, not victory points (§6.4): the game draws
+        // the river beside a victory marker in pass 4, over its plate
+        // (trace fix1b and its screenshot).
+        let mut world = Civ3World { width: 40, height: 40, ..Default::default() };
+        world.tiles = vec![Civ3Tile { city: -1, resource: -1, ..Default::default() }; 20 * 40];
+        // Vertex (11, 10): a river edge from the tile above (11, 9).
+        let above = world.index(11, 9);
+        world.tiles[above].river = 0x08;
+        let east = world.index(12, 10);
+        world.tiles[east].victory_location = 0;
+        let river = vertex_river(&world, 11, 10);
+        assert!(river.river.is_some() && !river.under_objects);
+        assert_eq!(terrain_buildings(&world, 12, 10).iter().filter(|(layer, _)| *layer == "victory_point").count(), 1);
+    }
+
+    #[test]
     fn the_city_screen_lights_only_the_citys_own_tiles() {
         use crate::world::{Civ3City, Civ3Tile};
         // Everything explored and seen by player 1; the city at (10, 10) owns
