@@ -954,8 +954,8 @@ pub fn output_fs(
                 let y = params.src_y as f32 + ((frag.y - p.y) * zoom).floor() + 0.5 - s.ny * bend * zoom;
                 lens_sample(source, x, y, bounds, params.bits, params.quantized_float)
             };
-            let base = lens_sample(source, ((frag.x - params.canvas_x as f32) * ratio).floor() + 0.5,
-                    ((frag.y - params.canvas_y as f32) * ratio).floor() + 0.5,
+            let base = lens_nearest(source, (frag.x - params.canvas_x as f32) * ratio,
+                    (frag.y - params.canvas_y as f32) * ratio,
                     bounds, params.bits, params.quantized_float);
             let backdrop = if params.lens_glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
             let glass = if params.lens_glass != 0 {
@@ -1040,10 +1040,10 @@ pub fn lens_fs(
     }
     // Backdrop art retains nearest boxed pixels, even when the rim is shaded
     // at final window resolution. Only the refracted face is interpolated.
-    let base = lens_sample(source, x.floor()+0.5, y.floor()+0.5, bounds, p.bits, p.quantized_float);
+    let base = lens_nearest(source, x, y, bounds, p.bits, p.quantized_float);
     let backdrop = if p.glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
     let glass = if s.distance < -p.rim.max(0.5) {
-        lens_sample(face, x.floor()+0.5, y.floor()+0.5, bounds, p.bits, p.quantized_float)
+        lens_nearest(face, x, y, bounds, p.bits, p.quantized_float)
     } else if p.glass != 0 {
         let fetch = |channel: f32| {
             let bend = (s.bend + s.dispersion * channel) * p.sample_scale;
@@ -1059,6 +1059,17 @@ pub fn lens_fs(
         else { (q + QUANTIZED_BIAS) as f32 / 255.0 }
     };
     *output = Vec4::new(encode(rgb[0]), encode(rgb[1]), encode(rgb[2]), 1.0);
+}
+
+/// Backdrop and clear-face guards keep boxed art. Fetch a single texel rather
+/// than running four-tap interpolation with three zero weights on every rim pixel.
+fn lens_nearest(source: &Image!(2D, type = f32, sampled), x: f32, y: f32,
+    bounds: [i32; 4], bits: u32, float_encoding: u32) -> [f32; 3] {
+    let v: Vec4 = source.fetch(IVec2::new(
+        (x.floor() as i32 - bounds[0]).clamp(0, bounds[2]-1),
+        (y.floor() as i32 - bounds[1]).clamp(0, bounds[3]-1)));
+    if bits == 0 { [v.x, v.y, v.z] }
+    else { [to_unorm(v.x, bits, float_encoding), to_unorm(v.y, bits, float_encoding), to_unorm(v.z, bits, float_encoding)] }
 }
 
 /// Bilinear refraction avoids bright nearest-sample ticks along straight edges.

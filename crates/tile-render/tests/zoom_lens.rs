@@ -127,14 +127,18 @@ fn measure_lens_gpu_cost_at_4k() {
         format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::RENDER_ATTACHMENT, view_formats: &[],
     });
     for scale in [1, 2] {
-        for glass in [false, true] {
-            let c = Camera { origin: (768/scale, 216/scale), zoom: (2, 1), x: 170, y: 180,
-                lens: glass.then_some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
-                ..Camera::new((2304/scale as u32, 432/scale as u32)) };
-            let cams = [Camera::new((3840/scale as u32, 2160/scale as u32)), c];
-            let present = tile_render::Present { canvas: (3840/scale as u32, 2160/scale as u32), target: (3840, 2160), zoom: (scale as u32, 1), at: (0, 0) };
-            let (mut spans, mut rims) = (Vec::new(), Vec::new());
-            for frame in 0..44 {
+        let (mut spans, mut rims): ([Vec<f64>; 2], [Vec<f64>; 2]) = Default::default();
+        let mut increments = Vec::new();
+        // Pair baseline/glass frames and alternate their order. Separate long
+        // blocks can mistake clock or desktop-load drift for extra glass cost.
+        for frame in 0..48 {
+            let mut paired = [None; 2];
+            for glass in if frame % 2 == 0 { [false, true] } else { [true, false] } {
+                let c = Camera { origin: (768/scale, 216/scale), zoom: (2, 1), x: 170, y: 180,
+                    lens: glass.then_some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
+                    ..Camera::new((2304/scale as u32, 432/scale as u32)) };
+                let cams = [Camera::new((3840/scale as u32, 2160/scale as u32)), c];
+                let present = tile_render::Present { canvas: (3840/scale as u32, 2160/scale as u32), target: (3840, 2160), zoom: (scale as u32, 1), at: (0, 0) };
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());
                 renderer.render_presented(&gpu.device, &gpu.queue, &mut encoder, &target, &cams, &[], frame, [0,0,0,255], present);
                 renderer.timer().unwrap().finish(&mut encoder);
@@ -143,15 +147,24 @@ fn measure_lens_gpu_cost_at_4k() {
                 renderer.timer().unwrap().submitted();
                 gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
                 for times in renderer.timer().unwrap().collect(&gpu.device) {
-                    if frame >= 4 {
-                        spans.push(times.span);
-                        rims.push(times.passes.iter().filter(|(label, _)| label.ends_with("lens rim")).map(|(_, ms)| *ms).sum::<f64>());
+                    if frame >= 8 {
+                        let index = usize::from(glass);
+                        spans[index].push(times.span);
+                        rims[index].push(times.passes.iter().filter(|(label, _)| label.ends_with("lens rim")).map(|(_, ms)| *ms).sum::<f64>());
+                        paired[index] = Some(times.span);
                     }
                 }
             }
-            spans.sort_by(f64::total_cmp); rims.sort_by(f64::total_cmp);
-            eprintln!("4K scale {scale}, glass {glass}: frame median {:.4} ms, rim median {:.4} ms, {} samples", spans[spans.len()/2], if rims.is_empty() {0.0} else {rims[rims.len()/2]}, spans.len());
+            if let [Some(base), Some(glass)] = paired { increments.push(glass - base); }
         }
+        for glass in [false, true] {
+            let index = usize::from(glass);
+            spans[index].sort_by(f64::total_cmp); rims[index].sort_by(f64::total_cmp);
+            eprintln!("4K scale {scale}, glass {glass}: frame median {:.4} ms, rim median {:.4} ms, {} samples", spans[index][spans[index].len()/2], rims[index][rims[index].len()/2], spans[index].len());
+        }
+        increments.sort_by(f64::total_cmp);
+        eprintln!("4K scale {scale}: paired increment median {:.4} ms, p10/p90 {:.4}/{:.4} ms, {} pairs",
+            increments[increments.len()/2], increments[increments.len()/10], increments[increments.len()*9/10], increments.len());
     }
 }
 
@@ -170,14 +183,28 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
             ..Camera::new((600/scale as u32,200/scale as u32)) };
         let present = tile_render::Present { canvas: (700/scale as u32,300/scale as u32), target: (700,300), zoom: (scale as u32,1), at: (0,0) };
         let base = Camera::new(present.canvas);
-        let image = if menu {
+        let (cameras, copies) = if menu {
             let copy = tile_render::ScreenCopy { source: [100/scale,40/scale,300/scale,100/scale], at: lens.origin, zoom: (2,1), lens: lens.lens };
-            gpu.render_presented(&mut renderer, &[base], &[copy], present, 0, [0,0,0,255])
-        } else { gpu.render_presented(&mut renderer, &[base,lens], &[], present, 0, [0,0,0,255]) };
+            (vec![base], vec![copy])
+        } else { (vec![base,lens], Vec::new()) };
+        let image = gpu.render_presented(&mut renderer, &cameras, &copies, present, 0, [0,0,0,255]);
+        let empty: Vec<_> = cameras.iter().map(|c| Camera { cells: false, ..*c }).collect();
+        let reflections = gpu.render_presented(&mut renderer, &empty, &copies, present, 0, [0,0,0,255]);
+        // Track transmitted line contrast against a black control render.
+        // A finite softbox's brightness gradient must not become a false peak.
+        let contrast = |x,y,ch: usize| {
+            let light = reflections.get(x,y)[ch] as f32;
+            (image.get(x,y)[ch] as f32 - light) / (255.0 - light).max(1.0)
+        };
+        for y in 40..96 { for x in 40..96 {
+            let pixel = image.get(x,y);
+            assert!(*pixel[..3].iter().min().unwrap() < 250,
+                "scale {scale}, menu {menu}: a refracted line clips the corner highlight at {x}/{y}");
+        } }
         let intercept = if menu { -80 + 192*scale } else { 96*scale };
         let displacement = |y| {
             let baseline = (2*y as i32 + intercept) as u32;
-            let peak = (baseline-4..baseline+124).max_by_key(|&x| image.get(x,y)[0]).unwrap();
+            let peak = (baseline-4..baseline+124).max_by(|&a,&b| contrast(a,y,0).total_cmp(&contrast(b,y,0))).unwrap();
             peak as i32 - baseline as i32
         };
         let shifts: Vec<_> = [63,60,57,54,51,48,45,42,41].into_iter().map(displacement).collect();
@@ -186,7 +213,7 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
         assert!(shifts[4] >= 12 && shifts[8] >= 85, "scale {scale}, menu {menu}, broad visible refraction: {shifts:?}");
         for pair in shifts.windows(2) { assert!(pair[1] >= pair[0], "scale {scale}, menu {menu}, continuously increasing bend: {shifts:?}"); }
         let baseline = (82 + intercept) as u32;
-        let peak = |c| (baseline+70..baseline+124).max_by_key(|&x| image.get(x,41)[c]).unwrap();
+        let peak = |c| (baseline+70..baseline+124).max_by(|&a,&b| contrast(a,41,c).total_cmp(&contrast(b,41,c))).unwrap();
         let fringe = peak(0).abs_diff(peak(2));
         assert!((2..=8).contains(&fringe), "scale {scale}, menu {menu}, resolved red/blue fringe: {fringe}px");
     } }
@@ -267,15 +294,36 @@ fn black_glass_has_a_curved_luminous_rim_without_periodic_ticks() {
     let top: Vec<_> = (40..54).map(|y| image.get(300,y)[2]).collect();
     assert!(top.iter().max().unwrap() - top.iter().min().unwrap() > 15, "curved light profile: {top:?}");
     assert!(image.get(300,40)[2] > image.get(40,140)[2], "unseen light varies with rim angle");
-    // Every top pixel has the same profile apart from the one short scratch.
+    // Finite reflected lights vary smoothly along a straight edge. Only the
+    // scratch and bubble may create sharp local changes on top; no ticks below.
     let mut runs = 0;
     let mut flaw = false;
     for x in 80..600 {
-        let differs = (40..54).any(|y| image.get(x,y) != image.get(100,y));
+        let differs = (40..54).any(|y| (0..3).any(|ch|
+            image.get(x,y)[ch].abs_diff(image.get(x-1,y)[ch]) > 8));
+        if differs {
+            assert!((211..219).contains(&x) || (444..457).contains(&x),
+                "an unexpected sharp mark on the top rim at {x}");
+        }
         if differs && !flaw { runs += 1; }
         flaw = differs;
     }
-    assert_eq!(runs, 1, "exactly one local scratch, no repeated ticks");
+    assert!((2..=4).contains(&runs), "only the local scratch and bubble have sharp edges, got {runs} runs");
+    for x in 80..600 { for y in 226..240 { for ch in 0..3 {
+        assert!(image.get(x,y)[ch].abs_diff(image.get(x-1,y)[ch]) <= 2,
+            "a plain black bottom edge has no periodic ticks at {x}/{y}");
+    } } }
+    // The bottom and right need an actual secondary reflection on pure black,
+    // with multiple light bands and some colour, rather than a dim grey tube.
+    for profile in [
+        (226..241).map(|y| image.get(350,y)).collect::<Vec<_>>(),
+        (626..641).map(|x| image.get(x,140)).collect(),
+    ] {
+        let peaks = profile.windows(3).filter(|p| p[1][2] > p[0][2] && p[1][2] > p[2][2]).count();
+        assert!(peaks >= 2, "separate reflected bands on bottom/right: {profile:?}");
+        assert!(profile.iter().any(|p| p[0].max(p[2]) >= 65), "visible secondary light: {profile:?}");
+        assert!(profile.iter().any(|p| p[0].abs_diff(p[2]) >= 5), "tinted environment: {profile:?}");
+    }
 }
 
 #[test]
@@ -318,6 +366,12 @@ fn screen_copy_lenses_preserve_corners_and_clear_menu_content() {
 fn capture_glass_review_at_4k() {
     let dir = std::path::PathBuf::from(std::env::var_os("C3R_ZOOM_SHOTS").expect("C3R_ZOOM_SHOTS"));
     std::fs::create_dir_all(&dir).unwrap();
+    // Move the repeating terrain's phase to distinguish source art from any
+    // marks generated by the rim. Override for a reproducible comparison.
+    let phase = std::env::var("C3R_ZOOM_PHASE").unwrap_or_else(|_| "181,187".into());
+    let (phase_x, phase_y) = phase.split_once(',').expect("C3R_ZOOM_PHASE=x,y");
+    let (phase_x, phase_y) = (phase_x.parse::<i32>().unwrap(), phase_y.parse::<i32>().unwrap());
+    eprintln!("terrain capture phase: {phase_x},{phase_y}; survey phase: 200,180");
     let gpu = Headless::new().expect("Vulkan GPU");
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
     let save = |name: String, image: &RgbaImage| image::save_buffer(dir.join(name), bytemuck::cast_slice(&image.pixels), image.width, image.height, image::ColorType::Rgba8).unwrap();
@@ -329,19 +383,19 @@ fn capture_glass_review_at_4k() {
         if grid && !background { continue; }
         let mut cams = Vec::new();
         if background { cams.push(Camera::new((3840/scale,2160/scale))); }
-        cams.push(Camera { x: if grid { 200 } else { 170 }, y: 180, zoom: (2,1), origin: (768/scale as i32,216/scale as i32),
+        cams.push(Camera { x: if grid { 200 } else { phase_x }, y: if grid { 180 } else { phase_y }, zoom: (2,1), origin: (768/scale as i32,216/scale as i32),
             lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
         let image = gpu.render_presented(&mut renderer, &cams, &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
         let background = if grid { "grid" } else if background { "map" } else { "black" };
-        save(format!("glass3-{background}-4k-scale{scale}.png"), &image);
+        save(format!("glass4-{background}-4k-scale{scale}.png"), &image);
         let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-        save(format!("glass3-{background}-corner-3x-scale{scale}.png"), &crop);
+        save(format!("glass4-{background}-corner-3x-scale{scale}.png"), &crop);
         if !grid && background == "black" {
             let mut empty = *cams.last().unwrap(); empty.cells = false;
             let image = gpu.render_presented(&mut renderer, &[empty], &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
-            save(format!("glass3-empty-black-4k-scale{scale}.png"), &image);
+            save(format!("glass4-empty-black-4k-scale{scale}.png"), &image);
             let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-            save(format!("glass3-empty-black-corner-3x-scale{scale}.png"), &crop);
+            save(format!("glass4-empty-black-corner-3x-scale{scale}.png"), &crop);
         }
       } }
     }
