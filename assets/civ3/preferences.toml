@@ -54,8 +54,8 @@ color = [72, 60, 36]
 [styles.ruler]
 face = "Lucida Sans"
 height = 9
-color = [72, 60, 36]
-disabled_color = [150, 140, 116]
+color = [226, 216, 184]
+disabled_color = [128, 120, 98]
 
 [styles.icon]
 face = "Lucida Sans"
