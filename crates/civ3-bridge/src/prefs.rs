@@ -1670,8 +1670,8 @@ mod tests {
         assert!(p.route(vec![row(true, 450), slide(800), row(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_top, 0.05);
         assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
-        assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
-        assert!(["5%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
+        assert_eq!(p.editing().layout.zoom_box_drop, 0.05);
+        assert_eq!(texts(&p).iter().filter(|s| *s == "5%").count(), 2, "{:?}", texts(&p));
         assert_eq!(p.settings(), p.editing());
         assert!(click(&mut p, 780, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
@@ -2242,6 +2242,16 @@ mod tests {
         prefs.tab = TAB_ACCESSIBILITY.into();
         prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
         shot(&prefs, "tab-accessibility-undo");
+        // A box at the mouse: its distances above and below, then changed
+        // (their undo buttons).
+        prefs.draft.as_mut().unwrap().layout.zoom = Zoom::Mouse131;
+        prefs.tab = TAB_ZOOM.into();
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-zoom-mouse");
+        let draft = prefs.draft.as_mut().unwrap();
+        (draft.layout.zoom_mouse_above, draft.layout.zoom_mouse_below) = (0.25, 0.05);
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-zoom-mouse-undo");
     }
 
 
@@ -2273,7 +2283,7 @@ mod tests {
         for control in sliders {
             for finish in ["discard", "closed", "accept"] {
                 let (mut prefs, path) = open_prefs(&format!("live-{control}-{finish}"));
-                prefs.settings.layout.zoom = Zoom::Floating131;
+                prefs.settings.layout.zoom = if control.starts_with("layout.zoom_mouse") { Zoom::Mouse131 } else { Zoom::Floating131 };
                 prefs.settings.display.max_fps = 120;
                 prefs.settings.accessibility.unit_rings = true;
                 prefs.draft = Some(prefs.settings.clone());
@@ -2539,7 +2549,7 @@ mod tests {
             prefs.settings.resolution.scale_menus = true;
             prefs.settings.display.max_fps = 120;
             prefs.settings.accessibility.unit_rings = true;
-            prefs.settings.layout.zoom = Zoom::Floating131;
+            prefs.settings.layout.zoom = if control.starts_with("layout.zoom_mouse") { Zoom::Mouse131 } else { Zoom::Floating131 };
             prefs.draft = Some(prefs.settings.clone());
             prefs.project_settings();
             let accepted = prefs.settings.clone();
@@ -2577,7 +2587,7 @@ mod tests {
             assert!(!path.exists(), "undo never saves");
             checked += 1;
         }
-        assert_eq!(checked, 15);
+        assert_eq!(checked, 17);
     }
 
     #[test]
