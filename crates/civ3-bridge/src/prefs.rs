@@ -880,6 +880,7 @@ impl Prefs {
 fn changed_controls(active: &Settings, draft: &Settings) -> Vec<String> {
     let label = |key: &str| match key {
         "resolution.pixel_scale" => "Pixel scale".into(),
+        "resolution.base_ui_scale" => "Base UI scale".into(),
         "resolution.scale_menus" => "Scale menus".into(),
         "resolution.menu_scale_percent" => "Menu size".into(),
         "resolution.frame_scale" => "Game UI scale".into(),
@@ -2060,15 +2061,42 @@ mod tests {
     }
 
     #[test]
+    fn base_ui_scale_drafts_half_steps_accepts_and_can_be_discarded() {
+        let (mut prefs, path) = open_prefs("base-ui-scale");
+        click(&mut prefs, 220, 55);
+        let resolution = prefs.settings().resolution.clone();
+        for (x, value) in [(119, 1.0), (218, 2.5), (449, 6.0), (185, 2.0)] {
+            assert!(click(&mut prefs, x, 231).is_empty());
+            assert_eq!(prefs.editing().resolution.base_ui_scale, value);
+            assert_eq!(prefs.settings().resolution, resolution, "the open dialog stays fixed");
+            assert!(!path.exists());
+        }
+        assert_eq!(changed_controls(prefs.settings(), prefs.editing()), ["Base UI scale: 1 to 2".to_owned()]);
+        key(&mut prefs, VK_ESCAPE);
+        assert!(prefs.confirming_discard);
+        key(&mut prefs, 0x59);
+        assert_eq!(prefs.settings().resolution, resolution);
+        // Open a fresh draft and accept it through the normal native transaction.
+        prefs.update(None, None, (1024, 768), None);
+        let frame = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+        prefs.update(Some(&frame), Some(FORM), (1024, 768), None);
+        click(&mut prefs, 220, 55);
+        click(&mut prefs, 218, 231);
+        key(&mut prefs, VK_RETURN);
+        assert_eq!(prefs.settings().resolution.base_ui_scale, 2.5);
+        assert_eq!(Settings::load(&path).unwrap().resolution, prefs.settings().resolution);
+    }
+
+    #[test]
     fn scale_slider_draft_keeps_dialog_and_native_pointer_mapping_fixed() {
         use scene::{InteractableKind, SliderAction};
         let (mut prefs, path) = open_prefs("transaction-scale-mapping");
         assert!(click(&mut prefs, 220, 55).is_empty());
-        assert!(click(&mut prefs, 100, 315).is_empty());
+        assert!(click(&mut prefs, 100, 349).is_empty());
         let panel_rects = || prefs.looks(&Fonts::default()).iter().map(|look| (look.id, look.rect)).collect::<Vec<_>>();
         let before = panel_rects();
         let slider = prefs.looks(&Fonts::default()).into_iter().find(|look| {
-            matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 305
+            matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 334
         }).unwrap();
         let active_resolution = prefs.settings().resolution.clone();
         let before_window = active_resolution.realised((2048, 1536));
@@ -2096,11 +2124,11 @@ mod tests {
         use tile_viewer::{layout::Layout, snap::{Rates, SnapInput}};
         let (mut prefs, path) = open_prefs("keyboard-slider-scale");
         assert!(click(&mut prefs, 220, 55).is_empty());
-        assert!(click(&mut prefs, 100, 315).is_empty());
+        assert!(click(&mut prefs, 100, 349).is_empty());
         let rects = |prefs: &Prefs| prefs.looks(&Fonts::default()).iter().map(|look| (look.id, look.rect)).collect::<Vec<_>>();
         let before = rects(&prefs);
         let slider = prefs.looks(&Fonts::default()).into_iter()
-            .find(|look| matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 305).unwrap();
+            .find(|look| matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 334).unwrap();
         let scene = Scene {
             seq: 1,
             views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
@@ -2160,21 +2188,21 @@ mod tests {
         let (mut prefs, path) = open_prefs("transaction-menu-size");
         click(&mut prefs, 220, 55);
         let menu_slider = |prefs: &Prefs| prefs.looks(&Fonts::default()).into_iter()
-            .find(|look| matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 305);
+            .find(|look| matches!(look.kind, InteractableKind::Slider { .. }) && look.rect[1] == 334);
         assert!(menu_slider(&prefs).is_none());
-        assert!(click(&mut prefs, 270, 315).is_empty());
+        assert!(click(&mut prefs, 270, 349).is_empty());
         assert_eq!(prefs.editing().resolution.menu_scale_percent, 100.0);
-        assert!(click(&mut prefs, 100, 315).is_empty());
+        assert!(click(&mut prefs, 100, 349).is_empty());
         assert!(prefs.editing().resolution.scale_menus);
         assert!(!prefs.settings().resolution.scale_menus);
         assert!(menu_slider(&prefs).is_some());
         for (x, percent) in [(270, 25.0), (464, 63.0), (658, 100.0)] {
-            assert!(click(&mut prefs, x, 315).is_empty());
+            assert!(click(&mut prefs, x, 349).is_empty());
             assert_eq!(prefs.editing().resolution.menu_scale_percent, percent);
             assert_eq!(prefs.settings().resolution.menu_scale_percent, 100.0);
             assert!(!path.exists());
         }
-        assert!(click(&mut prefs, 100, 315).is_empty());
+        assert!(click(&mut prefs, 100, 349).is_empty());
         assert!(menu_slider(&prefs).is_none());
         assert!(!prefs.dirty());
     }
@@ -2599,9 +2627,9 @@ mod tests {
         assert!(click(&mut prefs, 220, 55).is_empty());
         let fonts = Fonts::default();
         let before = prefs.looks(&fonts);
-        let old = before.iter().find(|look| look.rect == [90, 306, 160, 23]).unwrap();
+        let old = before.iter().find(|look| look.rect == [90, 339, 160, 23]).unwrap();
         assert!(!old.shown.selected);
-        assert!(!before.iter().any(|look| look.rect == [260, 305, 408, 23]));
+        assert!(!before.iter().any(|look| look.rect == [260, 334, 408, 23]));
         let scene = LookScene {
             interactables: vec![scene::Interactable { id: old.id, rect: old.rect, kind: old.kind, ..Default::default() }],
             looks: vec![scene::Looks { id: old.id, select: old.select, shown: old.shown,
@@ -2613,10 +2641,10 @@ mod tests {
         feedback.replacements(&scene, 0.01);
         assert!(!feedback.drawn().iter().any(|(_, state)| state.selected), "Scale menus cannot appear enabled while its committed slider is disabled");
         assert!(!prefs.editing().resolution.scale_menus);
-        assert!(click(&mut prefs, 100, 316).is_empty());
+        assert!(click(&mut prefs, 100, 349).is_empty());
         let committed = prefs.looks(&fonts);
         assert!(committed.iter().find(|look| look.id == old.id).unwrap().shown.selected);
-        assert!(committed.iter().any(|look| look.rect == [260, 305, 408, 23]));
+        assert!(committed.iter().any(|look| look.rect == [260, 334, 408, 23]));
     }
 
     #[test]
