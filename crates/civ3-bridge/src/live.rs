@@ -1506,10 +1506,16 @@ fn publish(
         // The viewer's own views marked on the minimap.
         if let Shown::Map(world, view) = shown {
             // (The game's own view as the viewer shows it.)
+            // The viewer's rectangles are in its last frame's world pixels:
+            // with the game's zoom changed since (its zoom key), in this
+            // frame's, as the viewer will show them, not at the old scale.
+            let now = if view.zoomed_out { 2 } else { 1 };
             if let Some(main) = input.main_view {
+                let main = scene::rescale_view_rect(main, input.main_view_downscale, now);
                 ui_screen::replace_game_view_mark(&mut ui_items, world, (view.tile_x.0, view.tile_y.0, view.tile_x.1, view.tile_y.1), main, view.zoomed_out);
             }
-            ui_screen::mark_views(&mut ui_items, world, &input.views, view.zoomed_out, view_rect_color());
+            let views: Vec<_> = input.views.iter().map(|&v| scene::rescale_view_rect(v, input.views_downscale, now)).collect();
+            ui_screen::mark_views(&mut ui_items, world, &views, view.zoomed_out, view_rect_color());
         }
         // Where the renderer may point at the minimap (not under a menu,
         // where a click is the menu's).
@@ -2338,8 +2344,12 @@ struct InputForwarder {
     /// What the viewer shows of the game's view where that is not all of
     /// it (`Input::MainView`).
     main_view: Option<(i32, i32, i32, i32)>,
+    /// The world downscale `main_view` is in (the viewer's frame's).
+    main_view_downscale: u32,
     /// World rectangles of the viewer's own views (`Input::Views`).
     views: Vec<(i32, i32, i32, i32)>,
+    /// The world downscale `views` are in (the viewer's frame's).
+    views_downscale: u32,
     /// The viewer's size, as it last reported.
     viewport: (u32, u32),
     /// Presses on world pixels of the viewer's own views
@@ -2479,7 +2489,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
             crate::native_sliders::barrier();
         }
         if !matches!(input, Input::WorldMove { .. } | Input::UnitOrder { action: scene::UnitOrderAction::Preview, .. }
-            | Input::Views(_) | Input::MainView { .. } | Input::Zooms(_) | Input::Edge { .. } | Input::Window { .. } | Input::Resized { .. }) {
+            | Input::Views { .. } | Input::MainView { .. } | Input::Zooms(_) | Input::Edge { .. } | Input::Window { .. } | Input::Resized { .. }) {
             crate::world_input::barrier();
         }
         log::trace!("input {input:?}");
@@ -2606,9 +2616,13 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
             }
             Input::Look { x, y } if !native_world_click => forwarder.look = Some((x, y)),
             Input::Look { .. } => {}
-            Input::Views(views) => forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect(),
-            Input::MainView { x, y, w, h } => {
+            Input::Views { views, downscale } => {
+                forwarder.views = views.iter().copied().filter(|v| v.2 > 0 && v.3 > 0).collect();
+                forwarder.views_downscale = downscale;
+            }
+            Input::MainView { x, y, w, h, downscale } => {
                 forwarder.main_view = (w > 0 && h > 0).then_some((x, y, w, h));
+                forwarder.main_view_downscale = downscale;
                 if crate::ui_trace::requested_game_draws() {
                     crate::native_camera::renderer_view(*game, forwarder.main_view);
                     window.wake();
