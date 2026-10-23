@@ -1,22 +1,31 @@
 # Settings acceptance and cancellation
 
 Preferences keeps renderer settings in a draft and saves only on Accept.
-The Game frame and World map sliders preview on every drag update, including
-Alt slider Preview events. Game frame scales the minimap, current-unit panel,
-top buttons and unit orders, including orders placed in the active view.
-Zoom magnification, height, top margin and drop, separator width, cursor snap
-update rate and captured-mouse sensitivity also preview. Zoom sliders affect
-the currently accepted zoom mode. Background sampling and cursor size keep
-their existing immediate previews.
+While the dialog is open, the game shows the draft: every renderer control
+on every tab previews as soon as it changes. That covers checkboxes,
+choices, colour swatches, sliders (on every drag update, including Alt
+slider Preview events), the split, roles and screen places, zoom modes and
+placement, clean map, accessibility, mouse and Alt mode settings, FPS
+display, VSync and the FPS limit, and combat speed. Game frame scales the
+minimap, current-unit panel, top buttons and unit orders, including orders
+placed in the active view. Zoom sliders affect the drafted zoom mode. A
+split or screen place change moves Preferences, like any screen, to its new
+place; its size stays.
 
-Base UI scale and Menu size remain deferred until Accept. Both affect the
-Preferences window's own menu transform. Keeping their accepted values while
-the dialog is open keeps its size, slider tracks, native pointer mapping and
-Alt targets stable. The separate Game frame and World map scales affect the
-game behind it. Frame pacing and combat speed also remain deferred. Pacing
-changes configure presentation, and combat speed changes native game timing;
-neither has a useful visual preview in a paused Preferences dialog. Other
-choices and checkboxes retain their existing Accept behavior.
+Three controls wait for Accept: Base UI scale, Scale menus and Menu size.
+They set the size of menus, the Preferences window among them. Keeping
+their accepted values while the dialog is open keeps its size, slider
+tracks, native pointer mapping and Alt targets stable.
+
+Base UI scale has a Preview button beside its slider. Pressed, it reads
+"Stop preview" and shows the drafted base on the game behind the dialog:
+the frame and the world map scale with it (and follow the slider while the
+preview is on), while menus keep the accepted base, so the dialog keeps its
+size. The viewer gets this as `Resolution::menu_base_ui_scale`, a transient
+field that is never saved. Pressing it again, choosing another tab, Cancel
+or closing the dialog ends the preview; Accept keeps the base. The base's
+undo button still restores the accepted base, and an open preview then
+shows that.
 
 Cancel or Escape asks before discarding changes. Keeping the draft keeps its
 preview; confirming discard, or an external close without Accept, restores
@@ -91,7 +100,14 @@ application follows its normal owned-game shutdown path.
 
 The Layout tab includes Combat animation speed, from 1x to 4x in quarter
 steps, defaulting to 1x. It changes combat visuals and their native animation
-pauses after Accept. Camera-arrival waits keep their own deadline. Sound
+pauses as soon as it changes; Cancel restores the accepted speed.
+Camera-arrival waits keep their own deadline. Sound
 playback retains its original pitch and timing, so sounds may outlast an
 accelerated fight. The setting does not change simulation clocks or combat
 results.
+
+The Accessibility tab groups its controls by feature: Active unit (the
+arrow and its bobbing), Unit markers (their size and stack counts),
+Diplomacy rings (on/off, colours, invert, ring thickness) and Mouse (Alt
+mode in menus and snap updates per second, formerly on the Layout tab;
+their setting keys are unchanged).

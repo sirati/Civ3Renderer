@@ -36,15 +36,17 @@ const DISCARD_PANEL: &str = "preferences_discard";
 const ACTION: &str = "dialog.action";
 const UNDO: &str = "dialog.undo";
 
-/// Numeric controls whose previews do not resize Preferences or change
-/// native game timing / frame pacing. Menu sizing stays accepted until OK
-/// so a drag cannot move its own track or change native pointer mapping.
-const LIVE_SLIDERS: &[&str] = &[
-    "resolution.frame_scale", "resolution.world_scale",
-    "layout.separator_width", "layout.zoom_magnification_step",
-    "layout.zoom_strip", "layout.zoom_box_top", "layout.zoom_box_drop",
-    "input.snap_updates_per_second", "input.capture_sensitivity",
-];
+/// The only controls that wait for Accept: they size menus, the open
+/// Preferences window among them, so a drag would move its own track and
+/// change native pointer mapping. Every other control previews at once.
+/// Base UI scale previews behind the dialog with its Preview button
+/// ([`PREVIEW_BASE`]); the dialog keeps the accepted size.
+const DEFERRED_CONTROLS: &[&str] = &["resolution.base_ui_scale", "resolution.scale_menus", "resolution.menu_scale_percent"];
+/// The Base UI scale Preview button's actions (`dialog.action`) and the
+/// value showing it is on.
+const PREVIEW_BASE: &str = "preview_base";
+const STOP_PREVIEW_BASE: &str = "stop_preview_base";
+const PREVIEWING_BASE: &str = "dialog.previewing_base";
 
 /// The value naming the tab shown, and its options.
 pub const TAB: &str = "tab";
@@ -220,8 +222,11 @@ pub struct Prefs {
     preview: Option<scene::SettingsPreview>,
     preview_session: u64,
     preview_id: u64,
-    /// Changes shown by the dialog. Only selected fields preview before OK.
+    /// Changes shown by the dialog. All but [`DEFERRED_CONTROLS`] preview before OK.
     draft: Option<Settings>,
+    /// The Base UI scale Preview button is on: the draft's base previews
+    /// behind the dialog, which keeps its size.
+    base_preview: bool,
     native_original: Option<native::Settings>,
     native_current: Option<native::Settings>,
     native_pending: bool,
@@ -338,7 +343,7 @@ impl Prefs {
         }
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run }
+        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, base_preview: false, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run }
     }
 
     /// Whether the first run's Preferences are still to be shown (the
@@ -354,16 +359,28 @@ impl Prefs {
 
     pub fn settings_preview(&self) -> Option<scene::SettingsPreview> { self.preview }
 
+    /// The settings the game shows while Preferences is open: the whole
+    /// draft, except [`DEFERRED_CONTROLS`] at their accepted values. While
+    /// the Base UI scale preview is on, the frame and world use the draft's
+    /// base and menus, the dialog among them, keep the accepted one.
     fn project_settings(&mut self) {
-        self.effective = self.settings.clone();
-        if let Some(draft) = &self.draft {
-            self.effective.resolution.background_sampling = draft.resolution.background_sampling;
-            self.effective.resolution.pixel_scale = draft.resolution.pixel_scale;
-            self.effective.display.cursor_size = draft.display.cursor_size;
-            for key in LIVE_SLIDERS {
-                self.effective.restore_number_control(key, draft);
-            }
+        let Some(draft) = &self.draft else {
+            self.base_preview = false;
+            self.effective = self.settings.clone();
+            return;
+        };
+        let accepted = &self.settings.resolution;
+        let mut effective = draft.clone();
+        effective.first_run = self.settings.first_run.clone();
+        let r = &mut effective.resolution;
+        r.scale_menus = accepted.scale_menus;
+        r.menu_scale_percent = accepted.menu_scale_percent;
+        if self.base_preview {
+            r.menu_base_ui_scale = Some(accepted.effective_base_ui_scale());
+        } else {
+            r.base_ui_scale = accepted.base_ui_scale;
         }
+        self.effective = effective;
     }
 
     fn preview_multiplier(&mut self, previous: u32) {
@@ -577,6 +594,7 @@ impl Prefs {
                     let (_, tab) = apply(draft, event);
                     if let Some(tab) = tab {
                         log::debug!("preferences: tab {tab}");
+                        if tab != self.tab { self.base_preview = false; }
                         self.tab = tab;
                     }
                     self.preview_multiplier(previous);
@@ -697,6 +715,8 @@ impl Prefs {
     fn action(&mut self, action: &str, out: &mut Vec<Input>) {
         if self.closing || self.preview.is_some() { return; }
         match action {
+            PREVIEW_BASE if !self.confirming_discard => self.base_preview = true,
+            STOP_PREVIEW_BASE => self.base_preview = false,
             "accept" if !self.confirming_discard => {
                 // Accept also keeps an Alt slider's current draft value.
                 self.state.slider_edit = None;
@@ -711,6 +731,7 @@ impl Prefs {
                 self.native_accept = true;
             }
             "cancel" if !self.confirming_discard => {
+                self.base_preview = false;
                 if self.dirty() {
                     self.confirming_discard = true;
                     self.state = PanelState::default();
@@ -798,6 +819,7 @@ impl Prefs {
                 self.save();
             }
             self.draft = open.map(|_| self.settings.clone());
+            self.base_preview = false;
             self.preview = None;
             if opening {
                 self.preview_session = self.preview_session.wrapping_add(1);
@@ -850,6 +872,7 @@ impl Prefs {
 
     fn values(&self) -> BTreeMap<String, Value> {
         let mut values = values(self.editing(), &self.tab, self.window);
+        values.insert(PREVIEWING_BASE.into(), Value::On(self.base_preview));
         for (key, accepted) in self.settings.controls() {
             if matches!(accepted, ControlValue::Number(_)) {
                 values.insert(format!("dialog.changed.{key}"), Value::On(self.editing().control(&key).as_ref() != Some(&accepted)));
@@ -1075,14 +1098,14 @@ mod tests {
         click(&mut prefs, 122, 188);
         click(&mut prefs, 550, 150);
         click(&mut prefs, 550, 220);
-        click(&mut prefs, 820, 290);
-        click(&mut prefs, 100, 392);
+        click(&mut prefs, 820, 313);
+        click(&mut prefs, 100, 363);
         assert!(prefs.editing().accessibility.active_unit_arrow);
         assert!(!prefs.editing().accessibility.arrow_bobbing);
         assert!(prefs.editing().accessibility.unit_rings);
         assert!(prefs.editing().accessibility.allied.invert);
         assert!(prefs.editing().accessibility.stack_count);
-        assert_eq!(prefs.settings().accessibility, Default::default());
+        assert_eq!(prefs.settings().accessibility, prefs.editing().accessibility, "previews at once");
         assert!(!path.exists());
         let accepted = prefs.editing().accessibility.clone();
         prefs.action("accept", &mut Vec::new());
@@ -1108,7 +1131,7 @@ mod tests {
                 assert!(click(&mut prefs, at.0, at.1).is_empty(), "{key}");
                 assert_eq!(prefs.editing().control(&key), Some(ControlValue::On(true)), "{key}");
                 assert_eq!(prefs.editing().control(&format!("clean_map.{view}.mode")), Some(ControlValue::Choice("Custom".into())));
-                assert_eq!(prefs.settings(), &Settings::default());
+                assert_eq!(prefs.settings(), prefs.editing(), "previews at once");
                 assert!(!path.exists());
             }
         }
@@ -1356,7 +1379,7 @@ mod tests {
         assert!(!path.exists());
         assert!(click(&mut p, 340, 140).is_empty());
         assert_eq!(p.editing().layout.split, Split::Vertical2To1);
-        assert_eq!(p.settings(), &Settings::default());
+        assert_eq!(p.settings(), p.editing(), "previews at once");
         // Roles: unit and mouse; screens on the right; the zoom right of the split.
         assert!(click(&mut p, 230, 238).is_empty());
         assert!(click(&mut p, 814, 159).is_empty());
@@ -1368,21 +1391,22 @@ mod tests {
         assert_eq!(draft.layout.screen_place.vertical, Place::RightOrTop);
         assert_eq!(draft.layout.zoom_place, Place::RightOrTop);
         // Map movement: dragging, then edge scrolling again.
-        assert!(click(&mut p, 400, 433).is_empty());
+        assert!(click(&mut p, 400, 389).is_empty());
         assert_eq!(p.editing().input.map_movement, viewer_settings::MapMovement::Drag);
-        assert!(click(&mut p, 250, 433).is_empty());
+        assert!(click(&mut p, 250, 389).is_empty());
         assert_eq!(p.editing().input.map_movement, viewer_settings::MapMovement::EdgeScroll);
         assert!(click(&mut p, 560, 297).is_empty());
         assert!(p.editing().input.smooth_menu_scrolling);
         assert!(click(&mut p, 560, 297).is_empty());
         assert!(!p.editing().input.smooth_menu_scrolling);
-        // Alt mode in menus: on by default, off, on again.
+        // Alt mode in menus, on the Accessibility tab: on by default, off, on again.
+        assert!(click(&mut p, 680, 55).is_empty());
         assert!(p.editing().input.alt_in_menus);
-        assert!(click(&mut p, 560, 635).is_empty());
+        assert!(click(&mut p, 100, 476).is_empty());
         assert!(!p.editing().input.alt_in_menus);
-        assert!(click(&mut p, 560, 635).is_empty());
+        assert!(click(&mut p, 100, 476).is_empty());
         assert!(p.editing().input.alt_in_menus);
-        assert_eq!(p.settings(), &Settings::default());
+        assert_eq!(p.settings(), p.editing(), "previews at once");
         assert!(!path.exists());
         // The pixel scale on the Resolution tab.
         assert!(click(&mut p, 220, 55).is_empty());
@@ -1500,7 +1524,7 @@ mod tests {
         assert_eq!(p.editing().control("layout.screen_place"), Some(ControlValue::Choice("Floating".into())));
         assert!(click(&mut p, 814, 159).is_empty());
         assert_eq!(p.editing().layout.screen_place, viewer_settings::ScreenPlace { vertical: Place::LeftOrBottom, horizontal: Place::RightOrTop });
-        assert_eq!(p.settings(), &Settings::default());
+        assert_eq!(p.settings(), p.editing(), "previews at once");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -1609,9 +1633,7 @@ mod tests {
         let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 371 };
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
-        let mut live = Settings::default();
-        live.layout.zoom_strip = 0.5;
-        assert_eq!(p.settings(), &live);
+        assert_eq!(p.settings(), p.editing(), "previews at once");
         let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
         assert!(texts(&p).contains(&"Strip height".to_string()));
         // A box at the mouse is sized by it too: the slider shows, as the
@@ -1636,7 +1658,7 @@ mod tests {
         assert!(["Top margin", "2.5%", "Drop", "30%", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
-        assert_eq!(p.settings(), &live);
+        assert_eq!(p.settings(), p.editing());
         assert!(texts(&p).contains(&"50%".to_string()));
         assert!(!p.editing().layout.zoom_box_block_pointer);
         assert!(click(&mut p, 100, 523).is_empty());
@@ -1650,9 +1672,7 @@ mod tests {
         assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
         assert!(["20%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
-        live.layout.zoom_box_top = 0.2;
-        live.layout.zoom_box_drop = 0.0;
-        assert_eq!(p.settings(), &live);
+        assert_eq!(p.settings(), p.editing());
         assert!(click(&mut p, 780, 233).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
         assert!(["Box height", "50%", "Top margin", "Drop"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
@@ -1666,8 +1686,7 @@ mod tests {
         assert!(p.route(vec![mag(true, 440), along(0), mag(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_magnification, 1.5);
         assert!(texts(&p).iter().any(|s| s == "1.5×"));
-        live.layout.zoom_magnification = 1.5;
-        assert_eq!(p.settings(), &live);
+        assert_eq!(p.settings(), p.editing());
         assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(!p.editing().layout.menu_zoom);
@@ -1685,7 +1704,7 @@ mod tests {
         assert_eq!(p.editing().layout.zoom, Zoom::Off);
         assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height") || t == "Drop" || t == "Top margin" || t == "Magnification" || t.ends_with('×')));
         assert!(click(&mut p, 330, 55).is_empty());
-        assert!(click(&mut p, 438, 551).is_empty());
+        assert!(click(&mut p, 438, 508).is_empty());
         assert_eq!(p.editing().layout.separator_width, 16);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -1905,11 +1924,12 @@ mod tests {
         prefs.follow_native(|| Some(native::test_values(false)), true);
         prefs.follow_native(|| Some(native::test_values(true)), false);
         let draft = prefs.editing().clone();
-        assert_ne!(&draft, prefs.settings());
+        assert_ne!(draft, Settings::default());
+        assert_eq!(&draft, prefs.settings(), "previews at once");
         // A press dragged off the button and released elsewhere is no click.
         let b = |down, (x, y): (i32, i32)| Input::MouseButton { button: scene::Button::Left, down, x, y };
         assert!(prefs.route(vec![b(true, ACCEPT_AT), b(false, (600, 740))], (1024, 768)).is_empty());
-        assert_eq!(prefs.settings(), &Settings::default());
+        assert_eq!(prefs.settings(), &draft);
         assert!(!path.exists());
         // A press elsewhere released on the button is the game's input.
         assert_eq!(prefs.route(vec![b(true, (600, 740)), b(false, ACCEPT_AT)], (1024, 768)), [b(true, (600, 740)), b(false, ACCEPT_AT)]);
@@ -2050,7 +2070,7 @@ mod tests {
                 NativeButton::Cancel => {
                     assert!(keys.is_empty());
                     assert!(prefs.confirming_discard);
-                    assert_eq!(prefs.settings(), &Settings::default());
+                    assert_eq!(prefs.settings(), prefs.editing(), "the preview stays while asking");
                     assert!(!path.exists());
                 }
             }
@@ -2059,7 +2079,7 @@ mod tests {
     }
 
     #[test]
-    fn draft_changes_leave_active_settings_and_existing_file_unchanged_until_accept() {
+    fn draft_changes_preview_but_leave_accepted_settings_and_existing_file_unchanged_until_accept() {
         let (mut prefs, path) = with_native_buttons("transaction-accept");
         prefs.settings().save(&path).unwrap();
         let stored = std::fs::read(&path).unwrap();
@@ -2069,7 +2089,8 @@ mod tests {
         assert!(click(&mut prefs, 850, 613).is_empty());
         let draft = prefs.editing().clone();
         assert_ne!(draft, active);
-        assert_eq!(prefs.settings(), &active, "all published renderer and input settings stay active");
+        assert_eq!(prefs.settings(), &draft, "the game previews the draft");
+        assert_eq!(prefs.settings, active, "the accepted settings stay");
         assert_eq!(std::fs::read(&path).unwrap(), stored, "draft writes do not touch disk");
         assert_eq!(click(&mut prefs, ACCEPT_AT.0, ACCEPT_AT.1), hover_then(ACCEPT_AT, vec![]), "the round button accepts");
         assert!(prefs.native_accept_pending());
@@ -2148,7 +2169,7 @@ mod tests {
             assert!(key(&mut prefs, keep).is_empty());
             assert!(!prefs.confirming_discard);
             assert_eq!(prefs.editing(), &draft);
-            assert_eq!(prefs.settings(), &Settings::default());
+            assert_eq!(prefs.settings(), &draft, "keeping the draft keeps its preview");
             assert!(!path.exists());
             key(&mut prefs, VK_ESCAPE);
             assert_eq!(key(&mut prefs, 0x59), native_close(VK_ESCAPE));
@@ -2158,6 +2179,8 @@ mod tests {
 
     /// Run explicitly with Civ III installed. Uses the same panel art,
     /// font metrics and screen sprites as the live bridge, on the CPU.
+    /// Renders every renderer tab, the Base UI scale preview and the undo
+    /// buttons and tooltip.
     #[test]
     #[ignore = "requires Civ III art; writes screenshots to C3R_PREFS_SHOTS or /tmp/c3r-prefs-undo-shots"]
     fn preferences_undo_headless_screenshots() {
@@ -2166,12 +2189,8 @@ mod tests {
         let files = civ3_assets::GameFiles::complete(&install);
         let directory = PathBuf::from(std::env::var("C3R_PREFS_SHOTS").unwrap_or_else(|_| "/tmp/c3r-prefs-undo-shots".into()));
         std::fs::create_dir_all(&directory).unwrap();
-        let (mut prefs, _) = open_prefs("headless-shots");
-        click(&mut prefs, 220, 55);
-        click(&mut prefs, 530, 377); // A changed Game frame slider.
         let mut fonts = Fonts::default();
-        for (name, hover) in [("changed-slider", false), ("undo-tooltip", true)] {
-            prefs.route(vec![Input::MouseMove { x: if hover { 771 } else { 100 }, y: 377 }], (1024, 768));
+        let mut shot = |prefs: &Prefs, name: &str| {
             let runs = items(&prefs.draws(&fonts)).into_iter().filter_map(|i| match i { Item::Text(r, ..) => Some(r), _ => None }).collect::<Vec<_>>();
             fonts.add(&files, &runs);
             let background = Element::Image { region: Region { source: "Art/interface/x_pref background.pcx".into(), rect: [0, 0, 1024, 768], keyed: false, mask: None, palette: None }, at: (0, 0), clip: [0, 0, 1024, 768] };
@@ -2186,8 +2205,45 @@ mod tests {
             let world = tile_viewer::scene_world(&compiled, &scene);
             let picture = tile_render::reference::render(&world, &compiled.atlas, &tile_render::Camera::new((1024, 768)), 0, [0, 0, 0, 255]);
             image::save_buffer(directory.join(format!("{name}.png")), picture.as_bytes(), picture.width, picture.height, image::ColorType::Rgba8).unwrap();
+        };
+        let (mut prefs, _) = open_prefs("headless-shots");
+        click(&mut prefs, 220, 55);
+        click(&mut prefs, 530, 377); // A changed Game frame slider.
+        for (name, hover) in [("changed-slider", false), ("undo-tooltip", true)] {
+            prefs.route(vec![Input::MouseMove { x: if hover { 771 } else { 100 }, y: 377 }], (1024, 768));
+            shot(&prefs, name);
         }
+        // Every tab, with the conditional controls shown.
+        let (mut prefs, _) = open_prefs("headless-tabs");
+        let draft = prefs.draft.as_mut().unwrap();
+        draft.layout.split = Split::Vertical1To1;
+        draft.layout.zoom = Zoom::Floating131;
+        draft.display.max_fps = 120;
+        draft.accessibility.active_unit_arrow = true;
+        draft.accessibility.unit_rings = true;
+        prefs.project_settings();
+        for (tab, name) in [(TAB_RESOLUTION, "tab-resolution"), (TAB_LAYOUT, "tab-layout"), (TAB_ZOOM, "tab-zoom"),
+            (TAB_CLEAN_MAP, "tab-clean-map"), (TAB_ACCESSIBILITY, "tab-accessibility")] {
+            prefs.tab = tab.into();
+            prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+            shot(&prefs, name);
+        }
+        // Base UI scale changed and previewed.
+        prefs.tab = TAB_RESOLUTION.into();
+        click(&mut prefs, 218, 231);
+        click(&mut prefs, 621, 230);
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-resolution-base-preview");
+        // Accessibility sliders changed: their undo buttons.
+        let draft = prefs.draft.as_mut().unwrap();
+        draft.accessibility.hud_size = 3;
+        draft.accessibility.ring_width = 5;
+        draft.input.snap_updates_per_second = 20.0;
+        prefs.tab = TAB_ACCESSIBILITY.into();
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-accessibility-undo");
     }
+
 
     /// Find a slider through its declared geometry, as the viewer does.
     fn slider_for(prefs: &Prefs, key: &str) -> menu::panel::ControlLooks {
@@ -2201,7 +2257,7 @@ mod tests {
 
     fn show_slider(prefs: &mut Prefs, key: &str) {
         prefs.tab = if key.starts_with("layout.zoom") { TAB_ZOOM }
-            else if key.starts_with("accessibility.") { TAB_ACCESSIBILITY }
+            else if key.starts_with("accessibility.") || key == "input.snap_updates_per_second" { TAB_ACCESSIBILITY }
             else if key.starts_with("resolution.") || key.starts_with("display.") { TAB_RESOLUTION }
             else { TAB_LAYOUT }.into();
         prefs.route(vec![], (1024, 768));
@@ -2210,10 +2266,16 @@ mod tests {
     #[test]
     fn every_live_slider_previews_during_drag_and_rolls_back_or_accepts_without_early_save() {
         use scene::SliderAction::*;
-        for control in LIVE_SLIDERS {
+        let panels = Panels::parse(PANELS).unwrap();
+        let sliders: Vec<_> = panels.panel(PANEL).unwrap().controls().into_iter()
+            .filter(|c| panels.panel(PANEL).unwrap().slider_range(c).is_some() && !DEFERRED_CONTROLS.contains(c)).collect();
+        assert!(sliders.len() >= 12, "{sliders:?}");
+        for control in sliders {
             for finish in ["discard", "closed", "accept"] {
                 let (mut prefs, path) = open_prefs(&format!("live-{control}-{finish}"));
                 prefs.settings.layout.zoom = Zoom::Floating131;
+                prefs.settings.display.max_fps = 120;
+                prefs.settings.accessibility.unit_rings = true;
                 prefs.draft = Some(prefs.settings.clone());
                 prefs.project_settings();
                 prefs.settings.save(&path).unwrap();
@@ -2257,6 +2319,176 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// The settings the game shows must be the draft, but for the deferred
+    /// controls (accepted values; the base the draft's while previewed).
+    fn assert_projected(prefs: &Prefs, accepted: &Settings, what: &str) {
+        for (key, drafted) in prefs.editing().controls() {
+            let shown = prefs.settings().control(&key);
+            let previewed = key == "resolution.base_ui_scale" && prefs.base_preview;
+            if DEFERRED_CONTROLS.contains(&key.as_str()) && !previewed {
+                assert_eq!(shown, accepted.control(&key), "{what}: {key} waits for Accept");
+            } else {
+                assert_eq!(shown, Some(drafted), "{what}: {key} previews at once");
+            }
+        }
+        // (In window pixels: a pixel scale changes the canvas, not the size.)
+        // (Screen-relative menus round to whole rendered rows: within 1%.)
+        let menu = |s: &Settings| {
+            let p = tile_viewer::scaling::plan((2048, 1536), (1024, 768), &s.resolution);
+            let (n, d) = tile_viewer::scaling::times(p.menu.zoom, p.present.zoom);
+            n as f64 / d as f64
+        };
+        assert!((menu(prefs.settings()) / menu(accepted) - 1.0).abs() < 0.01, "{what}: the dialog keeps its size");
+    }
+
+    /// Clicks or slides every control the panel shows on every renderer
+    /// tab (looks recomputed after each edit, so controls a choice reveals
+    /// are reached too).
+    fn exercise_every_control(prefs: &mut Prefs, accepted: &Settings, path: &std::path::Path) -> BTreeSet<String> {
+        use scene::{InteractableKind, SliderAction::*};
+        let mut changed = BTreeSet::new();
+        for tab in [TAB_RESOLUTION, TAB_ZOOM, TAB_LAYOUT, TAB_CLEAN_MAP, TAB_ACCESSIBILITY] {
+            prefs.tab = tab.into();
+            prefs.route(vec![], (1024, 768));
+            let mut tried = BTreeSet::new();
+            loop {
+                // (The tab buttons lie above the panels, y < 79.)
+                let Some(look) = prefs.looks(&Fonts::default()).into_iter()
+                    .find(|l| l.rect[1] >= 79 && !tried.contains(&(l.id, l.rect))) else { break };
+                tried.insert((look.id, look.rect));
+                let before = prefs.editing().clone();
+                if let InteractableKind::Slider { .. } = look.kind {
+                    for value in [1_000_000, 0] {
+                        prefs.route(vec![Input::Slider { id: look.id, action: Begin, value: 0 },
+                            Input::Slider { id: look.id, action: Preview, value },
+                            Input::Slider { id: look.id, action: Commit, value: 0 }], (1024, 768));
+                        if *prefs.editing() != before { break; }
+                    }
+                } else {
+                    let [x, y] = look.anchor.unwrap_or([look.rect[0] + look.rect[2] / 2, look.rect[1] + look.rect[3] / 2]);
+                    click(prefs, x, y);
+                }
+                // The pixel scale's own Keep/Revert dialog: keep.
+                if let Some(p) = prefs.preview {
+                    prefs.route(vec![Input::SettingsPreviewDecision { session: p.session, id: p.id, keep: true }], (1024, 768));
+                }
+                assert_eq!(prefs.tab, tab);
+                let what = format!("{tab} control at {:?}", look.rect);
+                assert_projected(prefs, accepted, &what);
+                assert!(!path.exists(), "{what}: nothing saved before Accept");
+                for (key, value) in prefs.editing().controls() {
+                    if before.control(&key) != Some(value) { changed.insert(key); }
+                }
+            }
+        }
+        changed
+    }
+
+    #[test]
+    fn every_control_previews_at_once_and_reverts_on_discard_or_saves_on_accept() {
+        let panels = Panels::parse(PANELS).unwrap();
+        let expected: BTreeSet<String> = panels.panel(PANEL).unwrap().controls().into_iter()
+            .filter(|c| *c != TAB && !c.starts_with("dialog.")).map(String::from).collect();
+        for finish in ["discard", "accept", "closed"] {
+            let (mut prefs, path) = open_prefs(&format!("all-controls-{finish}"));
+            let s = &mut prefs.settings;
+            s.layout.zoom = Zoom::Floating131;
+            s.layout.split = Split::Vertical1To1;
+            s.display.max_fps = 120;
+            s.accessibility.unit_rings = true;
+            s.accessibility.active_unit_arrow = true;
+            s.resolution.scale_menus = true;
+            prefs.draft = Some(prefs.settings.clone());
+            prefs.project_settings();
+            let accepted = prefs.settings.clone();
+            let changed = exercise_every_control(&mut prefs, &accepted, &path);
+            let missed: Vec<_> = expected.difference(&changed).collect();
+            assert!(missed.is_empty(), "controls never changed by the walk: {missed:?}");
+            assert_ne!(prefs.settings(), &accepted);
+            let draft = prefs.editing().clone();
+            match finish {
+                "accept" => {
+                    key(&mut prefs, VK_RETURN);
+                    assert_eq!(prefs.settings(), &draft);
+                    assert_eq!(Settings::load(&path).unwrap(), draft);
+                }
+                "discard" => {
+                    key(&mut prefs, VK_ESCAPE);
+                    assert!(prefs.confirming_discard);
+                    key(&mut prefs, 0x59);
+                    assert_eq!(prefs.settings(), &accepted);
+                    assert!(!path.exists());
+                }
+                _ => {
+                    prefs.update(None, None, (1024, 768), None);
+                    assert_eq!(prefs.settings(), &accepted);
+                    assert!(!path.exists());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn base_ui_preview_button_shows_the_draft_base_behind_a_fixed_dialog() {
+        let button = |p: &Prefs| p.draws(&Fonts::default()).iter().find_map(|d| match d {
+            Draw::Text(t) if t.text == "Preview" || t.text == "Stop preview" => Some(t.text.clone()),
+            _ => None,
+        });
+        let plan = |s: &Settings| tile_viewer::scaling::plan((2048, 1536), (1024, 768), &s.resolution);
+        for end in ["again", "tab", "cancel", "undo", "accept"] {
+            let (mut prefs, path) = open_prefs(&format!("base-preview-{end}"));
+            click(&mut prefs, 220, 55);
+            let accepted = prefs.settings().clone();
+            let rects = |p: &Prefs| p.looks(&Fonts::default()).iter().filter(|l| l.rect[1] >= 79 && l.rect[0] < 500).map(|l| l.rect).collect::<Vec<_>>();
+            assert_eq!(button(&prefs).as_deref(), Some("Preview"));
+            click(&mut prefs, 218, 231);
+            assert_eq!(prefs.editing().resolution.base_ui_scale, 2.5);
+            assert_eq!(prefs.settings().resolution.base_ui_scale, accepted.resolution.base_ui_scale, "waits for Preview");
+            let before = rects(&prefs);
+            click(&mut prefs, 621, 230);
+            assert!(prefs.base_preview);
+            assert_eq!(button(&prefs).as_deref(), Some("Stop preview"));
+            assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), 2.5);
+            assert_eq!(plan(prefs.settings()).menu, plan(&accepted).menu, "the dialog keeps its size");
+            assert_ne!(plan(prefs.settings()).frame, plan(&accepted).frame, "the game behind it scales");
+            assert_eq!(rects(&prefs), before);
+            assert_projected(&prefs, &accepted, "preview");
+            // Dragging while previewing follows the slider.
+            click(&mut prefs, 251, 231);
+            assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), 3.0);
+            assert!(!path.exists());
+            match end {
+                "again" => { click(&mut prefs, 621, 230); }
+                "tab" => { click(&mut prefs, 330, 55); }
+                "cancel" => {
+                    key(&mut prefs, VK_ESCAPE);
+                    assert!(!prefs.base_preview);
+                    assert_eq!(prefs.settings(), &accepted);
+                    key(&mut prefs, 0x59);
+                }
+                "undo" => {
+                    click(&mut prefs, 531, 231);
+                    assert_eq!(prefs.editing().resolution.base_ui_scale, accepted.resolution.base_ui_scale);
+                    assert!(prefs.base_preview, "undo keeps the preview on, now of the accepted base");
+                    assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), accepted.resolution.base_ui_scale);
+                    click(&mut prefs, 621, 230);
+                }
+                _ => {
+                    key(&mut prefs, VK_RETURN);
+                    assert_eq!(prefs.settings().resolution.base_ui_scale, 3.0);
+                    assert_eq!(prefs.settings().resolution.menu_base_ui_scale, None);
+                    assert_eq!(Settings::load(&path).unwrap(), *prefs.settings());
+                    continue;
+                }
+            }
+            assert!(!prefs.base_preview, "{end} ends the preview");
+            assert_eq!(prefs.settings().resolution.base_ui_scale, accepted.resolution.base_ui_scale, "{end}");
+            assert_eq!(prefs.settings().resolution.menu_base_ui_scale, None, "{end}");
+            if end != "cancel" { assert_eq!(button(&prefs).as_deref().filter(|_| prefs.tab == TAB_RESOLUTION), if end == "tab" { None } else { Some("Preview") }); }
+            assert!(!path.exists());
         }
     }
 
@@ -2584,7 +2816,7 @@ mod tests {
             assert_eq!(forwarded, if discard { native_close(VK_ESCAPE) } else { vec![] });
             assert!(!prefs.confirming_discard);
             assert_eq!(prefs.editing(), if discard { prefs.settings() } else { &draft });
-            assert_eq!(prefs.settings(), &Settings::default());
+            assert_eq!(prefs.settings(), &if discard { Settings::default() } else { draft.clone() });
             assert!(!path.exists());
         }
     }
@@ -2945,8 +3177,8 @@ mod tests {
         click(&mut p, 720, 495);
         assert_eq!(p.settings().resolution.background_sampling, viewer_settings::BackgroundSampling::Interpolate,
             "sampling must preview without Accept");
-        assert_eq!(p.settings().display.max_fps, opening.display.max_fps, "pacing remains draft-only");
-        assert_eq!(p.settings().layout.split, opening.layout.split, "unrelated layout remains draft-only");
+        assert_eq!(p.settings().display.max_fps, 144, "pacing previews too");
+        assert_eq!(p.settings().layout.split, viewer_settings::Split::Vertical2To1, "so does the layout");
         assert!(!path.exists(), "preview never persists");
         p.action("cancel", &mut Vec::new());
         p.action("discard", &mut Vec::new());
@@ -3002,7 +3234,7 @@ mod tests {
     }
 
     #[test]
-    fn sensitivity_previews_and_discard_restores_opening_without_pacing_leaks() {
+    fn sensitivity_pacing_and_combat_speed_preview_and_discard_restores_opening() {
         let (mut p, path) = open_prefs("sensitivity-preview");
         let opening = p.settings().clone();
         click(&mut p,330,55);
@@ -3014,8 +3246,8 @@ mod tests {
         p.draft.as_mut().unwrap().display.fps_limit = 240;
         p.draft.as_mut().unwrap().animation.combat_speed = 3.0;
         p.project_settings();
-        assert_eq!(p.settings().display, opening.display);
-        assert_eq!(p.settings().animation.effective_combat_speed(), 1.0);
+        assert_eq!(p.settings().display, p.editing().display);
+        assert_eq!(p.settings().animation.effective_combat_speed(), 3.0);
         assert!(!path.exists());
         p.action("cancel", &mut Vec::new());
         p.action("discard", &mut Vec::new());
