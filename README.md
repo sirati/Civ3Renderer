@@ -579,6 +579,16 @@ renderer or native Civ III settings; No keeps the draft. The original
 audio controls also defer their sound changes until Accept. See
 [settings acceptance and cancellation](docs/settings-transactions.md).
 
+The Accessibility tab adds a gold arrow above the active unit, optional
+gentle bobbing, diplomacy rings with colour swatches and per-relation
+inversion, a 100/150/200/300% unit HUD size, and stack counts in place of
+stack lines. These settings share Accept/Cancel and apply in both panes
+and the world magnifier. Arrow, rings and stack counts start off; bobbing
+starts on, HUD size is 100%, and rings use red for war, blue for a defence
+pact, green for peace, at 2 pixels. `CIV3R_UNIT_RINGS` still overrides ring
+preferences, including `off`. Generate read-only visual fixtures with
+`nix develop -c cargo run -p civ3-bridge --example accessibility_shots`.
+
 Accepted settings are saved at `Settings::default_path()` (`$CIV3R_SETTINGS`,
 else `civ3r/settings.toml` under `$XDG_CONFIG_HOME`, `%APPDATA%` or
 `~/.config`; under Wine the bridge uses the Unix user's path through the

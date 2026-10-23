@@ -2258,3 +2258,419 @@ tooltip = "Undo to current state"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
 show_if = "tab=layout & dialog.changed.layout.separator_width"
+# Accessibility is self-contained so other Preferences work can merge separately.
+[[panels.preferences.items]]
+choice = "tab"
+value = "accessibility"
+at = [610, 40]
+size = [140, 32]
+text = "Accessibility"
+style = "tab"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+
+[[panels.preferences.items]]
+image = "cover"
+at = [49, 83]
+size = [924, 607]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+image = "section"
+at = [70, 95]
+size = [420, 120]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Active unit"
+at = [90, 108]
+style = "heading"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.active_unit_arrow"
+text = "Arrow above active unit"
+at = [90, 140]
+size = [370, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.arrow_bobbing"
+text = "Arrow bobs up and down"
+at = [114, 177]
+size = [340, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility & accessibility.active_unit_arrow"
+
+[[panels.preferences.items]]
+image = "section"
+at = [70, 235]
+size = [420, 195]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Unit markers"
+at = [90, 248]
+style = "heading"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Unit health and move markers size"
+at = [90, 283]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+slider = "accessibility.hud_size"
+text = "{accessibility.hud_percent}%"
+tick_step = 1
+tick_label_step = 1
+tick_labels = ["100%", "150%", "200%", "300%"]
+tick_style = "access_ruler"
+at = [90, 315]
+size = [280, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0
+max = 3
+step = 1
+decimals = 0
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.stack_count"
+text = "Show unit count on stacks"
+at = [90, 383]
+size = [370, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+image = "section"
+at = [520, 95]
+size = [432, 560]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Diplomacy rings"
+at = [540, 108]
+style = "heading"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.unit_rings"
+text = "Rings around foreign units"
+at = [540, 140]
+size = [390, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility"
+
+[art.access_color_ff0000]
+fill = [255, 0, 0]
+border = [72, 56, 24]
+
+[art.access_color_selected_ff0000]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;255,0,0,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_f07018]
+fill = [240, 112, 24]
+border = [72, 56, 24]
+
+[art.access_color_selected_f07018]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;240,112,24,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_f8d020]
+fill = [248, 208, 32]
+border = [72, 56, 24]
+
+[art.access_color_selected_f8d020]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;248,208,32,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_00c800]
+fill = [0, 200, 0]
+border = [72, 56, 24]
+
+[art.access_color_selected_00c800]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,200,0,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_009870]
+fill = [0, 152, 112]
+border = [72, 56, 24]
+
+[art.access_color_selected_009870]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,152,112,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_20d0d8]
+fill = [32, 208, 216]
+border = [72, 56, 24]
+
+[art.access_color_selected_20d0d8]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;32,208,216,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_0040ff]
+fill = [0, 64, 255]
+border = [72, 56, 24]
+
+[art.access_color_selected_0040ff]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,64,255,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_6840c0]
+fill = [104, 64, 192]
+border = [72, 56, 24]
+
+[art.access_color_selected_6840c0]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;104,64,192,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_c830a0]
+fill = [200, 48, 160]
+border = [72, 56, 24]
+
+[art.access_color_selected_c830a0]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;200,48,160,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_f890b0]
+fill = [248, 144, 176]
+border = [72, 56, 24]
+
+[art.access_color_selected_f890b0]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;248,144,176,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_905028]
+fill = [144, 80, 40]
+border = [72, 56, 24]
+
+[art.access_color_selected_905028]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;144,80,40,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_c0a868]
+fill = [192, 168, 104]
+border = [72, 56, 24]
+
+[art.access_color_selected_c0a868]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;192,168,104,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_ffffff]
+fill = [255, 255, 255]
+border = [72, 56, 24]
+
+[art.access_color_selected_ffffff]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;255,255,255,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_b0b0b0]
+fill = [176, 176, 176]
+border = [72, 56, 24]
+
+[art.access_color_selected_b0b0b0]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;176,176,176,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_505050]
+fill = [80, 80, 80]
+border = [72, 56, 24]
+
+[art.access_color_selected_505050]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;80,80,80,255:4,4,31,13"
+size = [39, 21]
+
+[art.access_color_000000]
+fill = [0, 0, 0]
+border = [72, 56, 24]
+
+[art.access_color_selected_000000]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,0,0,255:4,4,31,13"
+size = [39, 21]
+
+[[panels.preferences.items]]
+text = "War"
+at = [540, 188]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.war.invert"
+text = "Invert"
+at = [810, 185]
+size = [110, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility & accessibility.unit_rings"
+
+[[panels.preferences.items]]
+repeat = ["ff0000", "f07018", "f8d020", "00c800", "009870", "20d0d8", "0040ff", "6840c0"]
+spacing = [47, 0]
+choice = "accessibility.war.color"
+value = "{item}"
+at = [540, 213]
+size = [39, 21]
+normal = "access_color_{item}"
+selected = "access_color_selected_{item}"
+hover = "access_color_selected_{item}"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+repeat = ["c830a0", "f890b0", "905028", "c0a868", "ffffff", "b0b0b0", "505050", "000000"]
+spacing = [47, 0]
+choice = "accessibility.war.color"
+value = "{item}"
+at = [540, 238]
+size = [39, 21]
+normal = "access_color_{item}"
+selected = "access_color_selected_{item}"
+hover = "access_color_selected_{item}"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Allied (defence pact)"
+at = [540, 286]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.allied.invert"
+text = "Invert"
+at = [810, 283]
+size = [110, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility & accessibility.unit_rings"
+
+[[panels.preferences.items]]
+repeat = ["ff0000", "f07018", "f8d020", "00c800", "009870", "20d0d8", "0040ff", "6840c0"]
+spacing = [47, 0]
+choice = "accessibility.allied.color"
+value = "{item}"
+at = [540, 311]
+size = [39, 21]
+normal = "access_color_{item}"
+selected = "access_color_selected_{item}"
+hover = "access_color_selected_{item}"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+repeat = ["c830a0", "f890b0", "905028", "c0a868", "ffffff", "b0b0b0", "505050", "000000"]
+spacing = [47, 0]
+choice = "accessibility.allied.color"
+value = "{item}"
+at = [540, 336]
+size = [39, 21]
+normal = "access_color_{item}"
+selected = "access_color_selected_{item}"
+hover = "access_color_selected_{item}"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Peace"
+at = [540, 384]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "accessibility.peace.invert"
+text = "Invert"
+at = [810, 381]
+size = [110, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility & accessibility.unit_rings"
+
+[[panels.preferences.items]]
+repeat = ["ff0000", "f07018", "f8d020", "00c800", "009870", "20d0d8", "0040ff", "6840c0"]
+spacing = [47, 0]
+choice = "accessibility.peace.color"
+value = "{item}"
+at = [540, 409]
+size = [39, 21]
+normal = "access_color_{item}"
+selected = "access_color_selected_{item}"
+hover = "access_color_selected_{item}"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+repeat = ["c830a0", "f890b0", "905028", "c0a868", "ffffff", "b0b0b0", "505050", "000000"]
+spacing = [47, 0]
+choice = "accessibility.peace.color"
+value = "{item}"
+at = [540, 434]
+size = [39, 21]
+normal = "access_color_{item}"
+selected = "access_color_selected_{item}"
+hover = "access_color_selected_{item}"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Ring thickness (pixels)"
+at = [540, 501]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+slider = "accessibility.ring_width"
+tick_step = 1
+tick_label_step = 1
+tick_style = "access_ruler"
+at = [540, 535]
+size = [280, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 1
+max = 6
+step = 1
+decimals = 0
+text = "{value} px"
+style = "label"
+enable_if = "accessibility.unit_rings"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Rings mark foreign units outside cities."
+at = [540, 617]
+style = "caption"
+show_if = "tab=accessibility"
+
+[styles.access_ruler]
+face = "Lucida Sans"
+height = 10
+color = [240, 225, 180]
+disabled_color = [160, 150, 125]

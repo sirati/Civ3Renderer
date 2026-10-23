@@ -53,6 +53,7 @@ pub const TAB_RESOLUTION: &str = "resolution";
 pub const TAB_LAYOUT: &str = "layout";
 pub const TAB_ZOOM: &str = "zoom";
 pub const TAB_CLEAN_MAP: &str = "clean_map";
+pub const TAB_ACCESSIBILITY: &str = "accessibility";
 
 /// The values the panel shows: the tab, every control of the settings
 /// (`viewer_settings::controls`) by its key, the rendered and the window
@@ -71,6 +72,7 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<St
         effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window));
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
+    out.insert("accessibility.hud_percent".into(), Value::Number(settings.accessibility.hud_scale() * 100.0));
     out.insert("layout.zoom_controls".into(), Value::On(settings.layout.menu_zoom || settings.layout.zoom != viewer_settings::Zoom::Off));
     out.insert("layout.zoom_lens_controls".into(), Value::On(settings.layout.menu_zoom || !matches!(settings.layout.zoom, viewer_settings::Zoom::Off | viewer_settings::Zoom::TopStrip)));
     let magnification = viewer_settings::Layout::MAGNIFICATIONS[settings.layout.zoom_magnification_step()];
@@ -1062,6 +1064,36 @@ mod tests {
     }
 
     #[test]
+    fn accessibility_controls_edit_a_draft_and_accept_or_discard_together() {
+        let (mut prefs, path) = open_prefs("accessibility");
+        click(&mut prefs, 680, 55);
+        assert_eq!(prefs.tab, TAB_ACCESSIBILITY);
+        click(&mut prefs, 100, 151);
+        click(&mut prefs, 122, 188);
+        click(&mut prefs, 550, 150);
+        click(&mut prefs, 550, 220);
+        click(&mut prefs, 820, 290);
+        click(&mut prefs, 100, 392);
+        assert!(prefs.editing().accessibility.active_unit_arrow);
+        assert!(!prefs.editing().accessibility.arrow_bobbing);
+        assert!(prefs.editing().accessibility.unit_rings);
+        assert!(prefs.editing().accessibility.allied.invert);
+        assert!(prefs.editing().accessibility.stack_count);
+        assert_eq!(prefs.settings().accessibility, Default::default());
+        assert!(!path.exists());
+        let accepted = prefs.editing().accessibility.clone();
+        prefs.action("accept", &mut Vec::new());
+        assert_eq!(Settings::load(&path).unwrap().accessibility, accepted);
+        let _ = std::fs::remove_file(path);
+        let (mut prefs, _) = open_prefs("accessibility-cancel");
+        click(&mut prefs, 680, 55);
+        click(&mut prefs, 100, 151);
+        prefs.action("cancel", &mut Vec::new());
+        prefs.action("discard", &mut Vec::new());
+        assert_eq!(prefs.settings().accessibility, Default::default());
+    }
+
+    #[test]
     fn clean_map_tab_lists_and_changes_every_view_flag() {
         let (mut prefs, path) = open_prefs("clean-map");
         assert!(click(&mut prefs, 440, 55).is_empty());
@@ -1220,7 +1252,7 @@ mod tests {
             Control { rect: [795, 28, 150, 28], kind: ControlKind::Button, id: 4 },
             Control { rect: [975, 718, 32, 28], kind: ControlKind::Button, id: 5 },
         ];
-        for (tab, tab_x, visible_body) in [(TAB_GAME, 110, None), (TAB_RESOLUTION, 220, Some(0)), (TAB_LAYOUT, 330, Some(1)), (TAB_CLEAN_MAP, 440, Some(2)), (TAB_ZOOM, 550, None)] {
+        for (tab, tab_x, visible_body) in [(TAB_GAME, 110, None), (TAB_RESOLUTION, 220, Some(0)), (TAB_LAYOUT, 330, Some(1)), (TAB_CLEAN_MAP, 440, Some(2)), (TAB_ZOOM, 550, None), (TAB_ACCESSIBILITY, 680, None)] {
             assert!(click(&mut p, tab_x, 55).is_empty());
             assert_eq!(p.tab, tab);
             let looks = p.looks(&Fonts::default());
@@ -1231,7 +1263,7 @@ mod tests {
                 assert!(looks.iter().any(|l| l.rect == rect), "missing tab {rect:?} on {tab}");
             }
             if tab == TAB_GAME {
-                assert_eq!(looks.len(), 5, "only our tabs: no text Accept or Cancel");
+                assert_eq!(looks.len(), 6, "only our tabs: no text Accept or Cancel");
             }
             let mut visible = native.to_vec();
             p.retain_native_controls(&mut visible);
