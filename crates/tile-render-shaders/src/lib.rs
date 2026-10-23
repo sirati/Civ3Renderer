@@ -1042,17 +1042,23 @@ pub fn lens_fs(
     // at final window resolution. Only the refracted face is interpolated.
     let base = lens_nearest(source, x, y, bounds, p.bits, p.quantized_float);
     let backdrop = if p.glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
-    let glass = if s.distance < -p.rim.max(0.5) {
-        lens_nearest(face, x, y, bounds, p.bits, p.quantized_float)
-    } else if p.glass != 0 {
-        let fetch = |channel: f32| {
-            let bend = (s.bend + s.dispersion * channel) * p.sample_scale;
-            lens_sample(face, x - s.nx * bend, y - s.ny * bend, bounds, p.bits, p.quantized_float)
-        };
-        let (r, g, b) = (fetch(1.0), fetch(0.0), fetch(-1.0));
-        lens_math::shade(&s, lens_math::dispersed(r, g, b))
-    } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
-    let rgb = lens_math::composite(&s, glass, backdrop);
+    let rgb = if s.distance >= 0.5 {
+        // Halo pixels have no glass coverage. Avoid three refracted samples
+        // and the lighting calculation across the border's outer padding.
+        backdrop
+    } else {
+        let glass = if s.distance < -p.rim.max(0.5) {
+            lens_nearest(face, x, y, bounds, p.bits, p.quantized_float)
+        } else if p.glass != 0 {
+            let fetch = |channel: f32| {
+                let bend = (s.bend + s.dispersion * channel) * p.sample_scale;
+                lens_sample(face, x - s.nx * bend, y - s.ny * bend, bounds, p.bits, p.quantized_float)
+            };
+            let (r, g, b) = (fetch(1.0), fetch(0.0), fetch(-1.0));
+            lens_math::shade(&s, lens_math::dispersed(r, g, b))
+        } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
+        lens_math::composite(&s, glass, backdrop)
+    };
     let encode = |v: f32| if p.output_bits == 0 { v } else {
         let q = quantize((v * 255.0 + 0.5) as u32, p.output_bits);
         if p.quantized_float != 0 { (q + tile_render_shared::FLOAT_QUANTIZED_BIAS) as f32 }

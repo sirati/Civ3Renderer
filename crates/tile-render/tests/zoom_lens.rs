@@ -26,9 +26,13 @@ fn fixture(color: ColorModel) -> (tile_render::Atlas, TileWorld) {
 
 /// Straight survey lines make bevel compression and corner bending visible.
 fn survey_grid() -> (tile_render::Atlas, TileWorld) {
+    survey_pattern(true)
+}
+
+fn survey_pattern(lines: bool) -> (tile_render::Atlas, TileWorld) {
     let mut builder = AtlasBuilder::new(256);
     let tile = RgbaImage::from_fn(128,128, |x,y| {
-        if (2*y as i32 - x as i32 - 32).rem_euclid(128) <= 1 { [215,225,215,255] }
+        if lines && (2*y as i32 - x as i32 - 32).rem_euclid(128) <= 1 { [215,225,215,255] }
         else { [38,67,49,255] }
     });
     let mut sets = SpriteSets::default();
@@ -177,6 +181,10 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
+    let (field_atlas, field_world) = survey_pattern(false);
+    let mut field_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    field_renderer.set_atlas(&gpu.device, &gpu.queue, &field_atlas);
+    field_renderer.set_world(&gpu.device, &field_world);
     for scale in [1, 2] { for menu in [false, true] {
         let lens = Camera { cells: false, origin: (40/scale,40/scale),
             lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
@@ -191,25 +199,28 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
         let plain_cameras: Vec<_> = cameras.iter().map(|c| Camera { lens: None, ..*c }).collect();
         let plain_copies: Vec<_> = copies.iter().map(|c| tile_render::ScreenCopy { lens: None, ..*c }).collect();
         let plain = gpu.render_presented(&mut renderer, &plain_cameras, &plain_copies, present, 0, [0,0,0,255]);
-        let empty: Vec<_> = cameras.iter().map(|c| Camera { cells: false, ..*c }).collect();
-        let reflections = gpu.render_presented(&mut renderer, &empty, &copies, present, 0, [0,0,0,255]);
-        // Track transmitted line contrast against a black control render.
-        // A finite softbox's brightness gradient must not become a false peak.
+        let field = gpu.render_presented(&mut field_renderer, &cameras, &copies, present, 0, [0,0,0,255]);
+        // Subtract the same green field without lines, including its coloured
+        // glass lighting. A black control assumes a channel-wise linear blend
+        // and mistakes colour-preserving radiance compression for dispersion.
         let contrast = |x,y,ch: usize| {
-            let light = reflections.get(x,y)[ch] as f32;
-            (image.get(x,y)[ch] as f32 - light) / (255.0 - light).max(1.0)
+            let base = field.get(x,y);
+            let headroom = 255.0 - *base[..3].iter().max().unwrap() as f32;
+            (image.get(x,y)[ch] as f32 - base[ch] as f32) / headroom.max(1.0)
         };
         let mut max_fringe_chroma = 0.0_f32;
         for y in 40..96 { for x in 40..96 {
             let pixel = image.get(x,y);
             assert!(*pixel[..3].iter().min().unwrap() < 250,
                 "scale {scale}, menu {menu}: a refracted line clips the corner highlight at {x}/{y}");
-            let channels = [contrast(x,y,0), contrast(x,y,1), contrast(x,y,2)];
+            // Measure displayed chroma directly. Inverting a channel-wise
+            // white blend is invalid for a shared, colour-preserving shoulder.
+            let channels = [pixel[0] as f32/255.0, pixel[1] as f32/255.0, pixel[2] as f32/255.0];
             let lo = channels.iter().copied().fold(1.0_f32, f32::min);
             let hi = channels.iter().copied().fold(0.0_f32, f32::max);
             max_fringe_chroma = max_fringe_chroma.max(hi-lo);
         } }
-        assert!(max_fringe_chroma < 0.38,
+        assert!(max_fringe_chroma < 0.22,
             "scale {scale}, menu {menu}: saturated corner dashes, chroma {max_fringe_chroma}");
         let intercept = if menu { -80 + 192*scale } else { 96*scale };
         let displacement = |y| {
@@ -442,9 +453,9 @@ fn capture_glass_review_at_4k() {
             lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
         let image = gpu.render_presented(&mut renderer, &cams, &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
         let background = if grid { "grid" } else if background { "map" } else { "black" };
-        save(format!("glass5-{background}-4k-scale{scale}.png"), &image);
+        save(format!("glass6-{background}-4k-scale{scale}.png"), &image);
         let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-        save(format!("glass5-{background}-corner-3x-scale{scale}.png"), &crop);
+        save(format!("glass6-{background}-corner-3x-scale{scale}.png"), &crop);
         if !grid && background == "black" {
             let mut empty = *cams.last().unwrap(); empty.cells = false;
             // Independently build and render each empty-black scale. Identical
@@ -456,9 +467,9 @@ fn capture_glass_review_at_4k() {
             eprintln!("independent empty-black scale {scale}: canvas {}x{}, lens {}x{}, rim {} composition pixels",
                 3840/scale, 2160/scale, empty.viewport.0, empty.viewport.1, empty.lens.unwrap().rim);
             let image = gpu.render_presented(&mut empty_renderer, &[empty], &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, scale, [0,0,0,255]);
-            save(format!("glass5-empty-black-4k-scale{scale}.png"), &image);
+            save(format!("glass6-empty-black-4k-scale{scale}.png"), &image);
             let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
-            save(format!("glass5-empty-black-corner-3x-scale{scale}.png"), &crop);
+            save(format!("glass6-empty-black-corner-3x-scale{scale}.png"), &crop);
         }
       } }
     }
