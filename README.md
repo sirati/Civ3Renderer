@@ -319,9 +319,18 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   popup giving way to a screen, one screen to the next, a popup over a
   screen outliving it); once none has been open for 0.2 s the mouse is
   captured again, the world cursor where it was before the first menu.
-  While a popup is open, or a screen floats over the world, a click on the
-  world does not capture the mouse; beside a screen placed in the other
-  pane it does (to play there). Losing the window's focus forgets a
+  While a menu is open, a click on the world it lies over does not capture
+  the mouse (a screen floating over the world, a popup in a single view or
+  placed in the view following the world cursor, one opened at a world
+  click). With `EdgeScroll`, over the view following the world cursor
+  beside the menu (a screen or popup placed in the other pane) the pointer
+  shows the capture crosshair, and a click there captures the mouse
+  without reaching the game, to keep playing in that view while the menu
+  stays open; the divider and the window's edges then hold the mouse as
+  for any capture. Ctrl on its own lets it go again, as does a click on
+  the menu outside that view (with the Alt mode, below: the click goes to
+  the menu). Capturing it there turns the Alt mode the menu turned on
+  off until the menus are all closed. Losing the window's focus forgets a
   capture waiting for the menus to close; back in the window, a click
   captures the mouse (`tile_viewer::layout::capture`).
 - **Smooth world movement**: a view following game focus requests
@@ -478,7 +487,8 @@ single view following the world cursor) has an attractor, the game's
 crosshair drawn translucent in its middle while the mode is on and the
 mouse free: the pointer is drawn to it, and a click there ends the mode
 and goes back into the game in that view, capturing the mouse in the view
-following the world cursor (where it may: not with `Drag` or under a menu),
+following the world cursor (where it may: not with `Drag` or where a menu
+lies over the view),
 else putting the free pointer there; neither the press nor its release
 reaches the game.
 Turned off, the pointer stays where it ended: on the interface the system
