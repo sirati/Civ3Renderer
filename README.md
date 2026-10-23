@@ -259,22 +259,25 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   wide), or A above B.
 - **Zoom box**: off; a floating box at the top of the window, centred
   across, 1:3:1 or 1:7:1 of the width (margin : box : margin), its top
-  `zoom_box_top` (*Top margin*, 0-20 %, default 2.5 %) of the height
+  `zoom_box_top` (*Top margin*, 0-5 %, default 2.5 %) of the height
   below the window's top; a box at the pointer, 1:1:1 or 1:3:1 across,
   above the pointer (below it where there is no room); or a strip across
   the top that the views give room to. One slider, `zoom_strip` (*Box*
   or *Strip height*, 5-50 %, default 20 %), sets the height of every one
   of them (older settings' own floating box height is ignored). In a
   side-by-side split `zoom_place` puts it over both views, A or B, and
-  keeps it inside that view. A floating box the pointer comes to drops
-  below it, its top `zoom_box_drop` (*Drop*, 0-50 %, default 30 %) of
-  the height below the pointer (as far as the bottom lets it); **Keep
-  mouse out** instead blocks entry. Top strips always block entry and
+  keeps it inside that view. While the pointer is where a floating box
+  rests, the box glides below that place, a gap of `zoom_box_drop`
+  (*Gap when moved*, saved as `zoom_box_gap`, 0-10 %, default 2.5 %) of
+  the height below it (cut at the bottom if it does not fit), and glides
+  back once the pointer leaves it; **Keep mouse out** instead blocks
+  entry. Top strips always block entry and
   scroll the map upward at their lower boundary. Boxes do not dodge the
   views' own controls (the corner buttons, the unit's orders): they lie
   under them, and the controls keep their clicks. *Magnification*
   (`zoom_magnification`: 1.5×, 2×, 3× or 4×, default 2×) sets how much
-  every zoom enlarges the world; Ctrl+wheel over a zoom view changes it
+  every zoom enlarges the world beyond how large the view under it shows
+  it (world scale and view zoom included); Ctrl+wheel over a zoom view changes it
   within those steps until the setting changes (not saved). World
   magnifiers keep full-size artwork when Z zooms the game's map out.
 - **Screens**: one setting places every screen and popup: the advisors
@@ -459,8 +462,10 @@ view set up before the game shows a map is placed at its initial focus.
 World input supplies the selected tile directly to the game's native hover,
 selection and command handlers, including tiles outside its original camera.
 Each renderer view keeps its own camera, and the minimap marks what A shows.
-The pointer resting at an edge scrolls that renderer view at the same speed
-in A and B. `TILE_VIEWER_LAYOUT`
+The pointer resting within 48 pixels of an edge scrolls that renderer view,
+in A and B alike, as many tiles a second as the game's own edge scrolling
+(its scroll speed setting) at the outermost pixel, easing out further in,
+with smooth world movement or without. `TILE_VIEWER_LAYOUT`
 overrides the settings at start, for testing, e.g.
 `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 (`tile_viewer::layout`; the driver's interface stays on top, unscaled):
@@ -516,7 +521,7 @@ arrow over the active unit. Clicks are routed to the game where its view
 shows the same world pixel; elsewhere the game is asked to look there
 (the bridge clicks its minimap). Where the main pane follows the game's
 view, the pointer resting at the window's edge scrolls it locally at the
-same window-pixel speed as B. `TILE_VIEWER_LAYOUT` sets it up at start,
+same speed as B. `TILE_VIEWER_LAYOUT` sets it up at start,
 e.g. `split=vertical,main=focus,pane=pointer,pane_zoom=2`.
 The mouse cursor is the game's (`Art/cursor.pcx`, `scene::Cursor`: the
 bridge reads which one the game shows, e.g. its targeting cursors, or the

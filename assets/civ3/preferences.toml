@@ -1959,8 +1959,9 @@ text = "{value}%"
 style = "label"
 show_if = "tab=zoom & layout.zoom_controls"
 
-# A floating box: its space below the top, how far it drops below the
-# mouse that comes to it, or that it keeps the mouse out instead.
+# A floating box: its space below the top, the gap below where it rests
+# that it moves to while the mouse is there, or that it keeps the mouse
+# out instead.
 [[panels.preferences.items]]
 checkbox = "layout.zoom_box_block_pointer"
 at = [90, 515]
@@ -1980,8 +1981,8 @@ show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_box_top"
-tick_step = 0.05
-tick_label_step = 0.1
+tick_step = 0.005
+tick_label_step = 0.01
 tick_style = "ruler"
 at = [280, 410]
 size = [408, 23]
@@ -1989,7 +1990,7 @@ normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
 min = 0.0
-max = 0.2
+max = 0.05
 step = 0.005
 decimals = 1
 percent = true
@@ -1998,15 +1999,15 @@ style = "label"
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
-text = "Drop"
+text = "Gap when moved"
 style = "label"
 at = [90, 465]
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_box_drop"
-tick_step = 0.05
-tick_label_step = 0.25
+tick_step = 0.005
+tick_label_step = 0.02
 tick_style = "ruler"
 at = [280, 460]
 size = [408, 23]
@@ -2014,8 +2015,8 @@ normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
 min = 0.0
-max = 0.5
-step = 0.025
+max = 0.1
+step = 0.005
 decimals = 1
 percent = true
 text = "{value}%"
