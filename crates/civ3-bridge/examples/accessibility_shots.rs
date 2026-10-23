@@ -29,7 +29,7 @@ fn draw(compiled: &Compiled, sprites: Vec<scene::FreeSprite>, size: (u32, u32), 
     reference::render_views(&world, &compiled.atlas, &[camera], size, 0, [105, 119, 73, 255])
 }
 fn main() {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "/tmp/c3r-access-shots".into());
+    let dir = std::env::args().nth(1).unwrap_or_else(|| "/tmp/c3r-access2-shots".into());
     let dir = Path::new(&dir);
     std::fs::create_dir_all(dir).unwrap();
     let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
@@ -45,13 +45,36 @@ fn main() {
         fonts.add(&files, &[run(&style, "")]);
     }
     let measure = |style: &panel::TextStyle, text: &str| fonts.metrics(&run(style, text)).map_or_else(|| panel::estimate(style, text), |(width, ascent, descent)| panel::TextMetrics { width, ascent, descent });
-    let panel_draws = panels.draw(p, &state, [0, 0, 1024, 768], &measure);
     let bg = Frame { draws: vec![ScreenDraw::Image { path: "Art/interface/x_pref background.pcx".into(), rect: [0,0,1024,768],
         x: 0, y: 0, keyed: false, clip: [0,0,1024,768], mask: None, palette: None, opacity: 255 }], ..Default::default() };
-    let mut panel_items = ui_screen::items(&bg, &[], &[], 0);
-    panel_items.extend(prefs::items(&panel_draws));
+    let mut changed = settings.clone();
+    changed.accessibility.hud_size = 3;
+    changed.accessibility.ring_width = 4;
+    let mut changed_state = PanelState { values: prefs::values(&changed, prefs::TAB_ACCESSIBILITY, (1024, 768)), ..Default::default() };
+    for key in ["accessibility.hud_size", "accessibility.ring_width"] {
+        changed_state.values.insert(format!("dialog.changed.{key}"), panel::Value::On(true));
+    }
+    let mut swatch_state = state.clone();
+    panels.input(p, &mut swatch_state, [0,0,1024,768], &scene::Input::MouseMove { x: 700, y: 222 });
+    let panel_shots: Vec<_> = [("accessibility-tab", state), ("accessibility-tab-undo", changed_state),
+        ("accessibility-swatch-tooltip", swatch_state)].into_iter().map(|(name, state)| {
+        let mut items = ui_screen::items(&bg, &[], &[], 0);
+        items.extend(prefs::items(&panels.draw(p, &state, [0,0,1024,768], &measure)));
+        (name, items)
+    }).collect();
     let mut screen = ScreenArt::default();
-    ui_screen::add_art(&panel_items, &mut screen, &mut fonts, &files);
+    for (_, items) in &panel_shots { ui_screen::add_art(items, &mut screen, &mut fonts, &files); }
+    let comparison_items = ui_screen::items(&Frame { draws: vec![
+        ScreenDraw::Image { path: "Art/Cursor.pcx".into(), rect: [2,2,17,28], x: 232, y: 68, keyed: true,
+            clip: [0,0,384,224], mask: None, palette: None, opacity: 255 },
+        ScreenDraw::Image { path: "Art/Civilopedia/civilo_Up_Next_Back_ARROWS.pcx".into(), rect: [1,26,63,16], x: 282, y: 72, keyed: true,
+            clip: [0,0,384,224], mask: None, palette: None, opacity: 255 },
+        ScreenDraw::Text { run: TextRun { x: 84, y: 43, color: [248;3], ..run(&panel::TextStyle {
+            face: "Lucida Sans".into(), height: 11, weight: 400, italic: false, color: [248;3] }, "Active marker") }, clip: [0,0,384,224] },
+        ScreenDraw::Text { run: TextRun { x: 205, y: 43, color: [248;3], ..run(&panel::TextStyle {
+            face: "Lucida Sans".into(), height: 11, weight: 400, italic: false, color: [248;3] }, "Original Civ3 art") }, clip: [0,0,384,224] },
+    ], ..Default::default() }, &[], &[], 0);
+    ui_screen::add_art(&comparison_items, &mut screen, &mut fonts, &files);
     let mut world = Civ3World { width: 8, height: 8, player: 1, color_tables: vec![0, 3, 1], preferences: 0x800,
         unit_type_keys: vec!["PRTO_Warrior".into()], unit_type_stats: vec![[1,1,1,0,0,0,0]], experience_hit_points: vec![3],
         tiles: vec![Civ3Tile { city: -1, ..Default::default() }; 32],
@@ -76,8 +99,10 @@ fn main() {
     let desc = format!("{}{}{}{}{}{}", assets::BUILTIN_DESC, needed.description(), Rings::all_description(), panels.description(),
         ui_screen::description(&screen), fonts.description());
     let compiled = assets::compile(&desc, files).unwrap();
-    let panel_sprites = ui_screen::sprites(&panel_items, &fonts, &compiled, u32::MAX, false);
-    save(dir, "accessibility-tab", &draw(&compiled, panel_sprites, (1024,768), Camera::new((1024,768)), None));
+    for (name, items) in panel_shots {
+        let sprites = ui_screen::sprites(&items, &fonts, &compiled, u32::MAX, false);
+        save(dir, name, &draw(&compiled, sprites, (1024,768), Camera::new((1024,768)), None));
+    }
     let size = (256,224);
     let camera = Camera::new(size);
     let ordinary = Accessibility::default();
@@ -85,6 +110,9 @@ fn main() {
         let sprites = units::free_sprites_accessible(&world, &mut art, &compiled, None, &ordinary);
         save(dir, name, &draw(&compiled, sprites, size, camera, Some(Duration::from_millis(phase))));
     }
+    let mut comparison = units::free_sprites_accessible(&world, &mut art, &compiled, None, &ordinary);
+    comparison.extend(ui_screen::sprites(&comparison_items, &fonts, &compiled, u32::MAX, false));
+    save(dir, "arrow-vs-civ3-art", &draw(&compiled, comparison, (384,224), Camera::new((384,224)), Some(Duration::from_millis(325))));
     for (name, relation, invert) in [("ring-war",civ3_sys::world::Relation::War,false), ("ring-allied",civ3_sys::world::Relation::Defense,false),
         ("ring-peace",civ3_sys::world::Relation::Peace,false), ("ring-invert",civ3_sys::world::Relation::War,true)] {
         world.relations[2] = relation;
@@ -111,6 +139,15 @@ fn main() {
             sprites.extend(items.sprites(&fonts, &compiled, units::unit_passes(&compiled).0, false));
             save(dir, &format!("stack-{count}-{}", if enabled { "label" } else { "lines" }), &draw(&compiled, sprites, size, camera, None));
         }
+    }
+    for (index, name) in [(0,"1x"),(1,"1_5x"),(2,"2x"),(3,"3x")] {
+        let a = Accessibility { hud_size: index, stack_count: true, ..Default::default() };
+        let items = WorldItems::new(true, |reduced| units::stack_items(&world, reduced, &a, &mut env));
+        let mut sprites = units::free_sprites_accessible(&world, &mut art, &compiled, None, &a);
+        sprites.extend(items.sprites(&fonts, &compiled, units::unit_passes(&compiled).0, true));
+        save(dir, &format!("stack-hud-{name}"), &draw(&compiled, sprites.clone(), size, camera, Some(Duration::from_millis(325))));
+        let reduced = Camera { downscale: 2, zoom: (2,1), ..Camera::new((384,224)) };
+        save(dir, &format!("stack-hud-{name}-native-reduced"), &draw(&compiled, sprites, (384,224), reduced, Some(Duration::from_millis(975))));
     }
     // Small comparisons retain native pixels, with a little space around
     // the artwork, so all states can be reviewed side by side.
