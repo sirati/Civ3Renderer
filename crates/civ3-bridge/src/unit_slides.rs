@@ -16,9 +16,10 @@
 //! step is due instead of drawing a frame for it: it takes its 100 ms in
 //! the game as well, unless that one frame takes longer.
 //! The publisher draws a sliding unit where its slide began and tells the
-//! renderer the slide once (`scene::Motion`: the way, the length, and how
-//! much of it has passed as the batch goes out); the renderer moves the
-//! unit along it itself, frame by frame, on its own clock. A game with its
+//! renderer the slide once (`scene::Motion`: the way and the length); the
+//! renderer moves the unit along all of it itself, frame by frame, on its
+//! own clock from when the telling arrived (a publisher round after the
+//! game's start: the picture trails the game by that, never skips). A game with its
 //! own pixels shown (no parked camera, the comparison modes) keeps its
 //! frames.
 
@@ -59,9 +60,9 @@ pub enum Shown {
 const HOLD: Duration = Duration::from_millis(500);
 
 /// How long after its end a slide is still told: the renderer's clock
-/// started a little after the game's, and holds the unit at the end of
-/// the way once its own clock is through.
-const AFTER: Duration = Duration::from_millis(100);
+/// starts when the telling arrives, as late as a publisher round (tens of
+/// ms emulated), and holds the unit at the end of the way once through.
+const AFTER: Duration = Duration::from_millis(250);
 
 impl Slide {
     /// How this slide shows its unit at `now`, the unit standing on
@@ -91,13 +92,6 @@ impl Slides {
     /// Whether a slide is told at `now`.
     pub fn busy(&self, now: Instant) -> bool {
         self.0.iter().any(|s| now.saturating_duration_since(s.started) < Duration::from_millis(u64::from(s.ms)) + AFTER)
-    }
-
-    /// How much of the slide told as `serial` has passed at `now` (ms; 0 if
-    /// unknown).
-    pub fn elapsed_ms(&self, serial: u64, now: Instant) -> u32 {
-        self.0.iter().find(|s| s.serial == serial)
-            .map_or(0, |s| now.saturating_duration_since(s.started).as_millis().min(u128::from(u32::MAX)) as u32)
     }
 
     /// How the slides show their units at `now`, given each unit's (id,
@@ -134,13 +128,6 @@ fn slides() -> std::sync::MutexGuard<'static, Slides> {
 /// slide no longer draws).
 pub fn busy(now: Instant) -> bool {
     slides().busy(now)
-}
-
-/// How much of the slide told as `serial` has passed: filled in as its
-/// batch goes out (`crate::presenter`), so the renderer's clock starts
-/// where the game's slide is.
-pub fn elapsed_ms(serial: u64, now: Instant) -> u32 {
-    slides().elapsed_ms(serial, now)
 }
 
 /// How the game's slides show their units at `now`, given each unit's
@@ -247,7 +234,7 @@ mod tests {
     fn a_slide_is_told_once_from_its_start_until_a_moment_after_its_end() {
         let t0 = Instant::now();
         let s = slide(t0);
-        for ms in [0, 25, 99, 150, 199] {
+        for ms in [0, 25, 99, 150, 349] {
             assert_eq!(s.shown(t0 + Duration::from_millis(ms), (10, 20)), Some(SLIDING), "{ms} ms in");
         }
         // The game moved it meanwhile: still the same telling.
@@ -258,10 +245,10 @@ mod tests {
     fn after_its_telling_a_slide_holds_the_unit_at_the_next_tile_until_the_game_moves_it() {
         let t0 = Instant::now();
         let s = slide(t0);
-        assert_eq!(s.shown(t0 + Duration::from_millis(200), (10, 20)), Some(Shown::Held((768, 704))));
+        assert_eq!(s.shown(t0 + Duration::from_millis(350), (10, 20)), Some(Shown::Held((768, 704))));
         assert_eq!(s.shown(t0 + Duration::from_millis(599), (10, 20)), Some(Shown::Held((768, 704))));
         // Moved: the game's own position is right again.
-        assert_eq!(s.shown(t0 + Duration::from_millis(200), (11, 21)), None);
+        assert_eq!(s.shown(t0 + Duration::from_millis(350), (11, 21)), None);
         // A move that never followed lets go after a while.
         assert_eq!(s.shown(t0 + Duration::from_millis(600), (10, 20)), None);
     }
@@ -273,12 +260,12 @@ mod tests {
         assert!(!slides.busy(t0));
         slides.record(slide(t0));
         assert!(slides.busy(t0 + Duration::from_millis(50)));
-        assert!(slides.busy(t0 + Duration::from_millis(199)));
-        assert!(!slides.busy(t0 + Duration::from_millis(200)));
+        assert!(slides.busy(t0 + Duration::from_millis(349)));
+        assert!(!slides.busy(t0 + Duration::from_millis(350)));
     }
 
     #[test]
-    fn the_newest_slide_of_a_unit_decides_and_tells_how_far_it_is() {
+    fn the_newest_slide_of_a_unit_decides() {
         let t0 = Instant::now();
         let mut slides = Slides::default();
         slides.record(slide(t0));
@@ -288,7 +275,6 @@ mod tests {
         let shown = slides.shown(now, [(7, (11, 21)), (5, (1, 1))]);
         assert_eq!(shown.get(&7), Some(&Shown::Sliding { serial: 4, from: (768, 704), way: (64, 32), ms: 100 }));
         assert!(!shown.contains_key(&5), "units without a slide are left alone");
-        assert_eq!(slides.elapsed_ms(4, now), 25);
-        assert_eq!(slides.elapsed_ms(3, now), 0, "the older slide was let go");
+        assert_eq!(slides.0.len(), 1, "the older slide was let go");
     }
 }

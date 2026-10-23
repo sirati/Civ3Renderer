@@ -269,14 +269,6 @@ impl Presenter {
         if updates.is_empty() {
             return true;
         }
-        // How much of each slide has passed as this batch goes out: the
-        // renderer's clock for it starts there (`crate::unit_slides`).
-        let now = std::time::Instant::now();
-        for u in &mut updates {
-            if let Update::Motions(motions) = u {
-                for m in motions { m.elapsed_ms = crate::unit_slides::elapsed_ms(m.serial, now); }
-            }
-        }
         // (Every message says whether the game answers, `send_host`.)
         updates.push(Update::Host(crate::heartbeat::status()));
         self.stats.updates = updates.len();

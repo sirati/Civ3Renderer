@@ -980,8 +980,8 @@ pub fn place_sliding(
                 scene.sprites.extend(free_sprite(compiled, p, after));
                 scene.sprites.extend(smoke_free_sprite(compiled, p, after));
             }
-            // (`elapsed_ms` is filled in as the batch goes out, `crate::presenter`.)
-            scene.motions.push(scene::Motion { serial, sprites: (first, scene.sprites.len() as u32), way, duration_ms: ms, elapsed_ms: 0 });
+            log::debug!("units: unit {} slides as sprites {first}..{} ({:?})", u.id, scene.sprites.len(), pieces.iter().map(|p| (p.part, p.at)).collect::<Vec<_>>());
+            scene.motions.push(scene::Motion { serial, sprites: (first, scene.sprites.len() as u32), way, duration_ms: ms });
             continue;
         }
         free_tail |= accessibility.hud_scale() != 1.0 || slot.is_none() || pieces.iter().any(|p| smoke_set(compiled, p).is_some());
@@ -2009,7 +2009,7 @@ mod tests {
         place_sliding(&world, &view, &mut art, &compiled, None, &mut UnitMemory::default(), &mut scene, &Default::default(), &sliding);
         assert_eq!(scene.motions.len(), 1);
         let m = &scene.motions[0];
-        assert_eq!((m.serial, m.way, m.duration_ms, m.elapsed_ms), (77, (64, 32), 100, 0));
+        assert_eq!((m.serial, m.way, m.duration_ms), (77, (64, 32), 100));
         assert_eq!(m.sprites.0, 1, "after the sprites already there");
         let moving = &scene.sprites[m.sprites.0 as usize..m.sprites.1 as usize];
         let body = pieces(&world, &mut art, &Civ3Unit { pixel: from, ..world.units[1].clone() }, None);
