@@ -1811,18 +1811,36 @@ enable_if = "layout.split=Vertical1To1|Vertical2To1"
 show_if = "tab=zoom"
 
 [[panels.preferences.items]]
+checkbox = "layout.menu_zoom"
+at = [550, 135]
+size = [350, 23]
+text = "Menu zoom beside pointer"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+text = "Temporarily replaces world zoom"
+style = "caption"
+at = [550, 166]
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
 text = "Zoom box"
 style = "heading"
 at = [90, 190]
 show_if = "tab=zoom"
 
-# How much every zoom enlarges the world: indices of
+# Menu zoom shares the magnification and height of world zoom.
+# How much every zoom enlarges its content: indices of
 # `Layout::MAGNIFICATIONS`, with magnifications on the ruler.
 [[panels.preferences.items]]
 text = "Magnification"
 style = "label"
 at = [90, 315]
-show_if = "tab=zoom & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+show_if = "tab=zoom & layout.zoom_controls"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_magnification_step"
@@ -1841,7 +1859,7 @@ step = 1
 decimals = 0
 text = "{layout.zoom_magnification_label}"
 style = "label"
-show_if = "tab=zoom & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+show_if = "tab=zoom & layout.zoom_controls"
 
 [[panels.preferences.items]]
 choice = "layout.zoom"
@@ -1928,6 +1946,12 @@ at = [90, 365]
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
 
 [[panels.preferences.items]]
+text = "Menu height"
+style = "label"
+at = [90, 365]
+show_if = "tab=zoom & layout.menu_zoom & layout.zoom=Off"
+
+[[panels.preferences.items]]
 slider = "layout.zoom_strip"
 tick_step = 0.05
 tick_label_step = 0.25
@@ -1944,7 +1968,7 @@ decimals = 0
 percent = true
 text = "{value}%"
 style = "label"
-show_if = "tab=zoom & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+show_if = "tab=zoom & layout.zoom_controls"
 
 # A floating box: its space below the top, how far it drops below the
 # mouse that comes to it, or that it keeps the mouse out instead.
@@ -2019,7 +2043,7 @@ style = "label"
 normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
-show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
+show_if = "tab=zoom & layout.zoom_lens_controls"
 
 [[panels.preferences.items]]
 checkbox = "layout.zoom_glass"
@@ -2030,7 +2054,7 @@ style = "label"
 normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
-show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
+show_if = "tab=zoom & layout.zoom_lens_controls"
 
 [[panels.preferences.items]]
 text = "Separator width (window pixels)"

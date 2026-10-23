@@ -1,9 +1,6 @@
-//! Original implementation of an SDF bevel and backdrop refraction.
-//! Technique references, not copied shader code:
-//! https://iquilezles.org/articles/distfunctions2d/ (rounded-box distance)
-//! https://github.com/rukkiecodes/liquid-glass (SDF gradient, convex bevel,
-//! refraction and specular lighting). This uses a cheap thin-lens offset
-//! rather than ray marching or a blur pyramid. Only the rim is shaded.
+//! SDF bevel and backdrop refraction, shared by the GPU and CPU oracle.
+//! Rounded-box distance: https://iquilezles.org/articles/distfunctions2d/
+//! The curved bevel uses its analytic gradient, without ray marching.
 
 #![allow(unexpected_cfgs)]
 #[cfg(target_arch = "spirv")]
@@ -15,6 +12,8 @@ pub struct Surface {
     pub nx: f32,
     pub ny: f32,
     pub depth: f32,
+    /// Unit 3D normal of the rising glass height field.
+    pub normal: [f32; 3],
     pub bend: f32,
     pub scratch: f32,
 }
@@ -31,40 +30,54 @@ pub fn surface(p: &LensParams, x: f32, y: f32) -> Surface {
         else if qx > qy { (1.0, 0.0) } else { (0.0, 1.0) };
     let (nx, ny) = (if px < 0.0 { -gx } else { gx }, if py < 0.0 { -gy } else { gy });
     let rim = p.rim.max(0.5);
-    // Local lens coordinates: the mould seam and scratch move with the lens,
-    // with no frame/time seed or screen-space noise to cause flicker.
-    let seed = ((p.width * 0.017 + p.height * 0.013) / rim).fract();
-    let seam = (1.0 - ((ly / p.height - 0.34 - seed * 0.08) / 0.018).abs()).max(0.0)
-        * (lx / p.width - 0.9).max(0.0) * 10.0;
-    let depth = (-distance / rim + seam * 0.045).clamp(0.0, 1.0);
-    let slope = (1.0 - depth).clamp(0.0, 1.0);
-    // Convex quarter-circle bevel, bounded near the silhouette.
-    let bend = rim * 0.85 * slope / (1.0 - slope * slope).max(0.16).sqrt();
-    let line = (lx / p.width - 0.69 - (ly / p.height - 0.02) * 0.14).abs() * p.width;
-    let scratch = (1.0 - line / (rim * 0.10).max(0.35)).max(0.0)
-        * (1.0 - ((ly / p.height - 0.023) / 0.018).abs()).max(0.0);
-    Surface { distance, nx, ny, depth, bend, scratch }
+    // Exactly two local, fixed flaws. No noise, periodic seed or frame input.
+    // A small mould step on the right and a short diagonal scratch at the top.
+    let seam = (1.0 - ((ly / p.height - 0.37) / 0.014).abs()).max(0.0)
+        * (lx / p.width - 0.94).max(0.0) / 0.06;
+    let depth = (-distance / rim + seam * 0.035).clamp(0.0, 1.0);
+    let t = 1.0 - depth;
+    // Rising height h(t) = 0.55 * rim * (1 - sqrt(1 - t²)), where t
+    // runs from the clear face to the outer edge. dh/ddistance grows
+    // sharply at the crest; the finite lip limits the slope to 2.75.
+    let slope = 0.55 * t / (1.0 - t*t).max(0.04).sqrt();
+    let nz = 1.0 / (1.0 + slope*slope).sqrt();
+    let normal = [-nx * slope * nz, -ny * slope * nz, nz];
+    // Thin-glass Snell approximation for index 1.5: displacement is
+    // projected normal / normal.z * path * (1 - 1/1.5). The effective
+    // optical path is 2.4 rim widths. Only the bevel refracts the backdrop.
+    let bend = rim * 0.8 / nz;
+    let line = (lx - p.width * 0.69 - (ly - rim * 0.38) * 0.32).abs();
+    let scratch = (1.0 - line / (rim * 0.035).max(0.25)).max(0.0)
+        * (1.0 - ((ly - rim * 0.38) / (rim * 0.25)).abs()).max(0.0);
+    Surface { distance, nx, ny, depth, normal, bend, scratch }
 }
 
-/// A fixed unseen environment keeps polished glass visible over black.
-/// Refraction/dispersion samples are supplied separately by the caller.
+/// Reflection from broad, unseen cool and warm lights. Only the bevel is
+/// shaded, so the magnified face keeps its original colour and brightness.
 pub fn shade(s: &Surface, rgb: [f32; 3]) -> [f32; 3] {
-    let slope = 1.0 - s.depth;
-    let nz = (1.0 - slope * slope).max(0.0).sqrt();
+    let [normal_x, normal_y, nz] = s.normal;
     let fresnel = 0.04 + 0.96 * (1.0 - nz).powi(5);
-    let light = (-s.nx * 0.48 - s.ny * 0.64).max(0.0);
-    let half_dot = ((-s.nx * 0.24 - s.ny * 0.32) * slope + nz * 0.9165).max(0.0);
-    let streak = half_dot.powi(64) * 0.75;
-    let counter = ((s.nx * 0.32 + s.ny * 0.24) * slope + nz * 0.9165).max(0.0).powi(48) * 0.12;
-    let darkness = (1.0 - rgb[0].max(rgb[1]).max(rgb[2]) * 18.0).clamp(0.0, 1.0);
-    let environment = 0.012 + darkness * 0.025 + 0.065 * light + 0.09 * fresnel;
-    let inner = 1.0 - 0.30 * (1.0 - ((s.depth - 0.88) / 0.12).abs()).max(0.0);
+    let cool = (-s.nx * 0.60 - s.ny * 0.80).max(0.0);
+    let warm = (s.nx * 0.80 + s.ny * 0.60).max(0.0);
+    let streak = (normal_x * 0.30 + normal_y * 0.40 + nz * 0.866).max(0.0).powi(32);
+    let inner_light = (1.0 - ((s.depth - 0.72) / 0.18).abs()).max(0.0);
+    let inner_line = (1.0 - ((s.depth - 0.94) / 0.06).abs()).max(0.0);
+    let reflection = 0.030 + 0.18 * fresnel + 0.11 * inner_light;
     let mut out = [0.0; 3];
-    let tint = [0.96, 0.985, 1.0];
-    let sky = [0.80, 0.91, 1.0];
     for c in 0..3 {
-        out[c] = (rgb[c] * tint[c] * (1.0 - fresnel * 0.32) * inner
-            + sky[c] * environment + streak + counter + s.scratch * 0.12).clamp(0.0, 1.0);
+        let sky = [0.76, 0.88, 1.0][c];
+        let room = [1.0, 0.88, 0.73][c];
+        out[c] = (rgb[c] * (1.0 - fresnel * 0.20) * (1.0 - inner_line * 0.28)
+            + reflection * (0.30 + cool * 1.4) * sky + reflection * warm * 0.85 * room
+            + streak * 0.30 + s.scratch * 0.055).clamp(0.0, 1.0);
     }
     out
+}
+
+/// A faint scattered glow outside the silhouette, strongest near the lights.
+pub fn halo(s: &Surface, rgb: [f32; 3], rim: f32) -> [f32; 3] {
+    let fade = (1.0 - s.distance.max(0.0) / (rim * 0.28).max(0.5)).max(0.0);
+    let light = (-s.nx * 0.6 - s.ny * 0.8).abs();
+    let amount = fade * fade * (0.004 + light * 0.020);
+    [(rgb[0] + amount * 0.85).min(1.0), (rgb[1] + amount * 0.93).min(1.0), (rgb[2] + amount).min(1.0)]
 }

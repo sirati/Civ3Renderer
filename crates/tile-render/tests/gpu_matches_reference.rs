@@ -575,8 +575,8 @@ fn screen_copies_magnify_the_finished_picture() {
         renderer.set_world(&gpu.device, &world);
         let main = Camera { x: 30, y: 10, overhang: (0, 40, 0, 0), ..Camera::new((320, 200)) };
         let copies = [
-            ScreenCopy { source: [-10, -5, 40, 30], at: (250, 140), zoom: (3, 1) },
-            ScreenCopy { source: [150, 90, 33, 21], at: (-7, 3), zoom: (5, 2) },
+            ScreenCopy { source: [-10, -5, 40, 30], at: (250, 140), zoom: (3, 1), lens: None },
+            ScreenCopy { source: [150, 90, 33, 21], at: (-7, 3), zoom: (5, 2), lens: None },
         ];
         let got = gpu.render_composed(&mut renderer, &[main], &copies, (320, 200), 1, CLEAR);
         let want = reference::render_composed(&world, &atlas, &[main], &copies, (320, 200), 1, CLEAR);

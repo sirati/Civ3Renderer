@@ -936,6 +936,33 @@ pub fn output_fs(
     #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
     output: &mut Vec4,
 ) {
+    if params.lens_width > 0.0 {
+        let p = tile_render_shared::LensParams { x: params.dst_x as f32, y: params.dst_y as f32,
+            width: params.lens_width, height: params.lens_height, radius: params.lens_radius,
+            rim: params.lens_rim, ..Default::default() };
+        let s = lens_math::surface(&p, frag.x, frag.y);
+        if s.distance >= -p.rim.max(0.5) {
+            let size = UVec2::new(params.canvas_width, params.canvas_height);
+            let ratio = params.canvas_den as f32 / params.canvas_num as f32;
+            let sample = |dispersion: f32| lens_sample(source,
+                (frag.x - params.canvas_x as f32 + s.normal[0] * s.bend * dispersion) * ratio,
+                (frag.y - params.canvas_y as f32 + s.normal[1] * s.bend * dispersion) * ratio,
+                [0, 0, size.x as i32, size.y as i32], params.bits, params.quantized_float);
+            let rgb = if s.distance > 0.0 {
+                if params.lens_glass == 0 { spirv_std::arch::kill(); }
+                let base = lens_sample(source, ((frag.x - params.canvas_x as f32) * ratio).floor() + 0.5,
+                    ((frag.y - params.canvas_y as f32) * ratio).floor() + 0.5,
+                    [0, 0, size.x as i32, size.y as i32], params.bits, params.quantized_float);
+                lens_math::halo(&s, base, p.rim)
+            } else if params.lens_glass != 0 {
+                let dispersion = 0.045 * (1.0 - s.normal[2]);
+                let (r, g, b) = (sample(1.0+dispersion), sample(1.0), sample(1.0-dispersion));
+                lens_math::shade(&s, [r[0], g[1], b[2]])
+            } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
+            *output = Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
+            return;
+        }
+    }
     let (ox, oy) = (offset(frag.x, params.dst_x), offset(frag.y, params.dst_y));
     // (A copy 1:1 divides nothing.)
     let (ox, oy) = if params.zoom_den == params.zoom_num { (ox, oy) } else { (ox * params.zoom_den / params.zoom_num, oy * params.zoom_den / params.zoom_num) };
@@ -991,28 +1018,38 @@ pub fn lens_fs(
 ) {
     let s = lens_math::surface(p, frag.x, frag.y);
     if s.distance < -p.rim.max(0.5) { spirv_std::arch::kill(); }
-    let sample = |x: f32, y: f32| -> Vec4 {
-        let xy = IVec2::new((x as i32 - p.snapshot_x).clamp(0, p.snapshot_w - 1), (y as i32 - p.snapshot_y).clamp(0, p.snapshot_h - 1));
-        source.fetch(xy)
-    };
-    if s.distance > 0.0 {
-        *output = sample(frag.x, frag.y);
-        return;
-    }
-    let decode = |v: f32| if p.bits == 0 { v } else { to_unorm(v, p.bits, p.quantized_float) };
-    let rgb = if p.glass != 0 {
-        let fetch = |dispersion: f32| sample(frag.x - s.nx * s.bend * dispersion, frag.y - s.ny * s.bend * dispersion);
-        let (r, g, b) = (fetch(1.035), fetch(1.0), fetch(0.965));
-        lens_math::shade(&s, [decode(r.x), decode(g.y), decode(b.z)])
-    } else {
-        let light = s.distance > -p.rim * 0.5;
-        let v = if light { 0.78 } else { 0.08 };
-        [v; 3]
-    };
+    let bounds = [p.snapshot_x, p.snapshot_y, p.snapshot_w, p.snapshot_h];
+    let sample = |x: f32, y: f32| lens_sample(source, x, y, bounds, p.bits, p.quantized_float);
+    let rgb = if s.distance > 0.0 {
+        let base = sample(frag.x, frag.y);
+        if p.glass != 0 { lens_math::halo(&s, base, p.rim) } else { base }
+    } else if p.glass != 0 {
+        let fetch = |dispersion: f32| sample(frag.x + s.normal[0] * s.bend * dispersion, frag.y + s.normal[1] * s.bend * dispersion);
+        let dispersion = 0.045 * (1.0 - s.normal[2]);
+        let (r, g, b) = (fetch(1.0+dispersion), fetch(1.0), fetch(1.0-dispersion));
+        lens_math::shade(&s, [r[0], g[1], b[2]])
+    } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
     let encode = |v: f32| if p.bits == 0 { v } else {
         let q = quantize((v * 255.0 + 0.5) as u32, p.bits);
         if p.quantized_float != 0 { (q + tile_render_shared::FLOAT_QUANTIZED_BIAS) as f32 }
         else { (q + QUANTIZED_BIAS) as f32 / 255.0 }
     };
     *output = Vec4::new(encode(rgb[0]), encode(rgb[1]), encode(rgb[2]), 1.0);
+}
+
+/// Bilinear refraction avoids bright nearest-sample ticks along straight edges.
+/// Decode each quantized texel before interpolation, never interpolate its code.
+fn lens_sample(source: &Image!(2D, type = f32, sampled), x: f32, y: f32,
+    bounds: [i32; 4], bits: u32, float_encoding: u32) -> [f32; 3] {
+    let (x, y) = (x - 0.5 - bounds[0] as f32, y - 0.5 - bounds[1] as f32);
+    let (ix, iy) = (x.floor() as i32, y.floor() as i32);
+    let (fx, fy) = (x - x.floor(), y - y.floor());
+    let fetch = |dx: i32, dy: i32| {
+        let v: Vec4 = source.fetch(IVec2::new((ix+dx).clamp(0, bounds[2]-1), (iy+dy).clamp(0, bounds[3]-1)));
+        if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits, float_encoding), to_unorm(v.y, bits, float_encoding), to_unorm(v.z, bits, float_encoding), 1.0) }
+    };
+    let top = fetch(0,0) * (1.0-fx) + fetch(1,0) * fx;
+    let bottom = fetch(0,1) * (1.0-fx) + fetch(1,1) * fx;
+    let v = top * (1.0-fy) + bottom * fy;
+    [v.x, v.y, v.z]
 }

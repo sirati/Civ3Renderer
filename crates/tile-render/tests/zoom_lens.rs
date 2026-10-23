@@ -24,11 +24,27 @@ fn fixture(color: ColorModel) -> (tile_render::Atlas, TileWorld) {
     (atlas.finish(), world)
 }
 
+/// Straight survey lines make bevel compression and corner bending visible.
+fn survey_grid() -> (tile_render::Atlas, TileWorld) {
+    let mut builder = AtlasBuilder::new(256);
+    let tile = RgbaImage::from_fn(128,128, |x,y| {
+        if (2*y as i32 - x as i32 - 32).rem_euclid(128) <= 1 { [215,225,215,255] }
+        else { [38,67,49,255] }
+    });
+    let mut sets = SpriteSets::default();
+    let tile = sets.single(builder.add(&tile,(0,0)).unwrap());
+    let grid = Grid { cols: 32, rows: 24, layout: Layout::Orthogonal, step: (128,128), wrap_x: true, wrap_y: true };
+    let mut world = TileWorld::new(grid, sets);
+    let layer = world.add_layer(LayerSpec::new("survey grid", vec![tile]));
+    for y in 0..grid.rows { for x in 0..grid.cols { world.set(layer,x,y,0); } }
+    (builder.finish(),world)
+}
+
 fn cameras(scale: u32, rounded: bool, glass: bool, background: bool) -> Vec<Camera> {
     let mut cameras = Vec::new();
     if background { cameras.push(Camera::new((1024/scale, 640/scale))); }
     cameras.push(Camera { x: 170, y: 180, zoom: (2, 1), origin: (170/scale as i32, 150/scale as i32),
-        lens: Some(Lens { radius: if rounded { 25.0/scale as f32 } else { 0.0 }, rim: if glass { 7.0 } else { 2.0 } / scale as f32, glass }),
+        lens: Some(Lens { radius: if rounded { 25.0/scale as f32 } else { 0.0 }, rim: if glass { 14.0 } else { 2.0 } / scale as f32, glass }),
         ..Camera::new((684/scale, 330/scale)) });
     cameras
 }
@@ -80,7 +96,7 @@ fn clipped_moving_lenses_keep_their_shape_and_casting_marks() {
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
-    let lens = Camera { cells: false, origin: (20, 30), lens: Some(Lens { radius: 12.0, rim: 7.0, glass: true }), ..Camera::new((120, 90)) };
+    let lens = Camera { cells: false, origin: (20, 30), lens: Some(Lens { radius: 24.0, rim: 14.0, glass: true }), ..Camera::new((120, 90)) };
     let first = gpu.render_views(&mut renderer, &[lens], (240, 180), 0, [0, 0, 0, 255]);
     let moved = Camera { origin: (70, 60), ..lens };
     let second = gpu.render_views(&mut renderer, &[moved], (240, 180), 0, [0, 0, 0, 255]);
@@ -113,7 +129,7 @@ fn measure_lens_gpu_cost_at_4k() {
     for scale in [1, 2] {
         for glass in [false, true] {
             let c = Camera { origin: (768/scale, 216/scale), zoom: (2, 1), x: 170, y: 180,
-                lens: glass.then_some(Lens { radius: 32.0/scale as f32, rim: 7.0/scale as f32, glass: true }),
+                lens: glass.then_some(Lens { radius: 30.0/scale as f32, rim: 14.0/scale as f32, glass: true }),
                 ..Camera::new((2304/scale as u32, 432/scale as u32)) };
             let cams = [Camera::new((3840/scale as u32, 2160/scale as u32)), c];
             let present = tile_render::Present { canvas: (3840/scale as u32, 2160/scale as u32), target: (3840, 2160), zoom: (scale as u32, 1), at: (0, 0) };
@@ -136,5 +152,115 @@ fn measure_lens_gpu_cost_at_4k() {
             spans.sort_by(f64::total_cmp); rims.sort_by(f64::total_cmp);
             eprintln!("4K scale {scale}, glass {glass}: frame median {:.4} ms, rim median {:.4} ms, {} samples", spans[spans.len()/2], if rims.is_empty() {0.0} else {rims[rims.len()/2]}, spans.len());
         }
+    }
+}
+
+/// Track a straight survey line through three depths of the bevel. This
+/// tests visible displacement, rather than only comparing shader arithmetic.
+#[test]
+fn straight_lines_bend_sharply_toward_the_curved_crest() {
+    let gpu = Headless::new().expect("Vulkan GPU");
+    let (atlas, world) = survey_grid();
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let lens = Camera { cells: false, origin: (40,40), lens: Some(Lens { radius: 30.0, rim: 14.0, glass: true }), ..Camera::new((600,200)) };
+    let image = gpu.render_views(&mut renderer, &[Camera::new((700,300)),lens], (700,300), 0, [0,0,0,255]);
+    let displacement = |y| {
+        let peak = (160..250).max_by_key(|&x| image.get(x,y)[0]).unwrap();
+        peak as i32 - (2*y as i32 - 32 + 128)
+    };
+    let (outer, middle, inner) = (displacement(41), displacement(46), displacement(52));
+    assert!(outer >= 18 && middle >= 4 && inner.abs() <= 3, "line displacement outer/middle/inner: {outer}/{middle}/{inner}");
+    assert!(outer > middle * 2, "displacement rises sharply at the crest");
+}
+
+/// Check the black-background requirement independently of the CPU oracle:
+/// luminous angular reflections, a clear face and no repeated edge marks.
+#[test]
+fn black_glass_has_a_curved_luminous_rim_without_periodic_ticks() {
+    let gpu = Headless::new().expect("Vulkan GPU");
+    let (atlas, world) = fixture(ColorModel::Direct);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+    renderer.set_world(&gpu.device, &world);
+    let c = Camera { cells: false, origin: (40, 40), lens: Some(Lens { radius: 30.0, rim: 14.0, glass: true }), ..Camera::new((600, 200)) };
+    let image = gpu.render_views(&mut renderer, &[c], (700, 300), 0, [0,0,0,255]);
+    assert_eq!(image.get(340, 140), [0,0,0,255], "clear, untinted face");
+    assert!(image.get(340, 39)[2] > 0, "scattered light outside the silhouette");
+    assert_eq!(image.get(340, 35), [0,0,0,255], "halo is bounded");
+    let top: Vec<_> = (40..54).map(|y| image.get(300,y)[2]).collect();
+    assert!(top.iter().max().unwrap() - top.iter().min().unwrap() > 15, "curved light profile: {top:?}");
+    assert!(image.get(300,40)[2] > image.get(40,140)[2], "unseen light varies with rim angle");
+    // Every top pixel has the same profile apart from the one short scratch.
+    let mut runs = 0;
+    let mut flaw = false;
+    for x in 80..600 {
+        let differs = (40..54).any(|y| image.get(x,y) != image.get(100,y));
+        if differs && !flaw { runs += 1; }
+        flaw = differs;
+    }
+    assert_eq!(runs, 1, "exactly one local scratch, no repeated ticks");
+}
+
+#[test]
+fn screen_copy_lenses_preserve_corners_and_clear_menu_content() {
+    use tile_render::{Present, ScreenCopy};
+    let gpu = Headless::new().expect("Vulkan GPU");
+    for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
+        let (atlas, world) = fixture(color);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+        renderer.set_world(&gpu.device, &world);
+        for scale in [1, 2] { for glass in [false, true] {
+            let size = (800/scale, 600/scale);
+            let cameras = [Camera::new(size)];
+            let copy = ScreenCopy { source: [40/scale as i32, 100/scale as i32, 160/scale as i32, 120/scale as i32],
+                at: (350/scale as i32, 200/scale as i32), zoom: (2,1),
+                lens: Some(Lens { radius: 30.0/scale as f32, rim: 14.0/scale as f32, glass }) };
+            let actual = gpu.render_composed(&mut renderer, &cameras, &[copy], size, 0, [0,0,0,255]);
+            let expected = reference::render_composed(&world, &atlas, &cameras, &[copy], size, 0, [0,0,0,255]);
+            for (a,b) in actual.pixels.iter().zip(&expected.pixels) { for ch in 0..3 {
+                assert!(a[ch].abs_diff(b[ch]) <= 1, "menu lens {color:?}, scale {scale}, glass {glass}: {a:?} vs {b:?}");
+            } }
+            let plain = gpu.render_composed(&mut renderer, &cameras, &[ScreenCopy { lens: None, ..copy }], size, 0, [0,0,0,255]);
+            assert_eq!(actual.get(500/scale,300/scale), plain.get(500/scale,300/scale));
+            let base = gpu.render_views(&mut renderer, &cameras, size, 0, [0,0,0,255]);
+            assert_eq!(actual.get(350/scale,200/scale), base.get(350/scale,200/scale));
+            // The final-window pass keeps the physical lens width when pixels are boxed.
+            let present = Present { canvas: size, target: (800,600), zoom: (scale,1), at: (0,0) };
+            let presented = gpu.render_presented(&mut renderer, &cameras, &[copy], present, 0, [0,0,0,255]);
+            assert_eq!(presented.get(500,300), plain.get(500/scale,300/scale));
+            let boxed = gpu.render_presented(&mut renderer, &[cameras[0].boxed(scale)], &[copy.boxed(scale)], Present::unscaled((800,600)), 0, [0,0,0,255]);
+            // Background art is sampled differently, but the silhouette is identical.
+            assert_eq!(presented.get(350,200), boxed.get(350,200));
+        } }
+    }
+}
+
+#[test]
+#[ignore = "4K review captures; set C3R_ZOOM_SHOTS"]
+fn capture_glass_review_at_4k() {
+    let dir = std::path::PathBuf::from(std::env::var_os("C3R_ZOOM_SHOTS").expect("C3R_ZOOM_SHOTS"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let gpu = Headless::new().expect("Vulkan GPU");
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let save = |name: String, image: &RgbaImage| image::save_buffer(dir.join(name), bytemuck::cast_slice(&image.pixels), image.width, image.height, image::ColorType::Rgba8).unwrap();
+    for grid in [false, true] {
+      let (atlas, world) = if grid { survey_grid() } else { fixture(ColorModel::Direct) };
+      renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
+      renderer.set_world(&gpu.device, &world);
+      for scale in [1, 2] { for background in [false, true] {
+        if grid && !background { continue; }
+        let mut cams = Vec::new();
+        if background { cams.push(Camera::new((3840/scale,2160/scale))); }
+        cams.push(Camera { x: 170, y: 180, zoom: (2,1), origin: (768/scale as i32,216/scale as i32),
+            lens: Some(Lens { radius: 30.0/scale as f32, rim: 14.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
+        let image = gpu.render_presented(&mut renderer, &cams, &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
+        let background = if grid { "grid" } else if background { "map" } else { "black" };
+        save(format!("glass2-{background}-4k-scale{scale}.png"), &image);
+        let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
+        save(format!("glass2-{background}-corner-3x-scale{scale}.png"), &crop);
+      } }
     }
 }

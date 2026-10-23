@@ -2373,6 +2373,7 @@ impl TileRenderer {
                         zoom_den: group.picture_zoom().1,
                         bits: 0,
                         quantized_float: 0,
+                        ..Default::default()
                     };
                     let offset = write_output(v, params);
                     let mut pass = begin_pass(encoder, &canvas, wgpu::LoadOp::Load, self.timed(|| format!("v{v} blit")));
@@ -2512,12 +2513,30 @@ impl TileRenderer {
         for (i, c) in copies.iter().enumerate() {
             // (A copy of a scaled picture samples it at the target's pixels,
             // not the canvas's.)
-            let Some(on_target) = c.scissor((canvas_w, canvas_h)).and_then(shown) else { continue };
+            let Some(mut on_target) = c.scissor((canvas_w, canvas_h)).and_then(shown) else { continue };
             let (zoom_num, zoom_den) = (c.zoom.0.max(1) * n, c.zoom.1.max(1) * d);
             let [src_x, src_y, _, _] = c.source;
             let at = |v: i32, a: i32| a + (v as i64 * n as i64).div_euclid(d as i64) as i32;
             let (dst_x, dst_y) = (at(c.at.0, ax), at(c.at.1, ay));
-            let params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, quantized_float: u32::from(self.quantized_float && bits != 0) };
+            let mut params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, quantized_float: u32::from(self.quantized_float && bits != 0), ..Default::default() };
+            if let Some(lens) = c.lens {
+                let factor = n as f32 / d as f32;
+                params.lens_width = (c.source[2] as u32 * c.zoom.0).div_ceil(c.zoom.1) as f32 * factor;
+                params.lens_height = (c.source[3] as u32 * c.zoom.0).div_ceil(c.zoom.1) as f32 * factor;
+                params.lens_radius = lens.radius * factor;
+                params.lens_rim = lens.rim * factor;
+                params.lens_glass = u32::from(lens.glass);
+                params.canvas_x = ax;
+                params.canvas_y = ay;
+                params.canvas_num = n;
+                params.canvas_den = d;
+                params.canvas_width = canvas_w;
+                params.canvas_height = canvas_h;
+                let halo = if lens.glass { (params.lens_rim * 0.28).ceil() as i32 } else { 0 };
+                let [x, y, w, h] = on_target.map(|v| v as i32);
+                let Some(expanded) = clipped([x-halo, y-halo, w+2*halo, h+2*halo], picture.map(|v| v as i32)) else { continue };
+                on_target = expanded;
+            }
             let offset = write_output(MAX_VIEWS + 1 + i, params);
             pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
             pass.set_bind_group(0, &scratch.output[control_slot], &[offset]);
@@ -2590,7 +2609,7 @@ pub const MAX_COPIES: usize = 4;
 
 /// A rectangle of the finished picture copied on top of it, scaled by
 /// nearest pixel (a magnifier).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ScreenCopy {
     /// Source rectangle in target pixels: x, y, width, height.
     pub source: [i32; 4],
@@ -2598,6 +2617,8 @@ pub struct ScreenCopy {
     pub at: (i32, i32),
     /// Target pixels per source pixel, as a fraction.
     pub zoom: (u32, u32),
+    /// Optional rounded glass edge, in canvas pixels.
+    pub lens: Option<crate::Lens>,
 }
 
 impl ScreenCopy {
@@ -2605,7 +2626,7 @@ impl ScreenCopy {
     /// `Camera::boxed`): the same part of the picture, at the same zoom.
     pub fn boxed(&self, k: u32) -> ScreenCopy {
         let k = k.max(1) as i32;
-        ScreenCopy { source: self.source.map(|v| v.saturating_mul(k)), at: (self.at.0.saturating_mul(k), self.at.1.saturating_mul(k)), zoom: self.zoom }
+        ScreenCopy { source: self.source.map(|v| v.saturating_mul(k)), at: (self.at.0.saturating_mul(k), self.at.1.saturating_mul(k)), zoom: self.zoom, lens: self.lens.map(|l| crate::Lens { radius: l.radius * k as f32, rim: l.rim * k as f32, ..l }) }
     }
 
     /// Target pixel `p` of the copy shows source pixel `source + (p − at)·den/num`

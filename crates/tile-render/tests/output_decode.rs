@@ -111,7 +111,7 @@ fn output_decoder_matches_manual_bytes_across_depths_encodings_zooms_and_origins
                 ((160, 12), (2, 3), (11, 4), (5, 1)),
             ] {
                 let params = OutputParams { src_x: src.0, src_y: src.1, dst_x: dst.0, dst_y: dst.1,
-                    zoom_num: zoom.0, zoom_den: zoom.1, bits, quantized_float: u32::from(float_encoding) };
+                    zoom_num: zoom.0, zoom_den: zoom.1, bits, quantized_float: u32::from(float_encoding), ..Default::default() };
                 let got = draw(&gpu, &pipeline, &layout, &source, params, size);
                 for y in 0..size.1 { for x in 0..size.0 {
                     let sx = src.0 as u32 + (x as i32 - dst.0).max(0) as u32 * zoom.1 / zoom.0;

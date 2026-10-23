@@ -111,7 +111,7 @@ fn art_cameras() -> Vec<Camera> {
 #[test]
 fn boxed_cameras_show_art_exactly_as_boxes_do() {
     let gpu = Headless::new().expect("GPU");
-    let copies = [ScreenCopy { source: [10, 12, 30, 20], at: (96, 70), zoom: (2, 1) }, ScreenCopy { source: [50, 20, 40, 40], at: (5, 70), zoom: (3, 4) }];
+    let copies = [ScreenCopy { source: [10, 12, 30, 20], at: (96, 70), zoom: (2, 1), lens: None }, ScreenCopy { source: [50, 20, 40, 40], at: (5, 70), zoom: (3, 4), lens: None }];
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (world, atlas) = art_world(color);
         let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);

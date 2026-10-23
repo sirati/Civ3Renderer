@@ -81,8 +81,11 @@ impl State {
 fn edge_rects(c: &Camera) -> [[i32; 4]; 8] {
     let l = c.lens.unwrap();
     let (x, y, w, h) = (c.origin.0, c.origin.1, c.viewport.0 as i32, c.viewport.1 as i32);
+    let halo = if l.glass { (l.rim * 0.28).ceil() as i32 } else { 0 };
     let a = (l.radius.max(l.rim).ceil() as i32 + 1).min(w.min(h) / 2);
     let e = (l.rim.ceil() as i32 + 1).min(a);
-    [[x+a,y,w-2*a,e], [x+a,y+h-e,w-2*a,e], [x,y+a,e,h-2*a], [x+w-e,y+a,e,h-2*a],
-     [x,y,a,a], [x+w-a,y,a,a], [x,y+h-a,a,a], [x+w-a,y+h-a,a,a]]
+    [[x+a,y-halo,w-2*a,e+halo], [x+a,y+h-e,w-2*a,e+halo],
+     [x-halo,y+a,e+halo,h-2*a], [x+w-e,y+a,e+halo,h-2*a],
+     [x-halo,y-halo,a+halo,a+halo], [x+w-a,y-halo,a+halo,a+halo],
+     [x-halo,y+h-a,a+halo,a+halo], [x+w-a,y+h-a,a+halo,a+halo]]
 }

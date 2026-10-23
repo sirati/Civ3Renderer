@@ -60,6 +60,8 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<St
         effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window));
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
+    out.insert("layout.zoom_controls".into(), Value::On(settings.layout.menu_zoom || settings.layout.zoom != viewer_settings::Zoom::Off));
+    out.insert("layout.zoom_lens_controls".into(), Value::On(settings.layout.menu_zoom || !matches!(settings.layout.zoom, viewer_settings::Zoom::Off | viewer_settings::Zoom::TopStrip)));
     let magnification = viewer_settings::Layout::MAGNIFICATIONS[settings.layout.zoom_magnification_step()];
     out.insert("layout.zoom_magnification_label".into(), Value::Text(format!("{}×", menu::panel::format_number(magnification, 1, false))));
     out
@@ -1593,6 +1595,13 @@ mod tests {
         assert_eq!(p.settings(), &Settings::default());
         assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
+        assert!(!p.editing().layout.menu_zoom);
+        assert!(texts(&p).iter().any(|t| t == "Menu zoom beside pointer"));
+        assert!(click(&mut p, 560, 145).is_empty());
+        assert!(p.editing().layout.menu_zoom);
+        assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
+        assert!(click(&mut p, 560, 145).is_empty());
+        assert!(!p.editing().layout.menu_zoom);
         assert!(p.editing().layout.zoom_rounded && p.editing().layout.zoom_glass);
         assert!(click(&mut p, 100, 573).is_empty());
         assert!(click(&mut p, 100, 608).is_empty());
