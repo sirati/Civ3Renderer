@@ -317,6 +317,7 @@ mod tests {
     /// drawn over it.
     fn frame(button_y: i32) -> Frame {
         Frame {
+            overlay_draws: 0..0,
             draws: vec![fill(0), image(button_y, (100, 200)), fill(110), fill(500)],
             forms: vec![],
             form_draws: vec![(0x400, 0..1), (0x500, 1..3), (0x600, 3..4)],
@@ -341,7 +342,7 @@ mod tests {
 
     #[test]
     fn status_orb_hover_art_can_start_above_its_native_click_region() {
-        let f = Frame { draws: vec![fill(0), image(0, (100, 200)), fill(500)],
+        let f = Frame { overlay_draws: 0..0, draws: vec![fill(0), image(0, (100, 200)), fill(500)],
             forms: vec![], form_draws: vec![(0x500, 0..3)], underlay_draws: vec![] };
         let a = ControlArt { part: Part::LastArt([100, 201, 32, 28]), ..art() };
         let got = control_looks(&f, &a).unwrap();
@@ -353,7 +354,7 @@ mod tests {
     fn a_pressed_buttons_label_moves() {
         let run = crate::text::TextRun { x: 104, y: 210, color: [0, 0, 0], face: "Arial".into(), height: -12, weight: 400, italic: false, underline: false, text: "OK".into(), backdrop: None };
         let text = |dx: i32| ScreenDraw::Text { run: crate::text::TextRun { x: 104 + dx, y: 210 + dx, ..run.clone() }, clip: [0, 0, 1024, 768] };
-        let f = Frame { draws: vec![image(0, (100, 200)), text(0)], forms: vec![], form_draws: vec![(0x500, 0..2)], underlay_draws: vec![] };
+        let f = Frame { overlay_draws: 0..0, draws: vec![image(0, (100, 200)), text(0)], forms: vec![], form_draws: vec![(0x500, 0..2)], underlay_draws: vec![] };
         let a = ControlArt { text_offsets: vec![(PRESSED, (2, 2))], ..art() };
         let looks = control_looks(&f, &a).unwrap();
         assert_eq!(looks.states[1], (PRESSED, vec![image(64, (100, 200)), text(2)]));
@@ -375,6 +376,7 @@ mod tests {
         };
         // Its canvas: the box unchecked, then hovered over it, and another box.
         let f = Frame {
+            overlay_draws: 0..0,
             draws: vec![image(0, (100, 200)), image(0, (100, 220)), image(32, (100, 200))],
             forms: vec![],
             form_draws: vec![(0x500, 0..3)],
@@ -402,6 +404,7 @@ mod tests {
             ..art()
         };
         let f = Frame {
+            overlay_draws: 0..0,
             draws: vec![fill(12, [200, 200, 200]), run(511, [90, 90, 90]), run(510, [0, 0, 0]), fill(30, [200, 200, 200])],
             forms: vec![],
             form_draws: vec![(0x500, 0..4)],
@@ -431,6 +434,7 @@ mod tests {
         };
         // Two rows: the first selected, the second not.
         let f = Frame {
+            overlay_draws: 0..0,
             draws: vec![strip(163), image(64, (803, 163)), run(823, 179, [0, 112, 184]), strip(189), image(0, (803, 189)), run(823, 205, [0, 0, 0])],
             forms: vec![],
             form_draws: vec![(0x500, 0..6)],
