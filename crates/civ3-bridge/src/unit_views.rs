@@ -380,6 +380,7 @@ mod live {
             if call.units != animator + L::ANIMATOR_UNITS || call.effects != animator + 0x18DC {
                 return call.original();
             }
+            note_frame(animator);
             match selector.prepare(call) {
                 Ok(prepared) => {
                     advance_and_capture(call.seconds, |seconds| {
@@ -413,6 +414,24 @@ mod live {
         std::mem::forget(build);
         log::info!("world units: independent views select and animate visible units and effects beyond the game's camera");
         Ok(())
+    }
+
+    /// One frame of the animator's (`crate::anim_steps`): a unit moves
+    /// while one in its queue of one-shot animations (+0x100C, count at
+    /// +0x180C) has its moving byte (+0x5D, set by the step loop 0x5BAB70).
+    fn note_frame(animator: u32) {
+        thread_local! {
+            static STEPS: RefCell<crate::anim_steps::Steps> = RefCell::new(Default::default());
+            static EPOCH: Instant = Instant::now();
+        }
+        let now = EPOCH.with(|e| e.elapsed().as_nanos() as u64);
+        let count = Ptr32::<i32>::new(animator + 0x180C).read().unwrap_or(0).clamp(0, 16) as usize;
+        let moving = Ptr32::<u32>::new(animator + 0x100C).read_array(count).unwrap_or_default().into_iter()
+            .any(|unit| unit != 0 && Ptr32::<u8>::new(unit + 0x5D).read().is_ok_and(|b| b != 0));
+        let at = crate::anim_steps::Sample { now, moving, cpu: inproc::process::thread_cpu_ns(), accesses: inproc::mem::thread_accesses() };
+        if let Some(line) = STEPS.with_borrow_mut(|s| s.frame(at, inproc::hook_time::snapshot)) {
+            log::info!("{line}");
+        }
     }
 
     /// Enrich a trace's native-camera records from copied game-thread stats.
