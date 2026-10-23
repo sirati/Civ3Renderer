@@ -745,6 +745,7 @@ fn publish(
     let mut wait = POLL;
     let mut host_sent = std::time::Instant::now();
     let mut stalls = crate::heartbeat::StallWatch::default();
+    let mut busy = crate::heartbeat::BusyWatch::default();
     let stall_clock = std::time::Instant::now();
     loop {
         PUBLISHER_ROUNDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -771,6 +772,10 @@ fn publish(
             presenter.send_host();
             // How much of a stall of the game's thread our hooks took.
             if let Some(line) = stalls.poll(crate::heartbeat::stale_now(), stall_clock.elapsed().as_millis() as u64, inproc::hook_time::snapshot) {
+                log::info!("{line}");
+            }
+            // And how much of it they take while it answers (slow frames).
+            if let Some(line) = busy.poll(stall_clock.elapsed().as_millis() as u64, inproc::hook_time::snapshot) {
                 log::info!("{line}");
             }
         }
