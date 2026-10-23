@@ -922,8 +922,9 @@ pub fn unit_overlay_canvas(build: Build) -> Option<u32> {
 /// The game's screens a renderer may place elsewhere, by the class
 /// (vtable) of the form showing them, and the name the viewer's settings
 /// give them (docs §16.12): the advisors F1-F8, the city screen, the palace
-/// (F9), the espionage screen, the game menu and the Civilopedia. GOG's
-/// vtables are PCGames'; Steam's only where C3X's tables give them.
+/// (F9), demographics (F11; after a game also its "Top 5 Cities"), the
+/// espionage screen, the game menu and the Civilopedia. GOG's vtables are
+/// PCGames'; Steam's only where C3X's tables give them.
 pub fn screen_forms(build: Build) -> &'static [(u32, &'static str)] {
     match build {
         Build::PcGames | Build::Gog => &[
@@ -935,6 +936,7 @@ pub fn screen_forms(build: Build) -> &'static [(u32, &'static str)] {
             (0x66_F420, "F6"),
             (0x66_FF98, "F7"),
             (0x66_D380, "F8"),
+            (0x66_BF10, "F11"),
             (0x66_58B0, "City"),
             (0x66_E0F8, "Palace"),
             (0x66_C5E0, "Spy"),
@@ -995,15 +997,30 @@ fn main_gui(build: Build) -> u32 {
     }
 }
 
-/// The screens shown once a game has ended (won, lost or retired), by the
-/// class (vtable) of their forms: the victory screen, the summary replay,
-/// the top five cities, the historical ranking and the hall of fame (the
-/// end-of-game sequence at 0x4F1572, PCGames). `Main_GUI` is still
-/// composed under them, but there is no game to show any more: the game
-/// leaves its map black there.
+/// The screens shown only once a game has ended (won, lost or retired), by
+/// the class (vtable) of their forms: the victory screen, the summary
+/// replay, the historical ranking and the hall of fame (the end-of-game
+/// sequence at 0x4F1572, PCGames). `Main_GUI` is still composed under
+/// them, but there is no game to show any more: the game leaves its map
+/// black there. Between the replay and the ranking the sequence also opens
+/// demographics (F11, 0x66BF10, as "Top 5 Cities") and the histograph (F8,
+/// 0x66D380): the screens of a running game, which alone do not tell that
+/// it has ended; what was shown before them does.
 pub fn end_of_game_forms(build: Build) -> &'static [u32] {
     match build {
-        Build::PcGames => &[0x66_B888, 0x66_E838, 0x66_BF10, 0x66_B700, 0x66_D1F0],
+        Build::PcGames => &[0x66_B888, 0x66_E838, 0x66_B700, 0x66_D1F0],
+        Build::Gog | Build::Steam => &[],
+    }
+}
+
+/// The screens after a game that a renderer places as it places the
+/// advisors ([`screen_forms`]), by the class (vtable) of their forms, with
+/// a name: the summary replay, the historical ranking and the hall of
+/// fame. Not the victory screen: its form covers the whole window, black
+/// round its board.
+pub fn end_of_game_screens(build: Build) -> &'static [(u32, &'static str)] {
+    match build {
+        Build::PcGames => &[(0x66_E838, "Replay"), (0x66_B700, "Ranking"), (0x66_D1F0, "Hall of Fame")],
         Build::Gog | Build::Steam => &[],
     }
 }
