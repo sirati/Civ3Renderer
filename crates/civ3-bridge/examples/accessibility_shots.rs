@@ -50,14 +50,21 @@ fn main() {
     let mut changed = settings.clone();
     changed.accessibility.hud_size = 3;
     changed.accessibility.ring_width = 4;
+    changed.input.snap_updates_per_second = 20.0;
     let mut changed_state = PanelState { values: prefs::values(&changed, prefs::TAB_ACCESSIBILITY, (1024, 768)), ..Default::default() };
-    for key in ["accessibility.hud_size", "accessibility.ring_width"] {
+    for key in ["accessibility.hud_size", "accessibility.ring_width", "input.snap_updates_per_second"] {
         changed_state.values.insert(format!("dialog.changed.{key}"), panel::Value::On(true));
     }
     let mut swatch_state = state.clone();
-    panels.input(p, &mut swatch_state, [0,0,1024,768], &scene::Input::MouseMove { x: 700, y: 222 });
-    let panel_shots: Vec<_> = [("accessibility-tab", state), ("accessibility-tab-undo", changed_state),
-        ("accessibility-swatch-tooltip", swatch_state)].into_iter().map(|(name, state)| {
+    panels.input(p, &mut swatch_state, [0,0,1024,768], &scene::Input::MouseMove { x: 700, y: 230 });
+    // Every renderer tab too, for layout review.
+    let mut tabs = settings.clone();
+    tabs.layout.split = viewer_settings::Split::Vertical1To1;
+    tabs.layout.zoom = viewer_settings::Zoom::Floating131;
+    let tab_shots = [prefs::TAB_RESOLUTION, prefs::TAB_LAYOUT, prefs::TAB_ZOOM, prefs::TAB_CLEAN_MAP, prefs::TAB_ACCESSIBILITY]
+        .map(|tab| (format!("tab-{tab}"), PanelState { values: prefs::values(&tabs, tab, (1024, 768)), ..Default::default() }));
+    let panel_shots: Vec<_> = [("accessibility-tab".to_owned(), state), ("accessibility-tab-undo".to_owned(), changed_state),
+        ("accessibility-swatch-tooltip".to_owned(), swatch_state)].into_iter().chain(tab_shots).map(|(name, state)| {
         let mut items = ui_screen::items(&bg, &[], &[], 0);
         items.extend(prefs::items(&panels.draw(p, &state, [0,0,1024,768], &measure)));
         (name, items)
@@ -101,7 +108,7 @@ fn main() {
     let compiled = assets::compile(&desc, files).unwrap();
     for (name, items) in panel_shots {
         let sprites = ui_screen::sprites(&items, &fonts, &compiled, u32::MAX, false);
-        save(dir, name, &draw(&compiled, sprites, (1024,768), Camera::new((1024,768)), None));
+        save(dir, &name, &draw(&compiled, sprites, (1024,768), Camera::new((1024,768)), None));
     }
     let size = (256,224);
     let camera = Camera::new(size);

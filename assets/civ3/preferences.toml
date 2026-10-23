@@ -4,12 +4,14 @@
 # (`x_pref background.pcx`, 1024x768): the panel is laid over it.
 #
 # Values (`civ3_bridge::prefs` fills them in): `tab` ("civ3", "resolution",
-# "layout", "zoom", "clean_map"), every control of `viewer_settings::controls` by its key
+# "layout", "zoom", "clean_map", "accessibility"), every control of `viewer_settings::controls` by its key
 # (`layout.split`, `resolution.scale_menus`, `resolution.menu_scale_percent`, ...,
 # `layout.orientation` "vertical" or "horizontal"), and
 # `resolution.realised` / `resolution.window`, the rendered and the window
 # size as "W×H", `resolution.effective` the pixel scale in effect ("×3",
 # "×2, ×1 in this small window").
+# Also `dialog.changed.<key>` (a slider differs from its accepted value)
+# and `dialog.previewing_base` (the Base UI scale Preview button is on).
 #
 # Art: the game's own where it has pieces (parchment buttons in three
 # states from the player setup screen, the checkboxes, the Preferences
@@ -354,6 +356,37 @@ text = "Base UI scale"
 style = "label"
 at = [90, 199]
 show_if = "tab=resolution"
+
+# Base UI scale waits for Accept so this window keeps its size. Preview
+# shows the drafted base on the game behind it until pressed again, a tab
+# change, Cancel or Accept.
+[[panels.preferences.items]]
+choice = "dialog.action"
+value = "preview_base"
+at = [556, 217]
+size = [130, 27]
+text = "Preview"
+style = "button"
+normal = "button"
+hover = "button_hover"
+tooltip = "Show this base UI scale behind Preferences"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & !dialog.previewing_base"
+
+[[panels.preferences.items]]
+choice = "dialog.action"
+value = "stop_preview_base"
+at = [556, 217]
+size = [130, 27]
+text = "Stop preview"
+style = "button"
+normal = "button_selected"
+hover = "button_hover"
+tooltip = "Back to the current base UI scale until Accept"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.previewing_base"
 
 [[panels.preferences.items]]
 text = "Rendered at {resolution.realised}"
@@ -766,45 +799,15 @@ at = [72, 347]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-text = "Snap updates per second"
-style = "label"
-at = [72, 375]
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-slider = "input.snap_updates_per_second"
-tick_step = 5
-tick_label_step = 5
-tick_style = "ruler"
-at = [250, 370]
-size = [200, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
-min = 1.0
-max = 30.0
-step = 1.0
-decimals = 0
-text = "{value}"
-style = "label"
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
-text = "(Alt: the cursor snaps to buttons)"
-style = "caption"
-at = [72, 398]
-show_if = "tab=layout"
-
-[[panels.preferences.items]]
 text = "Map movement"
 style = "label"
-at = [72, 425]
+at = [72, 381]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 choice = "input.map_movement"
 value = "EdgeScroll"
-at = [184, 420]
+at = [184, 376]
 size = [140, 26]
 text = "Edge scrolling"
 style = "button"
@@ -816,7 +819,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 choice = "input.map_movement"
 value = "Drag"
-at = [332, 420]
+at = [332, 376]
 size = [140, 26]
 text = "Drag (Civ IV style)"
 style = "button"
@@ -828,13 +831,13 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Drag mode: left/middle drag map; right click unit menu."
 style = "caption"
-at = [72, 448]
+at = [72, 408]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Right drag previews; left click its target confirms."
 style = "caption"
-at = [72, 466]
+at = [72, 426]
 show_if = "tab=layout"
 
 # ------------------------------------------------ Layout, screen locations
@@ -1066,29 +1069,15 @@ enable_if = "layout.split=Vertical1To1|Vertical2To1|Horizontal1To1"
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-text = "Spanning: across both views, a gap at the divider. Active view: in the mouse's view."
+text = "Spanning: across both views, a gap at the divider."
 style = "caption"
 at = [552, 584]
-size = [398, 36]
-show_if = "tab=layout"
-
-# Button snapping (the Alt mode) by itself while a menu is open.
-[[panels.preferences.items]]
-checkbox = "input.alt_in_menus"
-at = [552, 628]
-size = [398, 16]
-normal = "check_off"
-hover = "check_hover"
-selected = "check_on"
-text = "Alt mode in menus"
-style = "label"
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
-text = "Menus open with the cursor snapping to buttons. On the map, press Alt."
+text = "Active view: in the mouse's view."
 style = "caption"
-at = [552, 650]
-size = [398, 36]
+at = [552, 602]
 show_if = "tab=layout"
 
 # Each map view can follow Civ III or choose its own detail.
@@ -2059,7 +2048,7 @@ show_if = "tab=zoom & layout.zoom_lens_controls"
 [[panels.preferences.items]]
 text = "Separator width (window pixels)"
 style = "label"
-at = [72, 510]
+at = [72, 470]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -2067,7 +2056,7 @@ slider = "layout.separator_width"
 tick_step = 1
 tick_label_step = 4
 tick_style = "ruler"
-at = [72, 540]
+at = [72, 497]
 size = [376, 23]
 normal = "track"
 knob = "knob"
@@ -2157,19 +2146,6 @@ show_if = "tab=resolution & dialog.changed.display.fps_limit"
 
 [[panels.preferences.items]]
 choice = "dialog.undo"
-value = "input.snap_updates_per_second"
-at = [493, 370]
-size = [23, 23]
-normal = "button"
-hover = "button_hover"
-icon = "undo_icon"
-tooltip = "Undo to current state"
-tooltip_art = "tooltip"
-tooltip_style = "caption"
-show_if = "tab=layout & dialog.changed.input.snap_updates_per_second"
-
-[[panels.preferences.items]]
-choice = "dialog.undo"
 value = "input.capture_sensitivity"
 at = [918, 344]
 size = [23, 23]
@@ -2249,7 +2225,7 @@ show_if = "tab=zoom & layout.zoom=Floating131|Floating171 & dialog.changed.layou
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.separator_width"
-at = [497, 540]
+at = [497, 497]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2312,19 +2288,19 @@ show_if = "tab=accessibility & accessibility.active_unit_arrow"
 
 [[panels.preferences.items]]
 image = "section"
-at = [70, 235]
-size = [420, 200]
+at = [70, 230]
+size = [420, 175]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Unit markers"
-at = [90, 248]
+at = [90, 243]
 style = "heading"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Unit health and move markers size"
-at = [90, 283]
+at = [90, 276]
 style = "label"
 show_if = "tab=accessibility"
 
@@ -2335,7 +2311,7 @@ tick_step = 1
 tick_label_step = 1
 tick_labels = ["100%", "150%", "200%", "300%"]
 tick_style = "ruler"
-at = [90, 315]
+at = [90, 304]
 size = [280, 23]
 normal = "track"
 knob = "knob"
@@ -2350,12 +2326,78 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 checkbox = "accessibility.stack_count"
 text = "Show unit count on stacks"
-at = [90, 383]
+at = [90, 352]
 size = [370, 23]
 style = "label"
 normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
+show_if = "tab=accessibility"
+
+# Button snapping (the Alt mode): the cursor jumps between buttons.
+[[panels.preferences.items]]
+image = "section"
+at = [70, 420]
+size = [420, 235]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Mouse (Alt mode)"
+at = [90, 433]
+style = "heading"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+checkbox = "input.alt_in_menus"
+text = "Alt mode in menus"
+at = [90, 465]
+size = [370, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Menus open with the cursor snapping to buttons."
+style = "caption"
+at = [114, 494]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "On the map, press Alt."
+style = "caption"
+at = [114, 511]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "Snap updates per second"
+at = [90, 545]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+slider = "input.snap_updates_per_second"
+tick_step = 5
+tick_label_step = 5
+tick_style = "ruler"
+at = [90, 573]
+size = [280, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 1.0
+max = 30.0
+step = 1.0
+decimals = 0
+text = "{value}"
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+text = "How often mouse motion picks the next button."
+style = "caption"
+at = [90, 618]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -2511,14 +2553,14 @@ size = [39, 21]
 
 [[panels.preferences.items]]
 text = "War"
-at = [540, 188]
+at = [540, 195]
 style = "label"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 checkbox = "accessibility.war.invert"
 text = "Invert"
-at = [810, 185]
+at = [810, 192]
 size = [110, 23]
 style = "label"
 normal = "check_off"
@@ -2531,7 +2573,7 @@ repeat = ["ff0000", "f07018", "f8d020", "40f060", "009870", "20d0d8", "0040ff", 
 spacing = [47, 0]
 choice = "accessibility.war.color"
 value = "{item}"
-at = [540, 213]
+at = [540, 220]
 size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
@@ -2547,7 +2589,7 @@ repeat = ["c830a0", "f890b0", "905028", "c0a868", "ffffff", "b0b0b0", "505050", 
 spacing = [47, 0]
 choice = "accessibility.war.color"
 value = "{item}"
-at = [540, 238]
+at = [540, 245]
 size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
@@ -2560,14 +2602,14 @@ show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Allied (defence pact)"
-at = [540, 286]
+at = [540, 305]
 style = "label"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 checkbox = "accessibility.allied.invert"
 text = "Invert"
-at = [810, 283]
+at = [810, 302]
 size = [110, 23]
 style = "label"
 normal = "check_off"
@@ -2580,7 +2622,7 @@ repeat = ["ff0000", "f07018", "f8d020", "40f060", "009870", "20d0d8", "0040ff", 
 spacing = [47, 0]
 choice = "accessibility.allied.color"
 value = "{item}"
-at = [540, 311]
+at = [540, 330]
 size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
@@ -2596,7 +2638,7 @@ repeat = ["c830a0", "f890b0", "905028", "c0a868", "ffffff", "b0b0b0", "505050", 
 spacing = [47, 0]
 choice = "accessibility.allied.color"
 value = "{item}"
-at = [540, 336]
+at = [540, 355]
 size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
@@ -2609,14 +2651,14 @@ show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Peace"
-at = [540, 384]
+at = [540, 415]
 style = "label"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 checkbox = "accessibility.peace.invert"
 text = "Invert"
-at = [810, 381]
+at = [810, 412]
 size = [110, 23]
 style = "label"
 normal = "check_off"
@@ -2629,7 +2671,7 @@ repeat = ["ff0000", "f07018", "f8d020", "40f060", "009870", "20d0d8", "0040ff", 
 spacing = [47, 0]
 choice = "accessibility.peace.color"
 value = "{item}"
-at = [540, 409]
+at = [540, 440]
 size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
@@ -2645,7 +2687,7 @@ repeat = ["c830a0", "f890b0", "905028", "c0a868", "ffffff", "b0b0b0", "505050", 
 spacing = [47, 0]
 choice = "accessibility.peace.color"
 value = "{item}"
-at = [540, 434]
+at = [540, 465]
 size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
@@ -2657,14 +2699,8 @@ enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
-image = "section"
-at = [70, 455]
-size = [420, 155]
-show_if = "tab=accessibility"
-
-[[panels.preferences.items]]
 text = "Ring thickness (pixels)"
-at = [90, 480]
+at = [540, 515]
 style = "label"
 show_if = "tab=accessibility"
 
@@ -2673,7 +2709,7 @@ slider = "accessibility.ring_width"
 tick_step = 1
 tick_label_step = 1
 tick_style = "ruler"
-at = [90, 517]
+at = [540, 543]
 size = [280, 23]
 normal = "track"
 knob = "knob"
@@ -2689,14 +2725,14 @@ show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Rings mark foreign units outside cities."
-at = [540, 617]
+at = [540, 600]
 style = "caption"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "accessibility.hud_size"
-at = [464, 315]
+at = [464, 304]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2709,7 +2745,7 @@ show_if = "tab=accessibility & dialog.changed.accessibility.hud_size"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "accessibility.ring_width"
-at = [464, 517]
+at = [914, 543]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2718,3 +2754,16 @@ tooltip = "Undo to current state"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
 show_if = "tab=accessibility & dialog.changed.accessibility.ring_width"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "input.snap_updates_per_second"
+at = [464, 573]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=accessibility & dialog.changed.input.snap_updates_per_second"
