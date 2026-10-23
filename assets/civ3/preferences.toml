@@ -714,6 +714,29 @@ style = "heading"
 at = [72, 265]
 show_if = "tab=layout"
 
+# How much every zoom enlarges the world: steps of
+# `Layout::MAGNIFICATIONS` (1.5×, 2×, 3×, 4×), labelled by the bridge.
+[[panels.preferences.items]]
+text = "Magnification"
+style = "label"
+at = [300, 267]
+show_if = "tab=layout & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_magnification_step"
+at = [400, 262]
+size = [80, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0
+max = 3
+step = 1
+decimals = 0
+text = "{layout.zoom_magnification_label}"
+style = "label"
+show_if = "tab=layout & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
+
 [[panels.preferences.items]]
 choice = "layout.zoom"
 value = "Off"
@@ -801,7 +824,7 @@ show_if = "tab=layout & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
 [[panels.preferences.items]]
 slider = "layout.zoom_strip"
 at = [180, 352]
-size = [240, 23]
+size = [100, 23]
 normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
@@ -812,32 +835,62 @@ decimals = 0
 percent = true
 text = "{value}%"
 style = "label"
-show_if = "tab=layout & layout.zoom=TopStrip|Mouse111|Mouse131"
+show_if = "tab=layout & layout.zoom=TopStrip|Floating131|Floating171|Mouse111|Mouse131"
 
+# A floating box: its space below the top, how far it drops below the
+# mouse that comes to it, or that it keeps the mouse out instead.
 [[panels.preferences.items]]
-slider = "layout.zoom_box_height"
-at = [180, 352]
-size = [240, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
-min = 0.0
-max = 1.0
-step = 0.05
-decimals = 0
-percent = true
-text = "{layout.zoom_box_height_label}"
+checkbox = "layout.zoom_box_block_pointer"
+at = [340, 356]
+size = [180, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Keep mouse out"
 style = "label"
 show_if = "tab=layout & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
-checkbox = "layout.zoom_box_block_pointer"
-at = [72, 381]
-size = [440, 16]
-normal = "check_off"
-hover = "check_hover"
-selected = "check_on"
-text = "Keep mouse out of the floating zoom box"
+text = "Top margin"
+style = "label"
+at = [72, 385]
+show_if = "tab=layout & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_box_top"
+at = [180, 380]
+size = [100, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 0.2
+step = 0.005
+decimals = 1
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=layout & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+text = "Drop"
+style = "label"
+at = [340, 385]
+show_if = "tab=layout & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_box_drop"
+at = [380, 380]
+size = [90, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 0.5
+step = 0.025
+decimals = 1
+percent = true
+text = "{value}%"
 style = "label"
 show_if = "tab=layout & layout.zoom=Floating131|Floating171"
 

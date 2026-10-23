@@ -59,11 +59,8 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<St
         effective = format!("{effective}, ×{} in this small window", r.pixel_scale_in(window));
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
-    let height = settings.layout.zoom_box_height;
-    let height = if height > 0.0 {
-        format!("{}%", menu::panel::format_number(height.clamp(0.05, 1.0), 0, true))
-    } else { "Auto".into() };
-    out.insert("layout.zoom_box_height_label".into(), Value::Text(height));
+    let magnification = viewer_settings::Layout::MAGNIFICATIONS[settings.layout.zoom_magnification_step()];
+    out.insert("layout.zoom_magnification_label".into(), Value::Text(format!("{}×", menu::panel::format_number(magnification, 1, false))));
     out
 }
 
@@ -1523,16 +1520,16 @@ mod tests {
         assert!(["Prefs@unit_small/0", "Prefs@mouse_small/0"].iter().all(|s| sprites.iter().any(|n| n == s)), "{sprites:?}");
         let place = p.editing().layout.screen_place;
         assert_eq!((place.horizontal, place.vertical), (Place::RightOrTop, Place::Floating));
-        // The height slider shows only with the strip or a box at the mouse.
+        // The height slider shows with every zoom but Off.
         assert!(!texts.iter().any(|t| t.ends_with('%')));
         assert!(click(&mut p, 430, 330).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::TopStrip);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
-        assert!(texts.contains(&"25%".to_string()), "{texts:?}");
+        assert!(texts.contains(&"20%".to_string()), "{texts:?}");
         // Dragging the strip's slider to its right end: 50%.
         let drag = |x| Input::MouseMove { x, y: 360 };
         let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 360 };
-        assert!(p.route(vec![b(true, 300), drag(800), b(false, 800)], (1024, 768)).is_empty());
+        assert!(p.route(vec![b(true, 230), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
         assert_eq!(p.settings(), &Settings::default());
         let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
@@ -1543,39 +1540,56 @@ mod tests {
         assert_eq!(p.editing().layout.zoom, Zoom::Mouse111);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && !shown.contains(&"Strip height".to_string()) && shown.contains(&"50%".to_string()), "{shown:?}");
-        assert!(p.route(vec![b(true, 300), drag(0), b(false, 0)], (1024, 768)).is_empty());
+        assert!(!shown.iter().any(|t| t == "Top margin" || t == "Drop" || t == "Keep mouse out"), "{shown:?}");
+        assert!(p.route(vec![b(true, 230), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(texts(&p).contains(&"5%".to_string()));
-        // A box on top has its own height slider, initially Auto.
+        // The floating boxes share that one slider (no Auto, no own
+        // height), and have their top margin (2.5%), their drop below the
+        // mouse (30%) and the keep-the-mouse-out option.
         assert!(click(&mut p, 290, 300).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating131);
         let shown = texts(&p);
-        assert!(shown.contains(&"Box height".to_string()) && shown.contains(&"Auto".to_string()), "{shown:?}");
+        assert!(shown.contains(&"Box height".to_string()) && shown.contains(&"5%".to_string()), "{shown:?}");
         assert!(shown.contains(&"Floating box 1:3:1".to_string()));
-        assert!(shown.contains(&"Keep mouse out of the floating zoom box".to_string()));
+        assert!(!shown.iter().any(|t| t == "Auto"), "{shown:?}");
+        assert!(["Top margin", "2.5%", "Drop", "30%", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
+        assert!(p.route(vec![b(true, 230), drag(800), b(false, 800)], (1024, 768)).is_empty());
+        assert_eq!(p.editing().layout.zoom_strip, 0.5);
+        assert_eq!(p.settings(), &Settings::default());
+        assert!(texts(&p).contains(&"50%".to_string()));
         assert!(!p.editing().layout.zoom_box_block_pointer);
-        assert!(click(&mut p, 80, 388).is_empty());
+        assert!(click(&mut p, 348, 362).is_empty());
         assert!(p.editing().layout.zoom_box_block_pointer);
-        assert_eq!(p.settings(), &Settings::default());
-        assert!(click(&mut p, 80, 388).is_empty());
+        assert!(click(&mut p, 348, 362).is_empty());
         assert!(!p.editing().layout.zoom_box_block_pointer);
-        // Its own slider reaches the full region height, independently of
-        // the strip/mouse-box setting, without applying the draft.
-        assert!(p.route(vec![b(true, 300), drag(800), b(false, 800)], (1024, 768)).is_empty());
-        assert_eq!(p.editing().layout.zoom_box_height, 1.0);
+        let row = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 391 };
+        let slide = |x| Input::MouseMove { x, y: 391 };
+        assert!(p.route(vec![row(true, 230), slide(800), row(false, 800)], (1024, 768)).is_empty());
+        assert_eq!(p.editing().layout.zoom_box_top, 0.2);
+        assert!(p.route(vec![row(true, 425), slide(0), row(false, 0)], (1024, 768)).is_empty());
+        assert_eq!(p.editing().layout.zoom_box_drop, 0.0);
+        assert!(["20%", "0%"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
         assert_eq!(p.settings(), &Settings::default());
-        assert_eq!(p.editing().layout.zoom_strip, 0.05);
-        assert!(texts(&p).contains(&"100%".to_string()));
-        // Both box widths expose the control; the far left restores Auto.
         assert!(click(&mut p, 430, 300).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
-        assert!(texts(&p).contains(&"Box height".to_string()));
-        assert!(p.route(vec![b(true, 300), drag(0), b(false, 0)], (1024, 768)).is_empty());
-        assert_eq!(p.editing().layout.zoom_box_height, 0.0);
-        assert!(texts(&p).contains(&"Auto".to_string()));
+        assert!(["Box height", "50%", "Top margin", "Drop"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
+        // The magnification, for every zoom: 2×, its steps 1.5× to 4×.
+        assert!(["Magnification", "2×"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
+        let mag = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 273 };
+        let along = |x| Input::MouseMove { x, y: 273 };
+        assert!(p.route(vec![mag(true, 440), along(1000), mag(false, 1000)], (1024, 768)).is_empty());
+        assert_eq!(p.editing().layout.zoom_magnification, 4.0);
+        assert!(texts(&p).iter().any(|s| s == "4×"));
+        assert!(p.route(vec![mag(true, 440), along(300), mag(false, 300)], (1024, 768)).is_empty());
+        assert_eq!(p.editing().layout.zoom_magnification, 1.5);
+        assert!(texts(&p).iter().any(|s| s == "1.5×"));
+        assert_eq!(p.settings(), &Settings::default());
+        assert!(p.route(vec![b(true, 230), drag(0), b(false, 0)], (1024, 768)).is_empty());
+        assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(click(&mut p, 140, 300).is_empty());
         assert_eq!(p.editing().layout.zoom, Zoom::Off);
-        assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height")));
+        assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height") || t == "Drop" || t == "Top margin" || t == "Magnification" || t.ends_with('×')));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

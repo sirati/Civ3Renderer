@@ -257,20 +257,26 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
 
 - **Split**: one view, views A and B side by side (1:1, or A twice as
   wide), or A above B.
-- **Zoom box**: off; a world magnifier in a box in the middle of the
-  window sized 1:3:1 or 1:7:1 across the width (margin : box : margin;
-  the Box height slider sets 5-100% of its region's height, with Auto
-  keeping the window's aspect ratio); a box at the pointer,
-  1:1:1 or 1:3:1 across and `zoom_strip` of the height, above the pointer
-  (below it where there is no room); or a strip across the top,
-  `zoom_strip` of the height, that the views give room to. `zoom_strip`
-  is 5-50 %. In a side-by-side split `zoom_place` puts it over both
-  views, A or B, and keeps it inside that view. Floating boxes move below
-  an approaching pointer; **Keep mouse out of the floating zoom box**
-  instead blocks entry. Top strips always block entry and scroll the map
-  upward at their lower boundary. Controls over a zoom area remain
-  reachable. World magnifiers keep full-size artwork when Z zooms the
-  game's map out. Ctrl+wheel over a zoom view changes its magnification.
+- **Zoom box**: off; a floating box at the top of the window, centred
+  across, 1:3:1 or 1:7:1 of the width (margin : box : margin), its top
+  `zoom_box_top` (*Top margin*, 0-20 %, default 2.5 %) of the height
+  below the window's top; a box at the pointer, 1:1:1 or 1:3:1 across,
+  above the pointer (below it where there is no room); or a strip across
+  the top that the views give room to. One slider, `zoom_strip` (*Box*
+  or *Strip height*, 5-50 %, default 20 %), sets the height of every one
+  of them (older settings' own floating box height is ignored). In a
+  side-by-side split `zoom_place` puts it over both views, A or B, and
+  keeps it inside that view. A floating box the pointer comes to drops
+  below it, its top `zoom_box_drop` (*Drop*, 0-50 %, default 30 %) of
+  the height below the pointer (as far as the bottom lets it); **Keep
+  mouse out** instead blocks entry. Top strips always block entry and
+  scroll the map upward at their lower boundary. Boxes do not dodge the
+  views' own controls (the corner buttons, the unit's orders): they lie
+  under them, and the controls keep their clicks. *Magnification*
+  (`zoom_magnification`: 1.5×, 2×, 3× or 4×, default 2×) sets how much
+  every zoom enlarges the world; Ctrl+wheel over a zoom view changes it
+  within those steps until the setting changes (not saved). World
+  magnifiers keep full-size artwork when Z zooms the game's map out.
 - **Screens**: one setting places every screen and popup: the advisors
   F1-F8, the city screen, the palace, espionage, diplomacy, the game menu,
   dialogs, popups and the Civilopedia (the bridge names the open one,
