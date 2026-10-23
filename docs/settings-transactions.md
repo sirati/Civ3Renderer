@@ -1,11 +1,32 @@
 # Settings acceptance and cancellation
 
-Preferences keeps renderer settings in a draft. View placement, menu size,
-combat speed and frame pacing take effect on Accept. Moving the menu size
-slider therefore leaves the dialog and its pointer mapping stable.
+Preferences keeps renderer settings in a draft and saves only on Accept.
+The Game frame and World map sliders preview on every drag update, including
+Alt slider Preview events. Game frame scales the minimap, current-unit panel,
+top buttons and unit orders, including orders placed in the active view.
+Zoom magnification, height, top margin and drop, separator width, cursor snap
+update rate and captured-mouse sensitivity also preview. Zoom sliders affect
+the currently accepted zoom mode. Background sampling and cursor size keep
+their existing immediate previews.
 
-Background sampling, cursor size and captured-mouse sensitivity preview
-immediately. Cancel restores the settings from when Preferences opened.
+Base UI scale and Menu size remain deferred until Accept. Both affect the
+Preferences window's own menu transform. Keeping their accepted values while
+the dialog is open keeps its size, slider tracks, native pointer mapping and
+Alt targets stable. The separate Game frame and World map scales affect the
+game behind it. Frame pacing and combat speed also remain deferred. Pacing
+changes configure presentation, and combat speed changes native game timing;
+neither has a useful visual preview in a paused Preferences dialog. Other
+choices and checkboxes retain their existing Accept behavior.
+
+Cancel or Escape asks before discarding changes. Keeping the draft keeps its
+preview; confirming discard, or an external close without Accept, restores
+all previewed settings to their accepted values. Accept keeps and saves them.
+Each renderer slider has a small curved-arrow undo button to the right of its
+value while it differs from the accepted setting. It restores just that
+slider, including its preview, without saving or resetting other edits. The
+button remains available if a slider becomes disabled. Its tooltip reads
+"Undo to current state". It participates in ordinary and Alt hit testing.
+
 The render multiplier also previews immediately, with a separate ten-second
 Keep/Revert dialog. A fresh Enter press or Keep confirms the preview; Escape,
 Revert or expiry restores the previous multiplier. The countdown runs in the
@@ -39,9 +60,8 @@ input continues to that popup. Window metadata and application Quit still pass
 through while interactive input waits.
 
 Scale menus enables the menu size slider, which selects 25% to 100% of the
-available screen height. The checkbox and percentage follow the same draft
-rules. The original checkbox groups and audio controls remain native Civ III
-controls.
+available screen height. The checkbox and percentage take effect on Accept.
+The original checkbox groups and audio controls remain native Civ III controls.
 
 The PCGames Preferences audio callbacks normally preview changes immediately.
 The bridge now stages their numeric values and uses the game's own checkbox

@@ -2068,7 +2068,7 @@ tick_step = 1
 tick_label_step = 4
 tick_style = "ruler"
 at = [72, 540]
-size = [408, 23]
+size = [376, 23]
 normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
@@ -2079,3 +2079,182 @@ decimals = 0
 text = "{value} px"
 style = "label"
 show_if = "tab=layout"
+
+# Undo uses the same parchment buttons and brown pixel art as other panel
+# controls. The curved arrow is generated, so it needs no new game file.
+[art.undo_icon]
+generated = "rects:16x16;60,48,24,255:5,1,1,2;60,48,24,255:4,2,2,2;60,48,24,255:3,3,8,2;60,48,24,255:2,4,4,3;60,48,24,255:1,5,5,1;60,48,24,255:3,7,3,1;60,48,24,255:4,8,2,1;60,48,24,255:5,9,1,1;60,48,24,255:10,4,3,2;60,48,24,255:12,6,2,4;60,48,24,255:10,10,3,2;60,48,24,255:6,11,5,2"
+size = [16, 16]
+
+[art.tooltip]
+fill = [242, 225, 184]
+border = [104, 88, 60]
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "resolution.base_ui_scale"
+at = [520, 220]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.changed.resolution.base_ui_scale"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "resolution.menu_scale_percent"
+at = [760, 334]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.changed.resolution.menu_scale_percent"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "resolution.frame_scale"
+at = [760, 366]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.changed.resolution.frame_scale"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "resolution.world_scale"
+at = [760, 398]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.changed.resolution.world_scale"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "display.fps_limit"
+at = [915, 568]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.changed.display.fps_limit"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "input.snap_updates_per_second"
+at = [493, 370]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=layout & dialog.changed.input.snap_updates_per_second"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "input.capture_sensitivity"
+at = [918, 344]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=layout & dialog.changed.input.capture_sensitivity"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "animation.combat_speed"
+at = [918, 446]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=layout & dialog.changed.animation.combat_speed"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.zoom_magnification_step"
+at = [780, 310]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom & layout.zoom_controls & dialog.changed.layout.zoom_magnification_step"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.zoom_strip"
+at = [780, 360]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom & layout.zoom_controls & dialog.changed.layout.zoom_strip"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.zoom_box_top"
+at = [780, 410]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171 & dialog.changed.layout.zoom_box_top"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.zoom_box_drop"
+at = [780, 460]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171 & dialog.changed.layout.zoom_box_drop"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.separator_width"
+at = [497, 540]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=layout & dialog.changed.layout.separator_width"

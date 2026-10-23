@@ -569,8 +569,11 @@ panel of the `menu` crate (`assets/civ3/preferences.toml`) laid over it,
 drawn from the game's art (its parchment buttons, checkboxes, slider bar
 and thumb) with the split pictures generated (`panes:` sources of the
 render description) and the game's font. Pointer input the panel takes
-never reaches the game. Edits stay in a draft until Accept, so the menu
-size slider cannot resize its own dialog while it is being edited. Accept
+never reaches the game. Edits stay in a draft and save only on Accept.
+Game frame and World map scale preview during drags, as do zoom dimensions
+and magnification, plus separator width. Base UI scale and Menu size wait for
+Accept so the dialog stays fixed while editing. Changed sliders have a
+curved-arrow undo button with the tooltip "Undo to current state". Accept
 applies and saves once. Cancel or Escape asks before discarding changed
 renderer or native Civ III settings; No keeps the draft. The original
 audio controls also defer their sound changes until Accept. See
@@ -579,9 +582,9 @@ audio controls also defer their sound changes until Accept. See
 Accepted settings are saved at `Settings::default_path()` (`$CIV3R_SETTINGS`,
 else `civ3r/settings.toml` under `$XDG_CONFIG_HOME`, `%APPDATA%` or
 `~/.config`; under Wine the bridge uses the Unix user's path through the
-prefix's `Z:` drive). The bridge sends them to the viewer as TOML in
-`scene::Update::Settings`, starting with the first scene, so the native
-viewer follows the same accepted file.
+prefix's `Z:` drive). The bridge sends effective settings, including temporary
+previews, to the viewer as TOML in `scene::Update::Settings`, starting with the first scene.
+Only Accept writes the draft to the settings file.
 
 The first run (no settings file yet, `civ3_bridge::first_run`): once the
 title menu is up, settled and nothing loads, the bridge opens Preferences
@@ -630,8 +633,9 @@ removed without being interpreted as percentages. Pointer input and Alt
 targets use the same transforms as the pixels. The world scale scales the
 world about the middle of the game's view. Other oversized menus retain
 their native size with scaling off; hold the middle mouse button and drag
-to reach controls outside the window. Changes apply when Preferences is
-accepted. The Resolution tab shows the rendering resolution. The system
+to reach controls outside the window. Game frame and World map scale
+preview while dragging; Base UI scale and Menu size apply when Preferences
+is accepted. The Resolution tab shows the rendering resolution. The system
 pointer is the game's cursor art at the pixel scale (each of its pixels
 n×n, also over menus at a menu scale of their own), as are the cursors
 and markers the viewer draws.
