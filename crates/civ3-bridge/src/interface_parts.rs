@@ -139,17 +139,52 @@ pub fn screen(frame: &Frame, screens: &[(u32, &'static str)]) -> Option<(usize, 
 
 /// The active screen and its placement setting. Preferences is a modal
 /// screen of its own, including over an advisor, and follows the Menu
-/// setting rather than the screen below it.
+/// setting rather than the screen below it. The screens after a game
+/// (`civ3_sys::ui_hooks::end_of_game_screens`: the summary replay, the
+/// ranking, the hall of fame) are screens as the advisors are while they
+/// show over `Main_GUI`, as at the end of a game (the hall of fame opened
+/// from the title is a part of that menu).
 pub fn active_screen(frame: &Frame, build: civ3_sys::Build) -> Option<(usize, &'static str)> {
     let screens = civ3_sys::ui_hooks::screen_forms(build);
     let preferences = civ3_sys::ui_hooks::preferences_form(build);
+    let main_gui = civ3_sys::ui_hooks::main_gui_canvas(build);
+    let after_game: &[(u32, &str)] = if frame.forms.iter().any(|f| f.1 == main_gui) { civ3_sys::ui_hooks::end_of_game_screens(build) } else { &[] };
     frame.forms.iter().enumerate().rev().find_map(|(i, f)| {
         if preferences.is_some_and(|p| p.vtable == f.0) {
             Some((i, "Menu"))
         } else {
-            screens.iter().find(|s| s.0 == f.0).map(|s| (i, s.1))
+            screens.iter().chain(after_game).find(|s| s.0 == f.0).map(|s| (i, s.1))
         }
     })
+}
+
+/// Whether the game has ended: the screens after it are open, or were
+/// since `Main_GUI` was last composed. Its end-of-game sequence (docs
+/// §16.5) shows the victory screen, the summary replay, demographics (F11),
+/// the histograph (F8), the historical ranking and the hall of fame, all
+/// over `Main_GUI`, then the title. The two in the middle are the screens
+/// of a running game: only what came before them tells that this one has
+/// ended (its world, which the game leaves black there, is not to show
+/// round them).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct GameOver(bool);
+
+impl GameOver {
+    /// After a composition showing `frame`; whether the game has ended.
+    pub fn update(&mut self, frame: &Frame, build: civ3_sys::Build) -> bool {
+        let main_gui = civ3_sys::ui_hooks::main_gui_canvas(build);
+        let end = civ3_sys::ui_hooks::end_of_game_forms(build);
+        if !frame.forms.iter().any(|f| f.1 == main_gui) {
+            self.0 = false;
+        } else if frame.forms.iter().any(|f| end.contains(&f.0)) {
+            self.0 = true;
+        }
+        self.0
+    }
+
+    pub fn ended(&self) -> bool {
+        self.0
+    }
 }
 
 /// The map's corner and unit-order controls may roam only while no screen
@@ -204,6 +239,19 @@ pub fn corner_part(frame: &Frame, canvases: &[u32]) -> Option<([i32; 4], Vec<usi
     }
     let [l, t, r, b] = bounds;
     Some(([l.max(0), t.max(0), r - l.max(0), b - t.max(0)], draws))
+}
+
+/// The frame round the screens after a game: `Main_GUI` and what is
+/// composed over it. What the forms under it still hold (the main screen
+/// form's canvas, the map's overlay: the ended game's map, its labels and
+/// fog of war, which the game leaves black) is no world to show.
+pub fn after_game_frame(frame: &Frame, build: civ3_sys::Build) -> Frame {
+    let main_gui = civ3_sys::ui_hooks::main_gui_canvas(build);
+    let Some(at) = frame.forms.iter().position(|f| f.1 == main_gui) else { return frame.clone() };
+    let under: Vec<u32> = frame.forms[..at].iter().map(|f| f.1).collect();
+    let draws: Vec<usize> = frame.form_draws.iter().filter(|(c, _)| under.contains(c)).map(|(_, r)| r.clone())
+        .chain(frame.underlay_draws.iter().cloned()).flatten().collect();
+    without(frame, &draws)
 }
 
 /// `frame` with `draws` left out (clipped to nothing: the indices stay).
@@ -781,8 +829,14 @@ mod tests {
         f.forms.push((0x66_DD80, 0xB4_2C64, (778, 407), (364, 266)));
         assert_eq!(screen(&f, table).map(|s| s.1), Some("Menu"));
         assert!(table.iter().any(|s| s.1 == "Palace") && table.iter().any(|s| s.1 == "Help") && table.iter().any(|s| s.1 == "F8"));
-        assert_eq!(table.len(), viewer_settings::Layout::SCREENS.len());
+        // Every screen older settings placed one by one; and demographics
+        // (F11), which came after them.
         assert!(viewer_settings::Layout::SCREENS.iter().all(|n| table.iter().any(|s| s.1 == *n)));
+        assert!(table.iter().all(|s| s.1 == "F11" || viewer_settings::Layout::SCREENS.contains(&s.1)));
+        // Demographics (F11) is a screen of a running game too: it is
+        // placed as the advisors are and leaves the world shown.
+        assert_eq!(table.iter().find(|s| s.1 == "F11").map(|s| s.0), Some(0x66_BF10));
+        assert!(!civ3_sys::ui_hooks::end_of_game_forms(civ3_sys::Build::PcGames).contains(&0x66_BF10));
     }
 
     #[test]
@@ -1268,5 +1322,101 @@ mod tests {
         let v = s.view(CORNER_VIEW).unwrap();
         assert_eq!((v.view.origin, v.view.viewport, v.view.interface_only), ((0, 0), (149, 54), true));
         assert!(v.overlay[0].screen && v.overlay[0].after_pass == u32::MAX);
+    }
+
+    /// The forms a retired game composed at 1920×1080 (the bridge's traces
+    /// of its end screens, `ui_form`): the main screen form, the map's
+    /// overlay, `Main_GUI` and (some of) its buttons, then `screen` and
+    /// its own forms; each drew one fill of its rectangle.
+    fn after_game(screen: &[(u32, u32, (i32, i32), (i32, i32))]) -> Frame {
+        let mut forms = vec![
+            (0x66_B3D8, 0x9F_8934, (0, 0), (1920, 1080)),
+            (0x67_1218, 0x9F_D80C, (0, 0), (1920, 1080)),
+            (0x66_B570, 0x9F_DD84, (0, 0), (1920, 1080)),
+            (0x66_56C0, 0xA0_765C, (57, 12), (36, 30)),
+            (0x66_56C0, 0xA0_61E0, (94, 12), (34, 30)),
+            (0x66_56C0, 0xA0_68B4, (21, 12), (36, 30)),
+            (0x66_56C0, 0xA2_1F0C, (836, 1030), (32, 32)),
+        ];
+        forms.extend_from_slice(screen);
+        // The map black, Main_GUI's panels at the edges, the forms.
+        let mut draws = vec![fill(0, 0, 1920, 1080), fill(5, 949, 282, 131), fill(1621, 942, 294, 137)];
+        let mut form_draws = vec![(0x9F_8934, 0..1), (0x9F_DD84, 1..3)];
+        for f in &forms[3..] {
+            form_draws.push((f.1, draws.len()..draws.len() + 1));
+            draws.push(fill(f.2.0, f.2.1, f.3.0, f.3.1));
+        }
+        Frame { overlay_draws: 0..0, draws, forms, form_draws, underlay_draws: vec![] }
+    }
+
+    const REPLAY: [(u32, u32, (i32, i32), (i32, i32)); 4] = [
+        (0x66_E838, 0xC8_87FC, (448, 156), (1024, 768)),
+        (0x67_2328, 0xC8_B1B8, (834, 594), (100, 24)),
+        (0x67_18E8, 0xC8_C580, (978, 624), (320, 208)),
+        (0x66_56C0, 0xC8_CBF4, (1400, 874), (72, 48)),
+    ];
+    const VICTORY: (u32, u32, (i32, i32), (i32, i32)) = (0x66_B888, 0x22_98AC, (0, 0), (1920, 1080));
+    const TOP5: (u32, u32, (i32, i32), (i32, i32)) = (0x66_BF10, 0xA3_2E04, (448, 156), (1024, 768));
+    const HISTOGRAPH: (u32, u32, (i32, i32), (i32, i32)) = (0x66_D380, 0xB3_047C, (448, 156), (1024, 768));
+    const RANKING: (u32, u32, (i32, i32), (i32, i32)) = (0x66_B700, 0xE0_A1A8, (448, 156), (1024, 768));
+    const HALL_OF_FAME: (u32, u32, (i32, i32), (i32, i32)) = (0x66_D1F0, 0xB2_C8AC, (0, 0), (1024, 768));
+
+    #[test]
+    fn the_screens_after_a_game_are_screens_placed_as_the_advisors() {
+        let build = civ3_sys::Build::PcGames;
+        let size = (1920, 1080);
+        // The replay, the ranking, the hall of fame: their own rectangle as a
+        // part, with what is composed over them (the replay's list, combo box
+        // and close button); the frame under them stays below.
+        for (screen, name, rect) in [(&REPLAY[..], "Replay", [448, 156, 1024, 768]), (&[RANKING][..], "Ranking", [448, 156, 1024, 768]), (&[HALL_OF_FAME][..], "Hall of Fame", [0, 0, 1024, 768])] {
+            let f = after_game(screen);
+            let index = f.forms.iter().position(|form| form.0 == screen[0].0).unwrap();
+            assert_eq!(active_screen(&f, build), Some((index, name)));
+            let (first, part) = active_screen_part(&f, index, build, size).unwrap();
+            assert_eq!(part, rect, "{name}");
+            assert_eq!(first, 3 + 4, "{name}: from its own first draw, Main_GUI's panels below");
+        }
+        // Demographics ("Top 5 Cities") and the histograph: the advisors F11
+        // and F8, after a game as during one.
+        for (form, name) in [(TOP5, "F11"), (HISTOGRAPH, "F8")] {
+            let f = after_game(&[form]);
+            assert_eq!(active_screen(&f, build), Some((7, name)));
+            assert_eq!(active_screen_part(&f, 7, build, size).map(|p| p.1), Some([448, 156, 1024, 768]));
+        }
+        // The frame round them: Main_GUI's panels, not the ended game's map.
+        let f = after_game(&REPLAY);
+        let kept = after_game_frame(&f, build);
+        assert!(reach(&kept.draws[0]).is_none(), "the main screen form's map");
+        assert!(kept.draws[1..].iter().all(|d| reach(d).is_some()));
+        // The victory screen is none (its form is the whole window, black
+        // round its board): as before, a popup over the rest.
+        assert_eq!(active_screen(&after_game(&[VICTORY]), build), None);
+        // The hall of fame opened from the title (no Main_GUI) is a part of
+        // the title's menu, as before.
+        let mut title = after_game(&[HALL_OF_FAME]);
+        title.forms.retain(|f| f.0 != 0x66_B570);
+        assert_eq!(active_screen(&title, build), None);
+    }
+
+    #[test]
+    fn a_game_has_ended_from_its_first_end_screen_until_the_title() {
+        let build = civ3_sys::Build::PcGames;
+        let mut over = GameOver::default();
+        let during = after_game(&[]);
+        // A running game: its demographics and histograph do not end it.
+        for f in [&during, &after_game(&[TOP5]), &after_game(&[HISTOGRAPH]), &during] {
+            assert!(!over.update(f, build));
+        }
+        // Retired: the victory screen, the replay, then demographics and the
+        // histograph, the ranking, the hall of fame, all of the game's end.
+        for screen in [&[VICTORY][..], &REPLAY[..], &[TOP5], &[HISTOGRAPH], &during.forms[..0], &[RANKING], &[HALL_OF_FAME]] {
+            assert!(over.update(&after_game(screen), build), "{screen:x?}");
+        }
+        assert!(over.ended());
+        // The title (Main_GUI no longer composed): over; the next game runs.
+        let mut title = after_game(&[]);
+        title.forms.retain(|f| f.0 != 0x66_B570);
+        assert!(!over.update(&title, build));
+        assert!(!over.update(&after_game(&[TOP5]), build));
     }
 }

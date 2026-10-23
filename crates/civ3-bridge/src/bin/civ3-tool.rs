@@ -6,6 +6,11 @@
 //!       description covers
 //!   civ3-tool render TRACE OUT.png [--viewport WxH] [--reference]
 //!       renders the trace's world on the GPU, or with the CPU reference
+//!   civ3-tool screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--before]
+//!       renders a trace of the screens after a game as the viewer shows
+//!       them in a window (default 3840x2160) at those settings: the screen
+//!       open a part of its own over the frame; --before as the bridge
+//!       handed them over before (all of it a menu, the screen a popup)
 //!   civ3-tool stats TRACE
 //!       how big the atlas compiled for the trace is
 //!   civ3-tool preview SCENARIO.biq OUT.png [--viewport WxH]
@@ -170,6 +175,53 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
     scene
 }
 
+/// The interface of a trace taken after a game (no world), as live hands
+/// it to the viewer: the screen open a part of its own over the frame
+/// (`interface_parts::active_screen_part`). `before`: as the bridge did
+/// before the screens after a game were screens, all of it a menu, the
+/// screen a popup over it where `menu_popup` took it for one.
+fn screen_scene(trace: &Trace, compiled: &Compiled, fonts: &text::Fonts, before: bool) -> Result<scene::Scene, String> {
+    use ifc23::interface_parts as parts;
+    let frame = trace.ui.clone().ok_or("the trace has no interface")?;
+    let build = civ3_sys::Build::PcGames;
+    let size = frame.forms.first().map(|f| f.3).ok_or("no forms")?;
+    if !parts::GameOver::default().update(&frame, build) && !before {
+        return Err("not a trace of the screens after a game".into());
+    }
+    let unit_colors = trace.world.color_tables.get(trace.world.player.max(0) as usize).copied().unwrap_or(0);
+    let sprites = |f: &ifc23::ui::Frame| ui_screen::sprites(&ui_screen::items(f, &[], GENERATED, unit_colors), fonts, compiled, ui_screen::under_pass(compiled), false);
+    let mut scene = scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len());
+    scene.screen_size = (size.0 as u32, size.1 as u32);
+    let open = parts::active_screen(&frame, build);
+    let part = open.filter(|_| !before).and_then(|(i, name)| parts::active_screen_part(&frame, i, build, size).map(|p| (name, p)));
+    match part {
+        Some((name, (first, rect))) => {
+            let (below, above) = parts::split_at(&frame, first);
+            let (hud, _) = ui_screen::split(&below, ui_screen::menus_from(&below));
+            scene.sprites.extend(sprites(&parts::after_game_frame(&hud, build)));
+            ifc23::scene_map::overlay_screen_sprites(&mut scene);
+            parts::part_view(&mut scene, parts::SCREEN_VIEW, rect, sprites(&parts::clipped(&above, rect)));
+            scene.interface.screen = Some(name.to_owned());
+            scene.interface.screen_view = Some(parts::SCREEN_VIEW);
+        }
+        None => {
+            let popup = frame.forms.iter().rev().find(|f| f.3.0 > 64 && f.3.1 > 64).and_then(|f| parts::menu_popup(&frame, f.1, size).map(|p| (f.1, p)));
+            let below = match popup {
+                Some((canvas, (first, rect))) => {
+                    let (below, above) = parts::split_popup(&frame, first, rect);
+                    parts::part_view(&mut scene, canvas, rect, sprites(&above));
+                    scene.interface.popup = Some(canvas);
+                    scene.interface.modal_stack = scene::ModalStack([Some(canvas), None, None, None]);
+                    below
+                }
+                None => frame.clone(),
+            };
+            ifc23::scene_map::overlay_menus(&mut scene, sprites(&below));
+        }
+    }
+    Ok(scene)
+}
+
 fn load_trace(path: &str) -> Result<Trace, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
     let mut trace = Trace::parse(&text).map_err(|e| e.to_string())?;
@@ -221,6 +273,31 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8)
                 .map_err(|e| e.to_string())?;
             println!("{out}");
+            Ok(ExitCode::SUCCESS)
+        }
+        Some("screen") => {
+            let usage = "screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--before]";
+            let trace = load_trace(args.get(1).ok_or(usage)?)?;
+            let out = args.get(2).ok_or(usage)?;
+            let (compiled, mut art) = compile(Some(&trace))?;
+            let (_, fonts) = art.as_mut().ok_or("no art")?;
+            let scene = screen_scene(&trace, &compiled, fonts, args.iter().any(|a| a == "--before"))?;
+            let arg = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
+            let window = match arg("--window") {
+                Some(v) => { let (w, h) = v.split_once('x').ok_or("--window WxH")?; (w.parse().map_err(|_| "bad width")?, h.parse().map_err(|_| "bad height")?) }
+                None => (3840, 2160),
+            };
+            let mut resolution = viewer_settings::Resolution::default();
+            if let Some(n) = arg("--pixel-scale") { resolution.pixel_scale = n.parse().map_err(|_| "bad pixel scale")?; }
+            if let Some(b) = arg("--base") { resolution.base_ui_scale = b.parse().map_err(|_| "bad base")?; }
+            if let Some(m) = arg("--menus") { resolution.scale_menus = true; resolution.menu_scale_percent = m.parse().map_err(|_| "bad percent")?; }
+            let mut layout = viewer_settings::Layout::default();
+            if args.iter().any(|a| a == "--split") { layout.split = viewer_settings::Split::Vertical1To1; }
+            let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
+            let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+            let img = tile_viewer::render_planned(&gpu, &compiled, &scene, window, &resolution, &layout, &config);
+            image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
+            println!("{out}: {} ({}x{})", scene.interface.screen.as_deref().unwrap_or("no screen"), img.width, img.height);
             Ok(ExitCode::SUCCESS)
         }
         Some("bench") => {

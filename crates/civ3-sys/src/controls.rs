@@ -15,6 +15,7 @@ use crate::Build;
 mod setup;
 pub use setup::{TitleLayout, title_layout};
 pub mod advisors;
+pub mod end_screens;
 pub mod screens;
 pub mod wheel;
 
@@ -339,13 +340,26 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
         return;
     }
     let Some(form) = Form::read(mem, addr) else { return };
-    // Children first: the hit test tries them before their parent.
+    // Children first: the hit test tries them before their parent, from
+    // the first, the first hit winning. What an opaque child (one taking
+    // the mouse on all of its rectangle) covers of a later one does not
+    // take the mouse: e.g. `Main_GUI`'s buttons under the victory screen
+    // or the ranking, earlier children of the main screen form.
     let n = mem.u32(addr + CHILD_COUNT).unwrap_or(0).min(MAX_CHILDREN);
     let children = mem.u32(addr + CHILDREN).unwrap_or(0);
     if children != 0 {
+        let mut covers: Vec<[i32; 4]> = Vec::new();
         for i in 0..n {
             if let Some(c) = mem.u32(children + 4 * i).filter(|&c| c != 0 && c != addr) {
-                walk(mem, sites, known, c, depth + 1, out);
+                let mut found = Vec::new();
+                walk(mem, sites, known, c, depth + 1, &mut found);
+                out.extend(found.into_iter().filter(|c| {
+                    let [x, y, w, h] = c.rect;
+                    !covers.iter().any(|&r| contains(r, (x + w / 2, y + h / 2)))
+                }));
+                if let Some(f) = Form::read(mem, c).filter(|f| visible(mem, c) && f.status1 & (KEYED | NO_MOUSE) == 0) {
+                    covers.push(f.shown);
+                }
             }
         }
     }
@@ -365,6 +379,7 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
     setup::controls(mem, &form, out);
     advisors::controls(mem, &form, out);
     screens::controls(mem, &form, out);
+    end_screens::controls(mem, &form, out);
     if let Some(slider) = crate::sliders::Slider::read(mem, addr) {
         let [x, y, w, h] = slider.track;
         out.push(Control {
