@@ -190,7 +190,7 @@ fn an_arrow_before_the_next_tick_restores_a_hidden_native_sliders_exact_entry_va
     use tile_viewer::{layout::Layout, snap::{Rates, SnapInput}};
     let mut scene = Scene {
         views: vec![ViewState { id: 0, view: View { interface_only: true, ..Default::default() }, overlay: vec![] }],
-        interactables: vec![Interactable { id: 0x10000, rect: [100, 100, 220, 24], anchor: None, alt_right_click: false,
+        interactables: vec![Interactable { region: None, id: 0x10000, rect: [100, 100, 220, 24], anchor: None, alt_right_click: false,
             kind: InteractableKind::Slider { track: [110, 112, 200, 1], value: 500_000 } }],
         ..Default::default()
     };

@@ -1316,7 +1316,7 @@ pub fn city_drawn_targets(frame: &Frame, modal_canvas: Option<u32>) -> Vec<scene
             let [cl, ct, cr, cb] = clip;
             let (l, t) = (x.max(cl), y.max(ct));
             let (r, b) = ((x + w).min(cr), (y + h).min(cb));
-            (r > l && b > t).then(|| scene::Interactable { alt_right_click: false, anchor: None,
+            (r > l && b > t).then(|| scene::Interactable { region: None, alt_right_click: false, anchor: None,
                 rect: [l, t, r - l, b - t],
                 kind: scene::InteractableKind::Button,
                 id: (*canvas as u64) << 32 | tag | ((l as u32 & 0xFFF) << 12) as u64 | (t as u32 & 0xFFF) as u64,
@@ -1360,7 +1360,7 @@ pub fn status_unit_targets(frame: &Frame, row: Option<(u32, [i32; 4])>) -> Vec<s
         let x = rx + r[0] - first;
         let (l, t) = (x.max(rx).max(clip[0]), r[1].max(ry).max(clip[1]));
         let (right, bottom) = ((x + stride).min(rx + rw).min(clip[2]), (r[1] + r[3]).min(ry + rh).min(clip[3]));
-        (right > l && bottom > t).then_some(scene::Interactable { alt_right_click: false, anchor: None,
+        (right > l && bottom > t).then_some(scene::Interactable { region: None, alt_right_click: false, anchor: None,
             rect: [l, t, right - l, bottom - t], kind: scene::InteractableKind::Button,
             id: (canvas as u64) << 32 | 0x0E00_0000 | k as u64 })
     }).collect()
@@ -1373,7 +1373,7 @@ pub fn interactables(controls: &[civ3_sys::controls::Control]) -> Vec<scene::Int
     use scene::InteractableKind;
     controls
         .iter()
-        .map(|c| scene::Interactable { alt_right_click: c.alt_right_click(), anchor: None,
+        .map(|c| scene::Interactable { region: None, alt_right_click: c.alt_right_click(), anchor: None,
             rect: c.rect,
             kind: match c.kind {
                 ControlKind::Button => InteractableKind::Button,
@@ -1539,10 +1539,10 @@ mod interactable_tests {
             Control { rect: [110, 70, 406, 20], kind: ControlKind::Slider { track: [139, 80, 350, 1], value: 322_835 }, id: 10 },
         ];
         assert_eq!(super::interactables(&controls), [
-            Interactable { alt_right_click: false, anchor: None, rect: [1, 2, 3, 4], kind: InteractableKind::Button, id: 7 },
-            Interactable { alt_right_click: false, anchor: None, rect: [0, 0, 100, 200], kind: InteractableKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
-            Interactable { alt_right_click: false, anchor: None, rect: [0, 0, 100, 20], kind: InteractableKind::ListItem, id: 9 },
-            Interactable { alt_right_click: false, anchor: None, rect: [110, 70, 406, 20], kind: InteractableKind::Slider { track: [139, 80, 350, 1], value: 322_835 }, id: 10 },
+            Interactable { region: None, alt_right_click: false, anchor: None, rect: [1, 2, 3, 4], kind: InteractableKind::Button, id: 7 },
+            Interactable { region: None, alt_right_click: false, anchor: None, rect: [0, 0, 100, 200], kind: InteractableKind::List { scroll: [0, 0, 100, 200], step: 20 }, id: 8 },
+            Interactable { region: None, alt_right_click: false, anchor: None, rect: [0, 0, 100, 20], kind: InteractableKind::ListItem, id: 9 },
+            Interactable { region: None, alt_right_click: false, anchor: None, rect: [110, 70, 406, 20], kind: InteractableKind::Slider { track: [139, 80, 350, 1], value: 322_835 }, id: 10 },
         ]);
     }
 }

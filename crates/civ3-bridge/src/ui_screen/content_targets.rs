@@ -6,9 +6,51 @@ use crate::text::{Fonts, TextRun};
 use crate::ui::{Frame, ScreenDraw};
 
 /// Set a pointer tip at an icon's lower right corner or at the end of its
-/// text. Only existing game controls qualify. Draws never create targets.
+/// text, and give a check box its label as the region it draws button
+/// snapping from. Only existing game controls qualify. Draws never create
+/// targets.
 pub fn content_anchors(frame: &Frame, fonts: &Fonts, controls: &[Control], targets: &mut [Interactable]) {
     annotate(frame, controls, targets, |run| fonts.ink_bounds(run));
+    label_regions(frame, controls, targets, |run| fonts.ink_bounds(run));
+}
+
+/// A check box's label (the game draws it beside the box, outside the
+/// box's hit cell): the text on the box's row starting within a box's
+/// height of it, and text following that as closely (several runs), up to
+/// the next box on the row. With the box it is the control's region
+/// (`scene::Interactable::region`); the box stays where the pointer goes
+/// and clicks, which toggles it.
+fn label_regions(frame: &Frame, controls: &[Control], targets: &mut [Interactable], text_bounds: impl Fn(&TextRun) -> Option<[i32; 4]>) {
+    let boxes: Vec<&Control> = controls.iter().filter(|c| c.check_box() && c.rect[2] > 0 && c.rect[3] > 0).collect();
+    if boxes.is_empty() {
+        return;
+    }
+    let mut runs: Vec<[i32; 4]> = frame.draws.iter().filter_map(|d| match d {
+        ScreenDraw::Text { run, clip } => text_bounds(run).and_then(|r| intersection(r, *clip)),
+        _ => None,
+    }).collect();
+    runs.sort_unstable_by_key(|r| (r[0], r[1]));
+    for c in &boxes {
+        let [x, y, w, h] = c.rect;
+        let gap = h.max(8);
+        // (Half its ink, or half the box, on the box's row.)
+        let on_row = |r: &[i32; 4]| (r[1] + r[3]).min(y + h) - r[1].max(y) >= r[3].min(h) / 2 + 1;
+        // Up to the next box on its row.
+        let stop = boxes.iter().filter(|o| o.id != c.id && o.rect[0] > x && on_row(&o.rect)).map(|o| o.rect[0]).min().unwrap_or(i32::MAX);
+        let [mut l, mut t, mut r, mut b] = [x, y, x + w, y + h];
+        for run in runs.iter().filter(|run| on_row(run) && run[0] >= x && run[0] + run[2] <= stop) {
+            if run[0] > r + gap {
+                break;
+            }
+            (l, t, r, b) = (l.min(run[0]), t.min(run[1]), r.max(run[0] + run[2]), b.max(run[1] + run[3]));
+        }
+        let region = [l, t, r - l, b - t];
+        if region != c.rect {
+            if let Some(target) = targets.iter_mut().find(|t| t.id == c.id) {
+                target.region = Some(region);
+            }
+        }
+    }
 }
 
 /// The military advisor's unit columns that hold a drawn unit icon
@@ -269,4 +311,34 @@ mod tests {
         assert!(military_unit_controls(&Frame::default(), &[strip]).is_empty());
     }
 
+    #[test]
+    fn a_check_boxs_label_joins_its_region_and_the_box_stays_its_hit_cell() {
+        // Two boxes on a row, a third below; each label just right of its box.
+        let check = |i: u32, x: i32, y: i32| Control { rect: [x, y, 16, 16], kind: ControlKind::Button, id: (FORM as u64) << 32 | 0x4000_0000 | i as u64 };
+        let controls = [check(0, 100, 200), check(1, 300, 200), check(2, 100, 240), row(3, 400, false)];
+        // (Ink: x, baseline - 12, 7 a letter, 16 high.)
+        let draws = vec![
+            label("Show FPS", 122, 214),
+            // Further on, apart from the label, before the next box: not it.
+            label("Far", 250, 214),
+            label("VSync", 322, 214),
+            // A label in two runs.
+            label("Limit", 122, 254),
+            label("FPS", 162, 254),
+            // On no box's row.
+            label("Title", 100, 300),
+        ];
+        let frame = Frame { draws, ..Default::default() };
+        let mut got = targets(&controls);
+        label_regions(&frame, &controls, &mut got, bounds);
+        assert_eq!(
+            got.iter().map(|t| t.region).collect::<Vec<_>>(),
+            [Some([100, 200, 78, 18]), Some([300, 200, 57, 18]), Some([100, 240, 83, 18]), None]
+        );
+        assert_eq!(got.iter().map(|t| (t.rect, t.anchor)).collect::<Vec<_>>(), controls.map(|c| (c.rect, None)), "the box is where it points and clicks");
+        // Without text: the box alone.
+        let mut bare = targets(&controls);
+        label_regions(&Frame::default(), &controls, &mut bare, bounds);
+        assert!(bare.iter().all(|t| t.region.is_none()));
+    }
 }

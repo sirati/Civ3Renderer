@@ -1150,7 +1150,7 @@ fn publish(
         // Our preferences tabs' controls are over the game's.
         let prefs_looks = prefs.looks(&fonts);
         let mut interactables: Vec<scene::Interactable> =
-            prefs_looks.iter().map(|l| scene::Interactable { alt_right_click: false, anchor: None, rect: l.rect, kind: l.kind, id: l.id }).collect();
+            prefs_looks.iter().map(|l| scene::Interactable { region: l.region, alt_right_click: false, anchor: l.anchor, rect: l.rect, kind: l.kind, id: l.id }).collect();
         interactables.extend(match own_title {
             Some((ms, m)) => ms.interactables(m, input.viewport),
             None => ui_screen::interactables(&controls),
