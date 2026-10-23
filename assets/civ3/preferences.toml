@@ -2313,7 +2313,7 @@ show_if = "tab=accessibility & accessibility.active_unit_arrow"
 [[panels.preferences.items]]
 image = "section"
 at = [70, 235]
-size = [420, 195]
+size = [420, 200]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -2334,7 +2334,7 @@ text = "{accessibility.hud_percent}%"
 tick_step = 1
 tick_label_step = 1
 tick_labels = ["100%", "150%", "200%", "300%"]
-tick_style = "access_ruler"
+tick_style = "ruler"
 at = [90, 315]
 size = [280, 23]
 normal = "track"
@@ -2386,7 +2386,7 @@ fill = [255, 0, 0]
 border = [72, 56, 24]
 
 [art.access_color_selected_ff0000]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;255,0,0,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;255,0,0,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_f07018]
@@ -2394,7 +2394,7 @@ fill = [240, 112, 24]
 border = [72, 56, 24]
 
 [art.access_color_selected_f07018]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;240,112,24,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;240,112,24,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_f8d020]
@@ -2402,15 +2402,15 @@ fill = [248, 208, 32]
 border = [72, 56, 24]
 
 [art.access_color_selected_f8d020]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;248,208,32,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;248,208,32,255:6,6,27,9"
 size = [39, 21]
 
-[art.access_color_00c800]
-fill = [0, 200, 0]
+[art.access_color_40f060]
+fill = [64, 240, 96]
 border = [72, 56, 24]
 
-[art.access_color_selected_00c800]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,200,0,255:4,4,31,13"
+[art.access_color_selected_40f060]
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;64,240,96,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_009870]
@@ -2418,7 +2418,7 @@ fill = [0, 152, 112]
 border = [72, 56, 24]
 
 [art.access_color_selected_009870]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,152,112,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;0,152,112,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_20d0d8]
@@ -2426,7 +2426,7 @@ fill = [32, 208, 216]
 border = [72, 56, 24]
 
 [art.access_color_selected_20d0d8]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;32,208,216,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;32,208,216,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_0040ff]
@@ -2434,7 +2434,7 @@ fill = [0, 64, 255]
 border = [72, 56, 24]
 
 [art.access_color_selected_0040ff]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,64,255,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;0,64,255,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_6840c0]
@@ -2442,7 +2442,7 @@ fill = [104, 64, 192]
 border = [72, 56, 24]
 
 [art.access_color_selected_6840c0]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;104,64,192,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;104,64,192,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_c830a0]
@@ -2450,7 +2450,7 @@ fill = [200, 48, 160]
 border = [72, 56, 24]
 
 [art.access_color_selected_c830a0]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;200,48,160,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;200,48,160,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_f890b0]
@@ -2458,7 +2458,7 @@ fill = [248, 144, 176]
 border = [72, 56, 24]
 
 [art.access_color_selected_f890b0]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;248,144,176,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;248,144,176,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_905028]
@@ -2466,7 +2466,7 @@ fill = [144, 80, 40]
 border = [72, 56, 24]
 
 [art.access_color_selected_905028]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;144,80,40,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;144,80,40,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_c0a868]
@@ -2474,7 +2474,7 @@ fill = [192, 168, 104]
 border = [72, 56, 24]
 
 [art.access_color_selected_c0a868]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;192,168,104,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;192,168,104,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_ffffff]
@@ -2482,7 +2482,7 @@ fill = [255, 255, 255]
 border = [72, 56, 24]
 
 [art.access_color_selected_ffffff]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;255,255,255,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;255,255,255,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_b0b0b0]
@@ -2490,7 +2490,7 @@ fill = [176, 176, 176]
 border = [72, 56, 24]
 
 [art.access_color_selected_b0b0b0]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;176,176,176,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;176,176,176,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_505050]
@@ -2498,7 +2498,7 @@ fill = [80, 80, 80]
 border = [72, 56, 24]
 
 [art.access_color_selected_505050]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;80,80,80,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;80,80,80,255:6,6,27,9"
 size = [39, 21]
 
 [art.access_color_000000]
@@ -2506,7 +2506,7 @@ fill = [0, 0, 0]
 border = [72, 56, 24]
 
 [art.access_color_selected_000000]
-generated = "rects:39x21;40,32,16,255:0,0,39,21;255,232,152,255:1,1,37,19;0,0,0,255:4,4,31,13"
+generated = "rects:39x21;40,32,16,255:0,0,39,21;255,248,213,255:1,1,37,19;40,32,16,255:4,4,31,13;0,0,0,255:6,6,27,9"
 size = [39, 21]
 
 [[panels.preferences.items]]
@@ -2527,7 +2527,7 @@ selected = "check_on"
 show_if = "tab=accessibility & accessibility.unit_rings"
 
 [[panels.preferences.items]]
-repeat = ["ff0000", "f07018", "f8d020", "00c800", "009870", "20d0d8", "0040ff", "6840c0"]
+repeat = ["ff0000", "f07018", "f8d020", "40f060", "009870", "20d0d8", "0040ff", "6840c0"]
 spacing = [47, 0]
 choice = "accessibility.war.color"
 value = "{item}"
@@ -2536,6 +2536,9 @@ size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
 hover = "access_color_selected_{item}"
+tooltip = "{accessibility.color_name.{item}}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
@@ -2549,6 +2552,9 @@ size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
 hover = "access_color_selected_{item}"
+tooltip = "{accessibility.color_name.{item}}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
@@ -2570,7 +2576,7 @@ selected = "check_on"
 show_if = "tab=accessibility & accessibility.unit_rings"
 
 [[panels.preferences.items]]
-repeat = ["ff0000", "f07018", "f8d020", "00c800", "009870", "20d0d8", "0040ff", "6840c0"]
+repeat = ["ff0000", "f07018", "f8d020", "40f060", "009870", "20d0d8", "0040ff", "6840c0"]
 spacing = [47, 0]
 choice = "accessibility.allied.color"
 value = "{item}"
@@ -2579,6 +2585,9 @@ size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
 hover = "access_color_selected_{item}"
+tooltip = "{accessibility.color_name.{item}}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
@@ -2592,6 +2601,9 @@ size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
 hover = "access_color_selected_{item}"
+tooltip = "{accessibility.color_name.{item}}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
@@ -2613,7 +2625,7 @@ selected = "check_on"
 show_if = "tab=accessibility & accessibility.unit_rings"
 
 [[panels.preferences.items]]
-repeat = ["ff0000", "f07018", "f8d020", "00c800", "009870", "20d0d8", "0040ff", "6840c0"]
+repeat = ["ff0000", "f07018", "f8d020", "40f060", "009870", "20d0d8", "0040ff", "6840c0"]
 spacing = [47, 0]
 choice = "accessibility.peace.color"
 value = "{item}"
@@ -2622,6 +2634,9 @@ size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
 hover = "access_color_selected_{item}"
+tooltip = "{accessibility.color_name.{item}}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
@@ -2635,12 +2650,21 @@ size = [39, 21]
 normal = "access_color_{item}"
 selected = "access_color_selected_{item}"
 hover = "access_color_selected_{item}"
+tooltip = "{accessibility.color_name.{item}}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 enable_if = "accessibility.unit_rings"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
+image = "section"
+at = [70, 455]
+size = [420, 155]
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
 text = "Ring thickness (pixels)"
-at = [540, 501]
+at = [90, 480]
 style = "label"
 show_if = "tab=accessibility"
 
@@ -2648,8 +2672,8 @@ show_if = "tab=accessibility"
 slider = "accessibility.ring_width"
 tick_step = 1
 tick_label_step = 1
-tick_style = "access_ruler"
-at = [540, 535]
+tick_style = "ruler"
+at = [90, 517]
 size = [280, 23]
 normal = "track"
 knob = "knob"
@@ -2669,12 +2693,6 @@ at = [540, 617]
 style = "caption"
 show_if = "tab=accessibility"
 
-[styles.access_ruler]
-face = "Lucida Sans"
-height = 10
-color = [240, 225, 180]
-disabled_color = [160, 150, 125]
-
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "accessibility.hud_size"
@@ -2691,7 +2709,7 @@ show_if = "tab=accessibility & dialog.changed.accessibility.hud_size"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "accessibility.ring_width"
-at = [914, 535]
+at = [464, 517]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"

@@ -1256,9 +1256,12 @@ fn accessible_pieces(mut pieces: Vec<Piece>, a: &viewer_settings::accessibility:
         for p in pieces.iter_mut().filter(|p| matches!(p.part, Part::Bar | Part::Frame | Part::Led | Part::Stack)) {
             let (group, index) = p.set.rsplit_once('/').unwrap();
             p.set = format!("{group}@size{}/{index}", a.hud_size.min(3));
-            // The prepared sheet scales about the bar's bottom centre.
-            // Keep its world origin unchanged, including in reduced views
-            // where origins halve but the native HUD retains its size.
+            // Put the world origin at the bar's bottom centre. The enlarged
+            // sheet keeps its pixel size in native reduced views, but its
+            // baseline must downscale with the unit rather than sit 24
+            // unscaled pixels below the old HUD origin.
+            p.at.0 += 7;
+            p.at.1 += 24;
         }
     }
     pieces
@@ -1271,7 +1274,9 @@ pub fn stack_items(world: &Civ3World, reduced: bool, a: &viewer_settings::access
     if !a.stack_count { return Vec::new(); }
     let height = (11.0 * a.hud_scale()).round() as i32;
     let pad = (2.0 * a.hud_scale()).round() as i32;
-    let font = civ3_assets::fonts::FontStyle { face: crate::city_labels::FACE.into(), height, weight: 700, italic: false };
+    let mut font = civ3_assets::fonts::FontStyle { face: crate::city_labels::FACE.into(), height, weight: 700, italic: false };
+    // Match the outline renderer's scaled cached advances on Linux/Wine.
+    font.height = civ3_assets::fonts::available_height(&font);
     let clip = [-(1 << 24), -(1 << 24), 1 << 24, 1 << 24];
     let mut out = Vec::new();
     let mut shown = BTreeSet::new();
@@ -1279,12 +1284,13 @@ pub fn stack_items(world: &Civ3World, reduced: bool, a: &viewer_settings::access
         let Some(n) = stack_count(world, u) else { continue };
         if !shown.insert((u.x, u.y)) { continue; }
         let text = format!("x{n}");
-        let width = env.text_width(&font, &text);
+        let width = (env.text_width(&font, &text)*height+font.height/2)/font.height.max(1);
         let member = army_member(world, u).filter(|_| !u.moving).unwrap_or(u);
         let div = if reduced { 2 } else { 1 };
-        // The HUD occupies the unit's left; put the count above the right
-        // edge of the disc so its plate does not cover the unit's body.
-        let (x, y) = (member.pixel.0 / div + 16, member.pixel.1 / div - 18 - pad);
+        // Sit beside the lower-right of the stack, with the plate's bottom
+        // just above the ring. Leave the head, left-hand HUD and arrow clear,
+        // including when native reduced views retain the large text size.
+        let (x, y) = (member.pixel.0 / div + 19 + pad, member.pixel.1 / div - 3 - pad);
         for (rect, rgb, alpha) in [([x-pad-1, y-height-pad-1, width+2*pad+2, height+2*pad+2], [0, 0, 0], 176),
             ([x-pad, y-height-pad, width+2*pad, height+2*pad], [74, 41, 41], 176)] {
             out.extend(LabelOp::Fill { rect, rgb, alpha }.draws((0, 0), clip).into_iter().filter_map(|d| match d {
@@ -1415,11 +1421,18 @@ pub mod hud {
                 let mut sheet = original.as_table().unwrap().clone();
                 let scaled = |key: &str| toml::Value::Array(sheet[key].as_array().unwrap().iter().map(|v|
                     toml::Value::Integer((v.as_integer().unwrap() as f32 * scale).round() as i64)).collect());
-                let resize = scaled("cell");
-                let anchor = toml::Value::Array(sheet["anchor"].as_array().unwrap().iter().enumerate().map(|(axis, v)| {
+                let mut resize = scaled("cell");
+                let mut anchor = toml::Value::Array(sheet["anchor"].as_array().unwrap().iter().enumerate().map(|(axis, v)| {
                     let pivot = [7.0, 24.0][axis];
-                    toml::Value::Integer((pivot + (v.as_integer().unwrap() as f32 - pivot) * scale).round() as i64)
+                    toml::Value::Integer(((v.as_integer().unwrap() as f32 - pivot) * scale).round() as i64)
                 }).collect());
+                if name == "unit_hud_stack" {
+                    // Enlarge the hashes across the bar, while retaining the
+                    // native vertical pitch and the gap below its baseline.
+                    // Scaling that gap/pitch makes them dangle below the feet.
+                    resize.as_array_mut().unwrap()[1] = sheet["cell"][1].clone();
+                    anchor.as_array_mut().unwrap()[1] = 2.into();
+                }
                 sheet.insert("resize".into(), resize);
                 sheet.insert("anchor".into(), anchor);
                 let group = format!("{}@size{index}", sheet["group"].as_str().unwrap());
@@ -1451,12 +1464,15 @@ mod tests {
         assert_eq!(accessible_pieces(original.clone(), &Accessibility::default()), original);
         let desc: toml::Table = toml::from_str(&hud::description()).unwrap();
         for (index, scale) in viewer_settings::accessibility::HUD_SCALES.into_iter().enumerate().skip(1) {
+            let stack = &desc["sheets"][format!("unit_hud_stack_size{index}")];
+            assert_eq!(stack["anchor"][1].as_integer(), Some(2), "hashes remain two pixels below the bar");
+            assert_eq!(stack["resize"][1].as_integer(), Some(15), "stack pitch must not grow below the unit's feet");
             let a = Accessibility { hud_size: index, stack_count: true, ..Default::default() };
             let changed = accessible_pieces(original.clone(), &a);
             assert!(!changed.iter().any(|p| p.part == Part::Stack));
             for p in &changed {
                 let old = original.iter().find(|q| q.part == p.part).unwrap();
-                assert_eq!(p.at, old.at, "world origins stay attached at both native downscales");
+                assert_eq!(p.at, (old.at.0+7, old.at.1+24), "the origin is the bar's bottom centre at both native downscales");
                 let group = p.set.rsplit_once('/').unwrap().0;
                 let (_, sheet) = desc["sheets"].as_table().unwrap().iter().find(|(_, s)| s["group"].as_str() == Some(group)).unwrap();
                 for axis in 0..2 {
@@ -1466,8 +1482,8 @@ mod tests {
                 if p.part == Part::Bar {
                     let ax = sheet["anchor"][0].as_integer().unwrap() as f32;
                     let ay = sheet["anchor"][1].as_integer().unwrap() as f32;
-                    assert!((ax+scale-7.0).abs() <= 0.5);
-                    assert_eq!(ay + sheet["resize"][1].as_integer().unwrap() as f32, 24.0);
+                    assert!((ax+scale).abs() <= 0.5);
+                    assert_eq!(ay + sheet["resize"][1].as_integer().unwrap() as f32, 0.0);
                 }
             }
         }

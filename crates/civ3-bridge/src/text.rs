@@ -350,7 +350,8 @@ impl Fonts {
         let Some(Some(font)) = self.fonts.get(&key(run)) else { return None };
         let width = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|g| g.advance).sum();
         let cell = font.glyphs.values().map(|g| g.image.height as i32).max().unwrap_or(font.ascent);
-        Some((width, font.ascent, (cell - font.ascent).max(0)))
+        let scale = |v: i32| (v * run.height.abs() + key(run).0.height/2) / key(run).0.height.max(1);
+        Some((scale(width), scale(font.ascent), scale((cell - font.ascent).max(0))))
     }
 
     /// How wide the game measures `run`: its own text routine
@@ -494,7 +495,7 @@ impl Fonts {
                 .min_by_key(|((s, _, _), _)| (s.height - want.0.height).abs())
                 .and_then(|((s, _, _), f)| f.as_ref().map(|f| (f, s.height)))
         })?;
-        let scale = |v: i32| v * want.0.height / height.max(1);
+        let scale = |v: i32| v * run.height.abs() / height.max(1);
         let mut cache = self.ink.borrow_mut();
         if cache.0 != self.revision { *cache = (self.revision, BTreeMap::new()); }
         // (One key per run: the font, then its characters.)
@@ -622,6 +623,7 @@ impl Fonts {
         out: &mut Vec<scene::FreeSprite>,
     ) {
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
+        if self.sized_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
         let key = key(r);
         let Some(Some(font)) = self.fonts.get(&key) else {
             // Not loaded yet: from the outlines meanwhile.
@@ -741,6 +743,7 @@ impl Fonts {
         out: &mut Vec<scene::FreeSprite>,
     ) -> bool {
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
+        if self.sized_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         let want = key(r);
         let (Some(Some(font)), Some((face, outline))) = (self.fonts.get(&want), compiled.font(&r.face)) else { return false };
         let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
@@ -778,6 +781,34 @@ impl Fonts {
                     ..Default::default()
                 });
             }
+        }
+        true
+    }
+
+    /// Linux and Wine may have only the game's native font sizes cached.
+    /// Lay out that sheet, then scale its outline glyphs to the requested
+    /// size. This also keeps the 1:1 path in step with enlarged HUD plates.
+    fn sized_glyphs(&self, run: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled,
+        after_pass: u32, out: &mut Vec<scene::FreeSprite>, zoom_art: u8) -> bool {
+        let height = key(run).0.height;
+        if height == run.height.abs() { return false; }
+        let native = TextRun { height: -height, ..run.clone() };
+        let mut glyphs = Vec::new();
+        if !self.run_glyphs(&native, clip, compiled, after_pass, &mut glyphs) { return false; }
+        let scale = |v: i32| (v as f64 * run.height.abs() as f64 / height.max(1) as f64).round() as i32;
+        for mut sprite in glyphs {
+            sprite.x = run.x + scale(sprite.x-run.x);
+            sprite.y = run.y + scale(sprite.y-run.y);
+            sprite.zoom_art = zoom_art;
+            if let Some(glyph) = &mut sprite.glyph {
+                glyph.em64 = scale(glyph.em64 as i32).max(64) as u32;
+                glyph.advance = scale(glyph.advance);
+                if let Some((offset, thickness)) = &mut glyph.bar {
+                    *offset = scale(*offset);
+                    *thickness = scale(*thickness);
+                }
+            }
+            out.push(sprite);
         }
         true
     }
@@ -933,6 +964,31 @@ pub(crate) mod readiness_tests {
             compiled.fonts.push(("Readiness fixture".into(), std::sync::Arc::new(face)));
         }
         compiled
+    }
+
+    #[test]
+    fn requested_sizes_scale_cached_glyphs_and_metrics_together() {
+        let run = TextRun { face: "Lucida Sans".into(), height: -97, text: "x3".into(), ..text_run("") };
+        let cached = key(&run).0.height;
+        if cached == run.height.abs() { return; } // A system GDI can supply the exact size.
+        let mut fonts = Fonts::default();
+        fonts.fonts.insert(key(&run), Some(font("x3")));
+        let mut compiled = fixture_art(&[], "x3");
+        compiled.fonts[0].0 = run.face.clone();
+        let native = TextRun { height: -cached, ..run.clone() };
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        assert!(fonts.run_glyphs(&native, None, &compiled, 3, &mut before));
+        fonts.run_sprites(&run, None, &compiled, 3, &mut after);
+        let scale = |v: i32| (v as f64*97.0/cached as f64).round() as i32;
+        assert_eq!(after.len(), 2);
+        for (native, sized) in before.iter().zip(&after) {
+            assert_eq!(sized.x-run.x, scale(native.x-run.x));
+            assert_eq!(sized.glyph.unwrap().em64 as i32, scale(native.glyph.unwrap().em64 as i32));
+            assert_eq!(sized.glyph.unwrap().advance, scale(native.glyph.unwrap().advance));
+            assert_eq!(sized.zoom_art, 0, "the enlarged text must also render at 1:1");
+        }
+        assert_eq!(fonts.metrics(&run).unwrap().0, scale(12));
     }
 
     fn glyph_names(run: &TextRun) -> Vec<String> {

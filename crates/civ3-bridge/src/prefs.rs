@@ -73,6 +73,9 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<St
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
     out.insert("accessibility.hud_percent".into(), Value::Number(settings.accessibility.hud_scale() * 100.0));
+    for (rgb, name) in viewer_settings::accessibility::PALETTE.iter().zip(["Red", "Orange", "Gold", "Bright green", "Teal", "Cyan", "Blue", "Purple", "Magenta", "Pink", "Brown", "Sand", "White", "Silver", "Charcoal", "Black"]) {
+        out.insert(format!("accessibility.color_name.{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]), Value::Text(name.into()));
+    }
     out.insert("layout.zoom_controls".into(), Value::On(settings.layout.menu_zoom || settings.layout.zoom != viewer_settings::Zoom::Off));
     out.insert("layout.zoom_lens_controls".into(), Value::On(settings.layout.menu_zoom || !matches!(settings.layout.zoom, viewer_settings::Zoom::Off | viewer_settings::Zoom::TopStrip)));
     let magnification = viewer_settings::Layout::MAGNIFICATIONS[settings.layout.zoom_magnification_step()];

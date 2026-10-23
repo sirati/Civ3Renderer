@@ -1,7 +1,8 @@
 //! A second ring around foreign units' team discs, by how the viewing
 //! player stands with their owner: at war, in a mutual defence pact, at
 //! peace. Each ring is a band just outside the disc's own ring (render-desc
-//! `outline`), in a colour or inverting what is under it.
+//! `outline`), in a colour or inverting what is under it. The inner team
+//! colour remains visible, so diplomacy never removes ownership information.
 //!
 //! `CIV3R_UNIT_RINGS`: `on` for the defaults (war red, defence blue, peace
 //! green, 2 px), or comma-separated `war=`, `defense=`, `peace=`, `none=`
@@ -34,7 +35,7 @@ impl Default for Rings {
             width: 2,
             war: Some(RingStyle::Color([255, 0, 0])),
             defense: Some(RingStyle::Color([0, 64, 255])),
-            peace: Some(RingStyle::Color([0, 200, 0])),
+            peace: Some(RingStyle::Color([64, 240, 96])),
             none: None,
         }
     }
@@ -67,7 +68,7 @@ impl Rings {
 
     fn mask_sheet(width: u32) -> String {
         let width = width.clamp(1, 8);
-        format!("\n[sheets.unit_ring_width{width}]\nimage = \"unit_ring_mask\"\norigin = [259, 155]\ncell = [128, 64]\ngrid = [1, 1]\ngroup = \"UnitRing@width{width}\"\noutline = {{ width = {width}, color = [255, 255, 255, 255] }}\n\n")
+        format!("\n[sheets.unit_ring_width{width}]\nimage = \"unit_ring_mask\"\norigin = [259, 155]\ncell = [128, 64]\ngrid = [1, 1]\ngroup = \"UnitRing@width{width}\"\noutline = {{ width = {width}, color = [255, 255, 255, 255], smooth = true }}\n\n")
     }
     /// From `CIV3R_UNIT_RINGS`; `None` if unset, `off` or wrong (logged).
     pub fn from_env() -> Option<Rings> {
