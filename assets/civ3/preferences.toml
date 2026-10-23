@@ -2007,15 +2007,15 @@ show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 [[panels.preferences.items]]
 slider = "layout.zoom_box_drop"
 tick_step = 0.005
-tick_label_step = 0.02
+tick_label_step = 0.025
 tick_style = "ruler"
 at = [280, 460]
 size = [408, 23]
 normal = "track"
 knob = "knob"
 knob_hover = "knob_hover"
-min = 0.0
-max = 0.1
+min = 0.05
+max = 0.15
 step = 0.005
 decimals = 1
 percent = true
