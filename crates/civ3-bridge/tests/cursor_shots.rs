@@ -1,6 +1,6 @@
 //! Pictures of the system cursors the viewer makes from the game's art
 //! (`tile_viewer::cursor::Art::native_image`): the arrow, the arrow with
-//! its busy badge turning, a special game cursor with the badge and the
+//! its busy badge running, a special game cursor with the badge and the
 //! stuck hourglass, at cursor sizes 32 and 64, beside a drawing of
 //! Windows XP's "Working in Background" pointer for comparison.
 //!
@@ -165,6 +165,9 @@ fn cursor_shots() {
         let mut all = vec![normal.clone()];
         all.extend(busy.iter().cloned());
         sheet(&all, zoom).save(dir.join(format!("sheet-busy-{size}.png"))).unwrap();
+        // The whole cycle: the sand drains in eleven steps, then the flip.
+        let cycle: Vec<Image> = (0..12).map(|k| image(art.badged(arrow, at(k)).unwrap())).collect();
+        sheet(&cycle, zoom).save(dir.join(format!("cycle-{size}.png"))).unwrap();
         let mut rest = specials.clone();
         rest.extend(stuck.iter().cloned());
         sheet(&rest, zoom).save(dir.join(format!("sheet-special-stuck-{size}.png"))).unwrap();
