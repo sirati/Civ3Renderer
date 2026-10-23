@@ -261,7 +261,11 @@ the user's settings say (`viewer_settings`, `$CIV3R_SETTINGS` or
   across, 1:3:1 or 1:7:1 of the width (margin : box : margin), its top
   `zoom_box_top` (*Top margin*, 0-5 %, default 2.5 %) of the height
   below the window's top; a box at the pointer, 1:1:1 or 1:3:1 across,
-  above the pointer (below it where there is no room); or a strip across
+  `zoom_mouse_above` (*Above the mouse*, 0-30 %, default 10 %) of the
+  height above the pointer, or `zoom_mouse_below` (*Below, if no room*,
+  0-40 %, default 20 %) below it where there is no room above (it goes
+  back above once there is room with 2.5 % to spare, and glides between
+  the two); or a strip across
   the top that the views give room to. One slider, `zoom_strip` (*Box*
   or *Strip height*, 5-50 %, default 20 %), sets the height of every one
   of them (older settings' own floating box height is ignored). In a

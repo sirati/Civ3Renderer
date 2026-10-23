@@ -2023,6 +2023,58 @@ text = "{value}%"
 style = "label"
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
+# A box at the mouse: the space between the mouse and the box above it,
+# and below it where there is no room above.
+[[panels.preferences.items]]
+text = "Above the mouse"
+style = "label"
+at = [90, 415]
+show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_mouse_above"
+tick_step = 0.01
+tick_label_step = 0.1
+tick_style = "ruler"
+at = [280, 410]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 0.3
+step = 0.01
+decimals = 0
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+text = "Below, if no room"
+style = "label"
+at = [90, 465]
+show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
+
+[[panels.preferences.items]]
+slider = "layout.zoom_mouse_below"
+tick_step = 0.01
+tick_label_step = 0.1
+tick_style = "ruler"
+at = [280, 460]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0.0
+max = 0.4
+step = 0.01
+decimals = 0
+percent = true
+text = "{value}%"
+style = "label"
+show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
+
 
 [[panels.preferences.items]]
 checkbox = "layout.zoom_rounded"
@@ -2222,6 +2274,32 @@ tooltip = "Undo to current state"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171 & dialog.changed.layout.zoom_box_drop"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.zoom_mouse_above"
+at = [780, 410]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131 & dialog.changed.layout.zoom_mouse_above"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.zoom_mouse_below"
+at = [780, 460]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131 & dialog.changed.layout.zoom_mouse_below"
 
 [[panels.preferences.items]]
 choice = "dialog.undo"
