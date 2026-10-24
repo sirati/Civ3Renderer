@@ -59,8 +59,8 @@ pub struct TakeInput {
 pub type TakeLog = TakeInput;
 
 /// Call 4. `generation`: the latest art generation compiled and given to
-/// the viewer (whole or grown, `scene::wire::Assets::generation`), or that
-/// failed to compile. This is CPU completion only; [`CALL_UPLOADED`]
+/// the viewer (whole or grown, `scene::wire::Assets::generation`), or
+/// superseded; never one that failed to compile. This is CPU completion only; [`CALL_UPLOADED`]
 /// separately reports generations committed to the drawable GPU atlas.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -348,9 +348,22 @@ mod unix_side {
                     Ok(true) => {}
                     Ok(false) => log::info!("civ3r-native: art {} superseded while finishing after {} ms", a.generation, started.elapsed().as_millis()),
                     Err(e) if stop() => log::info!("civ3r-native: art {} superseded after {} ms: {e}", a.generation, started.elapsed().as_millis()),
-                    Err(e) => log::error!("civ3r-native: art {}: {e}", a.generation),
+                    Err(e) => {
+                        // Not done: the bridge adopts a growth only once
+                        // `status` reaches it, so its scenes go on naming
+                        // the art the viewer has (they are shown, without
+                        // this art). Its growths after this one would
+                        // number their sprites after sprites this side does
+                        // not have: none is made until a whole description
+                        // comes. (A sheet whose pixels fail does not get
+                        // here: it is compiled clear, `render_desc`.)
+                        log::error!("civ3r-native: art {}: {e}; no art grown until the next whole description", a.generation);
+                        if a.append { art = None; }
+                        continue;
+                    }
                 }
-                // (Done with it, compiled or not: the bridge waits for no more.)
+                // (Done with it, compiled or superseded: the bridge waits
+                // for no more.)
                 PROCESSED.fetch_max(a.generation, std::sync::atomic::Ordering::Release);
             }})
             .map(drop);
