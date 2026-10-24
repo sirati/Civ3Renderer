@@ -67,10 +67,9 @@ fn shapes() -> Face {
     )
 }
 
-/// The game's font, where there is a Civ III installation.
-fn lucida() -> Option<Face> {
-    let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-    let data = std::fs::read(std::path::Path::new(&install).join("LSANS.TTF")).ok()?;
+/// A real TrueType font, where the environment names one (`TEST_FONT`).
+fn test_font() -> Option<Face> {
+    let data = std::fs::read(std::env::var_os("TEST_FONT")?).ok()?;
     Some(Face::parse(&data, 0).unwrap())
 }
 
@@ -221,7 +220,7 @@ fn outline_coverage_is_bit_exact() {
     // twice the positions, so they land in the same places).
     let gpu = Headless::new().expect("GPU");
     let mut faces = vec![Arc::new(shapes())];
-    faces.extend(lucida().map(Arc::new));
+    faces.extend(test_font().map(Arc::new));
     for (color, key) in [(ColorModel::Direct, None), (ColorModel::Direct, Some([255, 0, 255])), (ColorModel::Quantized { bits: 5 }, Some([255, 0, 255]))] {
         for (screen, downscale) in [(true, 1), (false, 1), (false, 2)] {
             let mut world = TileWorld::new(Grid { cols: 30, rows: 30, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (64, 64) }, SpriteSets::default());
@@ -270,7 +269,7 @@ fn outline_text_matches_the_reference() {
     // showing the world half size.
     let gpu = Headless::new().expect("GPU");
     let mut faces = vec![Arc::new(shapes())];
-    faces.extend(lucida().map(Arc::new));
+    faces.extend(test_font().map(Arc::new));
     // (And in views showing the world half size, as a game's zoomed-out
     // view: world text at its positions halved, at its own size.)
     for (color, downscale) in [(ColorModel::Quantized { bits: 5 }, 1), (ColorModel::Direct, 1), (ColorModel::Quantized { bits: 5 }, 2), (ColorModel::Direct, 2)] {
@@ -304,7 +303,7 @@ fn outline_text_matches_the_reference() {
 fn ordinary_styled_layered_text_matches_reference_and_is_visible_at_one_to_one() {
     let gpu = Headless::new().expect("GPU");
     let mut faces = vec![Arc::new(shapes())];
-    faces.extend(lucida().map(Arc::new));
+    faces.extend(test_font().map(Arc::new));
     for (color, downscale) in [(ColorModel::Direct, 1), (ColorModel::Quantized { bits: 5 }, 1), (ColorModel::Direct, 2), (ColorModel::Quantized { bits: 5 }, 2)] {
         let (mut world, atlas) = world(color, faces.clone(), downscale as i32);
         for sprite in world.free.iter_mut().filter(|sprite| sprite.text.is_some()) {

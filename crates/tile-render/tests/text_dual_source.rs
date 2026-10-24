@@ -20,8 +20,8 @@ fn device(dual: bool) -> Headless {
 }
 
 fn font() -> Arc<Face> {
-    let root=std::env::var_os("CIV3_INSTALL").map(std::path::PathBuf::from).unwrap_or_else(|| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-    Arc::new(Face::parse(&std::fs::read(root.join("LSANS.TTF")).expect("real Lucida font oracle fixture"),0).unwrap())
+    let path = std::env::var_os("TEST_FONT").expect("TEST_FONT: a real TrueType font (the dev shell sets it)");
+    Arc::new(Face::parse(&std::fs::read(path).expect("real font oracle fixture"),0).unwrap())
 }
 
 fn world(face: Arc<Face>,color: ColorModel) -> (TileWorld,tile_render::Atlas) {

@@ -355,7 +355,7 @@ fn integer_magnification_has_known_bilinear_colours_instead_of_replicated_neares
 fn scaled_background_colour_keeps_outline_text_and_opaque_ui_plate_exact() {
     let gpu = Headless::new().expect("GPU");
     let (mut world, atlas) = scene(&pattern(64,64), (0,0), true);
-    let bytes = std::fs::read("/mnt/datasets/winvm/civ3-src/Civilization III Complete/LSANS.TTF").expect("existing real font fixture");
+    let bytes = std::fs::read(std::env::var_os("TEST_FONT").expect("TEST_FONT: a real TrueType font (the dev shell sets it)")).expect("existing real font fixture");
     let face = std::sync::Arc::new(tile_render::gpu_text::Face::parse(&bytes,0).unwrap());
     let shape = tile_render::GlyphShape::Glyph(face.glyph('G').unwrap()); world.fonts.push(face);
     world.free.push(PlacedSprite { screen: true, view: Some(0), solid: Some(tile_render::SolidRect { width: 36, height: 24, rgba: [249,244,211,255] }),

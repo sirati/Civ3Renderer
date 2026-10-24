@@ -45,10 +45,9 @@ fn shapes() -> Face {
     )
 }
 
-/// The game's font, where there is a Civ III installation.
-fn lucida() -> Option<Face> {
-    let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-    let data = std::fs::read(std::path::Path::new(&install).join("LSANS.TTF")).ok()?;
+/// A real TrueType font, where the environment names one (`TEST_FONT`).
+fn test_font() -> Option<Face> {
+    let data = std::fs::read(std::env::var_os("TEST_FONT")?).ok()?;
     Some(Face::parse(&data, 0).unwrap())
 }
 
@@ -216,7 +215,7 @@ fn boxed_picture(image: &RgbaImage, [x0, y0, x1, y1]: [i32; 4], k: i32) -> bool 
 fn interface_text_is_drawn_at_the_target_resolution() {
     let gpu = Headless::new().expect("GPU");
     let mut faces = vec![Arc::new(shapes())];
-    faces.extend(lucida().map(Arc::new));
+    faces.extend(test_font().map(Arc::new));
     let mut atlas = AtlasBuilder::new(64);
     let mut sets = SpriteSets::default();
     let plate = sets.single(atlas.add(&RgbaImage::from_fn(6, 9, |_, _| [255, 0, 0, 255]), (0, -9)).unwrap());
