@@ -421,9 +421,83 @@ pub struct FreePrimitive {
     pub height: u32,
     /// RGBA, red in the low byte.
     pub rgba: u32,
+    /// Kind-specific words: for [`PRIMITIVE_OUTPUT_RECT`] the rectangle
+    /// (see [`output_rect`]).
+    pub a: u32,
+    pub b: u32,
+    pub c: u32,
+    pub d: u32,
 }
 pub const PRIMITIVE_SPRITE: u32 = 0;
 pub const PRIMITIVE_SOLID: u32 = 1;
+/// A solid rectangle laid out in the pixels of the stage that draws it (a
+/// view drawn at its zoom: the target's), from the sprite's position
+/// scaled (see [`output_rect`]): drawn in every stage at that stage's
+/// scale, every edge on a whole pixel and equal parts equally wide.
+pub const PRIMITIVE_OUTPUT_RECT: u32 = 2;
+
+/// Whether primitive `kind` is laid out at the scale of the stage that
+/// draws it. A view drawn at its zoom (showing zoomed art) switches to
+/// drawing at it from the first such sprite on, as for art made for every
+/// zoom.
+pub fn output_scaled(kind: u32) -> bool {
+    kind == PRIMITIVE_OUTPUT_RECT
+}
+
+/// Sixteenths: the unit of output rectangles' scales.
+pub const SCALE_ONE: u32 = 16;
+
+/// `len` pixels at scale `scale / SCALE_ONE`, drawn at zoom `zn / zd`, in
+/// whole pixels: rounded to the nearest, halves up. (`len` and `scale` at
+/// most 255 and a zoom's terms at most 4096 keep the product in 32 bits.)
+pub fn output_length(len: u32, scale: u32, zn: u32, zd: u32) -> i32 {
+    let (zn, zd) = (if zn == 0 { 1 } else { zn }, if zd == 0 { 1 } else { zd });
+    let (len, scale) = (if len > 255 { 255 } else { len }, if scale > 255 { 255 } else { scale });
+    ((2 * len * scale * zn + SCALE_ONE * zd) / (2 * SCALE_ONE * zd)) as i32
+}
+
+/// One edge of an output rectangle, `a·L1 + b·L2` (`L1`, `L2`: two lengths
+/// of its axis, each rounded to whole pixels once), from `code` (`a` in its
+/// low byte, `b` in the next, both signed).
+fn output_edge(code: u32, l1: i32, l2: i32) -> i32 {
+    let a = ((code << 24) as i32) >> 24;
+    let b = ((code << 16) as i32) >> 24;
+    a * l1 + b * l2
+}
+
+/// The rectangle (left, top, right, bottom) a [`PRIMITIVE_OUTPUT_RECT`]
+/// covers, relative to its anchor (the sprite's position scaled to the
+/// stage), in the pixels of a stage at zoom `zn / zd`. Its edges are whole
+/// multiples of two lengths per axis, each scaled and rounded once
+/// ([`output_length`]), so that parts of the same length come out equally
+/// wide wherever they are. `c`: the lengths (x in its low two bytes, y in
+/// its high two); `a`: the x edges (left in its low half, right in its
+/// high half, see `output_edge`), `b` the y edges likewise; `d`: the x
+/// scale in its low half, the y scale in its high half (sixteenths).
+pub fn output_rect(p: &FreePrimitive, zn: u32, zd: u32) -> (i32, i32, i32, i32) {
+    let (sx, sy) = (p.d & 0xFFFF, p.d >> 16);
+    let length = |shift: u32, scale: u32| output_length((p.c >> shift) & 0xFF, scale, zn, zd);
+    let (x1, x2, y1, y2) = (length(0, sx), length(8, sx), length(16, sy), length(24, sy));
+    (output_edge(p.a & 0xFFFF, x1, x2), output_edge(p.b & 0xFFFF, y1, y2), output_edge(p.a >> 16, x1, x2), output_edge(p.b >> 16, y1, y2))
+}
+
+/// A [`PRIMITIVE_OUTPUT_RECT`] in `rgba`: `lengths` (x1, x2, y1, y2), the
+/// x edges (left, right) and y edges (top, bottom) as coefficients
+/// `[a, b]` of their axis's lengths, the scale per axis in sixteenths.
+#[cfg(not(target_arch = "spirv"))]
+pub fn output_rect_primitive(rgba: [u8; 4], lengths: [u8; 4], x: [[i8; 2]; 2], y: [[i8; 2]; 2], scale: (u16, u16)) -> FreePrimitive {
+    let edge = |e: [i8; 2]| (e[0] as u8 as u32) | (e[1] as u8 as u32) << 8;
+    FreePrimitive {
+        kind: PRIMITIVE_OUTPUT_RECT,
+        width: 0,
+        height: 0,
+        rgba: u32::from_le_bytes(rgba),
+        a: edge(x[0]) | edge(x[1]) << 16,
+        b: edge(y[0]) | edge(y[1]) << 16,
+        c: u32::from_le_bytes(lengths),
+        d: scale.0 as u32 | (scale.1 as u32) << 16,
+    }
+}
 
 /// The free sprite's position is in viewport pixels, unaffected by the
 /// camera (UI).

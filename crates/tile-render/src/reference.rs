@@ -577,6 +577,42 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 }, true);
                 continue;
             }
+            if let Some(shape) = s.shape {
+                // Laid out at the stage's scale, from the position scaled:
+                // in target pixels (as zoomed art).
+                let n = if s.screen { 1 } else { dn };
+                let (sx, sy) = camera.screen_shift;
+                let (bx, by) = if s.screen { (vx - sx, vy - sy) } else { (camera.x, camera.y) };
+                let (rx, ry) = if s.screen {
+                    (s.x - bx, s.y - by)
+                } else {
+                    (tile_render_shared::wrap_distance(shrunk(s.x, n) - bx, period.0), tile_render_shared::wrap_distance(shrunk(s.y, n) - by, period.1))
+                };
+                let sc = |v: i32| (v as i64 * zoom.0 as i64).div_euclid(zoom.1 as i64) as i32;
+                let (ax, ay) = (vx + sc(rx), vy + sc(ry));
+                let prim = shape.primitive();
+                let (l, t, r, b) = tile_render_shared::output_rect(&prim, zoom.0, zoom.1);
+                let (l, t, r, b) = (ax + l, ay + t, ax + r, ay + b);
+                if r <= l || b <= t { continue; }
+                let clip = s.clip.map(crate::world::bound_clip).map(|[x0, y0, x1, y1]| {
+                    let cl = |v: i32, b: i32| sc(shrunk(v, n) - b);
+                    [vx + cl(x0, bx), vy + cl(y0, by), vx + cl(x1, bx), vy + cl(y1, by)]
+                });
+                draw(Draw {
+                    sprite: crate::SpriteId(0),
+                    x: l,
+                    y: t,
+                    pass: p,
+                    blend: Blend::Alpha,
+                    clip: within(clip),
+                    placed: Placed { width: (r - l) as u32, height: (b - t) as u32, step: 1, ..Default::default() },
+                    text: None,
+                    solid: Some(prim.rgba.to_le_bytes()),
+                    palette: 0,
+                    screen: s.screen,
+                }, true);
+                continue;
+            }
             let n = if s.screen { 1 } else { dn };
             let (sprite_id, placed) = if let Some(solid) = s.solid {
                 let desc = tile_render_shared::SpriteDesc { scaling: tile_render_shared::KEEP_SIZE, width: solid.width, height: solid.height, box_w: solid.width, box_h: solid.height, ..Default::default() };

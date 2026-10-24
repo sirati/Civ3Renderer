@@ -19,7 +19,7 @@ pub use atlas::{Atlas, AtlasBuilder, AtlasGrowth, Blit, BlitPixels, IndexImage, 
 pub use camera::{BackgroundSampling, Camera, Lens};
 pub use gpu::Headless;
 pub use renderer::{GlyphCacheStats, AtlasTransferError, AtlasTransferProgress, AtlasTransferSource, MAX_VIEWS, Present, ScreenCopy, StagedAtlas, TileRenderer};
-pub use world::{ALL_CELLS, Blend, ColorModel, Dirty, GlyphShape, Grid, LayerId, LayerSpec, Layout, OutlineGlyph, Pass, PlacedSprite, SolidRect, SHARED_BINDING, SlotId, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
+pub use world::{ALL_CELLS, Blend, ColorModel, Dirty, GlyphShape, Grid, LayerId, LayerSpec, Layout, OutlineGlyph, OutputRect, Pass, PlacedSprite, Shape, SolidRect, SHARED_BINDING, SlotId, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
 /// How sprites are drawn in views showing the world smaller
 /// (`Camera::downscale`).
 pub use tile_render_shared::{BLANK_EMPTY, KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, placed};

@@ -258,6 +258,39 @@ pub struct PlacedSprite {
     pub text: Option<OutlineGlyph>,
     /// Procedural rectangle, independent of atlas and sprite set.
     pub solid: Option<SolidRect>,
+    /// A shape laid out at the scale of the stage drawing it (instead of
+    /// the sprite, a solid or text): crisp in a view drawn at its zoom.
+    pub shape: Option<Shape>,
+}
+
+/// What a [`PlacedSprite::shape`] draws, from the sprite's position (its
+/// world pixel, or its screen pixel, scaled to the stage).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Shape {
+    Rect(OutputRect),
+}
+
+/// A solid rectangle laid out in the pixels of the stage drawing it
+/// (`tile_render_shared::output_rect`): its edges whole multiples of two
+/// lengths per axis (`lengths`: x1, x2, y1, y2, at 1:1), each scaled by
+/// `scale` (sixteenths, per axis) and the stage's zoom and rounded once.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct OutputRect {
+    pub rgba: [u8; 4],
+    pub lengths: [u8; 4],
+    /// Left and right edges, as coefficients of x1 and x2.
+    pub x: [[i8; 2]; 2],
+    /// Top and bottom edges, as coefficients of y1 and y2.
+    pub y: [[i8; 2]; 2],
+    pub scale: (u16, u16),
+}
+
+impl Shape {
+    pub(crate) fn primitive(&self) -> tile_render_shared::FreePrimitive {
+        match *self {
+            Shape::Rect(r) => tile_render_shared::output_rect_primitive(r.rgba, r.lengths, r.x, r.y, r.scale),
+        }
+    }
 }
 
 /// A solid rectangle with unpremultiplied RGBA, retaining its dimensions
@@ -353,7 +386,7 @@ pub fn bound_clip(clip: [i32; 4]) -> [i32; 4] {
 
 impl PlacedSprite {
     pub fn new(set: SpriteSetId, x: i32, y: i32) -> Self {
-        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, solid: None, palette: 0, category: 0 }
+        Self { set, x, y, screen: false, after_pass: usize::MAX, phase: 0, ticks_per_frame: 1, blend: Blend::Alpha, clip: None, view: None, except_view: false, zoom_art: ZoomArt::Any, text: None, solid: None, shape: None, palette: 0, category: 0 }
     }
 
     /// Its view, clipping and Low/Zoomed twin selection flags.
@@ -376,10 +409,10 @@ impl PlacedSprite {
             flags: self.flags(),
             x: self.x,
             y: self.y,
-            scale_den: if self.solid.is_some() { 0 } else { self.blend.scale_den() },
+            scale_den: if self.solid.is_some() || self.shape.is_some() { 0 } else { self.blend.scale_den() },
             view: self.view.unwrap_or(tile_render_shared::ALL_VIEWS),
             clip: self.clip.map_or([0; 4], bound_clip),
-            tint: if self.solid.is_some() { 0 } else { self.blend.tint() },
+            tint: if self.solid.is_some() || self.shape.is_some() { 0 } else { self.blend.tint() },
             zoom: match self.zoom_art {
                 ZoomArt::Zoomed { zoom: (n, d), .. } => n << 16 | d,
                 _ => 0,
@@ -394,10 +427,14 @@ impl PlacedSprite {
             },
             palette: self.palette,
             category: self.category,
-            primitive: self.solid.map_or_else(tile_render_shared::FreePrimitive::default, |solid| tile_render_shared::FreePrimitive {
-                kind: tile_render_shared::PRIMITIVE_SOLID, width: solid.width, height: solid.height,
-                rgba: u32::from_le_bytes(solid.rgba),
-            }),
+            primitive: match (self.shape, self.solid) {
+                (Some(shape), _) => shape.primitive(),
+                (None, Some(solid)) => tile_render_shared::FreePrimitive {
+                    kind: tile_render_shared::PRIMITIVE_SOLID, width: solid.width, height: solid.height,
+                    rgba: u32::from_le_bytes(solid.rgba), ..Default::default()
+                },
+                (None, None) => Default::default(),
+            },
             _pad0: 0,
             _pad1: 0,
         }
@@ -1257,6 +1294,8 @@ pub(crate) fn first_zoomed(free: &[PlacedSprite], passes: usize) -> Vec<ZoomedSt
     for s in free {
         let zoom = match (s.text, s.zoom_art) {
             (Some(_), _) => (0, 0),
+            // (Shapes laid out at every stage's scale: as text.)
+            (None, _) if s.shape.is_some() => (0, 0),
             (None, ZoomArt::Zoomed { zoom, .. }) => zoom,
             _ => continue,
         };

@@ -3002,8 +3002,8 @@ fn dedup_free(source: &[FreeRuns], free: &[FreeSprite], sets: &crate::SpriteSets
 /// The first zoomed step of the scene or of its markers. Markers follow
 /// every cell pass, regardless of the pass given on their input sprites.
 fn with_markers(mut first: Vec<crate::world::ZoomedStart>, markers: &[FreeSprite], passes: usize) -> Vec<crate::world::ZoomedStart> {
-    for m in markers.iter().filter(|m| m.flags & tile_render_shared::FREE_ZOOMED != 0) {
-        let zoom = (m.zoom >> 16, m.zoom & 0xFFFF);
+    for m in markers.iter().filter(|m| m.flags & tile_render_shared::FREE_ZOOMED != 0 || tile_render_shared::output_scaled(m.primitive.kind)) {
+        let zoom = if tile_render_shared::output_scaled(m.primitive.kind) { (0, 0) } else { (m.zoom >> 16, m.zoom & 0xFFFF) };
         first.push(crate::world::ZoomedStart {
             zoom,
             pass: passes,
@@ -3021,7 +3021,7 @@ fn smoke_instances(runs: &[FreeRuns]) -> usize {
 
 /// How free sprite `s` (not text) is drawn.
 fn free_kind(s: &crate::PlacedSprite) -> FreeKind {
-    if s.solid.is_some() { return FreeKind::Normal; }
+    if s.solid.is_some() || s.shape.is_some() { return FreeKind::Normal; }
     match s.blend {
         crate::Blend::NativePaletteAlpha => FreeKind::NativePaletteAlpha,
         crate::Blend::Invert => FreeKind::Invert,

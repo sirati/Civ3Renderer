@@ -123,7 +123,7 @@ pub fn place(world: &Civ3World, view: &Civ3View, art: &mut UnitArt, compiled: &r
                 zoom_offset: (0, 0),
                 clip: None,
                 not_in_view: None,
-                glyph: None, solid: None,
+                glyph: None, solid: None, output_rect: None,
                 palette: 0,
                 // Animated effects are independent of the game's map-detail
                 // flags, including while Clean Map is enabled.
