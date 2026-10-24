@@ -24,9 +24,9 @@ static PIXEL_SKIPPED: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 static PIXEL_ORIGINAL: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
 // Audit rows, written by the game's thread (the only writer), read by the
 // audit snapshot (`serve_pixel_audit`).
-static READBACK_REASONS: civ3r_sync::Latest<Vec<(u32, &'static str, u64)>> = civ3r_sync::Latest::new();
+static READBACK_REASONS: handoff::Latest<Vec<(u32, &'static str, u64)>> = handoff::Latest::new();
 static READBACK_TOTALS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
-static MAP_ORIGINAL_SAMPLES: civ3r_sync::Latest<Vec<(String, u64)>> = civ3r_sync::Latest::new();
+static MAP_ORIGINAL_SAMPLES: handoff::Latest<Vec<(String, u64)>> = handoff::Latest::new();
 static RESIZED_FILE_CAPTURES: AtomicU64 = AtomicU64::new(0);
 static RESIZED_UNSUPPORTED: AtomicU64 = AtomicU64::new(0);
 static SCALED_SKIPPED: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
@@ -621,7 +621,7 @@ struct UiView {
     /// What the game showed with the last present mirrored in `model`.
     presented: Option<crate::city_screen::Presented>,
 }
-static VIEW: civ3r_sync::Latest<UiView> = civ3r_sync::Latest::new();
+static VIEW: handoff::Latest<UiView> = handoff::Latest::new();
 static WANT_VIEW: AtomicBool = AtomicBool::new(false);
 /// What the publisher last set skipping to (`set_skipping`): 0 not yet, 1
 /// off, 2 on. The game's thread applies it at its next drawing; readers
@@ -743,7 +743,7 @@ pub fn stats() -> Option<(usize, usize, usize)> {
 
 /// The model in detail as the game's thread last described it on request
 /// (`UiModel::detail`), asking it for a newer one (for diagnostics).
-static DETAIL: civ3r_sync::Latest<String> = civ3r_sync::Latest::new();
+static DETAIL: handoff::Latest<String> = handoff::Latest::new();
 static WANT_DETAIL: AtomicBool = AtomicBool::new(false);
 pub fn detail() -> Option<String> {
     WANT_DETAIL.store(true, Release);
@@ -903,7 +903,7 @@ fn replay_operation(navigator: u32, operation: crate::replay::Operation) -> bool
 
 /// The forms' own surfaces seen so far (`h::form_surface`): image and name.
 /// Written by the game's thread (the only writer), read by the publisher.
-static FORM_SURFACES: civ3r_sync::Latest<Vec<(u32, &'static str)>> = civ3r_sync::Latest::new();
+static FORM_SURFACES: handoff::Latest<Vec<(u32, &'static str)>> = handoff::Latest::new();
 
 /// The surfaces the game fills itself: the fixed ones and the forms' own
 /// seen so far (see `ui_screen::items`).

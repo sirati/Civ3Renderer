@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use civ3r_sync::Latest;
+use handoff::Latest;
 
 /// A directory's entries: lowercased name and path.
 type Listing = Arc<Vec<(String, PathBuf)>>;

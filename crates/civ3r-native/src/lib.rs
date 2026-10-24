@@ -110,7 +110,7 @@ mod unix_side {
     use std::sync::{Arc, LazyLock, OnceLock};
 
     use civ3_assets::GameFiles;
-    use civ3r_sync::{Latest, Mailbox};
+    use handoff::{Latest, Mailbox};
     use civ3_assets::loader::Civ3Loader;
     use scene::Driver;
     use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_DEVICE_BUSY, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};

@@ -41,9 +41,9 @@ struct Pending {
 }
 
 /// The events waiting for their private message, handed from the thread
-/// posting them to the game's thread without a lock (`civ3r_sync::Posted`).
+/// posting them to the game's thread without a lock (`handoff::Posted`).
 #[derive(Default)]
-struct Queue(civ3r_sync::Posted<Pending>);
+struct Queue(handoff::Posted<Pending>);
 
 impl Queue {
     fn movement(event: Event) -> u8 {
@@ -85,7 +85,7 @@ impl Queue {
 
     /// On the game's thread: the events up to `token`'s message, a run of
     /// joined moves as its latest.
-    fn take(&self, token: u32, inbox: &mut civ3r_sync::Inbox<Pending>) -> Vec<Pending> {
+    fn take(&self, token: u32, inbox: &mut handoff::Inbox<Pending>) -> Vec<Pending> {
         self.0.take(token, inbox)
     }
 }
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn rapid_moves_keep_one_message_with_the_latest_destination() {
         let q = Queue::default();
-        let mut inbox = civ3r_sync::Inbox::default();
+        let mut inbox = handoff::Inbox::default();
         let (first, post) = q.push(movement(0));
         assert!(post);
         for x in 1..100_000 {
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn moves_cannot_cross_keys_buttons_or_ui_messages() {
         let q = Queue::default();
-        let mut inbox = civ3r_sync::Inbox::default();
+        let mut inbox = handoff::Inbox::default();
         let (before_key, _) = q.push(movement(1));
         q.barrier(); // A key or ordinary UI event was posted here.
         let (after_key, post) = q.push(movement(2));
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn preview_updates_coalesce_but_do_not_replace_plain_hover() {
         let q = Queue::default();
-        let mut inbox = civ3r_sync::Inbox::default();
+        let mut inbox = handoff::Inbox::default();
         let preview = |x| Pending {
             world: WORLD,
             event: Event::Order {
@@ -451,7 +451,7 @@ mod tests {
     #[test]
     fn pending_moves_from_a_previous_world_are_separate() {
         let q = Queue::default();
-        let mut inbox = civ3r_sync::Inbox::default();
+        let mut inbox = handoff::Inbox::default();
         let (old, _) = q.push(movement(1));
         let other = Pending {
             world: World {
@@ -486,16 +486,16 @@ mod live {
     static QUEUE: LazyLock<Queue> = LazyLock::new(Queue::default);
     static WINDOW: OnceLock<Window> = OnceLock::new();
     /// The world tile under the pointer, as the game's thread last set it.
-    static ACTIVE: civ3r_sync::Latest<(World, (i32, i32))> = civ3r_sync::Latest::new();
+    static ACTIVE: handoff::Latest<(World, (i32, i32))> = handoff::Latest::new();
     /// Set by another thread to retire the preview at the game thread's
     /// next use of it.
     static RETIRE_PREVIEW: AtomicBool = AtomicBool::new(false);
-    static LAST_PRESS: civ3r_sync::Latest<Press> = civ3r_sync::Latest::new();
+    static LAST_PRESS: handoff::Latest<Press> = handoff::Latest::new();
     /// The preselected destination's tile, for drawing (`Civ3World::preselected`).
-    static PRESELECTED: civ3r_sync::Latest<(i32, i32)> = civ3r_sync::Latest::new();
+    static PRESELECTED: handoff::Latest<(i32, i32)> = handoff::Latest::new();
     thread_local! {
         /// Received events whose messages are still queued.
-        static INBOX: RefCell<civ3r_sync::Inbox<Pending>> = RefCell::new(civ3r_sync::Inbox::default());
+        static INBOX: RefCell<handoff::Inbox<Pending>> = RefCell::new(handoff::Inbox::default());
         /// The go-to preview this map transaction armed (game thread only).
         static PREVIEW: Cell<Option<Preview>> = const { Cell::new(None) };
         /// Buttons (`super::button_bit`) whose press only dismissed a popup

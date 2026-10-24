@@ -11,7 +11,7 @@ use scene::{Driver, Input, Scene, Update};
 /// game presented a changed frame, input arrived, a preview stage is
 /// ready); the publisher waits for it between its rounds, at most its poll
 /// interval (for what nobody rings for, e.g. units moving on the map).
-pub static WAKE: civ3r_sync::Wake = civ3r_sync::Wake::new();
+pub static WAKE: handoff::Wake = handoff::Wake::new();
 
 pub struct Presenter {
     sink: Sink,
@@ -541,7 +541,7 @@ pub struct Native {
     /// which rings [`WAKE`]: the publisher goes on at once. `None` until the
     /// first take, and with an older library that cannot wait for input.
     #[cfg(all(windows, target_arch = "x86"))]
-    arriving: Option<Option<Arc<civ3r_sync::Mailbox<Input>>>>,
+    arriving: Option<Option<Arc<handoff::Mailbox<Input>>>>,
 }
 
 /// How long one wait of the input thread for input lasts (it waits again).
@@ -558,7 +558,7 @@ impl Native {
     /// The input thread's mailbox, started at the first call if the library
     /// waits for input.
     #[cfg(all(windows, target_arch = "x86"))]
-    fn arriving(&mut self) -> Option<Arc<civ3r_sync::Mailbox<Input>>> {
+    fn arriving(&mut self) -> Option<Arc<handoff::Mailbox<Input>>> {
         let lib = self.lib;
         self.arriving.get_or_insert_with(|| {
             let mut limits = civ3r_native::Limits::default();
@@ -570,11 +570,11 @@ impl Native {
                 log::info!("native viewer: input is polled (the library cannot wait for it)");
                 return None;
             }
-            let mailbox = Arc::new(civ3r_sync::Mailbox::new());
+            let mailbox = Arc::new(handoff::Mailbox::new());
             let to = mailbox.clone();
             let spawned = std::thread::Builder::new().name("civ3r-input".into()).spawn(move || {
                 let mut buffer = vec![0u8; 64 * 1024];
-                let quit = |to: &civ3r_sync::Mailbox<Input>| {
+                let quit = |to: &handoff::Mailbox<Input>| {
                     to.send(Input::Quit);
                     WAKE.ring();
                 };

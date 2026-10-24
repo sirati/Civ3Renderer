@@ -56,7 +56,7 @@ thread_local! {
 /// publishes one with its next draw and clears this.
 static WANT_FRAMES: AtomicBool = AtomicBool::new(false);
 /// That copy, with when it was made.
-static FRAMES: civ3r_sync::Latest<(std::time::Instant, State)> = civ3r_sync::Latest::new();
+static FRAMES: handoff::Latest<(std::time::Instant, State)> = handoff::Latest::new();
 
 fn publish_if_wanted() {
     if WANT_FRAMES.swap(false, Ordering::AcqRel) {
@@ -112,9 +112,9 @@ fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind
 
 /// Text runs the game's thread drew, in order, for [`recent_texts`]: the
 /// hook only sends, readers merge them into [`RECENT_TEXT`].
-static NEW_TEXT: LazyLock<civ3r_sync::Mailbox<(std::time::Instant, TextRun)>> = LazyLock::new(civ3r_sync::Mailbox::new);
+static NEW_TEXT: LazyLock<handoff::Mailbox<(std::time::Instant, TextRun)>> = LazyLock::new(handoff::Mailbox::new);
 /// Text the game drew recently, newest last.
-static RECENT_TEXT: civ3r_sync::Latest<std::collections::VecDeque<(std::time::Instant, TextRun)>> = civ3r_sync::Latest::new();
+static RECENT_TEXT: handoff::Latest<std::collections::VecDeque<(std::time::Instant, TextRun)>> = handoff::Latest::new();
 
 /// How long text stays "recent": the game redraws what is on screen more
 /// often than this.

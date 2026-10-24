@@ -105,7 +105,7 @@ mod live {
     }
     static LIVE: OnceLock<Live> = OnceLock::new();
     /// Edits posted, taken on the game's thread in order.
-    static PENDING: LazyLock<civ3r_sync::Mailbox<(u32, u8, u8)>> = LazyLock::new(civ3r_sync::Mailbox::new);
+    static PENDING: LazyLock<handoff::Mailbox<(u32, u8, u8)>> = LazyLock::new(handoff::Mailbox::new);
     /// An edit is being made (the game may run a dialog's loop meanwhile).
     static RUNNING: AtomicBool = AtomicBool::new(false);
 
