@@ -301,10 +301,9 @@ mod tests {
     use super::*;
     use tile_render_shared::text::{GlyphPlace, TextGlyph, bounds, coverage, place};
 
-    /// The game's font, where there is a Civ III installation.
-    fn lucida() -> Option<Vec<u8>> {
-        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-        std::fs::read(std::path::Path::new(&install).join("LSANS.TTF")).ok()
+    /// A real TrueType font, where the environment names one (`TEST_FONT`).
+    fn test_font() -> Option<Vec<u8>> {
+        std::fs::read(std::env::var_os("TEST_FONT")?).ok()
     }
 
     #[test]
@@ -354,8 +353,8 @@ mod tests {
     }
 
     #[test]
-    fn lucida_sans_packs_its_glyphs() {
-        let Some(data) = lucida() else { return eprintln!("no LSANS.TTF, skipped") };
+    fn a_real_font_packs_its_glyphs() {
+        let Some(data) = test_font() else { return eprintln!("no TEST_FONT, skipped") };
         let face = Face::parse(&data, 0).unwrap();
         let a = face.glyph('a').expect("a");
         assert!(face.glyph('é').is_some());
