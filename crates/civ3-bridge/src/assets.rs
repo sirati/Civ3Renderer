@@ -141,6 +141,8 @@ mod tests {
         assert_eq!(anchor("Viewer@cursors/0"), (32, 32, -1, -1));
         assert_eq!(anchor("Viewer@cursors/9"), (32, 32, -16, -16));
         assert_eq!(anchor("Viewer@cursors/14"), (32, 32, -15, -16));
+        // The Civilopedia book (`crate::cursor::CIVILOPEDIA`): the arrow's tip.
+        assert_eq!(anchor(&crate::cursor::set_name(crate::cursor::CIVILOPEDIA)), (32, 32, -1, -1));
         assert_eq!(compiled.sets_with_prefix("Viewer@capture/").map(|(n, _)| n).collect::<Vec<_>>(), ["Viewer@capture/9"]);
         // The busy indicator's art (tile-viewer `host_status`): the wait
         // cursor's turning hourglass centred on its anchor, the parchment
