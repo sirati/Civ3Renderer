@@ -253,8 +253,9 @@ pointer and clicks go to the row shown under them, in the game's
 position once it has the notches sent; a press on a row the game does not
 hold yet sends the notch that brings it in first, and the game's
 position stays while a button is held. In the Alt mode the wheel's
-notches (and the motion that scrolls a list) move the list the same way,
-and the snapping targets are the rows where they show. The game draws
+notches (a trackpad's two-finger scroll makes them too) move the list
+the same way, and every row shown is a snapping target where it shows,
+the rows drawn from the game's earlier drawings too. The game draws
 its highlight under the pointer into the list (a list box's selection
 that follows the pointer). The viewer learns that highlight from the
 game's drawing when the game's pointer moves onto a row and lights it
@@ -536,8 +537,10 @@ direction first; small jitter moves nothing). Each move is a short spring
 flight (1.33 update intervals, a slight overshoot) that lands exactly on
 the element; the game gets the pointer once it rests, and a translucent
 ghost shows the next target meanwhile. While it is on, its pointer is the
-only cursor. In a list, moving up or down scrolls the list under the
-pointer. Selecting a slider starts editing without changing its value.
+only cursor. In a list, motion goes from row to row among the rows shown
+and leaves the list past its edges; it never scrolls it: the wheel (or a
+two-finger scroll) does. A list row's pointer rests just after the end
+of the row's name, in the middle of the row. Selecting a slider starts editing without changing its value.
 Mouse movement then adjusts that slider while the pointer stays still; the
 next left click accepts the preview and a right click discards it. Esc,
 Alt, losing focus, or closing its tab also restores its original value.

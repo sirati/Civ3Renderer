@@ -1,11 +1,12 @@
 //! Pointer positions on semantic rows, derived from their drawn content.
-use civ3_sys::controls::Control;
+use civ3_sys::controls::{Control, ControlKind};
 use scene::Interactable;
 
 use crate::text::{Fonts, TextRun};
 use crate::ui::{Frame, ScreenDraw};
 
-/// Set a pointer tip at an icon's lower right corner or at the end of its
+/// Set a pointer tip just after a list entry's name (in the middle of its
+/// row), else at an icon's lower right corner or at the end of its
 /// text, and give a check box its label as the region it draws button
 /// snapping from. Only existing game controls qualify. Draws never create
 /// targets.
@@ -112,6 +113,8 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
             .unwrap_or(&[]);
         let mut icon: Option<[i32; 4]> = None;
         let mut text: Option<[i32; 4]> = None;
+        // A list entry's name: its first text (leftmost, then topmost).
+        let mut name: Option<[i32; 4]> = None;
         for draw in draws {
             match draw {
                 ScreenDraw::Image {
@@ -146,6 +149,9 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
                         if text.is_none_or(|old| (r[0] + r[2], r[1]) > (old[0] + old[2], old[1])) {
                             text = Some(r);
                         }
+                        if name.is_none_or(|old| (r[0], r[1]) < (old[0], old[1])) {
+                            name = Some(r);
+                        }
                     }
                 }
                 _ => {}
@@ -154,7 +160,12 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
         // An advisor's speech box is all panel art: its words hold content.
         use civ3_sys::controls::advisors::{CELL_SPEECH, cell_kind};
         let icon = icon.filter(|_| cell_kind(control.id) != Some(CELL_SPEECH));
-        target.anchor = if let Some([x, y, w, h]) = icon {
+        target.anchor = if let (ControlKind::ListItem, Some([nx, _, nw, _])) = (control.kind, name) {
+            // A list entry: just after the end of its name, in the middle
+            // of its row (its icon, if any, before the name; other columns
+            // after it), so it is clear which row a click takes.
+            Some([(nx + nw).clamp(x, x + w - 1), y + h / 2])
+        } else if let Some([x, y, w, h]) = icon {
             Some([x + w - 1, y + h - 1])
         } else if let Some([x, y, w, h]) = text {
             Some([x + w - 1, y + h / 2])
@@ -230,7 +241,8 @@ mod tests {
         annotate(&frame, &controls, &mut got, bounds);
         assert_eq!(
             got.iter().map(|t| t.anchor).collect::<Vec<_>>(),
-            [Some([85, 85]), Some([91, 126]), Some([56, 206])]
+            // (List entries: after their names, mid-row; a link: its text.)
+            [Some([149, 55]), Some([92, 135]), Some([56, 206])]
         );
         assert_eq!(
             got.iter().map(|t| t.rect).collect::<Vec<_>>(),
@@ -276,7 +288,7 @@ mod tests {
         assert_eq!(got[0].anchor, Some([419, 215]));
     }
     #[test]
-    fn scaled_unit_list_icon_anchors_to_its_visible_destination_corner() {
+    fn a_unit_list_entry_with_a_scaled_icon_anchors_after_its_name() {
         let controls = [row(0, 20, false)];
         let frame = Frame { draws: vec![
             ScreenDraw::ResizedImage { path: "Art/units32.pcx".into(), rect: [0,0,240,240], x:22, y:22,
@@ -285,7 +297,30 @@ mod tests {
         ], form_draws: vec![(FORM+4+civ3_sys::layout::BASE_FORM_DATA_CANVAS,0..2)], ..Default::default() };
         let mut targets = targets(&controls);
         annotate(&frame, &controls, &mut targets, bounds);
-        assert_eq!(targets[0].anchor, Some([52,52]));
+        assert_eq!(targets[0].anchor, Some([128, 55]));
+    }
+
+    /// The city screen's production list: icon, name, its statistics, the
+    /// turns at the right; a long name on two lines.
+    #[test]
+    fn production_entries_point_just_after_their_name_in_the_middle_of_the_row() {
+        let controls = [row(0, 20, false), row(1, 100, false)];
+        let icon = |y| ScreenDraw::Image { path: "Art/units/units_32.pcx".into(), rect: [0, 0, 32, 32], x: 24, y, keyed: true,
+            clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
+        let draws = vec![
+            icon(40), label("Settler", 70, 60), label("0.0.1", 140, 60), label("14 turns", 350, 60),
+            icon(120), label("Longbowman", 70, 132), label("4(2).1.1", 70, 148), label("19 turns", 350, 140),
+        ];
+        let frame = Frame { form_draws: vec![(FORM + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, 0..draws.len())], draws, ..Default::default() };
+        let mut got = targets(&controls);
+        annotate(&frame, &controls, &mut got, bounds);
+        // "Settler" ends at 70 + 7 * 7; "Longbowman" at 70 + 10 * 7.
+        assert_eq!(got.iter().map(|t| t.anchor).collect::<Vec<_>>(), [Some([119, 55]), Some([140, 135])]);
+        for (t, c) in got.iter().zip(&controls) {
+            let [x, y, w, h] = c.rect;
+            let [ax, ay] = t.anchor.unwrap();
+            assert!(ax >= x && ax < x + w && ay >= y && ay < y + h, "inside its row");
+        }
     }
 
     #[test]
