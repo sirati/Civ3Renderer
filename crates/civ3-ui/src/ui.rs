@@ -427,6 +427,11 @@ impl UiModel {
     }
 
     /// Where the pixels of `sprite` (a game `Sprite*`) come from, if known.
+    /// The file loaded into `image`, if one was.
+    pub fn file_of(&self, image: u32) -> Option<&str> {
+        self.files.get(&image).map(String::as_str)
+    }
+
     pub fn sprite_source(&self, sprite: u32) -> Option<&Source> {
         self.sprites.get(&sprite)
     }

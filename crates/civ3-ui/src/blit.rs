@@ -197,7 +197,7 @@ mod tests {
         BlitCall {
             slot,
             caller,
-            sprite: SpriteRef { sprite: SpriteId(0x7000), owner: 0x6004, table: TableId(0), bits: 8, compiled: false },
+            sprite: SpriteRef { sprite: SpriteId(0x7000), owner: 0x6004, table: TableId(0), bits: 8, compiled: false, placeholder: false },
             target: Some(target),
             other: None,
             mask: None,

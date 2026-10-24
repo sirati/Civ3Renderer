@@ -136,6 +136,7 @@ mod entries {
             table: TableId(field(offset_of!(JglSprite, color_table))),
             bits: field(offset_of!(JglSprite, bits)),
             compiled: field(offset_of!(JglSprite, flags)) & 1 != 0,
+            placeholder: super::placeholder::holds(field(offset_of!(JglSprite, field_14))),
         }
     }
 
