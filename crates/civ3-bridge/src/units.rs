@@ -87,6 +87,14 @@ impl AnimFile {
 const CURSOR_FLC: &str = "Art/Animations/Cursor/Cursor.flc";
 /// The cursor shows the block of direction 5.
 const CURSOR_DIRECTION: i32 = 5;
+/// How long the game shows each frame of the selection cursor, in ms: an
+/// animation's frame time is its FLC header's milliseconds (+0x6C) over its
+/// frames per direction (+0x62), in seconds (0x4053F7: the INI's `Timing`
+/// is read and ignored); `Cursor.flc` has 2500 over 30. The game's cursor
+/// runs free, by real elapsed time (QueryPerformanceCounter, 0x4EED0F),
+/// never restarted on a new selection, so the viewer runs it on its own
+/// clock (`unit_cursor` in civ3.toml) at this rate.
+pub const CURSOR_FRAME_MS: u32 = 83;
 /// `AnimationType` ATTACK1 and `enum direction` east (armies, §10.11).
 const ANIMATION_ATTACK1: i32 = 3;
 const DIRECTION_EAST: i32 = 2;
@@ -599,10 +607,14 @@ impl Needed {
             };
             // Per direction block, its frames (the ring frame last, §10.4) as
             // one animation, for the unit layers (a cell's phase is the frame).
+            // The selection cursor's leaves its ring frame out: it runs on the
+            // renderer's clock through the frames the game cycles (0x4058E0:
+            // its frame count; the ring frame never shows).
+            let shown = if path == CURSOR_FLC { file.frames_per_direction } else { file.frames_per_direction + 1 };
             let blocks = |out: &mut String, set: &str, sprite: &str| {
                 let per = file.frames_per_direction + 1;
                 for b in 0..file.chunks.div_ceil(per) {
-                    let frames: Vec<String> = (b * per..((b + 1) * per).min(file.chunks)).filter(made).map(|k| toml_str(&format!("{sprite}/{k}"))).collect();
+                    let frames: Vec<String> = (b * per..(b * per + shown).min(file.chunks)).filter(made).map(|k| toml_str(&format!("{sprite}/{k}"))).collect();
                     if frames.is_empty() {
                         continue;
                     }
@@ -767,6 +779,10 @@ pub struct Piece {
     pub sprite: Option<String>,
     /// Separate native palette-alpha sprite, if this is animated colour art.
     pub smoke: Option<String>,
+    /// Non-zero: the set animates on the renderer's own clock, a frame every
+    /// this many ms from `phase` on (the selection cursor), not by the
+    /// game's frames.
+    pub viewer_ms: u32,
     /// The world pixel (full size) its sprites' anchors are relative to.
     pub at: (i32, i32),
     /// 0 alpha, else as `scene::FreeSprite::scale_den`.
@@ -779,7 +795,7 @@ pub struct Piece {
 
 impl Piece {
     fn new(part: Part, set: String, at: (i32, i32)) -> Piece {
-        Piece { part, set, phase: 0, sprite: None, smoke: None, at, scale_den: 0, tint: 0, palette: String::new() }
+        Piece { part, set, phase: 0, sprite: None, smoke: None, viewer_ms: 0, at, scale_den: 0, tint: 0, palette: String::new() }
     }
 }
 
@@ -809,9 +825,13 @@ pub fn pieces(world: &Civ3World, art: &mut UnitArt, u: &Civ3Unit, rings: Option<
             out.push(Piece { scale_den, tint: rings.tint(relation), ..Piece::new(Part::Ring, name, (mx - 64, my - 32)) });
         }
     }
+    // The selection cursor pulses on the renderer's clock from the frame
+    // read (0 live, see `crate::live`: the game's frame would make it jump
+    // at every publication; a trace's own frame for pictures of it).
     if let (Some((_, frame)), Some(cursor)) = (world.selection.filter(|s| s.0 == u.id), art.cursor()) {
         let block = DIRECTION_BLOCK[CURSOR_DIRECTION as usize];
-        out.push(animation(Part::Cursor, cursor, Some(Recolor::civ(colors(world, world.player))), block, frame, (mx, my)));
+        let p = animation(Part::Cursor, cursor, Some(Recolor::civ(colors(world, world.player))), block, frame, (mx, my));
+        out.push(Piece { viewer_ms: CURSOR_FRAME_MS, ..p });
     }
     let mut body = |unit: &Civ3Unit, recolor: Recolor, at: (i32, i32), part: Part, shadow: bool, out: &mut Vec<Piece>| {
         let type_key = unit_art_key(world, unit);
@@ -1162,15 +1182,20 @@ fn wrapped_offset(d: i32, wraps: bool, period: i32) -> i16 {
 
 /// `p` as a free sprite after pass `after_pass` (its frame's own sprite).
 fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene::FreeSprite> {
-    let (set, _) = compiled.set(p.sprite.as_deref().unwrap_or(&p.set))?;
+    // (On the renderer's clock: the whole animation, from the piece's frame.)
+    let (name, phase, ticks_per_frame) = match p.viewer_ms {
+        0 => (p.sprite.as_deref().unwrap_or(&p.set), 0, 1),
+        ms => (p.set.as_str(), u32::from(p.phase), tile_render::HOST_CLOCK | ms),
+    };
+    let (set, _) = compiled.set(name)?;
     Some(scene::FreeSprite {
         set: set.raw(),
         x: p.at.0,
         y: p.at.1,
         screen: false,
         after_pass,
-        phase: 0,
-        ticks_per_frame: 1,
+        phase,
+        ticks_per_frame,
         scale_den: p.scale_den,
         blend: scene::SpriteBlend::Alpha,
         tint: p.tint,
@@ -1186,11 +1211,21 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
 }
 
 /// Empty smoke frames keep the ordinary layered path and allocate no snapshots.
+/// A piece on the renderer's clock has its block's smoke animation
+/// (`UnitSmokeAnim@<file>/<block>`), kept if any of its frames has smoke.
 fn smoke_set(compiled: &Compiled, p: &Piece) -> Option<tile_render::SpriteSetId> {
-    let (set, _) = compiled.set(p.smoke.as_deref()?)?;
-    let id = compiled.sets.frame(set, 0)?;
-    let sprite = compiled.atlas.sprites.get(id.0 as usize)?;
-    (sprite.blank & tile_render::BLANK_EMPTY == 0).then_some(set)
+    let smoke = p.smoke.as_deref()?;
+    let name = match p.viewer_ms {
+        0 => smoke.to_owned(),
+        _ => {
+            let (file, _) = smoke.strip_prefix("UnitSmoke@")?.rsplit_once('/')?;
+            format!("UnitSmokeAnim@{file}/{}", p.set.rsplit_once('/')?.1)
+        }
+    };
+    let (set, _) = compiled.set(&name)?;
+    let frames = if p.viewer_ms == 0 { 1 } else { u32::MAX };
+    let smoky = |id: tile_render::SpriteId| compiled.atlas.sprites.get(id.0 as usize).is_some_and(|s| s.blank & tile_render::BLANK_EMPTY == 0);
+    (0..frames).map_while(|i| compiled.sets.frame(set, i)).any(smoky).then_some(set)
 }
 
 fn smoke_free_sprite(compiled: &Compiled, p: &Piece, after: u32) -> Option<scene::FreeSprite> {
@@ -1755,6 +1790,110 @@ mod tests {
             }
         }
         assert_eq!(checked, 512);
+    }
+
+    /// The game's frame advance of an `FLC_Animation` (0x402B18..0x402C4C)
+    /// for a frame time of `ms` (seconds as a float, `ms * 0.001`): each
+    /// animator tick adds its elapsed seconds (0x405FF0: the tick's own if
+    /// at most 0.5 s), and every frame time used up shows the next of
+    /// `frames` frames. The frame shown after each of `ticks` (seconds).
+    fn game_cursor_frames(ms: u32, frames: i32, ticks: &[f32]) -> Vec<i32> {
+        let duration = ms as f32 * 0.001_f32;
+        let (mut used, mut frame) = (0.0_f32, 0);
+        ticks.iter().map(|&elapsed| {
+            let mut pending = elapsed;
+            while used + pending > duration {
+                pending -= duration - used;
+                used = 0.0;
+                frame = (frame + 1) % frames;
+            }
+            used += pending;
+            frame
+        }).collect()
+    }
+
+    #[test]
+    fn the_viewer_clock_shows_the_games_cursor_frames_at_the_games_rate() {
+        // Animator ticks as uneven as emulation makes them (16..140 ms).
+        let ticks: Vec<f32> = (0..2000u32).map(|i| (16 + (i * 37) % 125) as f32 / 1000.0).collect();
+        let game = game_cursor_frames(CURSOR_FRAME_MS, 30, &ticks);
+        let mut at_ms = 0.0_f64;
+        let mut checked = 0;
+        for (elapsed, frame) in ticks.iter().zip(game) {
+            at_ms += f64::from(*elapsed) * 1000.0;
+            // (Single-precision sums: a boundary may land a hair either side.)
+            let off = at_ms % f64::from(CURSOR_FRAME_MS);
+            if off < 0.5 || off > f64::from(CURSOR_FRAME_MS) - 0.5 { continue; }
+            let shown = tile_render::layer_frame_of(0, at_ms as u32, tile_render::HOST_CLOCK | CURSOR_FRAME_MS, 0, 30);
+            assert_eq!(shown as i32, frame, "at {at_ms:.1} ms");
+            checked += 1;
+        }
+        assert!(checked > 1900, "{checked}");
+        assert_eq!(30 * CURSOR_FRAME_MS, 2490, "a pulse every 2.49 s");
+    }
+
+    #[test]
+    fn the_selection_cursor_animates_on_the_viewer_clock_with_the_game_frozen() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).join("Art").is_dir() {
+            return eprintln!("no Civ III installation, skipped");
+        }
+        // The game's frame time, read from the file as 0x4053F7 reads it.
+        let flc = std::fs::read(std::path::Path::new(&install).join("Art/Animations/Cursor/Cursor.flc")).unwrap();
+        let (frames, total_ms) = (u16::from_le_bytes([flc[0x62], flc[0x63]]) as u32, u32::from_le_bytes(flc[0x6C..0x70].try_into().unwrap()));
+        assert_eq!((frames, total_ms / frames), (30, CURSOR_FRAME_MS));
+        let files = || civ3_assets::GameFiles::complete(&install);
+        let mut art = UnitArt::new(files());
+        let mut world = Civ3World { player: 1, color_tables: vec![0, 3], width: 16, height: 16, ..Default::default() };
+        world.tiles = vec![crate::world::Civ3Tile { city: -1, ..Default::default() }; (world.width * world.height / 2) as usize];
+        let unit = Civ3Unit { id: 1, x: 4, y: 4, civ: 1, container: -1, visible: true, pixel: (64 * 4 + 64, 32 * 4 + 32), ..Default::default() };
+        world.units = vec![unit];
+        (world.current_unit, world.selection) = (Some(1), Some((1, 0)));
+        let desc = format!("{}{}", crate::assets::BUILTIN_DESC, Needed::of(&world, &mut art).description());
+        let compiled = crate::assets::compile(&desc, files()).unwrap();
+        for layer in ["unit_cursor", "unit_over_cursor"] {
+            let spec = compiled.layers.iter().find(|l| l.name == layer).unwrap();
+            assert_eq!(spec.ticks_per_frame, tile_render::HOST_CLOCK | CURSOR_FRAME_MS, "{layer} runs on the viewer's clock");
+        }
+        let cursor = pieces(&world, &mut art, &world.units[0], None).into_iter().find(|p| p.part == Part::Cursor).unwrap();
+        assert_eq!((cursor.viewer_ms, cursor.phase), (CURSOR_FRAME_MS, 0));
+        let (set, _) = compiled.set(&cursor.set).unwrap();
+        assert_eq!((0..).map_while(|i| compiled.sets.frame(set, i)).count(), 30, "the set is the cursor's 30 frames");
+        // Its glow is translucent smoke (indices 224..239), its own
+        // animation of the same 30 frames, which takes the unit's pieces
+        // off the layers (`place`): as free sprites, both whole animations
+        // on the viewer's clock.
+        let smoke = smoke_set(&compiled, &cursor).expect("the cursor's smoke animation");
+        assert_eq!(compiled.sets.frame(smoke, 30), None);
+        let free = free_sprites(&world, &mut art, &compiled, None);
+        let on_clock = |set: tile_render::SpriteSetId| free.iter().any(|s| s.set == set.raw() && s.ticks_per_frame == tile_render::HOST_CLOCK | CURSOR_FRAME_MS && s.phase == 0);
+        assert!(on_clock(set) && on_clock(smoke));
+        // On the GPU: one scene (the game frozen), the viewer's clock k
+        // frames on, shows what the game shows at its frame k.
+        let gpu = tile_render::Headless::new().expect("GPU");
+        let native = Civ3View { tile_x: (0, 16), tile_y: (0, 16), ..Default::default() };
+        let camera = tile_render::Camera { x: 192, y: 96, ..tile_render::Camera::new((256, 128)) };
+        let render = |world: &Civ3World, art: &mut UnitArt, host_ms: u32| {
+            let mut scene = crate::scene_map::Mapper::new(&compiled).scene(world, &native, (256, 128), 7);
+            place(world, &native, art, &compiled, None, &mut UnitMemory::default(), &mut scene);
+            let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+            renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
+            renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, &scene));
+            renderer.set_host_tick_ms(host_ms);
+            gpu.render_views(&mut renderer, &[camera], (256, 128), scene.tick, [0, 0, 0, 255])
+        };
+        let mut seen = std::collections::HashSet::new();
+        for k in [0, 1, 7, 15, 22, 29, 30] {
+            let live = render(&world, &mut art, k * CURSOR_FRAME_MS + 41);
+            let mut traced = world.clone();
+            traced.selection = Some((1, (k % 30) as i32));
+            assert_eq!(live.pixels, render(&traced, &mut art, 0).pixels, "viewer frame {k} is the game's frame {}", k % 30);
+            seen.insert(live.pixels);
+        }
+        assert!(seen.len() >= 5, "the cursor's frames differ: it pulses");
+        // Hidden by the game (no selection shown): nothing on the clock.
+        world.selection = None;
+        assert_eq!(render(&world, &mut art, 0).pixels, render(&world, &mut art, 15 * CURSOR_FRAME_MS).pixels);
     }
 
     #[test]

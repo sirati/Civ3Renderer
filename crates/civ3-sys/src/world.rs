@@ -830,9 +830,7 @@ impl Civ3 {
         Ok(out)
     }
 
-    /// The selected unit's id and the selection cursor's frame, unless the
-    /// cursor is in the hidden half of its blink (docs §10.6).
-    /// The selected unit (`Current_Unit`), blinking or not.
+    /// The selected unit (`Current_Unit`), its cursor hidden or not.
     pub fn current_unit(&self) -> Result<Option<i32>, Civ3Error> {
         let current: Ptr32<u8> = self.screen(L::MAIN_SCREEN_FORM_CURRENT_UNIT)?;
         if current.is_null() {
@@ -841,13 +839,16 @@ impl Civ3 {
         Ok(Some(current.offset::<i32>(L::UNIT_BODY + L::UNIT_BODY_ID)?.read()?))
     }
 
+    /// The selected unit's id and the selection cursor's frame, unless the
+    /// game hides the cursor (while a unit moves or fights, the city screen
+    /// opens: docs §10.6).
     pub fn selection(&self) -> Result<Option<(i32, i32)>, Civ3Error> {
         let current: Ptr32<u8> = self.screen(L::MAIN_SCREEN_FORM_CURRENT_UNIT)?;
         if current.is_null() {
             return Ok(None);
         }
         let animator = Ptr32::<u8>::new(self.addrs.main_screen_form + L::MAIN_SCREEN_FORM_ANIMATOR);
-        // The header's `field_18E4[12]`: bit 0 = cursor blinked off.
+        // The header's `field_18E4[12]`: bit 0 = cursor hidden.
         let blink: u32 = animator.offset::<u32>(L::ANIMATOR_FIELD_18E4_12)?.read()?;
         if blink & 1 != 0 {
             return Ok(None);
