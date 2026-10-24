@@ -36,17 +36,96 @@ const DISCARD_PANEL: &str = "preferences_discard";
 const ACTION: &str = "dialog.action";
 const UNDO: &str = "dialog.undo";
 
-/// The only controls that wait for Accept: they size menus, the open
+/// The only controls that wait for Accept: the scales size menus, the open
 /// Preferences window among them, so a drag would move its own track and
-/// change native pointer mapping. Every other control previews at once.
-/// Base UI scale previews behind the dialog with its Preview button
-/// ([`PREVIEW_BASE`]); the dialog keeps the accepted size.
-const DEFERRED_CONTROLS: &[&str] = &["resolution.base_ui_scale", "resolution.scale_menus", "resolution.menu_scale_percent"];
-/// The Base UI scale Preview button's actions (`dialog.action`) and the
-/// value showing it is on.
-const PREVIEW_BASE: &str = "preview_base";
-const STOP_PREVIEW_BASE: &str = "stop_preview_base";
-const PREVIEWING_BASE: &str = "dialog.previewing_base";
+/// change native pointer mapping; the window mode moves the whole window.
+/// Every other control previews at once. Each of these has an eye button
+/// ([`Previewed`]) that previews it until Accept or Cancel.
+#[cfg_attr(not(test), allow(dead_code))]
+const DEFERRED_CONTROLS: &[&str] = &["resolution.base_ui_scale", "resolution.scale_menus", "resolution.menu_scale_percent", "display.windowed"];
+/// The eye buttons' actions (`dialog.action`), followed by a
+/// [`Previewed::name`]: start showing the drafted value, or end that.
+const PREVIEW_ACTION: &str = "preview.";
+const END_PREVIEW_ACTION: &str = "end_preview.";
+/// Values for the eye buttons, followed by a [`Previewed::name`]: on while
+/// the draft's value is shown (`previewing`), and while the button shows
+/// at all (`preview_offered`: the value changed, or a preview is on).
+const PREVIEWING: &str = "dialog.previewing.";
+const PREVIEW_OFFERED: &str = "dialog.preview_offered.";
+
+/// The deferred settings an eye button previews. A preview stays on across
+/// tabs until Accept (which keeps the draft) or Cancel (which reverts it).
+/// The menu size and the window mode can leave the game unusable, so
+/// starting their preview asks the viewer's timed confirmation
+/// (`scene::SettingsPreview`), which reverts the draft unless kept; the
+/// base UI scale shows behind a dialog that keeps its size, so it does not.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Previewed {
+    /// Base UI scale: the frame and world follow the draft, menus (the
+    /// dialog among them) keep the accepted base. Follows the draft live.
+    Base,
+    /// The menu size ("Scale menus", its percentage): the UI scale of
+    /// every menu, Preferences among them.
+    Menus,
+    /// The window mode (`Display::windowed`).
+    Windowed,
+}
+
+impl Previewed {
+    const ALL: [Previewed; 3] = [Previewed::Base, Previewed::Menus, Previewed::Windowed];
+
+    fn name(self) -> &'static str {
+        match self { Previewed::Base => "base", Previewed::Menus => "menus", Previewed::Windowed => "windowed" }
+    }
+
+    fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.name() == name)
+    }
+
+    fn controls(self) -> &'static [&'static str] {
+        match self {
+            Previewed::Base => &["resolution.base_ui_scale"],
+            Previewed::Menus => &["resolution.scale_menus", "resolution.menu_scale_percent"],
+            Previewed::Windowed => &["display.windowed"],
+        }
+    }
+
+    /// Its value in `settings`, where the viewer confirms it (`None`: Base).
+    fn value(self, settings: &Settings) -> Option<scene::PreviewValue> {
+        match self {
+            Previewed::Base => None,
+            Previewed::Menus => Some(scene::PreviewValue::menus(settings.resolution.scale_menus, settings.resolution.menu_scale_percent)),
+            Previewed::Windowed => Some(scene::PreviewValue::Windowed(settings.display.windowed)),
+        }
+    }
+
+    /// Copies its settings from `from` into `to`.
+    fn copy(self, from: &Settings, to: &mut Settings) {
+        match self.value(from) {
+            Some(value) => value.apply(to),
+            None => to.resolution.base_ui_scale = from.resolution.base_ui_scale,
+        }
+    }
+
+    /// Whether `a` and `b` differ in its settings.
+    fn differs(self, a: &Settings, b: &Settings) -> bool {
+        self.controls().iter().any(|key| a.control(key) != b.control(key))
+    }
+
+    fn of(value: scene::PreviewValue) -> Option<Self> {
+        match value {
+            scene::PreviewValue::PixelScale(_) => None,
+            scene::PreviewValue::Menus { .. } => Some(Previewed::Menus),
+            scene::PreviewValue::Windowed(_) => Some(Previewed::Windowed),
+        }
+    }
+}
+
+/// Whether the saved settings at `path` ask for a window, not fullscreen,
+/// at start (`Display::windowed`; unreadable settings do not).
+pub fn saved_windowed(path: &std::path::Path) -> bool {
+    Settings::load(path).is_ok_and(|s| s.display.windowed)
+}
 /// On (a switch value) when the game runs on macOS: macOS-only settings
 /// show only then (`show_if`).
 const HOST_MACOS: &str = "host.macos";
@@ -236,9 +315,9 @@ pub struct Prefs {
     preview_id: u64,
     /// Changes shown by the dialog. All but [`DEFERRED_CONTROLS`] preview before OK.
     draft: Option<Settings>,
-    /// The Base UI scale Preview button is on: the draft's base previews
-    /// behind the dialog, which keeps its size.
-    base_preview: bool,
+    /// The previews on (their eye buttons), with the value each shows
+    /// (`None`: Base, which follows the draft). Cleared with the draft.
+    previews: BTreeMap<Previewed, Option<scene::PreviewValue>>,
     native_original: Option<native::Settings>,
     native_current: Option<native::Settings>,
     native_pending: bool,
@@ -366,7 +445,7 @@ impl Prefs {
         }
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, base_preview: false, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run, host_macos: host_macos() }
+        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, previews: BTreeMap::new(), native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run, host_macos: host_macos() }
     }
 
     /// Whether the first run's Preferences are still to be shown (the
@@ -383,36 +462,99 @@ impl Prefs {
     pub fn settings_preview(&self) -> Option<scene::SettingsPreview> { self.preview }
 
     /// The settings the game shows while Preferences is open: the whole
-    /// draft, except [`DEFERRED_CONTROLS`] at their accepted values. While
-    /// the Base UI scale preview is on, the frame and world use the draft's
-    /// base and menus, the dialog among them, keep the accepted one.
+    /// draft, except [`DEFERRED_CONTROLS`] at their accepted values unless
+    /// their eye button previews them ([`Previewed`]). While the Base UI
+    /// scale preview is on, the frame and world use the draft's base and
+    /// menus, the dialog among them, keep the accepted one.
     fn project_settings(&mut self) {
         let Some(draft) = &self.draft else {
-            self.base_preview = false;
+            self.previews.clear();
             self.effective = self.settings.clone();
             return;
         };
-        let accepted = &self.settings.resolution;
+        // A preview of a value no longer drafted (undone, toggled back)
+        // ends: the accepted value shows, as with no change.
+        let accepted = &self.settings;
+        self.previews.retain(|kind, shown| shown.is_none() || kind.differs(draft, accepted));
         let mut effective = draft.clone();
         effective.first_run = self.settings.first_run.clone();
-        let r = &mut effective.resolution;
-        r.scale_menus = accepted.scale_menus;
-        r.menu_scale_percent = accepted.menu_scale_percent;
-        if self.base_preview {
-            r.menu_base_ui_scale = Some(accepted.effective_base_ui_scale());
-        } else {
-            r.base_ui_scale = accepted.base_ui_scale;
+        for kind in Previewed::ALL {
+            match self.previews.get(&kind) {
+                None => kind.copy(accepted, &mut effective),
+                Some(Some(value)) => value.apply(&mut effective),
+                Some(None) => {}
+            }
+        }
+        if self.previews.contains_key(&Previewed::Base) {
+            effective.resolution.menu_base_ui_scale = Some(accepted.resolution.effective_base_ui_scale());
         }
         self.effective = effective;
+    }
+
+    /// Asks the viewer to confirm `value` (shown now in place of
+    /// `previous`) on its own clock; the panel input waits for the answer.
+    fn ask_confirmation(&mut self, value: scene::PreviewValue, previous: scene::PreviewValue) {
+        self.state = PanelState::default();
+        self.preview_id = self.preview_id.wrapping_add(1);
+        self.preview = Some(scene::SettingsPreview { session: self.preview_session, id: self.preview_id, value, previous });
     }
 
     fn preview_multiplier(&mut self, previous: u32) {
         let Some(draft) = &self.draft else { return };
         if draft.resolution.pixel_scale != previous {
-            self.state = PanelState::default();
-            self.preview_id = self.preview_id.wrapping_add(1);
-            self.preview = Some(scene::SettingsPreview { session: self.preview_session, id: self.preview_id, pixel_scale: draft.resolution.pixel_scale, previous_pixel_scale: previous });
+            let value = scene::PreviewValue::PixelScale(draft.resolution.pixel_scale);
+            self.ask_confirmation(value, scene::PreviewValue::PixelScale(previous));
         }
+    }
+
+    /// The eye button of `kind`: shows the drafted value until Accept or
+    /// Cancel (asking the timed confirmation where it is risky), or with the
+    /// accepted value drafted again, ends the preview.
+    fn start_preview(&mut self, kind: Previewed) {
+        let Some(draft) = &self.draft else { return };
+        if !kind.differs(draft, &self.settings) && kind != Previewed::Base {
+            self.previews.remove(&kind);
+        } else if let Some(value) = kind.value(draft) {
+            let previous = value.of(&self.effective);
+            self.previews.insert(kind, Some(value));
+            if previous != value { self.ask_confirmation(value, previous); }
+        } else {
+            self.previews.insert(kind, None);
+        }
+        self.project_settings();
+    }
+
+    /// The viewer's answer to the confirmation `preview` (on its clock: the
+    /// user's, or its timeout reverting). Reverting restores the draft (and
+    /// the preview) to what showed before, so Accept cannot save a value
+    /// nobody confirmed.
+    fn settle_preview(&mut self, preview: scene::SettingsPreview, keep: bool) {
+        if !keep {
+            if let Some(draft) = &mut self.draft { preview.previous.apply(draft); }
+            if let Some(kind) = Previewed::of(preview.value) {
+                if Some(preview.previous) == kind.value(&self.settings) {
+                    self.previews.remove(&kind);
+                } else {
+                    self.previews.insert(kind, Some(preview.previous));
+                }
+            }
+        }
+        self.preview = None;
+        self.state = PanelState::default();
+        self.project_settings();
+        self.state.values = self.values();
+    }
+
+    /// The window mode the viewer started in (fullscreen as the launcher
+    /// asked, unless the saved settings ask for a window): what the
+    /// Windowed setting shows. A launcher's `--window` over saved
+    /// fullscreen shows as windowed (saved only if accepted so).
+    pub fn launched(&mut self, fullscreen: bool) {
+        if self.settings.display.windowed != fullscreen { return; }
+        log::info!("settings: the viewer started {}", if fullscreen { "fullscreen" } else { "windowed, as the launcher asked" });
+        self.settings.display.windowed = !fullscreen;
+        if let Some(draft) = &mut self.draft { draft.display.windowed = !fullscreen; }
+        self.project_settings();
     }
 
     /// Render description entries for the panel's generated art.
@@ -445,11 +587,7 @@ impl Prefs {
         for input in queued {
             if let Input::SettingsPreviewDecision { session, id, keep } = input {
                 if let Some(p) = self.preview.filter(|p| p.session == session && p.id == id) {
-                    if !keep { if let Some(draft) = &mut self.draft { draft.resolution.pixel_scale = p.previous_pixel_scale; } }
-                    self.preview = None;
-                    self.state = PanelState::default();
-                    self.project_settings();
-                    self.state.values = self.values();
+                    self.settle_preview(p, keep);
                 }
                 continue;
             }
@@ -617,7 +755,7 @@ impl Prefs {
                     let (_, tab) = apply(draft, event);
                     if let Some(tab) = tab {
                         log::debug!("preferences: tab {tab}");
-                        if tab != self.tab { self.base_preview = false; }
+                        // (Previews stay on across tabs, until Accept or Cancel.)
                         self.tab = tab;
                     }
                     self.preview_multiplier(previous);
@@ -747,8 +885,12 @@ impl Prefs {
     fn action(&mut self, action: &str, out: &mut Vec<Input>) {
         if self.closing || self.preview.is_some() { return; }
         match action {
-            PREVIEW_BASE if !self.confirming_discard => self.base_preview = true,
-            STOP_PREVIEW_BASE => self.base_preview = false,
+            _ if action.starts_with(PREVIEW_ACTION) && !self.confirming_discard => {
+                if let Some(kind) = Previewed::named(&action[PREVIEW_ACTION.len()..]) { self.start_preview(kind); }
+            }
+            _ if action.starts_with(END_PREVIEW_ACTION) => {
+                if let Some(kind) = Previewed::named(&action[END_PREVIEW_ACTION.len()..]) { self.previews.remove(&kind); }
+            }
             "accept" if !self.confirming_discard => {
                 // Accept also keeps an Alt slider's current draft value.
                 self.state.slider_edit = None;
@@ -763,7 +905,7 @@ impl Prefs {
                 self.native_accept = true;
             }
             "cancel" if !self.confirming_discard => {
-                self.base_preview = false;
+                // (Previews stay on while asking: discarding ends them.)
                 if self.dirty() {
                     self.confirming_discard = true;
                     self.state = PanelState::default();
@@ -851,7 +993,7 @@ impl Prefs {
                 self.save();
             }
             self.draft = open.map(|_| self.settings.clone());
-            self.base_preview = false;
+            self.previews.clear();
             self.preview = None;
             if opening {
                 self.preview_session = self.preview_session.wrapping_add(1);
@@ -904,7 +1046,14 @@ impl Prefs {
 
     fn values(&self) -> BTreeMap<String, Value> {
         let mut values = values(self.editing(), &self.tab, self.window);
-        values.insert(PREVIEWING_BASE.into(), Value::On(self.base_preview));
+        for kind in Previewed::ALL {
+            // The preview shows the drafted value (its eye ends it), or the
+            // draft moved on from it (its eye previews the new value).
+            let previewing = self.previews.get(&kind).is_some_and(|shown| shown.is_none() || *shown == kind.value(self.editing()));
+            let offered = self.previews.contains_key(&kind) || kind.differs(self.editing(), &self.settings);
+            values.insert(format!("{PREVIEWING}{}", kind.name()), Value::On(previewing));
+            values.insert(format!("{PREVIEW_OFFERED}{}", kind.name()), Value::On(offered));
+        }
         values.insert(HOST_MACOS.into(), Value::On(self.host_macos));
         for (key, accepted) in self.settings.controls() {
             if matches!(accepted, ControlValue::Number(_) | ControlValue::On(_)) {
@@ -991,6 +1140,7 @@ fn changed_controls(active: &Settings, draft: &Settings) -> Vec<String> {
         "layout.roles" => "View roles".into(),
         "layout.unit_buttons" => "Unit buttons".into(),
         "layout.glass_dividers" => "Glass dividers".into(),
+        "display.windowed" => "Windowed".into(),
         _ => key.split('.').skip(1).collect::<Vec<_>>().join(" ").replace('_', " "),
     };
     let display = |value: &ControlValue| match value {
@@ -2409,6 +2559,7 @@ mod tests {
             let world = tile_viewer::scene_world(&compiled, &scene);
             let picture = tile_render::reference::render(&world, &compiled.atlas, &tile_render::Camera::new((1024, 768)), 0, [0, 0, 0, 255]);
             image::save_buffer(directory.join(format!("{name}.png")), picture.as_bytes(), picture.width, picture.height, image::ColorType::Rgba8).unwrap();
+            (picture, compiled)
         };
         let (mut prefs, _) = open_prefs("headless-shots");
         click(&mut prefs, 220, 55);
@@ -2436,7 +2587,7 @@ mod tests {
         // Base UI scale changed and previewed.
         prefs.tab = TAB_RESOLUTION.into();
         click(&mut prefs, 218, 231);
-        click(&mut prefs, 621, 230);
+        click(&mut prefs, 561, 231);
         prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
         shot(&prefs, "tab-resolution-base-preview");
         // Accessibility sliders changed: their undo buttons.
@@ -2496,6 +2647,51 @@ mod tests {
         prefs.project_settings();
         prefs.route(vec![Input::MouseMove { x: 100, y: 540 }], (1024, 768));
         shot(&prefs, "zoom-keep-mouse-out-disabled-tooltip");
+        // The eye buttons: offered for three changes (Base UI scale,
+        // Windowed, Scale menus), their tooltips, then two previewing.
+        let (mut prefs, _) = open_prefs("headless-eyes");
+        let away = |prefs: &mut Prefs| { prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768)); };
+        click(&mut prefs, 220, 55);
+        away(&mut prefs);
+        shot(&prefs, "eyes-none-unchanged");
+        click(&mut prefs, 218, 231);
+        click(&mut prefs, 610, 232);
+        click(&mut prefs, 100, 347);
+        away(&mut prefs);
+        shot(&prefs, "eyes-offered");
+        prefs.route(vec![Input::MouseMove { x: 711, y: 231 }], (1024, 768));
+        shot(&prefs, "eye-tooltip-preview");
+        click(&mut prefs, 561, 231);
+        click(&mut prefs, 711, 231);
+        answer(&mut prefs, true);
+        away(&mut prefs);
+        shot(&prefs, "eyes-previewing-base-and-windowed");
+        prefs.route(vec![Input::MouseMove { x: 711, y: 231 }], (1024, 768));
+        shot(&prefs, "eye-tooltip-end-preview");
+        // Kept across a tab change: on the Layout tab, then back.
+        click(&mut prefs, 330, 55);
+        away(&mut prefs);
+        shot(&prefs, "previewing-on-layout-tab");
+        click(&mut prefs, 220, 55);
+        away(&mut prefs);
+        let (picture, compiled) = shot(&prefs, "previewing-kept-after-tab-switch");
+        // The viewer's confirmation over it: at its size in a large window
+        // (1×, 2× desktop), and filling a small one by width or by height.
+        for (window, desktop, name) in [((1920u32, 1080u32), 1.0, "confirm-1920x1080"), ((3258, 1904), 2.0, "confirm-3258x1904-hidpi"),
+            ((1366, 768), 1.0, "confirm-1366x768"), ((640, 480), 1.0, "confirm-640x480-fills-width"), ((1280, 280), 1.0, "confirm-1280x280-fills-height")] {
+            let (camera, sprites) = tile_viewer::settings_preview::compose(&compiled, window, desktop, 7, 0);
+            let mut world = tile_viewer::scene_world(&compiled, &scene::Scene::default());
+            world.free = sprites;
+            let dialog = tile_render::reference::render(&world, &compiled.atlas, &camera, 0, [0, 0, 0, 0]);
+            let mut out = image::RgbaImage::new(window.0, window.1);
+            for (x, y, px) in out.enumerate_pixels_mut() {
+                let d = dialog.pixels[(y * window.0 + x) as usize];
+                // The Preferences picture stretched to the window behind it.
+                let (sx, sy) = (x * picture.width / window.0, y * picture.height / window.1);
+                *px = image::Rgba(if d[3] > 0 { d } else { picture.pixels[(sy * picture.width + sx) as usize] });
+            }
+            out.save(directory.join(format!("{name}.png"))).unwrap();
+        }
     }
 
 
@@ -2582,7 +2778,7 @@ mod tests {
     fn assert_projected(prefs: &Prefs, accepted: &Settings, what: &str) {
         for (key, drafted) in prefs.editing().controls() {
             let shown = prefs.settings().control(&key);
-            let previewed = key == "resolution.base_ui_scale" && prefs.base_preview;
+            let previewed = prefs.previews.keys().any(|kind| kind.controls().contains(&key.as_str()));
             if DEFERRED_CONTROLS.contains(&key.as_str()) && !previewed {
                 assert_eq!(shown, accepted.control(&key), "{what}: {key} waits for Accept");
             } else {
@@ -2596,7 +2792,9 @@ mod tests {
             let (n, d) = tile_viewer::scaling::times(p.menu.zoom, p.present.zoom);
             n as f64 / d as f64
         };
-        assert!((menu(prefs.settings()) / menu(accepted) - 1.0).abs() < 0.01, "{what}: the dialog keeps its size");
+        if !prefs.previews.contains_key(&Previewed::Menus) {
+            assert!((menu(prefs.settings()) / menu(accepted) - 1.0).abs() < 0.01, "{what}: the dialog keeps its size");
+        }
     }
 
     /// Clicks or slides every control the panel shows on every renderer
@@ -2690,24 +2888,22 @@ mod tests {
 
     #[test]
     fn base_ui_preview_button_shows_the_draft_base_behind_a_fixed_dialog() {
-        let button = |p: &Prefs| p.draws(&Fonts::default()).iter().find_map(|d| match d {
-            Draw::Text(t) if t.text == "Preview" || t.text == "Stop preview" => Some(t.text.clone()),
-            _ => None,
-        });
         let plan = |s: &Settings| tile_viewer::scaling::plan((2048, 1536), (1024, 768), &s.resolution);
         for end in ["again", "tab", "cancel", "undo", "accept"] {
             let (mut prefs, path) = open_prefs(&format!("base-preview-{end}"));
             click(&mut prefs, 220, 55);
             let accepted = prefs.settings().clone();
             let rects = |p: &Prefs| p.looks(&Fonts::default()).iter().filter(|l| l.rect[1] >= 79 && l.rect[0] < 500).map(|l| l.rect).collect::<Vec<_>>();
-            assert_eq!(button(&prefs).as_deref(), Some("Preview"));
+            assert_eq!(eye(&prefs), None, "no change: no eye");
             click(&mut prefs, 218, 231);
             assert_eq!(prefs.editing().resolution.base_ui_scale, 2.5);
             assert_eq!(prefs.settings().resolution.base_ui_scale, accepted.resolution.base_ui_scale, "waits for Preview");
+            assert_eq!(eye(&prefs), Some("Preview"));
             let before = rects(&prefs);
-            click(&mut prefs, 621, 230);
-            assert!(prefs.base_preview);
-            assert_eq!(button(&prefs).as_deref(), Some("Stop preview"));
+            click(&mut prefs, 561, 231);
+            assert!(prefs.previews.contains_key(&Previewed::Base));
+            assert!(prefs.settings_preview().is_none(), "the base asks no timed confirmation");
+            assert_eq!(eye(&prefs), Some("End preview"));
             assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), 2.5);
             assert_eq!(plan(prefs.settings()).menu, plan(&accepted).menu, "the dialog keeps its size");
             assert_ne!(plan(prefs.settings()).frame, plan(&accepted).frame, "the game behind it scales");
@@ -2718,20 +2914,28 @@ mod tests {
             assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), 3.0);
             assert!(!path.exists());
             match end {
-                "again" => { click(&mut prefs, 621, 230); }
-                "tab" => { click(&mut prefs, 330, 55); }
+                "again" => { click(&mut prefs, 561, 231); }
+                "tab" => {
+                    // Other tabs keep it on; back on Resolution it still shows.
+                    click(&mut prefs, 330, 55);
+                    assert!(prefs.previews.contains_key(&Previewed::Base), "a tab change keeps the preview");
+                    assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), 3.0);
+                    click(&mut prefs, 220, 55);
+                    assert_eq!(eye(&prefs), Some("End preview"));
+                    click(&mut prefs, 561, 231);
+                }
                 "cancel" => {
                     key(&mut prefs, VK_ESCAPE);
-                    assert!(!prefs.base_preview);
-                    assert_eq!(prefs.settings(), &accepted);
+                    assert!(prefs.previews.contains_key(&Previewed::Base), "on while asking to discard");
                     key(&mut prefs, 0x59);
+                    assert_eq!(prefs.settings(), &accepted);
                 }
                 "undo" => {
                     click(&mut prefs, 531, 231);
                     assert_eq!(prefs.editing().resolution.base_ui_scale, accepted.resolution.base_ui_scale);
-                    assert!(prefs.base_preview, "undo keeps the preview on, now of the accepted base");
+                    assert!(prefs.previews.contains_key(&Previewed::Base), "undo keeps the preview on, now of the accepted base");
                     assert_eq!(prefs.settings().resolution.effective_base_ui_scale(), accepted.resolution.base_ui_scale);
-                    click(&mut prefs, 621, 230);
+                    click(&mut prefs, 561, 231);
                 }
                 _ => {
                     key(&mut prefs, VK_RETURN);
@@ -2741,12 +2945,186 @@ mod tests {
                     continue;
                 }
             }
-            assert!(!prefs.base_preview, "{end} ends the preview");
+            assert!(!prefs.previews.contains_key(&Previewed::Base), "{end} ends the preview");
             assert_eq!(prefs.settings().resolution.base_ui_scale, accepted.resolution.base_ui_scale, "{end}");
             assert_eq!(prefs.settings().resolution.menu_base_ui_scale, None, "{end}");
-            if end != "cancel" { assert_eq!(button(&prefs).as_deref().filter(|_| prefs.tab == TAB_RESOLUTION), if end == "tab" { None } else { Some("Preview") }); }
+            if end != "cancel" { assert_eq!(eye(&prefs), if end == "undo" { None } else { Some("Preview") }, "{end}"); }
             assert!(!path.exists());
         }
+    }
+
+
+    /// The viewer's answer to the confirmation now asked.
+    fn answer(prefs: &mut Prefs, keep: bool) {
+        let p = prefs.settings_preview().expect("a confirmation asked");
+        prefs.route(vec![Input::SettingsPreviewDecision { session: p.session, id: p.id, keep }], (1024, 768));
+        assert!(prefs.settings_preview().is_none());
+    }
+
+    #[test]
+    fn eye_buttons_show_only_for_unapplied_changes() {
+        let (mut p, path) = open_prefs("eyes");
+        click(&mut p, 220, 55);
+        let offered = |p: &Prefs| Previewed::ALL.into_iter().filter(|k| p.values()[&format!("{PREVIEW_OFFERED}{}", k.name())] == Value::On(true)).collect::<Vec<_>>();
+        assert_eq!((eye(&p), offered(&p)), (None, vec![]));
+        // Windowed: drafted, not applied, its eye only.
+        click(&mut p, 610, 232);
+        assert!(p.editing().display.windowed);
+        assert!(!p.settings().display.windowed, "waits for its eye or OK");
+        assert_eq!((eye(&p), offered(&p)), (Some("Preview"), vec![Previewed::Windowed]));
+        click(&mut p, 610, 232);
+        assert_eq!((eye(&p), offered(&p)), (None, vec![]));
+        // The menu size: Scale menus, then its percentage undone.
+        click(&mut p, 100, 347);
+        assert_eq!((eye(&p), offered(&p)), (Some("Preview"), vec![Previewed::Menus]));
+        click(&mut p, 100, 347);
+        assert_eq!((eye(&p), offered(&p)), (None, vec![]));
+        // (Not on other tabs.)
+        click(&mut p, 610, 232);
+        click(&mut p, 330, 55);
+        assert_eq!(eye(&p), None);
+        assert!(!path.exists());
+    }
+
+    /// Windowed and the menu size: their eye shows the draft at once and
+    /// asks the timed confirmation; reverting (the user's, or its timeout)
+    /// restores the draft; kept, the preview stays on across tabs until OK
+    /// saves it or Cancel reverts it.
+    #[test]
+    fn risky_previews_confirm_survive_tabs_and_end_with_ok_or_cancel() {
+        use scene::PreviewValue;
+        let windowed = |s: &Settings| s.display.windowed;
+        let menus = |s: &Settings| s.resolution.scale_menus;
+        for (kind, control, eye_at, shown) in [
+            (Previewed::Windowed, (610, 232), (711, 231), windowed as fn(&Settings) -> bool),
+            (Previewed::Menus, (100, 347), (801, 345), menus),
+        ] {
+            for end in ["revert", "ok", "cancel", "closed"] {
+                let what = format!("{kind:?} {end}");
+                let (mut p, path) = open_prefs(&format!("risky-{}-{end}", kind.name()));
+                click(&mut p, 220, 55);
+                let accepted = p.settings().clone();
+                click(&mut p, control.0, control.1);
+                assert!(shown(p.editing()) && !shown(p.settings()), "{what}: drafted only");
+                click(&mut p, eye_at.0, eye_at.1);
+                let lease = p.settings_preview().expect("a timed confirmation");
+                let expected = match kind {
+                    Previewed::Windowed => (PreviewValue::Windowed(true), PreviewValue::Windowed(false)),
+                    _ => (PreviewValue::menus(true, accepted.resolution.menu_scale_percent), PreviewValue::menus(false, accepted.resolution.menu_scale_percent)),
+                };
+                assert_eq!((lease.value, lease.previous), expected, "{what}");
+                assert!(shown(p.settings()), "{what}: shown while asking");
+                // The panel waits for the answer.
+                click(&mut p, 330, 55);
+                assert_eq!(p.tab, TAB_RESOLUTION, "{what}");
+                if end == "revert" {
+                    answer(&mut p, false);
+                    assert!(!shown(p.editing()) && !shown(p.settings()), "{what}: the draft reverts too");
+                    assert!(p.previews.is_empty());
+                    assert_eq!(eye(&p), None, "{what}: no change left");
+                    key(&mut p, VK_RETURN);
+                    assert!(!path.exists(), "{what}: nothing to save");
+                    continue;
+                }
+                answer(&mut p, true);
+                assert!(shown(p.settings()), "{what}: kept");
+                assert_eq!(eye(&p), Some("End preview"), "{what}");
+                // Every other tab keeps it.
+                for (x, tab) in [(330, TAB_LAYOUT), (440, TAB_CLEAN_MAP), (550, TAB_ZOOM), (680, TAB_ACCESSIBILITY), (110, TAB_GAME)] {
+                    click(&mut p, x, 55);
+                    assert_eq!(p.tab, tab);
+                    assert!(p.previews.contains_key(&kind) && shown(p.settings()), "{what}: {tab} keeps the preview");
+                }
+                click(&mut p, 220, 55);
+                assert_eq!(eye(&p), Some("End preview"), "{what}");
+                assert!(!path.exists());
+                match end {
+                    "ok" => {
+                        key(&mut p, VK_RETURN);
+                        assert!(shown(p.settings()), "{what}");
+                        assert!(shown(&Settings::load(&path).unwrap()), "{what}: saved");
+                        assert!(p.previews.is_empty());
+                    }
+                    "cancel" => {
+                        key(&mut p, VK_ESCAPE);
+                        assert!(shown(p.settings()), "{what}: on while asking to discard");
+                        key(&mut p, 0x59);
+                        assert_eq!(p.settings(), &accepted, "{what}");
+                        assert!(!path.exists());
+                    }
+                    _ => {
+                        p.update(None, None, (1024, 768), None);
+                        assert_eq!(p.settings(), &accepted, "{what}");
+                        assert!(!path.exists());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Previewing another value while one is kept asks again; reverting it
+    /// goes back to the kept one, still previewed. Ending a preview, or
+    /// undoing its change, shows the accepted value with no question.
+    #[test]
+    fn a_second_risky_preview_reverts_to_the_first_and_ending_asks_nothing() {
+        use scene::PreviewValue;
+        let (mut p, _) = open_prefs("risky-second");
+        click(&mut p, 220, 55);
+        click(&mut p, 100, 347);
+        click(&mut p, 801, 345);
+        answer(&mut p, true);
+        let percent = p.editing().resolution.menu_scale_percent;
+        p.draft.as_mut().unwrap().resolution.menu_scale_percent = 50.0;
+        p.project_settings();
+        p.state.values = p.values();
+        assert_eq!(p.settings().resolution.menu_scale_percent, percent, "the preview keeps its value while the slider moves");
+        assert_eq!(eye(&p), Some("Preview"), "the new value can be previewed");
+        click(&mut p, 801, 345);
+        let lease = p.settings_preview().unwrap();
+        assert_eq!((lease.value, lease.previous), (PreviewValue::menus(true, 50.0), PreviewValue::menus(true, percent)));
+        answer(&mut p, false);
+        assert_eq!(p.editing().resolution.menu_scale_percent, percent);
+        assert_eq!(p.previews.get(&Previewed::Menus), Some(&Some(PreviewValue::menus(true, percent))));
+        assert_eq!(eye(&p), Some("End preview"));
+        click(&mut p, 801, 345);
+        assert!(p.settings_preview().is_none() && p.previews.is_empty());
+        assert!(!p.settings().resolution.scale_menus);
+        assert_eq!(eye(&p), Some("Preview"), "still drafted");
+        // Toggled back: the change and its preview gone.
+        click(&mut p, 801, 345);
+        answer(&mut p, true);
+        click(&mut p, 100, 347);
+        assert!(p.previews.is_empty() && p.settings_preview().is_none());
+        assert_eq!(eye(&p), None);
+    }
+
+    /// The window mode the viewer started in shows as the setting (not
+    /// saved), and the saved setting chooses it at the next start.
+    #[test]
+    fn windowed_follows_the_launch_and_is_saved_for_the_next() {
+        let (mut p, path) = open_prefs("launched");
+        assert!(!saved_windowed(&path));
+        p.launched(true);
+        assert!(!p.settings().display.windowed);
+        p.launched(false);
+        assert!(p.settings().display.windowed && p.editing().display.windowed);
+        assert!(!path.exists(), "a launch is not saved");
+        // Fullscreen chosen and accepted: saved for the next start.
+        click(&mut p, 220, 55);
+        click(&mut p, 610, 232);
+        assert!(!p.editing().display.windowed);
+        key(&mut p, VK_RETURN);
+        assert!(!saved_windowed(&path));
+        let mut saved = Settings::load(&path).unwrap();
+        saved.display.windowed = true;
+        saved.save(&path).unwrap();
+        assert!(saved_windowed(&path));
+        assert!(Prefs::load(path.clone()).settings().display.windowed);
+    }
+    /// The eye button shown on the Resolution tab, if one is: its tooltip.
+    fn eye(p: &Prefs) -> Option<&'static str> {
+        let draws = format!("{:?}", p.draws(&Fonts::default()));
+        if draws.contains("eye_end_icon") { Some("End preview") } else if draws.contains("eye_icon") { Some("Preview") } else { None }
     }
 
     #[test]
@@ -3420,7 +3798,7 @@ mod tests {
         assert_eq!(prefs.draws(&fonts), before_draws);
         assert!(click(&mut prefs, 232, 170).is_empty());
         assert_eq!(prefs.settings().resolution.pixel_scale, 3);
-        assert_eq!(prefs.settings_preview().unwrap().pixel_scale, 3);
+        assert_eq!(prefs.settings_preview().unwrap().value, scene::PreviewValue::PixelScale(3));
         let complete = prefs.draws(&fonts);
         assert!(complete.iter().any(|draw| matches!(draw, Draw::Text(t) if t.text == "Rendered at 341×256")));
         assert!(prefs.looks(&fonts).iter().find(|look| look.id == old.id).unwrap().shown.selected);
@@ -3547,11 +3925,11 @@ mod tests {
         click(&mut p,220,55);
         click(&mut p,232,170);
         let first = p.settings_preview().unwrap();
-        assert_eq!(first.pixel_scale,3);
+        assert_eq!(first.value,scene::PreviewValue::PixelScale(3));
         p.route(vec![Input::SettingsPreviewDecision {session:first.session,id:first.id,keep:true}], (1024,768));
         click(&mut p,298,170);
         let second = p.settings_preview().unwrap();
-        assert_eq!((second.previous_pixel_scale,second.pixel_scale),(3,4));
+        assert_eq!((second.previous,second.value),(scene::PreviewValue::PixelScale(3),scene::PreviewValue::PixelScale(4)));
         p.route(vec![Input::SettingsPreviewDecision {session:second.session,id:second.id,keep:false}], (1024,768));
         assert_eq!(p.settings().resolution.pixel_scale,3);
         p.action("accept", &mut Vec::new());
