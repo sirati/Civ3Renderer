@@ -15,6 +15,9 @@
 
 use crate::blit::{BlitCall, MAX_BLIT_ARGS, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 use crate::draw::{CopyCall, FillCall, MAX_ARGS, Surface};
+use crate::present::PresentCall;
+use crate::surface::SurfaceCall;
+use crate::slots::Class;
 use crate::{FontId, ImageId, Rect};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -75,6 +78,14 @@ pub enum Op {
     SetScale = 23,
     /// A colour table slot (`TableCall`): the call's slot in the first field.
     Table = 24,
+    /// Graphics +0x30 (`PresentCall::Invalidate`).
+    Invalidate = 26,
+    /// Graphics +0xA4 (`PresentCall::Present`).
+    Present = 27,
+    /// A factory, graphics +0x74..+0x80 (`SurfaceCall::Created`).
+    Created = 28,
+    /// A delete, graphics +0x88..+0x94 (`SurfaceCall::Deleted`).
+    Deleted = 29,
 }
 
 impl Op {
@@ -105,6 +116,10 @@ impl Op {
             23 => Op::SetScale,
             24 => Op::Table,
             25 => Op::SpriteClear,
+            26 => Op::Invalidate,
+            27 => Op::Present,
+            28 => Op::Created,
+            29 => Op::Deleted,
             _ => return None,
         })
     }
@@ -131,6 +146,8 @@ pub enum Record<'a> {
     Sprite(SpriteCall),
     SetScale(Scale),
     Table(TableCall),
+    Present(PresentCall),
+    Surface(SurfaceCall),
 }
 
 /// The longest tail a record keeps (`text_out` lengths are clamped to it,
@@ -205,6 +222,8 @@ impl Writer {
                 self.put(Op::SetScale, f.get(), &[]);
             }
             Record::Table(call) => self.table(&call),
+            Record::Present(call) => self.present(&call),
+            Record::Surface(call) => self.surface(&call),
         }
     }
 
@@ -303,6 +322,28 @@ impl Writer {
             TableCall::Slot20 { table, arg } => f.push(0x20).table(table).push(arg),
         };
         self.put(Op::Table, f.get(), &[]);
+    }
+
+    fn surface(&mut self, c: &SurfaceCall) {
+        match *c {
+            SurfaceCall::Created { class, object, owner, arg, ours } => self.put(Op::Created, &[class.index(), object, owner, arg, u32::from(ours)], &[]),
+            SurfaceCall::Deleted { class, object } => self.put(Op::Deleted, &[class.index(), object], &[]),
+        }
+    }
+
+    fn present(&mut self, c: &PresentCall) {
+        let mut f = Fields::new();
+        let op = match *c {
+            PresentCall::Invalidate { rect } => {
+                f.opt_rect(rect);
+                Op::Invalidate
+            }
+            PresentCall::Present { rect, back } => {
+                f.opt_rect(rect).opt_surface(back);
+                Op::Present
+            }
+        };
+        self.put(op, f.get(), &[]);
     }
 }
 
@@ -454,6 +495,8 @@ fn decode(op: Op, body: &[u8]) -> Option<Record<'_>> {
         Op::SpriteInit | Op::SpriteDuplicate | Op::SpriteSetTable | Op::SpriteSetKey | Op::SpriteClear => Record::Sprite(sprite(op, &mut Cursor { body, at: 0 })?),
         Op::SetScale => Record::SetScale(Cursor { body, at: 0 }.scale()?),
         Op::Table => Record::Table(table(&mut Cursor { body, at: 0 })?),
+        Op::Invalidate | Op::Present => Record::Present(present(op, &mut Cursor { body, at: 0 })?),
+        Op::Created | Op::Deleted => Record::Surface(surface(op, &mut Cursor { body, at: 0 })?),
     })
 }
 
@@ -520,6 +563,23 @@ impl Cursor<'_> {
         }
         Some(out)
     }
+}
+
+fn surface(op: Op, c: &mut Cursor<'_>) -> Option<SurfaceCall> {
+    let class = Class::from_index(c.word()?)?;
+    Some(match op {
+        Op::Created => SurfaceCall::Created { class, object: c.word()?, owner: c.word()?, arg: c.word()?, ours: c.word()? != 0 },
+        Op::Deleted => SurfaceCall::Deleted { class, object: c.word()? },
+        _ => return None,
+    })
+}
+
+fn present(op: Op, c: &mut Cursor<'_>) -> Option<PresentCall> {
+    Some(match op {
+        Op::Invalidate => PresentCall::Invalidate { rect: c.opt_rect()? },
+        Op::Present => PresentCall::Present { rect: c.opt_rect()?, back: c.opt_surface()? },
+        _ => return None,
+    })
 }
 
 fn fill(op: Op, c: &mut Cursor<'_>) -> Option<FillCall> {
@@ -658,6 +718,13 @@ mod tests {
             Record::Table(TableCall::Animate { table: TableRef::default() }),
             Record::Table(TableCall::SetColors { table: TableRef::default(), first: 0, count: 256, colors: 0x6000 }),
             Record::Table(TableCall::Slot20 { table: TableRef::default(), arg: 7 }),
+            Record::Present(PresentCall::Invalidate { rect: None }),
+            Record::Present(PresentCall::Invalidate { rect: Some(Rect::new(0, 0, 1024, 768)) }),
+            Record::Present(PresentCall::Present { rect: None, back: Some(surface(0x2200)) }),
+            Record::Present(PresentCall::Present { rect: Some(Rect::new(3, 4, 5, 6)), back: None }),
+            Record::Surface(SurfaceCall::Created { class: Class::Image, object: 0x2000, owner: 0x3000, arg: 1, ours: true }),
+            Record::Surface(SurfaceCall::Created { class: Class::Font, object: 0x2400, owner: 0x3400, arg: 0, ours: false }),
+            Record::Surface(SurfaceCall::Deleted { class: Class::Sprite, object: 0x4000 }),
         ]
     }
 

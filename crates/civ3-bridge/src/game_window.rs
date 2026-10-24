@@ -138,6 +138,11 @@ fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, 
         Ok(()) => note("display modes: the game's screen is the mode it asks for; the display is never switched (jgl graphics +0x58..+0x60, and its ChangeDisplaySettingsA: shutdown, movies)".into()),
         Err(e) => note(format!("display modes left to jgl: {e}")),
     }
+    // After every other group: our method tables copy what jgl's hold now.
+    match crate::jgl_hooks::install_surface(base) {
+        Ok(()) => note("jgl objects get our method tables (graphics +0x74..+0x80 factories, +0x88..+0x94 deletes taken over)".into()),
+        Err(e) => note(format!("jgl objects keep jgl's method tables: {e}")),
+    }
     if let Some(size) = scale {
         install("CIV3R_SCALE: jgl.dll's GetSystemMetrics", inproc::screen::hook_scaled(base, size), "");
     }

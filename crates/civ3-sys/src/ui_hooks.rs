@@ -67,6 +67,11 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The same `get_pixel` at [`art_presence_site`].
+    pub mod art_presence_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// `void Base_Form::m79_composite(this, RECT *dirty)`: copies the form's
     /// canvas onto the back buffer.
     pub mod form_composite(form, edx; dirty) -> ();
@@ -193,6 +198,18 @@ pub fn graphics_initialized(build: Build) -> bool {
 pub fn keyed_hit_test_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
     match build {
         Build::PcGames => Some((0x60_8FE3, &[0xE8, 0x38, 0x72, 0xFF, 0xFF])),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// At start the game cuts 32×32 sprites from `Art\oldinterface.pcx`
+/// (0x549D60..), draws each into a new 8-bit image (the three `PCX_Image`s
+/// from 0xB3F3E0, 0x2B8 apart) and reads its pixel (0, 0) here, `call
+/// PCX_Image::get_pixel`: 0xFF (the file has nothing there) and it deletes
+/// the image (`docs/rerender-roadmap.md` §4 #5).
+pub fn art_presence_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
+    match build {
+        Build::PcGames => Some((0x54_9FAD, &[0xE8, 0x6E, 0x62, 0x0B, 0x00])),
         Build::Gog | Build::Steam => None,
     }
 }
@@ -633,21 +650,6 @@ mod form_surface_tests {
         let replay = form + L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2;
         assert_eq!(find_form_surface(surfaces, replay, canvas, 0x66_E838).map(|s| s.name), Some("replay-map"));
     }
-}
-
-inproc::fastcall_hook! {
-    /// jgl.dll `graphics::present(this, RECT *r)` (vtable slot +0xA4):
-    /// `BitBlt`s the back buffer's rectangle `r` (all of it if null) to the
-    /// window, the last step of the exe's `present` (docs §16.1, §16.5).
-    pub mod jgl_present(graphics, edx; rect) -> i32;
-}
-
-/// The graphics object's vtable slot of `present` in jgl.dll loaded at
-/// `base`, and the function expected there (vtable at RVA 0x685F8, the
-/// function at RVA 0x3BAA0). jgl.dll is relocated under Wine: use its
-/// load address, not 0x10000000.
-pub fn jgl_present_slot(base: u32) -> (Ptr32<u32>, u32) {
-    (Ptr32::new(base + 0x6_85F8 + 0xA4), base + 0x3_BAA0)
 }
 
 inproc::fastcall_hook! {
