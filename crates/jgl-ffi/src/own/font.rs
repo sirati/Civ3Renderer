@@ -62,6 +62,15 @@ pub extern "thiscall" fn scalar_delete(this: u32, flags: u32) -> u32 {
     this
 }
 
+/// Deletes the GDI font of `this` (the compare mode's copies).
+pub(crate) fn forget(this: u32) {
+    let font = field(this, HFONT);
+    if font != 0 {
+        // SAFETY: the HFONT our `create` made for the copy.
+        unsafe { gdi::DeleteObject(font as usize as gdi::HGDIOBJ) };
+    }
+}
+
 /// The NUL-terminated string at `at`.
 fn c_str(at: u32) -> Vec<u8> {
     // SAFETY: the game's string, read as jgl reads it (unchecked, to its

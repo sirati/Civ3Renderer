@@ -8,6 +8,7 @@ version.workspace = true
 [dependencies]
 jgl = { path = "../jgl" }
 inproc = { path = "../inproc" }
+handoff = { path = "../handoff" }
 log.workspace = true
 thiserror.workspace = true
 

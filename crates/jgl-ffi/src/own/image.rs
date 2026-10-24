@@ -113,6 +113,11 @@ fn alloc_pixels(this: u32, len: usize) -> u32 {
     p as usize as u32
 }
 
+/// Lets go of the pixels of ours of `this` (the compare mode's copies).
+pub(crate) fn forget(this: u32) {
+    free_pixels(this);
+}
+
 /// The index image `this`'s bytes, if it is one with pixels.
 fn indexed<R>(this: u32, f: impl FnOnce(Indexed<'_>) -> R) -> Option<R> {
     if field(this, BITS) != 8 {
