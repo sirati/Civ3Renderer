@@ -1252,7 +1252,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
-    hook_jgl(jgl, &mut hooks)?;
+    hook_jgl(jgl)?;
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1283,23 +1283,17 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
 
 
 /// Install jgl capture synchronously at the known loaded base. Present
-/// always has a hook, including drawing-ON startup, and checks suppression
-/// dynamically so restoring the original renderer takes effect immediately.
-fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result<(), HookError> {
-    let check = |(slot, expected): (inproc::Ptr32<u32>, u32)| -> Result<inproc::Ptr32<u32>, HookError> {
-        let found = slot.read()?;
-        if found != expected {
-            return Err(HookError::UnexpectedCode { addr: slot.raw(), found: found.to_le_bytes().to_vec(), expected: expected.to_le_bytes().to_vec() });
-        }
-        Ok(slot)
-    };
-    let present_slot = check(h::jgl_present_slot(base))?;
+/// is always taken over, including drawing-ON startup, and asks whether to
+/// skip at each call, so restoring the original renderer takes effect
+/// immediately.
+fn hook_jgl(base: u32) -> Result<(), HookError> {
     // Fills, lines, shades and copies: jgl's own method groups, taken over.
     crate::jgl_hooks::install_fill(base)?;
     crate::jgl_hooks::install_copy(base)?;
     // Sprite blits, their state and the colour tables: the sprite group.
     crate::jgl_hooks::install_blit(base)?;
-    hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| audit_call(PixelClass::Present, skipping(), || c.original()))?));
+    // Invalidate and present.
+    crate::jgl_hooks::install_present(base)?;
     Ok(())
 }
 

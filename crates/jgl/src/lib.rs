@@ -22,13 +22,15 @@ pub mod display;
 pub mod draw;
 pub mod hooks;
 mod machine;
+pub mod present;
 pub mod record;
 pub mod slots;
 pub mod text;
 
 pub use blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 pub use draw::{CopyCall, FillCall, Surface};
-pub use hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, TextDraw, TextHooks};
+pub use hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, PresentHooks, TextDraw, TextHooks};
+pub use present::PresentCall;
 pub use machine::{Consumer, Jgl, Producer};
 pub use text::{FontDesc, TextColor};
 

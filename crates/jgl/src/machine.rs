@@ -10,7 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, compiles};
 use crate::draw::{CopyCall, FillCall};
-use crate::hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, TextDraw, TextHooks};
+use crate::hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, PresentHooks, TextDraw, TextHooks};
+use crate::present::PresentCall;
 use crate::record::{Record, Records, Writer};
 use crate::text::{FontDesc, TextColor, TextState};
 use crate::{FontId, ImageId, Rect};
@@ -152,6 +153,17 @@ impl Producer {
         self.writer.push(&Record::Table(*call));
     }
 
+    /// Returns whether jgl's original is to run: always for
+    /// [`PresentCall::Invalidate`] (the window is jgl's), as the policy
+    /// says for [`PresentCall::Present`].
+    pub fn present(&mut self, call: &PresentCall) -> bool {
+        self.writer.push(&Record::Present(*call));
+        match call {
+            PresentCall::Invalidate { .. } => true,
+            PresentCall::Present { .. } => self.policy.original_present(call),
+        }
+    }
+
     /// The records not yet consumed.
     pub fn pending(&self) -> &[u8] {
         self.writer.bytes()
@@ -166,6 +178,7 @@ pub struct Consumer {
     copy: Box<dyn CopyHooks>,
     blit: Box<dyn BlitHooks>,
     palette: Box<dyn PaletteHooks>,
+    present: Box<dyn PresentHooks>,
     /// Malformed buffers seen (logged once).
     pub errors: u32,
     /// Text records whose image had no state (should not happen: the
@@ -182,6 +195,7 @@ impl Consumer {
             copy: hooks.copy,
             blit: hooks.blit,
             palette: hooks.palette,
+            present: hooks.present,
             errors: 0,
             stateless: 0,
         }
@@ -242,6 +256,7 @@ impl Consumer {
             Record::Sprite(call) => self.blit.sprite(&call),
             Record::SetScale(scale) => self.blit.scale(&scale),
             Record::Table(call) => self.palette.table(&call),
+            Record::Present(call) => self.present.present(&call),
         }
     }
 }
@@ -379,6 +394,30 @@ mod tests {
         let out = out.borrow();
         assert_eq!((out[0].scale.den, out[0].scale.set_at, out[0].sprite.compiled), (2, 7, true));
         assert!(!out[1].sprite.compiled);
+    }
+
+    #[test]
+    fn present_asks_the_policy_invalidate_always_runs() {
+        use crate::present::PresentCall;
+        struct Seen(Rc<RefCell<Vec<PresentCall>>>);
+        impl PresentHooks for Seen {
+            fn present(&mut self, c: &PresentCall) {
+                self.0.borrow_mut().push(*c);
+            }
+        }
+        struct NoPresent;
+        impl PixelPolicy for NoPresent {
+            fn original_present(&self, _: &PresentCall) -> bool {
+                false
+            }
+        }
+        let out = Rc::new(RefCell::new(Vec::new()));
+        let mut j = Jgl::new(Hooks { present: Box::new(Seen(out.clone())), policy: Box::new(NoPresent), ..Hooks::default() }, system());
+        let inv = PresentCall::Invalidate { rect: Some(Rect::new(1, 2, 3, 4)) };
+        let pre = PresentCall::Present { rect: None, back: None };
+        assert!(j.with(|p| p.present(&inv)));
+        assert!(!j.with(|p| p.present(&pre)));
+        assert_eq!(*out.borrow(), [inv, pre]);
     }
 
     #[test]
