@@ -308,14 +308,32 @@ fn system_cursor(files: &GameFiles, spec: &str) -> Result<RgbaImage, String> {
         render_errors::report(render_errors::Kind::MissingSprite, "a system cursor image, left clear", format_args!("{e}"));
         crate::syscursor::CursorImage { width: 0, height: 0, rgba: Vec::new(), hotspot: (0, 0) }
     });
-    Ok(RgbaImage::from_fn(size, size, |x, y| {
-        if x < c.width && y < c.height {
-            let i = ((y * c.width + x) * 4) as usize;
+    Ok(centred(&c, size))
+}
+
+/// Cursor `c`'s visible pixels centred in a `size`×`size` image (cut if
+/// larger), so that turning the image turns the cursor in place: Wine's
+/// hourglass is already centred in its cell, Windows' sits at the top left
+/// of its own.
+fn centred(c: &crate::syscursor::CursorImage, size: u32) -> RgbaImage {
+    let alpha = |x: u32, y: u32| c.rgba[((y * c.width + x) * 4 + 3) as usize];
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+    for y in 0..c.height {
+        for x in (0..c.width).filter(|&x| alpha(x, y) != 0) {
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+        }
+    }
+    let shift = |lo: u32, hi: u32| if lo >= hi { 0 } else { (size as i64 - (hi - lo) as i64).div_euclid(2) - lo as i64 };
+    let (dx, dy) = (shift(x0, x1), shift(y0, y1));
+    RgbaImage::from_fn(size, size, |x, y| {
+        let (sx, sy) = (x as i64 - dx, y as i64 - dy);
+        if (0..c.width as i64).contains(&sx) && (0..c.height as i64).contains(&sy) {
+            let i = ((sy as u32 * c.width + sx as u32) * 4) as usize;
             [c.rgba[i], c.rgba[i + 1], c.rgba[i + 2], c.rgba[i + 3]]
         } else {
             [0; 4]
         }
-    }))
+    })
 }
 
 fn font_spec(spec: &str) -> Result<(crate::fonts::FontStyle, [u8; 3], Option<[u8; 3]>), String> {
@@ -586,5 +604,48 @@ mod tests {
         assert_eq!(out.get(3, 0), [0; 4]);
         assert_eq!(font_spec("Lucida Sans/12/0,0,0/0/0/on=255,0,255").unwrap().2, Some([255, 0, 255]));
         assert_eq!(font_spec("Lucida Sans/12/0,0,0/0/0").unwrap().2, None);
+    }
+}
+
+#[cfg(test)]
+mod system_cursor_tests {
+    use super::centred;
+    use crate::syscursor::CursorImage;
+
+    /// A `w`×`h` cursor opaque in `[x0, y0, x1, y1)`.
+    fn block(w: u32, h: u32, [x0, y0, x1, y1]: [u32; 4]) -> CursorImage {
+        let rgba = (0..w * h).flat_map(|i| {
+            let (x, y) = (i % w, i / w);
+            if (x0..x1).contains(&x) && (y0..y1).contains(&y) { [x as u8, y as u8, 0, 255] } else { [0; 4] }
+        }).collect();
+        CursorImage { width: w, height: h, rgba, hotspot: (0, 0) }
+    }
+
+    fn opaque_bounds(image: &tile_render::RgbaImage) -> [u32; 4] {
+        let mut b = [u32::MAX, u32::MAX, 0, 0];
+        for y in 0..image.height {
+            for x in (0..image.width).filter(|&x| image.get(x, y)[3] != 0) {
+                b = [b[0].min(x), b[1].min(y), b[2].max(x + 1), b[3].max(y + 1)];
+            }
+        }
+        b
+    }
+
+    /// Windows' hourglass (13×22 at the top left of its 32×32 cell) turns
+    /// in place like Wine's (13×23, already centred), which stays as it is.
+    #[test]
+    fn a_system_cursor_is_centred_in_its_image() {
+        let windows = centred(&block(32, 32, [4, 0, 17, 22]), 32);
+        assert_eq!(opaque_bounds(&windows), [9, 5, 22, 27]);
+        assert_eq!(windows.get(9, 5), [4, 0, 0, 255], "pixels move whole");
+        let wine = centred(&block(32, 32, [9, 4, 22, 27]), 32);
+        assert_eq!(opaque_bounds(&wine), [9, 4, 22, 27]);
+        // Larger than the image: cut about its middle; clear: clear.
+        assert_eq!(opaque_bounds(&centred(&block(48, 48, [0, 0, 48, 48]), 32)), [0, 0, 32, 32]);
+        assert_eq!(centred(&block(48, 48, [0, 0, 48, 48]), 32).get(0, 0), [8, 8, 0, 255]);
+        let clear = centred(&block(32, 32, [0, 0, 0, 0]), 32);
+        assert!((0..32).all(|y| (0..32).all(|x| clear.get(x, y) == [0; 4])));
+        let none = centred(&CursorImage { width: 0, height: 0, rgba: vec![], hotspot: (0, 0) }, 32);
+        assert_eq!((none.width, none.height, none.get(16, 16)), (32, 32, [0; 4]));
     }
 }
