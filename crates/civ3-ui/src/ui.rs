@@ -541,6 +541,11 @@ impl UiModel {
                     if !(inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)) {
                         continue;
                     }
+                    // A surface the game draws itself (the minimap): its pixels are
+                    // the game's, not the model's; drawn there.
+                    if self.generated.contains(image) && !self.canvases.contains_key(image) {
+                        return Shown::Unknown;
+                    }
                     match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1) {
                         Shown::Nothing => continue,
                         shown => return shown,
@@ -1621,6 +1626,11 @@ mod tests {
         assert_eq!(m.shown_at(300, 8, 8, &file), Shown::Rgb([255, 0, 0]));
         assert_eq!(m.shown_at(300, 20, 20, &|_: &str, _, _, _| None), Shown::Unknown);
         assert_eq!(m.shown_at(301, 0, 0, &file), Shown::NotMirrored);
+        // A copy of a surface the game draws itself: drawn.
+        m.add_generated(500);
+        m.apply(Event::Size { image: 500, size: (20, 20) });
+        m.apply(Event::Copy { from: 500, src: [0, 0, 20, 20], canvas: 300, x: 20, y: 20, keyed: false });
+        assert_eq!(m.shown_at(300, 25, 25, &file), Shown::Unknown);
     }
 
     #[test]
