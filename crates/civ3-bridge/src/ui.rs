@@ -148,6 +148,20 @@ pub enum ScreenDraw {
     Surface { image: u32, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4], size: (i32, i32) },
 }
 
+/// What a canvas shows at a pixel ([`UiModel::shown_at`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Shown {
+    /// A colour (the colour key [`KEY_RGB`] where the canvas is see-through).
+    Rgb([u8; 3]),
+    /// A file whose pixels are not known yet.
+    Unknown,
+    /// Nothing drawn there: on a colour-keyed canvas, see-through (the
+    /// model drops what a fill of the key clears).
+    Nothing,
+    /// A canvas the model has no list of.
+    NotMirrored,
+}
+
 /// A composed screen.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
@@ -165,7 +179,7 @@ pub struct Frame {
 }
 
 /// The game's colour key as 8-bit RGB (0x7C1F).
-const KEY_RGB: [u8; 3] = [255, 0, 255];
+pub const KEY_RGB: [u8; 3] = [255, 0, 255];
 
 /// Longest display list a canvas keeps (older operations are dropped).
 const MAX_OPS: usize = 8192;
@@ -483,6 +497,60 @@ impl UiModel {
         }).collect();
         frame.form_draws.push((canvas, 0..frame.draws.len()));
         Some(frame)
+    }
+
+    /// What `canvas` shows at (x, y) as this model has it, the way the
+    /// viewer draws it: the colour of the topmost draw there with a pixel
+    /// (a file's colour-keyed pixels and text are none; copies from another
+    /// canvas are followed). `file(path, x, y, keyed)` gives a file's pixel:
+    /// `None` not known yet, `Some(None)` transparent. This is what the
+    /// game's own hit test of colour-keyed forms is answered from (it reads
+    /// the canvas's pixel and compares it with the key), now that sprites
+    /// are no longer drawn into the canvases.
+    pub fn shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
+        self.shown_at_depth(canvas, x, y, file, 0)
+    }
+
+    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32) -> Shown {
+        if depth == 0 && !self.sizes.contains_key(&canvas) {
+            return Shown::NotMirrored;
+        }
+        // (A canvas cleared to the colour key has no list: nothing drawn.)
+        let Some(frame) = self.canvas_frame(canvas, 0) else { return Shown::Nothing };
+        let inside = |[rx, ry, w, h]: [i32; 4]| x >= rx && y >= ry && x < rx + w && y < ry + h;
+        let clipped = |[l, t, r, b]: [i32; 4]| x >= l && y >= t && x < r && y < b;
+        for d in frame.draws.iter().rev() {
+            let pixel = match d {
+                ScreenDraw::Fill { rect, rgb, clip, .. } => (inside(*rect) && clipped(*clip)).then_some(Some(Some(*rgb))),
+                ScreenDraw::Image { path, rect, x: dx, y: dy, keyed, clip, mask, .. } => {
+                    (inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)).then(|| file(path, rect[0] + x - dx, rect[1] + y - dy, *keyed || mask.is_some()))
+                }
+                ScreenDraw::Indexed { path, rect, x: dx, y: dy, clip, indices, .. } if indices.resize.is_none() => {
+                    (inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)).then(|| file(path, rect[0] + x - dx, rect[1] + y - dy, true))
+                }
+                ScreenDraw::ResizedImage { path, rect, x: dx, y: dy, size, sample_step, keyed, clip, mask, .. } => (inside([*dx, *dy, size.0, size.1]) && clipped(*clip)).then(|| {
+                    let at = |d: i32, step: u32| ((i64::from(d) * i64::from(step)) >> 16) as i32;
+                    file(path, rect[0] + at(x - dx, sample_step[0]), rect[1] + at(y - dy, sample_step[1]), *keyed || mask.is_some())
+                }),
+                ScreenDraw::Surface { image, rect, x: dx, y: dy, clip, .. } if depth < MAX_DEPTH => {
+                    if !(inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)) {
+                        continue;
+                    }
+                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1) {
+                        Shown::Nothing => continue,
+                        shown => return shown,
+                    }
+                }
+                // Text and the rest: no pixel known here.
+                _ => None,
+            };
+            match pixel {
+                Some(Some(Some(rgb))) => return Shown::Rgb(rgb),
+                Some(None) => return Shown::Unknown,
+                Some(Some(None)) | None => {}
+            }
+        }
+        Shown::Nothing
     }
 
     /// `layer` as it is on the back buffer now, everywhere.
@@ -1532,6 +1600,29 @@ mod tests {
         assert_eq!(run.text, "A long menu label");
         let snapshot = m.snapshot();
         assert_eq!(snapshot.frame(), frame);
+    }
+
+    #[test]
+    fn a_canvas_shows_its_topmost_pixel_for_the_keyed_hit_test() {
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 300, size: (40, 40) });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 40, 40], rgb: KEY_RGB, alpha: 255, clip: None });
+        m.apply(Event::Fill { canvas: 300, rect: [0, 0, 10, 10], rgb: [0, 0, 0], alpha: 255, clip: None });
+        m.apply(Event::Loaded { image: 10, path: "Art/a.pcx".into(), size: (100, 50) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [5, 6, 30, 20] });
+        m.apply(Event::Blit { sprite: 20, canvas: 300, x: 7, y: 8, clip: None, palette: None });
+        // The file: its pixel (x, y) is opaque red where x is even.
+        let file = |path: &str, x: i32, _y: i32, keyed: bool| {
+            assert_eq!(path, "Art/a.pcx");
+            Some((x % 2 == 0 || !keyed).then_some([255, 0, 0]))
+        };
+        assert_eq!(m.shown_at(300, 30, 30, &file), Shown::Nothing, "cleared to the key: nothing drawn");
+        assert_eq!(m.shown_at(300, 2, 2, &file), Shown::Rgb([0, 0, 0]));
+        // (7, 8) is the file's (5, 6): see-through, the fill below shows.
+        assert_eq!(m.shown_at(300, 7, 8, &file), Shown::Rgb([0, 0, 0]));
+        assert_eq!(m.shown_at(300, 8, 8, &file), Shown::Rgb([255, 0, 0]));
+        assert_eq!(m.shown_at(300, 20, 20, &|_: &str, _, _, _| None), Shown::Unknown);
+        assert_eq!(m.shown_at(301, 0, 0, &file), Shown::NotMirrored);
     }
 
     #[test]
