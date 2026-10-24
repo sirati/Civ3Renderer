@@ -2206,7 +2206,7 @@ mod tests {
         let render = |world: &Civ3World, art: &mut UnitArt, host_ms: u32| {
             let mut scene = crate::scene_map::Mapper::new(&compiled).scene(world, &native, (256, 128), 7);
             place(world, &native, art, &compiled, None, &mut UnitMemory::default(), &mut scene);
-            let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+            let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
             renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
             renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, &scene));
             renderer.set_host_tick_ms(host_ms);
@@ -2787,7 +2787,7 @@ group = "smoke"
             assert!(layered.sprites.iter().any(|s| s.blend == scene::SpriteBlend::PaletteAlpha256));
             for downscale in [1, 2] {
                 let cameras = [tile_render::Camera { x: 360 / downscale as i32, y: 32 / downscale as i32, downscale, ..tile_render::Camera::new((160, 160)) }, tile_render::Camera { x: 380 / downscale as i32, y: 48 / downscale as i32, origin: (160, 0), zoom: (3, 2), downscale, ..tile_render::Camera::new((160, 160)) }];
-                let render = |scene: &Scene| { let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm); renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas); renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, scene)); gpu.render_views(&mut renderer, &cameras, (320, 160), 0, [40, 80, 120, 255]) };
+                let render = |scene: &Scene| { let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS); renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas); renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, scene)); gpu.render_views(&mut renderer, &cameras, (320, 160), 0, [40, 80, 120, 255]) };
                 let actual = render(&layered); let expected = render(&independent);
                 assert!(actual == expected, "native painter order, selected{selected:?} move{delta:?} downscale{downscale} view{view:?}");
                 let mut wrong = independent.clone();
@@ -2822,7 +2822,7 @@ group = "smoke"
         let mut art = UnitArt::new(files());
         let desc = format!("{}{}", crate::assets::BUILTIN_DESC, Needed::of(&world, &mut art).description());
         let compiled = crate::assets::compile(&desc, files()).unwrap();
-        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
         let native_a = Civ3View { tile_x: (0, 30), tile_y: (0, 40), ..Default::default() };
         let native_b = Civ3View { camera_x: 4096, camera_y: 256, tile_x: (64, 96), tile_y: (8, 60), ..Default::default() };
@@ -2990,7 +2990,7 @@ group = "smoke"
                 // The GPU draws the same (the grown art as the live view has
                 // it: the art before, then the growth).
                 if let Some(gpu) = &gpu {
-                    let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+                    let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
                     if how == "grown" {
                         renderer.set_atlas(&gpu.device, &gpu.queue, &base_atlas);
                         renderer.grow_atlas(&gpu.device, &gpu.queue, &growth.atlas);
