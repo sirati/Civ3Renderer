@@ -31,6 +31,8 @@ pub enum TakeoverError {
     NoSuchSlot { class: Class, offset: u16 },
     #[error("jgl.dll does not import {0}")]
     NoImport(&'static str),
+    #[error("the text group, whose hooks the other groups use, is not installed")]
+    NoHooks,
     #[error(transparent)]
     Hook(#[from] HookError),
 }

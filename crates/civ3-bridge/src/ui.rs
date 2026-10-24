@@ -1205,50 +1205,8 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
 }
 
 
-/// `points` (a line's, in order) as rectangles (x, y, w, h): each run of
-/// neighbours along a row or a column one rectangle.
-pub fn line_runs(points: &[(i32, i32)]) -> Vec<[i32; 4]> {
-    let mut out: Vec<[i32; 4]> = Vec::new();
-    for &(x, y) in points {
-        if let Some(r) = out.last_mut() {
-            let [l, t, w, h] = *r;
-            // Along the row (the run so far one high).
-            if h == 1 && y == t && (x == l + w || x == l - 1) {
-                *r = [l.min(x), t, w + 1, 1];
-                continue;
-            }
-            if w == 1 && x == l && (y == t + h || y == t - 1) {
-                *r = [l, t.min(y), 1, h + 1];
-                continue;
-            }
-        }
-        out.push([x, y, 1, 1]);
-    }
-    out
-}
-
-/// The pixels of a 1-pixel line, endpoints included (Bresenham).
-pub fn line_points((x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> Vec<(i32, i32)> {
-    let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
-    let (sx, sy) = ((x1 - x0).signum(), (y1 - y0).signum());
-    let (mut x, mut y, mut err) = (x0, y0, dx + dy);
-    let mut out = Vec::new();
-    loop {
-        out.push((x, y));
-        if (x == x1 && y == y1) || out.len() > 4096 {
-            return out;
-        }
-        let e2 = 2 * err;
-        if e2 >= dy {
-            err += dy;
-            x += sx;
-        }
-        if e2 <= dx {
-            err += dx;
-            y += sy;
-        }
-    }
-}
+/// (Lines and colours of the game's canvases: `civ3_ui::draw`.)
+pub use civ3_ui::draw::{line_points, line_runs, rgb555, shade_alpha};
 
 /// The pixels of a line of the game's line drawer, as rectangles (x, y, w,
 /// h). Measured (§10.9): along the major axis every step from the start up
@@ -1445,28 +1403,11 @@ pub fn content_clip(clip: Option<[i32; 4]>, dirty: Option<[i32; 4]>) -> Option<[
     if clip.is_some() && clip == dirty { None } else { clip }
 }
 
-/// A 16-bit colour of the game's canvases (RGB555; bit 31 is a flag) as
-/// 8-bit RGB.
-pub fn rgb555(c: u32) -> [u8; 3] {
-    let e = |v: u32| ((v << 3) | (v >> 2)) as u8;
-    [e((c >> 10) & 31), e((c >> 5) & 31), e(c & 31)]
-}
-
 /// Uniform sprite opacity passed as the raw bits of a C `float`.
 /// Invalid/nonpositive values draw nothing; values above one are opaque.
 pub fn sprite_opacity(bits: u32) -> u8 {
     let opacity = f32::from_bits(bits);
     if opacity.is_nan() { 0 } else { (opacity.clamp(0.0, 1.0) * 255.0).round() as u8 }
-}
-
-/// The opacity (of 255) of the game's translucent rectangle fill
-/// (`JGL_Image::shade_rect`) that keeps `percent` of what is under it: the
-/// colour weighs `1 − a`, what is there `a = percent·256/100` (in 1/256), per
-/// 8-bit channel, rounded down — for the percentages the game uses, our
-/// translucency (1/32 steps, rounded down) exactly.
-pub fn shade_alpha(percent: u32) -> u8 {
-    let kept = percent.min(100) * 256 / 100;
-    ((256 - kept) * 255 / 256) as u8
 }
 
 /// How the game's blits that do not just colour-key a sprite treat its

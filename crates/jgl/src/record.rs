@@ -13,6 +13,7 @@
 //! The format is the same in memory and in a dump file (`jgl::record`
 //! streams can be written out and replayed offline).
 
+use crate::draw::{FillCall, MAX_ARGS, Surface};
 use crate::{FontId, ImageId, Rect};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -38,6 +39,16 @@ pub enum Op {
     DcState = 7,
     /// Image slot +0xB8 `text_out(x, y, text, len)`.
     Text = 8,
+    /// Image slot +0x44 (`FillCall::Fill`).
+    Fill = 9,
+    /// Image slot +0x48 (`FillCall::Shade`).
+    Shade = 10,
+    /// Image slot +0x58 (`FillCall::ReplaceColor`).
+    ReplaceColor = 11,
+    /// Image slot +0x64 (`FillCall::Line`).
+    Line = 12,
+    /// The fill group's other slots (`FillCall::Other`).
+    FillOther = 13,
 }
 
 impl Op {
@@ -51,6 +62,11 @@ impl Op {
             6 => Op::TextColor,
             7 => Op::DcState,
             8 => Op::Text,
+            9 => Op::Fill,
+            10 => Op::Shade,
+            11 => Op::ReplaceColor,
+            12 => Op::Line,
+            13 => Op::FillOther,
             _ => return None,
         })
     }
@@ -71,6 +87,7 @@ pub enum Record<'a> {
     /// rectangle (+0x44), both as they were at the call: until the surface
     /// group is ours, the consumer cannot know them otherwise.
     Text { image: ImageId, owner: u32, x: i32, y: i32, clip: Rect, bytes: &'a [u8] },
+    Fill(FillCall),
 }
 
 /// The longest tail a record keeps (`text_out` lengths are clamped to it,
@@ -135,7 +152,81 @@ impl Writer {
                 &[image.0, owner, x as u32, y as u32, clip.left as u32, clip.top as u32, clip.right as u32, clip.bottom as u32, tail_len(bytes)],
                 bytes,
             ),
+            Record::Fill(call) => self.fill(&call),
         }
+    }
+
+    fn fill(&mut self, call: &FillCall) {
+        let mut f = Fields::new();
+        let op = match *call {
+            FillCall::Fill { target, rect, color } => {
+                f.surface(target).opt_rect(rect).push(color);
+                Op::Fill
+            }
+            FillCall::Shade { target, rect, color, percent } => {
+                f.surface(target).opt_rect(rect).push(color).push(percent);
+                Op::Shade
+            }
+            FillCall::ReplaceColor { target, rect, from, to } => {
+                f.surface(target).rect(rect).push(from).push(to);
+                Op::ReplaceColor
+            }
+            FillCall::Line { target, from, to, color, flag } => {
+                f.surface(target).point(from).point(to).push(color).push(flag);
+                Op::Line
+            }
+            FillCall::Other { slot, target, args } => {
+                f.push(slot as u32).surface(target).words(&args);
+                Op::FillOther
+            }
+        };
+        self.put(op, f.get(), &[]);
+    }
+
+}
+
+/// The fixed fields of a drawing record, without allocating.
+struct Fields {
+    words: [u32; 32],
+    len: usize,
+}
+
+impl Fields {
+    fn new() -> Fields {
+        Fields { words: [0; 32], len: 0 }
+    }
+
+    fn get(&self) -> &[u32] {
+        &self.words[..self.len]
+    }
+
+    fn push(&mut self, w: u32) -> &mut Fields {
+        self.words[self.len] = w;
+        self.len += 1;
+        self
+    }
+
+    fn words(&mut self, ws: &[u32]) -> &mut Fields {
+        ws.iter().for_each(|&w| {
+            self.push(w);
+        });
+        self
+    }
+
+    fn point(&mut self, (x, y): (i32, i32)) -> &mut Fields {
+        self.push(x as u32).push(y as u32)
+    }
+
+    fn rect(&mut self, r: Rect) -> &mut Fields {
+        self.words(&r.to_array().map(|v| v as u32))
+    }
+
+    fn opt_rect(&mut self, r: Option<Rect>) -> &mut Fields {
+        self.push(u32::from(r.is_some())).rect(r.unwrap_or_default())
+    }
+
+    fn surface(&mut self, s: Surface) -> &mut Fields {
+        self.push(s.image.0).push(s.owner).rect(s.clip).rect(s.bounds)
     }
 }
 
@@ -220,8 +311,65 @@ fn decode(op: Op, body: &[u8]) -> Option<Record<'_>> {
             clip: Rect::new(n(4)? as i32, n(5)? as i32, n(6)? as i32, n(7)? as i32),
             bytes: tail(9)?,
         },
+        Op::Fill | Op::Shade | Op::ReplaceColor | Op::Line | Op::FillOther => Record::Fill(fill(op, &mut Cursor { body, at: 0 })?),
     })
 }
+
+/// Reads a drawing record's fields in order.
+struct Cursor<'a> {
+    body: &'a [u8],
+    at: usize,
+}
+
+impl Cursor<'_> {
+    fn word(&mut self) -> Option<u32> {
+        let b = self.body.get(self.at..self.at + 4)?;
+        self.at += 4;
+        Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    fn int(&mut self) -> Option<i32> {
+        self.word().map(|w| w as i32)
+    }
+
+    fn point(&mut self) -> Option<(i32, i32)> {
+        Some((self.int()?, self.int()?))
+    }
+
+    fn rect(&mut self) -> Option<Rect> {
+        Some(Rect::new(self.int()?, self.int()?, self.int()?, self.int()?))
+    }
+
+    fn opt_rect(&mut self) -> Option<Option<Rect>> {
+        let some = self.word()? != 0;
+        let r = self.rect()?;
+        Some(some.then_some(r))
+    }
+
+    fn surface(&mut self) -> Option<Surface> {
+        Some(Surface { image: ImageId(self.word()?), owner: self.word()?, clip: self.rect()?, bounds: self.rect()? })
+    }
+
+    fn words<const N: usize>(&mut self) -> Option<[u32; N]> {
+        let mut out = [0; N];
+        for w in &mut out {
+            *w = self.word()?;
+        }
+        Some(out)
+    }
+}
+
+fn fill(op: Op, c: &mut Cursor<'_>) -> Option<FillCall> {
+    Some(match op {
+        Op::Fill => FillCall::Fill { target: c.surface()?, rect: c.opt_rect()?, color: c.word()? },
+        Op::Shade => FillCall::Shade { target: c.surface()?, rect: c.opt_rect()?, color: c.word()?, percent: c.word()? },
+        Op::ReplaceColor => FillCall::ReplaceColor { target: c.surface()?, rect: c.rect()?, from: c.word()?, to: c.word()? },
+        Op::Line => FillCall::Line { target: c.surface()?, from: c.point()?, to: c.point()?, color: c.word()?, flag: c.word()? },
+        Op::FillOther => FillCall::Other { slot: c.word()? as u16, target: c.surface()?, args: c.words::<MAX_ARGS>()? },
+        _ => return None,
+    })
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -238,7 +386,17 @@ mod tests {
             Record::DcState { image: ImageId(0x2004), colorref: 0x00FF_FFFF, height: -12, weight: 0, style: 3, face: b"Arial" },
             Record::Text { image: ImageId(0x2000), owner: 0x3000, x: -5, y: 40, clip: Rect::new(0, 0, 640, 480), bytes: b"Rome (3)" },
             Record::Text { image: ImageId(0x2000), owner: 0x3000, x: 0, y: 0, clip: Rect::default(), bytes: b"" },
+            Record::Fill(FillCall::Fill { target: surface(0x2000), rect: None, color: 0x8000_7C1F }),
+            Record::Fill(FillCall::Fill { target: surface(0x2000), rect: Some(Rect::new(1, 2, 30, 40)), color: 5 }),
+            Record::Fill(FillCall::Shade { target: surface(0x2000), rect: Some(Rect::new(-1, 2, 3, 4)), color: 0x8000_0000, percent: 60 }),
+            Record::Fill(FillCall::ReplaceColor { target: surface(0x2000), rect: Rect::new(0, 0, 9, 9), from: 7, to: 8 }),
+            Record::Fill(FillCall::Line { target: surface(0x2000), from: (-3, 4), to: (50, 60), color: 0x1F, flag: 1 }),
+            Record::Fill(FillCall::Other { slot: 0x60, target: surface(0x2000), args: [1, 2, 3, 4, 5, 6, 7, 8, 9] }),
         ]
+    }
+
+    fn surface(image: u32) -> Surface {
+        Surface { image: ImageId(image), owner: image + 0x10, clip: Rect::new(0, 0, 640, 480), bounds: Rect::new(0, 0, 800, 600) }
     }
 
     #[test]

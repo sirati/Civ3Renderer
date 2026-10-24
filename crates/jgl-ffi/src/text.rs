@@ -19,65 +19,13 @@
 
 #![cfg_attr(not(all(windows, target_arch = "x86")), allow(dead_code, unused_imports))]
 
-use std::cell::RefCell;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 
-use jgl::{FontDesc, FontId, Hooks, ImageId, Jgl, Producer};
+use jgl::{FontDesc, FontId, ImageId, Producer};
 
+pub use crate::state::{HooksFactory, reentrant, threads};
+use crate::state::{FACTORY, STOCK, guarded, record, stock};
 use crate::takeover::{Takeover, TakeoverError};
-
-/// Makes the hooks of one thread's [`Jgl`] (the game's thread, in
-/// practice; see [`threads`]).
-pub type HooksFactory = Box<dyn Fn() -> Hooks + Send + Sync>;
-
-static FACTORY: OnceLock<HooksFactory> = OnceLock::new();
-static STOCK: OnceLock<FontDesc> = OnceLock::new();
-/// Threads that made a [`Jgl`] (more than one breaks the single-producer
-/// assumption: each would see only its own calls' state).
-static THREADS: AtomicU32 = AtomicU32::new(0);
-/// Calls that arrived while this thread's `Jgl` was busy (a hook calling
-/// back into jgl): passed to jgl's original, not recorded.
-static REENTRANT: AtomicU32 = AtomicU32::new(0);
-
-thread_local! {
-    static JGL: RefCell<Option<Jgl>> = const { RefCell::new(None) };
-}
-
-/// How many threads have drawn text through the takeover.
-pub fn threads() -> u32 {
-    THREADS.load(Ordering::Relaxed)
-}
-
-/// Calls passed on unrecorded because a hook re-entered jgl.
-pub fn reentrant() -> u32 {
-    REENTRANT.load(Ordering::Relaxed)
-}
-
-fn stock() -> FontDesc {
-    STOCK.get().cloned().unwrap_or(FontDesc { face: "System".into(), height: 16, weight: 700, italic: false, underline: false })
-}
-
-/// Runs `f` on this thread's producer and consumes its records. `None`:
-/// not installed, or re-entered from a hook.
-fn record<R>(f: impl FnOnce(&mut Producer) -> R) -> Option<R> {
-    JGL.try_with(|cell| {
-        let Ok(mut jgl) = cell.try_borrow_mut() else {
-            REENTRANT.fetch_add(1, Ordering::Relaxed);
-            return None;
-        };
-        if jgl.is_none() {
-            let factory = FACTORY.get()?;
-            if THREADS.fetch_add(1, Ordering::Relaxed) > 0 {
-                log::warn!("jgl: a second thread draws text (thread {:?})", std::thread::current().id());
-            }
-            *jgl = Some(Jgl::new(factory(), stock()));
-        }
-        jgl.as_mut().map(|j| j.with(f))
-    })
-    .ok()
-    .flatten()
-}
 
 #[cfg(all(windows, target_arch = "x86"))]
 mod entries {
@@ -155,18 +103,6 @@ mod entries {
         let hfont = unsafe { read_u32(font + offset_of!(JglFont, hfont) as u32) };
         if let Some(lf) = inproc::gdi::font(hfont) {
             p.font_defined(FontId(font), &desc(lf));
-        }
-    }
-
-    /// Runs `f` and never unwinds into the game: a panic logs and is
-    /// answered with `fallback`.
-    fn guarded<R>(name: &str, f: impl FnOnce() -> R, fallback: impl FnOnce() -> R) -> R {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-            Ok(r) => r,
-            Err(_) => {
-                log::error!("jgl {name} panicked; calling jgl's original");
-                fallback()
-            }
         }
     }
 
