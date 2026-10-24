@@ -197,12 +197,43 @@ impl Headless {
         self.render_layered(renderer, cameras, cameras.len(), copies, present, frame, clear)
     }
 
+    /// [`Headless::render_presented`] onto an image of `format`
+    /// (`Rgba8Unorm` or `Bgra8Unorm`, as windows are), read back as RGBA.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_presented_in(
+        &self,
+        format: wgpu::TextureFormat,
+        renderer: &mut TileRenderer,
+        cameras: &[Camera],
+        copies: &[crate::ScreenCopy],
+        present: crate::Present,
+        frame: u32,
+        clear: [u8; 4],
+    ) -> RgbaImage {
+        self.render_layered_in(format, renderer, cameras, cameras.len(), copies, present, frame, clear)
+    }
+
     /// Renders views, the last from `overlay_from` on overlays, into a
     /// picture shown on an offscreen image of `present.target` (see
     /// `TileRenderer::render_layered`).
     #[allow(clippy::too_many_arguments)]
     pub fn render_layered(
         &self,
+        renderer: &mut TileRenderer,
+        cameras: &[Camera],
+        overlay_from: usize,
+        copies: &[crate::ScreenCopy],
+        present: crate::Present,
+        frame: u32,
+        clear: [u8; 4],
+    ) -> RgbaImage {
+        self.render_layered_in(wgpu::TextureFormat::Rgba8Unorm, renderer, cameras, overlay_from, copies, present, frame, clear)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_layered_in(
+        &self,
+        format: wgpu::TextureFormat,
         renderer: &mut TileRenderer,
         cameras: &[Camera],
         overlay_from: usize,
@@ -218,7 +249,7 @@ impl Headless {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });

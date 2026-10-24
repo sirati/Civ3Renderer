@@ -2201,6 +2201,13 @@ impl TileRenderer {
         clear: [u8; 4],
         present: Present,
     ) -> bool {
+        // Pipelines drawing into the target are made for its format: a
+        // target of another one (a window reconfigured to it) gets new ones.
+        if target.format() != self.target_format {
+            log::info!("render target format {:?} (was {:?}): new pipelines", target.format(), self.target_format);
+            self.target_format = target.format();
+            self.pipelines = std::array::from_fn(|_| std::sync::OnceLock::new());
+        }
         let view = target.create_view(&Default::default());
         let (Some(bind_group), Some(world)) = (&self.bind_group, &self.world) else {
             drop(begin_pass(encoder, &view, wgpu::LoadOp::Clear(crate::gpu::color(clear)), None));
@@ -2359,8 +2366,7 @@ impl TileRenderer {
             let lens_params = if cameras[v].lens.is_some() {
                 let texture = if direct { target } else { &self.scratch.as_ref().expect("internal canvas").main };
                 let mut lens = self.lens.borrow_mut();
-                if lens.as_ref().is_some_and(|state| state.format != texture.format()) { *lens = None; }
-                lens.get_or_insert_with(|| lens::State::new(device, &self.shader, texture.format()))
+                lens.get_or_insert_with(|| lens::State::new(device, &self.shader))
                     .snapshot(device, queue, encoder, texture, &cameras[v], control_slot, v, bits, float_encoding)
             } else { None };
             // Its steps at zoom 1.
@@ -2420,7 +2426,7 @@ impl TileRenderer {
                 let lens = lens.as_ref().unwrap();
                 let texture = if direct { target } else { &self.scratch.as_ref().unwrap().main };
                 lens.capture(encoder, texture, params, v, false);
-                lens.draw(device, encoder, &canvas, &cameras[v], params, control_slot, v, None, self.timed(|| format!("v{v} lens rim")));
+                lens.draw(device, encoder, &canvas, texture.format(), &cameras[v], params, control_slot, v, self.timed(|| format!("v{v} lens rim")));
                 lens.capture(encoder, texture, params, v, true);
             }
         }
@@ -2497,6 +2503,10 @@ impl TileRenderer {
         timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> bool {
         let Some(scratch) = &self.scratch else { return false };
+        if target.format() != self.target_format {
+            render_errors::report(render_errors::Kind::Gpu, "a cached picture's target", format_args!("{:?}, the pipelines draw {:?}", target.format(), self.target_format));
+            return false;
+        }
         let control_slot = self.controls.active.get();
         let bits = self.picture_bits;
         let target_size = (target.width(), target.height());
