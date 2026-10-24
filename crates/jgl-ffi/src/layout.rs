@@ -56,7 +56,9 @@ pub struct JglGraphics {
     /// +0x140, +0x144: slots +0x24 and +0x20.
     pub hinstance: u32,
     pub hwnd: u32,
-    pub pad_148: u32,
+    /// +0x148: the window's owner (`create_window`'s first argument); its
+    /// method 0 is told each new mode (width, height, bits, 1).
+    pub owner: u32,
 }
 
 /// `CRITICAL_SECTION` (24 bytes).
@@ -221,5 +223,6 @@ mod tests {
         assert_eq!(offset_of!(JglGraphics, depth), 0x134);
         assert_eq!(offset_of!(JglGraphics, hinstance), 0x140);
         assert_eq!(offset_of!(JglGraphics, hwnd), 0x144);
+        assert_eq!(offset_of!(JglGraphics, owner), 0x148);
     }
 }

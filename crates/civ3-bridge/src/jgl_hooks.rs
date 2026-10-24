@@ -2,8 +2,10 @@
 //! method groups `jgl-ffi` takes over in jgl.dll's tables, the hooks they
 //! report to, and the counting mode.
 //!
-//! Groups taken over so far: text. Its runs go to the interface mirror
-//! (`ui_trace::on_text`) and to the recent-text list (`trace`).
+//! Groups taken over so far: text and display modes. Text runs go to the
+//! interface mirror (`ui_trace::on_text`) and to the recent-text list
+//! (`trace`). The display modes need no hooks: the game's screen is the
+//! mode it asks for, and the display is never switched (`jgl::display`).
 
 use civ3_ui::text::{CanvasText, TextCapture};
 
@@ -41,6 +43,16 @@ pub(crate) fn install_text(base: u32) -> Result<bool, String> {
         log::info!("jgl text group taken over (image +0x08, +0xA8..+0xB8; font +0x00, +0x08, +0x0C)");
         Ok(true)
     })
+}
+
+/// Takes over jgl.dll's display-mode group (at `base`), before the game
+/// sets its mode: without it a display with no mode of the game's size
+/// (shorter than 768 lines) ends the game at start. Once per load.
+pub(crate) fn install_display(base: u32) -> Result<(), String> {
+    let group = jgl_ffi::display::install(base).map_err(|e| e.to_string())?;
+    // For the life of the process.
+    std::mem::forget(group);
+    Ok(())
 }
 
 /// `CIV3R_JGL_COUNT=1`: counting stubs in every slot of jgl.dll (at
