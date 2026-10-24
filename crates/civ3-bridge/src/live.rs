@@ -340,13 +340,14 @@ impl Compiler {
             generation: 0,
             append,
             reserve: 0,
+            context: String::new(),
         }
     }
 
     /// A job for the art thread (`generation`: `Presenter::prepare_assets`).
     #[allow(clippy::too_many_arguments)]
     fn job(&self, folders: &ArtFolders, work: Work, pixels: bool, generation: u64, token: Option<u64>, reason: String, wanted: std::time::Instant) -> ArtJob {
-        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted, stop: None }
+        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted, context: String::new(), stop: None }
     }
 }
 
@@ -1790,6 +1791,12 @@ fn publish(
                 presenter.reserve(0, index_pages);
             }
         }
+        // What art asked for now is for: the context of its render errors.
+        let art_context = match screen_open {
+            Some((_, name)) => format!("{name} screen"),
+            None if in_game => "map".to_owned(),
+            None => "menus".to_owned(),
+        };
         if let Some(token) = schedule.start(now) {
             // Fonts no screen or zoom has asked for in a while are let go
             // of (their glyphs; the art keeps them).
@@ -1816,14 +1823,15 @@ fn publish(
                         Work::Addition(t) => (t, true),
                     };
                     // A renderer that compiles its own copy starts at once.
-                    let generation = presenter.prepare_assets(&compiler.wire(&folders, text, append));
+                    let generation = presenter.prepare_assets(&scene::wire::Assets { context: art_context.clone(), ..compiler.wire(&folders, text, append) });
                     if !append {
                         whole_folders.insert(generation, folders.clone());
                     }
                     let stop = matches!(work, Work::Whole(_)).then(|| crate::art::ArtStop { started: folders_changed.load(std::sync::atomic::Ordering::Acquire), now: folders_changed.clone() });
-                    if !art_thread.send(crate::art::ArtJob { stop, ..compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted) }) {
+                    if !art_thread.send(crate::art::ArtJob { stop, context: art_context.clone(), ..compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted) }) {
                         whole_folders.remove(&generation);
                         log::error!("the art thread is gone");
+                        render_errors::report(render_errors::Kind::ArtHandOver, "the art thread is gone", format_args!("art {generation}"));
                         schedule.done(now, token);
                     }
                 }
@@ -1862,9 +1870,11 @@ fn publish(
                     }
                 }
                 if let Some(text) = addition(&have, &mut described_units, &screen_art, &mut described_screen, &district_art, &mut described_districts, &mut fonts) {
-                    let generation = presenter.prepare_assets(&compiler.wire(&folders, &text, true));
-                    if !art_thread.send(compiler.job(&folders, Work::Addition(text), pixels, generation, None, format!("preload ({tier})"), now)) {
+                    let generation = presenter.prepare_assets(&scene::wire::Assets { context: format!("preload ({tier})"), ..compiler.wire(&folders, &text, true) });
+                    let job = compiler.job(&folders, Work::Addition(text), pixels, generation, None, format!("preload ({tier})"), now);
+                    if !art_thread.send(crate::art::ArtJob { context: job.reason.clone(), ..job }) {
                         log::error!("the art thread is gone");
+                        render_errors::report(render_errors::Kind::ArtHandOver, "the art thread is gone", format_args!("art {generation}"));
                     }
                 }
             }

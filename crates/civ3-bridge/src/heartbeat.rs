@@ -80,7 +80,7 @@ pub fn stale_now() -> u32 {
 /// few times a second): the game thread's staleness as of now, numbered.
 pub fn status() -> scene::HostStatus {
     static SERIAL: AtomicU32 = AtomicU32::new(0);
-    scene::HostStatus { stale_ms: stale_now(), serial: SERIAL.fetch_add(1, SeqCst).wrapping_add(1) }
+    scene::HostStatus { stale_ms: stale_now(), serial: SERIAL.fetch_add(1, SeqCst).wrapping_add(1), render_errors: 0 }
 }
 
 #[cfg(windows)]
