@@ -1,8 +1,8 @@
-//! Enlarged unit HUDs before and after they were drawn at the views'
-//! resolution, at Retina-like world and pixel scales, in the main view and
-//! in a zoom box. Real game art (CIV3_INSTALL).
+//! Enlarged unit HUDs and the active unit's arrow before and after they
+//! were drawn at the views' resolution, at Retina-like world and pixel
+//! scales, in the main view and in a zoom box. Real game art (CIV3_INSTALL).
 //! nix develop -c cargo run -p civ3-bridge --example hud_bar_shots [dir]
-use std::path::Path;
+use std::{path::Path, time::Duration};
 use civ3_assets::GameFiles;
 use ifc23::{assets, units, world::{Civ3Tile, Civ3Unit, Civ3World}};
 use render_desc::Compiled;
@@ -12,6 +12,8 @@ use viewer_settings::accessibility::{Accessibility, HUD_SCALES};
 const BACKGROUND: [u8; 4] = [105, 119, 73, 255];
 /// The world rectangle shown: the units' row.
 const HUD_AREA: [i32; 4] = [40, 125, 360, 155];
+/// The same with room above for the arrow.
+const ARROW_AREA: [i32; 4] = [40, 20, 360, 260];
 
 fn save(dir: &Path, name: &str, img: &RgbaImage) {
     let path = dir.join(format!("{name}.png"));
@@ -175,6 +177,23 @@ fn main() {
     // 1×: the same either way.
     let one = draw(&compiled, units::free_sprites_accessible(&world, &mut art, &compiled, None, &Accessibility::default()), &[], HUD_AREA, 2, 1, (0, (0, 0)));
     save(dir, "hud1x-world2", &one);
+    // The arrow over the second unit, by size, at world scale 2 and in a
+    // zoom box; low and high in its bob.
+    let focus = [tile_viewer::layout::Marker::Focus(world.units[1].pixel)];
+    for size in [1.0f32, 1.5, 2.0, 2.5, 3.0] {
+        let name = format!("{size}").replace('.', "_");
+        let sprites = units::free_sprites_accessible(&world, &mut art, &compiled, None, &Accessibility::default());
+        let mut shots = Vec::new();
+        for (zoom, magnify) in [(2, 0), (3, 0), (2, 3)] {
+            for ms in [325, 975] {
+                let markers = tile_viewer::marker_sprites_sized(&compiled, &focus, 1, Duration::from_millis(ms), true, size);
+                shots.push(draw(&compiled, sprites.clone(), &markers, ARROW_AREA, zoom, 1, (magnify, (176, 150))));
+            }
+        }
+        save(dir, &format!("arrow{name}x-world2"), &beside(&shots[0..2]));
+        save(dir, &format!("arrow{name}x-world3"), &beside(&shots[2..4]));
+        save(dir, &format!("arrow{name}x-zoombox"), &beside(&shots[4..6]));
+    }
 }
 
 /// The `[x, y, w, h]` part of `image`.

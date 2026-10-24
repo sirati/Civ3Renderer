@@ -75,6 +75,7 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<St
     }
     out.insert("resolution.effective".into(), Value::Text(effective));
     out.insert("accessibility.hud_percent".into(), Value::Number(settings.accessibility.hud_scale() * 100.0));
+    out.insert("accessibility.arrow_percent".into(), Value::Number(settings.accessibility.arrow_scale() * 100.0));
     for (rgb, name) in viewer_settings::accessibility::PALETTE.iter().zip(["Red", "Orange", "Gold", "Bright green", "Teal", "Cyan", "Blue", "Purple", "Magenta", "Pink", "Brown", "Sand", "White", "Silver", "Charcoal", "Black"]) {
         out.insert(format!("accessibility.color_name.{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]), Value::Text(name.into()));
     }
@@ -1099,7 +1100,7 @@ mod tests {
         click(&mut prefs, 550, 150);
         click(&mut prefs, 550, 220);
         click(&mut prefs, 820, 313);
-        click(&mut prefs, 100, 363);
+        click(&mut prefs, 100, 403);
         assert!(prefs.editing().accessibility.active_unit_arrow);
         assert!(!prefs.editing().accessibility.arrow_bobbing);
         assert!(prefs.editing().accessibility.unit_rings);
@@ -1402,9 +1403,9 @@ mod tests {
         // Alt mode in menus, on the Accessibility tab: on by default, off, on again.
         assert!(click(&mut p, 680, 55).is_empty());
         assert!(p.editing().input.alt_in_menus);
-        assert!(click(&mut p, 100, 476).is_empty());
+        assert!(click(&mut p, 100, 496).is_empty());
         assert!(!p.editing().input.alt_in_menus);
-        assert!(click(&mut p, 100, 476).is_empty());
+        assert!(click(&mut p, 100, 496).is_empty());
         assert!(p.editing().input.alt_in_menus);
         assert_eq!(p.settings(), p.editing(), "previews at once");
         assert!(!path.exists());
@@ -2237,6 +2238,7 @@ mod tests {
         // Accessibility sliders changed: their undo buttons.
         let draft = prefs.draft.as_mut().unwrap();
         draft.accessibility.hud_size = 3;
+        draft.accessibility.arrow_size = 4;
         draft.accessibility.ring_width = 5;
         draft.input.snap_updates_per_second = 20.0;
         prefs.tab = TAB_ACCESSIBILITY.into();
@@ -2286,6 +2288,7 @@ mod tests {
                 prefs.settings.layout.zoom = if control.starts_with("layout.zoom_mouse") { Zoom::Mouse131 } else { Zoom::Floating131 };
                 prefs.settings.display.max_fps = 120;
                 prefs.settings.accessibility.unit_rings = true;
+                prefs.settings.accessibility.active_unit_arrow = true;
                 prefs.draft = Some(prefs.settings.clone());
                 prefs.project_settings();
                 prefs.settings.save(&path).unwrap();
@@ -2549,6 +2552,7 @@ mod tests {
             prefs.settings.resolution.scale_menus = true;
             prefs.settings.display.max_fps = 120;
             prefs.settings.accessibility.unit_rings = true;
+            prefs.settings.accessibility.active_unit_arrow = true;
             prefs.settings.layout.zoom = if control.starts_with("layout.zoom_mouse") { Zoom::Mouse131 } else { Zoom::Floating131 };
             prefs.draft = Some(prefs.settings.clone());
             prefs.project_settings();
@@ -2575,6 +2579,7 @@ mod tests {
             // Undo remains reachable after disabling its parent slider.
             if control == "resolution.menu_scale_percent" { prefs.draft.as_mut().unwrap().resolution.scale_menus = false; }
             if control == "display.fps_limit" { prefs.draft.as_mut().unwrap().display.max_fps = 0; }
+            if control == "accessibility.arrow_size" { prefs.draft.as_mut().unwrap().accessibility.active_unit_arrow = false; }
             prefs.route(vec![], (1024, 768));
             assert!(find_undo(&prefs).is_some());
             // Unrelated draft edits survive the per-slider restore.
@@ -2587,7 +2592,7 @@ mod tests {
             assert!(!path.exists(), "undo never saves");
             checked += 1;
         }
-        assert_eq!(checked, 17);
+        assert_eq!(checked, 18);
     }
 
     #[test]
