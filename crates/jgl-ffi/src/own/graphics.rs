@@ -431,6 +431,16 @@ extern "thiscall" fn create_compatible_dc(this: u32) -> u32 {
     if dc != 0 { 0 } else { 2 }
 }
 
+/// A memory DC for fonts if there is none (the compare mode, without our
+/// graphics object).
+pub(crate) fn ensure_memory_dc() {
+    if memory_dc() == 0 {
+        // SAFETY: a plain GDI call.
+        let dc = unsafe { gdi::CreateCompatibleDC(std::ptr::null_mut()) } as usize as u32;
+        MEMORY_DC.store(dc, Ordering::Release);
+    }
+}
+
 /// +0xBC (0x3C680): the memory DC goes.
 extern "thiscall" fn delete_dc(_this: u32) -> u32 {
     let dc = MEMORY_DC.swap(0, Ordering::AcqRel);
