@@ -11,7 +11,7 @@ pub use cursor_size::system_cursor_size;
 use std::sync::Arc;
 use winit::window::Window;
 
-pub use pointer_api::{Error, Grab, Move, Placement, Point, Rect, Region, Update};
+pub use pointer_api::{Error, Feed, Grab, Move, Placement, Point, Rect, Region, Update};
 use pointer_api::Backend;
 
 #[derive(Default)]
@@ -20,7 +20,10 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn attach(&mut self, window: Arc<Window>) {
+    /// `thread_init` runs first on any thread a backend starts (a host's
+    /// policy for threads of its process).
+    pub fn attach(&mut self, window: Arc<Window>, thread_init: Option<fn()>) {
+        let _ = thread_init;
         #[cfg(target_os = "linux")]
         match pointer_wayland::Controller::new(window.clone()) {
             Ok(backend) => {
@@ -43,7 +46,7 @@ impl Controller {
         }
         #[cfg(target_os = "macos")]
         {
-            self.backend = Some(Box::new(pointer_macos::Controller::new(window)));
+            self.backend = Some(Box::new(pointer_macos::Controller::new(window, thread_init)));
             return;
         }
         #[cfg(not(any(windows, target_os = "macos")))]
@@ -65,6 +68,9 @@ impl Controller {
     pub fn update(&mut self, region: Option<&Region>, pointer: (f64, f64), inside: bool) -> Update {
         self.backend.as_mut().map_or_else(Update::default, |b| b.update(region, pointer, inside))
     }
+
+    /// See [`pointer_api::Backend::feed`].
+    pub fn feed(&self) -> Option<Feed> { self.backend.as_ref().and_then(|b| b.feed()) }
 }
 
 fn unattached() -> Error { Error("pointer controller has no window".into()) }
