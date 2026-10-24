@@ -200,26 +200,9 @@ pub(crate) fn placeholder_sprites() -> bool {
     })
 }
 
-thread_local! {
-    /// Set while a sprite is cut from [`READ_BACK_ART`]: jgl makes its pixels.
-    static REAL_SPRITES: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Art whose sprites the game draws into 8-bit images it then reads back
-/// with `get_pixel` (0x549D60.., `Art\oldinterface.pcx` into the three
-/// images at 0xB3F3E0, read at 0x549FAD): no record answers those reads
-/// yet, so these sprites keep jgl's pixels and their blits onto such
-/// images jgl's original (`docs/jgl-replacement.md` §9).
-const READ_BACK_ART: [&str; 1] = ["art/oldinterface.pcx"];
-
-fn read_back_art(path: &str) -> bool {
-    let path = path.replace('\\', "/").to_ascii_lowercase();
-    READ_BACK_ART.iter().any(|a| path.ends_with(a))
-}
-
 /// Whether the sprite being made gets jgl's pixels (see [`placeholder_sprites`]).
 pub(crate) fn real_sprite_pixels() -> bool {
-    !placeholder_sprites() || REAL_SPRITES.with(Cell::get)
+    !placeholder_sprites()
 }
 
 pub(crate) fn requested_game_draws() -> bool {
@@ -1095,12 +1078,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: a sprite cut from image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
-        // Sprites the game draws into images it reads back keep jgl's
-        // pixels (`READ_BACK_ART`).
-        let real = placeholder_sprites() && with_model(false, |m| m.file_of(c.image).is_some_and(read_back_art)) == Some(true);
-        let previous = REAL_SPRITES.with(|r| r.replace(real));
         let r = c.original();
-        REAL_SPRITES.with(|r| r.set(previous));
         if obj::sprite_has_pixels(c.sprite) {
             if let Some((cx, cy, w, hh)) = obj::sprite_crop(c.sprite) {
                 let rect = [c.x as i32 + cx, c.y as i32 + cy, w, hh];
@@ -1124,14 +1102,15 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
         hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
     }
-    // (Compare: the art presence test at start, jgl's pixel against the
-    // interface model's answer.)
+    // The art presence test at start reads back an 8-bit image the game
+    // drew a sprite into: with placeholder sprites jgl drew nothing there;
+    // the sprite's file answers.
     if let Some((site, expected)) = h::art_presence_site(game.build).filter(|_| placeholder_sprites()) {
         hooks.push(Box::new(h::art_presence_pixel::install_call_site(site, expected, |c| {
-            let jgl = c.original();
-            let model = art_presence_pixel(c.image, c.x as i32, c.y as i32);
-            log::info!("art presence: image {:#x} ({}, {}): jgl {jgl:#x}, model {model:?}", c.image, c.x, c.y);
-            jgl
+            art_presence_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| {
+                log::warn!("art presence: image {:#x} ({}, {}): no sprite known drawn there; jgl's pixel", c.image, c.x, c.y);
+                c.original()
+            })
         })?));
     }
     // The game reads a pixel (what is under the mouse): drawing onto that
