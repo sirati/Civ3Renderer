@@ -12,8 +12,8 @@ fn shape(x: i32, y: i32, shape: Shape) -> PlacedSprite {
     PlacedSprite { shape: Some(shape), palette: u32::MAX, ..PlacedSprite::new(SpriteSetId::from_raw(u32::MAX), x, y) }
 }
 
-/// A health bar's background and segments as the unit HUD lays them out
-/// (`civ3_bridge::units::hud_rects`): x1 1, x2 2, y1 1, y2 4.
+/// A health bar's background and segments as a piece's HUD lays them out:
+/// x1 1, x2 2, y1 1, y2 4.
 fn bar(x: i32, y: i32, scale: u16, segments: i8) -> Vec<PlacedSprite> {
     let lengths = [1, 2, 1, 4];
     let r = |rgba, ey| shape(x, y, Shape::Rect(OutputRect { rgba, lengths, x: [[-1, 0], [-1, 1]], y: ey, scale: (scale, scale) }));

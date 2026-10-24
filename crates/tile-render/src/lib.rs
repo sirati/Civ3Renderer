@@ -25,10 +25,9 @@ pub use world::{ALL_CELLS, Blend, ColorModel, Dirty, GlyphShape, Grid, LayerId, 
 /// How sprites are drawn in views showing the world smaller
 /// (`Camera::downscale`).
 pub use tile_render_shared::{BLANK_EMPTY, HOST_CLOCK, KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, layer_frame_of, placed};
-/// Per-camera clean-map category bits and indexed-sprite palette helpers.
+/// Per-camera category bits and indexed-sprite palette helpers.
 pub use tile_render_shared::{
-    CATEGORY_FULL_RESOLUTION, CATEGORY_REDUCED_RESOLUTION, CATEGORY_HALF_RESOLUTION, CATEGORY_NOT_HALF_RESOLUTION, CATEGORY_ALL, CATEGORY_CITIES, CATEGORY_FORESTS_JUNGLES, CATEGORY_HILLS, CATEGORY_IRRIGATION, CATEGORY_MOUNTAINS,
-    CATEGORY_POLLUTION, CATEGORY_RESOURCES, CATEGORY_RIVERS_FLOODPLAINS, CATEGORY_ROADS_RAILROADS, CATEGORY_TERRAIN_BUILDINGS,
-    CATEGORY_TERRITORY_BOUNDARIES, CATEGORY_UNITS, CATEGORY_YIELD_ICONS, PALETTE_SIZE, remap_range,
+    CATEGORY_FULL_RESOLUTION, CATEGORY_REDUCED_RESOLUTION, CATEGORY_HALF_RESOLUTION, CATEGORY_NOT_HALF_RESOLUTION, CATEGORY_RESERVED,
+    PALETTE_SIZE, remap_range,
 };
 pub use gpu_text;

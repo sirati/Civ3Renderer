@@ -483,7 +483,10 @@ fn cropped_panel_text_twins_and_fallback_keep_visible_pixels_at_every_scale() {
 
 #[test]
 fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_switches() {
-    use tile_render::{CATEGORY_ALL, CATEGORY_CITIES, CATEGORY_FULL_RESOLUTION, CATEGORY_REDUCED_RESOLUTION, KEEP_SIZE};
+    use tile_render::{CATEGORY_FULL_RESOLUTION, CATEGORY_REDUCED_RESOLUTION, CATEGORY_RESERVED, KEEP_SIZE};
+    // A driver's category for site labels.
+    const SITES: u32 = 1 << 11;
+    const ALL: u32 = !CATEGORY_RESERVED;
     let gpu = Headless::new().unwrap();
     let mut builder = AtlasBuilder::new(128);
     let plate = builder.add(&RgbaImage::from_fn(80, 20, |_, _| [30, 40, 50, 255]), (0, 0)).unwrap();
@@ -494,8 +497,8 @@ fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_swi
     let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (64, 64) }, sets);
     world.color = ColorModel::Quantized { bits: 5 };
     world.fonts.push(Arc::new(shapes()));
-    let full = CATEGORY_CITIES | CATEGORY_FULL_RESOLUTION;
-    let reduced = CATEGORY_CITIES | CATEGORY_REDUCED_RESOLUTION;
+    let full = SITES | CATEGORY_FULL_RESOLUTION;
+    let reduced = SITES | CATEGORY_REDUCED_RESOLUTION;
     for (category, x, y, step) in [(full, 80, 140, 1), (reduced, 40, 180, 2)] {
         world.free.push(PlacedSprite { category, ..PlacedSprite::new(plate_set, x, y) });
         let mut glyphs = run(&world.fonts[0], 0, "sos", (x + 10 * step, y + 15 * step), 12, [230, 240, 250], (false, false, None), PlacedSprite { category, zoom_art: ZoomArt::Any, ..PlacedSprite::new(SpriteSetId::EMPTY, 0, 0) });
@@ -509,7 +512,7 @@ fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_swi
         }
         world.free.extend(glyphs);
     }
-    assert_eq!(CATEGORY_ALL & (CATEGORY_FULL_RESOLUTION | CATEGORY_REDUCED_RESOLUTION), 0);
+    assert_eq!(ALL & (CATEGORY_FULL_RESOLUTION | CATEGORY_REDUCED_RESOLUTION), 0);
     let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
@@ -534,11 +537,11 @@ fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_swi
                 let (x, y) = ((*at % 640) as i32, (*at / 640) as i32);
                 x >= plate_bounds[0] && x <= plate_bounds[2] && y >= plate_bounds[1] && y <= plate_bounds[3]
             }), "letters and underline must remain inside their plate at downscale{downscale} zoom{zoom:?}");
-            let hidden = Camera { hidden_categories: CATEGORY_CITIES, ..camera };
+            let hidden = Camera { hidden_categories: SITES, ..camera };
             let actual = gpu.render_views(&mut renderer, &[hidden], (640, 480), 0, CLEAR);
             expected_world.free.clear();
             let expected = reference::render_views(&expected_world, &atlas, &[hidden], (640, 480), 0, CLEAR);
-            assert_same(&actual, &expected, "city filtering must hide both layouts");
+            assert_same(&actual, &expected, "site filtering must hide both layouts");
         }
     }
 }

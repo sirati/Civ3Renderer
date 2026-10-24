@@ -39,7 +39,7 @@ use bytemuck::{Pod, Zeroable};
 pub const LAYOUT_ORTHOGONAL: u32 = 0;
 /// Odd rows shifted right by `step_x`, cells two steps apart horizontally:
 /// cell (c, r) is at ((2c + (r & 1))·step_x, r·step_y). This is the classic
-/// isometric "diamond" map where only tiles with even x + y exist (Civ III).
+/// isometric "diamond" map where only tiles with even x + y exist.
 pub const LAYOUT_STAGGERED: u32 = 1;
 
 /// The layer is not drawn.
@@ -560,21 +560,11 @@ pub const FREE_ZOOMED: u32 = 1 << 3;
 /// Drawn in every view but `FreeSprite::view` (instead of only in it).
 pub const FREE_EXCEPT_VIEW: u32 = 1 << 4;
 
-/// Categories for per-camera clean-map filtering. A category is a single bit.
-pub const CATEGORY_RIVERS_FLOODPLAINS: u32 = 1 << 0;
-pub const CATEGORY_MOUNTAINS: u32 = 1 << 1;
-pub const CATEGORY_HILLS: u32 = 1 << 2;
-pub const CATEGORY_FORESTS_JUNGLES: u32 = 1 << 3;
-pub const CATEGORY_TERRAIN_BUILDINGS: u32 = 1 << 4;
-pub const CATEGORY_ROADS_RAILROADS: u32 = 1 << 5;
-pub const CATEGORY_IRRIGATION: u32 = 1 << 6;
-pub const CATEGORY_RESOURCES: u32 = 1 << 7;
-pub const CATEGORY_YIELD_ICONS: u32 = 1 << 8;
-pub const CATEGORY_POLLUTION: u32 = 1 << 9;
-pub const CATEGORY_TERRITORY_BOUNDARIES: u32 = 1 << 10;
-pub const CATEGORY_CITIES: u32 = 1 << 11;
-pub const CATEGORY_UNITS: u32 = 1 << 12;
-pub const CATEGORY_ALL: u32 = (1 << 13) - 1;
+/// Categories for per-camera filtering (`Camera::hidden_categories`): a
+/// category is a single bit. Bits 0 to 27 are the driver's own (e.g. the
+/// map-detail categories a player hides); the top four are reserved for
+/// layouts ([`CATEGORY_RESERVED`]).
+pub const CATEGORY_RESERVED: u32 = 0xF000_0000;
 
 /// Reserved layout categories, outside the user-selectable category mask.
 /// Paired world annotations may use different layouts for full-size and
@@ -1335,9 +1325,9 @@ mod tests {
     }
 
     #[test]
-    fn staggered_origins_match_civ3_diamond_coordinates() {
+    fn staggered_origins_match_isometric_diamond_coordinates() {
         let grid = GridParams { cols: 50, rows: 100, layout: LAYOUT_STAGGERED, step_x: 64, step_y: 32, ..Default::default() };
-        // Civ III tile (x, y) with x + y even sits at (x·64, y·32): row y, col x/2.
+        // An isometric game's tile (x, y) with x + y even sits at (x·64, y·32): row y, col x/2.
         for (x, y) in [(0, 0), (2, 0), (1, 1), (3, 1), (97, 99)] {
             assert_eq!(cell_origin(&grid, x / 2, y), (x * 64, y * 32));
         }

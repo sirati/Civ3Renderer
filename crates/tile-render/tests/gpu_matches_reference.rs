@@ -23,7 +23,7 @@ fn diamond(seed: u8) -> RgbaImage {
     })
 }
 
-/// A sprite taller than a cell (88 px, like Civ III hills): overlaps the row behind.
+/// A sprite taller than a cell (88 px, like tall hills): overlaps the row behind.
 fn tall(seed: u8) -> RgbaImage {
     RgbaImage::from_fn(60, 88, |x, y| {
         if (x + y) % 7 == 0 { [0, 0, 0, 0] } else { [200, seed.wrapping_add(x as u8), y as u8 * 2, 255] }
@@ -911,7 +911,7 @@ fn hairlines_stay_when_an_interface_is_scaled_down() {
 
 #[test]
 fn a_viewers_most_views_are_all_drawn() {
-    // The game's map and city views, a second pane, three insets with their
+    // The driver's map and site views, a second pane, three insets with their
     // frames, a magnifier with its frame and the interface on top: 12 views,
     // all drawn (the interface's sprite, last, too).
     assert!(tile_render::MAX_VIEWS >= 12);
@@ -960,7 +960,7 @@ fn downscaled_scene(grid: Grid, shading: bool) -> (TileWorld, Atlas) {
     let terrain: Vec<_> = (0..5u8).map(|i| b.add(&diamond(i * 40), (0, 0)).unwrap()).collect();
     let anim: Vec<_> = (0..4u8).map(|i| b.add(&tall(i * 60), (34, -40)).unwrap()).collect();
     // The terrain's diamonds: column 0 is clear, so the box starts at 1
-    // (odd: odd columns are sampled) and is 126 wide (Civ III's terrain).
+    // (odd: odd columns are sampled) and is 126 wide (a terrain sprite).
     for (i, &t) in terrain.iter().enumerate() {
         *b.sprite_mut(t) = tile_render_shared::SpriteDesc { box_x: 1, box_y: i as u32 % 2, box_w: 126, box_h: 64 - i as u32 % 2, ..*b.sprite(t) };
     }

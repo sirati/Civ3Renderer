@@ -63,8 +63,8 @@ fn fixture() -> Fixture {
     Fixture { world, atlas: atlas.finish(), terrain, fog, edge }
 }
 
-/// A fog of its own (a city screen's: lit around one cell only).
-fn city_fog(world: &mut TileWorld, slot: SlotId, centre: (u32, u32)) {
+/// A fog of its own (a site screen's: lit around one cell only).
+fn site_fog(world: &mut TileWorld, slot: SlotId, centre: (u32, u32)) {
     for r in 0..world.grid.rows {
         for c in 0..world.grid.cols {
             let near = c.abs_diff(centre.0) <= 1 && r.abs_diff(centre.1) <= 2;
@@ -111,7 +111,7 @@ fn two_views_draw_different_fog_slots_and_the_same_one_alike() {
         f.world.color = color;
         let shared_only = f.world.clone();
         let slot = f.world.add_slot(f.fog);
-        city_fog(&mut f.world, slot, (4, 7));
+        site_fog(&mut f.world, slot, (4, 7));
         let edge = f.world.add_slot(f.edge);
         f.world.set_in(edge, 0, 5, 2);
         f.world.set_offset_in(edge, 0, 5, (-64, 0));
@@ -181,7 +181,7 @@ fn slots_come_and_go_incrementally() {
     // A screen opens over view A: a slot of its own, bound, filled.
     let slot = f.world.add_slot(f.fog);
     f.world.bind(A, f.fog, Some(slot));
-    city_fog(&mut f.world, slot, (3, 6));
+    site_fog(&mut f.world, slot, (3, 6));
     let dirty = f.world.take_dirty();
     assert!(matches!(&dirty, Dirty::Records(r) if r.contains(&(f.world.slot_region(slot), tile_render::ALL_CELLS))), "{dirty:?}");
     renderer.update_cells(&gpu.device, &gpu.queue, &f.world, &dirty);
@@ -189,8 +189,8 @@ fn slots_come_and_go_incrementally() {
     let opened = gpu.render_views(&mut renderer, &cameras(A, 0), SIZE, 0, CLEAR);
     assert_ne!(half(&opened, 0, 320), half(&plain, 0, 320), "A shows its own fog");
     assert_eq!(half(&opened, 320, 320), half(&plain, 320, 320), "B keeps the player's fog");
-    // Its city moves: only the slot's changed records travel.
-    city_fog(&mut f.world, slot, (6, 9));
+    // Its site moves: only the slot's changed records travel.
+    site_fog(&mut f.world, slot, (6, 9));
     // The player's own fog changes meanwhile, under both.
     f.world.set(f.fog, 2, 2, 1);
     f.world.set(f.terrain, 5, 5, 0);
@@ -212,7 +212,7 @@ fn slots_come_and_go_incrementally() {
     let slot = f.world.add_slot(f.fog);
     f.world.bind(A, f.fog, Some(slot));
     f.world.bind(A, f.edge, Some(edge));
-    city_fog(&mut f.world, slot, (1, 1));
+    site_fog(&mut f.world, slot, (1, 1));
     f.world.set_in(edge, 0, 9, 3);
     f.world.set_offset_in(edge, 0, 9, (-64, 0));
     let dirty = f.world.take_dirty();
