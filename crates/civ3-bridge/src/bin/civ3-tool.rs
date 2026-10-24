@@ -230,6 +230,7 @@ fn screen_scene(trace: &Trace, compiled: &Compiled, fonts: &text::Fonts, before:
             ifc23::scene_map::overlay_screen_sprites(&mut scene);
             parts::part_view(&mut scene, parts::SCREEN_VIEW, rect, sprites(&parts::clipped(&above, rect)));
             scene.interface.screen = Some(name.to_owned());
+            scene.interface.screen_role = civ3_ui::screens::role(name);
             scene.interface.screen_view = Some(parts::SCREEN_VIEW);
         }
         None => {
@@ -279,6 +280,7 @@ fn game_screen_scene(trace: &Trace, compiled: &Compiled, frame: &ifc23::ui::Fram
         None => ifc23::scene_map::overlay_menus(&mut scene, sprites(&menus)),
     }
     scene.interface.screen = Some(name.to_owned());
+    scene.interface.screen_role = civ3_ui::screens::role(name);
     Ok(scene)
 }
 
@@ -318,7 +320,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             let (mut compiled, mut art) = compile(Some(&trace))?;
             let size = viewport(args)?;
             let scene = trace_scene(&trace, &compiled, art.as_mut(), size);
-            let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+            let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, settings_path: civ3_ui::viewer::settings_path(), ..Default::default() };
             let img = if args.iter().any(|arg| arg == "--reference") {
                 for patch in &scene.patches {
                     let Some(id) = compiled.sprite(&patch.sprite) else { continue };
@@ -334,7 +336,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 reference::render_views(&world, &compiled.atlas, &cameras, size, scene.tick, config.clear)
             } else if let Some(ms) = host_ms {
                 let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
                 renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
                 renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, &scene));
                 tile_viewer::apply_patches(&mut renderer, &gpu.queue, &compiled, &scene.patches);
@@ -393,7 +395,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             }
             let (resolution, layout) = (settings.resolution, settings.layout);
             let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-            let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+            let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, settings_path: civ3_ui::viewer::settings_path(), ..Default::default() };
             let img = match arg("--pointer") {
                 Some(p) => {
                     let (x, y) = p.split_once(',').ok_or("--pointer X,Y")?;
@@ -583,9 +585,9 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
         if reuse_enabled { "reuse enabled" } else { "reuse disabled" },
     );
     println!("atlas: {} sprites, {} + {} pages", compiled.atlas.sprites.len(), compiled.atlas.pages.len(), compiled.atlas.index_pages.len());
-    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, settings_path: civ3_ui::viewer::settings_path(), ..Default::default() };
     let format = wgpu::TextureFormat::Bgra8Unorm;
-    let mut renderer = tile_render::TileRenderer::new(&gpu.device, format);
+    let mut renderer = tile_render::TileRenderer::new(&gpu.device, format, tile_viewer::SHADERS);
     let timed = renderer.enable_timing(&gpu.device, &gpu.queue);
     println!("GPU timing: {}", if timed { "on" } else { "off (TILE_RENDER_GPU_TIMING=1, timestamp queries)" });
     renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
@@ -721,7 +723,7 @@ fn preview(file: &str, out: &str, size: (u32, u32)) -> Result<ExitCode, String> 
     scene.interface.beside = Some(scene::Beside { screen: dialog, edge: scene::Edge::Left, world: Some(p.area) });
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, settings_path: civ3_ui::viewer::settings_path(), ..Default::default() };
     let img = tile_viewer::render_arranged(&gpu, &compiled, &scene, size, &config);
     image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
     let w = &p.world;
@@ -893,7 +895,7 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
     let (compiled, mut art) = compile(Some(trace))?;
     let scene = trace_scene(trace, &compiled, art.as_mut(), viewport);
     let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
+    let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, settings_path: civ3_ui::viewer::settings_path(), ..Default::default() };
     let ours = tile_viewer::render_offscreen(&gpu, &compiled, &scene, viewport, &config);
     // The map alone: the pixels no unit, label or interface sprite of ours
     // covers are the terrain's (layers of the world: terrain, objects,

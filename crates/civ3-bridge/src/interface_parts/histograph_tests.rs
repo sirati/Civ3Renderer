@@ -111,7 +111,7 @@ fn scene_of(frame: &Frame, size: (i32, i32)) -> (scene::Scene, Vec<[i32; 4]>) {
             ViewState { id: crate::scene_map::INTERFACE_VIEW, view: View { interface_only: true, ..Default::default() }, overlay: sprites(&hud) },
         ],
         shape: scene::WorldShape { cols: 60, rows: 62, wrap_x: true, wrap_y: false },
-        interface: scene::Interface { screen: Some(name.into()), ..Default::default() },
+        interface: scene::Interface { screen: Some(name.into()), screen_role: civ3_ui::screens::role(name), ..Default::default() },
         screen_size: (size.0 as u32, size.1 as u32),
         ..Default::default()
     };

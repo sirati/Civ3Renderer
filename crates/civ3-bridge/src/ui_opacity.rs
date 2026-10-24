@@ -16,7 +16,7 @@ use std::sync::Arc;
 /// whether they are opaque.
 type Known = HashMap<String, Vec<([i32; 4], bool)>>;
 
-static KNOWN: civ3r_sync::Latest<Known> = civ3r_sync::Latest::new();
+static KNOWN: handoff::Latest<Known> = handoff::Latest::new();
 static ASK: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])>> = std::sync::OnceLock::new();
 
 /// Questions sent from this thread: each once (at most this many).

@@ -121,7 +121,7 @@ fn begin_on_another_slider_restores_the_first_before_editing_the_second() {
 #[test]
 fn pending_previews_coalesce_without_crossing_a_commit_or_foreign_input() {
     let queue = Requests::default();
-    let mut inbox = civ3r_sync::Inbox::default();
+    let mut inbox = handoff::Inbox::default();
     let only = |taken: Vec<Request>| { assert_eq!(taken.len(), 1, "{taken:?}"); taken[0] };
     let (first, post) = queue.push(request(SliderAction::Preview, 0));
     assert!(post);
@@ -177,7 +177,7 @@ fn a_step_on_another_slider_restores_the_open_edit_first() {
 #[test]
 fn steps_are_never_coalesced_and_keep_their_queue_order() {
     let queue = Requests::default();
-    let mut inbox = civ3r_sync::Inbox::default();
+    let mut inbox = handoff::Inbox::default();
     let (first, post) = queue.push(request(SliderAction::Step, 1));
     let (second, post2) = queue.push(request(SliderAction::Step, 1));
     assert!(post && post2 && first != second);

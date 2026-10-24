@@ -156,7 +156,7 @@ mod live {
 
     struct Capture { key: MapKey, units: Vec<DrawnUnit>, main_count: usize }
     /// Published by the game's thread after each tick, read by the publisher.
-    static CAPTURE: civ3r_sync::Latest<Capture> = civ3r_sync::Latest::new();
+    static CAPTURE: handoff::Latest<Capture> = handoff::Latest::new();
     // Cache ids only. Raw pointers can become invalid when a unit dies,
     // loads into a transport, or a game is replaced between two ticks.
     struct Selection { key: MapKey, at: Instant, ids: Vec<i32> }

@@ -26,7 +26,7 @@ pub struct Picture {
 #[derive(Default)]
 struct Output {
     revision: AtomicU64,
-    picture: civ3r_sync::Latest<Picture>,
+    picture: handoff::Latest<Picture>,
 }
 
 impl Output {

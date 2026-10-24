@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 render-errors = { path = "../render-errors" }
 inproc = { path = "../inproc" }
-civ3r-sync = { path = "../civ3r-sync" }
+handoff = { path = "../handoff" }
 tokio = { version = "1", default-features = false, features = ["sync", "rt", "time"] }
 civ3-sys = { path = "../civ3-sys" }
 log.workspace = true
@@ -24,6 +24,7 @@ scene = { path = "../scene" }
 viewer-transport = { path = "../viewer-transport" }
 menu = { path = "../menu" }
 civ3-ui = { path = "../civ3-ui" }
+tile-game = { path = "../tile-game" }
 jgl = { path = "../jgl" }
 jgl-ffi = { path = "../jgl-ffi" }
 wine-unixlib = { path = "../wine-unixlib" }

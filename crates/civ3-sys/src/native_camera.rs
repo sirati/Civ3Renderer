@@ -143,12 +143,12 @@ enum Command {
     RendererView(MapKey, Option<(i32, i32, i32, i32)>, bool),
     Gone { game: Civ3, center: Option<(i32, i32)>, map: Option<MapKey> },
 }
-static COMMANDS: LazyLock<civ3r_sync::Mailbox<Command>> = LazyLock::new(civ3r_sync::Mailbox::new);
+static COMMANDS: LazyLock<handoff::Mailbox<Command>> = LazyLock::new(handoff::Mailbox::new);
 
 /// What the publisher reads of the state (`focus`), as of its last change.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct Published { map: Option<MapKey>, initialized: bool, focus: Focus, arrival: Option<Arrival> }
-static PUBLISHED: civ3r_sync::Latest<Published> = civ3r_sync::Latest::new();
+static PUBLISHED: handoff::Latest<Published> = handoff::Latest::new();
 
 thread_local! {
     static STATE: RefCell<State> = RefCell::new(State::default());

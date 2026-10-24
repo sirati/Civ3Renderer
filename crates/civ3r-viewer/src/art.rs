@@ -27,7 +27,7 @@ pub struct ArtJobs {
     /// `None` wakes the worker to stop.
     tx: crossbeam_channel::Sender<Option<Job>>,
     rx: crossbeam_channel::Receiver<Option<Job>>,
-    backlog: civ3r_sync::Latest<Backlog>,
+    backlog: handoff::Latest<Backlog>,
     newest: AtomicU64,
     stopped: AtomicBool,
 }
@@ -35,7 +35,7 @@ pub struct ArtJobs {
 impl Default for ArtJobs {
     fn default() -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
-        let backlog = civ3r_sync::Latest::new();
+        let backlog = handoff::Latest::new();
         backlog.publish(Backlog::default());
         Self { tx, rx, backlog, newest: AtomicU64::new(0), stopped: AtomicBool::new(false) }
     }

@@ -163,7 +163,7 @@ pub const MAX_SHOWN: usize = 2;
 /// game's own popups (their canvases' addresses).
 pub const FIRST_VIEW: u32 = 0x1100;
 
-static QUEUE: civ3r_sync::Latest<Vec<Arc<Queued>>> = civ3r_sync::Latest::new();
+static QUEUE: handoff::Latest<Vec<Arc<Queued>>> = handoff::Latest::new();
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
 /// Whether report popups are accepted at once.

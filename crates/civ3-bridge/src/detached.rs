@@ -43,7 +43,7 @@ pub const MAX_KEPT: usize = 4;
 /// below the game's own popups (their canvases' addresses).
 pub const FIRST_VIEW: u32 = 0x1000;
 
-static KEPT: civ3r_sync::Latest<Vec<Kept>> = civ3r_sync::Latest::new();
+static KEPT: handoff::Latest<Vec<Kept>> = handoff::Latest::new();
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
 
 /// Whether the tile box is kept by the viewer rather than left modal.
