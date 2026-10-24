@@ -199,3 +199,73 @@ fn set_mode_keep_takes_the_size_without_switching_the_display() {
         assert!(contains(body, &[0xFF, 0x50, 0x64]) || contains(body, &[0xFF, 0x52, 0x64]), "+{slot:#x}");
     }
 }
+
+/// The RVA of the import address table entry through which jgl.dll calls
+/// `dll!function`.
+fn import_rva(pe: &Pe, imports: u32, dll: &str, function: &str) -> Option<u32> {
+    let c_string = |rva: u32| {
+        let bytes = pe.at(rva, 64);
+        String::from_utf8_lossy(&bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(64)]).into_owned()
+    };
+    for i in 0.. {
+        let desc = imports + 20 * i;
+        let (lookup, name, iat) = (pe.u32(desc), pe.u32(desc + 12), pe.u32(desc + 16));
+        if name == 0 {
+            return None;
+        }
+        if !c_string(name).eq_ignore_ascii_case(dll) {
+            continue;
+        }
+        let names = if lookup != 0 { lookup } else { iat };
+        for j in 0.. {
+            let entry = pe.u32(names + 4 * j);
+            if entry == 0 {
+                break;
+            }
+            if entry & 0x8000_0000 == 0 && c_string(entry + 2) == function {
+                return Some(iat + 4 * j);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn every_display_change_of_jgl_goes_through_its_one_import() {
+    let Some(pe) = pe() else { return };
+    // The PE header is in no section: read it from the file.
+    let header = u32::from_le_bytes(pe.data[0x3C..0x40].try_into().unwrap()) as usize;
+    let imports = u32::from_le_bytes(pe.data[header + 0x80..header + 0x84].try_into().unwrap());
+    assert_ne!(imports, 0);
+    let slot = import_rva(&pe, imports, "USER32.dll", "ChangeDisplaySettingsA").expect("jgl imports ChangeDisplaySettingsA");
+    let va = (pe.image_base + slot).to_le_bytes();
+    // Every mention of the slot in the code is a `call [slot]` (no copy of
+    // the pointer to call later), and those are in exactly the four slots
+    // the display group answers: shutdown, set mode by index, the movie's
+    // switch and its way back.
+    let mut calls = Vec::new();
+    for &(start, size, file) in &pe.sections {
+        let code = &pe.data[file as usize..((file + size) as usize).min(pe.data.len())];
+        for (i, w) in code.windows(4).enumerate() {
+            if w == va {
+                assert!(i >= 2 && code[i - 2..i] == [0xFF, 0x15], "a mention of the slot that is no call at rva {:#x}", start + i as u32);
+                calls.push(start + i as u32 - 2);
+            }
+        }
+    }
+    let body = |offset: u16| {
+        let f = pe.u32(Class::Graphics.vtable_rva() + offset as u32) - pe.image_base;
+        f..f + 0xA0
+    };
+    let mut owners: Vec<u16> = calls
+        .iter()
+        .map(|&call| *[0x08u16, 0x64, 0x6C, 0x70].iter().filter(|&&o| body(o).contains(&call)).max_by_key(|&&o| body(o).start).unwrap_or_else(|| panic!("a display change at {call:#x} outside the answered slots")))
+        .collect();
+    owners.sort();
+    assert_eq!(owners, [0x08, 0x64, 0x6C, 0x70]);
+    // The movie's switch: 640×480 is written by the game's caller, the
+    // fields DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT by jgl (mov [esp+0x38], 0x1C0000).
+    let movie = pe.slot_body(Class::Graphics, 0x6C, 0x60);
+    let fields = jgl::display::DM_BITSPERPEL | jgl::display::DM_PELSWIDTH | jgl::display::DM_PELSHEIGHT;
+    assert!(contains(movie, &[[0xC7, 0x44, 0x24, 0x38].as_slice(), &fields.to_le_bytes()].concat()));
+}

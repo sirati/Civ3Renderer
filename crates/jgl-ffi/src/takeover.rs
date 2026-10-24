@@ -29,6 +29,8 @@ pub enum TakeoverError {
     Unexpected { class: Class, offset: u16, found: u32, expected: u32 },
     #[error("{class:?}+{offset:#x} is not a slot of jgl's table")]
     NoSuchSlot { class: Class, offset: u16 },
+    #[error("jgl.dll does not import {0}")]
+    NoImport(&'static str),
     #[error(transparent)]
     Hook(#[from] HookError),
 }

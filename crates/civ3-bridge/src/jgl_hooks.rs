@@ -5,7 +5,8 @@
 //! Groups taken over so far: text and display modes. Text runs go to the
 //! interface mirror (`ui_trace::on_text`) and to the recent-text list
 //! (`trace`). The display modes need no hooks: the game's screen is the
-//! mode it asks for, and the display is never switched (`jgl::display`).
+//! mode it asks for, and the display is never switched, not by a movie nor
+//! by jgl's shutdown either (`jgl::display`).
 
 use civ3_ui::text::{CanvasText, TextCapture};
 
