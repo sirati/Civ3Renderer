@@ -129,13 +129,14 @@ enum Hold {
 impl Hold {
     /// `current`: the world and selected unit; `mode`, `armed`: the game's
     /// command and its go-to flag; `target`: the go-to's tile
-    /// (`field_4E80[3..4]`). The other orders take the map's pointer tile,
-    /// which stays the preselected one (`live::pin`).
-    fn of(preview: Preview, current: Option<(World, u32)>, mode: i32, armed: bool, target: Option<(i32, i32)>) -> Hold {
+    /// (`field_4E80[3..4]`); `pointer`: the map's pointer tile (the virtual
+    /// one), which the other orders take and keys act on: back on the
+    /// preselected one after a press made it none (`live::pin`).
+    fn of(preview: Preview, current: Option<(World, u32)>, mode: i32, armed: bool, target: Option<(i32, i32)>, pointer: Option<(i32, i32)>) -> Hold {
         if !current.is_some_and(|(world, unit)| preview.owned_by(world, unit)) || !crate::targeting::carries(mode, armed) {
             return Hold::Retire;
         }
-        let on_tile = !crate::targeting::go_to(mode) || target == Some(preview.tile);
+        let on_tile = pointer == Some(preview.tile) && (!crate::targeting::go_to(mode) || target == Some(preview.tile));
         if mode == preview.mode && on_tile { Hold::Keep } else { Hold::Retarget }
     }
 }
@@ -374,21 +375,24 @@ mod tests {
         let preview = Preview { world: WORLD, unit: 77, tile, mode: GO_TO };
         let here = Some((WORLD, 77));
         // Hovering, keys and clicks that change nothing: the go-to keeps it.
-        assert_eq!(Hold::of(preview, here, GO_TO, true, Some(tile)), Hold::Keep);
+        assert_eq!(Hold::of(preview, here, GO_TO, true, Some(tile), Some(tile)), Hold::Keep);
         // Move All (X, Ctrl-X): the stack's go-to, which starts at the
         // unit's own tile (0x4DABC4): given the tile again.
-        assert_eq!(Hold::of(preview, here, STACK_GO_TO, true, Some((80, 50))), Hold::Retarget);
-        assert_eq!(Hold::of(Preview { mode: STACK_GO_TO, ..preview }, here, STACK_GO_TO, true, Some(tile)), Hold::Keep);
+        assert_eq!(Hold::of(preview, here, STACK_GO_TO, true, Some((80, 50)), Some(tile)), Hold::Retarget);
+        assert_eq!(Hold::of(Preview { mode: STACK_GO_TO, ..preview }, here, STACK_GO_TO, true, Some(tile), Some(tile)), Hold::Keep);
         // Road to, Rail to, Colony to: their mode, the go-to's flag left set
         // or not; the map's pointer tile is the preselected one.
         for mode in [ROAD_TO, RAIL_TO, COLONY_TO] {
             for armed in [false, true] {
-                assert_eq!(Hold::of(preview, here, mode, armed, None), Hold::Retarget, "{mode:#x}");
-                assert_eq!(Hold::of(Preview { mode, ..preview }, here, mode, armed, None), Hold::Keep, "{mode:#x}");
+                assert_eq!(Hold::of(preview, here, mode, armed, None, Some(tile)), Hold::Retarget, "{mode:#x}");
+                assert_eq!(Hold::of(Preview { mode, ..preview }, here, mode, armed, None, Some(tile)), Hold::Keep, "{mode:#x}");
             }
         }
+        // A press on the interface left the map's pointer off the map.
+        assert_eq!(Hold::of(preview, here, GO_TO, true, Some(tile), None), Hold::Retarget);
+        assert_eq!(Hold::of(Preview { mode: ROAD_TO, ..preview }, here, ROAD_TO, true, None, None), Hold::Retarget);
         // The go-to lost its tile (a hover elsewhere): given it again.
-        assert_eq!(Hold::of(preview, here, GO_TO, true, Some((83, 51))), Hold::Retarget);
+        assert_eq!(Hold::of(preview, here, GO_TO, true, Some((83, 51)), Some(tile)), Hold::Retarget);
         // Another command (Fortify, Sentry, Disband: no mode; bombard 6),
         // the go-to's flag cleared by a map click, another unit or world.
         for (current, mode, armed) in [
@@ -401,7 +405,7 @@ mod tests {
             (Some((World { seed: 3, ..WORLD }, 77)), GO_TO, true),
             (None, GO_TO, true),
         ] {
-            assert_eq!(Hold::of(preview, current, mode, armed, Some(tile)), Hold::Retire, "{current:?} {mode:#x} {armed}");
+            assert_eq!(Hold::of(preview, current, mode, armed, Some(tile), Some(tile)), Hold::Retire, "{current:?} {mode:#x} {armed}");
         }
     }
 
@@ -542,7 +546,7 @@ mod live {
         }
         let Ok(t) = game.targeting() else { return };
         let current = world(game).zip(game.current_unit_ptr().ok());
-        match Hold::of(p, current, t.mode, t.armed, game.mouse_tile().ok().flatten()) {
+        match Hold::of(p, current, t.mode, t.armed, game.mouse_tile().ok().flatten(), native::virtual_tile()) {
             Hold::Keep => {}
             Hold::Retire => {
                 log::info!("world input: the preselected destination {:?} ends with command {:#x}", p.tile, t.mode);
