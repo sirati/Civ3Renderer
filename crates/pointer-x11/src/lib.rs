@@ -60,13 +60,8 @@ impl Backend for Controller {
 
     fn update(&mut self, region: Option<&Region>, pointer: (f64, f64), inside: bool) -> Update {
         let Some(barriers) = &mut self.barriers else { return Update::default() };
-        let pointer = (pointer.0.floor() as i32, pointer.1.floor() as i32);
-        let walls = region
-            .filter(|r| inside && !self.grabbed && r.contains(pointer))
-            .and_then(|r| {
-                let origin = self.window.inner_position().ok()?;
-                barrier_segments(r, (origin.x, origin.y))
-            });
+        let window = &self.window;
+        let walls = wanted_barriers(region, pointer, inside && !self.grabbed, || window.inner_position().ok().map(|o| (o.x, o.y)));
         let wanted = walls.is_some();
         let active = barriers.set(walls);
         Update { confined: wanted && active, placement: None }
@@ -163,6 +158,16 @@ impl Drop for Barriers {
     fn drop(&mut self) { self.clear(); }
 }
 
+/// The barriers to have now: those of `region` while the window may hold
+/// the pointer (`holds`: inside, not grabbed) and it is in the region;
+/// none (every barrier removed) without a region, e.g. while the game menu
+/// lets the pointer go.
+fn wanted_barriers(region: Option<&Region>, pointer: (f64, f64), holds: bool, origin: impl FnOnce() -> Option<Point>) -> Option<Vec<Segment>> {
+    let pointer = (pointer.0.floor() as i32, pointer.1.floor() as i32);
+    let region = region.filter(|r| holds && r.contains(pointer))?;
+    barrier_segments(region, origin()?)
+}
+
 /// The barriers that hold the pointer in `region` (physical content
 /// pixels) for a window whose content starts at `origin` on the root
 /// window. The bounds' walls reach one pixel past each corner so that a
@@ -216,6 +221,18 @@ mod tests {
     use super::*;
     use std::{num::NonZeroU32, ptr::NonNull};
     use winit::raw_window_handle::{WaylandWindowHandle, XcbWindowHandle, XlibWindowHandle};
+
+    /// Walls a divider makes, then the game menu opens (no region): no
+    /// barrier, wherever the pointer is; back once the region is.
+    #[test]
+    fn no_region_removes_every_barrier() {
+        let walls = Region { bounds: [0, 0, 800, 600], exclusions: vec![[399, 0, 2, 600]] };
+        assert!(wanted_barriers(Some(&walls), (100.0, 100.0), true, || Some((50, 60))).is_some());
+        for at in [(100.0, 100.0), (400.0, 10.0), (-5.0, 700.0)] {
+            assert_eq!(wanted_barriers(None, at, true, || Some((50, 60))), None);
+        }
+        assert_eq!(wanted_barriers(Some(&walls), (100.0, 100.0), false, || Some((50, 60))), None, "grabbed or outside");
+    }
 
     #[test]
     fn selects_both_x11_handle_forms_without_claiming_wayland() {
