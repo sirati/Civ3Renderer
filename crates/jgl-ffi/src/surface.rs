@@ -35,7 +35,7 @@ pub fn tables() -> Option<[u32; 5]> {
 mod entries {
     use super::*;
     use crate::state::{guarded, read, record};
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use jgl::SurfaceCall;
 
     pub static NEW_FONT: AtomicU32 = AtomicU32::new(0);
@@ -125,6 +125,20 @@ mod entries {
         deleted(Class::Sprite, object);
         original::<M1>(&DELETE_SPRITE)(this, object)
     }
+
+    /// The group's graphics slots.
+    pub fn graphics_slots() -> Vec<Entry> {
+        vec![
+            Entry { offset: 0x74, function: new_font as M1 as usize as u32, original: &NEW_FONT },
+            Entry { offset: 0x78, function: new_table as M1 as usize as u32, original: &NEW_TABLE },
+            Entry { offset: 0x7C, function: new_image as M2 as usize as u32, original: &NEW_IMAGE },
+            Entry { offset: 0x80, function: new_sprite as M2 as usize as u32, original: &NEW_SPRITE },
+            Entry { offset: 0x88, function: delete_font as M1 as usize as u32, original: &DELETE_FONT },
+            Entry { offset: 0x8C, function: delete_table as M1 as usize as u32, original: &DELETE_TABLE },
+            Entry { offset: 0x90, function: delete_image as M1 as usize as u32, original: &DELETE_IMAGE },
+            Entry { offset: 0x94, function: delete_sprite as M1 as usize as u32, original: &DELETE_SPRITE },
+        ]
+    }
 }
 
 /// The taken-over surface group (for the life of the process, in
@@ -144,7 +158,7 @@ pub fn install(base: u32) -> Result<SurfaceGroup, TakeoverError> {
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32) -> Result<SurfaceGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
+    use crate::takeover::take_over;
     use entries::*;
     use inproc::Ptr32;
     if !crate::state::has_hooks() {
@@ -153,17 +167,7 @@ fn install_impl(base: u32) -> Result<SurfaceGroup, TakeoverError> {
     if TABLES.get().is_some() {
         return Err(inproc::hook::HookError::Unsupported.into());
     }
-    let graphics = [
-        Entry { offset: 0x74, function: new_font as M1 as usize as u32, original: &NEW_FONT },
-        Entry { offset: 0x78, function: new_table as M1 as usize as u32, original: &NEW_TABLE },
-        Entry { offset: 0x7C, function: new_image as M2 as usize as u32, original: &NEW_IMAGE },
-        Entry { offset: 0x80, function: new_sprite as M2 as usize as u32, original: &NEW_SPRITE },
-        Entry { offset: 0x88, function: delete_font as M1 as usize as u32, original: &DELETE_FONT },
-        Entry { offset: 0x8C, function: delete_table as M1 as usize as u32, original: &DELETE_TABLE },
-        Entry { offset: 0x90, function: delete_image as M1 as usize as u32, original: &DELETE_IMAGE },
-        Entry { offset: 0x94, function: delete_sprite as M1 as usize as u32, original: &DELETE_SPRITE },
-    ];
-    let takeover = take_over(base, Class::Graphics, &graphics)?;
+    let takeover = take_over(base, Class::Graphics, &entries::graphics_slots())?;
     // Our tables: jgl's as they are now (every group's entry points in).
     let mut ours = [0u32; 5];
     let mut jgls = [0u32; 5];

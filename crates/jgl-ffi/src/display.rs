@@ -20,7 +20,7 @@ use crate::takeover::{Takeover, TakeoverError};
 #[cfg(all(windows, target_arch = "x86"))]
 mod entries {
     use super::*;
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use jgl::display::{Mode, screen_for};
 
     pub static SET_MODE: AtomicU32 = AtomicU32::new(0);
@@ -88,6 +88,15 @@ mod entries {
         let at = |offset: u32| inproc::Ptr32::<u32>::new(mode).offset::<u32>(offset).and_then(|p| p.read()).unwrap_or(0);
         jgl::display::ChangeMode { fields: at(40), bits: at(104), width: at(108), height: at(112) }
     }
+
+    /// The group's graphics slots.
+    pub fn graphics() -> Vec<Entry> {
+        vec![
+            Entry { offset: 0x58, function: set_mode as M3 as usize as u32, original: &SET_MODE },
+            Entry { offset: 0x5C, function: set_mode_refresh as M5 as usize as u32, original: &SET_MODE_REFRESH },
+            Entry { offset: 0x60, function: set_mode_keep as M4 as usize as u32, original: &SET_MODE_KEEP },
+        ]
+    }
 }
 
 /// The taken-over display-mode group (for the life of the process, in
@@ -106,20 +115,14 @@ pub fn install(base: u32) -> Result<DisplayGroup, TakeoverError> {
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32) -> Result<DisplayGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
-    use entries::*;
+    use crate::takeover::take_over;
     use jgl::slots::Class;
-    let graphics = [
-        Entry { offset: 0x58, function: set_mode as M3 as usize as u32, original: &SET_MODE },
-        Entry { offset: 0x5C, function: set_mode_refresh as M5 as usize as u32, original: &SET_MODE_REFRESH },
-        Entry { offset: 0x60, function: set_mode_keep as M4 as usize as u32, original: &SET_MODE_KEEP },
-    ];
     let slot = inproc::pe::import_slot(base, "USER32.dll", "ChangeDisplaySettingsA")
         .map_err(inproc::hook::HookError::from)?
         .ok_or(TakeoverError::NoImport("ChangeDisplaySettingsA"))?;
-    let graphics = take_over(base, Class::Graphics, &graphics)?;
+    let graphics = take_over(base, Class::Graphics, &entries::graphics())?;
     type Change = extern "system" fn(u32, u32) -> i32;
-    let changes = inproc::hook::SlotPatch::replace(slot, change_display_settings_a as Change as usize as u32)?;
+    let changes = inproc::hook::SlotPatch::replace(slot, entries::change_display_settings_a as Change as usize as u32)?;
     Ok(DisplayGroup { _graphics: graphics, _changes: changes })
 }
 
