@@ -25,8 +25,8 @@ pub mod record;
 pub mod slots;
 pub mod text;
 
-pub use draw::{FillCall, Surface};
-pub use hooks::{FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
+pub use draw::{CopyCall, FillCall, Surface};
+pub use hooks::{CopyHooks, FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
 pub use machine::{Consumer, Jgl, Producer};
 pub use text::{FontDesc, TextColor};
 

@@ -2,14 +2,15 @@
 //! method groups `jgl-ffi` takes over in jgl.dll's tables, the hooks they
 //! report to, and the counting mode.
 //!
-//! Groups taken over so far: text, fills (lines, shades) and the display
-//! modes. Text runs go to the interface mirror (`ui_trace::on_text`) and to
-//! the recent-text list (`trace`); fills to the interface mirror
-//! (`ui_trace::on_fill`). The display modes need no hooks: the game's
+//! Groups taken over so far: text, fills (lines, shades), copies and the
+//! display modes. Text runs go to the interface mirror
+//! (`ui_trace::on_text`) and to the recent-text list (`trace`); fills and
+//! copies to the interface mirror (`ui_trace::on_fill`,
+//! `ui_trace::on_copy`). The display modes need no hooks: the game's
 //! screen is the mode it asks for, and the display is never switched, not
 //! by a movie nor by jgl's shutdown either (`jgl::display`).
 
-use civ3_ui::draw::{CanvasDraw, FillCapture};
+use civ3_ui::draw::{CanvasDraw, CopyCapture, FillCapture};
 use civ3_ui::text::{CanvasText, TextCapture};
 
 /// The text group goes in before jgl's first draw: from the `LoadLibraryA`
@@ -29,6 +30,7 @@ fn canvas_draw(d: CanvasDraw) {
     }
     match d {
         CanvasDraw::Fill { canvas, size, rects, rgb, alpha, clip } => crate::ui_trace::on_fill(canvas, size, &rects, rgb, alpha, clip),
+        CanvasDraw::Copy { from, src, canvas, x, y, keyed, sizes, clip } => crate::ui_trace::on_copy(from, src, canvas, x, y, keyed, sizes, clip),
     }
 }
 
@@ -49,12 +51,25 @@ impl jgl::PixelPolicy for Pixels {
         }
         taken.is_none_or(|canvas| !crate::ui_trace::skips_drawing(canvas, 0))
     }
+
+    fn original_copy(&self, call: &jgl::CopyCall) -> bool {
+        let taken = civ3_ui::draw::mirrored_copy(call);
+        if compare::on() {
+            let target = match call {
+                jgl::CopyCall::Stretch { target, .. } | jgl::CopyCall::Keyed { target, .. } | jgl::CopyCall::Indexed { target, .. } => target.owner,
+                jgl::CopyCall::Other { this, .. } => this.owner,
+            };
+            compare::asked(taken, target, "copy");
+        }
+        taken.is_none_or(|(canvas, source)| !crate::ui_trace::skips_drawing(canvas, source))
+    }
 }
 
 fn hooks() -> jgl::Hooks {
     jgl::Hooks {
         text: Box::new(TextCapture::new(canvas_text)),
         fill: Box::new(FillCapture::new(canvas_draw)),
+        copy: Box::new(CopyCapture::new(canvas_draw)),
         policy: Box::new(Pixels),
     }
 }
@@ -91,6 +106,14 @@ pub(crate) fn install_fill(base: u32) -> Result<(), inproc::hook::HookError> {
     let group = jgl_ffi::fill::install(base).map_err(takeover_error)?;
     std::mem::forget(group);
     log::info!("jgl fill group taken over (image +0x44..+0x64)");
+    Ok(())
+}
+
+/// Takes over jgl.dll's copy group (at `base`), as [`install_fill`].
+pub(crate) fn install_copy(base: u32) -> Result<(), inproc::hook::HookError> {
+    let group = jgl_ffi::copy::install(base).map_err(takeover_error)?;
+    std::mem::forget(group);
+    log::info!("jgl copy group taken over (image +0x38, +0x40, +0x84, +0x8C)");
     Ok(())
 }
 
@@ -141,7 +164,7 @@ pub(crate) fn report() {
 }
 
 /// `CIV3R_JGL_COMPARE=1`: the exe detours and the `shade_rect` slot hook
-/// the fill group replaces run beside the takeover, and every call
+/// the fill and copy groups replace run beside the takeover, and every call
 /// is compared (temporary, for the migration's equivalence check).
 ///
 /// An old detour runs first (it is above jgl: the exe's `PCX_Image`
@@ -264,6 +287,7 @@ pub(crate) mod compare {
         if MODE.with(Cell::get) == Mode::Off {
             let key = match d {
                 civ3_ui::draw::CanvasDraw::Fill { .. } => "fill",
+                civ3_ui::draw::CanvasDraw::Copy { .. } => "copy",
             };
             if let Ok(mut o) = OUTSIDE.lock() {
                 o.entry(format!("{key} draws")).or_default().2 += 1;
