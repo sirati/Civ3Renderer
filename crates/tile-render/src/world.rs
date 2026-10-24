@@ -600,6 +600,19 @@ impl TileWorld {
         &self.layers
     }
 
+    /// The viewer-clock periods (`ticks_per_frame` with
+    /// [`tile_render_shared::HOST_CLOCK`]) of the layers that draw a cell
+    /// now (in their own records or a live data slot): what makes a
+    /// picture of this world change with the viewer's clock alone.
+    pub fn host_clock_layers(&self) -> impl Iterator<Item = u32> + '_ {
+        self.layers.iter().enumerate().filter(|(_, spec)| spec.ticks_per_frame & tile_render_shared::HOST_CLOCK != 0).filter_map(move |(i, spec)| {
+            let (n, stride) = (spec.value_bytes() as usize, spec.record_bytes() as usize);
+            let drawn = |bytes: &[u8]| bytes.chunks_exact(stride).any(|r| r[..n].iter().any(|&b| b != 0));
+            let in_slot = || self.slots.iter().any(|s| s.live && s.layer == i && drawn(&s.data));
+            (drawn(&self.data[i]) || in_slot()).then_some(spec.ticks_per_frame)
+        })
+    }
+
     /// (first layer, layer count) of every non-empty pass, in drawing order.
     pub fn passes(&self) -> Vec<Pass> {
         let mut out: Vec<Pass> = Vec::new();

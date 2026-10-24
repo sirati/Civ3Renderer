@@ -26,7 +26,7 @@ use spirv_std::glam::{IVec2, UVec2, UVec3, UVec4, Vec2, Vec4};
 use spirv_std::num_traits::Float;
 use spirv_std::{Image, spirv};
 use tile_render_shared::{
-    ALL_VIEWS, ByteReader, cell_offset, frame_of, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
+    ALL_VIEWS, ByteReader, cell_offset, record_at, window_col, FREE_CLIP, FREE_EXCEPT_VIEW, FREE_LOW, FREE_SCREEN, FREE_ZOOMED, FrameParams, FreeSprite, LAYER_HIDDEN, LayerDesc, OutputParams, QUAD_VERTICES, SpriteDesc, cell_origin,
     ALPHA_STEPS, QUANTIZED_BIAS, SCALE_INVERT, SCALE_SUBPIXEL, alpha_steps, drawn_part, drawn_sprite, expand, indexed_color, layer_value, mixed_source, placed, quantize, scale_offset, shrunk, world_period, wrap_cell, wrap_distance,
 };
 
@@ -94,7 +94,7 @@ fn resolve_sprite(
     if frames == 0 {
         return None;
     }
-    let frame = frame_of(params.frame, layer.ticks_per_frame, phase, frames);
+    let frame = tile_render_shared::layer_frame_of(params.frame, params.host_tick_ms, layer.ticks_per_frame, phase, frames);
     let sprite = sprite_sets[(set + 1 + frame) as usize];
     // The cell's own offset on top of the layer's.
     let (dx, dy) = cell_offset(&data, layer, byte, n);

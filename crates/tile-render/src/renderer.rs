@@ -495,6 +495,9 @@ struct WorldBuffers {
     free: wgpu::Buffer,
     free_after: Vec<FreeRuns>,
     host_period_ms: u32,
+    /// [`host_period`] of the viewer-clock layers drawing a cell
+    /// ([`TileWorld::host_clock_layers`]).
+    layer_period_ms: u32,
     smoke_count: usize,
     scene_smoke_count: usize,
     /// The world's free sprites as uploaded, and the runs of them after
@@ -1802,6 +1805,7 @@ impl TileRenderer {
             smoke_count: smoke_instances(&free_after),
             free_after,
             host_period_ms: host_period(world.free.iter().map(|s| s.ticks_per_frame)),
+            layer_period_ms: host_period(world.host_clock_layers()),
             scene_free: free,
             source_runs,
             last_runs,
@@ -2006,6 +2010,14 @@ impl TileRenderer {
     /// uploaded before; all of them (or a new world) otherwise. Its free
     /// sprites are not uploaded (see [`TileRenderer::update_free`]).
     pub fn update_cells(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld, dirty: &crate::world::Dirty) {
+        self.update_cell_records(device, queue, world, dirty);
+        if !matches!(dirty, crate::world::Dirty::None) && let Some(w) = self.world.as_mut() {
+            // (A viewer-clock layer drawing a cell now, or no longer.)
+            w.layer_period_ms = host_period(world.host_clock_layers());
+        }
+    }
+
+    fn update_cell_records(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, world: &TileWorld, dirty: &crate::world::Dirty) {
         if self.world.as_ref().is_none_or(|w| !w.same_shape(world) || !same_fonts(&w.fonts, &world.fonts)) {
             return self.set_world(device, world);
         }
@@ -2244,7 +2256,8 @@ impl TileRenderer {
         let markers = self.markers.iter().filter(|m| m.view == tile_render_shared::ALL_VIEWS || (m.view as usize) < overlay_from || m.flags & tile_render_shared::FREE_EXCEPT_VIEW != 0);
         let markers: Vec<_> = markers.copied().collect();
         let period = host_period(markers.iter().map(|s| s.ticks_per_frame)
-            .chain((world.host_period_ms != 0).then_some(world.host_period_ms | tile_render_shared::HOST_CLOCK)));
+            .chain((world.host_period_ms != 0).then_some(world.host_period_ms | tile_render_shared::HOST_CLOCK))
+            .chain((world.layer_period_ms != 0).then_some(world.layer_period_ms | tile_render_shared::HOST_CLOCK)));
         let host_frame = if period == 0 { 0 } else { self.host_tick_ms / period };
         let key = FrameKey { generation: self.generation, markers, marker_text: self.marker_sources.iter().filter(|m|
             m.text.is_some() && (m.view.is_none_or(|v| (v as usize) < overlay_from) || m.except_view)).copied().collect(), cameras: cameras[..overlay_from].to_vec(), frame, host_frame, clear, size: (size.width, size.height) };
