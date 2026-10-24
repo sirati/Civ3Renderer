@@ -2192,6 +2192,16 @@ fn publish(
             // Go-to and the stack moves only: the cursor tile by tile.
             snap_to_tiles: matches!(shown, Shown::Map(world, _) if crate::targeting::go_to(world.targeting.mode)),
             build_queue: None,
+            // The game menu or the popup Escape opens on the map: the
+            // viewer lets the pointer go entirely while either is open.
+            releases_pointer: {
+                let screen_class = screen_open.and_then(|(i, _)| ui.as_ref()?.forms.get(i).map(|f| f.0));
+                let modal_popup = modal.and_then(|m| {
+                    let class = inproc::Ptr32::<u32>::new(m).read().ok()?;
+                    Some((class, (class == crate::async_popups::POPUP_VTABLE).then(|| crate::async_popups::popup_text_key(m)).flatten()))
+                });
+                crate::interface_parts::releases_pointer(game.build, screen_class, modal_popup.as_ref().map(|(c, k)| (*c, k.as_deref())))
+            },
         };
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
             let camera = city_anchor.map_or((view.camera_x, view.camera_y), |a| a.camera);
