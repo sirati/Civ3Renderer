@@ -56,6 +56,10 @@ pub fn surface(p: &LensParams, x: f32, y: f32) -> Surface {
     // the pre-zoom backdrop, sampling the face joins its lines continuously
     // at the inner edge. A 24px bevel pulls content inward by up to 85px.
     let ray = rim * 1.65 * slope * t / (1.0 + 0.32 * slope);
+    // A lens as narrow as its rim is wide twice is a rod (a glass divider):
+    // its rays stay within it, as through a solid cylinder, rather than
+    // fetching what lies past its far side. (A zoom box never reaches this.)
+    let ray = ray.min(p.width.min(p.height) * 0.45);
     // Compress the whole curved corner into an inner annulus. Its sampled
     // radius decreases monotonically, never folding back across a source line
     // or crossing the centre of curvature. Blend into the longer planar rays
