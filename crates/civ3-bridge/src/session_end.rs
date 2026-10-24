@@ -23,7 +23,11 @@
 //! 2. waits, at most [`CLOSE_WAIT`], for a round still reading the game to
 //!    end and for the viewer to say it is gone; the game's thread is
 //!    parked in our hook meanwhile, so the world stays whole;
-//! 3. ends the process (`inproc::process::terminate`): no world teardown
+//! 3. runs the two steps of the game's teardown that persist something
+//!    (`civ3_sys::quit`: the scroll speed into `conquests.ini`, the
+//!    scenario loader's temporary files deleted), with nothing of ours
+//!    reading any more;
+//! 4. ends the process (`inproc::process::terminate`): no world teardown
 //!    on screen, no DLL detach, no GPU teardown, no join of any thread of
 //!    ours. With the compatibility fallback the game's own exit runs on
 //!    instead, with nothing of ours reading it.
@@ -141,11 +145,13 @@ fn epoch_ms() -> u64 {
 }
 
 /// The game quits (`why`, to end with exit `code`): see the module docs.
-/// On the game's thread, before it frees anything. Returns only with the
-/// compatibility fallback (the game's own exit then runs on) or when the
-/// end began before.
+/// On the game's thread, before it frees anything; `before_teardown`: its
+/// teardown has not run (from the main loop's sites, not `ExitProcess`),
+/// so the steps of it that persist something run here. Returns only with
+/// the compatibility fallback (the game's own exit then runs on) or when
+/// the end began before.
 #[cfg(windows)]
-pub fn quit(why: &str, code: u32) {
+pub fn quit(why: &str, code: u32, before_teardown: bool) {
     if !SESSION.begin() {
         return;
     }
@@ -159,9 +165,26 @@ pub fn quit(why: &str, code: u32) {
         if waited.viewer_closed { "is gone" } else { "has not said it is gone (not waited for)" },
     );
     if !crate::ui_trace::compatibility_fallback() {
+        if let Some(steps) = PERSIST.get().filter(|_| before_teardown) {
+            steps.save_scroll_speed.call(steps.main_screen);
+            steps.delete_scenario_temp.call();
+            log::info!("session: the game's teardown steps that persist ran: scroll speed saved, scenario temporary files deleted");
+        }
         crate::ui_trace::end_process(code);
     }
 }
+
+/// The steps of the game's teardown that persist something
+/// (`civ3_sys::quit`).
+#[cfg(windows)]
+struct Persist {
+    main_screen: u32,
+    save_scroll_speed: civ3_sys::quit::save_scroll_speed::Function,
+    delete_scenario_temp: civ3_sys::quit::delete_scenario_temp::Function,
+}
+
+#[cfg(windows)]
+static PERSIST: std::sync::OnceLock<Persist> = std::sync::OnceLock::new();
 
 /// Watches for the game quitting (see the module docs): its main loop's
 /// sites (`civ3_sys::quit`) where it has them, and its `ExitProcess`.
@@ -173,19 +196,36 @@ pub fn install(game: civ3_sys::Civ3) {
     fn on_game_left(call: &q::game_loop_left::Call) {
         // (Restarting: to the title menu, a new or a loaded game.)
         if RESTART.get().is_some_and(|r| r.read().is_ok_and(|b| b == 0)) {
-            quit("the running game is left to quit", 0);
+            quit("the running game is left to quit", 0, true);
         }
         call.original()
     }
     fn on_main_left(call: &q::main_loop_left::Call) {
-        quit("the main loop ends", 0);
+        quit("the main loop ends", 0, true);
         call.original()
     }
     fn on_exit_process(code: u32) {
-        quit("ExitProcess", code);
+        // (After the game's own teardown: nothing of it to keep.)
+        quit("ExitProcess", code, false);
     }
     match q::sites(game.build) {
-        Some(sites) => {
+        Some(sites) => 'sites: {
+            // Without the teardown's persisting steps the game must run its
+            // teardown itself: then only ExitProcess ends the session.
+            let steps = q::save_scroll_speed::Function::at(sites.save_scroll_speed.0, sites.save_scroll_speed.1).and_then(|scroll| {
+                Ok(Persist {
+                    main_screen: game.build.addresses().main_screen_form,
+                    save_scroll_speed: scroll,
+                    delete_scenario_temp: q::delete_scenario_temp::Function::at(sites.delete_scenario_temp.0, sites.delete_scenario_temp.1)?,
+                })
+            });
+            match steps {
+                Ok(steps) => { let _ = PERSIST.set(steps); }
+                Err(e) => {
+                    log::warn!("session: the teardown's persisting steps are not where expected ({e}): the main loop's quit is not watched (ExitProcess is)");
+                    break 'sites;
+                }
+            }
             let _ = RESTART.set(sites.restart);
             let game_left = q::game_loop_left::install(sites.game_loop_left.0, &sites.game_loop_left.1, on_game_left);
             let main_left = q::main_loop_left::install(sites.main_loop_left.0, &sites.main_loop_left.1, on_main_left);
