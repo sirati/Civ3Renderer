@@ -78,8 +78,16 @@ pub fn values(settings: &Settings, tab: &str, window: (u32, u32)) -> BTreeMap<St
     for (rgb, name) in viewer_settings::accessibility::PALETTE.iter().zip(["Red", "Orange", "Gold", "Bright green", "Teal", "Cyan", "Blue", "Purple", "Magenta", "Pink", "Brown", "Sand", "White", "Silver", "Charcoal", "Black"]) {
         out.insert(format!("accessibility.color_name.{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]), Value::Text(name.into()));
     }
-    out.insert("layout.zoom_controls".into(), Value::On(settings.layout.menu_zoom || settings.layout.zoom != viewer_settings::Zoom::Off));
-    out.insert("layout.zoom_lens_controls".into(), Value::On(settings.layout.menu_zoom || !matches!(settings.layout.zoom, viewer_settings::Zoom::Off | viewer_settings::Zoom::TopStrip)));
+    out.insert("layout.zoom_controls".into(), Value::On(settings.layout.zoom != viewer_settings::Zoom::Off));
+    out.insert("layout.zoom_lens_controls".into(), Value::On(!matches!(settings.layout.zoom, viewer_settings::Zoom::Off | viewer_settings::Zoom::TopStrip)));
+    // Why the zoom's place in a vertical split is greyed out, if it is.
+    let why = match settings.layout.zoom {
+        viewer_settings::Zoom::Off => "The zoom is off",
+        viewer_settings::Zoom::Beside => "The box beside the mouse goes wherever the mouse is",
+        _ if !settings.layout.split.is_vertical() => "Only with a vertical split (Layout tab)",
+        _ => "",
+    };
+    out.insert("layout.zoom_place_why".into(), Value::Text(why.into()));
     let magnification = viewer_settings::Layout::MAGNIFICATIONS[settings.layout.zoom_magnification_step()];
     out.insert("layout.zoom_magnification_label".into(), Value::Text(format!("{}×", menu::panel::format_number(magnification, 1, false))));
     out
@@ -953,7 +961,8 @@ fn changed_controls(active: &Settings, draft: &Settings) -> Vec<String> {
         "resolution.world_scale" => "World scale".into(),
         "layout.split" => "View layout".into(),
         "layout.zoom" => "Zoom mode".into(),
-        "layout.zoom_place" => "Zoom placement".into(),
+        "layout.zoom_place" => "Zoom in a vertical split".into(),
+        "layout.zoom_content" => "Zoom shows".into(),
         "layout.roles" => "View roles".into(),
         "layout.unit_buttons" => "Unit buttons".into(),
         _ => key.split('.').skip(1).collect::<Vec<_>>().join(" ").replace('_', " "),
@@ -1011,7 +1020,7 @@ pub fn items(draws: &[Draw]) -> Vec<Item> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use viewer_settings::{Place, Roles, Split, Zoom};
+    use viewer_settings::{Place, Roles, Split, Zoom, ZoomContent};
 
     const FORM: PreferencesForm = PreferencesForm { vtable: 0x66_E628, form: 0xC7_2888, background: "art\\interface\\x_pref background.pcx" };
 
@@ -1384,7 +1393,8 @@ mod tests {
         assert!(click(&mut p, 230, 238).is_empty());
         assert!(click(&mut p, 814, 159).is_empty());
         assert!(click(&mut p, 550, 55).is_empty());
-        assert!(click(&mut p, 450, 148).is_empty());
+        assert!(click(&mut p, 254, 160).is_empty());
+        assert!(click(&mut p, 836, 279).is_empty());
         assert!(click(&mut p, 330, 55).is_empty());
         let draft = p.editing().clone();
         assert_eq!(draft.layout.roles, Roles::UnitMouse);
@@ -1595,15 +1605,22 @@ mod tests {
         assert_eq!(tabs_slot(&frame_with_screen((0, 0), (1920, 1080), None), &FORM, None), None);
     }
 
-    /// The zoom placement is greyed out (and takes no clicks) unless the
-    /// split is vertical; screen places show and set the orientation's own.
+    /// The zoom's place in a split is greyed out (and takes no clicks)
+    /// unless the split is vertical; screen places show and set the
+    /// orientation's own.
     #[test]
     fn controls_follow_the_split() {
         let (mut p, path) = open_prefs("split");
         assert!(click(&mut p, 330, 55).is_empty());
-        // Standard split: the zoom placement does nothing.
-        assert!(click(&mut p, 340, 240).is_empty());
+        // Standard split: the zoom's place in a split does nothing.
+        p.tab = TAB_ZOOM.into();
+        p.draft.as_mut().unwrap().layout.zoom = Zoom::Floating131;
+        p.project_settings();
+        assert!(click(&mut p, 724, 279).is_empty());
         assert_eq!(p.editing().layout.zoom_place, Place::Floating);
+        p.draft.as_mut().unwrap().layout.zoom = Zoom::Off;
+        p.project_settings();
+        assert!(click(&mut p, 330, 55).is_empty());
         // Horizontal: screens at the top ("Top" where "Right" was).
         assert!(click(&mut p, 460, 140).is_empty());
         assert_eq!(p.editing().layout.split, Split::Horizontal1To1);
@@ -1624,13 +1641,17 @@ mod tests {
         assert_eq!(p.tab, TAB_ZOOM);
         // The height slider shows with every zoom but Off.
         assert!(!texts.iter().any(|t| t.ends_with('%')));
-        assert!(click(&mut p, 780, 268).is_empty());
+        // Placement pictures (centres): Off, box, wide box, at the mouse,
+        // wide at the mouse, beside the mouse, top strip.
+        let place = |i: i32| (142 + 112 * i, 160);
+        let pick = |p: &mut Prefs, (x, y): (i32, i32)| assert!(click(p, x, y).is_empty());
+        pick(&mut p, place(6));
         assert_eq!(p.editing().layout.zoom, Zoom::TopStrip);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         assert!(texts.contains(&"20%".to_string()), "{texts:?}");
         // Dragging the strip's slider to its right end: 50%.
-        let drag = |x| Input::MouseMove { x, y: 371 };
-        let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 371 };
+        let drag = |x| Input::MouseMove { x, y: 421 };
+        let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 421 };
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.5);
         assert_eq!(p.settings(), p.editing(), "previews at once");
@@ -1638,22 +1659,25 @@ mod tests {
         assert!(texts(&p).contains(&"Strip height".to_string()));
         // A box at the mouse is sized by it too: the slider shows, as the
         // box's height; to its left end: 5%.
-        assert!(click(&mut p, 200, 268).is_empty());
+        pick(&mut p, place(3));
         assert_eq!(p.editing().layout.zoom, Zoom::Mouse111);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && !shown.contains(&"Strip height".to_string()) && shown.contains(&"50%".to_string()), "{shown:?}");
         assert!(!shown.iter().any(|t| t == "Top margin" || t == "Gap when moved" || t == "Keep mouse out"), "{shown:?}");
+        assert!(["Above the mouse", "Below, if no room"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
         assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
         assert!(texts(&p).contains(&"5%".to_string()));
         // The floating boxes share that one slider (no Auto, no own
         // height), and have their top margin (2.5%), the gap they move below
         // their resting place by (2.5%) and the keep-the-mouse-out option.
-        assert!(click(&mut p, 500, 233).is_empty());
+        pick(&mut p, place(1));
         assert_eq!(p.editing().layout.zoom, Zoom::Floating131);
         let shown = texts(&p);
         assert!(shown.contains(&"Box height".to_string()) && shown.contains(&"5%".to_string()), "{shown:?}");
-        assert!(shown.contains(&"Floating box 1:3:1".to_string()));
+        // Pictures, named below them; no numbers on the placements.
+        assert!(["Box", "Wide box", "At the mouse", "Beside the mouse", "Top strip", "World only", "World with menus"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
+        assert!(!shown.iter().any(|t| t.contains("1:3:1") || t.contains("Floating")), "{shown:?}");
         assert!(!shown.iter().any(|t| t == "Auto"), "{shown:?}");
         assert!(["Top margin", "2.5%", "Gap when moved", "Keep mouse out"].iter().all(|t| shown.iter().any(|s| s == t)), "{shown:?}");
         assert!(p.route(vec![b(true, 450), drag(800), b(false, 800)], (1024, 768)).is_empty());
@@ -1661,25 +1685,25 @@ mod tests {
         assert_eq!(p.settings(), p.editing());
         assert!(texts(&p).contains(&"50%".to_string()));
         assert!(!p.editing().layout.zoom_box_block_pointer);
-        assert!(click(&mut p, 100, 523).is_empty());
+        assert!(click(&mut p, 100, 540).is_empty());
         assert!(p.editing().layout.zoom_box_block_pointer);
-        assert!(click(&mut p, 100, 523).is_empty());
+        assert!(click(&mut p, 100, 540).is_empty());
         assert!(!p.editing().layout.zoom_box_block_pointer);
-        let row = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 421 };
-        let slide = |x| Input::MouseMove { x, y: 421 };
+        let row = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 461 };
+        let slide = |x| Input::MouseMove { x, y: 461 };
         assert!(p.route(vec![row(true, 450), slide(800), row(false, 800)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_top, 0.05);
-        assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 471 }, Input::MouseMove { x: 0, y: 471 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 471 }], (1024, 768)).is_empty());
+        assert!(p.route(vec![Input::MouseButton { button: scene::Button::Left, down: true, x: 450, y: 501 }, Input::MouseMove { x: 0, y: 501 }, Input::MouseButton { button: scene::Button::Left, down: false, x: 0, y: 501 }], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_box_drop, 0.05);
         assert_eq!(texts(&p).iter().filter(|s| *s == "5%").count(), 2, "{:?}", texts(&p));
         assert_eq!(p.settings(), p.editing());
-        assert!(click(&mut p, 780, 233).is_empty());
+        pick(&mut p, place(2));
         assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
         assert!(["Box height", "50%", "Top margin", "Gap when moved"].iter().all(|t| texts(&p).iter().any(|s| s == t)));
         // The magnification, for every zoom: 2×, its steps 1.5× to 4×.
         assert!(["Magnification", "2×"].iter().all(|t| texts(&p).iter().any(|s| s == t)), "{:?}", texts(&p));
-        let mag = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 321 };
-        let along = |x| Input::MouseMove { x, y: 321 };
+        let mag = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 381 };
+        let along = |x| Input::MouseMove { x, y: 381 };
         assert!(p.route(vec![mag(true, 440), along(1000), mag(false, 1000)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_magnification, 4.0);
         assert!(texts(&p).iter().any(|s| s == "4×"));
@@ -1689,20 +1713,34 @@ mod tests {
         assert_eq!(p.settings(), p.editing());
         assert!(p.route(vec![b(true, 450), drag(0), b(false, 0)], (1024, 768)).is_empty());
         assert_eq!(p.editing().layout.zoom_strip, 0.05);
-        assert!(!p.editing().layout.menu_zoom);
-        assert!(texts(&p).iter().any(|t| t == "Menu zoom beside pointer"));
-        assert!(click(&mut p, 560, 145).is_empty());
-        assert!(p.editing().layout.menu_zoom);
-        assert_eq!(p.editing().layout.zoom, Zoom::Floating171);
-        assert!(click(&mut p, 560, 145).is_empty());
-        assert!(!p.editing().layout.menu_zoom);
+        // What it shows: the world with menus, for this box too; then the
+        // box can't hold the mouse out (it always moves away), and says so.
+        assert_eq!(p.editing().layout.zoom_content, ZoomContent::World);
+        pick(&mut p, (254, 279));
+        assert_eq!((p.editing().layout.zoom, p.editing().layout.zoom_content), (Zoom::Floating171, ZoomContent::WorldAndMenus));
+        assert_eq!(p.settings(), p.editing(), "previews at once");
+        assert!(texts(&p).iter().any(|t| t == "Rendering menus doesn't render in a higher resolution. It just shows the pixels."));
+        assert!(click(&mut p, 100, 540).is_empty());
+        assert!(!p.editing().layout.zoom_box_block_pointer, "greyed out");
+        p.route(vec![Input::MouseMove { x: 100, y: 540 }], (1024, 768));
+        assert!(texts(&p).iter().any(|t| t == "A box showing menus always moves out of the mouse's way"), "{:?}", texts(&p));
+        // Beside the mouse (where an older menu zoom went), menus kept.
+        pick(&mut p, place(5));
+        assert_eq!((p.editing().layout.zoom, p.editing().layout.zoom_content), (Zoom::Beside, ZoomContent::WorldAndMenus));
+        assert!(texts(&p).iter().any(|t| t == "Box height"));
+        pick(&mut p, (142, 279));
+        assert_eq!(p.editing().layout.zoom_content, ZoomContent::World);
         assert!(p.editing().layout.zoom_rounded && p.editing().layout.zoom_glass);
-        assert!(click(&mut p, 100, 573).is_empty());
-        assert!(click(&mut p, 100, 608).is_empty());
+        assert!(click(&mut p, 100, 578).is_empty());
+        assert!(click(&mut p, 100, 613).is_empty());
         assert!(!p.editing().layout.zoom_rounded && !p.editing().layout.zoom_glass);
-        assert!(click(&mut p, 200, 233).is_empty());
+        pick(&mut p, place(0));
         assert_eq!(p.editing().layout.zoom, Zoom::Off);
         assert!(!texts(&p).iter().any(|t| t.ends_with('%') || t.ends_with("height") || t == "Drop" || t == "Top margin" || t == "Magnification" || t.ends_with('×')));
+        // Off: what it shows is greyed out, and says why.
+        assert!(click(&mut p, 254, 279).is_empty());
+        assert_eq!(p.editing().layout.zoom_content, ZoomContent::World);
+        assert!(texts(&p).iter().any(|t| t == "The zoom is off: choose a placement first"), "{:?}", texts(&p));
         assert!(click(&mut p, 330, 55).is_empty());
         assert!(click(&mut p, 438, 508).is_empty());
         assert_eq!(p.editing().layout.separator_width, 16);
@@ -2141,6 +2179,62 @@ mod tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
+    /// The zoom tab's pictures are Alt targets: a snapped click (at the
+    /// target's middle) picks one and previews it at once. Cancel's
+    /// discard restores the accepted placement and content, unsaved; the
+    /// confirmation names them.
+    #[test]
+    fn zoom_pictures_are_alt_targets_that_preview_and_cancel_restores() {
+        let (mut prefs, path) = with_native_buttons("zoom-pictures");
+        let within = |[x, y, w, h]: [i32; 4], (px, py): (i32, i32)| px >= x && py >= y && px < x + w && py < y + h;
+        prefs.settings().save(&path).unwrap();
+        let stored = std::fs::read(&path).unwrap();
+        let active = prefs.settings().clone();
+        assert_eq!((active.layout.zoom, active.layout.zoom_content), (Zoom::Off, ZoomContent::World));
+        assert!(click(&mut prefs, 550, 55).is_empty());
+        let target = |prefs: &Prefs, at: (i32, i32)| {
+            let looks = prefs.looks(&Fonts::default());
+            let look = looks.into_iter().find(|l| within(l.rect, at)).unwrap_or_else(|| panic!("no Alt target at {at:?}"));
+            assert_eq!(look.kind, scene::InteractableKind::Button);
+            assert_eq!(look.rect[2..], [104, 64]);
+            (look.rect[0] + look.rect[2] / 2, look.rect[1] + look.rect[3] / 2)
+        };
+        // Off: no content targets (greyed out), every placement one.
+        let looks = prefs.looks(&Fonts::default());
+        assert!(!looks.iter().any(|l| within(l.rect, (142, 279))));
+        for (i, zoom) in [Zoom::Off, Zoom::Floating131, Zoom::Floating171, Zoom::Mouse111, Zoom::Mouse131, Zoom::Beside, Zoom::TopStrip].into_iter().enumerate().rev() {
+            let (x, y) = target(&prefs, (142 + 112 * i as i32, 160));
+            assert!(click(&mut prefs, x, y).is_empty());
+            assert_eq!(prefs.editing().layout.zoom, zoom);
+            assert_eq!(prefs.settings(), prefs.editing(), "previews at once");
+        }
+        let (x, y) = target(&prefs, (142 + 112 * 3, 160));
+        click(&mut prefs, x, y);
+        let (x, y) = target(&prefs, (254, 279));
+        assert!(click(&mut prefs, x, y).is_empty());
+        assert_eq!((prefs.settings().layout.zoom, prefs.settings().layout.zoom_content), (Zoom::Mouse111, ZoomContent::WorldAndMenus));
+        // The place in a split: a target once the split is vertical.
+        assert!(!prefs.looks(&Fonts::default()).iter().any(|l| within(l.rect, (724, 279))));
+        prefs.draft.as_mut().unwrap().layout.split = Split::Vertical1To1;
+        prefs.project_settings();
+        prefs.route(vec![], (1024, 768));
+        let (x, y) = target(&prefs, (724, 279));
+        assert!(click(&mut prefs, x, y).is_empty());
+        assert_eq!(prefs.settings().layout.zoom_place, Place::LeftOrBottom);
+        assert_eq!(std::fs::read(&path).unwrap(), stored, "nothing saved before Accept");
+        // Cancel: the confirmation names the changes; Yes restores them.
+        assert_eq!(click(&mut prefs, CANCEL_AT.0, CANCEL_AT.1), hover_then(CANCEL_AT, vec![]));
+        assert!(prefs.confirming_discard);
+        let texts: Vec<_> = prefs.draws(&Fonts::default()).into_iter().filter_map(|d| match d { Draw::Text(t) => Some(t.text), _ => None }).collect();
+        assert!(texts.iter().any(|t| t == "Zoom mode: Off to Mouse111"), "{texts:?}");
+        assert!(texts.iter().any(|t| t == "Zoom shows: World to WorldAndMenus"), "{texts:?}");
+        assert_eq!(click(&mut prefs, 480, 522), native_close(VK_ESCAPE));
+        assert_eq!(prefs.settings(), &active);
+        assert_eq!(prefs.editing(), &active);
+        assert_eq!(std::fs::read(&path).unwrap(), stored);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     #[test]
     fn clean_cancel_and_reverted_draft_close_without_confirmation_or_save() {
         for reverted in [false, true] {
@@ -2252,6 +2346,38 @@ mod tests {
         (draft.layout.zoom_mouse_above, draft.layout.zoom_mouse_below) = (0.25, 0.05);
         prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
         shot(&prefs, "tab-zoom-mouse-undo");
+        // Every placement with each content, in a vertical split.
+        let (mut prefs, _) = open_prefs("headless-zoom");
+        prefs.tab = TAB_ZOOM.into();
+        for (zoom, name) in [(Zoom::Off, "off"), (Zoom::Floating131, "box"), (Zoom::Floating171, "wide-box"), (Zoom::Mouse111, "mouse"),
+            (Zoom::Mouse131, "wide-mouse"), (Zoom::Beside, "beside"), (Zoom::TopStrip, "strip")] {
+            for (content, suffix) in [(ZoomContent::World, "world"), (ZoomContent::WorldAndMenus, "menus")] {
+                if zoom == Zoom::Off && content == ZoomContent::WorldAndMenus { continue; }
+                let draft = prefs.draft.as_mut().unwrap();
+                (draft.layout.split, draft.layout.zoom, draft.layout.zoom_content) = (Split::Vertical1To1, zoom, content);
+                prefs.project_settings();
+                prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+                shot(&prefs, &format!("zoom-{name}-{suffix}"));
+            }
+        }
+        // Tooltips: a placement under the mouse; greyed-out pictures saying
+        // why (the zoom off; the standard split).
+        prefs.route(vec![Input::MouseMove { x: 702, y: 160 }], (1024, 768));
+        shot(&prefs, "zoom-tooltip-placement");
+        let draft = prefs.draft.as_mut().unwrap();
+        (draft.layout.split, draft.layout.zoom) = (Split::Standard, Zoom::Off);
+        prefs.project_settings();
+        prefs.route(vec![Input::MouseMove { x: 254, y: 279 }], (1024, 768));
+        shot(&prefs, "zoom-off-disabled-tooltip");
+        prefs.draft.as_mut().unwrap().layout.zoom = Zoom::Mouse131;
+        prefs.project_settings();
+        prefs.route(vec![Input::MouseMove { x: 724, y: 279 }], (1024, 768));
+        shot(&prefs, "zoom-standard-split-disabled-tooltip");
+        let draft = prefs.draft.as_mut().unwrap();
+        (draft.layout.split, draft.layout.zoom, draft.layout.zoom_content) = (Split::Vertical1To1, Zoom::Floating131, ZoomContent::WorldAndMenus);
+        prefs.project_settings();
+        prefs.route(vec![Input::MouseMove { x: 100, y: 540 }], (1024, 768));
+        shot(&prefs, "zoom-keep-mouse-out-disabled-tooltip");
     }
 
 
