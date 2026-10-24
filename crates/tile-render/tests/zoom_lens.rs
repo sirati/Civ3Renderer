@@ -479,6 +479,13 @@ fn capture_glass_review_at_4k() {
 /// as their rim is wide twice, 16 window pixels, as a 4K split with a zoom
 /// strip has them: the split's two closed thirds (each running on past
 /// the window's edge) and the strip's divider across the window.
+///
+/// Over the two panes and the strip, it times four frames: no dividers;
+/// the bars alone; the bars over the pictures going on under them as
+/// before (each pane's under its half of the gap, the two meeting in its
+/// middle, under the strip's divider too); and as now
+/// (`dividers::UnderGlass`: the left pane's under all of the gap and the
+/// strip's divider up to the gap's far side, the right pane's from there).
 #[test]
 #[ignore = "GPU cost measurement; run without concurrent GPU tests"]
 fn measure_glass_divider_gpu_cost_at_4k() {
@@ -494,6 +501,7 @@ fn measure_glass_divider_gpu_cost_at_4k() {
         mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm, usage: wgpu::TextureUsages::RENDER_ATTACHMENT, view_formats: &[],
     });
+    const NAMES: [&str; 4] = ["no dividers", "bars alone", "bars over halves (before)", "bars over one view (now)"];
     for scale in [1, 2] {
         let s = scale as i32;
         let t = 16 / s;
@@ -505,16 +513,27 @@ fn measure_glass_divider_gpu_cost_at_4k() {
         let along = h - strip - t;
         let bars = [bar([w / 2 - t / 2, strip + t / 2, t, along / 3]), bar([w / 2 - t / 2, strip + t + along * 2 / 3, t, along / 3 + t]),
             bar([-t, strip, w + 2 * t, t])];
-        let (mut spans, mut rims): ([Vec<f64>; 2], [Vec<f64>; 2]) = Default::default();
-        let mut increments = Vec::new();
-        for frame in 0..48 {
-            let mut paired = [None; 2];
-            for glass in if frame % 2 == 0 { [false, true] } else { [true, false] } {
-                let mut cams = vec![Camera::new((w as u32, h as u32))];
-                if glass { cams.extend(bars); }
+        // The panes' world pictures (two places in it) and the strip's.
+        let (g0, g1) = (w / 2 - t / 2, w / 2 - t / 2 + t);
+        let picture = |x: i32, [rx, ry, rw, rh]: [i32; 4]| Camera { x: x + rx, y: ry, origin: (rx, ry), ..Camera::new((rw.max(1) as u32, rh.max(1) as u32)) };
+        let (a, b) = (0, 700);
+        let panes = [picture(a, [0, strip + t, g0, along]), picture(b - g1, [g1, strip + t, w - g1, along]),
+            Camera { zoom: (2, 1), origin: (0, 0), ..Camera::new((w as u32, strip as u32)) }];
+        let middle = (g0 + g1) / 2;
+        let halves = [picture(a, [g0, strip + t, middle - g0, along]), picture(b - g1, [middle, strip + t, g1 - middle, along]),
+            picture(a, [0, strip, middle, t]), picture(b - g1, [middle, strip, w - middle, t])];
+        let one_view = [picture(a, [g0, strip + t, g1 - g0, along]), picture(a, [0, strip, g1, t]), picture(b - g1, [g1, strip, w - g1, t])];
+        let configs: [Vec<Camera>; 4] = [panes.to_vec(), [&panes[..], &bars].concat(), [&panes[..], &halves, &bars].concat(), [&panes[..], &one_view, &bars].concat()];
+        let mut spans: [Vec<f64>; 4] = Default::default();
+        // (Each against the frame without dividers drawn right before or after it.)
+        let mut increments: [Vec<f64>; 4] = Default::default();
+        for frame in 0..64u32 {
+            let mut times_of = [None; 4];
+            let order: Vec<usize> = if frame % 2 == 0 { vec![0, 1, 2, 3] } else { vec![3, 2, 1, 0] };
+            for k in order {
                 let present = tile_render::Present { canvas: (w as u32, h as u32), target: (3840, 2160), zoom: (scale, 1), at: (0, 0) };
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                renderer.render_presented(&gpu.device, &gpu.queue, &mut encoder, &target, &cams, &[], frame, [0,0,0,255], present);
+                renderer.render_presented(&gpu.device, &gpu.queue, &mut encoder, &target, &configs[k], &[], frame, [0,0,0,255], present);
                 renderer.timer().unwrap().finish(&mut encoder);
                 gpu.queue.submit([encoder.finish()]);
                 renderer.controls_submitted();
@@ -522,22 +541,27 @@ fn measure_glass_divider_gpu_cost_at_4k() {
                 gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
                 for times in renderer.timer().unwrap().collect(&gpu.device) {
                     if frame >= 8 {
-                        let index = usize::from(glass);
-                        spans[index].push(times.span);
-                        rims[index].push(times.passes.iter().filter(|(label, _)| label.ends_with("lens rim")).map(|(_, ms)| *ms).sum::<f64>());
-                        paired[index] = Some(times.span);
+                        spans[k].push(times.span);
+                        times_of[k] = Some(times.span);
                     }
                 }
             }
-            if let [Some(base), Some(glass)] = paired { increments.push(glass - base); }
+            if let Some(base) = times_of[0] {
+                for k in 1..4 {
+                    if let Some(t) = times_of[k] { increments[k].push(t - base); }
+                }
+            }
         }
-        for glass in [false, true] {
-            let index = usize::from(glass);
-            spans[index].sort_by(f64::total_cmp); rims[index].sort_by(f64::total_cmp);
-            eprintln!("4K scale {scale}, dividers {glass}: frame median {:.4} ms, rims median {:.4} ms, {} samples", spans[index][spans[index].len()/2], rims[index][rims[index].len()/2], spans[index].len());
+        let median = |v: &mut Vec<f64>| { v.sort_by(f64::total_cmp); v[v.len() / 2] };
+        for k in 0..4 {
+            let frame = median(&mut spans[k]);
+            if k == 0 {
+                eprintln!("4K scale {scale}, {}: frame median {frame:.4} ms, {} samples", NAMES[k], spans[k].len());
+            } else {
+                let inc = median(&mut increments[k]);
+                eprintln!("4K scale {scale}, {}: frame median {frame:.4} ms, paired increment median {inc:.4} ms (p10/p90 {:.4}/{:.4}), {} pairs",
+                    NAMES[k], increments[k][increments[k].len() / 10], increments[k][increments[k].len() * 9 / 10], increments[k].len());
+            }
         }
-        increments.sort_by(f64::total_cmp);
-        eprintln!("4K scale {scale}: paired increment median {:.4} ms, p10/p90 {:.4}/{:.4} ms, {} pairs",
-            increments[increments.len()/2], increments[increments.len()/10], increments[increments.len()*9/10], increments.len());
     }
 }
