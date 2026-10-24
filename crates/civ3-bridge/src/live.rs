@@ -521,6 +521,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     } else {
         let config = tile_viewer::ViewerConfig {
             extensions: civ3_ui::viewer::extensions(),
+            settings_path: civ3_ui::viewer::settings_path(),
             title: VIEWER_TITLE.into(),
             size: (1024, 768),
             fullscreen,

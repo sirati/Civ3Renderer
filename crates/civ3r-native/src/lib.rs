@@ -466,6 +466,7 @@ mod unix_side {
         assets.set(compiled, generation);
         let config = tile_viewer::ViewerConfig {
             extensions: civ3_ui::viewer::extensions(),
+            settings_path: civ3_ui::viewer::settings_path(),
             title: "Civ III (native renderer)".into(),
             native_thread_init: Some(wine_unixlib::unix::block_native_signals),
             size: (1024, 768),

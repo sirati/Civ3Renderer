@@ -8,6 +8,7 @@ version.workspace = true
 [dependencies]
 jgl = { path = "../jgl" }
 scene = { path = "../scene" }
+viewer-settings = { path = "../viewer-settings" }
 log.workspace = true
 tile-game = { path = "../tile-game" }
 tile-viewer = { path = "../tile-viewer" }
