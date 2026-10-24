@@ -602,7 +602,7 @@ fn publish(
         render_errors::report(render_errors::Kind::ArtDescription, "the viewer's menus", format_args!("{e}"));
     }).ok();
     let mut menus = menus_of(&compiled);
-    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor, Option<Arc<ui_trace::NativeUi>>)> = None;
+    let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, (scene::Cursor, Option<(i32, i32)>), Option<Arc<ui_trace::NativeUi>>)> = None;
     let mut last_camera_focus = None;
     let mut last_camera_arrival = None;
     // The viewer is the only window the player sees: the game's own is
@@ -1224,7 +1224,9 @@ fn publish(
                 interactables.extend(ui_screen::city_drawn_targets(f, modal.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)));
             }
         }
-        // The pointer the game shows (docs §16.11).
+        // The pointer the game shows (docs §16.11), and for which of the
+        // viewer's pointer moves (read first: the cursor is as new).
+        let cursor_at = crate::cursor::handled::at();
         let game_cursor = civ3_sys::cursor::sites(game.build).and_then(|s| civ3_sys::cursor::read(&civ3_sys::controls::Live, &s));
         // While a command waits for its tile, over the world: the command's
         // pointer, or "not here" where it cannot go (`crate::cursor::targeting`).
@@ -1234,9 +1236,10 @@ fn publish(
         };
         let standard = inproc::pointer::last_set_cursor().and_then(inproc::pointer::standard_cursor);
         let cursor = crate::cursor::scene_cursor(game_cursor, standard, |n| compiled.set(n).map(|(s, _)| s.raw()), crate::cursor::system_arrow());
-        if last.as_ref().is_none_or(|l| l.4 != cursor) {
-            log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}");
+        if last.as_ref().is_none_or(|l| l.4.0 != cursor) {
+            log::debug!("cursor: the game shows {game_cursor:?} (system pointer {standard:?}): {cursor:?}, for the move to {cursor_at:?}");
         }
+        let cursor = (cursor, cursor_at);
         mark(&mut profile, "controls+prefs", &mut t);
         if crate::ui_trace::replay_revision() != replay_revision {
             let picture = crate::ui_trace::replay_picture();
@@ -2201,7 +2204,7 @@ fn publish(
             scene.interactables.extend(crate::city_screen::tile_targets(world, frame, anchor,
                 modal.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4), eligible.as_ref().map(|e| e.tiles())));
         }
-        scene.cursor = *cursor;
+        (scene.cursor, scene.cursor_at) = *cursor;
         // The game's screen: a viewer with a larger window shows it scaled
         // up (e.g. the game at the desktop's logical size, `CIV3R_SCALE`).
         scene.screen_size = input.game_window().and_then(|w| w.client_size()).unwrap_or_default();
@@ -2607,9 +2610,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
             continue;
         }
         match input {
-            Input::MouseMove { x, y } => {
-                let (x, y) = forwarder.city_map.map_or((x, y), |m| m.to_game((x, y)));
+            Input::MouseMove { x: ix, y: iy } => {
+                let (x, y) = forwarder.city_map.map_or((ix, iy), |m| m.to_game((ix, iy)));
                 forwarder.pointer = Some((x, y));
+                crate::cursor::handled::posted((x, y), (ix, iy));
                 window.mouse_move(x, y, forwarder.held);
             }
             Input::MouseButton { button, down, x, y } => {

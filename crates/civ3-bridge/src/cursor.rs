@@ -7,6 +7,19 @@
 //! 12 is the "NEW UNIT" arrow, not a busy icon. The plain
 //! arrow, which the game leaves to the system, is shown with the game's
 //! own arrow art (cell 0) unless `CIV3R_SYSTEM_ARROW=1`.
+//!
+//! The cells of `Art\cursor.pcx` (PCGames 1.22 with C3X R21/R28, which
+//! adds no cursor of its own), all shown as the viewer's pointer:
+//! 0 the arrow; 1 and 18 blank (go-to, stack go-to: the marker on the map
+//! shows the target); 2 road to, 3 railroad to; 4 air drop (parachute);
+//! 5 "not here" ([`NOT_HERE`]); 6 bombard, 7 air bombard, 8 airlift,
+//! 9 recon (the viewer's capture pointer too), 10 rebase, 11 precision
+//! strike; 12 "NEW UNIT"; 13 the Civilopedia book ([`CIVILOPEDIA`]);
+//! 14 build colony; 15 to 17 the automatic bombard, air bombard and
+//! precision strike; 19 stack rebase; 20 and 21 the map's modes 0x14 and
+//! 0x15 (0x4E9E62, 0x4E9EB5); 22 empty, never used. Cells 1 to 12 and 14
+//! to 21 are the map form's, by `Unit_Mode_Actions` (0x4DC540, 0x4D9520,
+//! ...); 13 is the only one the screens set.
 
 use civ3_sys::cursor::GameCursor;
 use scene::{Cursor, SystemCursor};
@@ -42,6 +55,20 @@ pub fn scene_cursor(game: Option<GameCursor>, standard: Option<u16>, set: impl F
         },
     }
 }
+
+/// The Civilopedia book (cell 13: the arrow's tip over a book marked
+/// "C", hot spot (1, 1)): over what a click opens the Civilopedia on, when
+/// the preference `P_SHOW_PEDIA_BOOK_CURSOR` (0x80000 of 0xA52638) is on.
+/// Each screen's mouse move sets it on its form with 0x604350 (applied at
+/// once by 0x606A70) and the arrow (0x6043A0 `IDC_ARROW`) when the pointer
+/// leaves: the wonders of F7 (0x5D14F0: six inclusive RECTs at +0x19B8,
+/// one with a wonder, +0x1F34), the city screen's buildings, units and
+/// production (0x41E340, 0x4151A0), the domestic (0x51FF10), foreign
+/// (0x532770), military (0x56FB30) and cultural (0x4FBAC0) advisors, the
+/// espionage screen (0x52B3C0), diplomacy (0x50C230), the trade advisor
+/// (0x5AD690, its parts 0x5AD830..0x5AE890), the spaceship (F10, 0x5A45C0)
+/// and the wonder-completion splash (0x5D0140). C3X changes none of these.
+pub const CIVILOPEDIA: u32 = 13;
 
 /// The "not here" pointer (cell 5 of `Art\cursor.pcx`, a red circle with a
 /// slash).
@@ -81,6 +108,36 @@ mod tests {
 
     fn set(name: &str) -> Option<u32> {
         name.strip_prefix("Viewer@cursors/").and_then(|k| k.parse::<u32>().ok()).filter(|&k| k < 23).map(|k| 100 + k)
+    }
+
+    #[test]
+    fn the_civilopedia_book_is_its_own_pointer() {
+        // (The F7 screen over a wonder: the game's pointer sprite, cell 13.)
+        let s = civ3_sys::cursor::sites(civ3_sys::Build::PcGames).unwrap();
+        let book = civ3_sys::cursor::read(&Word(s.sprites + CIVILOPEDIA * s.stride), &s);
+        assert_eq!(book, Some(GameCursor::Sprite(CIVILOPEDIA)));
+        assert_eq!(set_name(CIVILOPEDIA), "Viewer@cursors/13");
+        // Its own art, whatever the last system pointer, the arrow's art
+        // or the system's.
+        for standard in [None, Some(32512)] {
+            for system_arrow in [false, true] {
+                assert_eq!(scene_cursor(book, standard, set, system_arrow), Cursor::Sprite(113));
+            }
+        }
+        // Over the world while a command waits on the interface: kept.
+        assert_eq!(targeting(book, 0, false, false), book);
+        // Left (the game sets the arrow): the arrow again.
+        assert_eq!(scene_cursor(Some(GameCursor::System), Some(32512), set, false), Cursor::Sprite(100));
+    }
+
+    struct Word(u32);
+    impl civ3_sys::controls::Mem for Word {
+        fn u32(&self, addr: u32) -> Option<u32> {
+            (addr == 0xCA_D2D0).then_some(self.0)
+        }
+        fn u8(&self, _: u32) -> Option<u8> {
+            None
+        }
     }
 
     #[test]
@@ -128,6 +185,130 @@ mod tests {
         // No command waiting (0, or the arrow `IDC_ARROW`).
         for mode in [0, 0x7F00] {
             assert_eq!(targeting(shown, mode, false, true), shown);
+        }
+    }
+}
+
+/// Which of the pointer moves the bridge posts the game has handled, so
+/// that the scene's cursor tells where it is the game's answer for
+/// (`scene::Scene::cursor_at`).
+///
+/// The game takes its messages through jgl's `PeekMessageA`
+/// (`crate::heartbeat`): a `WM_MOUSEMOVE` it removes there is dispatched
+/// (its form's mouse move setting the cursor, 0x604350 -> 0x606A70) before
+/// it peeks again, so the next peek marks it handled. Each move posted is
+/// kept with the viewer's position it came from ([`posted`]), the last
+/// [`SLOTS`] of them; a handled move not among them (one the bridge made
+/// for the world, or the system's) is no known position. Lock-free: the
+/// game's thread writes on its peeks, the forwarder on posting, the
+/// publisher reads.
+pub mod handled {
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
+
+    /// The moves remembered.
+    pub const SLOTS: usize = 16;
+    const WM_MOUSEMOVE: u32 = 0x200;
+    const PM_REMOVE: u32 = 1;
+    /// A known message: its `lParam` with this bit above it (0: none).
+    const SET: u64 = 1 << 32;
+
+    static GAME: [AtomicU64; SLOTS] = [const { AtomicU64::new(0) }; SLOTS];
+    static INPUT: [AtomicU32; SLOTS] = [const { AtomicU32::new(0) }; SLOTS];
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    /// The move removed by the last peek, until the next one.
+    static PENDING: AtomicU64 = AtomicU64::new(0);
+    /// The last move handled.
+    static HANDLED: AtomicU64 = AtomicU64::new(0);
+
+    /// `lParam` of a point (x low, y high, 16 bits each).
+    fn pack((x, y): (i32, i32)) -> u32 {
+        (x as u16 as u32) | ((y as u16 as u32) << 16)
+    }
+
+    fn unpack(v: u32) -> (i32, i32) {
+        (v as u16 as i16 as i32, (v >> 16) as u16 as i16 as i32)
+    }
+
+    /// A move to client position `game` was posted for the viewer's
+    /// position `input`.
+    pub fn posted(game: (i32, i32), input: (i32, i32)) {
+        let k = NEXT.fetch_add(1, SeqCst) as usize % SLOTS;
+        INPUT[k].store(pack(input), SeqCst);
+        GAME[k].store(SET | pack(game) as u64, SeqCst);
+    }
+
+    /// The game's thread peeks again: the move it removed before is handled.
+    pub fn peeking() {
+        let p = PENDING.swap(0, SeqCst);
+        if p != 0 {
+            HANDLED.store(p, SeqCst);
+        }
+    }
+
+    /// The peek answered `got` for `remove`, `message` and `lparam` the
+    /// message it gave.
+    pub fn peeked(got: bool, remove: u32, message: u32, lparam: u32) {
+        if got && remove & PM_REMOVE != 0 && message == WM_MOUSEMOVE {
+            PENDING.store(SET | lparam as u64, SeqCst);
+        }
+    }
+
+    /// The viewer's position of the last move the game handled, if it is
+    /// one of those posted. (Read before the cursor: the cursor is then at
+    /// least as new as this.)
+    pub fn at() -> Option<(i32, i32)> {
+        let h = HANDLED.load(SeqCst);
+        if h == 0 {
+            return None;
+        }
+        let next = NEXT.load(SeqCst) as usize;
+        (1..=SLOTS).map(|back| (next + SLOTS * 2 - back) % SLOTS).find(|&k| GAME[k].load(SeqCst) == h).map(|k| unpack(INPUT[k].load(SeqCst)))
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset() {
+        for k in 0..SLOTS {
+            GAME[k].store(0, SeqCst);
+            INPUT[k].store(0, SeqCst);
+        }
+        PENDING.store(0, SeqCst);
+        HANDLED.store(0, SeqCst);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_move_counts_once_the_game_peeks_after_taking_it() {
+            reset();
+            assert_eq!(at(), None);
+            // (The city screen's map: the game's position is not the viewer's.)
+            posted((100, 200), (130, 260));
+            posted((640, 380), (640, 380));
+            // Taken from the queue, not dispatched yet.
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((100, 200)));
+            assert_eq!(at(), None);
+            peeking();
+            assert_eq!(at(), Some((130, 260)));
+            // Looked at without taking it, or another message: nothing.
+            peeked(true, 0, WM_MOUSEMOVE, pack((640, 380)));
+            peeked(true, PM_REMOVE, 0x201, pack((640, 380)));
+            peeked(false, PM_REMOVE, WM_MOUSEMOVE, pack((640, 380)));
+            peeking();
+            assert_eq!(at(), Some((130, 260)));
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((640, 380)));
+            peeking();
+            assert_eq!(at(), Some((640, 380)));
+            // A move the bridge did not post for the viewer: unknown.
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((7, 9)));
+            peeking();
+            assert_eq!(at(), None);
+            // Negative positions keep their sign.
+            posted((-2, 5), (-2, 5));
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((-2, 5)));
+            peeking();
+            assert_eq!(at(), Some((-2, 5)));
         }
     }
 }
