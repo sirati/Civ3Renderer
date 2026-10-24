@@ -619,6 +619,118 @@ mod tests {
         assert!(first.is_none(), "{context}: {count} differing pixels; first {first:?}");
     }
 
+    fn install() -> Option<civ3_assets::GameFiles> {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        std::path::Path::new(&install).is_dir().then(|| civ3_assets::GameFiles::complete(&install))
+    }
+
+    /// The sprite tables of a compile, as the two sides compare them.
+    fn tables(c: &Compiled) -> (Vec<String>, Vec<(u32, u32, i32, i32, u32)>) {
+        (c.sprite_names.clone(), c.atlas.sprites.iter().map(|s| (s.width, s.height, s.anchor_x, s.anchor_y, s.downscaled)).collect())
+    }
+
+    /// `art`'s description compiled whole and as a growth, with pixels (the
+    /// native viewer's compile) and without (the bridge's): the same
+    /// tables, and every element drawable from the pixel ones.
+    fn compiles_alike(art: &ScreenArt, elements: &[Element], files: &civ3_assets::GameFiles) -> Compiled {
+        let loader = civ3_assets::loader::Civ3Loader::new(files.clone());
+        let grid = "[grid]\nlayout = 'orthogonal'\nstep = [1, 1]\n";
+        let desc = render_desc::Description::parse(&format!("{grid}{}", description(art))).unwrap();
+        let drawn = desc.compile(&loader, 4096).unwrap();
+        assert_eq!(tables(&drawn), tables(&desc.compile_layout(&loader, 4096).unwrap()));
+        let grown = [true, false].map(|pixels| {
+            let (mut c, mut growing) = render_desc::Description::parse(grid).unwrap().compile_growing(&loader, 4096, pixels).unwrap();
+            let growth = growing.grow(&c, &description(art), &loader).unwrap();
+            c.apply(&growth);
+            c
+        });
+        assert_eq!(tables(&grown[0]), tables(&grown[1]));
+        for c in [&drawn, &grown[0]] {
+            for e in elements { assert!(e.ready_with_backgrounds(c, crate::ui_background::regions), "{e:?}"); }
+            assert!(c.sprite_names.iter().all(|n| c.sprite(n).is_some_and(|id| c.sprite_available(id))), "art left out");
+        }
+        drawn
+    }
+
+    /// The F7 screen (Wonders of the World): each wonder's owner as the
+    /// leader portrait of the advisors' sheet (`art\advisors\HA_all.pcx`,
+    /// cell 116,1 113×113) drawn at half size by the scaled blit (trace
+    /// `ui_resized_image ... 56 56 131072 131072`). That made a resized
+    /// sheet of an 8-bit (indexed) image, which the viewer's compile refused
+    /// though the bridge's took it: the portrait never came, and neither did
+    /// any scene after it (the screen's close, the map, a popup).
+    #[test]
+    fn the_wonders_screens_leader_portraits_compile_on_both_sides() {
+        use render_desc::ImageLoader;
+        use crate::ui::{Event, UiModel};
+        let Some(files) = install() else { return eprintln!("no Civ III install, skipped") };
+        let path = "Art/Advisors/HA_all.pcx";
+        let mut model = UiModel::new(vec![], vec![]);
+        model.apply(Event::Loaded { image: 10, path: path.into(), size: (1500, 600) });
+        model.apply(Event::Sliced { sprite: 20, image: 10, rect: [116, 1, 113, 113] });
+        model.apply(Event::ResizedBlit { sprite: 20, canvas: 40, x: 394, y: 117, size: (56, 56), sample_step: [131072, 131072], clip: Some([0, 0, 1024, 768]), palette: None, indices: None });
+        model.apply(Event::PaintBegin);
+        model.apply(Event::Composite { canvas: 40, vtable: 1, origin: (448, 156), size: (1024, 768), clip: [0, 0, 1920, 1080], keyed: false });
+        model.apply(Event::PaintEnd);
+        let frame = model.frame();
+        assert!(matches!(frame.draws.as_slice(), [ScreenDraw::ResizedImage { size: (56, 56), .. }]), "{:?}", frame.draws);
+        let elements: Vec<_> = items(&frame, &[], &[], 0).into_iter().filter_map(|i| match i { Item::Element(e, _) => Some(e), _ => None }).collect();
+        let mut art = ScreenArt::default();
+        art.add(&elements);
+        assert_eq!(art.resized_regions.len(), 1);
+        let compiled = compiles_alike(&art, &elements, &files);
+        // The portrait's pixels: every other one of the cell.
+        let sprites = menu::screen::sprites(&elements, &compiled, u32::MAX);
+        assert_eq!(sprites.len(), 1);
+        let s = compiled.atlas.sprites[compiled.sprite_names.iter().position(|n| n.contains(">56x56@131072,131072")).unwrap()];
+        assert_eq!((s.width, s.height, s.palette), (56, 56, 0));
+        let source = &civ3_assets::loader::Civ3Loader::new(files).load(path, &toml::from_str(KEYED).unwrap()).unwrap()[0];
+        let page = &compiled.atlas.pages[s.page as usize];
+        for j in 0..56 { for i in 0..56 {
+            assert_eq!(page.get(s.atlas_x + i, s.atlas_y + j), source.get(116 + 2 * i, 1 + 2 * j), "({i}, {j})");
+        }}
+    }
+
+    /// Every kind of element the mirror makes, of 8-bit (indexed) art and
+    /// of art in colours (masked), plain, through another palette, resized,
+    /// translucent, by indices (shades, smoke, a frame of an animation,
+    /// resized), and run-time pictures: what the bridge's compile takes
+    /// the viewer's takes, with the same tables, all of it drawable.
+    #[test]
+    fn every_kind_of_screen_art_compiles_alike_with_and_without_pixels() {
+        let Some(files) = install() else { return eprintln!("no Civ III install, skipped") };
+        use menu::screen::{IndexedResize, PaletteFrom, Region};
+        let clip = [0, 0, 1024, 768];
+        let region = |source: &str, rect: [i32; 4], keyed: bool| Region { source: source.into(), rect, keyed, mask: None, palette: None };
+        let portrait = region("Art/Advisors/HA_all.pcx", [116, 1, 113, 113], true);
+        let opaque = region("Art/Advisors/HA_all.pcx", [0, 0, 64, 64], false);
+        let masked = Region { mask: Some(("Art/interface/ButtonAlpha.pcx".into(), (0, 0))), ..region("Art/interface/NormButtons.pcx", [64, 224, 32, 32], true) };
+        let recoloured = Region { palette: Some(PaletteFrom { image: "Art/Units/Palettes/ntp03.pcx".into(), first: 0, count: 64 }), ..region("Art/interface/NormButtons.pcx", [0, 0, 32, 32], true) };
+        let half = |r: &Region, opacity: u8| Element::ResizedImage { region: r.clone(), at: (5, 5), size: (r.rect[2] / 2, r.rect[3] / 2), sample_step: [131072, 131072], clip, opacity };
+        let mut elements = Vec::new();
+        for r in [&portrait, &opaque, &masked, &recoloured] {
+            elements.push(Element::Image { region: r.clone(), at: (1, 2), clip });
+            elements.push(Element::OpacityImage { region: r.clone(), at: (1, 2), clip, opacity: 128 });
+            elements.push(half(r, 255));
+            elements.push(half(r, 100));
+        }
+        let flc = region("Art/Units/Artillery/ArtilleryAttackA.flc", [0, 0, 64, 64], true);
+        let resize = Some(IndexedResize { size: (30, 20), sample_step: [140000, 150000] });
+        for (r, indices) in [
+            (&portrait, crate::ui::indices::colored(&[254, 255])),
+            (&portrait, crate::ui::indices::colored_shades()),
+            (&portrait, menu::screen::Indices { resize, ..crate::ui::indices::colored(&[254, 255]) }),
+            (&flc, menu::screen::Indices { frame: Some(3), ..crate::ui::indices::colored(&[254, 255]) }),
+            (&flc, menu::screen::Indices { frame: Some(3), resize, ..crate::ui::indices::colored_smoke() }),
+        ] {
+            elements.push(Element::Indexed { region: r.clone(), indices, at: (3, 4), clip });
+        }
+        elements.push(Element::Dynamic { name: "minimap".into(), size: (40, 30), rect: [0, 0, 40, 30], at: (9, 9), clip });
+        let mut art = ScreenArt::default();
+        art.add(&elements);
+        compiles_alike(&art, &elements, &files);
+    }
+
     #[test]
     fn resized_flc_chunks_keep_full_source_extent_palette_and_native_sample_phase() {
         use render_desc::ImageLoader;

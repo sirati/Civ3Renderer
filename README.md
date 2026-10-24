@@ -108,7 +108,10 @@ its shadow share them, and 8-bit art takes a quarter of the memory. A
 render description's images are indexed wherever the loader can load them
 so (`ImageLoader::indexed`; `indexed = false` says otherwise); generated
 pictures, glyph sheets and pixels computed per pixel (alpha masks) stay
-in colour. `[palettes]` names the rows draws pick (from the loader's
+in colour, as do resized and outlined cells. A compile with pixels makes
+the same sprite tables as one without (the bridge's): a sheet whose pixels
+cannot be made is compiled clear and unavailable, logged, rather than
+refused. `[palettes]` names the rows draws pick (from the loader's
 palette files, or another palette with entries copied over).
 
 `tile_render::reference` renders the same thing on the CPU; the GPU output is
