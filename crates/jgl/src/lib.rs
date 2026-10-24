@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 pub mod counts;
+pub mod display;
 pub mod hooks;
 mod machine;
 pub mod record;

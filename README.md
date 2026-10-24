@@ -661,8 +661,9 @@ done.
 Resolution (`tile_viewer::scaling`, `civ3_bridge::game_size`): our
 rendering resolution is apart from the game's screen. The game's screen
 is fixed when it starts, at the desktop's logical size (3840x2160 at
-200 %: 1920x1080; at least 1024x768): it is only where the game's
-interface is and where its input goes. The viewer draws the world itself
+200 %: 1920x1080; at least 1024x768, on a display shorter than that
+too, since the game's mode never switches the display: `jgl::display`): it
+is only where the game's interface is and where its input goes. The viewer draws the world itself
 at the window's size divided by the pixel scale n, a whole number, each
 rendered pixel an exact n×n box (nearest pixel, never fractional; what is
 left of the window, under n pixels, is a border). ×1, the default, on a

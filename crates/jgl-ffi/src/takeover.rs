@@ -42,6 +42,19 @@ fn slot_cell(base: u32, class: Class, offset: u16) -> Ptr32<u32> {
     Ptr32::new(base + class.vtable_rva() + offset as u32)
 }
 
+/// jgl's original of a taken-over slot, as the entry point's type `F` (one
+/// of the `extern "thiscall" fn` types).
+#[cfg(all(windows, target_arch = "x86"))]
+pub(crate) fn original<F: Copy>(cell: &AtomicU32) -> F {
+    let f = cell.load(Ordering::Acquire) as usize;
+    assert_eq!(size_of::<F>(), size_of::<usize>());
+    // SAFETY: `cell` holds the function jgl had in the slot (stored by
+    // `take_over` before the slot changed), whose signature is the one
+    // its entry point declares (checked against jgl's `ret n`,
+    // `jgl::slots`). `F` is one of the `extern "thiscall" fn` types.
+    unsafe { std::mem::transmute_copy::<usize, F>(&f) }
+}
+
 /// Takes over `entries` of `class` in jgl.dll loaded at `base`: all of
 /// them or none.
 pub fn take_over(base: u32, class: Class, entries: &[Entry]) -> Result<Takeover, TakeoverError> {
