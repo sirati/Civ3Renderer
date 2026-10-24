@@ -2,12 +2,15 @@
 //! method groups `jgl-ffi` takes over in jgl.dll's tables, the hooks they
 //! report to, and the counting mode.
 //!
-//! Groups taken over so far: text and display modes. Text runs go to the
-//! interface mirror (`ui_trace::on_text`) and to the recent-text list
-//! (`trace`). The display modes need no hooks: the game's screen is the
-//! mode it asks for, and the display is never switched, not by a movie nor
-//! by jgl's shutdown either (`jgl::display`).
+//! Groups taken over so far: text, fills (lines, shades), copies and the
+//! display modes. Text runs go to the interface mirror
+//! (`ui_trace::on_text`) and to the recent-text list (`trace`); fills and
+//! copies to the interface mirror (`ui_trace::on_fill`,
+//! `ui_trace::on_copy`). The display modes need no hooks: the game's
+//! screen is the mode it asks for, and the display is never switched, not
+//! by a movie nor by jgl's shutdown either (`jgl::display`).
 
+use civ3_ui::draw::{CanvasDraw, CopyCapture, FillCapture};
 use civ3_ui::text::{CanvasText, TextCapture};
 
 /// The text group goes in before jgl's first draw: from the `LoadLibraryA`
@@ -21,29 +24,82 @@ fn canvas_text(t: CanvasText) {
     crate::trace::recent_text(t.run);
 }
 
-/// Whether jgl still draws a text run's pixels: on canvases the game reads
-/// back (the mirror's keep set).
+fn canvas_draw(d: CanvasDraw) {
+    match d {
+        CanvasDraw::Fill { canvas, size, rects, rgb, alpha, clip } => crate::ui_trace::on_fill(canvas, size, &rects, rgb, alpha, clip),
+        CanvasDraw::Copy { from, src, canvas, x, y, keyed, sizes, clip } => crate::ui_trace::on_copy(from, src, canvas, x, y, keyed, sizes, clip),
+    }
+}
+
+/// Whether jgl still draws a call's pixels: on canvases the game reads
+/// back (the mirror's keep set), and calls the interface mirror does not
+/// take.
 struct Pixels;
 
 impl jgl::PixelPolicy for Pixels {
     fn original_pixels(&self, _image: jgl::ImageId, owner: u32) -> bool {
         !crate::ui_trace::skips_text_on(owner)
     }
+
+    fn original_fill(&self, call: &jgl::FillCall) -> bool {
+        civ3_ui::draw::mirrored_fill(call).is_none_or(|canvas| !crate::ui_trace::skips_drawing(canvas, 0))
+    }
+
+    fn original_copy(&self, call: &jgl::CopyCall) -> bool {
+        civ3_ui::draw::mirrored_copy(call).is_none_or(|(canvas, source)| !crate::ui_trace::skips_drawing(canvas, source))
+    }
+}
+
+fn hooks() -> jgl::Hooks {
+    jgl::Hooks {
+        text: Box::new(TextCapture::new(canvas_text)),
+        fill: Box::new(FillCapture::new(canvas_draw)),
+        copy: Box::new(CopyCapture::new(canvas_draw)),
+        policy: Box::new(Pixels),
+    }
 }
 
 /// Takes over jgl.dll's text group (at `base`). `Ok(true)` once in place.
 pub(crate) fn install_text(base: u32) -> Result<bool, String> {
     TEXT.run(|| {
-        let group = jgl_ffi::text::install(
-            base,
-            Box::new(|| jgl::Hooks { text: Box::new(TextCapture::new(canvas_text)), policy: Box::new(Pixels) }),
-        )
-        .map_err(|e| e.to_string())?;
+        let group = jgl_ffi::text::install(base, Box::new(hooks)).map_err(|e| e.to_string())?;
         // For the life of the process.
         std::mem::forget(group);
         log::info!("jgl text group taken over (image +0x08, +0xA8..+0xB8; font +0x00, +0x08, +0x0C)");
         Ok(true)
     })
+}
+
+/// A group that cannot be taken over, as the interface capture's hook
+/// errors are: another jgl.dll (or another patch in its tables) fails the
+/// capture's installation, as the `shade_rect` slot hook did before.
+fn takeover_error(e: jgl_ffi::takeover::TakeoverError) -> inproc::hook::HookError {
+    use jgl_ffi::takeover::TakeoverError as E;
+    log::error!("jgl: {e}");
+    match e {
+        E::Hook(e) => e,
+        E::Unexpected { found, expected, .. } => {
+            inproc::hook::HookError::UnexpectedCode { addr: found, found: found.to_le_bytes().to_vec(), expected: expected.to_le_bytes().to_vec() }
+        }
+        E::NoSuchSlot { .. } | E::NoImport(_) | E::NoHooks => inproc::hook::HookError::Unsupported,
+    }
+}
+
+/// Takes over jgl.dll's fill group (at `base`): with the interface capture,
+/// whose mirror its calls feed. After the text group.
+pub(crate) fn install_fill(base: u32) -> Result<(), inproc::hook::HookError> {
+    let group = jgl_ffi::fill::install(base).map_err(takeover_error)?;
+    std::mem::forget(group);
+    log::info!("jgl fill group taken over (image +0x44..+0x64)");
+    Ok(())
+}
+
+/// Takes over jgl.dll's copy group (at `base`), as [`install_fill`].
+pub(crate) fn install_copy(base: u32) -> Result<(), inproc::hook::HookError> {
+    let group = jgl_ffi::copy::install(base).map_err(takeover_error)?;
+    std::mem::forget(group);
+    log::info!("jgl copy group taken over (image +0x38, +0x40, +0x84, +0x8C)");
+    Ok(())
 }
 
 /// Takes over jgl.dll's display-mode group (at `base`), before the game
@@ -81,7 +137,7 @@ pub(crate) fn install_counting(base: u32) {
 pub(crate) fn report() {
     if let Some((counts, other)) = jgl_ffi::count::snapshot() {
         log::info!(
-            "jgl calls since start ({other} from other threads than the game's; text threads {}, re-entered {}):\n{}",
+            "jgl calls since start ({other} from other threads than the game's; drawing threads {}, re-entered {}):\n{}",
             jgl_ffi::text::threads(),
             jgl_ffi::text::reentrant(),
             counts.report()

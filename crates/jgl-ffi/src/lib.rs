@@ -6,8 +6,9 @@
 //!   offsets checked against `jgl.dll` by the tests;
 //! - [`takeover`]: writing our entry points into jgl's method tables,
 //!   keeping the originals to fall back on;
-//! - [`text`]: the text group's `extern "thiscall"` entry points. Each
-//!   reads its raw arguments, makes safe values, calls [`jgl::Jgl`], and
+//! - [`text`], [`fill`], [`copy`]: the text, fill and copy groups'
+//!   `extern "thiscall"` entry points. Each reads its raw arguments, makes
+//!   safe values, calls [`jgl::Jgl`] (the game thread's one, `state`), and
 //!   calls jgl's original where the answer says so;
 //! - [`display`]: the display-mode group's entry points (the display is
 //!   never switched);
@@ -18,9 +19,12 @@
 //!
 //! See `docs/jgl-replacement.md`.
 
+pub mod copy;
 pub mod count;
 pub mod display;
+pub mod fill;
 pub mod layout;
+mod state;
 pub mod takeover;
 pub mod text;
 

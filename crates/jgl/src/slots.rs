@@ -216,7 +216,7 @@ pub const IMAGE: &[Slot] = &[
     Slot { offset: 0x04c, rva: 0x02360, stack: 8, name: "line_4c", group: Group::Fill },
     Slot { offset: 0x050, rva: 0x023d0, stack: 12, name: "line_50", group: Group::Fill },
     Slot { offset: 0x054, rva: 0x022c0, stack: 16, name: "line_54", group: Group::Fill },
-    Slot { offset: 0x058, rva: 0x02070, stack: 12, name: "line_58", group: Group::Fill },
+    Slot { offset: 0x058, rva: 0x02070, stack: 12, name: "replace_color", group: Group::Fill },
     Slot { offset: 0x05c, rva: 0x02110, stack: 8, name: "frame_rect", group: Group::Fill },
     Slot { offset: 0x060, rva: 0x021e0, stack: 36, name: "line_60", group: Group::Fill },
     Slot { offset: 0x064, rva: 0x02160, stack: 24, name: "line", group: Group::Fill },
