@@ -1192,9 +1192,11 @@ fn publish(
         if let Some(frame) = ui.as_ref() {
             // (Measures the rows' text: made again only when the frame, the
             // controls or the fonts change, not in every round.)
-            interactables = anchors_memo.get((frame.clone(), fonts.revision(), controls.clone(), interactables.clone()), || {
+            // (The production list's entries end with the unit's statistics.)
+            let stat_lists: Vec<u32> = civ3_sys::build_queue::order_list_form(&civ3_sys::controls::Live).into_iter().collect();
+            interactables = anchors_memo.get((frame.clone(), fonts.revision(), controls.clone(), interactables.clone(), stat_lists.clone()), || {
                 let mut anchored = interactables.clone();
-                ui_screen::content_anchors(frame, &fonts, &controls, &mut anchored);
+                ui_screen::content_anchors(frame, &fonts, &controls, &mut anchored, &stat_lists);
                 anchored
             });
             mark(&mut profile, "controls: anchors", &mut t);
