@@ -7,6 +7,7 @@
 //! split.
 
 use super::*;
+use crate::ui::ScreenDraw;
 use tile_viewer::{layout, scaling};
 use viewer_settings::{Place, Resolution, ScreenPlace, Split};
 
