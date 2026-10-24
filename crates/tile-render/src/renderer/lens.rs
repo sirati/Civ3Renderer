@@ -1,11 +1,17 @@
 //! Bounded backdrop copies and edge draws for magnifier cameras.
 use super::*;
+use std::cell::RefCell;
 use tile_render_shared::LensParams;
 
 pub(super) struct State {
-    pub format: wgpu::TextureFormat,
     layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
+    shader: wgpu::ShaderModule,
+    pipeline_layout: wgpu::PipelineLayout,
+    /// The rim pipeline for each format it has been drawn into: the
+    /// internal canvas (`Rgba8Unorm`, `Rgba16Float`), the caller's target
+    /// when drawn directly, and the window a scaled picture is shown on
+    /// (`Bgra8Unorm` or `Rgba8Unorm`).
+    pipelines: RefCell<Vec<(wgpu::TextureFormat, wgpu::RenderPipeline)>>,
     params: [wgpu::Buffer; CONTROL_SLOTS],
     // Before-camera backdrop, clear face, then shaded rim. The last image
     // lets the window pass detect pixels covered by subsequent interface art.
@@ -14,7 +20,7 @@ pub(super) struct State {
 }
 
 impl State {
-    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, format: wgpu::TextureFormat) -> Self {
+    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("lens backdrop"),
             entries: &[texture_entry(0), texture_entry(2), texture_entry(3), texture_entry(4), wgpu::BindGroupLayoutEntry {
@@ -23,17 +29,24 @@ impl State {
             }],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("lens"), bind_group_layouts: &[Some(&layout)], ..Default::default() });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("polished lens rim"), layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: shader, entry_point: Some("fullscreen_vs"), compilation_options: Default::default(), buffers: &[] },
-            fragment: Some(wgpu::FragmentState { module: shader, entry_point: Some("lens_fs"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
-            primitive: Default::default(), depth_stencil: None, multisample: Default::default(), multiview_mask: None, cache: None,
-        });
         let params = std::array::from_fn(|_| device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("lens parameters"), size: PARAMS_STRIDE * (MAX_VIEWS * 2) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
         }));
-        Self { format, layout, pipeline, params, snapshots: Vec::new(), active: Vec::new() }
+        Self { layout, shader: shader.clone(), pipeline_layout, pipelines: RefCell::new(Vec::new()), params, snapshots: Vec::new(), active: Vec::new() }
+    }
+
+    /// The rim pipeline drawing into `format`, made when first needed.
+    fn pipeline(&self, device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
+        if let Some((_, p)) = self.pipelines.borrow().iter().find(|(f, _)| *f == format) { return p.clone(); }
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(&format!("polished lens rim {format:?}")), layout: Some(&self.pipeline_layout),
+            vertex: wgpu::VertexState { module: &self.shader, entry_point: Some("fullscreen_vs"), compilation_options: Default::default(), buffers: &[] },
+            fragment: Some(wgpu::FragmentState { module: &self.shader, entry_point: Some("lens_fs"), compilation_options: Default::default(), targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })] }),
+            primitive: Default::default(), depth_stencil: None, multisample: Default::default(), multiview_mask: None, cache: None,
+        });
+        self.pipelines.borrow_mut().push((format, pipeline.clone()));
+        pipeline
     }
 
     pub fn bytes(&self) -> u64 {
@@ -81,6 +94,7 @@ impl State {
         let scale = present.zoom.0.max(1) as f32 / present.zoom.1.max(1) as f32;
         if scale == 1.0 && present.at == (0, 0) { return; }
         let canvas = target.create_view(&Default::default());
+        let pipeline = self.pipeline(device, target.format());
         for &(view, camera, mut p) in &self.active {
             p.x = p.x * scale + present.at.0 as f32;
             p.y = p.y * scale + present.at.1 as f32;
@@ -97,11 +111,18 @@ impl State {
                 target_clip: Some([transform(clip[0], present.at.0).max(0), transform(clip[1], present.at.1).max(0),
                     transform(clip[2], present.at.0).min(target.width() as i32), transform(clip[3], present.at.1).min(target.height() as i32)]), ..camera };
             queue.write_buffer(&self.params[slot], (MAX_VIEWS + view) as u64 * PARAMS_STRIDE, bytemuck::bytes_of(&p));
-            self.draw(device, encoder, &canvas, &camera, p, slot, view, Some(composed), timer.and_then(|t| t.pass(|| format!("v{view} window lens rim"))));
+            self.draw_with(device, encoder, &pipeline, &canvas, &camera, p, slot, view, Some(composed), timer.and_then(|t| t.pass(|| format!("v{view} window lens rim"))));
         }
     }
 
-    pub fn draw(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, camera: &Camera, p: LensParams, slot: usize, view: usize, composed: Option<&wgpu::Texture>, timing: Option<wgpu::RenderPassTimestampWrites<'_>>) {
+    /// Draws the rim of `view` into `canvas`, a view of a texture of `format`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, canvas: &wgpu::TextureView, format: wgpu::TextureFormat, camera: &Camera, p: LensParams, slot: usize, view: usize, timing: Option<wgpu::RenderPassTimestampWrites<'_>>) {
+        self.draw_with(device, encoder, &self.pipeline(device, format), canvas, camera, p, slot, view, None, timing);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_with(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, pipeline: &wgpu::RenderPipeline, canvas: &wgpu::TextureView, camera: &Camera, p: LensParams, slot: usize, view: usize, composed: Option<&wgpu::Texture>, timing: Option<wgpu::RenderPassTimestampWrites<'_>>) {
         let presented = composed.is_some();
         let snapshots = self.snapshots[view].as_ref().unwrap();
         let backdrop = snapshots[0].create_view(&Default::default());
@@ -116,7 +137,7 @@ impl State {
             wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.params[slot], offset: 0, size: NonZeroU64::new(size_of::<LensParams>() as u64) }) },
         ] });
         let mut pass = begin_pass(encoder, canvas, wgpu::LoadOp::Load, timing);
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &group, &[((view + if presented { MAX_VIEWS } else { 0 }) as u64 * PARAMS_STRIDE) as u32]);
         let sx = |x: i32| ((x as f32 - p.sample_x) / p.sample_scale).floor() as i32;
         let sy = |y: i32| ((y as f32 - p.sample_y) / p.sample_scale).floor() as i32;
