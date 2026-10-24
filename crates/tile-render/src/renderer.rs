@@ -999,10 +999,12 @@ impl TileRenderer {
         let Some(mut a) = self.atlas.take() else { return };
         if growth.first as usize != a.sprites.len() {
             log::error!("atlas growth for {} sprites, the atlas has {}", growth.first, a.sprites.len());
+            render_errors::report(render_errors::Kind::Atlas, "a growth for another sprite count", format_args!("growth for {} sprites, the atlas has {}", growth.first, a.sprites.len()));
         }
         let max = device.limits().max_texture_array_layers;
         if growth.pages.max(growth.index_pages) > max {
             log::error!("atlas: {} colour and {} index pages, the device has room for {max} of each: sprites past them are not drawn", growth.pages, growth.index_pages);
+            render_errors::report(render_errors::Kind::Atlas, "more pages than the device has", format_args!("{} colour and {} index pages, room for {max}", growth.pages, growth.index_pages));
         }
         let room = |pages: u32| (pages + (pages / 2).max(4)).min(max);
         let mut resized = false;
@@ -2208,6 +2210,7 @@ impl TileRenderer {
         let bind_group = &bind_group[control_slot];
         if cameras.len() > MAX_VIEWS && !self.too_many_views {
             log::warn!("{} views, only the first {MAX_VIEWS} are drawn (not repeated)", cameras.len());
+            render_errors::report(render_errors::Kind::ViewsLeftOut, "renderer cameras", format_args!("{} views, only the first {MAX_VIEWS} drawn", cameras.len()));
         }
         self.too_many_views |= cameras.len() > MAX_VIEWS;
         let cameras = &cameras[..cameras.len().min(MAX_VIEWS)];

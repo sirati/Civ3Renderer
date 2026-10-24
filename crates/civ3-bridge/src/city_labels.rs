@@ -170,7 +170,10 @@ impl<F: std::ops::Deref<Target = GameFiles>> FileEnv<F> {
 impl<F: std::ops::Deref<Target = GameFiles>> Env for FileEnv<F> {
     fn text_width(&mut self, font: &FontStyle, text: &str) -> i32 {
         let files = &*self.files;
-        let loaded = self.fonts.entry(font.clone()).or_insert_with(|| civ3_assets::fonts::load(files, font, WHITE).inspect_err(|e| log::warn!("font {font:?}: {e}")).ok());
+        let loaded = self.fonts.entry(font.clone()).or_insert_with(|| civ3_assets::fonts::load(files, font, WHITE).inspect_err(|e| {
+            log::warn!("font {font:?}: {e}");
+            render_errors::report(render_errors::Kind::MissingFont, "city label font", format_args!("{font:?}: {e}"));
+        }).ok());
         // The game measures text on a monochrome memory DC (`gdi_text::Glyph::extent`), not as it
         // draws it; a character the font does not have takes no room.
         loaded.as_ref().map_or(0, |f| text.chars().filter_map(|c| f.glyphs.get(&c)).map(|g| g.extent).sum())

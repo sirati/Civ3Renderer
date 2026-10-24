@@ -360,6 +360,7 @@ impl AbsentArt {
             if files.resolve(source).is_ok() { return true; }
             let roots: Vec<String> = files.roots().iter().map(|r| r.display().to_string()).collect();
             log::warn!("art: {source} is in none of the art folders ({}); drawn as nothing", roots.join("; "));
+            render_errors::report(render_errors::Kind::ArtImage, &format!("not in the art folders; {}", render_errors::class_of(source)), format_args!("{source} (folders {})", roots.join("; ")));
             false
         })
     }
@@ -468,6 +469,7 @@ impl ArtRetry {
             entry.1 = now;
             if entry.0 == Self::ATTEMPTS {
                 log::warn!("art: {key} asked for {} times without arriving; not asked again", Self::ATTEMPTS);
+                render_errors::report(render_errors::Kind::VisibleArtMissing, "screen art asked for again and again", format_args!("{key}: {} times", Self::ATTEMPTS));
             }
             true
         };

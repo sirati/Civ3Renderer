@@ -150,7 +150,10 @@ pub fn available_height(font: &FontStyle) -> i32 {
     if first {
         match resolved {
             Some(h) => log::info!("font {asked}: no glyph sheet of that size, drawn at the nearest, {h} pixels"),
-            None => log::warn!("font {asked}: no glyph sheets of this face and style (run tools/gen-civ3-fonts)"),
+            None => {
+                log::warn!("font {asked}: no glyph sheets of this face and style (run tools/gen-civ3-fonts)");
+                render_errors::report(render_errors::Kind::MissingFont, "glyph sheets of a face and style", format_args!("{asked}"));
+            }
         }
     }
     resolved.unwrap_or(wanted)

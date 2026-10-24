@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wine-unixlib = { path = "../wine-unixlib" }
+render-errors = { path = "../render-errors" }
 bytemuck.workspace = true
 scene = { path = "../scene" }
 log.workspace = true

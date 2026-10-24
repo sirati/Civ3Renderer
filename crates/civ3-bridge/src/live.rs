@@ -340,13 +340,14 @@ impl Compiler {
             generation: 0,
             append,
             reserve: 0,
+            context: String::new(),
         }
     }
 
     /// A job for the art thread (`generation`: `Presenter::prepare_assets`).
     #[allow(clippy::too_many_arguments)]
     fn job(&self, folders: &ArtFolders, work: Work, pixels: bool, generation: u64, token: Option<u64>, reason: String, wanted: std::time::Instant) -> ArtJob {
-        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted, stop: None }
+        ArtJob { name: self.name.clone(), files: self.files(folders), work, pixels, max_page: self.max_page, generation, token, reason, wanted, context: String::new(), stop: None }
     }
 }
 
@@ -416,6 +417,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     };
     let max_page = max_page.unwrap_or_else(|| {
         log::warn!("the renderer's texture limit is unknown: atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE);
+        render_errors::report(render_errors::Kind::Gpu, "texture limit unknown", format_args!("atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE));
         render_desc::ANY_DEVICE_PAGE
     });
     // (Screen pictures are at most the game's screen.)
@@ -589,7 +591,10 @@ fn publish(
     _prefs_audio: Option<civ3_sys::preferences::Installed>,
 ) {
     let mut mapper = Mapper::new(&compiled);
-    let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
+    let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| {
+        log::error!("menus: {e}");
+        render_errors::report(render_errors::Kind::ArtDescription, "the viewer's menus", format_args!("{e}"));
+    }).ok();
     let mut menus = menus_of(&compiled);
     let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor, Option<Arc<ui_trace::NativeUi>>)> = None;
     let mut last_camera_focus = None;
@@ -1793,6 +1798,12 @@ fn publish(
                 presenter.reserve(0, index_pages);
             }
         }
+        // What art asked for now is for: the context of its render errors.
+        let art_context = match screen_open {
+            Some((_, name)) => format!("{name} screen"),
+            None if in_game => "map".to_owned(),
+            None => "menus".to_owned(),
+        };
         if let Some(token) = schedule.start(now) {
             // Fonts no screen or zoom has asked for in a while are let go
             // of (their glyphs; the art keeps them).
@@ -1819,14 +1830,15 @@ fn publish(
                         Work::Addition(t) => (t, true),
                     };
                     // A renderer that compiles its own copy starts at once.
-                    let generation = presenter.prepare_assets(&compiler.wire(&folders, text, append));
+                    let generation = presenter.prepare_assets(&scene::wire::Assets { context: art_context.clone(), ..compiler.wire(&folders, text, append) });
                     if !append {
                         whole_folders.insert(generation, folders.clone());
                     }
                     let stop = matches!(work, Work::Whole(_)).then(|| crate::art::ArtStop { started: folders_changed.load(std::sync::atomic::Ordering::Acquire), now: folders_changed.clone() });
-                    if !art_thread.send(crate::art::ArtJob { stop, ..compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted) }) {
+                    if !art_thread.send(crate::art::ArtJob { stop, context: art_context.clone(), ..compiler.job(&folders, work, pixels, generation, Some(token), reason, wanted) }) {
                         whole_folders.remove(&generation);
                         log::error!("the art thread is gone");
+                        render_errors::report(render_errors::Kind::ArtHandOver, "the art thread is gone", format_args!("art {generation}"));
                         schedule.done(now, token);
                     }
                 }
@@ -1865,9 +1877,11 @@ fn publish(
                     }
                 }
                 if let Some(text) = addition(&have, &mut described_units, &screen_art, &mut described_screen, &district_art, &mut described_districts, &mut fonts) {
-                    let generation = presenter.prepare_assets(&compiler.wire(&folders, &text, true));
-                    if !art_thread.send(compiler.job(&folders, Work::Addition(text), pixels, generation, None, format!("preload ({tier})"), now)) {
+                    let generation = presenter.prepare_assets(&scene::wire::Assets { context: format!("preload ({tier})"), ..compiler.wire(&folders, &text, true) });
+                    let job = compiler.job(&folders, Work::Addition(text), pixels, generation, None, format!("preload ({tier})"), now);
+                    if !art_thread.send(crate::art::ArtJob { context: job.reason.clone(), ..job }) {
                         log::error!("the art thread is gone");
+                        render_errors::report(render_errors::Kind::ArtHandOver, "the art thread is gone", format_args!("art {generation}"));
                     }
                 }
             }
@@ -1886,7 +1900,9 @@ fn publish(
                 if !pending && !retry_wanted && !partial_reported {
                     partial_reported = true;
                     log::warn!("scene: visible art did not arrive; drawn as nothing");
-                    for missing in ui_screen::missing_art(visible, &fonts, &compiled) { log::warn!("scene: not resident: {missing}"); }
+                    let missing = ui_screen::missing_art(visible, &fonts, &compiled);
+                    for missing in &missing { log::warn!("scene: not resident: {missing}"); }
+                    render_errors::report(render_errors::Kind::VisibleArtMissing, &art_context, format_args!("drawn as nothing: {}", missing.iter().take(4).map(|m| m.to_string()).collect::<Vec<_>>().join("; ")));
                 }
             }
             ui_screen::Publication::Complete => {

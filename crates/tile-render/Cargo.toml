@@ -6,6 +6,7 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+render-errors = { path = "../render-errors" }
 tile-render-shared.workspace = true
 bytemuck.workspace = true
 wgpu.workspace = true

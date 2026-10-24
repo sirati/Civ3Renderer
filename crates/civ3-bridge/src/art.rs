@@ -38,6 +38,9 @@ pub struct ArtJob {
     pub reason: String,
     /// When what it builds was first wanted.
     pub wanted: Instant,
+    /// The screen it was asked for on (e.g. "F7 screen"), the context of its
+    /// render errors (`render_errors`).
+    pub context: String,
     /// A whole description given up once this says so (art for folders no
     /// longer shown, see [`ArtStop`]).
     pub stop: Option<ArtStop>,
@@ -126,7 +129,15 @@ impl ArtJob {
                 None => Ok(Built::Growth(Arc::new(Growth::default()))),
             },
         }
-        .map_err(|e| format!("{}: {e}", self.name));
+        .map_err(|e| {
+            // (Not one given up: no error, `ArtStop`.)
+            if !e.to_string().contains(crate::assets::STOPPED) {
+                let (kind, class) = e.render_error();
+                let context = if self.context.is_empty() { "art" } else { &self.context };
+                render_errors::report(kind, &format!("{context}; {class}"), format_args!("{}: {e}", self.name));
+            }
+            format!("{}: {e}", self.name)
+        });
         let (pages, sprites) = state.as_ref().map_or(((0, 0), 0), |(c, g)| (g.pages(), c.atlas.sprites.len()));
         ArtDone { generation: self.generation, token: self.token, built, took: started.elapsed(), reason: self.reason, wanted: self.wanted, pages, sprites }
     }
@@ -201,6 +212,7 @@ mod tests {
             token: None,
             reason: "test".into(),
             wanted: Instant::now(),
+            context: String::new(),
             stop: None,
         }
     }
