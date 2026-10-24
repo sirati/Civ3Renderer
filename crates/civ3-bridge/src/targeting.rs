@@ -34,12 +34,15 @@ use crate::ui_screen::Item;
 use crate::world::Civ3World;
 
 /// `Unit_Mode_Actions` (see `civ3_sys::targeting`).
-pub use civ3_sys::targeting::{GO_TO, STACK_GO_TO};
+pub use civ3_sys::targeting::{COLONY_TO, GO_TO, RAIL_TO, ROAD_TO, STACK_GO_TO};
 
 /// `Unit_Mode_Actions` values are below this (the pointer cells of
 /// `Art/Cursor.pcx`, one a mode).
 const MODES: i32 = 23;
 const TARGET_SET: &str = "TargetTile/0";
+/// The pointers of the modes, cells (1 + 33 i, 1) of `Art/Cursor.pcx` (docs
+/// §10.15), centred: index `i` is mode `i`.
+const MODE_GROUP: &str = "TargetMode";
 /// The go-to path's colour: pure red (RGB555 0x7C00).
 const PATH_RGB: [u8; 3] = [255, 0, 0];
 /// The map grid's colour: `Map_Renderer.field_2C0` = RGB555 0x318C (565:
@@ -117,6 +120,18 @@ pub fn go_to(mode: i32) -> bool {
     mode == GO_TO || mode == STACK_GO_TO
 }
 
+/// Whether a destination preselected for a go-to stays with mode `mode`
+/// (`armed`: the go-to's flag, `field_4E80[0]`): the go-to modes once
+/// given, and the orders that take the same tile in its place (Move All,
+/// Road to, Rail to, Colony to). Every other mode, or none, ends it.
+pub fn carries(mode: i32, armed: bool) -> bool {
+    match mode {
+        GO_TO | STACK_GO_TO => armed,
+        ROAD_TO | RAIL_TO | COLONY_TO => true,
+        _ => false,
+    }
+}
+
 /// The tile the go-to overlay is about: the one under the mouse the go-to
 /// command keeps (`field_4E80[3..4]`), while it waits for it (0x4EF187).
 fn go_to_target(world: &Civ3World) -> Option<(i32, i32)> {
@@ -129,6 +144,16 @@ fn go_to_target(world: &Civ3World) -> Option<(i32, i32)> {
 fn framed(world: &Civ3World) -> Option<(i32, i32)> {
     let t = &world.targeting;
     (active(t.mode) && !go_to(t.mode) && t.target_ok).then_some(t.pointer_tile).flatten()
+}
+
+/// A preselected destination an order took in place of its go-to (Road to,
+/// Rail to, Colony to): the order, whose own pointer (its cell of
+/// `Art/Cursor.pcx`) marks the framed tile too, over the units, as the
+/// pointer itself may be anywhere; and the tile.
+fn preselected_order(world: &Civ3World) -> Option<(i32, (i32, i32))> {
+    let tile = framed(world)?;
+    let mode = world.targeting.mode;
+    (world.preselected == Some(tile) && matches!(mode, ROAD_TO | RAIL_TO | COLONY_TO)).then_some((mode, tile))
 }
 
 /// The path to show: the one found for the selected unit to the tile under
@@ -222,6 +247,10 @@ pub fn description() -> String {
     out.push_str(
         "[sheets.targeting_tile]\nimage = \"targeting_frame\"\norigin = [1, 220]\ncell = [128, 64]\ngrid = [1, 1]\ngroup = \"TargetTile\"\nsample_from = \"box\"\n\n",
     );
+    let _ = writeln!(
+        out,
+        "[sheets.targeting_mode]\nimage = \"targeting_frame\"\norigin = [1, 1]\ncell = [32, 32]\nspacing = [1, 0]\ngrid = [{MODES}, 1]\nanchor = [-16, -16]\ngroup = \"{MODE_GROUP}\"\nscaling = \"keep\"\n"
+    );
     out.push_str(&lines_description());
     out
 }
@@ -291,6 +320,10 @@ pub fn sprites(world: &Civ3World, zoomed_out: bool, art: &mut crate::units::Unit
     }
     if let Some((x, y)) = framed(world) {
         out.extend(free(compiled, TARGET_SET, (64 * x, 32 * y), under_units));
+    }
+    if let Some((mode, tile)) = preselected_order(world) {
+        let over_units = crate::units::unit_passes(compiled).0;
+        out.extend(free(compiled, &format!("{MODE_GROUP}/{mode}"), centre(tile), over_units));
     }
     out
 }
@@ -474,6 +507,8 @@ mod live {
         LIVE.set(live).map_err(|_| "installed twice".to_owned())?;
         let tick = t::screen_tick::install_at_start(sites.screen_tick.0, sites.screen_tick.1, |call| {
             call.original();
+            // (A command that took a preselected destination's place gets its tile.)
+            crate::world_input::hold_preselection();
             on_game_thread();
         })
         .map_err(e("the main screen's timer"))?;
@@ -575,6 +610,36 @@ mod tests {
                 assert!(!go_to(mode), "mission {mode} must not request tile snapping");
                 assert_eq!(crate::cursor::targeting(Some(GameCursor::System), mode, valid, false), Some(GameCursor::System));
             }
+        }
+    }
+
+    #[test]
+    fn a_preselected_destination_shows_the_order_that_took_it() {
+        let tile = (10, 20);
+        let world = |mode: i32, armed: bool, preselected: Option<(i32, i32)>| Civ3World {
+            targeting: civ3_sys::world::Targeting { mode, armed, target_ok: true, pointer_tile: Some(tile), ..Default::default() },
+            preselected,
+            ..Default::default()
+        };
+        for mode in [ROAD_TO, RAIL_TO, COLONY_TO] {
+            // (Its go-to's flag may stay set: 0x4E2CF0 leaves it.)
+            for armed in [false, true] {
+                assert_eq!(preselected_order(&world(mode, armed, Some(tile))), Some((mode, tile)));
+                assert!(carries(mode, armed));
+            }
+            // The same order given by its key, nothing preselected: the
+            // pointer is where the order's tile is, no second one.
+            assert_eq!(preselected_order(&world(mode, false, None)), None);
+            assert_eq!(preselected_order(&world(mode, false, Some((12, 20)))), None);
+        }
+        // The go-to modes show their path and marker instead.
+        for mode in [GO_TO, STACK_GO_TO] {
+            assert_eq!(preselected_order(&world(mode, true, Some(tile))), None);
+            assert!(carries(mode, true) && !carries(mode, false));
+        }
+        // No other mode carries a preselected destination.
+        for mode in (0..MODES).filter(|m| ![GO_TO, STACK_GO_TO, ROAD_TO, RAIL_TO, COLONY_TO].contains(m)) {
+            assert!(!carries(mode, true), "{mode:#x}");
         }
     }
 
