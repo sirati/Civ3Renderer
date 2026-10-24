@@ -218,6 +218,20 @@ pub fn tooltip(frame: &Frame) -> Option<[i32; 4]> {
     Some([l, t, r - l, b - t])
 }
 
+/// The tooltip's draws (`Frame::overlay_draws`) clipped to [`tooltip`]'s
+/// rectangle: its text is drawn in its box, where the game sized it to
+/// hold it, and the viewer knows all of it by that rectangle (a run's
+/// letters reach above and below their baseline further than the box,
+/// so unclipped, they were not the tooltip's).
+pub fn clip_tooltip(frame: &mut Frame) {
+    let Some([x, y, w, h]) = tooltip(frame) else { return };
+    let range = frame.overlay_draws.clone();
+    for d in frame.draws.get_mut(range).into_iter().flatten() {
+        let clip = clip_mut(d);
+        *clip = intersect(*clip, [x, y, x + w, y + h]);
+    }
+}
+
 /// The corner's buttons (forms of the `canvases`) as a part of their own:
 /// the corner region ([`corner_region`]), grown to the tooltip shown by
 /// them (drawn straight onto the screen, on no canvas, next to them), and
