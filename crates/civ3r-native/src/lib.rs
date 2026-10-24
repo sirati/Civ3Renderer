@@ -472,6 +472,9 @@ mod unix_side {
             // (As `civ3_bridge::scene_map::OVERHANG`: tall art above and
             // below, units' frames and an army's banner to the sides.)
             overhang: (128, 128, 128, 128),
+            // (The game's folder, where civ3-bridge.log is: the launcher
+            // starts the game there.)
+            recording_dir: tile_viewer::altrec::recording_dir(std::env::current_dir().ok()),
             ..Default::default()
         };
         let a = assets.clone();

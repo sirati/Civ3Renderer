@@ -580,6 +580,11 @@ front) and off when the last one closes; Esc then is the menu's (it
 closes it), Alt or Ctrl turn the mode off until the menus are all closed.
 In the world it does nothing: there Alt turns the mode on, and a mode the
 player turned on stays when menus come and go.
+**Record Alt mode interactions** (`input.record_alt_mode`, on by default)
+writes the Alt mode's mouse motion, landings, clicks and the boxes it snaps
+to (no game text or names) to `alt-mode-*.altrec` next to `civ3-bridge.log`,
+64 MB at most; `civ3-tool altrec` replays them with other picker values
+(`docs/alt-mode-recording.md`).
 A free view set up before the game shows a map
 is placed at the middle of its view once it does. Ctrl+Shift+A toggles a blinking
 arrow over the active unit. Clicks are routed to the game where its view
