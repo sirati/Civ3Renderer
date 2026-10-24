@@ -10,7 +10,25 @@ A presented camera movement also refreshes the world point beneath a stationary 
 
 Consecutive pending moves replace one another without adding more OS messages. Preview updates coalesce in the same way. Keys, buttons, sliders and other UI events end that sequence. Camera-report metadata does not end it. Path finding runs on the game thread at most once per 33 ms for a moving target, while the renderer can continue drawing faster.
 
-The Drag map mode uses a separate go-to preview transaction. Right dragging changes the destination and right release keeps that preview. A later left click confirms only the same tile, selected unit and loaded world. A changed unit, map, command or destination consumes the confirmation without issuing a move. Cancellation always retires the transaction; Escape reaches only its own still-active go-to command in a safe map state, never a dialog opened in the meantime.
+The Drag map mode (the Civ6 movement style) uses a separate go-to preview transaction. Right dragging changes the destination and right release keeps that preview. A later left click confirms only the same tile, selected unit and loaded world. A changed unit, map, command or destination consumes the confirmation without issuing a move. Cancellation always retires the transaction; Escape reaches only its own still-active command in a safe map state, never a dialog opened in the meantime.
+
+### What keeps and what ends a preselected destination
+
+The preselection used to end as soon as the pointer left the world: the viewer cancelled it for any pointer motion over the interface, any press off the world, any key and the wheel, so the game's own command buttons could not be reached with it. Now these keep it: moving over the map or the interface (the moves over the interface reach the game, for its buttons' hover), the wheel and map scrolling, dragging the map from the world (left or middle button), the pointer leaving the window or the window losing focus, Alt snapping, and keys and clicks on the interface. Those keys and clicks go to the game, which decides. These end it: a left click on the world (the confirmation, or on another tile no order at all), a new right press there, Escape, a screen or popup opening, the world closing, a change of the map movement mode, and any game command that no longer waits for a tile (Fortify, Sentry, Disband, another unit selected, the unit's turn over). The viewer follows the last case from `Interface::targeting`: once it has shown the command waiting, its end ends the preselection.
+
+The game's orders that take the same tile keep it and change what it does (`civ3_bridge::world_input`, `Hold`). From their button or their key the game sets its own mode, and the bridge gives that mode the preselected tile, as the pointer resting there would (the main screen's timer and every map event check it). The confirmation is unchanged: the bridge hovers the tile and clicks the map through the game's own handler. The map's left click (0x4EB290) clears the mode and passes it with the tile to `perform_action_on_tile` (0x4E6E70), as a click of the player's would:
+
+| Order | Game command | Mode (`Unit_Mode_Actions`) | Shown at the destination |
+|---|---|---|---|
+| go-to (the drag itself) | 0x10 | 1 | the red path, marker and turns (§10.15) |
+| Move Units In Stack (X), of Same Type (Ctrl-X) | stack go-to 0x4ED390 | 0x12 | the same, the turns with a `+`, the stack button lit |
+| Road to (Ctrl-R) | 0x40000008 | 2 | the tile frame and the order's pointer (`Art/Cursor.pcx` cell 2) |
+| Rail to (Ctrl-Shift-R) | 0x40000010 | 3 | the tile frame and cell 3 |
+| Colony to (Ctrl-B) | 0x40000004 | 0xE | the tile frame and cell 0xE |
+
+0x4E2CF0 sets modes 2, 3 and 0xE without clearing the go-to's flag, so the bridge takes those modes whether or not it is still set (`targeting::carries`). The stack go-to starts at the unit's own tile (0x4DABC4), so the bridge gives it the tile again. The game draws the path only for the go-to modes and the tile frame for the others (0x4EF187). The renderer draws the same from the game's state, plus the order's pointer cell centred on the destination, because the real pointer may be anywhere by then.
+
+While a destination is preselected, the bridge keeps the game's pointer tile on it (`live::pin`). A client mouse move over the interface keeps the virtual tile on the destination. A client press is made off the map, so a press that reaches the map itself, beside the interface's controls, can never give an order for some other tile. A key's world point does not move it either.
 
 The native camera may park only while the private-message interceptor is attached to the live game window. Direct map events require the instrumented human-turn pump and no active animation or modal dialog. The existing advisor/Civilopedia input path remains responsible for its allowed actions while those forms are open. Builds without decoded native input sites retain their existing fallback.
 
@@ -49,7 +67,8 @@ For a controlled Wine or Windows game session:
 1. Split the map into A and B. Pan B to a visible friendly unit outside the original game camera. Hover and select that unit without moving A. Right-click it and double-click a city to check the native context menu and city screen.
 2. Press G and move the pointer across the original camera boundary into a distant renderer-visible tile. Check the destination cursor, red path and turn count continue to update. Confirm a legal destination once. Repeat with the pointer captured and with Z enabled, including the normal-resolution zoom box.
 3. Check a wrapped map seam, an unreachable destination, a hidden enemy unit and an off-map black region. Native visibility and movement restrictions must still apply; leaving the map must clear the old destination overlay.
-4. In Drag mode, right-drag a destination and release. Move the pointer elsewhere; the preview must stay. Click the original destination to issue one order. Repeat but click another tile, select another unit, open a dialog, change command, lose focus or load another save before confirming. None of those cases may issue the stale order or close the new dialog.
-5. Open the Preferences and advisor panels, use relocated UI controls, then return to B. Ordinary UI input must restore client-coordinate lookup, and B's next world hover must restore its own tile.
+4. In Drag mode, right-drag a destination and release. Move the pointer elsewhere, over the HUD and the unit's buttons too; the preview must stay. Click the original destination to issue one order. Repeat but click another tile, select another unit, open a dialog, give an unrelated command (Fortify), lose focus or load another save before confirming. None of those cases may issue the stale order or close the new dialog.
+5. With a worker, preselect a destination, then click Road to (or press Ctrl-R): the destination shows the tile frame and the road pointer, and clicking it orders the road there. The same for Rail to, Colony to with a settler, and Move All (X or Ctrl-X, or the stack buttons) with a stack; the latter's turns show a `+`.
+6. Open the Preferences and advisor panels, use relocated UI controls, then return to B. Ordinary UI input must restore client-coordinate lookup, and B's next world hover must restore its own tile.
 
 Live native checks must use rebuilt matching bridge and renderer binaries because the input protocol changed. A test result from an older renderer does not validate these hooks.

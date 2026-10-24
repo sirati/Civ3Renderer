@@ -95,6 +95,9 @@ struct Preview {
     world: World,
     unit: u32,
     tile: (i32, i32),
+    /// The command (`Unit_Mode_Actions`) the tile was last given to: the
+    /// go-to, or an order that took the tile in its place.
+    mode: i32,
 }
 
 impl Preview {
@@ -109,6 +112,34 @@ impl Preview {
 /// Clear a pending gesture regardless of whether the native command can
 /// currently receive cancellation. A modal or a changed selected unit must not
 /// inherit cancellation intended for the previous map transaction.
+/// What becomes of a preselected destination (`Preview`) as the game's
+/// command changes (`Hold::of`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Hold {
+    /// The command waits for the same tile.
+    Keep,
+    /// An order took the tile in the go-to's place (Move All, Road to, Rail
+    /// to, Colony to), or its go-to lost the tile: given the tile again.
+    Retarget,
+    /// Another unit, world or command (Fortify, Sentry, Disband...), or
+    /// none: the preselection is gone, the game's state left as it is.
+    Retire,
+}
+
+impl Hold {
+    /// `current`: the world and selected unit; `mode`, `armed`: the game's
+    /// command and its go-to flag; `target`: the go-to's tile
+    /// (`field_4E80[3..4]`). The other orders take the map's pointer tile,
+    /// which stays the preselected one (`live::pin`).
+    fn of(preview: Preview, current: Option<(World, u32)>, mode: i32, armed: bool, target: Option<(i32, i32)>) -> Hold {
+        if !current.is_some_and(|(world, unit)| preview.owned_by(world, unit)) || !crate::targeting::carries(mode, armed) {
+            return Hold::Retire;
+        }
+        let on_tile = !crate::targeting::go_to(mode) || target == Some(preview.tile);
+        if mode == preview.mode && on_tile { Hold::Keep } else { Hold::Retarget }
+    }
+}
+
 fn retire_preview(
     preview: &mut Option<Preview>,
     current: Option<(World, u32)>,
@@ -180,8 +211,8 @@ fn native_tile(
 
 #[cfg(windows)]
 pub use live::{
-    attach_window, barrier, click_popup_open, close_click_popup_now, endpoint_ready, game_window, install, last_press, leave_world,
-    pointer_tile, popup_tile, post_button, post_dismiss, post_move, post_order, ready, wake, Press,
+    attach_window, barrier, click_popup_open, close_click_popup_now, endpoint_ready, game_window, hold_preselection, install, last_press, leave_world,
+    pointer_tile, popup_tile, post_button, post_dismiss, post_move, post_order, preselected, ready, wake, Press,
 };
 
 #[cfg(test)]
@@ -293,6 +324,7 @@ mod tests {
             world: WORLD,
             unit: 77,
             tile: (81, 51),
+            mode: crate::targeting::GO_TO,
         };
         assert!(preview.confirms(WORLD, 77, (81, 51)));
         assert!(!preview.confirms(WORLD, 0, (81, 51)));
@@ -315,6 +347,7 @@ mod tests {
             world: WORLD,
             unit: 77,
             tile: (81, 51),
+            mode: crate::targeting::GO_TO,
         };
         for (current, safe, armed) in [
             (Some((WORLD, 77)), false, true), // A dialog or animation owns input.
@@ -332,6 +365,44 @@ mod tests {
         let mut pending = Some(original);
         assert!(retire_preview(&mut pending, Some((WORLD, 77)), true, true));
         assert!(pending.is_none());
+    }
+
+    #[test]
+    fn a_preselected_destination_stays_with_the_orders_that_take_its_tile() {
+        use crate::targeting::{COLONY_TO, GO_TO, RAIL_TO, ROAD_TO, STACK_GO_TO};
+        let tile = (81, 51);
+        let preview = Preview { world: WORLD, unit: 77, tile, mode: GO_TO };
+        let here = Some((WORLD, 77));
+        // Hovering, keys and clicks that change nothing: the go-to keeps it.
+        assert_eq!(Hold::of(preview, here, GO_TO, true, Some(tile)), Hold::Keep);
+        // Move All (X, Ctrl-X): the stack's go-to, which starts at the
+        // unit's own tile (0x4DABC4): given the tile again.
+        assert_eq!(Hold::of(preview, here, STACK_GO_TO, true, Some((80, 50))), Hold::Retarget);
+        assert_eq!(Hold::of(Preview { mode: STACK_GO_TO, ..preview }, here, STACK_GO_TO, true, Some(tile)), Hold::Keep);
+        // Road to, Rail to, Colony to: their mode, the go-to's flag left set
+        // or not; the map's pointer tile is the preselected one.
+        for mode in [ROAD_TO, RAIL_TO, COLONY_TO] {
+            for armed in [false, true] {
+                assert_eq!(Hold::of(preview, here, mode, armed, None), Hold::Retarget, "{mode:#x}");
+                assert_eq!(Hold::of(Preview { mode, ..preview }, here, mode, armed, None), Hold::Keep, "{mode:#x}");
+            }
+        }
+        // The go-to lost its tile (a hover elsewhere): given it again.
+        assert_eq!(Hold::of(preview, here, GO_TO, true, Some((83, 51))), Hold::Retarget);
+        // Another command (Fortify, Sentry, Disband: no mode; bombard 6),
+        // the go-to's flag cleared by a map click, another unit or world.
+        for (current, mode, armed) in [
+            (here, 0, false),
+            (here, 0x7F00, false),
+            (here, 0x6, false),
+            (here, GO_TO, false),
+            (here, STACK_GO_TO, false),
+            (Some((WORLD, 78)), GO_TO, true),
+            (Some((World { seed: 3, ..WORLD }, 77)), GO_TO, true),
+            (None, GO_TO, true),
+        ] {
+            assert_eq!(Hold::of(preview, current, mode, armed, Some(tile)), Hold::Retire, "{current:?} {mode:#x} {armed}");
+        }
     }
 
     #[test]
@@ -394,7 +465,7 @@ mod tests {
 
 #[cfg(windows)]
 mod live {
-    use super::{Event, Pending, Preview, Queue, World, VK_ESCAPE};
+    use super::{Event, Hold, Pending, Preview, Queue, World, VK_ESCAPE};
     use civ3_sys::world_input as native;
     use civ3_sys::{Build, Civ3};
     use inproc::window::Window;
@@ -416,6 +487,8 @@ mod live {
     /// next use of it.
     static RETIRE_PREVIEW: AtomicBool = AtomicBool::new(false);
     static LAST_PRESS: civ3r_sync::Latest<Press> = civ3r_sync::Latest::new();
+    /// The preselected destination's tile, for drawing (`Civ3World::preselected`).
+    static PRESELECTED: civ3r_sync::Latest<(i32, i32)> = civ3r_sync::Latest::new();
     thread_local! {
         /// Received events whose messages are still queued.
         static INBOX: RefCell<civ3r_sync::Inbox<Pending>> = RefCell::new(civ3r_sync::Inbox::default());
@@ -426,17 +499,74 @@ mod live {
         static SWALLOWED: Cell<u8> = const { Cell::new(0) };
     }
 
+    fn set_preview(preview: Option<Preview>) {
+        PREVIEW.set(preview);
+        match preview {
+            Some(p) => PRESELECTED.publish(p.tile),
+            None => PRESELECTED.clear(),
+        }
+    }
+
     fn preview() -> Option<Preview> {
         if RETIRE_PREVIEW.swap(false, Ordering::AcqRel) {
-            PREVIEW.set(None);
+            set_preview(None);
         }
         PREVIEW.get()
     }
 
     fn take_preview() -> Option<Preview> {
         let p = preview();
-        PREVIEW.set(None);
+        set_preview(None);
         p
+    }
+
+    /// The tile of the destination a right drag or long press preselected,
+    /// while the game's command waits for it (any thread).
+    pub fn preselected() -> Option<(i32, i32)> {
+        PRESELECTED.get()
+    }
+
+    /// Keeps a preselected destination with the game's command (on the
+    /// game's thread: its timer, and before each map event). An order that
+    /// takes the tile in the go-to's place (Move All, Road to, Rail to,
+    /// Colony to, from its button or its key) is given the same tile, as
+    /// the pointer resting on it would; any other command ends it, the
+    /// game's state left as that command made it (`Hold`).
+    pub fn hold_preselection() {
+        let (Some(live), Some(window)) = (LIVE.get(), WINDOW.get().copied()) else { return };
+        let Some(p) = preview() else { return };
+        let game = &live.game;
+        // (The map is the game's only in its turn, no dialog open.)
+        if crate::modal::modal_open(game) || !game.dialog_state().is_ok_and(|d| d.is_some_and(|d| d.turn_flag && d.depth == 0)) {
+            return;
+        }
+        let Ok(t) = game.targeting() else { return };
+        let current = world(game).zip(game.current_unit_ptr().ok());
+        match Hold::of(p, current, t.mode, t.armed, game.mouse_tile().ok().flatten()) {
+            Hold::Keep => {}
+            Hold::Retire => {
+                log::info!("world input: the preselected destination {:?} ends with command {:#x}", p.tile, t.mode);
+                set_preview(None);
+            }
+            Hold::Retarget => {
+                let Some(size) = window.client_size() else { return };
+                log::info!("world input: command {:#x} takes the preselected destination {:?}", t.mode, p.tile);
+                set_preview(Some(Preview { mode: t.mode, ..p }));
+                hover(live, p.world, p.tile, native::safe_client_point(size));
+            }
+        }
+    }
+
+    /// While a destination is preselected the game's map takes its pointer
+    /// as resting there: a move over the interface keeps the command's
+    /// tile, and a press reaching the map itself (beside the interface's
+    /// controls) is off the map, never an order to another tile.
+    fn pin(preview: Preview, message: u32) {
+        if message == WM_MOUSEMOVE {
+            native::set_virtual_tile(Some(preview.tile));
+        } else {
+            native::set_virtual_invalid();
+        }
     }
 
     /// The last map button given to the game's own handlers: the world
@@ -460,6 +590,8 @@ mod live {
     /// virtual tile stays the one it was opened for: its entries act on
     /// it (a city's "Terrain details" opens `open_tile_info`, which takes
     /// its tile from the map's pointer conversion).
+    const WM_MOUSEMOVE: u32 = 0x0200;
+
     pub fn click_popup_open(game: &Civ3) -> bool {
         let Some(form) = game.modal_form().ok().flatten().filter(|&f| f != 0) else { return false };
         let Ok(vtable) = inproc::Ptr32::<u32>::new(form).read() else { return false };
@@ -549,7 +681,10 @@ mod live {
             // (Not while a popup opened at a map click is open: its entries
             // act on the tile it was opened for, `click_popup_open`.)
             if (0x0200..=0x020E).contains(&message.id) || message.id == 0x0008 {
-                if !click_popup_open(&live.game) {
+                if click_popup_open(&live.game) {
+                } else if let Some(preview) = preview() {
+                    pin(preview, message.id);
+                } else {
                     clear();
                 }
             } else if ACTIVE
@@ -757,15 +892,7 @@ mod live {
         let current = LIVE
             .get()
             .and_then(|live| Some((world(&live.game)?, live.game.current_unit_ptr().ok()?)));
-        let armed = LIVE.get().is_some_and(|live| {
-            live.game.targeting().is_ok_and(|t| {
-                t.armed
-                    && matches!(
-                        t.mode,
-                        crate::targeting::GO_TO | crate::targeting::STACK_GO_TO
-                    )
-            })
-        });
+        let armed = LIVE.get().is_some_and(|live| live.game.targeting().is_ok_and(|t| crate::targeting::carries(t.mode, t.armed)));
         let mut retiring = take_preview();
         let cancel_order = super::retire_preview(
             &mut retiring,
@@ -905,7 +1032,11 @@ mod live {
             return;
         };
         match pending.event {
-            Event::Move(_) => hover(live, pending.world, tile, p),
+            // (A key's point: with a destination preselected the key acts on it.)
+            Event::Move(_) => match preview() {
+                Some(preview) => native::set_virtual_tile(Some(preview.tile)),
+                None => hover(live, pending.world, tile, p),
+            },
             Event::Button {
                 button: b,
                 down,
@@ -931,6 +1062,7 @@ mod live {
                 action: scene::UnitOrderAction::Preview,
                 ..
             } => {
+                hold_preselection();
                 let Ok(unit) = game.current_unit_ptr() else {
                     return;
                 };
@@ -959,18 +1091,14 @@ mod live {
                 let Ok(targeting) = game.targeting() else {
                     return;
                 };
-                if !targeting.armed
-                    || !matches!(
-                        targeting.mode,
-                        crate::targeting::GO_TO | crate::targeting::STACK_GO_TO
-                    )
-                {
+                if !crate::targeting::carries(targeting.mode, targeting.armed) {
                     return;
                 }
-                PREVIEW.set(Some(Preview {
+                set_preview(Some(Preview {
                     world: pending.world,
                     unit,
                     tile,
+                    mode: targeting.mode,
                 }));
                 hover(live, pending.world, tile, p);
             }
@@ -982,14 +1110,11 @@ mod live {
                 let valid = preview.is_some_and(|preview| {
                     preview.confirms(pending.world, game.current_unit_ptr().unwrap_or(0), tile)
                 });
-                let armed = game.targeting().is_ok_and(|t| {
-                    t.armed
-                        && matches!(
-                            t.mode,
-                            crate::targeting::GO_TO | crate::targeting::STACK_GO_TO
-                        )
-                });
-                let attack = under_screen && valid && armed && match crate::modal::may_enter_now(tile) {
+                // (The go-to, or an order that took its tile: the map's click
+                // gives the game's own `perform_action_on_tile` its mode.)
+                let mode = game.targeting().map_or(0, |t| if crate::targeting::carries(t.mode, t.armed) { t.mode } else { 0 });
+                let armed = mode != 0;
+                let attack = under_screen && valid && crate::targeting::go_to(mode) && match crate::modal::may_enter_now(tile) {
                     Ok(()) => false,
                     Err(refused) => {
                         crate::modal::refuse(game, tile, &refused);
