@@ -37,6 +37,16 @@ pub const PATH_FLAGS: u32 = 0x2001;
 pub const GO_TO: i32 = 0x1;
 pub const STACK_GO_TO: i32 = 0x12;
 
+/// `Unit_Mode_Actions` of the worker and settler orders that wait for a
+/// tile to work their way to: "Road to (Ctrl-R)", "Rail to (Ctrl-Shift-R)"
+/// and "Colony to (Ctrl-B)" (commands 0x40000008, 0x40000010, 0x40000004).
+/// 0x4E2CF0 sets them (0x4E2DFD, 0x4E2E95, 0x4E2FC5) without touching the
+/// go-to's fields, and the map's left click (0x4EB290) gives the mode it
+/// finds to `perform_action_on_tile` (0x4E6E70) with the tile clicked.
+pub const ROAD_TO: i32 = 0x2;
+pub const RAIL_TO: i32 = 0x3;
+pub const COLONY_TO: i32 = 0xE;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Sites {
     /// The `Trade_Net` object (`p_trade_net`).

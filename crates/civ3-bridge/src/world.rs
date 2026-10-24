@@ -238,6 +238,10 @@ pub struct Civ3World {
     /// The go-to path to the tile under the mouse, as the game's path
     /// finder found it (docs §10.15).
     pub goto: Option<crate::targeting::GotoPath>,
+    /// The tile a go-to was given by a right drag or long press and waits
+    /// for its confirmation on (`crate::world_input`), which the command now
+    /// waiting (a go-to, Move All, Road to, Rail to, Colony to) takes.
+    pub preselected: Option<(i32, i32)>,
     /// How `player` stands with each civ (by civ; empty if unknown).
     pub relations: Vec<civ3_sys::world::Relation>,
     /// C3X's districts (docs §18): empty without C3X districts or while
@@ -909,6 +913,7 @@ impl Trace {
                     let v = (1..f.len()).map(n).collect::<Result<Vec<_>, _>>()?;
                     t.world.goto = crate::targeting::GotoPath::parse(&v);
                 }
+                Some("preselected") => t.world.preselected = Some((n(1)? as i32, n(2)? as i32)),
                 Some("unit_type_key") => t.world.unit_type_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("era_key") => t.world.era_keys.push(f.get(2).copied().unwrap_or("").to_owned()),
                 Some("governments") => t.world.governments = (1..f.len()).map(|k| n(k).map(|v| v as i32)).collect::<Result<_, _>>()?,
