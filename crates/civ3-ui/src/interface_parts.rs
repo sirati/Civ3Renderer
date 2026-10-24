@@ -56,3 +56,14 @@ pub fn clip_mut(d: &mut ScreenDraw) -> &mut [i32; 4] {
         | ScreenDraw::Indexed { clip, .. } => clip,
     }
 }
+
+/// `frame` with `draws` left out (clipped to nothing: the indices stay).
+pub fn without(frame: &Frame, draws: &[usize]) -> Frame {
+    let mut out = frame.clone();
+    for &i in draws {
+        if let Some(d) = out.draws.get_mut(i) {
+            *clip_mut(d) = [0, 0, 0, 0];
+        }
+    }
+    out
+}

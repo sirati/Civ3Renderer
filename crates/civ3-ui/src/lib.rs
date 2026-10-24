@@ -11,6 +11,7 @@
 pub mod blit;
 pub mod draw;
 pub mod interface_parts;
+pub mod loading_cursor;
 pub mod text;
 pub mod production_queue;
 pub mod viewer;
