@@ -915,7 +915,7 @@ Explicit `=on` enables comparison; `=compat` enables fallback recovery while
 keeping original pixels suppressed during renderer operation. The interface
 mirror records each drawing it hooks and then skips the game's own: sprite blits, image copies (`draw_onto`, `copy_*`, GDI's
 `StretchBlt` behind them), fills, lines (the game's and C3X's line drawer),
-translucent shades, `TextOutA` of the game's text functions, unit pictures
+translucent shades, text (jgl's `text_out`, taken over in its method table: `docs/jgl-replacement.md`), unit pictures
 the mirror shows as animation frames, and `present`'s `BitBlt` to the
 window; the map's blits go as with `CIV3R_GAME_MAP=off`. What decides what
 is drawn runs as before: forms redraw, compose and present, text is measured

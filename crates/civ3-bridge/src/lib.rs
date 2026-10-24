@@ -40,6 +40,8 @@ pub mod effects;
 pub mod game_render;
 pub mod game_size;
 pub mod heartbeat;
+#[cfg(windows)]
+mod jgl_hooks;
 pub mod interface_parts;
 pub mod label_check;
 pub mod lit_orders;
