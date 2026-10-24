@@ -88,17 +88,7 @@ impl jgl::PixelPolicy for Pixels {
     fn original_present(&self, _call: &jgl::PresentCall) -> bool {
         let skip = crate::ui_trace::skipping();
         crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Present, skip, || 0);
-        crate::jgl_compare::decided(!skip);
         !skip
-    }
-}
-
-/// `CIV3R_JGL_COMPARE=1`: the present group's records to the comparison.
-struct PresentCompare;
-
-impl jgl::PresentHooks for PresentCompare {
-    fn present(&mut self, call: &jgl::PresentCall) {
-        crate::jgl_compare::record(call);
     }
 }
 
@@ -109,7 +99,7 @@ fn hooks() -> jgl::Hooks {
         copy: Box::new(CopyCapture::new(canvas_draw)),
         blit: Box::new(BlitCapture::new(game_blit)),
         palette: Box::new(jgl::hooks::NoHooks),
-        present: Box::new(PresentCompare),
+        present: Box::new(jgl::hooks::NoHooks),
         policy: Box::new(Pixels),
     }
 }
@@ -190,7 +180,6 @@ pub(crate) fn install_counting(base: u32) {
 
 /// Logs the counting mode's counts.
 pub(crate) fn report() {
-    crate::jgl_compare::report();
     if let Some((counts, other)) = jgl_ffi::count::snapshot() {
         log::info!(
             "jgl calls since start ({other} from other threads than the game's; drawing threads {}, re-entered {}):\n{}",

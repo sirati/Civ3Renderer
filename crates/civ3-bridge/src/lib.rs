@@ -43,7 +43,6 @@ pub mod game_render;
 pub mod game_size;
 pub mod heartbeat;
 #[cfg(windows)]
-mod jgl_compare;
 mod jgl_hooks;
 pub mod interface_parts;
 pub mod label_check;

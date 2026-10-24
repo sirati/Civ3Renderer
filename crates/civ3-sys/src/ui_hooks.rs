@@ -937,15 +937,3 @@ mod native_hit_mask_tests {
         assert!(!keyed_hit_mask_flags(0x0020)); // Opaque form.
     }
 }
-
-inproc::stdcall_hook! {
-    /// (`CIV3R_JGL_COMPARE=1` only) jgl.dll's import of
-    /// `BOOL InvalidateRect(HWND, const RECT *, BOOL)`: the old layer under
-    /// graphics +0x30.
-    pub mod jgl_invalidate_rect(hwnd, rect, erase) -> i32;
-}
-
-/// jgl.dll's import slot of `InvalidateRect` (at `base`).
-pub fn jgl_invalidate_rect_slot(base: u32) -> Option<Ptr32<u32>> {
-    inproc::pe::import_slot(base, "USER32.dll", "InvalidateRect").ok().flatten()
-}
