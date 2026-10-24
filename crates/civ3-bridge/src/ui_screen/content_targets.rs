@@ -15,9 +15,11 @@ pub fn content_anchors(frame: &Frame, fonts: &Fonts, controls: &[Control], targe
 }
 
 /// A check box's label (the game draws it beside the box, outside the
-/// box's hit cell): the text on the box's row starting within a box's
-/// height of it, and text following that as closely (several runs), up to
-/// the next box on the row. With the box it is the control's region
+/// box's hit cell): the text on the box's row starting within one and a
+/// half box heights of it, and text following that as closely (several
+/// runs), up to the next box on the row. Lines drawn on the row bridge
+/// the way to it (the foreign advisor's treaty boxes: a legend line, its
+/// name in the middle). With the box it is the control's region
 /// (`scene::Interactable::region`); the box stays where the pointer goes
 /// and clicks, which toggles it.
 fn label_regions(frame: &Frame, controls: &[Control], targets: &mut [Interactable], text_bounds: impl Fn(&TextRun) -> Option<[i32; 4]>) {
@@ -25,24 +27,33 @@ fn label_regions(frame: &Frame, controls: &[Control], targets: &mut [Interactabl
     if boxes.is_empty() {
         return;
     }
-    let mut runs: Vec<[i32; 4]> = frame.draws.iter().filter_map(|d| match d {
-        ScreenDraw::Text { run, clip } => text_bounds(run).and_then(|r| intersection(r, *clip)),
+    // Text (true), and fills: lines or ticks that may lead to it.
+    let mut runs: Vec<([i32; 4], bool)> = frame.draws.iter().filter_map(|d| match d {
+        ScreenDraw::Text { run, clip } => text_bounds(run).and_then(|r| intersection(r, *clip)).map(|r| (r, true)),
+        ScreenDraw::Fill { rect, clip, alpha, .. } if *alpha != 0 => intersection(*rect, *clip).map(|r| (r, false)),
         _ => None,
     }).collect();
-    runs.sort_unstable_by_key(|r| (r[0], r[1]));
+    runs.sort_unstable_by_key(|(r, _)| (r[0], r[1]));
     for c in &boxes {
         let [x, y, w, h] = c.rect;
-        let gap = h.max(8);
+        let gap = h.max(8) * 3 / 2;
         // (Half its ink, or half the box, on the box's row.)
         let on_row = |r: &[i32; 4]| (r[1] + r[3]).min(y + h) - r[1].max(y) >= r[3].min(h) / 2 + 1;
         // Up to the next box on its row.
         let stop = boxes.iter().filter(|o| o.id != c.id && o.rect[0] > x && on_row(&o.rect)).map(|o| o.rect[0]).min().unwrap_or(i32::MAX);
         let [mut l, mut t, mut r, mut b] = [x, y, x + w, y + h];
-        for run in runs.iter().filter(|run| on_row(run) && run[0] >= x && run[0] + run[2] <= stop) {
-            if run[0] > r + gap {
+        // How far the row's content reaches, lines included; the label ends
+        // with its last text.
+        let mut reach = r;
+        // (A line no taller than the box: not a panel behind the row.)
+        for (run, text) in runs.iter().filter(|(run, text)| on_row(run) && run[0] >= x && run[0] + run[2] <= stop && (*text || run[3] <= h)) {
+            if run[0] > reach + gap {
                 break;
             }
-            (l, t, r, b) = (l.min(run[0]), t.min(run[1]), r.max(run[0] + run[2]), b.max(run[1] + run[3]));
+            reach = reach.max(run[0] + run[2]);
+            if *text {
+                (l, t, r, b) = (l.min(run[0]), t.min(run[1]), reach, b.max(run[1] + run[3]));
+            }
         }
         let region = [l, t, r - l, b - t];
         if region != c.rect {
@@ -311,6 +322,85 @@ mod tests {
         assert!(military_unit_controls(&Frame::default(), &[strip]).is_empty());
     }
 
+    /// The foreign advisor's Treaties tab as the game drew it (the trace
+    /// `featfix/logs/trace-c-f4.txt`, 1920×1080): six check boxes, each a
+    /// form of its own, their hit cells the 22×16 boxes; each label a
+    /// legend line on the box's row, the treaty's name in its middle.
+    const TREATIES: &str = r#"ui_text 448 156 1472 924 text dc 0 at 1191 461 color 0 112 184 font "Lucida Sans"/-12/0/0/0 str Treaties
+ui_text 448 156 1472 924 text dc 0 at 1263 461 color 0 0 0 font "Lucida Sans"/-12/0/0/0 str Trades
+ui_text 448 156 1472 924 text dc 0 at 1295 501 color 248 0 0 font "Lucida Sans"/-14/0/0/0 str War
+ui_fill 1218 495 66 3 255 0 0 448 156 1472 924 128
+ui_fill 1284 490 1 10 255 0 0 448 156 1472 924 128
+ui_fill 1332 490 1 10 255 0 0 448 156 1472 924 128
+ui_fill 1332 495 66 3 255 0 0 448 156 1472 924 128
+ui_text 448 156 1472 924 text dc 0 at 1288 534 color 0 0 248 font "Lucida Sans"/-14/0/0/0 str Peace
+ui_fill 1218 528 60 3 0 0 255 448 156 1472 924 128
+ui_fill 1278 523 1 10 0 0 255 448 156 1472 924 128
+ui_fill 1338 523 1 10 0 0 255 448 156 1472 924 128
+ui_fill 1338 528 60 3 0 0 255 448 156 1472 924 128
+ui_text 448 156 1472 924 text dc 0 at 1247 567 color 0 128 128 font "Lucida Sans"/-14/0/0/0 str Mutual Protection
+ui_fill 1218 561 28 3 0 132 132 448 156 1472 924 128
+ui_fill 1246 556 1 10 0 132 132 448 156 1472 924 128
+ui_fill 1370 556 1 10 0 132 132 448 156 1472 924 128
+ui_fill 1370 561 28 3 0 132 132 448 156 1472 924 128
+ui_text 448 156 1472 924 text dc 0 at 1251 600 color 0 128 0 font "Lucida Sans"/-14/0/0/0 str Right of Passage
+ui_fill 1218 594 30 3 0 132 0 448 156 1472 924 128
+ui_fill 1248 589 1 10 0 132 0 448 156 1472 924 128
+ui_fill 1368 589 1 10 0 132 0 448 156 1472 924 128
+ui_fill 1368 594 30 3 0 132 0 448 156 1472 924 128
+ui_text 448 156 1472 924 text dc 0 at 1254 633 color 240 96 32 font "Lucida Sans"/-14/0/0/0 str Military Alliance
+ui_fill 1218 627 33 3 247 99 33 448 156 1472 924 128
+ui_fill 1251 622 1 10 247 99 33 448 156 1472 924 128
+ui_fill 1365 622 1 10 247 99 33 448 156 1472 924 128
+ui_fill 1365 627 33 3 247 99 33 448 156 1472 924 128
+ui_text 448 156 1472 924 text dc 0 at 1218 639 color 240 96 32 font "Lucida Sans"/-10/0/0/0 str With
+ui_text 448 156 1472 924 text dc 0 at 1361 639 color 240 96 32 font "Lucida Sans"/-10/0/0/0 str Against
+ui_text 448 156 1472 924 text dc 0 at 1270 662 color 128 128 128 font "Lucida Sans"/-10/0/0/0 str Locked Alliance
+ui_fill 1218 660 33 3 132 132 132 448 156 1472 924 128
+ui_fill 1251 655 1 10 132 132 132 448 156 1472 924 128
+ui_fill 1365 655 1 10 132 132 132 448 156 1472 924 128
+ui_fill 1365 660 33 3 132 132 132 448 156 1472 924 128
+ui_text 448 156 1472 924 text dc 0 at 1193 705 color 0 0 0 font "Lucida Sans"/-12/0/0/0 str Select All
+ui_text 448 156 1472 924 text dc 0 at 1363 705 color 0 0 0 font "Lucida Sans"/-12/0/0/0 str All Off
+"#;
+
+    /// Its six boxes (the trace's `control` lines), top to bottom.
+    fn treaty_boxes() -> Vec<Control> {
+        [(485, 0xa4_aff8u64), (518, 0xa4_b68c), (551, 0xa4_bd20), (584, 0xa4_c3b4), (617, 0xa4_ca48), (650, 0xa4_d0dc)]
+            .map(|(y, form)| Control { rect: [1193, y, 22, 16], kind: ControlKind::Button, id: form << 32 | 0x4000_0000 })
+            .to_vec()
+    }
+
+    #[test]
+    fn the_foreign_advisors_treaty_boxes_take_their_legend_names() {
+        // (Ink: three quarters of the height above the baseline, half of
+        // it a letter.)
+        let ink = |run: &TextRun| {
+            let h = run.height.abs();
+            Some([run.x, run.y - h * 3 / 4, run.text.chars().count() as i32 * h / 2, h * 3 / 4])
+        };
+        let frame = crate::world::Trace::parse(TREATIES).unwrap().ui.unwrap();
+        let controls = treaty_boxes();
+        let mut got = targets(&controls);
+        label_regions(&frame, &controls, &mut got, ink);
+        let names = ["War", "Peace", "Mutual Protection", "Right of Passage", "Military Alliance", "Locked Alliance"];
+        for ((t, c), name) in got.iter().zip(&controls).zip(names) {
+            let region = t.region.unwrap_or_else(|| panic!("{name}: the box alone"));
+            let run = frame.draws.iter().find_map(|d| match d { ScreenDraw::Text { run, .. } if run.text == name => Some(run), _ => None }).unwrap();
+            let [nx, ny, nw, nh] = ink(run).unwrap();
+            let [x, y, w, h] = region;
+            assert!(x <= c.rect[0] && y <= c.rect[1] && x + w >= c.rect[0] + c.rect[2] && y + h >= c.rect[1] + c.rect[3], "{name}: {region:?} holds the box");
+            assert!(x <= nx && y <= ny && x + w >= nx + nw && y + h >= ny + nh, "{name}: {region:?} holds its name");
+            // The box is still where it points and clicks.
+            assert_eq!((t.rect, t.anchor), (c.rect, None));
+        }
+        // Rows apart: no region reaches into the next box's row.
+        for pair in got.windows(2) {
+            let (a, b) = (pair[0].region.unwrap(), pair[1].region.unwrap());
+            assert!(a[1] + a[3] <= b[1], "{a:?} over {b:?}");
+        }
+    }
+
     #[test]
     fn a_check_boxs_label_joins_its_region_and_the_box_stays_its_hit_cell() {
         // Two boxes on a row, a third below; each label just right of its box.
@@ -336,6 +426,11 @@ mod tests {
             [Some([100, 200, 78, 18]), Some([300, 200, 57, 18]), Some([100, 240, 83, 18]), None]
         );
         assert_eq!(got.iter().map(|t| (t.rect, t.anchor)).collect::<Vec<_>>(), controls.map(|c| (c.rect, None)), "the box is where it points and clicks");
+        // A line on a row leads to nothing without text.
+        let lone = Frame { draws: vec![ScreenDraw::Fill { rect: [120, 206, 60, 3], rgb: [0; 3], alpha: 128, clip: [0, 0, 1024, 768] }], ..Default::default() };
+        let mut lined = targets(&controls);
+        label_regions(&lone, &controls, &mut lined, bounds);
+        assert!(lined.iter().all(|t| t.region.is_none()));
         // Without text: the box alone.
         let mut bare = targets(&controls);
         label_regions(&Frame::default(), &controls, &mut bare, bounds);
