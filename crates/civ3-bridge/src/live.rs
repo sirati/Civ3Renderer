@@ -739,6 +739,12 @@ fn publish(
     let mut part_memos: [Memo<_, Vec<scene::FreeSprite>>; 4] = Default::default();
     // The kept popups' sprites, per slot (`crate::detached`).
     let mut detached_memos: [Memo<_, Vec<scene::FreeSprite>>; crate::detached::MAX_KEPT] = Default::default();
+    // The queued reports' items and sprites, per slot (`crate::async_popups`).
+    let mut queued_item_memos: [Memo<_, Vec<ui_screen::Item>>; crate::async_popups::MAX_SHOWN] = Default::default();
+    let mut queued_memos: [Memo<_, Vec<scene::FreeSprite>>; crate::async_popups::MAX_SHOWN] = Default::default();
+    // The loading bar's items and sprites (`crate::loading_cursor::split_bar`).
+    let mut bar_memo: Memo<_, Vec<ui_screen::Item>> = Default::default();
+    let mut bar_sprites_memo: Memo<_, Vec<scene::FreeSprite>> = Default::default();
     // Bumped whenever `compiled` changes (new art, a growth): the memos of
     // what is made of the art key on it.
     let mut art_generation = 0u64;
@@ -1282,14 +1288,14 @@ fn publish(
         let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
         let popup_and_canvas = match (ui, modal) {
             (Some(f), m) if matches!(shown, Shown::Map(..)) || screen_open.is_some() => {
-                let modal_popup = m.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4).filter(|&c| c != crate::detached::hidden_canvas()).and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c)));
+                let modal_popup = m.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4).filter(|&c| c != crate::detached::hidden_canvas() && c != crate::async_popups::hidden_canvas()).and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c)));
                 modal_popup.or_else(|| context_menu.and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c))))
             }
             // Between games: a popup over the title or a setup screen (those
             // screens are modal forms themselves: not popups).
             (Some(f), Some(m)) if matches!(shown, Shown::Title(_)) => {
                 let c = m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
-                crate::interface_parts::menu_popup(f, c, screen_size).map(|p| (p, c))
+                (c != crate::async_popups::hidden_canvas()).then(|| crate::interface_parts::menu_popup(f, c, screen_size).map(|p| (p, c))).flatten()
             }
             _ => None,
         };
@@ -1340,7 +1346,7 @@ fn publish(
         let popup_canvases: Vec<u32> = native_ui.as_ref().into_iter()
             .flat_map(|native| native.modal_stack).filter(|&form| form != 0)
             .map(|form| form + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4)
-            .filter(|&canvas| canvas != crate::detached::hidden_canvas())
+            .filter(|&canvas| canvas != crate::detached::hidden_canvas() && canvas != crate::async_popups::hidden_canvas())
             .chain(popup_and_canvas.map(|(_, canvas)| canvas))
             .fold(Vec::new(), |mut out, canvas| { if !out.contains(&canvas) { out.push(canvas); } out });
         let (ui_below, popup_frames) = match ui {
@@ -1437,6 +1443,27 @@ fn publish(
             (Some(f), Shown::Title(_) | Shown::Preview(..)) => (None, Some(f.clone())),
             (None, _) => (None, None),
         };
+        // The game's loading bar while it shows (loading a game, between
+        // turns), a part of its own: the viewer keeps it clear of the
+        // popups over it (`scene::Interface::loading_bar`).
+        let (frame_ui, menu_ui, loading_bar) = match (frame_ui, menu_ui) {
+            (f, Some(m)) if crate::loading_cursor::split_bar(&m).is_some() => {
+                let (rest, bar, rect) = crate::loading_cursor::split_bar(&m).unwrap_or_default();
+                (f, Some(rest), Some((bar, rect)))
+            }
+            (Some(f), m) => match crate::loading_cursor::split_bar(&f) {
+                Some((rest, bar, rect)) => (Some(rest), m, Some((bar, rect))),
+                None => (Some(f), m, None),
+            },
+            (f, m) => (f, m, None),
+        };
+        let bar_items = loading_bar.as_ref().map(|(f, _)| bar_memo.get((f.clone(), unit_colors), || ui_screen::items(f, files.roots(), generated, unit_colors))).unwrap_or_default();
+        // The reports the game did not wait for (`crate::async_popups`),
+        // the oldest few, until the viewer's player has read them.
+        let (queued, queued_more) = crate::async_popups::shown();
+        let queued_items: Vec<Vec<ui_screen::Item>> = queued.iter().zip(queued_item_memos.iter_mut())
+            .map(|(q, memo)| memo.get((q.serial, unit_colors), || ui_screen::items(&q.frame, files.roots(), generated, unit_colors)))
+            .collect();
         // Our tabs on top of the game's Preferences screen (a menu), in the
         // part of the interface that draws it (the screen may be the popup
         // split off), under what the game draws over it (a popup over it,
@@ -1635,6 +1662,10 @@ fn publish(
             wanted_for.push("interface");
         }
         mark(&mut profile, "ui items: visible source lookup", &mut t);
+        if ui_screen::add_present_art(bar_items.iter().chain(queued_items.iter().flatten()), &mut screen_art, &mut fonts, &files, &mut absent_art) {
+            screen_recompile = true;
+            wanted_for.push("loading bar, queued reports");
+        }
         if ui_screen::add_present_art(&hint.1, &mut screen_art, &mut fonts, &files, &mut absent_art) {
             recompile = true;
             wanted_for.push("hint");
@@ -2062,6 +2093,15 @@ fn publish(
             });
             crate::interface_parts::part_view(&mut scene, crate::detached::entry(index, kept).view, kept.rect, sprites);
         }
+        // The reports the game did not wait for, the oldest on top.
+        for (index, ((q, items), memo)) in queued.iter().zip(&queued_items).zip(queued_memos.iter_mut()).enumerate() {
+            let sprites = memo.get((q.serial, art_key), || ui_screen::sprites(items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
+            crate::interface_parts::part_view(&mut scene, crate::async_popups::view(index), q.rect, sprites);
+        }
+        if let Some((_, rect)) = &loading_bar {
+            let sprites = bar_sprites_memo.get((bar_items.clone(), art_key), || ui_screen::sprites(&bar_items, &fonts, &compiled, ui_screen::under_pass(&compiled), outlines));
+            crate::interface_parts::part_view(&mut scene, crate::loading_cursor::VIEW, *rect, sprites);
+        }
         if popup.is_some() && on_map {
             // The popup's subject: older drivers' games bring it into view
             // first (the middle of the game's view stands for it). With the
@@ -2103,6 +2143,9 @@ fn publish(
             popup_anchor,
             popup_on_screen: popup_on_screen && popup.is_some(),
             detached: detached.iter().enumerate().map(|(index, kept)| crate::detached::entry(index, kept)).collect(),
+            queued: queued.iter().enumerate().map(|(index, q)| crate::async_popups::entry(index, q)).collect(),
+            queued_more,
+            loading_bar: loading_bar.as_ref().map(|_| crate::loading_cursor::VIEW),
             // A unit command waits for its tile (`crate::targeting`):
             // the game's own mode, whatever gave the command.
             targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
@@ -2638,6 +2681,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
             Input::Edge { x, y } => forwarder.edge = (x, y),
             // On the game's thread, in order with the popup's own loop.
             Input::CloseDetached { serial } => crate::detached::close(serial),
+            Input::CloseQueued { serial } => {
+                log::info!("input: queued report {serial} read");
+                crate::async_popups::close(serial);
+            }
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");
