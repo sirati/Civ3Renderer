@@ -218,6 +218,29 @@ pub fn modal_stack(mem: &dyn crate::controls::Mem, build: Build) -> Option<[u32;
     (mem.u32(0xCA_D384)? == top).then_some(forms)
 }
 
+/// `Base_Form::is_visible` (0x609AC0): `Status2` (+0xA0) bit 0 set, and
+/// the parent (+0x130) visible if there is one. (A bounded walk: a cycle
+/// of parents reads as not visible.)
+pub fn form_visible(mem: &dyn crate::controls::Mem, form: u32) -> Option<bool> {
+    let mut form = form;
+    for _ in 0..32 {
+        if mem.u32(form.checked_add(0xA0)?)? & 1 == 0 { return Some(false); }
+        form = mem.u32(form.checked_add(0x130)?)?;
+        if form == 0 { return Some(true); }
+    }
+    Some(false)
+}
+
+/// Whether the game's map leaves the city labels out now: `draw_city_hud`
+/// (0x4E5640) returns before drawing any when `Advisor_GUI` (0x9AFD58) is
+/// visible (`mov ecx,0x9AFD58; call 0x609AC0; jne` at 0x4E5676, the same in
+/// the C3X build), its only test for the whole call: under a popup, the city
+/// screen or another screen the map keeps them (docs §10.8). `None`: an undecoded
+/// build or unreadable memory.
+pub fn map_labels_hidden(mem: &dyn crate::controls::Mem, build: Build) -> Option<bool> {
+    form_visible(mem, globals(build)?.advisor_form)
+}
+
 impl Civ3 {
     /// The open modal form (0: none), or `None` for an undecoded build.
     pub fn modal_form(&self) -> Result<Option<u32>, Civ3Error> {
@@ -351,5 +374,38 @@ mod modal_stack_tests {
         mem.0.insert(0xCA_CD20 + 4, 0x1000);
         assert_eq!(modal_stack(&mem, Build::PcGames), None);
         assert_eq!(modal_stack(&mem, Build::Steam), None);
+    }
+}
+
+#[cfg(test)]
+mod map_labels_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    struct Memory(BTreeMap<u32, u32>);
+    impl crate::controls::Mem for Memory {
+        fn u32(&self, address: u32) -> Option<u32> { self.0.get(&address).copied() }
+        fn u8(&self, address: u32) -> Option<u8> { self.u32(address).map(|v| v as u8) }
+    }
+    const ADVISOR: u32 = 0x9A_FD58;
+
+    #[test]
+    fn labels_are_hidden_only_while_the_advisor_gui_is_visible() {
+        // A popup is the modal form: the labels stay.
+        let mut mem = Memory(BTreeMap::from([(ADVISOR + 0xA0, 2), (ADVISOR + 0x130, 0), (0xCA_D384, 0x5000), (0xCA_D388, 1)]));
+        assert_eq!(map_labels_hidden(&mem, Build::PcGames), Some(false));
+        mem.0.insert(ADVISOR + 0xA0, 3);
+        assert_eq!(map_labels_hidden(&mem, Build::PcGames), Some(true));
+        // Shown under a hidden parent: not visible (0x609AC0).
+        mem.0.insert(ADVISOR + 0x130, 0x7000);
+        mem.0.insert(0x7000 + 0xA0, 0);
+        assert_eq!(map_labels_hidden(&mem, Build::PcGames), Some(false));
+        mem.0.insert(0x7000 + 0xA0, 1);
+        mem.0.insert(0x7000 + 0x130, 0);
+        assert_eq!(map_labels_hidden(&mem, Build::PcGames), Some(true));
+        // A cycle of parents ends.
+        mem.0.insert(0x7000 + 0x130, ADVISOR);
+        assert_eq!(map_labels_hidden(&mem, Build::PcGames), Some(false));
+        assert_eq!(map_labels_hidden(&mem, Build::Steam), None);
+        assert_eq!(map_labels_hidden(&Memory(BTreeMap::new()), Build::PcGames), None);
     }
 }
