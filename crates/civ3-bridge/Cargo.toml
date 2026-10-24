@@ -22,6 +22,7 @@ render-desc = { path = "../render-desc" }
 scene = { path = "../scene" }
 viewer-transport = { path = "../viewer-transport" }
 menu = { path = "../menu" }
+civ3-ui = { path = "../civ3-ui" }
 wine-unixlib = { path = "../wine-unixlib" }
 civ3r-native = { package = "civ3r-native", path = "../civ3r-native" }
 tile-render.workspace = true
