@@ -114,66 +114,12 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
-    /// `int PCX_Image::draw_onto(this, PCX_Image *dst, x, y)`: the whole
-    /// image, colour-keyed.
-    pub mod pcx_draw_onto(image, edx; dst, x, y) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::copy_stretch(this, PCX_Image *dst, sx, sy, sw, sh,
-    /// dx, dy, dw, dh)`: an opaque rectangle copy (every rectangle copy
-    /// ends here or in `copy_rects`).
-    pub mod pcx_copy(image, edx; dst, sx, sy, sw, sh, dx, dy, dw, dh) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::copy_same_rect(this, PCX_Image *dst, x, y, w, h)`.
-    pub mod pcx_copy_same(image, edx; dst, x, y, w, h) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::copy_rect(this, PCX_Image *dst, RECT *r)` (same
-    /// rectangle in both).
-    pub mod pcx_copy_rect(image, edx; dst, rect) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::copy_rects(this, PCX_Image *dst, RECT *src, RECT *dst)`.
-    pub mod pcx_copy_rects(image, edx; dst, src_rect, dst_rect) -> i32;
-}
-
-inproc::fastcall_hook! {
     /// `int PCX_Image::get_pixel(this, x, y)` (0x600220): the pixel's value
     /// (palette index or 16-bit colour). How the game tests what is under
     /// the mouse: index images of regions (the value is the region, 0xFF
     /// none) and the canvases of colour-keyed forms (the key lets a click
     /// through, 0x608C70).
     pub mod pcx_get_pixel(image, edx; x, y) -> u32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::fill(this, color)`: the whole image.
-    pub mod pcx_fill(image, edx; color) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::fill_area(this, RECT *r, color)`.
-    pub mod pcx_fill_area(image, edx; rect, color) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::line(this, x1, y1, x2, y2, color)`.
-    pub mod pcx_line(image, edx; x1, y1, x2, y2, color) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::hline(this, x1, x2, y, color)`.
-    pub mod pcx_hline(image, edx; x1, x2, y, color) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `int PCX_Image::vline(this, x, y1, y2, color)`.
-    pub mod pcx_vline(image, edx; x, y1, y2, color) -> i32;
 }
 
 inproc::fastcall_hook! {
@@ -255,17 +201,7 @@ pub struct UiSites {
     pub sprite_draw_opacity: Site,
     pub sprite_draw_alpha: Site,
     pub sprite_draw_masked: Site,
-    pub pcx_draw_onto: Site,
-    pub pcx_copy: Site,
-    pub pcx_copy_same: Site,
-    pub pcx_copy_rect: Site,
-    pub pcx_copy_rects: Site,
     pub pcx_get_pixel: Site,
-    pub pcx_fill: Site,
-    pub pcx_fill_area: Site,
-    pub pcx_line: Site,
-    pub pcx_hline: Site,
-    pub pcx_vline: Site,
     pub form_composite: Site,
     pub paint: Site,
     pub compose_all: Site,
@@ -308,23 +244,8 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             sprite_draw_alpha: (0x5F_8310, &[0x8B, 0x44, 0x24, 0x08, 0x56]),
             // mov eax,[esp+8] / push esi / test eax,eax
             sprite_draw_masked: (0x5F_8380, &[0x8B, 0x44, 0x24, 0x08, 0x56, 0x85, 0xC0]),
-            // mov ecx,[ecx+4] / test ecx,ecx
-            pcx_draw_onto: (0x5F_C9F0, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
-            // mov eax,[esp+4] / sub esp,20h
-            pcx_copy: (0x5F_CC10, &[0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x20]),
-            // mov eax,[esp+4] / sub esp,10h
-            pcx_copy_same: (0x5F_CB60, &[0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x10]),
-            // mov eax,[esp+4] / test eax,eax
-            pcx_copy_rect: (0x5F_CBD0, &[0x8B, 0x44, 0x24, 0x04, 0x85, 0xC0]),
-            pcx_copy_rects: (0x5F_CCB0, &[0x8B, 0x44, 0x24, 0x04, 0x85, 0xC0]),
             // push ebx / push esi / mov esi,ecx / push edi
             pcx_get_pixel: (0x60_0220, &[0x53, 0x56, 0x8B, 0xF1, 0x57]),
-            // mov ecx,[ecx+4] / test ecx,ecx
-            pcx_fill: (0x5F_FF30, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
-            pcx_fill_area: (0x5F_FF50, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
-            pcx_line: (0x5F_FFB0, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
-            pcx_hline: (0x5F_FFE0, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
-            pcx_vline: (0x60_0010, &[0x8B, 0x49, 0x04, 0x85, 0xC9]),
             // sub esp,18h / push ebp / push esi
             form_composite: (0x60_2710, &[0x83, 0xEC, 0x18, 0x55, 0x56]),
             // push esi / mov esi,[esp+8]
@@ -781,22 +702,6 @@ mod form_surface_tests {
         let replay = form + L::GAME_RESULTS_FORM_NAVIGATOR_DATA + L::NAVIGATOR_DATA_PCX_2;
         assert_eq!(find_form_surface(surfaces, replay, canvas, 0x66_E838).map(|s| s.name), Some("replay-map"));
     }
-}
-
-inproc::fastcall_hook! {
-    /// jgl.dll `JGL_Image::shade_rect(this, RECT *r, color, percent)`
-    /// (vtable slot +0x48): mixes `color` into the rectangle (NULL: the whole
-    /// image), keeping `percent` of what is there — the translucent city
-    /// label plates (docs §16.6). `color`: bit 31 set: a direct 16-bit
-    /// colour, else a palette index.
-    pub mod jgl_shade(image, edx; rect, color, percent) -> i32;
-}
-
-/// The `JGL_Image` vtable slot of `shade_rect` in jgl.dll loaded at `base`,
-/// and the function expected there (jgl.dll of 2004-03-17: vtable at RVA
-/// 0x68238, the function at RVA 0x2320).
-pub fn jgl_shade_slot(base: u32) -> (Ptr32<u32>, u32) {
-    (Ptr32::new(base + 0x6_8238 + 0x48), base + 0x2320)
 }
 
 inproc::fastcall_hook! {

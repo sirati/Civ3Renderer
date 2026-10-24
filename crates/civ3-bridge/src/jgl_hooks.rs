@@ -25,9 +25,6 @@ fn canvas_text(t: CanvasText) {
 }
 
 fn canvas_draw(d: CanvasDraw) {
-    if compare::on() {
-        compare::new_draw(&d);
-    }
     match d {
         CanvasDraw::Fill { canvas, size, rects, rgb, alpha, clip } => crate::ui_trace::on_fill(canvas, size, &rects, rgb, alpha, clip),
         CanvasDraw::Copy { from, src, canvas, x, y, keyed, sizes, clip } => crate::ui_trace::on_copy(from, src, canvas, x, y, keyed, sizes, clip),
@@ -45,23 +42,11 @@ impl jgl::PixelPolicy for Pixels {
     }
 
     fn original_fill(&self, call: &jgl::FillCall) -> bool {
-        let taken = civ3_ui::draw::mirrored_fill(call);
-        if compare::on() {
-            compare::asked(taken.map(|canvas| (canvas, 0)), call.target().owner, "fill");
-        }
-        taken.is_none_or(|canvas| !crate::ui_trace::skips_drawing(canvas, 0))
+        civ3_ui::draw::mirrored_fill(call).is_none_or(|canvas| !crate::ui_trace::skips_drawing(canvas, 0))
     }
 
     fn original_copy(&self, call: &jgl::CopyCall) -> bool {
-        let taken = civ3_ui::draw::mirrored_copy(call);
-        if compare::on() {
-            let target = match call {
-                jgl::CopyCall::Stretch { target, .. } | jgl::CopyCall::Keyed { target, .. } | jgl::CopyCall::Indexed { target, .. } => target.owner,
-                jgl::CopyCall::Other { this, .. } => this.owner,
-            };
-            compare::asked(taken, target, "copy");
-        }
-        taken.is_none_or(|(canvas, source)| !crate::ui_trace::skips_drawing(canvas, source))
+        civ3_ui::draw::mirrored_copy(call).is_none_or(|(canvas, source)| !crate::ui_trace::skips_drawing(canvas, source))
     }
 }
 
@@ -148,7 +133,7 @@ pub(crate) fn install_counting(base: u32) {
     }
 }
 
-/// Logs the counting mode's counts (and the comparison's).
+/// Logs the counting mode's counts.
 pub(crate) fn report() {
     if let Some((counts, other)) = jgl_ffi::count::snapshot() {
         log::info!(
@@ -158,175 +143,5 @@ pub(crate) fn report() {
             counts.report()
         );
     }
-    if compare::on() {
-        compare::report();
-    }
 }
 
-/// `CIV3R_JGL_COMPARE=1`: the exe detours and the `shade_rect` slot hook
-/// the fill and copy groups replace run beside the takeover, and every call
-/// is compared (temporary, for the migration's equivalence check).
-///
-/// An old detour runs first (it is above jgl: the exe's `PCX_Image`
-/// functions, or a hook over the taken-over slot): its events are caught
-/// here instead of reaching the mirror, then it always calls the original,
-/// which reaches the takeover. The takeover's events go to the mirror and
-/// are caught too, and its pixel decision is made as usual. Per old call,
-/// the two event lists and the canvases each would ask the skip decision
-/// for are compared.
-pub(crate) mod compare {
-    use crate::ui::Event;
-    use std::cell::{Cell, RefCell};
-    use std::collections::BTreeMap;
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
-
-    pub fn on() -> bool {
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ON.get_or_init(|| std::env::var("CIV3R_JGL_COMPARE").as_deref() == Ok("1"))
-    }
-
-    #[derive(Copy, Clone, PartialEq, Eq)]
-    enum Mode {
-        Off,
-        Old,
-        New,
-    }
-
-    thread_local! {
-        static MODE: Cell<Mode> = const { Cell::new(Mode::Off) };
-        static OLD: RefCell<Vec<Event>> = const { RefCell::new(Vec::new()) };
-        static NEW: RefCell<Vec<Event>> = const { RefCell::new(Vec::new()) };
-        /// The skip questions of the takeover during an old call.
-        static ASKED: RefCell<Vec<Option<(u32, u32)>>> = const { RefCell::new(Vec::new()) };
-    }
-
-    static SAME: AtomicU32 = AtomicU32::new(0);
-    static DIFFERENT: AtomicU32 = AtomicU32::new(0);
-    /// Old calls whose image had no pixels: jgl is not called (old events
-    /// made all the same: counted, not compared).
-    static NO_PIXELS: AtomicU32 = AtomicU32::new(0);
-    static NO_PIXELS_EVENTS: AtomicU32 = AtomicU32::new(0);
-    /// Old calls by kind, and events compared.
-    static PER_KIND: Mutex<BTreeMap<&'static str, (u32, u32)>> = Mutex::new(BTreeMap::new());
-    /// Takeover calls outside any old function, by kind: (calls, mirrored,
-    /// events), with up to 8 callers and canvases each.
-    static OUTSIDE: Mutex<BTreeMap<String, (u32, u32, u32, Vec<(u32, u32)>)>> = Mutex::new(BTreeMap::new());
-
-    /// Whether `e` is the old path's (caught, not applied). On the new
-    /// path, `e` is kept to compare and applied.
-    pub fn swallow(e: &Event) -> bool {
-        if !on() {
-            return false;
-        }
-        match MODE.with(Cell::get) {
-            Mode::Old => {
-                OLD.with_borrow_mut(|v| v.push(e.clone()));
-                true
-            }
-            Mode::New => {
-                NEW.with_borrow_mut(|v| v.push(e.clone()));
-                false
-            }
-            Mode::Off => false,
-        }
-    }
-
-    /// An old detour: `events` makes the old events (and answers the
-    /// canvas and source the old path asked the skip decision for), then
-    /// `original` runs (jgl's slot, taken over). `reaches`: whether the
-    /// game's function calls jgl at all (its images have pixels).
-    pub fn old_call<R>(kind: &'static str, reaches: bool, events: impl FnOnce() -> Option<(u32, u32)>, original: impl FnOnce() -> R) -> R {
-        if MODE.with(Cell::get) != Mode::Off {
-            // Nested (not expected): no comparison of the inner call.
-            return original();
-        }
-        MODE.with(|m| m.set(Mode::Old));
-        let asked_old = events();
-        MODE.with(|m| m.set(Mode::New));
-        let r = original();
-        MODE.with(|m| m.set(Mode::Off));
-        let old = OLD.with_borrow_mut(std::mem::take);
-        let new = NEW.with_borrow_mut(std::mem::take);
-        let asked = ASKED.with_borrow_mut(std::mem::take);
-        if let Ok(mut k) = PER_KIND.lock() {
-            let e = k.entry(kind).or_default();
-            e.0 += 1;
-            e.1 += old.len() as u32;
-        }
-        if !reaches {
-            NO_PIXELS.fetch_add(1, Relaxed);
-            NO_PIXELS_EVENTS.fetch_add(old.len() as u32, Relaxed);
-            if !new.is_empty() || !asked.is_empty() {
-                log::warn!("jgl compare: {kind} without pixels reached the takeover: {new:?} {asked:?}");
-                DIFFERENT.fetch_add(1, Relaxed);
-            }
-            return r;
-        }
-        let asked_ok = asked == [asked_old];
-        if old == new && asked_ok {
-            SAME.fetch_add(1, Relaxed);
-        } else if DIFFERENT.fetch_add(1, Relaxed) < 40 {
-            log::warn!("jgl compare: {kind}: old {old:?} asked {asked_old:?}, new {new:?} asked {asked:?}");
-        }
-        r
-    }
-
-    /// The takeover asked about a call: `taken` the canvas (and source) it
-    /// skips drawing on, `target` the owner drawn onto.
-    pub fn asked(taken: Option<(u32, u32)>, target: u32, group: &'static str) {
-        match MODE.with(Cell::get) {
-            Mode::New => ASKED.with_borrow_mut(|v| v.push(taken)),
-            Mode::Off => outside(group, taken.is_some(), target),
-            Mode::Old => log::warn!("jgl compare: the takeover reached from an old detour's events"),
-        }
-    }
-
-    /// A mirrored drawing made by the takeover.
-    pub fn new_draw(d: &civ3_ui::draw::CanvasDraw) {
-        if MODE.with(Cell::get) == Mode::Off {
-            let key = match d {
-                civ3_ui::draw::CanvasDraw::Fill { .. } => "fill",
-                civ3_ui::draw::CanvasDraw::Copy { .. } => "copy",
-            };
-            if let Ok(mut o) = OUTSIDE.lock() {
-                o.entry(format!("{key} draws")).or_default().2 += 1;
-            }
-        }
-    }
-
-    fn outside(group: &'static str, mirrored: bool, target: u32) {
-        let caller = crate::ui_trace::game_caller();
-        if let Ok(mut o) = OUTSIDE.lock() {
-            let e = o.entry(format!("{group} at {caller:#x}")).or_default();
-            e.0 += 1;
-            e.1 += u32::from(mirrored);
-            if e.3.len() < 8 && !e.3.iter().any(|&(_, t)| t == target) {
-                e.3.push((caller, target));
-            }
-        }
-    }
-
-    pub fn report() {
-        let kinds = PER_KIND.lock().map(|k| k.iter().map(|(k, (n, e))| format!("{k} {n} calls/{e} events")).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-        let outside = OUTSIDE
-            .lock()
-            .map(|o| {
-                o.iter()
-                    .map(|(k, (n, m, e, s))| {
-                        let canvases = s.iter().map(|(_, t)| format!("{t:#x}")).collect::<Vec<_>>().join(" ");
-                        format!("  {k}: {n} calls, {m} mirrored, {e} draws; canvases {canvases}")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-        log::info!(
-            "jgl compare: {} same, {} different, {} without pixels ({} old events); old calls: {kinds}\ntakeover calls outside the old functions:\n{outside}",
-            SAME.load(Relaxed),
-            DIFFERENT.load(Relaxed),
-            NO_PIXELS.load(Relaxed),
-            NO_PIXELS_EVENTS.load(Relaxed),
-        );
-    }
-}
