@@ -5,6 +5,11 @@
 //! notice, no `ChangeDisplaySettingsA`), and passes any other request to
 //! jgl's original. +0x54 (the screen's size at a depth) ends in +0x58
 //! through the vtable, so it is covered too.
+//!
+//! jgl's import of `ChangeDisplaySettingsA` is answered as well
+//! ([`jgl::display::answer_change`]): its shutdown (+0x08), a movie's
+//! switch and back (+0x6C, +0x70) and +0x64 all call through it, and none
+//! changes the display or sees a failure.
 
 #![cfg_attr(not(all(windows, target_arch = "x86")), allow(dead_code, unused_imports))]
 
@@ -62,12 +67,35 @@ mod entries {
             None => original::<M4>(&SET_MODE_KEEP)(this, width, height, bits, keep_display),
         }
     }
+
+    /// `LONG ChangeDisplaySettingsA(DEVMODEA *mode, DWORD flags)`, as jgl calls it.
+    pub extern "system" fn change_display_settings_a(mode: u32, flags: u32) -> i32 {
+        use jgl::display::{Change, ChangeKind, answer_change};
+        let change = Change { mode: (mode != 0).then(|| read_mode(mode)), flags };
+        let (answer, kind) = answer_change(&change);
+        match kind {
+            ChangeKind::Registry => log::info!("jgl: the display's registry mode asked for (flags {flags:#x}); the display is left as it is"),
+            ChangeKind::Unsaved => log::info!("jgl: its shutdown restores a mode it never saved (the display was never switched); nothing to do"),
+            ChangeKind::Movie => log::info!("jgl: a movie's 640×480 switch (flags {flags:#x}); the display is left as it is"),
+            ChangeKind::Mode(m) => log::info!("jgl: a switch to {}×{} at {} bits (fields {:#x}, flags {flags:#x}); the display is left as it is", m.width, m.height, m.bits, m.fields),
+        }
+        answer
+    }
+
+    /// A `DEVMODEA`'s mode fields (`dmFields` +40, `dmBitsPerPel` +104,
+    /// `dmPelsWidth` +108, `dmPelsHeight` +112); unreadable ones are 0.
+    fn read_mode(mode: u32) -> jgl::display::ChangeMode {
+        let at = |offset: u32| inproc::Ptr32::<u32>::new(mode).offset::<u32>(offset).and_then(|p| p.read()).unwrap_or(0);
+        jgl::display::ChangeMode { fields: at(40), bits: at(104), width: at(108), height: at(112) }
+    }
 }
 
 /// The taken-over display-mode group (for the life of the process, in
 /// practice).
 pub struct DisplayGroup {
     _graphics: Takeover,
+    /// jgl's `ChangeDisplaySettingsA` import slot.
+    _changes: inproc::hook::SlotPatch,
 }
 
 /// Takes over the display-mode group of jgl.dll at `base`. Once per
@@ -86,7 +114,13 @@ fn install_impl(base: u32) -> Result<DisplayGroup, TakeoverError> {
         Entry { offset: 0x5C, function: set_mode_refresh as M5 as usize as u32, original: &SET_MODE_REFRESH },
         Entry { offset: 0x60, function: set_mode_keep as M4 as usize as u32, original: &SET_MODE_KEEP },
     ];
-    Ok(DisplayGroup { _graphics: take_over(base, Class::Graphics, &graphics)? })
+    let slot = inproc::pe::import_slot(base, "USER32.dll", "ChangeDisplaySettingsA")
+        .map_err(inproc::hook::HookError::from)?
+        .ok_or(TakeoverError::NoImport("ChangeDisplaySettingsA"))?;
+    let graphics = take_over(base, Class::Graphics, &graphics)?;
+    type Change = extern "system" fn(u32, u32) -> i32;
+    let changes = inproc::hook::SlotPatch::replace(slot, change_display_settings_a as Change as usize as u32)?;
+    Ok(DisplayGroup { _graphics: graphics, _changes: changes })
 }
 
 #[cfg(not(all(windows, target_arch = "x86")))]
