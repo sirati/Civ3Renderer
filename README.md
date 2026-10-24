@@ -256,15 +256,25 @@ pointer and clicks go to the row shown under them, in the game's
 position once it has the notches sent; a press on a row the game does not
 hold yet sends the notch that brings it in first, and the game's
 position stays while a button is held. In the Alt mode the wheel's
-notches (and the motion that scrolls a list) move the list the same way,
-and the snapping targets are the rows where they show. The game draws
+notches (a trackpad's two-finger scroll makes them too) move the list
+the same way, and every row shown is a snapping target where it shows,
+the rows drawn from the game's earlier drawings too. The game draws
 its highlight under the pointer into the list (a list box's selection
 that follows the pointer). The viewer learns that highlight from the
 game's drawing when the game's pointer moves onto a row and lights it
 with no click or key: what the highlight adds and which colours it
 changes must turn the row's plain drawing into its lit one exactly and
 back. Wherever the list shows away from the game's drawing, a learned
-highlight is drawn on the row under the pointer. Lists without matching
+highlight is drawn on the row under the pointer. The game's scroll bar thumb (its own art, moved) shows where the list
+is, by pixels, proportionally, and lands exactly on the game's thumb at
+a whole item. A press in the bar's track glides the list to where it puts
+the thumb's middle (as a notch glides; snapping after), the thumb dragged
+moves the list with it by pixels, and the Alt mode's edit of the bar
+glides the list to its value; the arrows step the game's list and the
+list glides after it. The bar's scale comes from the positions seen with
+its values: until it is known (one movement), the bar is the game's.
+A menu the game opens at a click on a row shown scrolled (the domestic
+advisor's production menu) opens at the pointer. Lists without matching
 rows across an update change immediately.
 
 The game decides what its interface shows; how a control looks under the
@@ -541,8 +551,12 @@ direction first; small jitter moves nothing). Each move is a short spring
 flight (1.33 update intervals, a slight overshoot) that lands exactly on
 the element; the game gets the pointer once it rests, and a translucent
 ghost shows the next target meanwhile. While it is on, its pointer is the
-only cursor. In a list, moving up or down scrolls the list under the
-pointer. Selecting a slider starts editing without changing its value.
+only cursor. In a list, motion goes from row to row among the rows shown
+and leaves the list past its edges; it never scrolls it: the wheel (or a
+two-finger scroll) does. A list row's pointer rests just after the end
+of the row's name, in the middle of the row (in the production list,
+where the unit's statistics follow the name in the same text, after the
+name itself). Selecting a slider starts editing without changing its value.
 Mouse movement then adjusts that slider while the pointer stays still; the
 next left click accepts the preview and a right click discards it. Esc,
 Alt, losing focus, or closing its tab also restores its original value.
