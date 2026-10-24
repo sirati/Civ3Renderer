@@ -1,6 +1,6 @@
 [package]
 name = "render-errors"
-description = "Render errors by kind: counted, deduplicated per game run by kind and context, written to civ3-render-errors.log, and counted for the viewer's on-screen notice"
+description = "Render errors by kind: counted, deduplicated per run by kind and context, written to a log file of their own, and counted for the viewer's on-screen notice"
 edition.workspace = true
 license.workspace = true
 version.workspace = true

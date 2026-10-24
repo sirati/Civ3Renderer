@@ -19,7 +19,7 @@ game could drive the same renderer, with or without Civ III's art.
 | `tile-render-shaders` | no | rust-gpu shaders (built by `tile-render`'s build script) |
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
-| `render-errors` | no | render errors by kind and context: deduplicated per game run, counted, logged to `civ3-render-errors.log` |
+| `render-errors` | no | render errors by kind and context: deduplicated per run, counted, logged to a file the bridge names (`civ3-render-errors.log`) |
 | `scene` | no | world snapshots and input events between driver and renderer |
 | `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; panels of controls (choices, tabs, checkboxes, sliders) bound to named values, drawn as run-time screen elements and text; run-time screens (image regions, fills, clipped) |
 | `viewer-settings` | no | the viewer's own settings (resolution, layout, input) saved as TOML, and as named controls for a preferences screen |

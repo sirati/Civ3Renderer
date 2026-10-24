@@ -10,8 +10,6 @@ use std::time::{Duration, Instant};
 
 use super::{ERRORS, Kind, Origin, Record, Registry, title};
 
-/// The log's name, next to the main log (`civ3-bridge.log`).
-pub const FILE_NAME: &str = "civ3-render-errors.log";
 
 /// How often the writer looks for new reports.
 const POLL: Duration = Duration::from_millis(100);
@@ -31,13 +29,16 @@ pub struct Log {
     start: Instant,
     entries: Vec<Entry>,
     seen: HashMap<u64, usize>,
+    /// The file's name, for the main log.
+    name: String,
     /// The counts last written, and when.
     written: Option<(Vec<u64>, u64, Instant)>,
 }
 
 impl Log {
-    pub fn new(start: Instant) -> Self {
-        Log { start, entries: Vec::new(), seen: HashMap::new(), written: None }
+    /// For the file named `name`.
+    pub fn new(start: Instant, name: &str) -> Self {
+        Log { start, name: name.to_owned(), entries: Vec::new(), seen: HashMap::new(), written: None }
     }
 
     /// Takes the registry's new records at `now`: the types not seen before
@@ -56,7 +57,7 @@ impl Log {
                     }
                 }
                 None => {
-                    log::error!(target: "render_error", "{} [{}]: {} (first of its kind; {FILE_NAME})", title(record.kind, &record.context), record.origin.name(), record.detail);
+                    log::error!(target: "render_error", "{} [{}]: {} (first of its kind; {})", title(record.kind, &record.context), record.origin.name(), record.detail, self.name);
                     self.seen.insert(record.hash, self.entries.len());
                     self.entries.push(Entry { record, at: now.saturating_duration_since(self.start), also: Vec::new() });
                     new = true;
@@ -125,12 +126,12 @@ fn write(path: &Path, text: &str) {
 /// process. Call once, at the start of a game run.
 pub fn log_to_file(path: &Path) -> std::io::Result<()> {
     let start = Instant::now();
-    let mut log = Log::new(start);
+    let mut log = Log::new(start, &path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned()));
     let path: PathBuf = path.to_owned();
     if let Some(text) = log.poll(&ERRORS, start) {
         std::fs::write(&path, text)?;
     }
-    std::thread::Builder::new().name("civ3r-render-errors".into()).spawn(move || {
+    std::thread::Builder::new().name("render-errors".into()).spawn(move || {
         loop {
             std::thread::sleep(POLL);
             if let Some(text) = log.poll(&ERRORS, Instant::now()) {
@@ -150,31 +151,31 @@ mod tests {
     fn each_type_is_logged_once_with_the_first_details_and_counted() {
         let (bridge, native) = (Registry::new(), Registry::new());
         let t0 = Instant::now();
-        let mut log = Log::new(t0);
+        let mut log = Log::new(t0, "render-errors.log");
         let first = log.poll(&bridge, t0).unwrap();
         assert!(first.contains("(none so far)"));
         assert_eq!(log.poll(&bridge, t0), None, "nothing new");
-        for leader in ["Greek", "Roman", "Zulu"] {
-            bridge.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("the {leader} leader failed to load"));
+        for portrait in ["first", "second", "third"] {
+            bridge.report(Kind::ArtImage, "portraits; report screen", format_args!("the {portrait} portrait failed to load"));
         }
         native.report(Kind::ArtSheet, "F7 screen; sheet screen_resized_region", format_args!("an 8-bit indexed image cannot be rescaled"));
         native.report(Kind::ArtSheet, "F8 screen; sheet screen_resized_region", format_args!("the same, elsewhere"));
-        native.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("the Greek leader, natively"));
+        native.report(Kind::ArtImage, "portraits; report screen", format_args!("the first portrait, natively"));
         for line in take_forward_from(&native) {
             absorb_into(&bridge, &line, Origin::Native);
         }
         let text = log.poll(&bridge, t0 + Duration::from_millis(100)).unwrap();
         assert_eq!(log.kinds(), [
-            (Kind::ArtImage, "leader portraits; F4 screen"),
+            (Kind::ArtImage, "portraits; report screen"),
             (Kind::ArtSheet, "F7 screen; sheet screen_resized_region"),
             (Kind::ArtSheet, "F8 screen; sheet screen_resized_region"),
         ]);
-        assert!(text.contains("[bridge (also native)] an image of the art could not be loaded (leader portraits; F4 screen): the Greek leader failed to load"), "{text}");
-        assert!(!text.contains("Roman"), "later details are not kept");
-        assert!(text.contains("         4  an image of the art could not be loaded (leader portraits; F4 screen)"), "{text}");
+        assert!(text.contains("[bridge (also native)] an image of the art could not be loaded (portraits; report screen): the first portrait failed to load"), "{text}");
+        assert!(!text.contains("second portrait"), "later details are not kept");
+        assert!(text.contains("         4  an image of the art could not be loaded (portraits; report screen)"), "{text}");
         assert!(text.contains("3 types, 6 errors"), "{text}");
         // Counts alone: at most once a second.
-        bridge.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("again"));
+        bridge.report(Kind::ArtImage, "portraits; report screen", format_args!("again"));
         assert_eq!(log.poll(&bridge, t0 + Duration::from_millis(500)), None);
         assert!(log.poll(&bridge, t0 + Duration::from_millis(1200)).unwrap().contains("         5  an image"));
     }
@@ -183,9 +184,9 @@ mod tests {
     fn the_file_is_made_anew() {
         let dir = std::env::temp_dir().join(format!("render-errors-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(FILE_NAME);
+        let path = dir.join("render-errors.log");
         std::fs::write(&path, "the last run's").unwrap();
-        let mut log = Log::new(Instant::now());
+        let mut log = Log::new(Instant::now(), "render-errors.log");
         write(&path, &log.poll(&Registry::new(), Instant::now()).unwrap());
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("the last run's") && text.contains("(none so far)"));
