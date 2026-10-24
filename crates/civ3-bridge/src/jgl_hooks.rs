@@ -65,7 +65,9 @@ impl jgl::PixelPolicy for Pixels {
         // (Asked either way: it notes the canvases drawing onto was
         // skipped, which tells when the game reads one back.)
         let decided = game.as_ref().is_some_and(crate::ui_trace::skips_blit);
-        let skipped = crate::ui_trace::placeholder_sprites() || decided;
+        // (A sprite made before the takeover, or from `ui_trace::READ_BACK_ART`,
+        // has jgl's pixels: the old decision.)
+        let skipped = (crate::ui_trace::placeholder_sprites() && call.sprite.placeholder) || decided;
         if !decided && skipped {
             if let Some(g) = &game {
                 crate::ui_trace::placeholder_lost(g.canvas);
@@ -75,7 +77,7 @@ impl jgl::PixelPolicy for Pixels {
     }
 
     fn original_sprite_pixels(&self) -> bool {
-        !crate::ui_trace::placeholder_sprites()
+        crate::ui_trace::real_sprite_pixels()
     }
 }
 

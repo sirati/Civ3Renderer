@@ -44,6 +44,8 @@ pub struct SpriteRef {
     /// made after the takeover, jgl's rule, [`compiles`]): its scaled
     /// blits place such sprites differently.
     pub compiled: bool,
+    /// Whether its pixels are the placeholder (jgl made none).
+    pub placeholder: bool,
 }
 
 /// Whether jgl's `init` (+0x04) keeps a sprite as spans of non-key

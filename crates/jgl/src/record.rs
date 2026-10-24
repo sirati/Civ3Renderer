@@ -355,7 +355,7 @@ impl Fields {
     }
 
     fn sprite(&mut self, s: SpriteRef) -> &mut Fields {
-        self.push(s.sprite.0).push(s.owner).push(s.table.0).push(s.bits).push(u32::from(s.compiled))
+        self.push(s.sprite.0).push(s.owner).push(s.table.0).push(s.bits).push(u32::from(s.compiled) | u32::from(s.placeholder) << 1)
     }
 
     fn table(&mut self, t: TableRef) -> &mut Fields {
@@ -499,7 +499,10 @@ impl Cursor<'_> {
     }
 
     fn sprite(&mut self) -> Option<SpriteRef> {
-        Some(SpriteRef { sprite: SpriteId(self.word()?), owner: self.word()?, table: TableId(self.word()?), bits: self.word()?, compiled: self.word()? != 0 })
+        Some(SpriteRef { sprite: SpriteId(self.word()?), owner: self.word()?, table: TableId(self.word()?), bits: self.word()?, compiled: false, placeholder: false }).and_then(|s| {
+            let w = self.word()?;
+            Some(SpriteRef { compiled: w & 1 != 0, placeholder: w & 2 != 0, ..s })
+        })
     }
 
     fn table(&mut self) -> Option<TableRef> {
@@ -623,7 +626,7 @@ mod tests {
             Record::Blit(BlitCall {
                 slot: 0x88,
                 caller: 0x5F_8954,
-                sprite: SpriteRef { sprite: SpriteId(0x4000), owner: 0x4104, table: TableId(0x4200), bits: 8, compiled: true },
+                sprite: SpriteRef { sprite: SpriteId(0x4000), owner: 0x4104, table: TableId(0x4200), bits: 8, compiled: true, placeholder: true },
                 target: Some(surface(0x2000)),
                 other: Some(surface(0x2100)),
                 mask: None,
@@ -638,15 +641,15 @@ mod tests {
                 sprite: SpriteRef::default(),
                 target: None,
                 other: None,
-                mask: Some(SpriteRef { sprite: SpriteId(0x4800), owner: 0x4904, table: TableId(0), bits: 16, compiled: false }),
+                mask: Some(SpriteRef { sprite: SpriteId(0x4800), owner: 0x4904, table: TableId(0), bits: 16, compiled: false, placeholder: false }),
                 at: (0, 0),
                 table: TableRef::default(),
                 scale: Scale::default(),
                 args: [0; MAX_BLIT_ARGS],
             }),
-            Record::Sprite(SpriteCall::Init { sprite: SpriteRef { sprite: SpriteId(0x4000), owner: 0x4104, table: TableId(0), bits: 0, compiled: false }, pixels: 0x5000, size: (64, 48), depth: 8, a5: 1, table: TableId(0x4200), compile: true }),
+            Record::Sprite(SpriteCall::Init { sprite: SpriteRef { sprite: SpriteId(0x4000), owner: 0x4104, table: TableId(0), bits: 0, compiled: false, placeholder: false }, pixels: 0x5000, size: (64, 48), depth: 8, a5: 1, table: TableId(0x4200), compile: true }),
             Record::Sprite(SpriteCall::Clear { sprite: SpriteRef::default() }),
-            Record::Sprite(SpriteCall::Duplicate { sprite: SpriteRef::default(), source: SpriteRef { sprite: SpriteId(1), owner: 2, table: TableId(3), bits: 4, compiled: true } }),
+            Record::Sprite(SpriteCall::Duplicate { sprite: SpriteRef::default(), source: SpriteRef { sprite: SpriteId(1), owner: 2, table: TableId(3), bits: 4, compiled: true, placeholder: true } }),
             Record::Sprite(SpriteCall::SetTable { sprite: SpriteRef::default(), table: TableId(0x4200) }),
             Record::Sprite(SpriteCall::SetKey { sprite: SpriteRef::default(), key: 0xFF }),
             Record::SetScale(Scale { num_x: 1, num_y: 2, den: 3, set_at: 4 }),
