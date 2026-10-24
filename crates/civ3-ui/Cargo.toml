@@ -1,0 +1,10 @@
+[package]
+name = "civ3-ui"
+description = "The Civilization III interface fed by the jgl hooks: text runs and, step by step, the rest of the interface model (docs/jgl-replacement.md)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+jgl = { path = "../jgl" }
+log.workspace = true

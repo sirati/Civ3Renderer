@@ -143,4 +143,6 @@ fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, 
         install("the game's window painting while hidden", inproc::paint::hook_hidden_painting(base), "the game's window paints while hidden");
     }
     install("edge scroll: jgl.dll's GetCursorPos", inproc::pointer::hook_cursor_pos(base), "edge scroll: following the viewer's pointer at its edge");
+    // Last: the counting stubs wrap whatever the other patches left.
+    crate::jgl_hooks::install_counting(base);
 }

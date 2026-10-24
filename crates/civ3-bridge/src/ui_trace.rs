@@ -233,10 +233,8 @@ pub(crate) fn prepare_at(base: u32, point: CapturePoint) -> Result<bool, String>
     if point.allowed() { CAPTURE.status()?; }
     if !point.allowed() || !enabled() {
         // The already-loaded DllMain path and intentional UI-off mode
-        // retain safe IAT-only text setup, without complete UI preparation.
-        if !crate::trace::hook_jgl_text(base).map_err(|e| e.to_string())? {
-            log::warn!("text capture: jgl.dll does not import TextOutA");
-        }
+        // retain the text takeover, without complete UI preparation.
+        crate::jgl_hooks::install_text(base)?;
         return Ok(false);
     }
     install_configured(base, point)
@@ -270,9 +268,7 @@ fn install_configured(base: u32, point: CapturePoint) -> Result<bool, String> {
     let installed = CAPTURE.prepare(point, || {
         // Both failures belong to the normal callback transaction. A
         // worker cannot retry across game execution after either failure.
-        if !crate::trace::hook_jgl_text(base).map_err(|e| e.to_string())? {
-            return Err("jgl.dll does not import required TextOutA".into());
-        }
+        crate::jgl_hooks::install_text(base)?;
         Civ3::attach().map_err(|e| e.to_string())
     }, |game| {
         // Base_Form is its vtable followed by Base_Form_Data. The map
@@ -438,11 +434,8 @@ fn with_skipper<R>(f: impl FnOnce(&mut Skipper) -> R) -> Option<R> {
     with_any_skipper(f)
 }
 
-/// Whether the text the game's text functions are writing now (`TextOutA`,
-/// just recorded) is skipped: only text drawn through them (recorded with
-/// its canvas) is.
-pub fn skips_text() -> bool {
-    let canvas = TEXT_CANVAS.with(Cell::get);
+/// Whether jgl's pixels of a text run on `canvas` are skipped.
+pub fn skips_text_on(canvas: u32) -> bool {
     canvas != 0 && skips(canvas, 0)
 }
 
@@ -453,9 +446,6 @@ pub fn skips_colored(sprite: u32, canvas: u32) -> bool {
 }
 
 thread_local! {
-    /// The canvas the game's text functions are drawing on (their `this`),
-    /// for attributing `TextOutA` calls.
-    static TEXT_CANVAS: Cell<u32> = const { Cell::new(0) };
     /// The rectangle of the screen being painted or presented (left, top,
     /// right, bottom), while it is.
     static DIRTY: Cell<Option<[i32; 4]>> = const { Cell::new(None) };
@@ -811,13 +801,12 @@ pub fn sprite_sources(sprites: &[u32]) -> Vec<Option<crate::ui::Source>> {
     sprites.iter().map(|&s| if s == 0 { None } else { view.model.sprite_source(s).cloned() }).collect()
 }
 
-/// Text drawn with `TextOutA` (canvas coordinates): part of the canvas the
-/// text functions are drawing on, if any.
-pub fn on_text(run: &TextRun) {
-    let canvas = TEXT_CANVAS.with(Cell::get);
+/// Text drawn by jgl's `text_out` onto `canvas` (canvas coordinates), with
+/// the canvas's clip at the call.
+pub fn on_text(canvas: u32, clip: [i32; 4], run: &TextRun) {
     if canvas != 0 {
         let dirty = if BACK_BUFFER.get() == Some(&canvas) { DIRTY.with(Cell::get) } else { None };
-        let clip = crate::ui::content_clip(h::canvas_text_clip(canvas), dirty).unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+        let clip = crate::ui::content_clip(Some(clip), dirty).unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
         emit(Event::TextClipped { canvas, run: run.clone(), clip });
     }
 }
@@ -1278,10 +1267,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         crate::city_screen::native::present(&presenting);
         emit_present(if rect == 0 { None } else { obj::rect(rect) }, presented);
     });
-    hook!(text_worker, sites.text_worker, |c| with_text_canvas(c.image, || c.original()));
-    hook!(text_draw, sites.text_draw, |c| with_text_canvas(c.image, || c.original()));
-    hook!(text_draw_centered, sites.text_draw_centered, |c| with_text_canvas(c.image, || c.original()));
-    hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
     hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
         if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
         draw(c.dest, c.sprite, || c.original())
@@ -1539,12 +1524,6 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
             c.original()
         }
     }).map(|i| Box::new(i) as _));
-}
-fn with_text_canvas<R>(canvas: u32, f: impl FnOnce() -> R) -> R {
-    let outer = TEXT_CANVAS.with(|c| c.replace(canvas));
-    let r = f();
-    TEXT_CANVAS.with(|c| c.set(outer));
-    r
 }
 
 
