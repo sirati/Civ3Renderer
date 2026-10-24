@@ -46,13 +46,18 @@ pub const COMPILE_RVA: u32 = 0x7_0D94;
 /// black; as 8-bit indices, 0x1E/0x7C and 0. One buffer, grown to the
 /// largest sprite asked for; the smaller ones stay (sprites point at them).
 pub mod placeholder {
-    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// (address, bytes) of each buffer made, the last the largest.
-    static BUFFERS: Mutex<Vec<(u32, u32)>> = Mutex::new(Vec::new());
+    /// Each buffer made, as address << 32 | bytes, in the order made (each
+    /// at least twice the last, so 32 cover the address space); 0 is free.
+    static BUFFERS: [AtomicU64; 32] = [const { AtomicU64::new(0) }; 32];
 
     /// The first buffer is this large (a 1024×1024 16-bit sprite).
     const FIRST: u32 = 2 << 20;
+
+    fn made() -> impl Iterator<Item = (u32, u32)> {
+        BUFFERS.iter().map(|b| b.load(Ordering::Acquire)).take_while(|&b| b != 0).map(|b| ((b >> 32) as u32, b as u32))
+    }
 
     fn make(bytes: u32) -> u32 {
         let words = bytes.div_ceil(2) as usize + 8;
@@ -63,21 +68,29 @@ pub mod placeholder {
 
     /// A placeholder of at least `bytes`.
     pub fn at_least(bytes: u32) -> u32 {
-        let Ok(mut b) = BUFFERS.lock() else { return 0 };
-        match b.last() {
-            Some(&(at, n)) if n >= bytes => at,
-            _ => {
-                let n = bytes.max(FIRST).max(b.last().map_or(0, |l| l.1.saturating_mul(2)));
-                let at = make(n);
-                b.push((at, n));
-                at
+        loop {
+            let (count, last) = made().fold((0, None), |(c, _), b| (c + 1, Some(b)));
+            match last {
+                Some((at, n)) if n >= bytes => return at,
+                _ if count == BUFFERS.len() => return 0,
+                _ => {
+                    let n = bytes.max(FIRST).max(last.map_or(0, |l| l.1.saturating_mul(2)));
+                    let at = make(n);
+                    // Only the game's thread makes sprites; should another
+                    // thread have taken the slot, its buffer serves (this one
+                    // stays unused).
+                    let entry = (at as u64) << 32 | n as u64;
+                    if BUFFERS[count].compare_exchange(0, entry, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                        return at;
+                    }
+                }
             }
         }
     }
 
     /// Whether `pixels` is a placeholder (not jgl's to free).
     pub fn holds(pixels: u32) -> bool {
-        pixels != 0 && BUFFERS.lock().is_ok_and(|b| b.iter().any(|&(at, _)| at == pixels))
+        pixels != 0 && made().any(|(at, _)| at == pixels)
     }
 }
 
