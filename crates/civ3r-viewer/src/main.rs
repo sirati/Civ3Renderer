@@ -294,6 +294,7 @@ fn run(options: Options) -> Result<(), String> {
             size: (1024, 768),
             fullscreen,
             overhang: (128, 128, 128, 128),
+            recording_dir: tile_viewer::altrec::recording_dir(None),
             ..Default::default()
         };
         tile_viewer::run_until(config, assets, display, stop.clone()).map_err(|e| e.to_string())
