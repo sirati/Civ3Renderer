@@ -75,7 +75,7 @@ fn map_blits_off() -> bool {
     GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) && STATE.with_borrow(|s| s.depth > 0)
 }
 
-/// Calls seen, for diagnostics.
+/// Calls , for diagnostics.
 pub static SPRITE_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static DRAW_TILES_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -120,11 +120,6 @@ static RECENT_TEXT: civ3r_sync::Latest<std::collections::VecDeque<(std::time::In
 /// often than this.
 const TEXT_WINDOW: std::time::Duration = std::time::Duration::from_millis(500);
 
-thread_local! {
-    /// Fonts text was drawn in (logged once each), on the game's thread.
-    static FONTS_SEEN: RefCell<Vec<inproc::gdi::LogFont>> = const { RefCell::new(Vec::new()) };
-}
-
 /// Adds `run`, drawn at `at`, to `recent`: a run replaces earlier ones at
 /// the same position, older ones expire.
 fn remember(recent: &mut std::collections::VecDeque<(std::time::Instant, TextRun)>, at: std::time::Instant, run: TextRun) {
@@ -137,19 +132,24 @@ fn remember(recent: &mut std::collections::VecDeque<(std::time::Instant, TextRun
     }
 }
 
+/// The replaced import hook's run (`CIV3R_JGL_TEXT_COMPARE=1` only): made
+/// as before, from the DC's font and colour, and compared with the run the
+/// jgl takeover recorded for the same call.
 fn record_text(call: &hooks::text_out::Call) {
-    crate::ui_trace::audit_semantic(crate::ui_trace::SemanticClass::TextRun);
     let len = (call.len as i32).clamp(0, 1024) as usize;
     let Ok(bytes) = inproc::Ptr32::<u8>::new(call.text).read_array(len) else { return };
     // Windows-1252, read as Latin-1 (the glyph set covers the same codes).
     let text: String = bytes.iter().map(|&b| b as char).collect();
     let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
-    if FONTS_SEEN.with_borrow_mut(|seen| !seen.contains(&font) && { seen.push(font.clone()); true }) {
-        log::info!("text font {font:?}");
-    }
     let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
     let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text, backdrop: None };
-    crate::ui_trace::on_text(&run);
+    let canvas = crate::ui_trace::text_canvas();
+    let clip = if canvas == 0 { None } else { civ3_sys::ui_hooks::canvas_text_clip(canvas) };
+    crate::jgl_hooks::compare::old_run(&run, canvas, clip);
+}
+
+/// A text run the game drew (any canvas), for [`recent_texts`].
+pub(crate) fn recent_text(run: TextRun) {
     // The semantic notice reader owns this text in UI and text-only modes.
     if crate::unit_notices::drawing() { return; }
     NEW_TEXT.send((std::time::Instant::now(), run));
@@ -264,14 +264,12 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
         })?),
         None => None,
     };
-    // Normally game_window's early LoadLibraryA callback installed this
-    // before any jgl call. Cover injection into an already-loaded module
-    // synchronously as well, without a detached polling race.
+    // Normally game_window's early LoadLibraryA callback took jgl's text
+    // group over before any jgl call. Cover injection into an
+    // already-loaded module synchronously as well.
     if let Some(base) = inproc::pe::module_base("jgl.dll") {
-        match hook_jgl_text(base) {
-            Ok(true) => {}
-            Ok(false) => log::warn!("no TextOutA import in jgl.dll"),
-            Err(e) => log::warn!("hooking TextOutA: {e}"),
+        if let Err(e) = crate::jgl_hooks::install_text(base) {
+            log::warn!("taking over jgl's text group: {e}");
         }
     }
     let draw_tiles = draw_tiles::install_slot(hooks::draw_tiles_slot(game.build), move |call| {
