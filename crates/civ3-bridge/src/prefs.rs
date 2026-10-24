@@ -1209,6 +1209,57 @@ mod tests {
         }
     }
 
+    /// Every checkbox of every tab, as Alt mode sees it: its whole row
+    /// (box and label) draws the snapping pointer, which lands on the box.
+    #[test]
+    fn alt_mode_sees_every_checkbox_with_its_label() {
+        use tile_viewer::snap::{pick, targets};
+        let (mut prefs, _) = open_prefs("alt-checkbox-labels");
+        let draft = prefs.draft.as_mut().unwrap();
+        draft.accessibility.active_unit_arrow = true;
+        draft.resolution.scale_menus = true;
+        prefs.project_settings();
+        let fonts = Fonts::default();
+        let measure = measurer(&fonts);
+        let mut seen = 0;
+        for tab in [TAB_RESOLUTION, TAB_LAYOUT, TAB_ZOOM, TAB_CLEAN_MAP, TAB_ACCESSIBILITY] {
+            prefs.tab = tab.into();
+            prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+            let looks = prefs.looks(&Fonts::default());
+            let items: Vec<scene::Interactable> = looks.iter().map(|l| scene::Interactable { region: l.region, alt_right_click: false, anchor: l.anchor, rect: l.rect, kind: l.kind, id: l.id }).collect();
+            let shown = targets(&items, ((0, 0), (1, 1)), (1024, 768));
+            for look in looks.iter().filter(|l| l.anchor.is_some()) {
+                seen += 1;
+                let t = shown.iter().find(|t| t.id == look.id).unwrap();
+                // The label's text, as drawn.
+                let label = look.draws.iter().find_map(|d| match d {
+                    Draw::Text(text) => { let m = measure(&text.style, &text.text); Some([text.x, text.y - m.ascent, m.width, m.ascent + m.descent]) }
+                    _ => None,
+                }).unwrap_or_else(|| panic!("{tab}: {:?} has no label", look.rect));
+                let [ax, ay, aw, ah] = t.area;
+                assert!(ax <= label[0] as f64 && ax + aw >= (label[0] + label[2]) as f64 && ay <= label[1] as f64 && ay + ah >= (label[1] + label[3]) as f64,
+                    "{tab}: the area {:?} holds the label {label:?}", t.area);
+                // From far to its right on its own row, a move onto the
+                // label's far end takes the checkbox, pointing at its box.
+                let (lx, ly) = ((label[0] + label[2] - 2) as f64, (label[1] + label[3] / 2) as f64);
+                let from = (lx + 200.0, ly);
+                let k = pick(&shown, from, None, (-200.0, 0.0)).unwrap_or_else(|| panic!("{tab}: nothing picked from {from:?}"));
+                assert_eq!(shown[k].id, look.id, "{tab}: a move onto the label of {:?} takes {:?}", look.rect, shown[k].rect);
+                assert_eq!(shown[k].center(), (look.anchor.unwrap()[0] as f64, look.anchor.unwrap()[1] as f64), "{tab}: on its box");
+            }
+            // Rows of checkboxes stay apart: from a box, a move to the next
+            // one down its column takes that one.
+            for look in looks.iter().filter(|l| l.anchor.is_some()) {
+                let below = looks.iter().filter(|o| o.anchor.is_some() && o.rect[0] == look.rect[0] && o.rect[1] > look.rect[1]).min_by_key(|o| o.rect[1]);
+                let Some(below) = below else { continue };
+                let (a, b) = (look.anchor.unwrap(), below.anchor.unwrap());
+                let k = pick(&shown, (a[0] as f64, a[1] as f64), Some(look.id), ((b[0] - a[0]) as f64, (b[1] - a[1]) as f64)).unwrap();
+                assert_eq!(shown[k].id, below.id, "{tab}: from {:?} down to {:?}", look.rect, below.rect);
+            }
+        }
+        assert!(seen >= 40, "{seen} checkboxes");
+    }
+
     fn open_prefs(name: &str) -> (Prefs, PathBuf) {
         let path = std::env::temp_dir().join(format!("civ3r-prefs-test-{}-{name}", std::process::id())).join("settings.toml");
         let _ = std::fs::remove_file(&path);
