@@ -221,6 +221,16 @@ of their buttons, and diplomacy's trade trees. The bridge does each notch
 as the game's own arrow click on that control (`civ3_bridge::ui_wheel`);
 these step without smooth scrolling.
 
+In the city screen the build queue's rows have handles (three bars before
+their text): drag one to move the entry within the queue (a line shows
+where it goes), or onto the production box, which lights up with two
+arrows, to build it now; what was built goes to the front of the queue. A
+click on a handle picks the entry up until the next click (on a row: its
+place; on the production box: the swap; elsewhere, Esc or the right
+button: put back), which is how the Alt mode moves entries. The game's
+own queue edits and production switch do it (`civ3_bridge::build_queue`,
+docs §16.12). Not in a network game.
+
 The Layout tab's **Smooth scrolling in menu lists** option scrolls the
 game's lists (those with entries the bridge names: the city's production
 chooser, the advisors' tables, list boxes such as the Civilopedia's and
