@@ -20,5 +20,6 @@ tile-render.workspace = true
 wgpu.workspace = true
 pollster.workspace = true
 civ3r-process = { path = "../civ3r-process" }
+function-keys = { path = "../function-keys" }
 rustix = { version = "1", features = ["process"] }
 signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
