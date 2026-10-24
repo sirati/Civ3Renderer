@@ -47,6 +47,9 @@ const DEFERRED_CONTROLS: &[&str] = &["resolution.base_ui_scale", "resolution.sca
 const PREVIEW_BASE: &str = "preview_base";
 const STOP_PREVIEW_BASE: &str = "stop_preview_base";
 const PREVIEWING_BASE: &str = "dialog.previewing_base";
+/// On (a switch value) when the game runs on macOS: macOS-only settings
+/// show only then (`show_if`).
+const HOST_MACOS: &str = "host.macos";
 
 /// The value naming the tab shown, and its options.
 pub const TAB: &str = "tab";
@@ -283,6 +286,9 @@ pub struct Prefs {
     /// The first run's Preferences are still to be shown
     /// (`Settings::first_run`): they open on the Resolution tab.
     first_run: bool,
+    /// The game runs on macOS (under Wine), which shows the settings only
+    /// it has (`HOST_MACOS`).
+    host_macos: bool,
 }
 
 /// Where the renderer's settings are kept: `CIV3R_SETTINGS` (a Windows path,
@@ -308,6 +314,14 @@ pub fn settings_path() -> PathBuf {
         }
     }
     Settings::default_path()
+}
+
+/// Whether the game runs on macOS (Wine on Darwin).
+fn host_macos() -> bool {
+    #[cfg(windows)]
+    { inproc::wine::on_macos() }
+    #[cfg(not(windows))]
+    { cfg!(target_os = "macos") }
 }
 
 /// How long input may wait behind the popup fence (the game thread has not
@@ -343,7 +357,7 @@ impl Prefs {
         }
         log::info!("settings: {}", path.display());
         let panels = Panels::parse(PANELS).inspect_err(|e| log::error!("preferences panel: {e}")).ok();
-        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, base_preview: false, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run }
+        Prefs { panels, state: PanelState::default(), effective: settings.clone(), settings, preview: None, preview_session: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64, preview_id: 0, draft: None, base_preview: false, native_original: None, native_current: None, native_pending: false, native_mouse_held: false, native_delivery: delivery::Delivery::default(), native_buttons: Vec::new(), native_button_press: None, form: None, confirming_discard: false, closing: false, native_accept: false, dialog_keys: BTreeSet::new(), path, tab: TAB_GAME.into(), open: None, window: (0, 0), covered: false, covered_waiting: false, covered_releases: Vec::new(), deferred_inputs: VecDeque::new(), deferred_since: None, stale_releases: Vec::new(), last_modal: None, ctrl: false, shift: false, native: false, first_run, host_macos: host_macos() }
     }
 
     /// Whether the first run's Preferences are still to be shown (the
@@ -873,6 +887,7 @@ impl Prefs {
     fn values(&self) -> BTreeMap<String, Value> {
         let mut values = values(self.editing(), &self.tab, self.window);
         values.insert(PREVIEWING_BASE.into(), Value::On(self.base_preview));
+        values.insert(HOST_MACOS.into(), Value::On(self.host_macos));
         for (key, accepted) in self.settings.controls() {
             if matches!(accepted, ControlValue::Number(_)) {
                 values.insert(format!("dialog.changed.{key}"), Value::On(self.editing().control(&key).as_ref() != Some(&accepted)));
@@ -1262,6 +1277,31 @@ mod tests {
     fn click(p: &mut Prefs, x: i32, y: i32) -> Vec<Input> {
         let b = |down| Input::MouseButton { button: scene::Button::Left, down, x, y };
         p.route(vec![Input::MouseMove { x, y }, b(true), b(false)], (1024, 768))
+    }
+
+    #[test]
+    fn function_key_capture_shows_on_macos_only() {
+        let (mut p, path) = open_prefs("function-keys");
+        assert!(click(&mut p, 330, 55).is_empty());
+        let f = frame_with_screen((0, 0), (1024, 768), Some((0, 0)));
+        // Not on macOS: no switch there.
+        p.host_macos = false;
+        p.update(Some(&f), Some(FORM), (1024, 768), None);
+        assert!(click(&mut p, 80, 563).is_empty());
+        assert!(click(&mut p, 104, 611).is_empty());
+        assert!(p.editing().input.capture_function_keys && !p.editing().input.media_keys_as_function_keys);
+        p.host_macos = true;
+        p.update(Some(&f), Some(FORM), (1024, 768), None);
+        // Capturing on by default, the media keys off: each switches.
+        assert!(click(&mut p, 104, 611).is_empty());
+        assert!(p.editing().input.media_keys_as_function_keys);
+        assert!(click(&mut p, 80, 563).is_empty());
+        assert!(!p.editing().input.capture_function_keys);
+        assert!(click(&mut p, 104, 611).is_empty());
+        assert!(!p.editing().input.media_keys_as_function_keys);
+        assert!(click(&mut p, 80, 563).is_empty());
+        assert!(p.editing().input.capture_function_keys);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -2411,6 +2451,8 @@ mod tests {
             s.accessibility.unit_rings = true;
             s.accessibility.active_unit_arrow = true;
             s.resolution.scale_menus = true;
+            // (The macOS-only switches shown too.)
+            prefs.host_macos = true;
             prefs.draft = Some(prefs.settings.clone());
             prefs.project_settings();
             let accepted = prefs.settings.clone();
