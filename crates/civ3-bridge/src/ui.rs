@@ -517,6 +517,7 @@ impl UiModel {
                 None => {}
             }
         }
+        crate::interface_parts::clip_tooltip(&mut frame);
         frame
     }
 
@@ -2158,6 +2159,41 @@ mod tests {
         assert!(texts(&m.frame()).is_empty());
         present(&mut m, None, None);
         assert_eq!(boxes(&m.shown_frame()), 0);
+    }
+
+    /// The tooltip of a unit's order (measured at 1920x1080: the box at
+    /// 772,1015 to 932,1030, its frame and its white, and its text, drawn
+    /// with no clip at its baseline 1027): every draw of it, its text too,
+    /// is clipped to its box, so all of it is known by that rectangle.
+    #[test]
+    fn a_tooltip_text_is_clipped_to_its_box() {
+        let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+        m.apply(Event::Size { image: 999, size: (1920, 1080) });
+        m.apply(Event::PaintBegin);
+        m.apply(Event::Fill { canvas: 400, rect: [0, 0, 1920, 1080], rgb: [2, 2, 2], alpha: 255, clip: None });
+        m.apply(composite(400, (0, 0), (1920, 1080)));
+        m.apply(Event::CompositeEnd);
+        m.apply(Event::PaintEnd);
+        m.apply(Event::PresentBegin);
+        for rect in [[773, 1015, 159, 1], [772, 1029, 159, 1], [772, 1015, 1, 14], [931, 1016, 1, 14]] {
+            m.apply(Event::Fill { canvas: 999, rect, rgb: [0, 0, 0], alpha: 255, clip: None });
+        }
+        m.apply(Event::Fill { canvas: 999, rect: [773, 1016, 158, 13], rgb: [255, 255, 255], alpha: 255, clip: None });
+        m.apply(Event::Text { canvas: 999, run: text(776, 1027, "Hold (Spacebar): Skip turn") });
+        m.apply(Event::Present { rect: None });
+        let f = m.shown_frame();
+        let tip = crate::interface_parts::tooltip(&f).unwrap();
+        assert_eq!(tip, [772, 1015, 160, 15]);
+        let boxed = [tip[0], tip[1], tip[0] + tip[2], tip[1] + tip[3]];
+        let draws = &f.draws[f.overlay_draws.clone()];
+        assert_eq!(draws.len(), 6);
+        for d in draws {
+            let clip = match d {
+                ScreenDraw::Fill { clip, .. } | ScreenDraw::Text { clip, .. } => *clip,
+                d => panic!("{d:?}"),
+            };
+            assert_eq!(clip, boxed, "{d:?}");
+        }
     }
 
     /// A present updating a rectangle smaller than the tooltip (the
