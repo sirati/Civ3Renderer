@@ -182,3 +182,20 @@ fn wake_returns_at_once_when_rung_and_collapses_rings() {
     let _ = BELL.wait(Duration::ZERO);
     assert!(woken >= 1);
 }
+
+#[test]
+fn bounded_drops_and_counts_instead_of_blocking_when_full() {
+    let ring = Bounded::new(3);
+    assert!((0..3).all(|i| ring.push(i)));
+    // Full: the pushes return at once, dropped and counted.
+    let started = std::time::Instant::now();
+    assert!(!(3..10).any(|i| ring.push(i)));
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert_eq!(ring.dropped(), 7);
+    assert_eq!(ring.drain().collect::<Vec<_>>(), [0, 1, 2], "what fitted, in order");
+    assert!(ring.push(10));
+    assert_eq!(ring.take_dropped(), 7);
+    assert_eq!(ring.dropped(), 0);
+    assert_eq!(ring.try_recv(), Some(10));
+    assert!(ring.is_empty() && ring.capacity() == 3);
+}

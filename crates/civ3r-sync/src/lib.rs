@@ -14,6 +14,9 @@
 //! - [`Posted`]: payloads for private window messages. The message
 //!   carries a token; the game thread's handler takes what was sent for
 //!   it, in order, with consecutive pointer moves merged.
+//! - [`Bounded`]: a FIFO of fixed capacity for a side that must never
+//!   wait or grow (a recording writer's records): a push onto a full one
+//!   is dropped and counted.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
@@ -114,6 +117,67 @@ impl<T> Mailbox<T> {
 impl<T> Default for Mailbox<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A FIFO of fixed capacity: any thread pushes, one drains by polling.
+///
+/// A push never blocks and never allocates beyond the capacity: when the
+/// queue is full the value is dropped and [`Bounded::dropped`] counts it.
+/// The receiver only polls (as [`Mailbox`]), so pushes stay on the
+/// channel's lock-free path.
+pub struct Bounded<T> {
+    tx: crossbeam_channel::Sender<T>,
+    rx: crossbeam_channel::Receiver<T>,
+    dropped: AtomicU64,
+}
+
+impl<T> Bounded<T> {
+    pub fn new(capacity: usize) -> Self {
+        let (tx, rx) = crossbeam_channel::bounded(capacity.max(1));
+        Self { tx, rx, dropped: AtomicU64::new(0) }
+    }
+
+    /// Queues `value`; false (and counted) if the queue was full.
+    pub fn push(&self, value: T) -> bool {
+        match self.tx.try_send(value) {
+            Ok(()) => true,
+            Err(_) => {
+                self.dropped.fetch_add(1, SeqCst);
+                false
+            }
+        }
+    }
+
+    pub fn try_recv(&self) -> Option<T> {
+        self.rx.try_recv().ok()
+    }
+
+    /// Everything queued so far.
+    pub fn drain(&self) -> impl Iterator<Item = T> + '_ {
+        self.rx.try_iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.rx.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rx.is_empty()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.rx.capacity().unwrap_or(0)
+    }
+
+    /// How many pushes were dropped so far.
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(SeqCst)
+    }
+
+    /// How many pushes were dropped since the last call.
+    pub fn take_dropped(&self) -> u64 {
+        self.dropped.swap(0, SeqCst)
     }
 }
 

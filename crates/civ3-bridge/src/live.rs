@@ -524,6 +524,8 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
             size: (1024, 768),
             fullscreen,
             overhang: crate::scene_map::OVERHANG,
+            // (The game's folder, where civ3-bridge.log is.)
+            recording_dir: tile_viewer::altrec::recording_dir(std::env::current_dir().ok()),
             ..Default::default()
         };
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
