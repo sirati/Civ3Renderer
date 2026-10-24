@@ -5,7 +5,7 @@
 use super::{Command, Result, random_hex, STOP_TIMEOUT, POLL_INTERVAL, Instant, thread};
 use civ3r_process::Process;
 
-const MARKER: &str = "CIV3R_SESSION_TOKEN";
+pub(super) const MARKER: &str = "CIV3R_SESSION_TOKEN";
 
 pub(super) struct OwnedDebuggers(String);
 
@@ -14,6 +14,10 @@ impl OwnedDebuggers {
         let marker = random_hex()?;
         command.env(MARKER, &marker);
         Ok(Self(marker))
+    }
+
+    pub fn marker(&self) -> &str {
+        &self.0
     }
 
     pub fn processes(&self) -> std::io::Result<Vec<Process>> {
