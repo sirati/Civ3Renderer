@@ -249,7 +249,9 @@ Checks: `inproc::pe::module_base("jgl.dll")` stays `None` for the whole
 game; Wine's `+loaddll` log has no jgl; the counting mode's report lists
 only our vtables.
 
-## 9. State after the first round
+## 9. State
+
+### Group 1 (first round)
 
 Done:
 
@@ -309,9 +311,81 @@ once +0x58..+0x60 were taken over, and Wine answered -2 ("Changing (null)
 display settings returned -2", seen at the end of a game on TS Neo). A
 binary test checks that these four are all the calls through that import.
 
-Next groups, in order: fills, lines and shade (group 2, small, removes the
-`pcx_fill_area`/`pcx_line` and `jgl_shade` detours); copies (group 3,
-includes image +0x38); sprite blits and colour tables (group 4, the
+### Groups 2 and 3 (second round)
+
+Done:
+
+- Group 2 (fills, lines, frames, shade: image +0x44..+0x64) and group 3
+  (copies: image +0x38, +0x40, +0x84, +0x8C) are taken over
+  (`jgl-ffi::fill`, `jgl-ffi::copy`), each after the RVA check. Every call
+  records a `jgl::FillCall` or `jgl::CopyCall` carrying the images it
+  touches as `jgl::Surface` (owner, clip and bounds at the call). The
+  game thread's `Jgl` and the hooks factory are shared by all groups
+  (`jgl-ffi::state`), so the consumer sees the calls in the game's order.
+- `civ3-ui::draw` (`FillCapture`, `CopyCapture`) turns the calls the
+  interface mirror takes into its rectangles and copies:
+  `ui_trace::on_fill`, `ui_trace::on_copy`. `mirrored_fill` and
+  `mirrored_copy` name the calls taken, and `PixelPolicy` skips jgl's
+  pixels only for those, exactly where the old detours did (the
+  `Skipper`'s keep set, `ui_trace::skips`). `rgb555`, `shade_alpha` and the
+  line rasteriser moved there from `ui.rs`.
+- Removed: the exe detours on `PCX_Image::fill`, `fill_area`, `line`,
+  `hline`, `vline` (0x5FFF30..0x600010), `draw_onto`, `copy_stretch`,
+  `copy_same_rect`, `copy_rect`, `copy_rects` (0x5FC9F0..0x5FCCB0), the
+  `jgl_shade` slot hook, and their definitions in `civ3-sys::ui_hooks`.
+- What the slots are [V, jgl.dll and the exe disassembled; the binary
+  tests check the bodies and the exe wrappers' calls]: +0x44 `fill(rect,
+  color)` (null rect: the whole image); +0x48 `shade_rect`; +0x58
+  `replace_color(rect, from, to)`, which swaps one pixel value for another
+  within the rect and the clip (RVA 0x2740; reads the pixels); +0x64
+  `line(x1, y1, x2, y2, color, flag)`, the exe's line, hline and vline
+  passing flag 1; +0x5C draws on 8-bit images only; +0x40 `copy(target,
+  src, dst)` is a `StretchBlt` from `this` onto the target; +0x84 the
+  whole image keyed onto the target; +0x38 copies an 8-bit `this` through
+  its colour table onto an 8- or 16-bit target. What +0x38's last
+  argument selects, and what +0x4C, +0x50, +0x54, +0x60 and +0x8C do, is
+  not known [G]: they are recorded with their raw arguments and left to
+  jgl. +0x3C and +0x74 (copy slots of the catalogue) were not seen called
+  and stay jgl's.
+
+Not taken by the mirror, as before (jgl draws them): +0x38 (4050 calls,
+all from the exe's image tiling at 0x5FCE9F), +0x58 and the slots not
+seen called, palette-colour shades, and images without an owner.
+
+Mirroring [V]: everything groups 2 and 3 feed is the interface mirror
+(`ui.rs`'s display list), which copies the game's drawing operations
+call by call; nothing here is re-rendered from game state. The map's
+grid and range outline (`pcx_line` onto the map canvases) stay out of it
+as before (`ui_trace::rerendered`: the renderer draws them from the game's
+state). The new path invents no mirror: it takes exactly the calls the
+old detours took.
+
+Equivalence [V]: with both paths running on a loaded game
+(`CIV3R_JGL_COMPARE=1`, commits 07a9082 and 5d9224c; save `t.SAV`: map,
+advisors F1 to F4, F6, F7), every one of 49132 calls through the old
+functions (draw_onto 39524, copy 5560, copy_same 159, copy_rect 6,
+copy_rects 11, fill 772, fill_area 2617, hline 162, vline 142, line 108,
+shade 71) gave the same events (65139 in all: sizes, fills and copies
+with their clips) and asked the same skip question (canvas and source)
+on the old and new path; none of the calls whose image had no pixels
+reached the takeover. The takeover's calls outside the old functions
+(4050 of +0x38, 49 fill-group calls such as +0x58) were all ones the
+mirror does not take. Traces before (main) and after differ only in the
+advisor's quote and unit animation frames; screenshots only in those, the
+pointer and the hovered menu entry: `/tmp/c3r-jgl-g23-shots/{before,
+compare,after,diff}`.
+
+Counting mode after the takeover [V, same screens]: image +0x84 39990,
++0x40 5744, +0x38 4050, +0x44 3423, +0x64 411, +0x48 71, +0x58 52;
++0x4C, +0x50, +0x54, +0x5C, +0x60, +0x8C never. All from the game's
+thread. (The first round counted +0x84 as never called: the old detour
+skipped `draw_onto` above jgl, so no call reached the slot.)
+
+Cost: not measured this round [G: a fill or copy record is 16 to 28
+words, read from the image fields directly; no GDI query, no guarded
+read].
+
+Next groups, in order: sprite blits and colour tables (group 4, the
 largest; then `ui.rs`, `ui/display_list.rs`, `ui_screen.rs` and
 `interface_parts.rs` move to `civ3-ui`, and the map-canvas parts to
 `civ3-world`); present and invalidate (group 5); then the factories and

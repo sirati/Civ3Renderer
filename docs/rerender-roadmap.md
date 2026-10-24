@@ -167,11 +167,11 @@ the game reads back (`ui_trace.rs:343-372`; see §4).
 |---|---|---|---|
 | sprite blits | inline detours on the exe wrappers 0x5F8210, 0x5F81A0, 0x5F84A0, 0x5F8760, 0x5F83E0/86A0/8870, 0x5F89A0, 0x5F8620, 0x5F8310, 0x5F8380 (`ui_hooks.rs:299-370`, `ui_trace.rs:1061-1117`) | yes | only onto read-back canvases |
 | map blits | `Sprite_draw_on_map`, blend, colour-table detours (`trace.rs:218-262`) | recorded per sprite by the map tracer; world drawn natively | no (`GAME_MAP_OFF`) |
-| copies | 0x5FC9F0, 0x5FCC10, 0x5FCB60, 0x5FCBD0, 0x5FCCB0 (`ui_trace.rs:1118-1155`) | yes | only onto read-back canvases |
-| fills, h/v lines | 0x5FFF30, 0x5FFF50, 0x5FFFE0, 0x600010 | yes, as fill rects | same |
-| **lines** | 0x5FFFB0: **one 1×1 fill event per pixel** (`ui_trace.rs:1185-1190`) | yes | same |
+| copies | **taken over** in jgl's method tables (image +0x38, +0x40, +0x84, +0x8C; `jgl-ffi::copy`, `civ3-ui::draw`); +0x40 and +0x84 mirrored, as the exe detours 0x5FC9F0..0x5FCCB0 did | yes (+0x38 not) | only onto read-back canvases |
+| fills, h/v lines | **taken over** (image +0x44..+0x64; `jgl-ffi::fill`, `civ3-ui::draw`), replacing the detours 0x5FFF30, 0x5FFF50, 0x5FFFE0, 0x600010 | yes, as fill rects | same |
+| **lines** | image +0x64, taken over (was the 0x5FFFB0 detour): **one fill event per run of pixels** (`civ3_ui::draw::line_rects`) | yes | same |
 | OpenGL/GDI+ lines | 5 C3X-jumped sites, emitted as coverage fills (`ui_trace.rs:1500-1505`) | yes | same |
-| shade | jgl image vtable slot +0x48 patched in place (`ui_hooks.rs:819-833`, `ui_trace.rs:1359`) | yes | same |
+| shade | image +0x48, taken over with the fill group (was a slot patch) | yes | same |
 | text | **taken over** in jgl's method tables (image +0xA8..+0xB8, font +0x08/+0x0C; `jgl-ffi::text`, `docs/jgl-replacement.md`) | yes, as text runs from records | `text_out` skipped on mirrored canvases; measuring runs |
 | present | graphics vtable slot +0xA4 patched (`ui_trace.rs:1366`) | composition events | `BitBlt` skipped |
 | pixel reads | `get_pixel` 0x600220 (`ui_trace.rs:1156`); image slots +0x0C/+0x10 traced only with `CIV3R_TRACE_PIXELS` (`ui_trace.rs:1394`) | n/a | yes |

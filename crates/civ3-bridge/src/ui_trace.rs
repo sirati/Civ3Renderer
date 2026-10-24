@@ -680,7 +680,6 @@ fn emit(e: Event) {
     // MapMessage draws onto the animator's map overlay. It is rebuilt as
     // tile-anchored world art, never copied into a misplaced UI overlay.
     if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::TextClipped { .. } | Event::Fill { .. }) { return; }
-    if crate::jgl_hooks::compare::swallow(&e) { return; }
     let present = matches!(e, Event::Present { .. });
     watch(&e);
     with_model(present, |m| m.apply(e));
@@ -826,11 +825,6 @@ fn size_of(canvas: u32) -> Option<(i32, i32)> {
     Some(size)
 }
 
-fn rect_xywh(at: u32) -> Option<[i32; 4]> {
-    let [l, t, r, b] = obj::rect(at)?;
-    Some([l, t, r - l, b - t])
-}
-
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
 /// `ct`: the colour table it is drawn through (0: its own palette).
 fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
@@ -953,14 +947,9 @@ fn forget_form_surface(image: u32) {
 }
 
 /// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`, within
-/// the canvas's clip rectangle (the game's copies keep to it: e.g. a list
-/// box redrawing one row through tiles of its background).
-fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
-    copy_within(from, src, canvas, x, y, keyed, clip_of(canvas));
-}
-
-/// [`copy`] with the canvas's clip as `clip_of` gives it.
-fn copy_within(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool, clip: Option<[i32; 4]>) {
+/// the canvas's clip rectangle `clip` (the game's copies keep to it: e.g. a
+/// list box redrawing one row through tiles of its background).
+fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool, clip: Option<[i32; 4]>) {
     if rerendered(canvas) { return; }
     note_form_surface(from, canvas);
     let (mut src, mut x, mut y) = (src, x, y);
@@ -974,12 +963,6 @@ fn copy_within(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: boo
         (x, y) = (x + dl, y + dt);
     }
     emit(Event::Copy { from, src, canvas, x, y, keyed });
-}
-
-fn fill(canvas: u32, rect: [i32; 4], color: u32) {
-    if rerendered(canvas) { return; }
-    size_of(canvas);
-    emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: clip_of(canvas) });
 }
 
 /// The clip of a draw onto `canvas` from its jgl call's clip (see
@@ -1012,7 +995,7 @@ pub fn on_copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: boo
         emit(Event::Size { image: canvas, size: canvas_size });
         emit(Event::Size { image: from, size: from_size });
     }
-    copy_within(from, src, canvas, x, y, keyed, clip_from(canvas, clip));
+    copy(from, src, canvas, x, y, keyed, clip_from(canvas, clip));
 }
 
 /// Whether jgl's drawing onto `canvas` (from `source`, 0: none), taken by
@@ -1303,10 +1286,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     }
     hook_lines(game, &mut hooks);
     hook_jgl(jgl, &mut hooks)?;
-    if crate::jgl_hooks::compare::on() {
-        hook_old_draws(&sites, &mut hooks)?;
-        log::info!("jgl compare: the replaced exe detours and the shade_rect slot hook run beside the takeover");
-    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1335,99 +1314,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
 }
 
 
-/// The exe detours the jgl fill and copy groups replaced, with the old
-/// path's events, beside the takeover (`CIV3R_JGL_COMPARE=1` only; see
-/// `jgl_hooks::compare`). Each calls the original always: the takeover
-/// below decides the pixels.
-fn hook_old_draws(sites: &h::UiSites, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result<(), HookError> {
-    use crate::jgl_hooks::compare::old_call;
-    macro_rules! hook {
-        ($module:ident, $site:expr, $handler:expr) => {
-            hooks.push(Box::new(h::$module::install_at_start($site.0, $site.1, $handler)?));
-        };
-    }
-    let reach = |canvas: u32, source: u32| has_pixels(canvas) && (source == 0 || has_pixels(source));
-    hook!(pcx_draw_onto, sites.pcx_draw_onto, move |c| old_call("draw_onto", reach(c.dst, c.image), || {
-        if !rerendered(c.dst) {
-            if let Some((w, hh)) = obj::image_size(c.image) {
-                copy(c.image, [0, 0, w, hh], c.dst, c.x as i32, c.y as i32, true);
-            }
-        }
-        Some((c.dst, c.image))
-    }, || c.original()));
-    hook!(pcx_copy, sites.pcx_copy, move |c| old_call("copy", reach(c.dst, c.image), || {
-        if !rerendered(c.dst) {
-            size_of(c.dst);
-            size_of(c.image);
-            let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
-            copy(c.image, src, c.dst, c.dx as i32, c.dy as i32, false);
-        }
-        Some((c.dst, c.image))
-    }, || c.original()));
-    hook!(pcx_copy_same, sites.pcx_copy_same, move |c| old_call("copy_same", reach(c.dst, c.image), || {
-        if !rerendered(c.dst) {
-            size_of(c.dst);
-            size_of(c.image);
-            let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
-            copy(c.image, src, c.dst, src[0], src[1], false);
-        }
-        Some((c.dst, c.image))
-    }, || c.original()));
-    hook!(pcx_copy_rect, sites.pcx_copy_rect, move |c| old_call("copy_rect", reach(c.dst, c.image), || {
-        if !rerendered(c.dst) {
-            size_of(c.dst);
-            size_of(c.image);
-            if let Some(src) = rect_xywh(c.rect) {
-                copy(c.image, src, c.dst, src[0], src[1], false);
-            }
-        }
-        Some((c.dst, c.image))
-    }, || c.original()));
-    hook!(pcx_copy_rects, sites.pcx_copy_rects, move |c| old_call("copy_rects", reach(c.dst, c.image), || {
-        if !rerendered(c.dst) {
-            size_of(c.dst);
-            size_of(c.image);
-            if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
-                copy(c.image, src, c.dst, dst[0], dst[1], false);
-            }
-        }
-        Some((c.dst, c.image))
-    }, || c.original()));
-    hook!(pcx_fill, sites.pcx_fill, move |c| old_call("fill", reach(c.image, 0), || {
-        if let Some((w, hh)) = obj::image_size(c.image) {
-            fill(c.image, [0, 0, w, hh], c.color);
-        }
-        Some((c.image, 0))
-    }, || c.original()));
-    hook!(pcx_fill_area, sites.pcx_fill_area, move |c| old_call("fill_area", reach(c.image, 0), || {
-        if let Some(rect) = rect_xywh(c.rect) {
-            fill(c.image, rect, c.color);
-        }
-        Some((c.image, 0))
-    }, || c.original()));
-    hook!(pcx_hline, sites.pcx_hline, move |c| old_call("hline", reach(c.image, 0), || {
-        let (x1, x2) = (c.x1 as i32, c.x2 as i32);
-        fill(c.image, [x1.min(x2), c.y as i32, (x2 - x1).abs() + 1, 1], c.color);
-        Some((c.image, 0))
-    }, || c.original()));
-    hook!(pcx_vline, sites.pcx_vline, move |c| old_call("vline", reach(c.image, 0), || {
-        let (y1, y2) = (c.y1 as i32, c.y2 as i32);
-        fill(c.image, [c.x as i32, y1.min(y2), 1, (y2 - y1).abs() + 1], c.color);
-        Some((c.image, 0))
-    }, || c.original()));
-    hook!(pcx_line, sites.pcx_line, move |c| old_call("line", reach(c.image, 0), || {
-        if !rerendered(c.image) {
-            size_of(c.image);
-            let (rgb, clip) = (rgb555(c.color), clip_of(c.image));
-            for rect in crate::ui::line_runs(&crate::ui::line_points((c.x1 as i32, c.y1 as i32), (c.x2 as i32, c.y2 as i32))) {
-                emit(Event::Fill { canvas: c.image, rect, rgb, alpha: 255, clip });
-            }
-        }
-        Some((c.image, 0))
-    }, || c.original()));
-    Ok(())
-}
-
 
 /// Install jgl capture synchronously at the known loaded base. Present
 /// always has a hook, including drawing-ON startup, and checks suppression
@@ -1444,13 +1330,6 @@ fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result
     // Fills, lines, shades and copies: jgl's own method groups, taken over.
     crate::jgl_hooks::install_fill(base)?;
     crate::jgl_hooks::install_copy(base)?;
-    if crate::jgl_hooks::compare::on() {
-        // The old `shade_rect` slot hook, over the takeover's entry point.
-        let (shade_slot, _) = h::jgl_shade_slot(base);
-        hooks.push(Box::new(h::jgl_shade::install_slot(shade_slot, |c| {
-            crate::jgl_hooks::compare::old_call("shade", true, || shade(c).map(|canvas| (canvas, 0)), || c.original())
-        })?));
-    }
     hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| audit_call(PixelClass::Present, skipping(), || c.original()))?));
     Ok(())
 }
@@ -1498,7 +1377,7 @@ fn trace_pixel_access(base: u32) {
 
 /// The first return address into the game's exe found on this thread's
 /// stack (scanning up from here), or 0.
-pub(crate) fn game_caller() -> u32 {
+fn game_caller() -> u32 {
     let here = 0u32;
     let sp = &here as *const u32 as usize as u32;
     // As far as the stack goes (its top may be nearer than the most asked for).
@@ -1511,23 +1390,6 @@ pub(crate) fn game_caller() -> u32 {
                 && code(ra.wrapping_sub(6), 6).is_some_and(|b| b[1] == 0xE8 || b[0] == 0xFF || b[3] == 0xFF || b[4] == 0xFF)
         })
         .unwrap_or(0)
-}
-
-/// `shade_rect` (see [`crate::ui::shade_alpha`]); the canvas, if recorded
-/// (or nothing to draw).
-fn shade(c: &h::jgl_shade::Call) -> Option<u32> {
-    let canvas = h::jgl_owner(c.image)?;
-    // Palette colours are not used by the interface code we know of.
-    if c.color & 0x8000_0000 == 0 {
-        return None;
-    }
-    let rect = if c.rect == 0 { obj::image_size(canvas).map(|(w, hh)| [0, 0, w, hh]) } else { rect_xywh(c.rect) };
-    let rect = rect?;
-    let alpha = crate::ui::shade_alpha((c.percent as i32).clamp(0, 100) as u32);
-    if alpha != 0 && !rerendered(canvas) {
-        emit(Event::Fill { canvas, rect, rgb: rgb555(c.color), alpha, clip: clip_of(canvas) });
-    }
-    Some(canvas)
 }
 
 /// What a line drawer is set to: canvas, colour, opacity, width.
