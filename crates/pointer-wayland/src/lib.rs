@@ -83,20 +83,21 @@ impl Backend for Controller {
             Some(Placement::Hinted(at)) => (at.0 as f64, at.1 as f64),
             _ => pointer,
         };
-        let Some(region) = region.filter(|_| inside && self.window.has_focus() && !self.grabbed)
-        else {
-            self.constraints.unconfine();
-            return Update {
-                confined: false,
-                placement,
-            };
+        let holds = inside && self.window.has_focus() && !self.grabbed;
+        let window = &self.window;
+        let scale = window.scale_factor();
+        let size = || {
+            let size = window.inner_size();
+            surface_size((size.width, size.height), scale)
         };
-        let scale = self.window.scale_factor();
-        let size = self.window.inner_size();
-        let size = surface_size((size.width, size.height), scale);
-        match confinement(region, size, scale, pointer) {
-            Some(holes) => self.constraints.confine(size, &holes),
-            None => self.constraints.unconfine(),
+        match wanted_confinement(region, holds, size, scale, pointer) {
+            Some((size, holes)) => self.constraints.confine(size, &holes),
+            None => {
+                self.constraints.unconfine();
+                if region.is_none() || !holds {
+                    return Update { confined: false, placement };
+                }
+            }
         }
         Update {
             confined: self.constraints.is_confined(),
@@ -126,6 +127,22 @@ fn valid_scale(scale: f64) -> f64 {
     } else {
         1.0
     }
+}
+
+/// The confinement to have now (the surface's size and its holes): that of
+/// `region` while the window may hold the pointer (`holds`: inside, with
+/// the focus, not grabbed; see [`confinement`]); none without a region,
+/// e.g. while the game menu lets the pointer go.
+fn wanted_confinement(
+    region: Option<&Region>,
+    holds: bool,
+    size: impl FnOnce() -> (i32, i32),
+    scale: f64,
+    pointer: (f64, f64),
+) -> Option<((i32, i32), Vec<wl_pointer::Rect>)> {
+    let region = region.filter(|_| holds)?;
+    let size = size();
+    confinement(region, size, scale, pointer).map(|holes| (size, holes))
 }
 
 /// The holes to confine the pointer with, or `None` to leave it free.
@@ -242,6 +259,18 @@ mod tests {
 
     fn blocked(holes: &[wl_pointer::Rect], point: Point) -> bool {
         holes.iter().any(|hole| hole.contains(point))
+    }
+
+    /// A divider's walls, then the game menu opens (no region): no
+    /// confinement at all, wherever the pointer is.
+    #[test]
+    fn no_region_leaves_the_pointer_unconfined() {
+        let walls = Region { bounds: [0, 0, 800, 600], exclusions: vec![[399, 0, 2, 600]] };
+        assert!(wanted_confinement(Some(&walls), true, || (800, 600), 1.0, (100.0, 100.0)).is_some());
+        for at in [(100.0, 100.0), (400.0, 10.0), (-5.0, 700.0)] {
+            assert!(wanted_confinement(None, true, || (800, 600), 1.0, at).is_none());
+        }
+        assert!(wanted_confinement(Some(&walls), false, || (800, 600), 1.0, (100.0, 100.0)).is_none());
     }
 
     #[test]

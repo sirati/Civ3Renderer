@@ -64,10 +64,8 @@ mod windows {
             inside: bool,
         ) -> Update {
             let region = region.filter(|_| inside && !self.fallback.grabbed());
-            let screen = region.and_then(|region| {
-                let origin = self.window.inner_position().ok()?;
-                super::screen_bounds(region.bounds, (origin.x, origin.y))
-            });
+            let window = &self.window;
+            let screen = super::wanted_clip(region, || window.inner_position().ok().map(|o| (o.x, o.y)));
             let clipped = self.clip.set(&mut System, screen);
             // ClipCursor cannot represent exclusions inside the bounds.
             // Keep the layout's warps active for those holes.
@@ -149,6 +147,15 @@ impl Confinement {
     }
 }
 
+/// The clip (screen coordinates) for `region` of a window whose content
+/// starts at `origin` on the screen: none without a region (the layout
+/// holds the pointer nowhere, e.g. while the game menu lets it go), which
+/// [`Confinement::set`] takes as a release, never installing the clip again.
+#[cfg(any(windows, test))]
+fn wanted_clip(region: Option<&pointer_api::Region>, origin: impl FnOnce() -> Option<pointer_api::Point>) -> Option<[i32; 4]> {
+    screen_bounds(region?.bounds, origin()?)
+}
+
 /// Whether the region is just its bounds: every exclusion lies wholly
 /// outside them, so one clip rectangle holds the pointer exactly.
 #[cfg(any(windows, test))]
@@ -178,7 +185,7 @@ fn screen_bounds([x, y, w, h]: pointer_api::Rect, origin: pointer_api::Point) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{one_rectangle, screen_bounds, Confinement, SystemClip};
+    use super::{one_rectangle, screen_bounds, wanted_clip, Confinement, SystemClip};
     use pointer_api::{outside, Region};
 
     fn edge(bounds: pointer_api::Rect, mut extra: Vec<pointer_api::Rect>) -> Region {
@@ -310,6 +317,39 @@ mod tests {
         assert_eq!(system.calls, 1, "no clip again each frame");
         clip.set(&mut system, None);
         assert_eq!(system.clip, None, "released though the system cut it");
+    }
+
+    /// The game menu or the quit dialogue is open: the layout gives no
+    /// region. The clip goes and is not installed again however often the
+    /// update runs, whatever else sets or clears the system's clip; once
+    /// the dialogue closes the region (and the clip) is back.
+    #[test]
+    fn no_region_releases_the_clip_and_never_installs_it_again() {
+        let mut system = Desktop { clip: None, calls: 0 };
+        let mut clip = Confinement::default();
+        let origin = || Some((100, 200));
+        let walls = Region { bounds: [0, 0, 800, 600], exclusions: vec![[399, 0, 2, 600]] };
+        let view = Some([100, 200, 900, 800]);
+        assert!(clip.set(&mut system, wanted_clip(Some(&walls), origin)));
+        assert_eq!(system.clip, view);
+        // The dialogue opens.
+        assert_eq!(wanted_clip(None, origin), None);
+        assert!(!clip.set(&mut system, wanted_clip(None, origin)));
+        assert_eq!(system.clip, None, "released");
+        let calls = system.calls;
+        for disturbance in [None, Some([0, 0, 10, 10]), None] {
+            // The game's ClipCursor, the system on activation, ...
+            system.clip = disturbance;
+            for _ in 0..3 {
+                assert!(!clip.set(&mut system, wanted_clip(None, origin)));
+            }
+            assert_eq!(system.clip, disturbance, "not ours: left alone, nothing installed");
+        }
+        assert_eq!(system.calls, calls, "the viewer set no clip");
+        // The dialogue closes: the layout's region again.
+        system.clip = None;
+        assert!(clip.set(&mut system, wanted_clip(Some(&walls), origin)));
+        assert_eq!(system.clip, view);
     }
 
     #[test]
