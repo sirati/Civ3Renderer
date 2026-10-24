@@ -100,7 +100,7 @@ fn caller() -> u32 {
 }
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::layout::{JglColorTable, JglSprite};
     use crate::state::{guarded, read, record};
@@ -173,6 +173,10 @@ mod entries {
     /// jgl's draw scale, read from its globals (it was set before the
     /// takeover).
     fn scale_now() -> Scale {
+        if crate::own::on() {
+            let v = crate::own::graphics::SCALE.each_ref().map(|c| c.load(Ordering::Relaxed));
+            return Scale { num_x: v[0], num_y: v[1], den: v[2], set_at: 0 };
+        }
         let at = BASE.load(Ordering::Relaxed) + SCALE_RVA;
         // SAFETY: jgl.dll's .data, three words `set_scale` writes.
         let w = |i: u32| unsafe { read::u32_at(at + 4 * i) };
@@ -314,6 +318,10 @@ mod entries {
 
     /// Whether jgl's span compilation is on (its global the inits test).
     fn compile_on() -> bool {
+        // (Nothing in jgl.dll sets it: its .bss, 0. Ours is the same.)
+        if crate::own::on() {
+            return false;
+        }
         // SAFETY: jgl.dll's .data.
         unsafe { read::u32_at(BASE.load(Ordering::Relaxed) + super::COMPILE_RVA) != 0 }
     }
@@ -466,13 +474,16 @@ mod entries {
         original::<M0>(&TABLE_ANIMATE)(this)
     }
 
-    pub extern "thiscall" fn table_get_colors(this: u32, first: u32, count: u32, colors: u32) -> u32 {
-        original::<M3>(&TABLE_GET_COLORS)(this, first, count, colors)
+    /// `get_colors(rgb, first, count)` (0x3D190): the buffer first [V,
+    /// the exe's call at 0x5FC00C pushes it first].
+    pub extern "thiscall" fn table_get_colors(this: u32, colors: u32, first: u32, count: u32) -> u32 {
+        original::<M3>(&TABLE_GET_COLORS)(this, colors, first, count)
     }
 
-    pub extern "thiscall" fn table_set_colors(this: u32, first: u32, count: u32, colors: u32) -> u32 {
+    /// `set_colors(rgb, first, count)` (0x3D1D0), as `get_colors`.
+    pub extern "thiscall" fn table_set_colors(this: u32, colors: u32, first: u32, count: u32) -> u32 {
         tabled("color_table set_colors", || TableCall::SetColors { table: table(this), first, count, colors });
-        original::<M3>(&TABLE_SET_COLORS)(this, first, count, colors)
+        original::<M3>(&TABLE_SET_COLORS)(this, colors, first, count)
     }
 
     pub extern "thiscall" fn table_16a(this: u32) -> u32 {

@@ -19,7 +19,7 @@ use std::sync::atomic::AtomicU32;
 use crate::takeover::{Takeover, TakeoverError};
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::state::{guarded, read, record};
     use crate::takeover::{Entry, original};

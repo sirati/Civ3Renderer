@@ -28,7 +28,7 @@ use crate::state::{FACTORY, STOCK, guarded, record, stock};
 use crate::takeover::{Takeover, TakeoverError};
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::layout::{JglFont, JglImage, Rect32};
     use crate::takeover::{Entry, original};
@@ -250,15 +250,20 @@ fn install_impl(base: u32, hooks: HooksFactory) -> Result<TextGroup, TakeoverErr
     if FACTORY.set(hooks).is_err() {
         return Err(inproc::hook::HookError::AlreadyInstalled.into());
     }
-    // GDI's SYSTEM_FONT: what a fresh DC and +0xAC select.
-    if let Some(lf) = inproc::gdi::stock_font(13) {
-        let _ = STOCK.set(FontDesc { face: lf.face, height: lf.height, weight: lf.weight, italic: lf.italic, underline: lf.underline });
-    }
+    set_stock_font();
     let (image, font) = entries::split();
     // Fonts first: an image may select one the moment its slots change.
     let font = take_over(base, Class::Font, &font)?;
     let image = take_over(base, Class::Image, &image)?;
     Ok(TextGroup { _image: image, _font: font })
+}
+
+/// GDI's `SYSTEM_FONT`: what a fresh DC and +0xAC select.
+#[cfg(all(windows, target_arch = "x86"))]
+pub(crate) fn set_stock_font() {
+    if let Some(lf) = inproc::gdi::stock_font(13) {
+        let _ = STOCK.set(FontDesc { face: lf.face, height: lf.height, weight: lf.weight, italic: lf.italic, underline: lf.underline });
+    }
 }
 
 #[cfg(not(all(windows, target_arch = "x86")))]

@@ -128,6 +128,46 @@ pub fn install() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
+/// The same beats where our jgl is the game's (jgl.dll not loaded): its
+/// pumps tell these hooks instead of jgl's imports being redirected; and
+/// the screen size the game is told (`crate::game_window`).
+pub struct WindowHooks {
+    /// The game's screen of the display's mode, with a desktop's scale.
+    pub screen: Option<inproc::screen::ScreenSize>,
+}
+
+#[cfg(windows)]
+impl jgl::WindowHooks for WindowHooks {
+    fn screen(&self, display: (i32, i32)) -> (i32, i32) {
+        match &self.screen {
+            Some(size) => inproc::screen::reported(size),
+            None => display,
+        }
+    }
+
+    fn peeking(&self) {
+        BEATING.store(true, SeqCst);
+        inproc::hook_time::watch_current_thread();
+        beat();
+        crate::cursor::handled::peeking();
+    }
+
+    fn peeked(&self, remove: u32, message: u32, lparam: u32) {
+        crate::cursor::handled::peeked(true, remove, message, lparam);
+    }
+
+    fn waiting(&self, entering: bool) {
+        BEATING.store(true, SeqCst);
+        beat();
+        if entering {
+            WAITING.fetch_add(1, SeqCst);
+        } else {
+            WAITING.fetch_sub(1, SeqCst);
+        }
+    }
+}
+
 /// Staleness (ms) from which the game's thread counts as stalled for
 /// [`StallWatch`], and below which it answers again.
 const STALL_FROM_MS: u32 = 1_000;

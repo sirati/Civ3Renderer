@@ -32,7 +32,7 @@ pub fn tables() -> Option<[u32; 5]> {
 }
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::state::{guarded, read, record};
     use crate::takeover::{Entry, original};
