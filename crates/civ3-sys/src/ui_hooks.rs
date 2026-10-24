@@ -636,21 +636,6 @@ mod form_surface_tests {
 }
 
 inproc::fastcall_hook! {
-    /// jgl.dll `graphics::present(this, RECT *r)` (vtable slot +0xA4):
-    /// `BitBlt`s the back buffer's rectangle `r` (all of it if null) to the
-    /// window, the last step of the exe's `present` (docs §16.1, §16.5).
-    pub mod jgl_present(graphics, edx; rect) -> i32;
-}
-
-/// The graphics object's vtable slot of `present` in jgl.dll loaded at
-/// `base`, and the function expected there (vtable at RVA 0x685F8, the
-/// function at RVA 0x3BAA0). jgl.dll is relocated under Wine: use its
-/// load address, not 0x10000000.
-pub fn jgl_present_slot(base: u32) -> (Ptr32<u32>, u32) {
-    (Ptr32::new(base + 0x6_85F8 + 0xA4), base + 0x3_BAA0)
-}
-
-inproc::fastcall_hook! {
     /// jgl.dll `JGL_Image::pixel_at(this, x, y)` (vtable slot +0x0C; +0x14
     /// and +0x1C jump to it): a pointer to the pixel (x, y).
     pub mod jgl_pixel_at(image, edx; x, y) -> u32;

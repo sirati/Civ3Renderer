@@ -3,12 +3,15 @@
 //! report to, and the counting mode.
 //!
 //! Groups taken over so far: text, fills (lines, shades), copies, sprites
-//! (blits, their state, colour tables) and the display modes. Text runs go
+//! (blits, their state, colour tables), present and invalidate, and the
+//! display modes. Text runs go
 //! to the interface mirror (`ui_trace::on_text`) and to the recent-text
 //! list (`trace`); fills and copies to the interface mirror
 //! (`ui_trace::on_fill`, `ui_trace::on_copy`); blits, named by the exe
 //! function that made them (`civ3_ui::blit`), to the interface mirror and
-//! the map tracer (`ui_trace::on_blit`). The display modes need no hooks: the game's
+//! the map tracer (`ui_trace::on_blit`). Present and invalidate are
+//! records nothing consumes yet; jgl copies the back buffer to its window
+//! only while the game draws itself. The display modes need no hooks: the game's
 //! screen is the mode it asks for, and the display is never switched, not
 //! by a movie nor by jgl's shutdown either (`jgl::display`).
 
@@ -79,6 +82,14 @@ impl jgl::PixelPolicy for Pixels {
     fn original_sprite_pixels(&self) -> bool {
         crate::ui_trace::real_sprite_pixels()
     }
+
+    /// The back buffer goes to jgl's window only while the game draws
+    /// itself (as the `present` slot hook it replaces decided).
+    fn original_present(&self, _call: &jgl::PresentCall) -> bool {
+        let skip = crate::ui_trace::skipping();
+        crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Present, skip, || 0);
+        !skip
+    }
 }
 
 fn hooks() -> jgl::Hooks {
@@ -88,6 +99,7 @@ fn hooks() -> jgl::Hooks {
         copy: Box::new(CopyCapture::new(canvas_draw)),
         blit: Box::new(BlitCapture::new(game_blit)),
         palette: Box::new(jgl::hooks::NoHooks),
+        present: Box::new(jgl::hooks::NoHooks),
         policy: Box::new(Pixels),
     }
 }
@@ -185,5 +197,15 @@ pub(crate) fn install_blit(base: u32) -> Result<(), inproc::hook::HookError> {
     let group = jgl_ffi::blit::install(base).map_err(takeover_error)?;
     std::mem::forget(group);
     log::info!("jgl sprite group taken over (sprite +0x00..+0x18, +0x38..+0xA0; colour table +0x04..+0x20; graphics +0x9C)");
+    Ok(())
+}
+
+/// Takes over jgl.dll's present group (at `base`): graphics +0x30
+/// `invalidate` (recorded, then jgl's) and +0xA4 `present` (jgl's only
+/// while the game draws itself), as [`install_fill`].
+pub(crate) fn install_present(base: u32) -> Result<(), inproc::hook::HookError> {
+    let group = jgl_ffi::present::install(base).map_err(takeover_error)?;
+    std::mem::forget(group);
+    log::info!("jgl present group taken over (graphics +0x30, +0xA4)");
     Ok(())
 }
