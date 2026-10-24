@@ -522,12 +522,14 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         let config = tile_viewer::ViewerConfig {
             extensions: civ3_ui::viewer::extensions(),
             settings_path: civ3_ui::viewer::settings_path(),
+            startup_ready_file: civ3_ui::viewer::startup_ready_file(),
+            launcher_scale: civ3_ui::viewer::launcher_scale(),
             title: VIEWER_TITLE.into(),
             size: (1024, 768),
             fullscreen,
             overhang: crate::scene_map::OVERHANG,
             // (The game's folder, where civ3-bridge.log is.)
-            recording_dir: tile_viewer::altrec::recording_dir(std::env::current_dir().ok()),
+            recording_dir: civ3_ui::viewer::recording_dir(std::env::current_dir().ok()),
             ..Default::default()
         };
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
