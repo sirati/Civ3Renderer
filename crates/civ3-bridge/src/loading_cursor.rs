@@ -33,6 +33,34 @@ pub fn at_draw(frame: &Frame, draw: usize) -> Option<menu::screen::Element> {
     })
 }
 
+/// The interface-only view of the loading bar split off the rest
+/// (`split_bar`, `scene::Interface::loading_bar`): above every popup's
+/// (their canvases' addresses), so that where it cannot be kept clear of
+/// them it shows in front.
+pub const VIEW: u32 = 0xFFFF_0100;
+
+/// The loading bar (the form of class [`FORM`], Main_GUI+0x138F0) on its
+/// own: `frame` without it, its draws alone (all others clipped to nothing,
+/// the indices kept, so that its hourglass goes with it, `at_draw`), and
+/// its rectangle (x, y, w, h) with the hourglass's slot. None while no bar
+/// is drawn.
+pub fn split_bar(frame: &Frame) -> Option<(Frame, Frame, [i32; 4])> {
+    let &(class, canvas, (x, y), (w, h)) = frame.forms.iter().rev().find(|f| f.0 == FORM && f.3 .0 > 0 && f.3 .1 > 0)?;
+    let mine: Vec<usize> = frame.form_draws.iter().filter(|(c, r)| *c == canvas && !r.is_empty()).flat_map(|(_, r)| r.clone()).collect();
+    if mine.is_empty() {
+        return None;
+    }
+    let others: Vec<usize> = (0..frame.draws.len()).filter(|i| !mine.contains(i)).collect();
+    let mut rest = crate::interface_parts::without(frame, &mine);
+    rest.form_draws.retain(|(c, _)| *c != canvas);
+    let mut bar = crate::interface_parts::without(frame, &others);
+    bar.form_draws.retain(|(c, _)| *c == canvas);
+    bar.underlay_draws.clear();
+    bar.overlay_draws = 0..0;
+    let [l, t, r, b] = extend_bounds(class, [x, y, x + w, y + h]);
+    Some((rest, bar, [l, t, r - l, b - t]))
+}
+
 pub fn is_optional(element: &menu::screen::Element) -> bool {
     matches!(element, menu::screen::Element::Sprite { name, .. } if name == scene::loading_cursor::SET)
 }
@@ -52,6 +80,28 @@ mod tests {
         assert!(is_optional(&menu::screen::Element::Sprite { name: scene::loading_cursor::SET.into(), at: (0, 0), clip: [0; 4], scale_den: 0, palette: String::new() }));
         assert_eq!(extend_bounds(0x66b3d8, [0, 0, 1024, 768]), [0, 0, 1024, 768], "parent/advisor bounds never grow");
         assert_eq!(extend_bounds(FORM, [100, 0, 1024, 768]), [64, 0, 1024, 768]);
+    }
+
+    #[test]
+    fn the_loading_bar_splits_off_with_its_hourglass_and_leaves_the_rest() {
+        let fill = |x: i32| crate::ui::ScreenDraw::Fill { rect: [x, 80, 20, 24], rgb: [255; 3], alpha: 255, clip: [0, 0, 1024, 768] };
+        let frame = Frame {
+            forms: vec![(0x66b3d8, 7, (0, 0), (1024, 768)), (FORM, 40, (100, 80), (200, 24))],
+            form_draws: vec![(7, 0..2), (40, 2..4)],
+            draws: vec![fill(0), fill(500), fill(100), fill(150)],
+            ..Default::default()
+        };
+        assert!(split_bar(&Frame { forms: frame.forms[..1].to_vec(), ..frame.clone() }).is_none(), "no bar, nothing split");
+        let (rest, bar, rect) = split_bar(&frame).unwrap();
+        assert_eq!(rect, [64, 80, 236, 24], "the bar and its hourglass's slot");
+        let shown = |f: &Frame| (0..f.draws.len()).filter(|&i| crate::ui_screen::items(f, &[], &[], 0).len() > 0 && match &f.draws[i] {
+            crate::ui::ScreenDraw::Fill { clip, .. } => clip[2] > clip[0],
+            _ => false,
+        }).collect::<Vec<_>>();
+        assert_eq!(shown(&rest), [0, 1]);
+        assert_eq!(shown(&bar), [2, 3]);
+        assert!((0..4).all(|i| at_draw(&rest, i).is_none()), "no hourglass left behind");
+        assert!(at_draw(&bar, 2).is_some(), "the hourglass goes with the bar");
     }
 
     #[test]

@@ -201,3 +201,44 @@ Tested with a stand-in external viewer that sends `Input::World*`, with Rome's c
 - The city screen was then still in use: its production list opened and closed, and Escape closed it. Afterwards the game selected its next unit as usual.
 - With the domestic advisor (F1) open, the same select, move and walked go-to worked.
 - A press on a Portuguese tile was refused with a notice, which showed in the scene and expired. So was a press made while the quit prompt was open.
+
+## Reports the game does not wait for
+
+In a single player game every popup is modal. `show_popup` (0x611460) runs the modal loop (0x6052F0) until the popup closes. Many popups only report something that happened, for example "The Babylonians are building the Hanging Gardens", a wonder completed elsewhere, or war declared on us. Loading a scenario shows a long run of them, and the game stops at each one.
+
+### Which popups
+
+The game itself shows these popups without waiting in an online game. Their callers pass `show_popup`'s non-modal flag 0x4000 when `is_online_game` (0x47B5B0, game type 4 or 5) is true. The code before `set_text_key_and_flags` (vtable +0x170, 0x49F120 → 0x610D20) is `call 0x47B5B0; neg al; sbb eax, eax; and eax, 0x4000`. A scan of the PCGames executable finds 42 such calls. All of Main_GUI's advisor summaries (0x556560, called from 30 places) go that way. Main_GUI ignores `show_popup`'s result there (0x5565B7), and so do the other callers, because online they get the default at once.
+
+The bridge accepts a popup at once only when all of these hold (`civ3_bridge::async_popups::classify`):
+- Its class is the generic popup (vtable 0x666408).
+- Its text key (`PopupForm+0x580`) is a report:
+  - one of Main_GUI's `SUMMARY_` keys, which include the dynamic `SUMMARY_` + name keys at 0x4DD2B0 and 0x56212D;
+  - the other summary keys: peace, pacts, alliances, and foreign espionage caught or missed;
+  - or a key from the list of report callers: `WONDERPRODUCE`, `CULTUREBORDERVERBOSE`, `HAVE_LUXURY`, `HAVE_RESOURCE`, `HAVE_RESOURCE_NO_UNIT`, `LOSTGOOD`, `NOSUPPORT`, `TRADEEMBARGO`, `TRADEEMBARGOENDS`, `THEY_DESTROY_CITY_GOLD`, `DESTROYEDSPACESHIP`, `THEIRNUKEFAILEDBYOTHERS`, `THEY_RETURNED_FLAG` and `THEY_TOOK_FLAG`.
+- As shown, it has one button and nothing else to click: no choice rows, no list and no second button. Links in its text, which open the Civilopedia, do not count.
+- The game is not an online or PBEM game.
+
+The remaining online-flag callers answer the player's own action, and they stay modal: not enough gold, a bad city name, too many cities, the start of a revolution, a failed save, the retire warning. So do the game's openings (`DAWN_OF_MAN`, `LOADGAME`). Every popup with a choice also stays modal. Two examples are `VERBOSE_TRAVELERS_REPORT` ("Big Deal." / "What's the big picture?") and `WONDERCHANGE` ("Zoom to City"). The palace upgrade (`PALACE_VIEW_UPGRADE`) stays modal too, because the palace screen follows it. Small wonders such as the Forbidden Palace come through the travelers' report (`SUMMARY_TRAVELERS_REPORT`, 0x4DD4E0), as the great wonders do.
+
+### How it is accepted
+
+The popup opens as always. At the first passes of its modal loop (the pump call at 0x6053B4, `crate::modal`), the bridge keeps the popup's picture as the game presented it, with its frame and advisor head (`interface_parts::split_modal_stack` on the committed frame). It waits up to 3 passes for the present, and then falls back to the canvas alone. While this happens, the publisher leaves the popup out of the scene. The bridge then sends Enter with its character to the popup on the game's thread (`Window::key_now`), as a player accepts it. The loop ends and `show_popup` returns what the default button returns. If Enter does not close the popup, it stays modal as before and the kept picture is dropped.
+
+The picture is the game's draw commands for the popup, kept the same way as the modal popups' (the interface mirror). It is not pixels. Drawing popups from their script and text data is not done yet.
+
+### In the viewer
+
+The bridge keeps up to 64 reports and sends the oldest two as interface-only views (ids 0x1100 and 0x1101, with the oldest on top), together with `Interface::queued` and the number waiting behind them. They are not modal: all other input goes to the game as if they were not there.
+- **Over the world** they stack at the window's top-right, away from the play in the middle.
+- **While a game loads** (no world yet) they stack where a modal popup over the menus goes.
+- **The stack:** the next report peeks out 10 pixels down and to the right of the first.
+- **Reading one:** a press anywhere on the stack, or Enter or Esc with the pointer on it, closes the first report and does nothing else. Its release is swallowed too (`Input::CloseQueued`).
+- **Alt mode:** the first report's button is a target.
+- **Mouse captured:** a press plays the world as usual.
+
+`CIV3R_ASYNC_POPUPS=off` leaves every popup modal.
+
+### The loading bar
+
+The game's loading bar (class 0x6724F8, Main_GUI+0x138F0) and its hourglass are sent as an interface-only view of their own (`Interface::loading_bar`, view 0xFFFF0100), cut out of the menus or the frame. By default the viewer puts the bar where the menu would. If the bar meets a popup or a queued report over it, the bar moves down below them, or else up above them, by as little as it can within the menu's region (`scaling::bar_clear_of`). If neither fits, it stays where it was. Its camera always comes after every popup's, so in that case it is drawn in front of them.

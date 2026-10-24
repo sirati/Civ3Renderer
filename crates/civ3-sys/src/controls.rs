@@ -227,6 +227,11 @@ impl Form {
     }
 }
 
+/// Where form `addr` (a `Base_Form*`) shows on the screen (x, y, w, h).
+pub fn form_rect(mem: &dyn Mem, addr: u32) -> Option<[i32; 4]> {
+    Form::read(mem, addr).map(|f| [f.origin.0, f.origin.1, f.size.0, f.size.1])
+}
+
 fn visible(mem: &dyn Mem, form: u32) -> bool {
     mem.u32(form + STATUS2).is_some_and(|s| s & 1 != 0)
 }
