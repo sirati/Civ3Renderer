@@ -611,6 +611,21 @@ pub fn scene_cells_changed(compiled: &Compiled, scene: &Scene, world: &mut TileW
     }
 }
 
+/// Moves what `motion` names in `scene` by `by` (world pixels, full size),
+/// as the viewer moves a unit along its walk (`unit_motions`): for
+/// comparing pictures of a walk.
+pub fn move_motion(scene: &mut Scene, motion: &scene::Motion, by: (i32, i32)) {
+    for s in scene.sprites.iter_mut().take(motion.sprites.1 as usize).skip(motion.sprites.0 as usize) {
+        s.x += by.0;
+        s.y += by.1;
+    }
+    let cols = scene.shape.cols;
+    for &(layer, col, row) in &motion.cells {
+        let Some(o) = scene.layers.get_mut(layer as usize).and_then(|l| l.offsets.as_mut()).and_then(|o| o.get_mut((row * cols + col) as usize)) else { continue };
+        *o = ((i32::from(o.0) + by.0) as i16, (i32::from(o.1) + by.1) as i16);
+    }
+}
+
 /// The renderer's free sprites of `scene`: the world's sprites (in every
 /// view) and each view's overlay, scene view `i`'s drawn by camera
 /// `view_cameras[i]` (none: not drawn), or for the views
@@ -3936,22 +3951,22 @@ impl App {
         }
         // Units sliding to the next tile (`unit_motions`), where this
         // frame's time has them: the driver tells each slide once.
-        if let Some(offsets) = self.unit_motions.offsets(scene, started, full || free_changed || looks_changed, |serial| self.display.motion_arrival(serial)) {
+        if let Some(offsets) = self.unit_motions.offsets(scene, started, full || cells_changed || free_changed || looks_changed, |key| self.display.walk(key)) {
             if !offsets.is_empty() {
-                unit_motions::apply(&mut Arc::make_mut(self.world.as_mut().expect("built above")).free, &scene.sprites, &offsets);
+                unit_motions::apply(Arc::make_mut(self.world.as_mut().expect("built above")), scene, &offsets);
                 looks_changed = true;
                 // (A frame-timing trace of the slides: `TILE_VIEWER_MOTION_TRACE=1`.)
                 static TRACE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| profile::env_on("TILE_VIEWER_MOTION_TRACE"));
                 if *TRACE {
-                    let free = &self.world.as_ref().expect("built above").free;
-                    let at: Vec<_> = offsets.iter().flat_map(|&((a, b), _)| (a..b).filter_map(|i| free.get(i as usize).map(|s| (s.x, s.y)))).collect();
-                    log::info!("viewer: motion at {:.1} ms (scene {}): {offsets:?} sprites at {at:?}", started.duration_since(self.started).as_secs_f64() * 1000.0, scene.seq);
+                    // Each moved unit: its key and where it is drawn (anchor + offset).
+                    let at: Vec<_> = scene.motions.iter().filter_map(|m| self.unit_motions.moved(m.key).map(|o| (m.key, m.anchor.0 + o.0, m.anchor.1 + o.1))).collect();
+                    log::info!("viewer: motion at {:.1} ms (scene {}): units at {at:?}", started.duration_since(self.started).as_secs_f64() * 1000.0, scene.seq);
                 }
             }
         }
         // The viewer's markers on top of the world, for this frame only.
         // (The arrow over a unit on its way goes with it, on the same clock.)
-        let focus = self.unit_motions.focus_at(scene, started, world_downscale(scene));
+        let focus = self.unit_motions.focus_at(scene, world_downscale(scene));
         for m in &mut arranged.markers {
             if let (layout::Marker::Focus(at), Some(f)) = (m, focus) { *at = f; }
         }
