@@ -8,6 +8,10 @@ use tile_render::{
 };
 use winit::window::Window;
 
+/// The shader module the startup window draws with (the viewer's; only its
+/// tile renderer's shaders are used).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+
 pub(super) struct Display {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -37,7 +41,7 @@ impl Display {
             config.present_mode = wgpu::PresentMode::AutoVsync;
             config.desired_maximum_frame_latency = 1;
             surface.configure(&device, &config);
-            let mut renderer = TileRenderer::new(&device, config.format);
+            let mut renderer = TileRenderer::new(&device, config.format, SHADERS);
             renderer.set_atlas(
                 &device,
                 &queue,
@@ -251,7 +255,7 @@ mod gpu_tests {
         );
         world.fonts = vec![Arc::new(face())];
         world.free = commands("A", 0, 64, 64, &world.fonts[0]);
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(
             &gpu.device,
             &gpu.queue,

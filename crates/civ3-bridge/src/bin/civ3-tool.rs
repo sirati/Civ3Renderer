@@ -336,7 +336,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 reference::render_views(&world, &compiled.atlas, &cameras, size, scene.tick, config.clear)
             } else if let Some(ms) = host_ms {
                 let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
-                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
                 renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
                 renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, &scene));
                 tile_viewer::apply_patches(&mut renderer, &gpu.queue, &compiled, &scene.patches);
@@ -587,7 +587,7 @@ fn bench(compiled: &Compiled, scene: &scene::Scene, size: (u32, u32), frames: u3
     println!("atlas: {} sprites, {} + {} pages", compiled.atlas.sprites.len(), compiled.atlas.pages.len(), compiled.atlas.index_pages.len());
     let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
     let format = wgpu::TextureFormat::Bgra8Unorm;
-    let mut renderer = tile_render::TileRenderer::new(&gpu.device, format);
+    let mut renderer = tile_render::TileRenderer::new(&gpu.device, format, tile_viewer::SHADERS);
     let timed = renderer.enable_timing(&gpu.device, &gpu.queue);
     println!("GPU timing: {}", if timed { "on" } else { "off (TILE_RENDER_GPU_TIMING=1, timestamp queries)" });
     renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);

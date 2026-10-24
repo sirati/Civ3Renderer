@@ -16,7 +16,9 @@ game could drive the same renderer, with or without Civ III's art.
 | crate | game specific? | what |
 | --- | --- | --- |
 | `tile-render-shared` | no | GPU data model shared by host and shaders (`no_std`) |
-| `tile-render-shaders` | no | rust-gpu shaders (built by `tile-render`'s build script) |
+| `tile-render-shaders` | no | rust-gpu shaders of the tile renderer (`no_std` library, linked into `viewer-shaders`) |
+| `viewer-shaders` | no | the one rust-gpu shader module: links every shader library (`no_std`) |
+| `viewer-spirv` | no | compiles `viewer-shaders` to SPIR-V once per build (rust-gpu) and embeds it; `VIEWER_PRECOMPILED_SPV` supplies a prebuilt module |
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
 | `render-errors` | no | render errors by kind and context: deduplicated per game run, counted, logged to `civ3-render-errors.log` |
@@ -949,7 +951,7 @@ Set `CARGO_TARGET_DIR` for both commands if build output lives elsewhere, or
 set `CIV3R_TEST_LAUNCHER` to the compiled `civ3-play-macos` executable.
 
 When building the rust-gpu compiler on the guest is impractical, set
-`TILE_RENDER_PRECOMPILED_SPV` to an absolute path to the SPIR-V module built
+`VIEWER_PRECOMPILED_SPV` to an absolute path to the SPIR-V module built
 from the same shader sources on Linux. The viewer embeds that module, so
 it is not required beside the installed executable. `CARGO_TARGET_DIR`
 selects the renderer build location. Without this override, the build uses
