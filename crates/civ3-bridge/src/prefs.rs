@@ -6,7 +6,7 @@
 //! panel takes of the pointer input never reaches the game.
 //!
 //! The bridge keeps the settings: loaded at start from
-//! `Settings::default_path()`, saved there when the user accepts the draft,
+//! `civ3_ui::viewer::settings_path()`, saved there when the user accepts the draft,
 //! and sent to the viewer with every scene (`scene::Scene::settings`; only
 //! changes go over the wire).
 
@@ -381,7 +381,7 @@ pub struct Prefs {
 
 /// Where the renderer's settings are kept: `CIV3R_SETTINGS` (a Windows path,
 /// or under Wine a Unix one too), else under Wine the Linux user's (as
-/// `viewer_settings::Settings::default_path` finds them there, e.g.
+/// `civ3_ui::viewer::settings_path` finds them there, e.g.
 /// `~/.config/civ3r/settings.toml`: a native viewer reads the same file),
 /// else Windows' (`%APPDATA%\civ3r`).
 #[cfg(windows)]
@@ -401,7 +401,7 @@ pub fn settings_path() -> PathBuf {
             return PathBuf::from(format!(r"{home}\.config\civ3r\settings.toml"));
         }
     }
-    Settings::default_path()
+    civ3_ui::viewer::settings_path()
 }
 
 /// Whether the game runs on macOS (Wine on Darwin).

@@ -290,6 +290,7 @@ fn run(options: Options) -> Result<(), String> {
         };
         let config = tile_viewer::ViewerConfig {
             extensions: civ3_ui::viewer::extensions(),
+            settings_path: civ3_ui::viewer::settings_path(),
             title: "Civ III (native renderer)".into(),
             application_icon: icon::application(),
             size: (1024, 768),

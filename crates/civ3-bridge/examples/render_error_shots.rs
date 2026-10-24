@@ -57,7 +57,7 @@ fn main() {
     let compiled = assets::compile(&desc, files.clone()).unwrap();
     assert!(compiled.font(tile_viewer::host_status::FONT).is_some(), "the game's font as an outline face");
     let gpu = tile_render::Headless::new().unwrap();
-    let config = tile_viewer::ViewerConfig { clear: [58, 86, 44, 255], ..Default::default() };
+    let config = tile_viewer::ViewerConfig { clear: [58, 86, 44, 255], settings_path: civ3_ui::viewer::settings_path(), ..Default::default() };
     for (name, lines) in cases {
         let mut scene = scene::Scene::default();
         scene.screen_size = (1024, 768);
