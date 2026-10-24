@@ -196,10 +196,7 @@ pub(crate) fn placeholder_sprites() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         let p = policy();
-        // (Until the keyed forms' hit test is answered from the interface
-        // model: only asked for.)
-        let asked = std::env::var("CIV3R_JGL_PLACEHOLDER").as_deref() == Ok("1");
-        asked && p.capture && !p.game_draws && !p.fallback && !crate::jgl_hooks::compare::on()
+        p.capture && !p.game_draws && !p.fallback && !crate::jgl_hooks::compare::on()
     })
 }
 
@@ -1116,6 +1113,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
+        placeholder_read(c.image, "get_pixel");
         c.original()
     });
     hook!(form_composite, sites.form_composite, |c| {
@@ -1297,6 +1295,7 @@ fn trace_pixel_access(base: u32) {
     thread_local! { static SEEN: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
     fn note(image: u32) {
         let Some(owner) = h::jgl_owner(image) else { return };
+        placeholder_read(owner, "pixel_at/lock");
         if with_skipper(|s| s.was_skipped(owner) && !s.keeps(owner)) != Some(true) {
             return;
         }
@@ -1535,6 +1534,42 @@ fn copied_civ_colors(ct: u32) -> Option<menu::screen::PaletteFrom> {
     let entries = h::color_table_entries(ct, 64, 2)?;
     let n = h::civ_table_with(*BUILD.get()?, 64, &entries)?;
     Some(menu::screen::PaletteFrom { image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 64, count: 2 })
+}
+
+thread_local! {
+    /// Canvases jgl would have drawn sprites onto for the game to read
+    /// back (the exe detours kept them), had their sprites pixels: with
+    /// placeholder sprites they have none. Why it was kept, and whether
+    /// the game was seen reading one.
+    static PLACEHOLDER_LOST: std::cell::RefCell<std::collections::HashMap<u32, (&'static str, bool)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// A blit onto `canvas` that the old decision drew with jgl, left out for
+/// the placeholder sprites (`jgl_hooks`): logged once per canvas with the
+/// reason it was kept.
+pub(crate) fn placeholder_lost(canvas: u32) {
+    let reason = if !skipping() { "game draws" }
+        else if world_canvas(canvas) && !crate::trace::GAME_MAP_OFF.load(Relaxed) { "world canvas, game map on" }
+        else if obj::image_bits(canvas).is_some_and(|bits| bits <= 8) { "palette_indices" }
+        else if obj::keyed_form_canvas(canvas) { "native_hit_mask" }
+        else if with_any_skipper(|s| s.keeps(canvas)) == Some(true) { "native_pixel_source" }
+        else { "other" };
+    let new = PLACEHOLDER_LOST.with_borrow_mut(|l| l.len() < 256 && !l.contains_key(&canvas) && { l.insert(canvas, (reason, false)); true });
+    if new {
+        log::info!("placeholder sprites: blits onto {canvas:#x} kept by the old path ({reason}) left out");
+    }
+}
+
+/// The game reads pixels of `image` (`how`): if blits onto it were left
+/// out for the placeholder sprites, logged once.
+fn placeholder_read(image: u32, how: &str) {
+    let first = PLACEHOLDER_LOST.with_borrow_mut(|l| match l.get_mut(&image) {
+        Some((_, seen @ false)) => { *seen = true; true }
+        _ => false,
+    });
+    if first {
+        log::warn!("placeholder sprites: the game reads pixels of {image:#x} ({how}), whose sprite blits were left out");
+    }
 }
 
 /// The pixel of keyed form canvas `canvas` at (x, y) for the game's hit
