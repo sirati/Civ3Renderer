@@ -1541,16 +1541,17 @@ fn publish(
         // Every explored city has its label, also those the game's own view
         // leaves out (it skips cities past the edge of its tile range and
         // misplaces far ones).
-        // A menu over the game's map (an advisor, diplomacy) leaves its own
-        // labels out: what is left of its map canvas shows none. Then the
-        // game's view shows none either; the viewer's other views do.
+        // While `Advisor_GUI` is visible the game's map leaves its labels out
+        // (`draw_city_hud`'s only test, docs §10.8): then the game's view
+        // shows none either; the viewer's other views do. Read from the
+        // game's state each frame, never from whether it drew labels: under a
+        // popup or another screen it may not redraw its map at all, and the
+        // labels stay.
         let mut labels_not_in_game_view = false;
         let mut preview_labels: Arc<crate::preview::LabelItems> = Arc::default();
         let label_items = match shown {
             Shown::Map(world, view) if ui.is_some() && world_labels() => {
-                // (Only under a screen or modal form: on the plain map the game
-                // may have drawn none itself, e.g. with its map rendering off.)
-                labels_not_in_game_view = (screen_open.is_some() || modal.is_some()) && !ui_items.iter().any(|i| matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
+                labels_not_in_game_view = civ3_sys::modal::map_labels_hidden(&civ3_sys::controls::Live, game.build).unwrap_or(false);
                 ui_items.retain(|i| !matches!(i, ui_screen::Item::Element(_, true) | ui_screen::Item::Text(_, _, true)));
                 labels_memo.get((still.clone(), view.zoomed_out), || WorldItems::new(view.zoomed_out, |reduced| {
                     let labels = crate::city_labels::labels(world, reduced, &mut label_env);
