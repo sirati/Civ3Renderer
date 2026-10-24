@@ -41,6 +41,20 @@ copies are suitable for the `bundle` command shown below.
 Each launch writes the launcher's own output to `runtime/logs/app-*.log`,
 next to the usual session logs.
 
+One launcher runs per installation: it holds an `flock` on
+`runtime/launch.lock` (the file says its pid, start time and game session,
+for diagnostics). The system lets the lock go when the launcher ends, however
+it ends, so a later start takes over a lock whose launcher is gone and logs
+that. If a launcher still holds it, the start asks: a dialog from the Dock or
+Finder, the startup window (type `delete` and press Return) where no dialog
+can be shown, or the terminal (type `delete` and press Return). Removing the
+lock starts a second game if one is running after all. `--remove-lock` does it
+without asking, and also stops a game whose launcher is gone. A Quit Apple
+event (the Dock's Quit, System Settings' "Quit & Reopen" after a permission is
+granted, logging out) stops the game and lets the lock go before AppKit ends
+the launcher. Every start, also one that is refused, first turns on again the
+F1-F12 system shortcuts a game left paused (`runtime/paused-system-shortcuts.txt`).
+
 The bundle executable is `civ3-app-macos`, a small Rust entry built from
 `crates/civ3r-launcher/src/bin/civ3-app-macos.rs`. A Finder launch has no
 terminal, a minimal environment and cwd `/`, so the entry reads
