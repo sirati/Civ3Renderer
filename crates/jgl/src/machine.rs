@@ -10,7 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, compiles};
 use crate::draw::{CopyCall, FillCall};
-use crate::hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, PresentHooks, TextDraw, TextHooks};
+use crate::hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, PresentHooks, SurfaceHooks, TextDraw, TextHooks};
+use crate::surface::SurfaceCall;
 use crate::present::PresentCall;
 use crate::record::{Record, Records, Writer};
 use crate::text::{FontDesc, TextColor, TextState};
@@ -153,6 +154,10 @@ impl Producer {
         self.writer.push(&Record::Table(*call));
     }
 
+    pub fn surface(&mut self, call: &SurfaceCall) {
+        self.writer.push(&Record::Surface(*call));
+    }
+
     /// Returns whether jgl's original is to run: always for
     /// [`PresentCall::Invalidate`] (the window is jgl's), as the policy
     /// says for [`PresentCall::Present`].
@@ -179,6 +184,11 @@ pub struct Consumer {
     blit: Box<dyn BlitHooks>,
     palette: Box<dyn PaletteHooks>,
     present: Box<dyn PresentHooks>,
+    surface: Box<dyn SurfaceHooks>,
+    /// Live objects per class (`Class::ALL` order) made since the
+    /// takeover, and how many were made with our method table.
+    pub live: [u32; 5],
+    pub ours: [u32; 5],
     /// Malformed buffers seen (logged once).
     pub errors: u32,
     /// Text records whose image had no state (should not happen: the
@@ -196,6 +206,9 @@ impl Consumer {
             blit: hooks.blit,
             palette: hooks.palette,
             present: hooks.present,
+            surface: hooks.surface,
+            live: [0; 5],
+            ours: [0; 5],
             errors: 0,
             stateless: 0,
         }
@@ -257,6 +270,19 @@ impl Consumer {
             Record::SetScale(scale) => self.blit.scale(&scale),
             Record::Table(call) => self.palette.table(&call),
             Record::Present(call) => self.present.present(&call),
+            Record::Surface(call) => {
+                match call {
+                    SurfaceCall::Created { class, ours, .. } => {
+                        self.live[class.index() as usize] += 1;
+                        self.ours[class.index() as usize] += u32::from(ours);
+                    }
+                    SurfaceCall::Deleted { class, .. } => {
+                        let i = class.index() as usize;
+                        self.live[i] = self.live[i].saturating_sub(1);
+                    }
+                }
+                self.surface.surface(&call);
+            }
         }
     }
 }
