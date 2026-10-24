@@ -23,7 +23,6 @@
 //! own pixels shown (no parked camera, the comparison modes) keeps its
 //! frames.
 
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// One slide, as the game started it.
@@ -79,7 +78,7 @@ impl Slide {
 }
 
 /// The slides started lately, newest last.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Slides(Vec<Slide>);
 
 impl Slides {
@@ -107,8 +106,9 @@ impl Slides {
     }
 }
 
-/// The game's slides (game thread in, publisher out).
-static SLIDES: Mutex<Slides> = Mutex::new(Slides(Vec::new()));
+/// The game's slides: the game thread alone records them (`record`), the
+/// publisher reads the latest copy.
+static SLIDES: civ3r_sync::Latest<Slides> = civ3r_sync::Latest::new();
 static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How long a slide is kept after it began.
@@ -118,8 +118,16 @@ fn next_serial() -> u64 {
     SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
 }
 
-fn slides() -> std::sync::MutexGuard<'static, Slides> {
-    SLIDES.lock().unwrap_or_else(|e| e.into_inner())
+fn slides() -> std::sync::Arc<Slides> {
+    SLIDES.load().unwrap_or_default()
+}
+
+/// Records a slide (the game's thread, the only writer: the read and the
+/// publish do not race).
+fn record(slide: Slide) {
+    let mut slides = SLIDES.load().map(|s| (*s).clone()).unwrap_or_default();
+    slides.record(slide);
+    SLIDES.publish(slides);
 }
 
 /// Whether a slide is told at `now`: the publisher then goes on
@@ -179,7 +187,7 @@ mod live {
                         ms: ms.max(0) as u32,
                     };
                     log::debug!("unit slide: unit {} from {:?} by {:?} in {} ms ({} steps)", slide.unit, slide.from_tile, slide.way, slide.ms, call.steps);
-                    slides().record(slide);
+                    record(slide);
                 }
                 Err(error) => log::debug!("unit slide: the unit at {:#x}: {error}", call.unit),
             }
