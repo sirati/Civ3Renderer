@@ -612,7 +612,8 @@ once the mouse is free. Each pointer event redraws at once
 (`TILE_VIEWER_LATENCY=1` logs the latency from motion to the drawn
 cursor; `TILE_VIEWER_FRAME_TIMES=1` how far apart frames are, every 2 s).
 `vendor/winit` carries a fix for custom cursors on a 16-bit
-Windows desktop (the game's mode).
+Windows desktop (the game's mode), and one that keeps it from releasing
+a pointer clip it did not install.
 On the Load Scenario screen the highlighted scenario's world shows beside
 the dialog as its players start with it (what they have explored, the
 rest black), fitted to what is revealed (docs §19); a double-click on it
@@ -969,7 +970,11 @@ and removes its fixture after success.
 The common pointer API uses physical window pixels for capture, placement,
 confinement bounds and excluded rectangles. Only its backend crates know
 the display APIs. Wayland uses compositor constraints and lock-and-hint
-placement. Windows uses ClipCursor plus layout warps for exclusions. X11
+placement. Windows uses ClipCursor plus layout warps for exclusions; the
+clip is the whole system's, so it is checked every update and installed
+again if anything released it, the game's own ClipCursor calls are kept
+from the system while its window is hidden, and `vendor/winit` releases
+only a clip it installed itself. X11
 uses window grabs and layout warps. macOS uses public CoreGraphics APIs,
 with AppKit releasing constraints when focus is lost or a native menu opens.
 
