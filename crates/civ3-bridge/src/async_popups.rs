@@ -81,6 +81,12 @@ pub const REPORTS: &[&str] = &[
     "TRADEEMBARGO",
     "TRADEEMBARGOENDS",
     "THEY_DESTROY_CITY_GOLD",
+    // The same caller's other keys (0x5644CC, 0x56461C, 0x564782: the key
+    // in a register), those of cities we lost.
+    "THEY_CAPTURE_CITY_GOLD",
+    "THEY_RAZE_CITY_GOLD",
+    "CITY_LOST_WITH_WONDER",
+    "CITY_RAZED_WITH_WONDER",
     "DESTROYEDSPACESHIP",
     "THEIRNUKEFAILEDBYOTHERS",
     "THEY_RETURNED_FLAG",
@@ -237,17 +243,26 @@ mod live {
     use super::Verdict;
 
     const VK_RETURN: u32 = 0x0D;
-    /// How many modal passes to wait for the game to present the popup
-    /// before keeping its canvas alone (without the frame drawn around it).
-    const PRESENT_PASSES: u32 = 3;
+    /// How long to wait for the game to present the popup (its frame, title
+    /// band and advisor head are drawn straight onto the screen when it
+    /// does) before keeping its canvas alone.
+    const PRESENT_FOR: std::time::Duration = std::time::Duration::from_millis(1500);
 
     thread_local! {
         /// The popup being looked at (form, text key) and the modal loop's
         /// passes seen for it.
         static PASSES: RefCell<(u32, String, u32)> = const { RefCell::new((0, String::new(), 0)) };
+        /// Since when it is the modal form.
+        static OPENED: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
         /// It stays modal: until another popup is the modal form.
         static LEFT: Cell<bool> = const { Cell::new(false) };
+        /// Its picture is queued (serial) and Enter sent since (when): the
+        /// game may not take keys yet (a popup just opened ignores them
+        /// for a moment), so Enter goes again at each pass.
+        static ACCEPTING: Cell<Option<(u64, std::time::Instant)>> = const { Cell::new(None) };
     }
+    /// How long Enter is sent again before the popup is left modal.
+    const ACCEPT_FOR: std::time::Duration = std::time::Duration::from_secs(5);
     /// The canvas of a report the game's thread is about to keep and
     /// accept (0: none): the publisher leaves it out of the scene, so the
     /// viewer never shows it as the game's modal popup.
@@ -292,11 +307,16 @@ mod live {
             } else {
                 *p = (form, identity.clone(), 1);
                 LEFT.set(false);
+                ACCEPTING.set(None);
+                OPENED.set(Some(std::time::Instant::now()));
             }
             p.2
         });
         if LEFT.get() {
             return false;
+        }
+        if let Some((serial, since)) = ACCEPTING.get() {
+            return accept(game, form, &identity, serial, since, passes);
         }
         let Some(sites) = civ3_sys::controls::sites(game.build) else { return false };
         let controls = civ3_sys::controls::controls(&civ3_sys::controls::Live, &sites);
@@ -326,7 +346,7 @@ mod live {
         // screen: the canvas alone is drawn from (0, 0).)
         let (frame, rect, at) = match shown {
             Some((frame, rect)) => (frame, rect, (rect[0], rect[1])),
-            None if passes < PRESENT_PASSES => return false,
+            None if OPENED.get().is_none_or(|t| t.elapsed() < PRESENT_FOR) => return false,
             None => match crate::ui_trace::canvas_frame_now(canvas, vtable) {
                 Some(frame) => {
                     let (w, h) = frame.forms.first().map_or((0, 0), |f| f.3);
@@ -340,22 +360,44 @@ mod live {
             return leave_because(&key, "an empty picture");
         }
         let serial = super::push(&key, frame, rect, Some(super::relative(button, [at.0, at.1, rect[2], rect[3]])));
-        // Enter, as the player accepts it: its default (OK), what
-        // `show_popup` then returns.
+        log::info!("async popups: report {key} ({serial}) queued, {}x{} at ({}, {}), modal pass {passes}", rect[2], rect[3], rect[0], rect[1]);
+        let now = std::time::Instant::now();
+        ACCEPTING.set(Some((serial, now)));
+        accept(game, form, &key, serial, now, passes)
+    }
+
+    /// Enter, as the player accepts the popup: its default (OK), what
+    /// `show_popup` then returns (0x605E00 -> vtable +0xD4 (-1) ->
+    /// 0x6135B0). True once it closed; while the game does not take it,
+    /// again at the next pass, for `ACCEPT_FOR`.
+    fn accept(game: &Civ3, form: u32, key: &str, serial: u64, since: std::time::Instant, passes: u32) -> bool {
+        let Some(window) = crate::world_input::game_window() else { return give_up(key, serial, "no game window") };
         if !window.key_now(VK_RETURN, true) {
-            super::close(serial);
-            return leave_because(&key, "Enter did not reach it");
+            return give_up(key, serial, "Enter did not reach it");
         }
         window.key_now(VK_RETURN, false);
         let closed = game.modal_form().ok().flatten().is_none_or(|f| f != form);
         if !closed {
-            super::close(serial);
-            return leave_because(&key, "it stayed open after Enter");
+            if since.elapsed() > ACCEPT_FOR {
+                return give_up(key, serial, "it stayed open after Enter");
+            }
+            if passes % 32 == 0 {
+                let flags = |at: u32| inproc::Ptr32::<u32>::new(form + at).read().unwrap_or(0);
+                log::debug!("async popups: report {key} not accepted yet (pass {passes}, flags {:#x} {:#x})", flags(0x9C), flags(0xA0));
+            }
+            return false;
         }
         HIDDEN.store(0, Ordering::Release);
+        ACCEPTING.set(None);
         PASSES.with_borrow_mut(|p| *p = (0, String::new(), 0));
-        log::info!("async popups: report {key} ({serial}) accepted at once, {}x{} at ({}, {}), modal pass {passes}; the game goes on", rect[2], rect[3], rect[0], rect[1]);
+        log::info!("async popups: report {key} ({serial}) accepted after {} ms, modal pass {passes}; the game goes on", since.elapsed().as_millis());
         true
+    }
+
+    fn give_up(key: &str, serial: u64, why: &str) -> bool {
+        super::close(serial);
+        ACCEPTING.set(None);
+        leave_because(key, why)
     }
 
     fn leave() -> bool {

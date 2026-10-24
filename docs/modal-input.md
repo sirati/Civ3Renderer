@@ -215,7 +215,7 @@ The bridge accepts a popup at once only when all of these hold (`civ3_bridge::as
 - Its text key (`PopupForm+0x580`) is a report:
   - one of Main_GUI's `SUMMARY_` keys, which include the dynamic `SUMMARY_` + name keys at 0x4DD2B0 and 0x56212D;
   - the other summary keys: peace, pacts, alliances, and foreign espionage caught or missed;
-  - or a key from the list of report callers: `WONDERPRODUCE`, `CULTUREBORDERVERBOSE`, `HAVE_LUXURY`, `HAVE_RESOURCE`, `HAVE_RESOURCE_NO_UNIT`, `LOSTGOOD`, `NOSUPPORT`, `TRADEEMBARGO`, `TRADEEMBARGOENDS`, `THEY_DESTROY_CITY_GOLD`, `DESTROYEDSPACESHIP`, `THEIRNUKEFAILEDBYOTHERS`, `THEY_RETURNED_FLAG` and `THEY_TOOK_FLAG`.
+  - or a key from the list of report callers: `WONDERPRODUCE`, `CULTUREBORDERVERBOSE`, `HAVE_LUXURY`, `HAVE_RESOURCE`, `HAVE_RESOURCE_NO_UNIT`, `LOSTGOOD`, `NOSUPPORT`, `TRADEEMBARGO`, `TRADEEMBARGOENDS`, `THEY_DESTROY_CITY_GOLD` with its sibling keys for cities we lost (`THEY_CAPTURE_CITY_GOLD`, `THEY_RAZE_CITY_GOLD`, `CITY_LOST_WITH_WONDER`, `CITY_RAZED_WITH_WONDER`), `DESTROYEDSPACESHIP`, `THEIRNUKEFAILEDBYOTHERS`, `THEY_RETURNED_FLAG` and `THEY_TOOK_FLAG`.
 - As shown, it has one button and nothing else to click: no choice rows, no list and no second button. Links in its text, which open the Civilopedia, do not count.
 - The game is not an online or PBEM game.
 
@@ -230,8 +230,7 @@ The picture is the game's draw commands for the popup, kept the same way as the 
 ### In the viewer
 
 The bridge keeps up to 64 reports and sends the oldest two as interface-only views (ids 0x1100 and 0x1101, with the oldest on top), together with `Interface::queued` and the number waiting behind them. They are not modal: all other input goes to the game as if they were not there.
-- **Over the world** they stack at the window's top-right, away from the play in the middle.
-- **While a game loads** (no world yet) they stack where a modal popup over the menus goes.
+- **Where:** they stack at the window's top-right (while a game loads, the top-right of the menus' region). This keeps them away from the play in the middle of the world, and from the game's own modal popups, which go across the middle and would hide them.
 - **The stack:** the next report peeks out 10 pixels down and to the right of the first.
 - **Reading one:** a press anywhere on the stack, or Enter or Esc with the pointer on it, closes the first report and does nothing else. Its release is swallowed too (`Input::CloseQueued`).
 - **Alt mode:** the first report's button is a target.
