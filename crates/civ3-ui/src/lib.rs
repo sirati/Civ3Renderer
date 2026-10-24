@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blit;
 pub mod draw;
 pub mod text;
 pub mod production_queue;

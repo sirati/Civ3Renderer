@@ -72,8 +72,18 @@ pub fn pixel_callback(skip: bool, original: impl FnOnce() -> i32) -> i32 {
 /// Preserve original crop size in the capture and resize its cached art.
 pub fn scaled_geometry(origin: (i32, i32), crop: (i32, i32, i32, i32), scale: [u32; 3], compiled: bool) -> Option<((i32, i32), (i32, i32), [u32; 2])> {
     let [nx, ny, den] = scale.map(|n| n as i32);
-    if nx <= 0 || ny <= 0 || den <= 0 || crop.2 <= 0 || crop.3 <= 0 { return None; }
+    if nx <= 0 || ny <= 0 || den <= 0 { return None; }
     let crop_mul = |value: i32, numerator: i32| i32::try_from(i64::from(value) * i64::from(numerator) / i64::from(den)).ok();
+    let placed = (origin.0.checked_add(crop_mul(crop.0, nx)?)?, origin.1.checked_add(crop_mul(crop.1, ny)?)?);
+    scaled_placed(placed, (crop.2, crop.3), scale, compiled)
+}
+
+/// [`scaled_geometry`] of a sprite already placed: `placed` is the origin
+/// plus the crop offset scaled (what the scaled wrappers pass jgl's blits),
+/// `stored` the size of the sprite's stored pixels.
+pub fn scaled_placed(placed: (i32, i32), stored: (i32, i32), scale: [u32; 3], compiled: bool) -> Option<((i32, i32), (i32, i32), [u32; 2])> {
+    let [nx, ny, den] = scale.map(|n| n as i32);
+    if nx <= 0 || ny <= 0 || den <= 0 || stored.0 <= 0 || stored.1 <= 0 { return None; }
     // JGL stores each ratio as f32, then x87 multiplies the integer extent
     // at extended precision before truncation. f32 multiplication is wrong
     // for examples such as49*(32/49), whose native extent is31, not32.
@@ -84,9 +94,8 @@ pub fn scaled_geometry(origin: (i32, i32), crop: (i32, i32, i32, i32), scale: [u
         (result > 0.0 && result <= f64::from(i32::MAX)).then_some(result as i32)
     };
     let offset = !compiled && (nx != den || ny != den);
-    let at = (origin.0.checked_add(crop_mul(crop.0, nx)?)?.checked_add(if offset { sx as i32 } else { 0 })?,
-        origin.1.checked_add(crop_mul(crop.1, ny)?)?.checked_add(if offset { sy as i32 } else { 0 })?);
-    let size = (extent(crop.2, sx)?, extent(crop.3, sy)?);
+    let at = (placed.0.checked_add(if offset { sx as i32 } else { 0 })?, placed.1.checked_add(if offset { sy as i32 } else { 0 })?);
+    let size = (extent(stored.0, sx)?, extent(stored.1, sy)?);
     let step = |n: i32| u32::try_from((u64::from(den as u32) << 16) / u64::from(n as u32)).ok();
     (size.0 > 0 && size.1 > 0).then_some((at, size, [step(nx)?, step(ny)?]))
 }

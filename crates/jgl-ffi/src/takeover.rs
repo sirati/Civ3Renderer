@@ -59,9 +59,8 @@ pub(crate) fn original<F: Copy>(cell: &AtomicU32) -> F {
     unsafe { std::mem::transmute_copy::<usize, F>(&f) }
 }
 
-/// Takes over `entries` of `class` in jgl.dll loaded at `base`: all of
-/// them or none.
-pub fn take_over(base: u32, class: Class, entries: &[Entry]) -> Result<Takeover, TakeoverError> {
+/// Whether every slot of `entries` still holds jgl's own function.
+pub fn check(base: u32, class: Class, entries: &[Entry]) -> Result<(), TakeoverError> {
     for e in entries {
         let slot = class.slot(e.offset).ok_or(TakeoverError::NoSuchSlot { class, offset: e.offset })?;
         let found = slot_cell(base, class, e.offset).read().map_err(HookError::from)?;
@@ -70,6 +69,13 @@ pub fn take_over(base: u32, class: Class, entries: &[Entry]) -> Result<Takeover,
             return Err(TakeoverError::Unexpected { class, offset: e.offset, found, expected });
         }
     }
+    Ok(())
+}
+
+/// Takes over `entries` of `class` in jgl.dll loaded at `base`: all of
+/// them or none.
+pub fn take_over(base: u32, class: Class, entries: &[Entry]) -> Result<Takeover, TakeoverError> {
+    check(base, class, entries)?;
     let mut patches = Vec::with_capacity(entries.len());
     for e in entries {
         // The original first: the slot may be called the moment it changes.
