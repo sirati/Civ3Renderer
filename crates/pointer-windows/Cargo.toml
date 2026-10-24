@@ -9,6 +9,6 @@ version.workspace = true
 pointer-api = { path = "../pointer-api" }
 
 [target.'cfg(windows)'.dependencies]
-inproc = { path = "../inproc" }
+pointer-windows-ffi = { path = "../pointer-windows-ffi" }
 pointer-fallback = { path = "../pointer-fallback" }
 winit.workspace = true
