@@ -5,6 +5,8 @@
 #![forbid(unsafe_code)]
 
 #[cfg(unix)]
+pub mod launch_lock;
+#[cfg(unix)]
 mod startup;
 #[cfg(unix)]
 mod unix;

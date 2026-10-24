@@ -7,7 +7,7 @@
 //! `civ3-play-macos`, so the launcher keeps the process launched by macOS.
 //!
 //! Subcommands:
-//! - `stop`: send SIGTERM to the launcher holding the install lock. The
+//! - `stop`: send SIGTERM to the launcher holding the launch lock. The
 //!   launcher then stops the viewer and the game it owns.
 //! - `bundle --root DIR --icon PNG [--out DIR] [--fullscreen] [--separate-viewer]`: create
 //!   `Civilization III.app` in `--out` (default `~/Applications`) for the
@@ -185,18 +185,16 @@ mod app {
             .find(|(name, _)| name == "CIV3R_HOME")
             .map(|(_, value)| PathBuf::from(value))
             .unwrap_or(conf.root()?.join("runtime"));
-        let pid_path = home.join("launch.lock/pid");
-        let pid = match fs::read_to_string(&pid_path) {
-            Ok(pid) => pid.trim().to_owned(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                println!("civ3-app-macos: not running");
-                return Ok(());
-            }
-            Err(error) => return Err(error.into()),
+        // Only a launcher that holds the lock now: a pid left in it by one
+        // that is gone may be another process by now.
+        let Some(holder) = civ3r_launcher::launch_lock::holder(&home)? else {
+            println!("civ3-app-macos: not running");
+            return Ok(());
         };
-        if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(format!("invalid pid in {}", pid_path.display()).into());
+        if holder.pid == 0 {
+            return Err(format!("no pid in {}", civ3r_launcher::launch_lock::path(&home).display()).into());
         }
+        let pid = holder.pid.to_string();
         let status = Command::new("/bin/kill").args(["-TERM", &pid]).status()?;
         if !status.success() {
             return Err(format!("kill -TERM {pid} failed").into());
