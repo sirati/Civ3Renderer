@@ -59,7 +59,7 @@ pub mod pass_through;
 pub mod preload;
 pub mod prefs;
 pub mod preview;
-pub mod revealed;
+pub use civ3_world::revealed;
 pub mod replay;
 pub mod replay_thread;
 pub mod rings;

@@ -9,9 +9,8 @@ version.workspace = true
 jgl = { path = "../jgl" }
 scene = { path = "../scene" }
 viewer-settings = { path = "../viewer-settings" }
+menu = { path = "../menu" }
 log.workspace = true
 tile-game = { path = "../tile-game" }
 tile-viewer = { path = "../tile-viewer" }
 
-[dev-dependencies]
-menu = { path = "../menu" }

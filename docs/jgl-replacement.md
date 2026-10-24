@@ -67,9 +67,9 @@ the new hooks instead of an exe detour or import hook.
 |---|---|---|
 | `text.rs` `TextRun` | `civ3-ui::text` | text group (this round) |
 | `trace.rs` `record_text`, the `TextOutA` import hook, font logging | deleted; `civ3-ui::text::TextCapture` builds runs from hook calls | text group (this round) |
-| `ui.rs`, `ui/display_list.rs`, `ui_screen.rs`, `interface_parts.rs`, `ui_opacity.rs`, `looks.rs`, `lit_orders.rs` | `civ3-ui` | with the blit/copy/fill groups, when their `Event`s come from records |
+| `ui.rs`, `ui/display_list.rs`, `ui_screen.rs`, `interface_parts.rs`, `ui_opacity.rs`, `looks.rs`, `lit_orders.rs` | `civ3-ui` | with the blit/copy/fill groups, when their `Event`s come from records. Done with group 4: `ui`, its display list, the frame parts of `ui_screen` and `interface_parts`, the loading cursor (§9); the rest needs `civ3-sys` types out of the way |
 | `ui_trace.rs` exe detours | deleted group by group; the remaining install code shrinks to wiring | per group |
-| `scene_map.rs`, `units.rs`, `unit_views.rs`, `effects.rs`, `districts*`, `city_labels.rs`, `targeting.rs`, `minimap.rs`, `revealed.rs`, `world*.rs` | `civ3-world` | with the map-blit group (the map canvas's jgl calls become "ignore") |
+| `scene_map.rs`, `units.rs`, `unit_views.rs`, `effects.rs`, `districts*`, `city_labels.rs`, `targeting.rs`, `minimap.rs`, `revealed.rs`, `world*.rs` | `civ3-world` | with the map-blit group (the map canvas's jgl calls become "ignore"). The crate exists with `revealed`; `world.rs`'s model is made of `civ3-sys` types, which the rest builds on (§9) |
 | `modal.rs`, `prefs*`, `native_sliders*`, `game_window.rs`, `heartbeat.rs`, `presenter.rs`, `live.rs` | stay in `civ3-bridge` | `modal.rs` is being changed by another branch now; it moves last |
 
 ## 3. Object model and layouts
@@ -131,13 +131,12 @@ pub trait PixelPolicy {
 }
 ```
 
-Groups to come, in the same style (names fixed now, bodies when the group
-moves): `SurfaceHooks` (image created/resized/destroyed, clip set/reset,
-colour key, palette), `BlitHooks` (sprite init/duplicate, the blit slots
-+0x38..+0xA0 with mode, colour table and crop), `CopyHooks` (+0x40, +0x84,
-+0x8C), `FillHooks` (+0x44 fill, +0x48 shade, +0x4C..+0x64 lines and
-frames: a line is one call with its two ends), `PaletteHooks` (colour table
-set/animate), `PresentHooks` (+0x30 invalidate, +0xA4 present),
+Since then `FillHooks`, `CopyHooks` (groups 2 and 3), `BlitHooks` (blits,
+the sprites' state, the draw scale) and `PaletteHooks` (the colour tables)
+exist, and `PixelPolicy` answers per group (`original_fill`,
+`original_copy`, `original_blit`, `original_sprite_pixels`). Groups to
+come, in the same style: `SurfaceHooks` (image created/resized/destroyed,
+clip set/reset, colour key, palette), `PresentHooks` (+0x30 invalidate, +0xA4 present),
 `WindowHooks` (the graphics window, pump and pointer slots).
 
 jgl's state for a group lives in `jgl`, not in the consumer: for text, the
@@ -168,6 +167,11 @@ u8  ...              tail bytes (text), zero padded to 4
 | `TextColor` | image, `0x00BBGGRR`, or `0x10FFiiii` for an index | 12 |
 | `Text` | image, owner, x, y, clip (4), bytes (tail) | 36 + text |
 | `DcState` | image, face/height/weight/italic/underline/colour read from the image's DC (only for images whose state predates the takeover) | 28 + face |
+| `Fill`..`CopyOther` | the fill and copy groups' calls (`jgl::FillCall`, `CopyCall`) with their `Surface`s | 64 to 128 |
+| `Blit` | slot, call site, sprite (owner, table, bits, compiled), target and other image, mask sprite, (x, y), colour table and owner, draw scale and who set it, the raw arguments | 212 |
+| `SpriteInit`, `SpriteDuplicate`, `SpriteSetTable`, `SpriteSetKey`, `SpriteClear` | the sprite state slots (`jgl::SpriteCall`) | 24 to 52 |
+| `SetScale` | graphics +0x9C's three numbers and its call site | 20 |
+| `Table` | a colour table slot that changes it (`jgl::TableCall`), slot first | 16 to 28 |
 
 During migration the buffer is drained right after each append (the
 consumers interleave with today's detours, which emit synchronously, and
@@ -214,7 +218,7 @@ Groups, and the order they move in:
 | 1 | text | image +0xA8, +0xAC, +0xB0, +0xB4, +0xB8; font +0x08, +0x0C, +0x00 (font +0x04 and +0x10 counted only: loading from a file ends in +0x08 through the vtable, measuring stays GDI) | the `TextOutA` import hook and the four exe text-function detours |
 | 2 | fills, lines, frames, shade | image +0x44..+0x64 | 0x5FFF30.., `jgl_shade` |
 | 3 | copies | image +0x40, +0x84, +0x8C | 0x5FC9F0.. detours |
-| 4 | sprite blits and colour tables | sprite +0x04, +0x0C..+0x18, +0x38..+0xA0; colour table | the exe wrapper detours (roadmap §2) and the map blit detours |
+| 4 | sprite blits and colour tables (done, §9) | sprite +0x00..+0x18, +0x38..+0xA0; colour table +0x04..+0x20; graphics +0x9C `set_scale` | the exe wrapper detours (roadmap §2) and the map blit detours; jgl makes no sprite pixels (placeholder) |
 | 5 | present and invalidate | graphics +0x30, +0xA4 | `jgl_present` slot patch |
 | 6 | surfaces | factories +0x74..+0x94, image +0x04/+0x08, pixel access | roadmap step 5 |
 | 7 | window, pump, pointer, video modes | the remaining graphics slots | roadmap step 6 |
@@ -385,8 +389,131 @@ Cost: not measured this round [G: a fill or copy record is 16 to 28
 words, read from the image fields directly; no GDI query, no guarded
 read].
 
-Next groups, in order: sprite blits and colour tables (group 4, the
-largest; then `ui.rs`, `ui/display_list.rs`, `ui_screen.rs` and
-`interface_parts.rs` move to `civ3-ui`, and the map-canvas parts to
-`civ3-world`); present and invalidate (group 5); then the factories and
-surfaces (group 6, roadmap step 5) and the window (group 7, step 6).
+### Group 4 (third round): sprites, records only
+
+Done:
+
+- Group 4 is taken over (`jgl-ffi::blit`) after the RVA check: every
+  sprite blit slot +0x38..+0xA0, the sprite state slots +0x00 delete,
+  +0x04 `init`, +0x08 `clear`, +0x0C `duplicate`, +0x10/+0x14 colour
+  table, +0x18 key; the colour tables' +0x04..+0x20; graphics +0x9C
+  `set_scale`. Each entry point is reached through a naked trampoline
+  that keeps the call's return address. A blit records a `jgl::BlitCall`:
+  the sprite (its owner, own colour table, bits, whether jgl compiled
+  it), the images and mask its slot's shape names (`jgl::blit::Shape`,
+  [V] for the ten slots the exe's wrappers call), (x, y), the colour
+  table and its owner, the draw scale and the call site of the
+  `set_scale` that set it, the raw arguments and the call site.
+- What the owners are [V, the binary tests]: a `JGLSprite`'s +0x0C is
+  its `Sprite`'s +4 (the exe's five `new_sprite` calls pass it; jgl's
+  destructor clears it), a `JGL_Color_Table`'s +0x80C its
+  `PCX_Color_Table`. The draw scale is jgl's three globals at RVA
+  0x6C0FC; span compilation is the switch at 0x70D94 and the rule in
+  `jgl::blit::compiles` (0xAA60 and 0x9F50).
+- `civ3-ui::blit` names the exe function a blit came from by its call
+  site (`CALL_SITES`, checked in both exes by `civ3-ui/tests/exe.rs`) and
+  the scaled ones by the `set_scale` call before it (`SCALED`: they set
+  the scale, put the scaled crop into the sprite and call an unscaled
+  one). `ui_trace::on_blit` gives the interface mirror and the map
+  tracer what the old detour of that function gave, from the wrapper's
+  own (x, y) recovered exactly (`wrapper_xy`: the crop offset the
+  wrapper added, scaled as its `imul`/`idiv` did).
+- **Placeholder sprites.** With a viewer and the game not drawing itself,
+  jgl makes no sprite pixels: `init` and `duplicate` write jgl's fields
+  (size, bits, bytes, pitch, colour table) and point the pixels at one
+  shared placeholder (`jgl_ffi::blit::placeholder`: runs of 8 near-magenta
+  0x7C1E and 8 black 16-bit words), no pixel copied, nothing compiled
+  (what jgl would have compiled is jgl's state: `SpriteRef::compiled`).
+  `clear` and delete let go of the placeholder before jgl frees. No blit
+  runs jgl's original: the blits are records, the interface model draws
+  them from the art files. The game's own window shows the stripes where
+  sprites were; with `CIV3R_GAME_RENDER=on`, the compatibility renderer
+  or `CIV3R_JGL_COMPARE` (while it existed) jgl made and drew sprites as
+  before. Consequence [G, not tested]: when the viewer is lost and the
+  game's own drawing is restored, sprites made since start are stripes.
+- **The keyed hit test** (0x608C70, its `get_pixel` call at 0x608FE3,
+  roadmap §4 #1) is answered from the interface model
+  (`UiModel::shown_at`): the topmost draw of the canvas's display list
+  with a pixel there, the files' pixels from `ui_opacity::pixel`, the
+  same decoded art and key indices (254, 255) the model's opacity uses.
+  The viewer's own pointer routing uses the forms' rectangles
+  (`tile-viewer` `Layout::hit`), not pixels; both come from the same
+  model. Text gives no pixel there [G: jgl's canvas had the glyphs]; a
+  file not decoded yet counts as drawn; a canvas the model has no list of
+  keeps jgl's pixel.
+- Removed: the exe detours on `Sprite::draw` 0x5F8210 and its twelve
+  sibling wrappers (0x5F81A0, 0x5F8310, 0x5F8380, 0x5F83E0, 0x5F84A0,
+  0x5F8620, 0x5F86A0, 0x5F8760, 0x5F8870, 0x5F89A0) and the map tracer's
+  `draw_on_map` 0x5F8060, 0x5F8560 and `draw_with_color_table` 0x5F87E0,
+  with their definitions in `civ3-sys`, and the nesting guards they
+  needed (`SCALED_NATIVE`, `BLEND_WRAPPER_NATIVE`). The slice, copy and
+  reset detours (0x5F7EC0, 0x5F8A20, 0x5F7DB0) stay: the slice's crop and
+  source image are the exe's (jgl's `init` gets the trimmed pixels only).
+
+Equivalence [V]: with both paths running (`CIV3R_JGL_COMPARE=1`, commit
+eedb3b7, sprites jgl's), on a loaded game (map, advisors F1 to F4, F6,
+F7, the city screen, the Civilopedia, diplomacy, unit animation, a turn
+change), every one of 50538 calls of the old functions that reached
+jgl gave the same events and map-trace records and the same pixel
+decision on both paths: draw 20690, with_color_table 14532,
+scaled_a4 8749, draw_on_map 3661, scaled_a8 1964, alpha 640, blend 119,
+on_map_blend 79, a4b 72, masked 33. One call did not reach jgl (its
+sprite read from a file at the draw). The takeover saw no blit outside
+the old functions. +0x5C, +0x74 alone, +0x88 and +0x94 were not called
+in these screens.
+Read-back with placeholder sprites [V, the placeholder run logs every
+canvas whose blits the old path drew with jgl and that are now left out,
+and every read of one]:
+
+- keyed form canvases (`native_hit_mask`: the HUD's, the city screen's,
+  the advisors' and popups' forms): answered by the hit test above;
+- three 8-bit images at 0xB3F3E0 (0x2B8 apart): at startup the game
+  (0x549D60..) cuts sprites from `Art\oldinterface.pcx`, blits them into
+  these images and reads them with `get_pixel` (0x549FAD, roadmap §4 #5).
+  No record answers that yet: **sprites cut from that file keep jgl's
+  pixels** (`ui_trace::READ_BACK_ART`, set around the slice) and their
+  blits onto the 8-bit images run jgl's original, as before;
+- no other read of a canvas whose sprites were left out was logged.
+  `CIV3R_TRACE_PIXELS=1` adds `pixel_at`/`lock` reads to the check [not
+  run this round].
+
+The hit test counts a copy of a surface the game draws itself (the
+minimap on the HUD) as drawn [G for its own see-through pixels]: without
+that, a click on the minimap went through to the map.
+
+Placeholder check [V, `/tmp/c3r-g4-shots/{beforeB,placeholder,...}`]:
+the viewer shows no stripes in any shot (near-magenta pixel counts within
+0 to 11 of `before` everywhere); shots differ from `before` in unit
+animation frames, the advisor's quote and portrait, hover and camera
+timing only. Clicks: a HUD order button (a rename popup), the city
+screen's production box and exit, an advisor's face work as before.
+A click on the minimap and one on the map just above the HUD bar act as
+before (after the generated-surface rule above). The game's own window is black with a viewer (the game
+draws nothing there: `game rendering off`), so the stripes do not show
+in it either; they would only show where jgl still draws a sprite.
+
+Counting mode [V, same screens]: sprite +0x44 24350, +0x8C 14532,
++0x74 8749, +0x84 2036, +0x50 640, +0x7C 198, +0x58 33; init 19553,
+clear 19553, set_key 19584, set_color_table 33904, delete 14327,
+duplicate never; colour table set_colors 30692, get_colors 29999,
++0x20 11673, init 1390, animate 1; set_scale 317591. All from the
+game's thread.
+
+Mirroring: everything group 4 feeds is the interface mirror, as before
+(`ui.rs`'s display list draws the recorded file regions with our art);
+nothing new is mirrored. The mirror's consumers: the advisors, city
+screen, diplomacy, Civilopedia, popups, HUD and unit pictures in panels
+(roadmap §3). The world's sprites are not mirrored (`rerendered`), the
+map tracer records them for `civ3-trace.txt` only.
+
+Crates: `civ3-ui` now has the interface model (`ui`, its display list),
+the frame part of `ui_screen` and `interface_parts`, and the loading
+cursor; `civ3-world` exists with `revealed`. Left in the bridge: the
+rest of `ui_screen` (fonts, render descriptions, the world model,
+`civ3_sys::controls`), of `interface_parts` (the game's per-build tables,
+prefs, popups), and the world files: `world.rs`'s model is made of
+`civ3-sys` types, and `scene_map`, `units`, `effects`, `districts`,
+`city_labels`, `targeting`, `minimap` build on it.
+
+Next: present and invalidate (group 5); the surfaces (group 6), where the
+placeholder becomes our sprite object.

@@ -51,75 +51,19 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
-    /// `int Sprite::draw(this, PCX_Image *canvas, x, y, PCX_Color_Table *ct)`:
-    /// a colour-keyed blit (index 255 transparent).
-    pub mod sprite_draw(sprite, edx; canvas, x, y, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// A blit variant with the same arguments (`0x5F81A0`, city screen).
-    pub mod sprite_draw_variant(sprite, edx; canvas, x, y, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// Blit variants with one more argument (`0x5F84A0`, `0x5F8760`).
-    pub mod sprite_draw_a4(sprite, edx; canvas, x, y, a4, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// Blit variants with one more argument (the second of the pair).
-    pub mod sprite_draw_a4b(sprite, edx; canvas, x, y, a4, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// Scaled A4/A8 wrappers. Eight callee-popped words; the nested ordinary
-    /// draw receives temporarily scaled crop offsets and global JGL scale.
-    pub mod sprite_draw_scaled_a4(sprite, edx; canvas, x, y, a4, num_x, num_y, den, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    pub mod sprite_draw_scaled_a8(sprite, edx; canvas, x, y, a4, num_x, num_y, den, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// Scaled two-surface colour draw. canvas is background/read-only;
-    /// canvas2 is output. Nine stack words, native ret24h.
-    pub mod sprite_draw_scaled_colored(sprite, edx; canvas, canvas2, x, y, num_x, num_y, den, flags, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `Sprite::draw_opacity(this, canvas, x, y, float opacity, ct, flags)`.
-    /// The ABI carries the float's raw bits in the fourth stack argument.
-    pub mod sprite_draw_opacity(sprite, edx; canvas, x, y, opacity, ct, flags) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `Sprite::draw_blend(this, canvas, x, y, void *lut, ct)`: translucent
-    /// overlay through a blend table.
-    pub mod sprite_draw_blend(sprite, edx; canvas, x, y, lut, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `Sprite::draw_alpha(this = image, Sprite *mask, PCX_Image *background,
-    /// PCX_Image *dest, x, y, ct)`: a button face blended over a background
-    /// by an alpha mask (no crop offset).
-    pub mod sprite_draw_alpha(sprite, edx; mask, background, dest, x, y, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `Sprite::draw_masked(this, Sprite *mask, PCX_Image *dest, x, y, ct)`
-    /// (`0x5F8380`, the main menu's button faces): `this` blended onto
-    /// `dest` through the alpha sprite `mask` (no crop offset).
-    pub mod sprite_draw_masked(sprite, edx; mask, dest, x, y, ct) -> i32;
-}
-
-inproc::fastcall_hook! {
     /// `int PCX_Image::get_pixel(this, x, y)` (0x600220): the pixel's value
     /// (palette index or 16-bit colour). How the game tests what is under
     /// the mouse: index images of regions (the value is the region, 0xFF
     /// none) and the canvases of colour-keyed forms (the key lets a click
     /// through, 0x608C70).
     pub mod pcx_get_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
+    /// The same `get_pixel` at one call: the keyed forms' hit test
+    /// ([`keyed_hit_test_site`]). A hook of its own: [`pcx_get_pixel`] is
+    /// installed at the function's start.
+    pub mod keyed_hit_pixel(image, edx; x, y) -> u32;
 }
 
 inproc::fastcall_hook! {
@@ -190,17 +134,6 @@ pub struct UiSites {
     pub sprite_slice: Site,
     pub sprite_copy: Site,
     pub sprite_reset: Site,
-    pub sprite_draw: Site,
-    pub sprite_draw_variant: Site,
-    pub sprite_draw_a4: Site,
-    pub sprite_draw_a4b: Site,
-    pub sprite_draw_blend: Site,
-    pub sprite_draw_scaled_a4: Site,
-    pub sprite_draw_scaled_a8: Site,
-    pub sprite_draw_scaled_colored: Site,
-    pub sprite_draw_opacity: Site,
-    pub sprite_draw_alpha: Site,
-    pub sprite_draw_masked: Site,
     pub pcx_get_pixel: Site,
     pub form_composite: Site,
     pub paint: Site,
@@ -227,23 +160,6 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             sprite_copy: (0x5F_8A20, &[0x56, 0x57, 0x8B, 0x7C, 0x24, 0x0C]),
             // push ebx / push esi / mov esi,ecx / mov ecx,[0CAB28Ch]
             sprite_reset: (0x5F_7DB0, &[0x53, 0x56, 0x8B, 0xF1, 0x8B, 0x0D, 0x8C, 0xB2, 0xCA, 0x00]),
-            // sub esp,0Ch / push ebx / push esi
-            sprite_draw: (0x5F_8210, &[0x83, 0xEC, 0x0C, 0x53, 0x56]),
-            // mov eax,[ecx+8] / push esi / test eax,eax
-            sprite_draw_variant: (0x5F_81A0, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
-            // mov eax,ecx / push esi / mov ecx,[eax+8]
-            sprite_draw_a4: (0x5F_84A0, &[0x8B, 0xC1, 0x56, 0x8B, 0x48, 0x08]),
-            sprite_draw_scaled_a4: (0x5F_83E0, &[0x83, 0xEC, 0x0C, 0x8D, 0x54, 0x24, 0x00]),
-            sprite_draw_scaled_a8: (0x5F_86A0, &[0x83, 0xEC, 0x0C, 0x8D, 0x54, 0x24, 0x00]),
-            sprite_draw_scaled_colored: (0x5F_8870, &[0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x14]),
-            // mov eax,[ecx+8] / push esi / test eax,eax
-            sprite_draw_a4b: (0x5F_8760, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
-            sprite_draw_opacity: (0x5F_89A0, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
-            sprite_draw_blend: (0x5F_8620, &[0x8B, 0x41, 0x08, 0x56, 0x85, 0xC0]),
-            // mov eax,[esp+8] / push esi
-            sprite_draw_alpha: (0x5F_8310, &[0x8B, 0x44, 0x24, 0x08, 0x56]),
-            // mov eax,[esp+8] / push esi / test eax,eax
-            sprite_draw_masked: (0x5F_8380, &[0x8B, 0x44, 0x24, 0x08, 0x56, 0x85, 0xC0]),
             // push ebx / push esi / mov esi,ecx / push edi
             pcx_get_pixel: (0x60_0220, &[0x53, 0x56, 0x8B, 0xF1, 0x57]),
             // sub esp,18h / push ebp / push esi
@@ -269,6 +185,21 @@ pub fn graphics_initialized(build: Build) -> bool {
         Build::Gog | Build::Steam => false,
     }
 }
+
+/// The keyed forms' hit test (0x608C70) reads the pixel of the form's
+/// canvas (+0x274) under the mouse here, `call PCX_Image::get_pixel`, and
+/// compares it with the colour key (0x72FEB0) (`docs/rerender-roadmap.md`
+/// §4 #1).
+pub fn keyed_hit_test_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
+    match build {
+        Build::PcGames => Some((0x60_8FE3, &[0xE8, 0x38, 0x72, 0xFF, 0xFF])),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// Where the game keeps its 16-bit colour key (bit 31 a flag), which the
+/// keyed hit test compares with.
+pub const COLOR_KEY: u32 = 0x72_FEB0;
 
 /// The back buffer (`PCX_Image` at 0xCACFF0): its pixels are the window's.
 pub fn back_buffer(build: Build) -> Option<u32> {

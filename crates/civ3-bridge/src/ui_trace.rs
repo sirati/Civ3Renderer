@@ -14,6 +14,7 @@ use crate::game_render::Skipper;
 use crate::text::TextRun;
 use crate::ui::{Event, Frame, UiModel, rgb555};
 use crate::ui_capture::{CapturePoint, OriginalDrawing};
+use civ3_ui::blit::GameBlit;
 
 static CAPTURE: std::sync::LazyLock<crate::ui_capture::UiCapture<UiTracer>> = std::sync::LazyLock::new(crate::ui_capture::UiCapture::new);
 static DRAWING: OriginalDrawing = OriginalDrawing::new();
@@ -31,17 +32,6 @@ static RESIZED_FILE_CAPTURES: AtomicU64 = AtomicU64::new(0);
 static RESIZED_UNSUPPORTED: AtomicU64 = AtomicU64::new(0);
 static SCALED_SKIPPED: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
 static SCALED_ORIGINAL: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
-thread_local! { static SCALED_NATIVE: Cell<bool> = const { Cell::new(false) }; }
-thread_local! { static BLEND_WRAPPER_NATIVE: Cell<bool> = const { Cell::new(false) }; }
-
-/// The map wrapper already captured its blend. Its native implementation
-/// can enter the direct blend hook, which must not record it a second time.
-pub(crate) fn blend_wrapper_original<R>(original: impl FnOnce() -> R) -> R {
-    struct Guard(bool);
-    impl Drop for Guard { fn drop(&mut self) { BLEND_WRAPPER_NATIVE.with(|v| v.set(self.0)); } }
-    let _guard = Guard(BLEND_WRAPPER_NATIVE.with(|v| v.replace(true)));
-    original()
-}
 static SEMANTIC_CALLS: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
 
 #[derive(Clone, Copy)]
@@ -195,6 +185,41 @@ pub fn refresh_original_drawing(game: Civ3) {
 fn policy() -> crate::game_render::StartupPolicy {
     let var = |name: &str| std::env::var(name).ok();
     crate::game_render::startup_policy(var("CIV3R_GAME_RENDER").as_deref(), var("CIV3R_VIEWER").as_deref(), var("CIV3R_GAME_WINDOW").as_deref(), var("CIV3R_UI").as_deref(), var("CIV3R_GAME_MAP").as_deref())
+}
+
+/// Whether sprites' pixels are the placeholder (`jgl_ffi::blit::placeholder`)
+/// and jgl draws no blit: with a viewer, the game not drawing (no
+/// `CIV3R_GAME_RENDER=on`, no compatibility renderer) and no
+/// `CIV3R_JGL_COMPARE` (whose old path reads the sprites jgl made). Decided
+/// once: a sprite keeps the pixels it was made with.
+pub(crate) fn placeholder_sprites() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let p = policy();
+        p.capture && !p.game_draws && !p.fallback
+    })
+}
+
+thread_local! {
+    /// Set while a sprite is cut from [`READ_BACK_ART`]: jgl makes its pixels.
+    static REAL_SPRITES: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Art whose sprites the game draws into 8-bit images it then reads back
+/// with `get_pixel` (0x549D60.., `Art\oldinterface.pcx` into the three
+/// images at 0xB3F3E0, read at 0x549FAD): no record answers those reads
+/// yet, so these sprites keep jgl's pixels and their blits onto such
+/// images jgl's original (`docs/jgl-replacement.md` §9).
+const READ_BACK_ART: [&str; 1] = ["art/oldinterface.pcx"];
+
+fn read_back_art(path: &str) -> bool {
+    let path = path.replace('\\', "/").to_ascii_lowercase();
+    READ_BACK_ART.iter().any(|a| path.ends_with(a))
+}
+
+/// Whether the sprite being made gets jgl's pixels (see [`placeholder_sprites`]).
+pub(crate) fn real_sprite_pixels() -> bool {
+    !placeholder_sprites() || REAL_SPRITES.with(Cell::get)
 }
 
 pub(crate) fn requested_game_draws() -> bool {
@@ -387,36 +412,38 @@ fn skips(canvas: u32, source: u32) -> bool {
     skip
 }
 
-/// Capturing a drawing command precedes this gate. The native pixel callback
-/// is suppressed independently of scene construction and input semantics.
-fn draw(canvas: u32, source: u32, original: impl FnOnce() -> i32) -> i32 {
-    crate::game_render::pixel_callback(skips(canvas, source), original)
+/// What a blit of jgl's sprite group tells of a resized sprite's place
+/// (none for the exe detours: the sprite then says).
+#[derive(Copy, Clone, Debug, Default)]
+struct Placement {
+    /// x and y plus the scaled crop offset, as the scaled wrappers pass
+    /// jgl's blit (the crop offset in the sprite is the scaled one then).
+    at: Option<(i32, i32)>,
+    /// Whether jgl compiled the sprite (its pixels may be the placeholder).
+    compiled: Option<bool>,
 }
 
-fn scaled_draw(kind: usize, canvas: u32, sprite: u32, original: impl FnOnce() -> i32) -> i32 {
-    let skip = skips(canvas, sprite);
-    if PIXEL_AUDIT.load(Relaxed) {
-        (if skip { &SCALED_SKIPPED } else { &SCALED_ORIGINAL })[kind].fetch_add(1, Relaxed);
-    }
-    if skip { return 0; }
-    struct Guard(bool);
-    impl Drop for Guard { fn drop(&mut self) { SCALED_NATIVE.with(|v| v.set(self.0)); } }
-    let _guard = Guard(SCALED_NATIVE.with(|v| v.replace(true)));
-    original()
-}
-
-fn resized_blit(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], ct: u32, indices: Option<menu::screen::Indices>) {
-    if world_canvas(canvas) || SCALED_NATIVE.with(Cell::get) { return; }
+/// A sprite drawn resized from the wrapper's (x, y). `placed`: where the
+/// wrapper put it, when the sprite's crop offset in memory is the scaled
+/// one (the scaled wrappers write it there for the call): x and y plus the
+/// scaled crop offset, as jgl's blit gets them.
+#[allow(clippy::too_many_arguments)]
+fn resized_blit(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement, scale: [u32; 3], ct: u32, indices: Option<menu::screen::Indices>, clip: Option<[i32; 4]>) {
+    if world_canvas(canvas) { return; }
     let Some(crop) = obj::sprite_crop(sprite) else { return };
-    let Some(compiled) = obj::sprite_compiled(sprite) else { return };
-    let Some(((x, y), size, sample_step)) = crate::game_render::scaled_geometry((x as i32, y as i32), crop, scale, compiled) else { return };
+    let Some(compiled) = placed.compiled.or_else(|| obj::sprite_compiled(sprite)) else { return };
+    let geometry = match placed.at {
+        None => crate::game_render::scaled_geometry((x as i32, y as i32), crop, scale, compiled),
+        Some(at) => crate::game_render::scaled_placed(at, (crop.2, crop.3), scale, compiled),
+    };
+    let Some(((x, y), size, sample_step)) = geometry else { return };
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
         // FLC_Frame_Image::load at 0x5F7A90 creates Sprite+8 from the full
         // header frame dimensions. 0x5F7B0C..1E copies header offsets into
         // Sprite+0x20/+0x24. Those offsets affect destination geometry
         // above; the decoded chunk starts at source coordinate 0,0.
         let indices = indices.unwrap_or_else(|| menu::screen::Indices { transparent: vec![254, 255], ..Default::default() });
-        emit(Event::ResizedFlcBlit { flic, chunk, canvas, x, y, source_size: (crop.2, crop.3), size, sample_step, clip: clip_of(canvas), palette: palette_from(sprite, ct).or_else(|| copied_civ_colors(ct)), indices });
+        emit(Event::ResizedFlcBlit { flic, chunk, canvas, x, y, source_size: (crop.2, crop.3), size, sample_step, clip, palette: palette_from(sprite, ct).or_else(|| copied_civ_colors(ct)), indices });
         return;
     }
     if PIXEL_AUDIT.load(Relaxed) {
@@ -424,7 +451,7 @@ fn resized_blit(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], ct: u
         if file { RESIZED_FILE_CAPTURES.fetch_add(1, Relaxed); }
         else { RESIZED_UNSUPPORTED.fetch_add(1, Relaxed); }
     }
-    emit(Event::ResizedBlit { sprite, canvas, x, y, size, sample_step, clip: clip_of(canvas), palette: palette_from(sprite, ct).or_else(|| copied_civ_colors(ct)), indices });
+    emit(Event::ResizedBlit { sprite, canvas, x, y, size, sample_step, clip, palette: palette_from(sprite, ct).or_else(|| copied_civ_colors(ct)), indices });
 }
 
 fn with_skipper<R>(f: impl FnOnce(&mut Skipper) -> R) -> Option<R> {
@@ -458,7 +485,7 @@ thread_local! {
 /// part of the back buffer reaches the window is the model's to follow
 /// (`UiModel::present`). Kept clipped, a paint of one button's rectangle
 /// would leave a popup without its frame and a tooltip without its box.
-fn clip_of(canvas: u32) -> Option<[i32; 4]> {
+pub(crate) fn clip_of(canvas: u32) -> Option<[i32; 4]> {
     let dirty = if BACK_BUFFER.get() == Some(&canvas) { DIRTY.with(Cell::get) } else { None };
     crate::ui::content_clip(h::canvas_clip(canvas), dirty)
 }
@@ -827,16 +854,16 @@ fn size_of(canvas: u32) -> Option<(i32, i32)> {
 
 /// A sprite drawn at (x, y): its stored pixels start at the crop offset.
 /// `ct`: the colour table it is drawn through (0: its own palette).
-fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32) {
-    if SCALED_NATIVE.with(Cell::get) || rerendered(canvas) { return; }
+fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32, clip: Option<[i32; 4]>) {
+    if rerendered(canvas) { return; }
     let (cx, cy) = if add_crop { obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1)) } else { (0, 0) };
     // A frame of an FLC animation in its own colours (a leader head).
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), plain: true });
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip, plain: true });
         return;
     }
     let palette = palette_from(sprite, ct);
-    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette });
+    emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip, palette });
 }
 
 fn palette_from(sprite: u32, ct: u32) -> Option<menu::screen::PaletteFrom> {
@@ -1068,7 +1095,12 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: a sprite cut from image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
+        // Sprites the game draws into images it reads back keep jgl's
+        // pixels (`READ_BACK_ART`).
+        let real = placeholder_sprites() && with_model(false, |m| m.file_of(c.image).is_some_and(read_back_art)) == Some(true);
+        let previous = REAL_SPRITES.with(|r| r.replace(real));
         let r = c.original();
+        REAL_SPRITES.with(|r| r.set(previous));
         if obj::sprite_has_pixels(c.sprite) {
             if let Some((cx, cy, w, hh)) = obj::sprite_crop(c.sprite) {
                 let rect = [c.x as i32 + cx, c.y as i32 + cy, w, hh];
@@ -1086,74 +1118,12 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         emit(Event::Reset { sprite: c.sprite });
         c.original()
     });
-    // The game's mouse cursor, which it draws onto the screen last (docs
-    // §16.5, §16.11), is not mirrored: the viewer shows the pointer itself,
-    // where the mouse is now (a mirrored one would lag behind it).
-    let cursor_sprite = civ3_sys::cursor::sites(game.build).map(|s| s.sprite);
-    let screen = h::back_buffer(game.build).unwrap_or(0);
-    let is_cursor = move |sprite: u32, canvas: u32| {
-        canvas == screen && sprite != 0 && cursor_sprite.is_some_and(|at| inproc::Ptr32::<u32>::new(at).read().ok() == Some(sprite))
-    };
-    // A sprite read from a file at every draw (its pixels are 0 then)
-    // draws through `read_file` and `draw_onto`, both hooked: it runs.
-    hook!(sprite_draw, sites.sprite_draw, move |c| {
-        if !is_cursor(c.sprite, c.canvas) {
-            blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        }
-        draw(c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_variant, sites.sprite_draw_variant, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        draw(c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_a4, sites.sprite_draw_a4, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        draw(c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_a4b, sites.sprite_draw_a4b, |c| {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct);
-        draw(c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_scaled_a4, sites.sprite_draw_scaled_a4, |c| {
-        resized_blit(c.sprite, c.canvas, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, None);
-        scaled_draw(0, c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_scaled_a8, sites.sprite_draw_scaled_a8, |c| {
-        resized_blit(c.sprite, c.canvas, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, None);
-        scaled_draw(1, c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_scaled_colored, sites.sprite_draw_scaled_colored, |c| {
-        let shades = BUILD.get().and_then(|&b| blend_levels(b, c.flags)) == Some(&crate::ui::indices::SHADE_LEVELS[..]);
-        let path = with_model(false, |m| match m.sprite_source(c.sprite) { Some(crate::ui::Source::File { path, .. }) => Some(path.clone()), _ => None }).flatten();
-        if shades && (path.is_some() || h::flc_frame(c.sprite).is_some()) {
-            for indices in [crate::ui::indices::colored(path.as_deref().map_or(&[254, 255][..], crate::ui::indices::blank)), crate::ui::indices::colored_shades(), crate::ui::indices::colored_smoke()] {
-                resized_blit(c.sprite, c.canvas2, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, Some(indices));
-            }
-        } else {
-            resized_blit(c.sprite, c.canvas2, c.x, c.y, [c.num_x, c.num_y, c.den], c.ct, None);
-        }
-        scaled_draw(2, c.canvas2, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_blend, sites.sprite_draw_blend, |c| {
-        if BLEND_WRAPPER_NATIVE.with(Cell::get) || SCALED_NATIVE.with(Cell::get) { return c.original(); }
-        on_map_blend(c.sprite, c.canvas, c.x, c.y, c.lut, [1, 1, 1], c.ct);
-        draw(c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_opacity, sites.sprite_draw_opacity, |c| {
-        if rerendered(c.canvas) { return draw(c.canvas, c.sprite, || c.original()); }
-        let opacity = crate::ui::sprite_opacity(c.opacity);
-        let (cx, cy) = obj::sprite_crop(c.sprite).map_or((0, 0), |p| (p.0, p.1));
-        let palette = BUILD.get().and_then(|&b| h::civ_color_table(b, c.ct)).map(|n| menu::screen::PaletteFrom {
-            image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 0, count: 256,
-        });
-        emit(Event::OpacityBlit { sprite: c.sprite, canvas: c.canvas, x: c.x as i32 + cx, y: c.y as i32 + cy, clip: clip_of(c.canvas), palette, opacity });
-        draw(c.canvas, c.sprite, || c.original())
-    });
-    hook!(sprite_draw_alpha, sites.sprite_draw_alpha, |c| {
-        // No crop offset: the stored pixels go to (x, y).
-        if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
-        draw(c.dest, c.sprite, || c.original())
-    });
+    // The keyed forms' hit test reads the pixel under the mouse from the
+    // form's canvas. With placeholder sprites jgl draws no sprite there:
+    // the interface model answers it, from what the viewer shows.
+    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
+        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
+    }
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
@@ -1161,6 +1131,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
+        placeholder_read(c.image, "get_pixel");
         c.original()
     });
     hook!(form_composite, sites.form_composite, |c| {
@@ -1220,10 +1191,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
         crate::city_screen::native::present(&presenting);
         emit_present(if rect == 0 { None } else { obj::rect(rect) }, presented);
-    });
-    hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
-        if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
-        draw(c.dest, c.sprite, || c.original())
     });
     if let Some(site) = h::flc_load_site(game.build) {
         hook!(flc_load, site, |c| {
@@ -1330,6 +1297,8 @@ fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result
     // Fills, lines, shades and copies: jgl's own method groups, taken over.
     crate::jgl_hooks::install_fill(base)?;
     crate::jgl_hooks::install_copy(base)?;
+    // Sprite blits, their state and the colour tables: the sprite group.
+    crate::jgl_hooks::install_blit(base)?;
     hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| audit_call(PixelClass::Present, skipping(), || c.original()))?));
     Ok(())
 }
@@ -1344,6 +1313,7 @@ fn trace_pixel_access(base: u32) {
     thread_local! { static SEEN: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
     fn note(image: u32) {
         let Some(owner) = h::jgl_owner(image) else { return };
+        placeholder_read(owner, "pixel_at/lock");
         if with_skipper(|s| s.was_skipped(owner) && !s.keeps(owner)) != Some(true) {
             return;
         }
@@ -1480,38 +1450,34 @@ pub fn map_redraw(map_renderer: u32) {
     });
 }
 
-/// An unscaled map-sprite blit onto an interface canvas (Top 5 Cities).
-/// The tracer excludes the main map pass, which the renderer draws itself.
-/// Returns whether the game's own drawing of this recorded blit is skipped.
-pub fn on_map_sprite(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], ct: u32) -> bool {
+/// A map-sprite blit (`draw_on_map`) onto an interface canvas (Top 5
+/// Cities): the main map pass is the renderer's (`placed`: see
+/// [`resized_blit`]).
+#[allow(clippy::too_many_arguments)]
+fn map_sprite_events(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement, scale: [u32; 3], ct: u32, clip: Option<[i32; 4]>) {
     if scale[0] == scale[1] && scale[1] == scale[2] {
-        if !world_canvas(canvas) { blit(sprite, canvas, x, y, true, ct); }
+        if !world_canvas(canvas) { blit(sprite, canvas, x, y, true, ct, clip); }
     } else {
-        resized_blit(sprite, canvas, x, y, scale, ct, None);
+        resized_blit(sprite, canvas, x, y, placed, scale, ct, None, clip);
     }
-    skips(canvas, sprite)
 }
 
-/// A blend-table blit (`Sprite::draw_blend` through its scaled wrapper,
-/// the tracer's hook) onto an interface canvas: the shadows of resources
-/// and terrain buildings, e.g. in the tile information box's picture of the
-/// map. `table`: the blend tables. Returns whether the game's own drawing
-/// of it is skipped.
-pub fn on_map_blend(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, scale: [u32; 3], ct: u32) -> bool {
+/// A blend-table blit (`Sprite::draw_blend`, alone or through its scaled
+/// wrapper) onto an interface canvas: the shadows of resources and terrain
+/// buildings, e.g. in the tile information box's picture of the map.
+/// `table`: the blend tables (`placed`: see [`resized_blit`]).
+#[allow(clippy::too_many_arguments)]
+fn map_blend_events(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement, table: u32, scale: [u32; 3], ct: u32, clip: Option<[i32; 4]>) {
     // (Nothing is mirrored onto the world's canvases: no tables to look up.)
-    if world_canvas(canvas) { return skips(canvas, sprite); }
-    let levels = BUILD.get().and_then(|&b| blend_levels(b, table));
-    match levels {
+    if world_canvas(canvas) { return; }
+    match BUILD.get().and_then(|&b| blend_levels(b, table)) {
         Some(levels) => {
-            if !world_canvas(canvas) {
-                let indices = crate::ui::indices::blend(levels);
-                if scale[0] == scale[1] && scale[1] == scale[2] { indexed_blit(sprite, canvas, x, y, indices, None); }
-                else { resized_blit(sprite, canvas, x, y, scale, ct, Some(indices)); }
-            }
-            skips(canvas, sprite)
+            let indices = crate::ui::indices::blend(levels);
+            if scale[0] == scale[1] && scale[1] == scale[2] { indexed_blit(sprite, canvas, x, y, indices, None, clip); }
+            else { resized_blit(sprite, canvas, x, y, placed, scale, ct, Some(indices), clip); }
         }
         // A table not known here uses the ordinary sprite path.
-        _ => on_map_sprite(sprite, canvas, x, y, scale, ct),
+        _ => map_sprite_events(sprite, canvas, x, y, placed, scale, ct, clip),
     }
 }
 
@@ -1528,23 +1494,23 @@ fn blend_levels(build: civ3_sys::Build, table: u32) -> Option<&'static [u8]> {
 
 /// A sprite drawn at (x, y) (its stored pixels at the crop offset), its
 /// palette indices as `indices` says.
-fn indexed_blit(sprite: u32, canvas: u32, x: u32, y: u32, indices: menu::screen::Indices, palette: Option<menu::screen::PaletteFrom>) {
-    if SCALED_NATIVE.with(Cell::get) || rerendered(canvas) { return; }
+fn indexed_blit(sprite: u32, canvas: u32, x: u32, y: u32, indices: menu::screen::Indices, palette: Option<menu::screen::PaletteFrom>, clip: Option<[i32; 4]>) {
+    if rerendered(canvas) { return; }
     let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
-    emit(Event::IndexedBlit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), palette, indices });
+    emit(Event::IndexedBlit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip, palette, indices });
 }
 
 /// A colour-table blit (the tracer's hook): unit animation frames drawn on
 /// interface canvases become unit pictures (§16.9). `canvas` is the
 /// destination (the blit's second canvas argument); `table` its blend
 /// tables, `ct` its colour table.
-pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, ct: u32) {
+pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, ct: u32, clip: Option<[i32; 4]>) {
     if world_canvas(canvas) { return; }
     if let Some((flic, chunk)) = h::flc_frame(sprite) {
         // The frame's image lies at its offset from (x, y), as for map
         // units (§10.3).
         let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |c| (c.0, c.1));
-        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip: clip_of(canvas), plain: false });
+        emit(Event::FlcBlit { flic, chunk, canvas, x: x as i32 + cx, y: y as i32 + cy, clip, plain: false });
         return;
     }
     // Through the shade tables (the territory borders in the tile
@@ -1557,11 +1523,11 @@ pub fn on_colored(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, ct: u32)
     match path.filter(|_| shades) {
         Some(path) => {
             let palette = palette_from(sprite, ct).or_else(|| copied_civ_colors(ct));
-            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored(crate::ui::indices::blank(&path)), palette);
-            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored_shades(), None);
-            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored_smoke(), None);
+            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored(crate::ui::indices::blank(&path)), palette, clip);
+            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored_shades(), None, clip);
+            indexed_blit(sprite, canvas, x, y, crate::ui::indices::colored_smoke(), None, clip);
         }
-        None => blit(sprite, canvas, x, y, true, ct),
+        None => blit(sprite, canvas, x, y, true, ct, clip),
     }
 }
 
@@ -1575,21 +1541,211 @@ fn copied_civ_colors(ct: u32) -> Option<menu::screen::PaletteFrom> {
     Some(menu::screen::PaletteFrom { image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 64, count: 2 })
 }
 
-#[cfg(test)]
-mod blend_hook_tests {
-    use super::*;
+thread_local! {
+    /// Canvases jgl would have drawn sprites onto for the game to read
+    /// back (the exe detours kept them), had their sprites pixels: with
+    /// placeholder sprites they have none. Why it was kept, and whether
+    /// the game was seen reading one.
+    static PLACEHOLDER_LOST: std::cell::RefCell<std::collections::HashMap<u32, (&'static str, bool)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
 
-    #[test]
-    fn wrapper_guard_restores_nested_state_and_unwinds() {
-        assert!(!BLEND_WRAPPER_NATIVE.with(Cell::get));
-        blend_wrapper_original(|| {
-            assert!(BLEND_WRAPPER_NATIVE.with(Cell::get));
-            blend_wrapper_original(|| assert!(BLEND_WRAPPER_NATIVE.with(Cell::get)));
-            assert!(BLEND_WRAPPER_NATIVE.with(Cell::get));
-        });
-        assert!(!BLEND_WRAPPER_NATIVE.with(Cell::get));
-        assert!(std::panic::catch_unwind(|| blend_wrapper_original(|| panic!("native failure"))).is_err());
-        assert!(!BLEND_WRAPPER_NATIVE.with(Cell::get));
+/// A blit onto `canvas` that the old decision drew with jgl, left out for
+/// the placeholder sprites (`jgl_hooks`): logged once per canvas with the
+/// reason it was kept.
+pub(crate) fn placeholder_lost(canvas: u32) {
+    let reason = if !skipping() { "game draws" }
+        else if world_canvas(canvas) && !crate::trace::GAME_MAP_OFF.load(Relaxed) { "world canvas, game map on" }
+        else if obj::image_bits(canvas).is_some_and(|bits| bits <= 8) { "palette_indices" }
+        else if obj::keyed_form_canvas(canvas) { "native_hit_mask" }
+        else if with_any_skipper(|s| s.keeps(canvas)) == Some(true) { "native_pixel_source" }
+        else { "other" };
+    let new = PLACEHOLDER_LOST.with_borrow_mut(|l| l.len() < 256 && !l.contains_key(&canvas) && { l.insert(canvas, (reason, false)); true });
+    if new {
+        log::info!("placeholder sprites: blits onto {canvas:#x} kept by the old path ({reason}) left out");
+    }
+}
+
+/// The game reads pixels of `image` (`how`): if blits onto it were left
+/// out for the placeholder sprites, logged once.
+fn placeholder_read(image: u32, how: &str) {
+    let first = PLACEHOLDER_LOST.with_borrow_mut(|l| match l.get_mut(&image) {
+        Some((_, seen @ false)) => { *seen = true; true }
+        _ => false,
+    });
+    if first {
+        log::warn!("placeholder sprites: the game reads pixels of {image:#x} ({how}), whose sprite blits were left out");
+    }
+}
+
+/// The pixel of keyed form canvas `canvas` at (x, y) for the game's hit
+/// test, from what the interface model shows there
+/// (`UiModel::shown_at`, the files' pixels from `ui_opacity::pixel`):
+/// the colour key where it is see-through, else its colour as the
+/// canvas's 16-bit value. `None` (jgl's pixel then) outside the canvas
+/// or when the model has no answer.
+fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
+    let (w, hh) = obj::image_size(canvas)?;
+    if x < 0 || y < 0 || x >= w || y >= hh {
+        return None;
+    }
+    let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
+    let shown = with_model(false, |m| m.shown_at(canvas, x, y, &crate::ui_opacity::pixel))?;
+    let answer = match shown {
+        crate::ui::Shown::Rgb(rgb) if rgb == crate::ui::KEY_RGB => key,
+        crate::ui::Shown::Rgb([r, g, b]) => (u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3),
+        // Nothing drawn: cleared to the key (the model drops what a fill
+        // of the key clears); a file not read yet: the form, as a drawn
+        // pixel would be.
+        crate::ui::Shown::Nothing => key,
+        crate::ui::Shown::Unknown => key ^ 1,
+        crate::ui::Shown::NotMirrored => return None,
+    };
+    if HIT_LOG.with(|n| { let k = n.get(); n.set(k + 1); k < 40 }) {
+        log::debug!("keyed hit test: canvas {canvas:#x} ({x}, {y}): {shown:?} -> {answer:#x}");
+    }
+    Some(answer)
+}
+
+thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
+
+/// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
+/// it draws onto the screen last (docs §16.5, §16.11): not mirrored, the
+/// viewer shows the pointer itself, where the mouse is now (a mirrored one
+/// would lag behind it).
+fn is_cursor(sprite: u32, canvas: u32) -> bool {
+    let Some(&build) = BUILD.get() else { return false };
+    canvas != 0 && Some(canvas) == h::back_buffer(build) && sprite != 0
+        && civ3_sys::cursor::sites(build).is_some_and(|s| inproc::Ptr32::<u32>::new(s.sprite).read().ok() == Some(sprite))
+}
+
+/// The wrapper's own (x, y) of a blit of jgl's sprite group: what it
+/// passed jgl, less the crop offset it added. `Sprite::draw` and
+/// `draw_on_map` add the crop offset times the draw scale (truncated, as
+/// the exe's `imul`/`idiv`), the others the crop offset in the sprite (the
+/// scaled wrappers have put the scaled one there), the masked ones none.
+fn wrapper_xy(b: &GameBlit) -> (u32, u32) {
+    use civ3_ui::blit::Wrapper as W;
+    let (cx, cy) = obj::sprite_crop(b.sprite).map_or((0, 0), |c| (c.0, c.1));
+    let (dx, dy) = match b.wrapper {
+        W::Alpha | W::Masked => (0, 0),
+        W::Draw | W::DrawOnMap => {
+            let [nx, ny, den] = b.scale.map(|v| v as i32);
+            if den == 0 { (cx, cy) } else { (cx.wrapping_mul(nx).wrapping_div(den), cy.wrapping_mul(ny).wrapping_div(den)) }
+        }
+        _ => (cx, cy),
+    };
+    (b.at.0.wrapping_sub(dx) as u32, b.at.1.wrapping_sub(dy) as u32)
+}
+
+/// Where a scaled wrapper put its sprite (see [`resized_blit`]).
+fn placed(b: &GameBlit) -> Placement {
+    use civ3_ui::blit::Wrapper as W;
+    let at = matches!(b.wrapper, W::ScaledA4 | W::ScaledA8 | W::OnMapBlend | W::ScaledColored).then_some(b.at);
+    Placement { at, compiled: Some(b.compiled) }
+}
+
+/// The draws of [`civ3_ui::blit::Wrapper::ScaledColored`] onto `canvas`
+/// (its second canvas) through `flags` (its blend tables).
+#[allow(clippy::too_many_arguments)]
+fn scaled_colored(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement, scale: [u32; 3], flags: u32, ct: u32, clip: Option<[i32; 4]>) {
+    let shades = BUILD.get().and_then(|&b| blend_levels(b, flags)) == Some(&crate::ui::indices::SHADE_LEVELS[..]);
+    let path = with_model(false, |m| match m.sprite_source(sprite) { Some(crate::ui::Source::File { path, .. }) => Some(path.clone()), _ => None }).flatten();
+    if shades && (path.is_some() || h::flc_frame(sprite).is_some()) {
+        for indices in [crate::ui::indices::colored(path.as_deref().map_or(&[254, 255][..], crate::ui::indices::blank)), crate::ui::indices::colored_shades(), crate::ui::indices::colored_smoke()] {
+            resized_blit(sprite, canvas, x, y, placed, scale, ct, Some(indices), clip);
+        }
+    } else {
+        resized_blit(sprite, canvas, x, y, placed, scale, ct, None, clip);
+    }
+}
+
+/// [`civ3_ui::blit::Wrapper::Opacity`]'s draw: `opacity` the float's bits.
+#[allow(clippy::too_many_arguments)]
+fn opacity_blit(sprite: u32, canvas: u32, x: u32, y: u32, opacity: u32, ct: u32, clip: Option<[i32; 4]>) {
+    if rerendered(canvas) { return; }
+    let opacity = crate::ui::sprite_opacity(opacity);
+    let (cx, cy) = obj::sprite_crop(sprite).map_or((0, 0), |p| (p.0, p.1));
+    let palette = BUILD.get().and_then(|&b| h::civ_color_table(b, ct)).map(|n| menu::screen::PaletteFrom {
+        image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 0, count: 256,
+    });
+    emit(Event::OpacityBlit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip, palette, opacity });
+}
+
+/// A sprite through an alpha mask, at (x, y) (no crop offset).
+fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option<[i32; 4]>) {
+    if !rerendered(canvas) { emit(Event::MaskedBlit { sprite, mask, canvas, x: x as i32, y: y as i32, clip }); }
+}
+
+/// A blit of jgl's sprite group (`civ3_ui::blit`), from the exe function
+/// `b.wrapper`: the interface mirror's events, and the map tracer's record
+/// for the map's three.
+pub fn on_blit(b: &GameBlit) {
+    use civ3_ui::blit::Wrapper as W;
+    let (x, y) = wrapper_xy(b);
+    let clip = clip_from(b.canvas, b.clip);
+    let (sprite, canvas, ct) = (b.sprite, b.canvas, b.ct);
+    match b.wrapper {
+        W::Draw => {
+            if !is_cursor(sprite, canvas) { blit(sprite, canvas, x, y, true, ct, clip); }
+        }
+        W::Variant | W::A4 | W::A4b => blit(sprite, canvas, x, y, true, ct, clip),
+        W::ScaledA4 | W::ScaledA8 => resized_blit(sprite, canvas, x, y, placed(b), b.scale, ct, None, clip),
+        W::ScaledColored => scaled_colored(sprite, canvas, x, y, placed(b), b.scale, b.extra, ct, clip),
+        W::Blend => map_blend_events(sprite, canvas, x, y, placed(b), b.extra, [1, 1, 1], ct, clip),
+        W::Opacity => opacity_blit(sprite, canvas, x, y, b.extra, ct, clip),
+        W::Alpha | W::Masked => masked_blit(sprite, b.mask, canvas, x, y, clip),
+        W::DrawOnMap => {
+            let [nx, ny, den] = b.scale;
+            if !crate::trace::record_map(canvas, sprite, x, y, vec![nx, ny, den, ct], "map") {
+                map_sprite_events(sprite, canvas, x, y, placed(b), b.scale, ct, clip);
+            }
+        }
+        W::OnMapBlend => {
+            let [nx, ny, den] = b.scale;
+            if !crate::trace::record_map(canvas, sprite, x, y, vec![b.extra, nx, ny, den, ct], "blend") {
+                map_blend_events(sprite, canvas, x, y, placed(b), b.extra, b.scale, ct, clip);
+            }
+        }
+        W::WithColorTable => {
+            crate::trace::record_colored(sprite, x, y, vec![b.other, canvas, b.extra, ct]);
+            on_colored(sprite, canvas, x, y, b.extra, ct, clip);
+        }
+    }
+}
+
+/// Whether jgl's pixels of a blit of the sprite group are skipped: the
+/// decision the exe detours made for the same call.
+pub fn skips_blit(b: &GameBlit) -> bool {
+    use civ3_ui::blit::Wrapper as W;
+    let (sprite, canvas) = (b.sprite, b.canvas);
+    let map = |skip: bool, kind: &str, args: &[u32]| {
+        if !skip { audit_map_original(kind, sprite, canvas, args); }
+        audit_pixel(PixelClass::Map, skip);
+        skip
+    };
+    let (x, y) = wrapper_xy(b);
+    match b.wrapper {
+        W::DrawOnMap => {
+            let skip = crate::trace::map_blits_off() || (!crate::trace::in_map_pass() && skips(canvas, sprite));
+            map(skip, "map_sprite", &[x, y, b.scale[0], b.scale[1], b.scale[2], b.ct])
+        }
+        W::OnMapBlend => {
+            let skip = crate::trace::map_blits_off() || (!crate::trace::in_map_pass() && skips(canvas, sprite));
+            map(skip, "map_blend", &[x, y, b.extra, b.scale[0], b.scale[1], b.scale[2], b.ct])
+        }
+        W::WithColorTable => {
+            let skip = crate::trace::map_blits_off() && skipping() || skips_colored(sprite, canvas);
+            map(skip, "map_colored", &[x, y, b.other, b.extra, b.ct])
+        }
+        W::ScaledA4 | W::ScaledA8 | W::ScaledColored => {
+            let skip = skips(canvas, sprite);
+            if PIXEL_AUDIT.load(Relaxed) {
+                let kind = match b.wrapper { W::ScaledA4 => 0, W::ScaledA8 => 1, _ => 2 };
+                (if skip { &SCALED_SKIPPED } else { &SCALED_ORIGINAL })[kind].fetch_add(1, Relaxed);
+            }
+            skip
+        }
+        _ => skips(canvas, sprite),
     }
 }
 

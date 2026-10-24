@@ -17,6 +17,10 @@ use std::sync::Arc;
 type Known = HashMap<String, Vec<([i32; 4], bool)>>;
 
 static KNOWN: handoff::Latest<Known> = handoff::Latest::new();
+/// The files decoded so far, for their pixels ([`pixel`]): the last
+/// [`SHARED_FILES`] of them.
+static FILES: handoff::Latest<Vec<(String, Arc<civ3_assets::pcx::Indexed>)>> = handoff::Latest::new();
+const SHARED_FILES: usize = 64;
 static ASK: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])>> = std::sync::OnceLock::new();
 
 /// Questions sent from this thread: each once (at most this many).
@@ -44,6 +48,25 @@ pub fn opaque(path: &str, rect: [i32; 4]) -> Option<bool> {
     None
 }
 
+/// The pixel at (x, y) of the image file at `path`: its colour, `Some(None)`
+/// where `keyed` and the pixel is the colour key's (indices 254 and 255,
+/// as [`opaque`] counts them) or outside the image; `None` while the file
+/// is not known (asked for then). The same files and the same rule as the
+/// regions' opacity: one source for what is drawn and what is hit.
+pub fn pixel(path: &str, x: i32, y: i32, keyed: bool) -> Option<Option<[u8; 3]>> {
+    let files = FILES.load();
+    let Some(image) = files.as_ref().and_then(|f| f.iter().find(|(p, _)| p == path).map(|(_, i)| i.clone())) else {
+        let _ = opaque(path, [0, 0, 0, 0]);
+        return None;
+    };
+    if x < 0 || y < 0 || x >= image.width as i32 || y >= image.height as i32 {
+        return Some(None);
+    }
+    let index = image.get(x as u32, y as u32);
+    let civ3_assets::Rgb(r, g, b) = image.palette.get(index);
+    Some((!keyed || index < 254).then_some([r, g, b]))
+}
+
 /// The answering thread; its sender (a closed one if it cannot start).
 fn start() -> tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, [i32; 4])>();
@@ -66,6 +89,14 @@ fn start() -> tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])> {
                             files.remove(0);
                         }
                         files.push((path.clone(), image.clone()));
+                        if let Some(image) = &image {
+                            let mut shared = FILES.get().unwrap_or_default();
+                            if shared.len() >= SHARED_FILES {
+                                shared.remove(0);
+                            }
+                            shared.push((path.clone(), image.clone()));
+                            FILES.publish(shared);
+                        }
                         image
                     }
                 };
