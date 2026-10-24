@@ -55,6 +55,7 @@ pub mod minimap;
 pub mod native_sliders;
 pub mod native_camera;
 pub mod modal;
+pub mod pass_through;
 pub mod preload;
 pub mod prefs;
 pub mod preview;
@@ -113,6 +114,7 @@ inproc::entry!(init, early = early);
 /// In `DllMain`, before the game's own code runs (`game_window`).
 #[cfg(windows)]
 fn early() {
+    if !pass_through::active_here() { return; }
     civ3_sys::audio_init::early();
     // Set the explicit map-only override before any load callback can
     // activate full capture and drawing suppression.
@@ -122,6 +124,11 @@ fn early() {
 
 #[cfg(windows)]
 fn init() {
+    if !pass_through::active_here() {
+        // (Only the note: no logger, hooks or threads.)
+        let _ = std::fs::write("civ3-bridge.log", "civ3-bridge: pass-through (CIV3R_VIEWER unset): forwarding to ifc23_orig.dll only\n");
+        return;
+    }
     let _ = inproc::log_to_file(std::path::Path::new("civ3-bridge.log"), log::LevelFilter::Debug);
     // Render errors, every type once per run, from every side (`render_errors`).
     if let Err(e) = render_errors::log_to_file(std::path::Path::new(render_errors::FILE_NAME)) {

@@ -136,7 +136,9 @@ then, its overlay views (`render_layered`) drawn anew over it
 
 `civ3-bridge` is installed as the game's `ifc23.dll` (a proxy forwarding to
 the original). With `CIV3R_VIEWER=1` (or `=fullscreen`) it opens the reimplemented renderer in a
-window of its own inside the game process. The renderer runs on its own
+window of its own inside the game process. Without `CIV3R_VIEWER` it only forwards and notes so in
+`civ3-bridge.log`: no hooks, the game runs as with its own `ifc23.dll` (`civ3_bridge::pass_through`;
+`CIV3R_TRACE=on` keeps the tracing hooks without a viewer). The renderer runs on its own
 thread and owns the whole world: a publisher thread snapshots the game's
 memory (`civ3-sys`), maps it to a scene (`rules`, `scene_map`) and sends
 only what changed (`scene::Update` batches: cells, sprites, views,
