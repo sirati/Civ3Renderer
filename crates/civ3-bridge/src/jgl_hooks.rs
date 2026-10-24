@@ -100,6 +100,7 @@ fn hooks() -> jgl::Hooks {
         blit: Box::new(BlitCapture::new(game_blit)),
         palette: Box::new(jgl::hooks::NoHooks),
         present: Box::new(jgl::hooks::NoHooks),
+        surface: Box::new(jgl::hooks::NoHooks),
         policy: Box::new(Pixels),
     }
 }
@@ -180,13 +181,17 @@ pub(crate) fn install_counting(base: u32) {
 
 /// Logs the counting mode's counts.
 pub(crate) fn report() {
-    if let Some((counts, other)) = jgl_ffi::count::snapshot() {
+    if let Some((counts, ours, other)) = jgl_ffi::count::snapshot() {
         log::info!(
-            "jgl calls since start ({other} from other threads than the game's; drawing threads {}, re-entered {}):\n{}",
+            "jgl calls since start ({other} from other threads than the game's; drawing threads {}, re-entered {}){}:\n{}",
             jgl_ffi::text::threads(),
             jgl_ffi::text::reentrant(),
+            if ours.is_some() { ", through jgl's method tables" } else { "" },
             counts.report()
         );
+        if let Some(ours) = ours {
+            log::info!("jgl calls through our method tables:\n{}", ours.report());
+        }
     }
 }
 
@@ -207,5 +212,15 @@ pub(crate) fn install_present(base: u32) -> Result<(), inproc::hook::HookError> 
     let group = jgl_ffi::present::install(base).map_err(takeover_error)?;
     std::mem::forget(group);
     log::info!("jgl present group taken over (graphics +0x30, +0xA4)");
+    Ok(())
+}
+
+/// Takes over jgl.dll's factories and deletes (at `base`) and gives every
+/// object made from then on our method tables (`jgl_ffi::surface`). After
+/// every other group, the display modes' too, and before the counting
+/// mode. Once per load.
+pub(crate) fn install_surface(base: u32) -> Result<(), String> {
+    let group = jgl_ffi::surface::install(base).map_err(|e| e.to_string())?;
+    std::mem::forget(group);
     Ok(())
 }

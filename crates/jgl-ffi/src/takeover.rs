@@ -73,7 +73,9 @@ pub fn check(base: u32, class: Class, entries: &[Entry]) -> Result<(), TakeoverE
 }
 
 /// Takes over `entries` of `class` in jgl.dll loaded at `base`: all of
-/// them or none.
+/// them or none. Our method table of the class (`crate::surface`), if
+/// made already, gets the entry too: a group taken over after the surface
+/// group reaches the objects that have our tables as well.
 pub fn take_over(base: u32, class: Class, entries: &[Entry]) -> Result<Takeover, TakeoverError> {
     check(base, class, entries)?;
     let mut patches = Vec::with_capacity(entries.len());
@@ -81,6 +83,10 @@ pub fn take_over(base: u32, class: Class, entries: &[Entry]) -> Result<Takeover,
         // The original first: the slot may be called the moment it changes.
         e.original.store(base + class.slot(e.offset).map_or(0, |s| s.rva), Ordering::Release);
         patches.push(SlotPatch::replace(slot_cell(base, class, e.offset), e.function)?);
+        if let Some(tables) = crate::surface::tables() {
+            let ours = Ptr32::<u32>::new(tables[class.index() as usize] + e.offset as u32);
+            patches.push(SlotPatch::replace(ours, e.function)?);
+        }
     }
     Ok(Takeover { _patches: patches })
 }
