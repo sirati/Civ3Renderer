@@ -300,7 +300,14 @@ switches the display. The game asks for its screen's size at 16 bits
 lists no such mode: any display shorter than 768 lines. Each now answers
 with jgl's own +0x60 keep branch (screen fields, the window owner told the
 mode). [V] on a 1280×729 output (the game at 1280×768, the viewer at
-1280×729) and on 1920×1080. The movie slots +0x6C/+0x70 stay jgl's.
+1280×729) and on 1920×1080. The movie slots +0x6C/+0x70 stay jgl's, but
+jgl's one `ChangeDisplaySettingsA` import is answered: the shutdown
+(+0x08), +0x64 and the movie's switch and back (+0x6C, +0x70) all call
+through it, none changes the display and each is told it did. Without it
+the shutdown restored the mode +0x64 saves at +0x04, which nothing filled
+once +0x58..+0x60 were taken over, and Wine answered -2 ("Changing (null)
+display settings returned -2", seen at the end of a game on TS Neo). A
+binary test checks that these four are all the calls through that import.
 
 Next groups, in order: fills, lines and shade (group 2, small, removes the
 `pcx_fill_area`/`pcx_line` and `jgl_shade` detours); copies (group 3,

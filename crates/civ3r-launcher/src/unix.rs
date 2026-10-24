@@ -1,6 +1,7 @@
 mod owned_debuggers;
 mod wine_compat;
 
+use crate::launch_lock;
 use crate::startup::{Progress, Update, stage};
 use std::{
     env,
@@ -43,6 +44,9 @@ const HELP: &str = "Usage: civ3-play-macos --game /path/to/Conquests [options]
                        mode, for comparison) instead of inside the game's
                        process. The default elsewhere than on macOS.
   --in-process         Draw inside the game's process (the default on macOS).
+  --remove-lock        Start even if another launcher seems to hold the launch
+                       lock (a second copy of the game may then run), and stop
+                       a game an earlier launcher left running.
   --help               Show this help.
 On macOS the renderer runs inside the game's Wine process: Wine loads the
 builtin civ3r_native.dll and its native unixlib from CIV3R_NATIVE_DIR
@@ -83,6 +87,9 @@ struct Options {
     fullscreen: bool,
     map: bool,
     show_game: bool,
+    /// Remove the launch lock even if a launcher seems to hold it, and stop
+    /// a game an earlier launcher left running (`--remove-lock`).
+    remove_lock: bool,
 }
 
 fn environment(name: &str) -> Option<OsString> {
@@ -127,6 +134,7 @@ impl Options {
             fullscreen: true,
             map: false,
             show_game: false,
+            remove_lock: false,
             home,
         };
         let mut args = args.into_iter();
@@ -155,6 +163,7 @@ impl Options {
                 Some("--compatibility-fallback") => result.game_render = "compat".into(),
                 Some("--separate-viewer") => result.separate_viewer = true,
                 Some("--in-process") => result.separate_viewer = false,
+                Some("--remove-lock") => result.remove_lock = true,
                 _ => return Err(format!("unknown option {}", arg.to_string_lossy()).into()),
             }
         }
@@ -258,30 +267,149 @@ fn link_if_missing(source: &Path, destination: &Path) -> Result<()> {
     }
 }
 
-/// A launch owns only this directory, never a stale lock or another session.
-struct InstallLock(PathBuf);
-impl InstallLock {
-    fn claim(home: &Path) -> Result<Self> {
-        let path = home.join("launch.lock");
-        DirBuilder::new()
-            .mode(0o700)
-            .create(&path)
-            .map_err(|error| {
-                if error.kind() == io::ErrorKind::AlreadyExists {
-                    format!("another launch owns {}", path.display())
-                } else {
-                    format!("cannot claim {}: {error}", path.display())
-                }
-            })?;
-        let lock = Self(path);
-        fs::write(lock.0.join("pid"), format!("{}\n", std::process::id()))?;
-        Ok(lock)
+/// A question for the user before the launcher goes on (see `startup`):
+/// whether to do `action`. `false` refuses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Question {
+    pub title: String,
+    pub text: String,
+    pub action: &'static str,
+}
+
+/// How the user is asked: a dialog, the startup window or the terminal.
+pub(crate) type Ask = Box<dyn Fn(&Question) -> bool + Send>;
+
+/// The question for a launch lock someone seems to hold.
+fn busy_question(path: &Path, busy: &launch_lock::Busy) -> Question {
+    let who = busy.record().map_or_else(|| "a launcher that is starting".into(), |r| r.describe(SystemTime::now()));
+    Question {
+        title: "Civilization III is already running".into(),
+        text: format!(
+            "Another launch holds the lock {} ({who}).\n\nIf no other copy of Civilization III is running (none in the Dock, none in Activity Monitor), remove the lock and start. If one is running, a second copy would use the same saved games and settings: quit it first.",
+            path.display()
+        ),
+        action: "Remove lock and start",
     }
 }
-impl Drop for InstallLock {
+
+/// The question for a game an earlier launcher left running.
+fn earlier_game_question(stale: &launch_lock::Record, game: &[civ3r_process::Process]) -> Question {
+    Question {
+        title: "An earlier game is still running".into(),
+        text: format!(
+            "The game {} started is still running ({} process{}), but its launcher is gone. Stop that game and start a new one? Anything unsaved in it is lost.",
+            stale.describe(SystemTime::now()),
+            game.len(),
+            if game.len() == 1 { "" } else { "es" }
+        ),
+        action: "Stop it and start",
+    }
+}
+
+/// The game's processes (not the shared wineserver or services) of an
+/// earlier session, found by its exact session marker.
+fn earlier_game(stale: &launch_lock::Record) -> Vec<civ3r_process::Process> {
+    let Some(marker) = &stale.session else { return Vec::new() };
+    match civ3r_process::carrying_environment(owned_debuggers::MARKER.as_bytes(), marker.as_bytes()) {
+        Ok(processes) => processes.into_iter().filter(|p| runs_the_game(p.arguments())).collect(),
+        Err(error) => {
+            eprintln!("civ3-play-macos: cannot look for the earlier session's game: {error}");
+            Vec::new()
+        }
+    }
+}
+
+fn runs_the_game(arguments: &[Vec<u8>]) -> bool {
+    arguments.iter().any(|argument| argument.to_ascii_lowercase().windows(17).any(|w| w == b"civ3conquests.exe"))
+}
+
+fn stop_processes(processes: &[civ3r_process::Process]) {
+    for signal in [civ3r_process::Signal::Terminate, civ3r_process::Signal::Kill] {
+        for process in processes {
+            let _ = process.signal(signal);
+        }
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while Instant::now() < deadline && processes.iter().any(|p| !p.exited().unwrap_or(true)) {
+            thread::sleep(POLL_INTERVAL);
+        }
+    }
+}
+
+/// Takes the launch lock in `home`. A lock whose launcher is gone is taken
+/// over (logged); one a launcher seems to hold, and a game an earlier
+/// launcher left running, are the user's to decide (`ask`, or `force`).
+fn take_lock(home: &Path, force: bool, ask: &Ask) -> Result<launch_lock::LaunchLock> {
+    use launch_lock::Claim;
+    let path = launch_lock::path(home);
+    let mut removed = false;
+    loop {
+        match launch_lock::claim(home).map_err(|e| format!("cannot claim {}: {e}", path.display()))? {
+            Claim::Owned { lock, stale } => {
+                if let Some(stale) = stale {
+                    eprintln!(
+                        "civ3-play-macos: took over the launch lock {}: {} ended without letting it go and no longer runs",
+                        path.display(),
+                        stale.describe(SystemTime::now())
+                    );
+                    let game = earlier_game(&stale);
+                    if !game.is_empty() {
+                        if !(force || ask(&earlier_game_question(&stale, &game))) {
+                            return Err(format!("the game {} started is still running; quit it first (or start with --remove-lock to stop it)", stale.describe(SystemTime::now())).into());
+                        }
+                        eprintln!("civ3-play-macos: stopping the earlier session's game ({} processes)", game.len());
+                        stop_processes(&game);
+                    }
+                }
+                return Ok(lock);
+            }
+            Claim::Busy(busy) => {
+                let who = busy.record().map_or_else(|| "a launcher that is starting".into(), |r| r.describe(SystemTime::now()));
+                // Removed once already: another launcher took it since.
+                if removed || !(force || ask(&busy_question(&path, &busy))) {
+                    return Err(format!(
+                        "another launch owns {} ({who}); if no other copy of the game is running, start with --remove-lock",
+                        path.display()
+                    )
+                    .into());
+                }
+                eprintln!("civ3-play-macos: removing the launch lock {} of {who}, as the user asked", path.display());
+                launch_lock::remove(home).map_err(|e| format!("cannot remove {}: {e}", path.display()))?;
+                removed = true;
+            }
+        }
+    }
+}
+
+/// Turns on again the system shortcuts (F1-F12 on macOS) a game left paused,
+/// when made and when dropped: made before the launch lock is taken, so a
+/// start that is refused replays them too, and dropped after the game's
+/// process, however it ended.
+struct ShortcutRecovery<F: Fn(&Path) -> usize> {
+    journal: PathBuf,
+    replay: F,
+}
+
+impl<F: Fn(&Path) -> usize> ShortcutRecovery<F> {
+    fn new(journal: PathBuf, replay: F) -> Self {
+        let recovery = Self { journal, replay };
+        recovery.run();
+        recovery
+    }
+
+    fn run(&self) {
+        let turned_on = (self.replay)(&self.journal);
+        if turned_on > 0 {
+            eprintln!(
+                "civ3-play-macos: turned on again {turned_on} system shortcut(s) a game left paused ({})",
+                self.journal.display()
+            );
+        }
+    }
+}
+
+impl<F: Fn(&Path) -> usize> Drop for ShortcutRecovery<F> {
     fn drop(&mut self) {
-        let _ = fs::remove_file(self.0.join("pid"));
-        let _ = fs::remove_dir(&self.0);
+        self.run();
     }
 }
 
@@ -532,6 +660,11 @@ impl ManagedChild {
     fn spawn_wine(command: &mut Command) -> Result<Self> {
         let debuggers = owned_debuggers::OwnedDebuggers::new(command)?;
         Ok(Self(command.spawn()?, Some(debuggers)))
+    }
+
+    /// The marker every process of this game carries (`CIV3R_SESSION_TOKEN`).
+    fn session_marker(&self) -> Option<&str> {
+        self.1.as_ref().map(owned_debuggers::OwnedDebuggers::marker)
     }
 
     fn group(&self) -> rustix::process::Pid {
@@ -997,10 +1130,19 @@ pub fn launch(
     args: impl IntoIterator<Item = OsString>,
     progress: Option<Progress>,
     signal: Arc<AtomicUsize>,
+    ask: Ask,
 ) -> Result<i32> {
     let Some(mut options) = Options::parse(args)? else {
         return Ok(0);
     };
+    let settings = environment("CIV3R_SETTINGS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| options.home.join("settings.toml"));
+    // System shortcuts a game paused to have F1-F12 (macOS) are on again now,
+    // before anything can refuse this start (a game that died without
+    // turning them on, a launcher AppKit ended), and once this game is gone,
+    // however it ended (dropped after its process, declared below).
+    let _function_keys = ShortcutRecovery::new(function_keys::journal_path(&settings), function_keys::replay);
     if options.game.as_os_str().is_empty() {
         return Err("supply the existing game with --game or CIV3R_GAME".into());
     }
@@ -1056,7 +1198,7 @@ pub fn launch(
         );
     }
     fs::create_dir_all(&options.home)?;
-    let _lock = InstallLock::claim(&options.home)?;
+    let mut lock = take_lock(&options.home, options.remove_lock, &ask)?;
     let private = private_install(&options.home, &options.game, &options.bridge)?;
     if !options.separate_viewer {
         // Wine loads a builtin DLL only if a copy is on the Windows search
@@ -1080,13 +1222,6 @@ pub fn launch(
     let log = logs.join(format!("session-{time}-{}", std::process::id()));
     let viewer_log = log.with_extension("viewer.log");
     let wine_log = log.with_extension("wine.log");
-    let settings = environment("CIV3R_SETTINGS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| options.home.join("settings.toml"));
-    // System shortcuts the game paused to have F1-F12 (macOS) are on again
-    // once it is gone, however it ended; and now, if an earlier run left
-    // them paused. (Dropped after the game's process, declared below.)
-    let _function_keys = function_keys::Recovery::new(function_keys::journal_path(&settings));
     if let Some(progress) = &progress {
         let _ = progress.send(Update::Logs(format!(
             "Wine: {}\nRenderer: {}\nBridge: {}\nRegistry: {}",
@@ -1214,6 +1349,12 @@ pub fn launch(
         .ok()
         .and_then(|m| m.modified().ok());
     let game = ManagedChild::spawn_wine(&mut command)?;
+    if let Some(marker) = game.session_marker() {
+        // So a later launcher can find this game if this launcher ends first.
+        if let Err(error) = lock.note_session(marker) {
+            eprintln!("civ3-play-macos: cannot note the session in the launch lock: {error}");
+        }
+    }
     stage(
         &progress,
         "Waiting for the game",
@@ -1406,6 +1547,97 @@ fn session_end(game: Option<ExitStatus>, viewer: Option<ExitStatus>, menu_ready:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A private home for one test, removed at the end.
+    struct TestHome(PathBuf);
+    impl TestHome {
+        fn new(name: &str) -> Self {
+            let path = env::temp_dir().join(format!("civ3r-launcher-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for TestHome {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn held(home: &Path) -> launch_lock::LaunchLock {
+        match launch_lock::claim(home).unwrap() {
+            launch_lock::Claim::Owned { lock, .. } => lock,
+            launch_lock::Claim::Busy(busy) => panic!("{busy:?}"),
+        }
+    }
+
+    fn answering(yes: bool, asked: Arc<AtomicUsize>) -> Ask {
+        Box::new(move |question: &Question| {
+            assert!(question.text.contains("launch.lock"), "{question:?}");
+            asked.fetch_add(1, Ordering::Relaxed);
+            yes
+        })
+    }
+
+    #[test]
+    fn the_shortcut_journal_is_replayed_on_a_refused_start_and_when_it_ends() {
+        // As `launch`: the recovery first, then the lock, which another
+        // launcher holds here.
+        let home = TestHome::new("refused");
+        let _other = held(&home.0);
+        let replays = Arc::new(AtomicUsize::new(0));
+        let counted = replays.clone();
+        let recovery = ShortcutRecovery::new(home.0.join("paused-system-shortcuts.txt"), move |journal: &Path| {
+            assert!(journal.ends_with("paused-system-shortcuts.txt"));
+            counted.fetch_add(1, Ordering::Relaxed);
+            17
+        });
+        assert_eq!(replays.load(Ordering::Relaxed), 1, "replayed before the lock is tried");
+        let asked = Arc::new(AtomicUsize::new(0));
+        let refused = take_lock(&home.0, false, &answering(false, asked.clone())).unwrap_err().to_string();
+        assert!(refused.contains("another launch owns") && refused.contains("--remove-lock"), "{refused}");
+        assert_eq!(asked.load(Ordering::Relaxed), 1);
+        drop(recovery);
+        assert_eq!(replays.load(Ordering::Relaxed), 2, "and again as the refused launcher ends");
+    }
+
+    #[test]
+    fn a_stale_lock_is_taken_over_without_asking() {
+        let home = TestHome::new("stale");
+        let mut child = Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        fs::create_dir(home.0.join("launch.lock")).unwrap();
+        fs::write(home.0.join("launch.lock/pid"), format!("{dead}\n")).unwrap();
+        let asked = Arc::new(AtomicUsize::new(0));
+        let _lock = take_lock(&home.0, false, &answering(false, asked.clone())).unwrap();
+        assert_eq!(asked.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_held_lock_is_removed_only_when_the_user_says_so_or_with_remove_lock() {
+        let home = TestHome::new("override");
+        let first = held(&home.0);
+        let asked = Arc::new(AtomicUsize::new(0));
+        let second = take_lock(&home.0, false, &answering(true, asked.clone())).unwrap();
+        assert_eq!(asked.load(Ordering::Relaxed), 1);
+        drop(first);
+        // `--remove-lock` asks nobody.
+        let _third = take_lock(&home.0, true, &answering(false, asked.clone())).unwrap();
+        assert_eq!(asked.load(Ordering::Relaxed), 1);
+        drop(second);
+    }
+
+    #[test]
+    fn only_the_games_own_processes_count_as_an_earlier_game() {
+        let args = |list: &[&str]| list.iter().map(|a| a.as_bytes().to_vec()).collect::<Vec<_>>();
+        assert!(runs_the_game(&args(&["wine", "Z:\\r\\game\\Civ3Conquests.exe"])));
+        assert!(runs_the_game(&args(&["C:\\x\\CIV3CONQUESTS.EXE"])));
+        assert!(!runs_the_game(&args(&["/r/wine/bin/wineserver"])));
+        assert!(!runs_the_game(&args(&["C:\\windows\\system32\\services.exe"])));
+        // No session noted: nothing to look for.
+        assert!(earlier_game(&launch_lock::Record { pid: 1, started: 1, session: None }).is_empty());
+    }
 
     #[test]
     fn clean_game_exit_before_a_menu_is_a_startup_failure() {
