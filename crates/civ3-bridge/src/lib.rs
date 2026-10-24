@@ -65,6 +65,7 @@ pub mod replay_thread;
 pub mod rings;
 pub mod rules;
 pub mod runtime;
+pub mod session_end;
 pub mod targeting;
 pub mod setup_controls;
 pub mod stale_input;
@@ -109,7 +110,14 @@ use civ3_sys::Civ3;
 #[global_allocator]
 static ALLOCATOR: inproc::alloc::PrivateHeap = inproc::alloc::PrivateHeap::new();
 
-inproc::entry!(init, early = early);
+inproc::entry!(init, early = early, ending = ending);
+
+/// In `DllMain`, when `ExitProcess` ends the process past our hook of it
+/// (`session_end`).
+#[cfg(windows)]
+fn ending() {
+    session_end::detached();
+}
 
 /// In `DllMain`, before the game's own code runs (`game_window`).
 #[cfg(windows)]
