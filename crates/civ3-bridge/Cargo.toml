@@ -11,6 +11,7 @@ name = "ifc23"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+render-errors = { path = "../render-errors" }
 inproc = { path = "../inproc" }
 civ3r-sync = { path = "../civ3r-sync" }
 tokio = { version = "1", default-features = false, features = ["sync", "rt", "time"] }

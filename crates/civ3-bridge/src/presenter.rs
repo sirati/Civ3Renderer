@@ -270,7 +270,7 @@ impl Presenter {
             return true;
         }
         // (Every message says whether the game answers, `send_host`.)
-        updates.push(Update::Host(crate::heartbeat::status()));
+        updates.push(Update::Host(self.host_status()));
         self.stats.updates = updates.len();
         self.stats.cells = updates
             .iter()
@@ -311,7 +311,7 @@ impl Presenter {
     /// changed: the viewer takes no status for a while as the publisher or
     /// the connection gone silent. Not part of the scene sent.
     pub fn send_host(&mut self) {
-        let updates = vec![Update::Host(crate::heartbeat::status())];
+        let updates = vec![Update::Host(self.host_status())];
         match &mut self.sink {
             Sink::InProcess { driver, .. } => {
                 driver.send(updates);
@@ -323,6 +323,17 @@ impl Presenter {
                 client.publish(&updates);
             }
         }
+    }
+
+    /// The host's status for the renderer, with this side's render errors
+    /// for its on-screen count: not for an in-process renderer, which counts
+    /// them itself (the same `render_errors::ERRORS`).
+    fn host_status(&self) -> scene::HostStatus {
+        let render_errors = match self.sink {
+            Sink::InProcess { .. } => 0,
+            Sink::Native(_) | Sink::External(_) => render_errors::total() as u32,
+        };
+        scene::HostStatus { render_errors, ..crate::heartbeat::status() }
     }
 
     pub fn take_input(&mut self) -> Vec<Input> {
@@ -339,11 +350,18 @@ impl Presenter {
         match &mut self.sink {
             Sink::Native(n) => {
                 for line in n.take_log() {
+                    // (Its render errors go to the render error log.)
+                    if line.target == render_errors::TARGET && render_errors::absorb(&line.message, render_errors::Origin::Native) {
+                        continue;
+                    }
                     log::log!(target: "civ3r_native", line.level, "{}: {}", line.target, line.message);
                 }
             }
             Sink::External(client) => {
                 for line in client.take_log() {
+                    if render_errors::absorb(&line, render_errors::Origin::Viewer) {
+                        continue;
+                    }
                     log::info!(target: "civ3r_external", "{line}");
                 }
             }
@@ -760,7 +778,7 @@ mod tests {
         assert_eq!(presenter.max_texture(), Some(8192));
         presenter.reserve(19, 7);
         let generation = presenter.prepare_assets(&scene::wire::Assets {
-            description: "[grid]".into(), roots: vec!["C:\\Game".into()], generation: 0, append: false, reserve: 0,
+            description: "[grid]".into(), roots: vec!["C:\\Game".into()], generation: 0, append: false, reserve: 0, context: String::new(),
         });
         assert_eq!(generation, 1);
         presenter.generation = generation;
@@ -780,7 +798,7 @@ mod tests {
         assert!(presenter.preload_ready());
         presenter.abandon_assets(generation);
         let suppressed = presenter.prepare_assets(&scene::wire::Assets {
-            description: "unused".into(), roots: Vec::new(), generation: 0, append: true, reserve: 0,
+            description: "unused".into(), roots: Vec::new(), generation: 0, append: true, reserve: 0, context: String::new(),
         });
         assert!(suppressed > generation);
         assert!(presenter.preload_ready(), "an unsent abandoned addition cannot wait for an upload");
@@ -873,6 +891,7 @@ mod table_tests {
             token: None,
             reason: "test".into(),
             wanted: Instant::now(),
+            context: String::new(),
             stop: None,
         };
         let mut tables = Tables::default();
