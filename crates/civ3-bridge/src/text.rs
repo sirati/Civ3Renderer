@@ -12,55 +12,7 @@ use civ3_assets::GameFiles;
 use civ3_assets::fonts::{FontStyle, Glyph, GlyphFont, charset, outline_char};
 use render_desc::Compiled;
 
-/// One `TextOutA` call: `text` with its pen at (x, baseline y).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TextRun {
-    pub x: i32,
-    pub y: i32,
-    pub color: [u8; 3],
-    pub face: String,
-    /// GDI `lfHeight` (negative: character height).
-    pub height: i32,
-    /// GDI `lfWeight` (0 or 400 normal, 700 bold), `lfItalic`, `lfUnderline`.
-    pub weight: i32,
-    pub italic: bool,
-    pub underline: bool,
-    pub text: String,
-    /// Drawn onto this colour, then put where it differs from it only: text
-    /// the game draws on a canvas cleared to its colour key (F1's panel),
-    /// whose edges Windows blends with the key, and the canvas, put on the
-    /// screen keyed, shows them so (magenta fringes, measured).
-    pub backdrop: Option<[u8; 3]>,
-}
-
-impl TextRun {
-    /// A trace line `text dc D at X Y color R G B font "Face"/H/WEIGHT/ITALIC/UNDERLINE str TEXT`.
-    pub fn parse(line: &str) -> Option<TextRun> {
-        let rest = line.strip_prefix("text dc ")?;
-        let (_, rest) = rest.split_once(" at ")?;
-        let (head, text) = rest.split_once(" str ")?;
-        let f: Vec<&str> = head.split_whitespace().collect();
-        let font = head.split_once(" font ")?.1;
-        let (face, metrics) = font.strip_prefix('"')?.split_once("\"/")?;
-        let mut m = metrics.split('/');
-        let height = m.next()?.parse().ok()?;
-        let weight = m.next().and_then(|w| w.parse().ok()).unwrap_or(0);
-        let italic = m.next() == Some("1");
-        let underline = m.next() == Some("1");
-        Some(TextRun {
-            x: f.first()?.parse().ok()?,
-            y: f.get(1)?.parse().ok()?,
-            color: [f.get(3)?.parse().ok()?, f.get(4)?.parse().ok()?, f.get(5)?.parse().ok()?],
-            face: face.to_owned(),
-            height,
-            weight,
-            italic,
-            underline,
-            text: text.to_owned(),
-            backdrop: None,
-        })
-    }
-}
+pub use civ3_ui::text::TextRun;
 
 type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 
