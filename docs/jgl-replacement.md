@@ -249,11 +249,53 @@ Checks: `inproc::pe::module_base("jgl.dll")` stays `None` for the whole
 game; Wine's `+loaddll` log has no jgl; the counting mode's report lists
 only our vtables.
 
-## 9. This round
+## 9. State after the first round
 
-- `jgl`, `jgl-ffi` with layouts, offset tests against the binary, hook
-  traits, records, slot catalogue, counting mode.
-- Group 1 (text) taken over and routed into `civ3-ui`; the import hook and
-  the exe text detours deleted.
-- Equivalence evidence, screenshots and cost measurements: see the
-  branch's commit messages and the report.
+Done:
+
+- `jgl` (safe) and `jgl-ffi` (unsafe shim). The layouts are checked against
+  `jgl.dll` (`crates/jgl-ffi/tests/binary.rs`): every slot RVA of the
+  catalogue, the factories' allocation sizes, the image constructor's
+  stores and the getter bodies of all five classes.
+- Group 1 (text) is taken over and feeds `civ3-ui::text::TextCapture`. The
+  `TextOutA` import hook and the four exe text-function detours are gone.
+- Unsafe code outside `jgl-ffi`: `inproc` gained `alloc_code`/`write_code`
+  (the counting stubs' memory), `gdi::stock_font`, `gdi::dc_text_colorref`
+  and `process::thread_id`, because Windows calls live there already.
+  `examples/jgl_text_bench.rs` (civ3-bridge) uses unsafe code to call a
+  vtable slot and set up a DC; it is a measurement program, not linked
+  into the DLL.
+
+Equivalence [V]: with both paths running on a loaded game (title screen,
+Load Game, map, advisors F1 to F4, F6, F7), every one of 3148 text runs
+had the same text, position, font, colour, canvas and clip on the old
+and new path, and none was drawn outside the exe's text functions (which
+the old path needed for the canvas). Traces and screenshots before and
+after differ only in animated and timed content (unit animation frames,
+the blinking "next turn" line and button, the advisor's quote, the pointer
+and its tooltip): `/tmp/c3r-jgl-shots/{before,after,diff}`.
+
+Cost [V, x86-64 host, Wine 11 WoW64, release build, 200k to 500k calls,
+`examples/jgl_text_bench.rs`]: a `text_out` through jgl with the old import
+hook took 737 to 981 ns, the taken-over slot 226 to 319 ns (3.1 to 3.5
+times less; jgl drawing for real takes 1100 to 1900 ns). The old figure
+leaves out the exe text-function detour each run also passed. Under FEX
+the old path's two GDI queries and its guarded read are emulated Wine
+code and system calls, so the ratio there should be larger [G, not
+measured: no Mac in this round].
+
+Counting mode, same session [V]: 100 of the 201 slots were called. Calls
+the static scan of the roadmap (§1.2) did not find include the pumps
+graphics +0x128 (2.2 M) and +0x150, image +0x38 (a copy, 4020), sprite
++0x44 (2995), +0x50, +0x7C, +0x84 (blits), colour table +0x20, and the
+font measure +0x10 (2.2 M calls, kept by jgl). No call came from a thread
+other than the game's. A longer session (city screen, diplomacy, combat,
+turn change, Civilopedia) should run before group 6.
+
+Next groups, in order: fills, lines and shade (group 2, small, removes the
+`pcx_fill_area`/`pcx_line` and `jgl_shade` detours); copies (group 3,
+includes image +0x38); sprite blits and colour tables (group 4, the
+largest; then `ui.rs`, `ui/display_list.rs`, `ui_screen.rs` and
+`interface_parts.rs` move to `civ3-ui`, and the map-canvas parts to
+`civ3-world`); present and invalidate (group 5); then the factories and
+surfaces (group 6, roadmap step 5) and the window (group 7, step 6).
