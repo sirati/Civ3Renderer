@@ -23,6 +23,8 @@ scene = { path = "../scene" }
 viewer-transport = { path = "../viewer-transport" }
 menu = { path = "../menu" }
 civ3-ui = { path = "../civ3-ui" }
+jgl = { path = "../jgl" }
+jgl-ffi = { path = "../jgl-ffi" }
 wine-unixlib = { path = "../wine-unixlib" }
 civ3r-native = { package = "civ3r-native", path = "../civ3r-native" }
 tile-render.workspace = true
@@ -34,3 +36,6 @@ env_logger.workspace = true
 viewer-settings = { path = "../viewer-settings" }
 # (The options a render description gives its loaders.)
 toml = "0.9"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_System_LibraryLoader"] }
