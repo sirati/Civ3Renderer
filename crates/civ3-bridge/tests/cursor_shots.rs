@@ -242,7 +242,9 @@ fn the_civilopedia_pointer_from_the_games_art() {
 /// The Civilopedia pointer over the F7 screen's Pyramids picture, as the
 /// system cursor (1× and 2×, plain and busy) and as the viewer's drawing in
 /// the Alt mode, on a viewer screenshot of the screen without a pointer
-/// (`CIV3R_PEDIA_BACKDROP`, a PNG; the tip at `CIV3R_PEDIA_AT`, "x,y").
+/// (`CIV3R_PEDIA_BACKDROP`, a PNG; the tip at `CIV3R_PEDIA_AT`, "x,y"; the
+/// cell `CIV3R_PEDIA_CELL`, default the book, and the pictures' names
+/// `CIV3R_PEDIA_NAME`, default `f7-pyramids`).
 /// `CIV3R_CURSOR_SHOTS=/tmp/c3r-pedia-cursor-shots cargo test -p
 /// civ3-bridge --test cursor_shots -- --ignored pedia`.
 #[test]
@@ -253,7 +255,9 @@ fn pedia_cursor_shots() {
     let backdrop = image::open(std::env::var("CIV3R_PEDIA_BACKDROP").expect("CIV3R_PEDIA_BACKDROP")).unwrap().to_rgba8();
     let at: Vec<i32> = std::env::var("CIV3R_PEDIA_AT").unwrap_or_else(|_| "645,385".into()).split(',').map(|v| v.trim().parse().unwrap()).collect();
     let (art, compiled) = art();
-    let book = compiled.set(&ifc23::cursor::set_name(ifc23::cursor::CIVILOPEDIA)).unwrap().0.raw();
+    let cell = std::env::var("CIV3R_PEDIA_CELL").ok().and_then(|v| v.parse().ok()).unwrap_or(ifc23::cursor::CIVILOPEDIA);
+    let name_of = std::env::var("CIV3R_PEDIA_NAME").unwrap_or_else(|_| "f7-pyramids".into());
+    let book = compiled.set(&ifc23::cursor::set_name(cell)).unwrap().0.raw();
     let around = |picture: &RgbaImage, zoom: u32| {
         let (x0, y0) = ((at[0] - 90).max(0) as u32, (at[1] - 70).max(0) as u32);
         let crop = image::imageops::crop_imm(picture, x0, y0, 260, 180).to_image();
@@ -280,8 +284,8 @@ fn pedia_cursor_shots() {
             let image = art.native_image(shown, scale).unwrap();
             let mut picture = backdrop.clone();
             put(&mut picture, &image);
-            picture.save(dir.join(format!("f7-pyramids-system-{name}-{label}.png"))).unwrap();
-            around(&picture, 3).save(dir.join(format!("f7-pyramids-system-{name}-{label}-zoom3.png"))).unwrap();
+            picture.save(dir.join(format!("{name_of}-system-{name}-{label}.png"))).unwrap();
+            around(&picture, 3).save(dir.join(format!("{name_of}-system-{name}-{label}-zoom3.png"))).unwrap();
         }
         // The viewer's own drawing (Alt mode, busy): `compose_with_busy`
         // through the CPU reference renderer, over the screenshot.
@@ -306,6 +310,6 @@ fn pedia_cursor_shots() {
                 picture.put_pixel(x, y, Rgba([mix(0), mix(1), mix(2), 255]));
             }
         }
-        around(&picture, 3).save(dir.join(format!("f7-pyramids-drawn-{name}-busy-zoom3.png"))).unwrap();
+        around(&picture, 3).save(dir.join(format!("{name_of}-drawn-{name}-busy-zoom3.png"))).unwrap();
     }
 }

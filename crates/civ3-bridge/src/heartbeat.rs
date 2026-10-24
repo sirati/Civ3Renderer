@@ -108,7 +108,16 @@ pub fn install() -> Result<(), String> {
         // jgl pumps on the game's thread only: whose hook time to count.
         inproc::hook_time::watch_current_thread();
         beat();
-        c.original()
+        // (Which pointer move the game has handled: `crate::cursor::handled`.)
+        crate::cursor::handled::peeking();
+        let (msg, remove) = (c.msg, c.remove);
+        let got = c.original();
+        if got != 0 && remove & 1 != 0 {
+            if let Ok([_, message, _, lparam]) = inproc::mem::Ptr32::<[u32; 4]>::new(msg).read() {
+                crate::cursor::handled::peeked(true, remove, message, lparam);
+            }
+        }
+        got
     }).map_err(|e| format!("PeekMessageA: {e}"))?;
     let wait = hooks::wait_message::install_slot(wait, |c| {
         let _waiting = Waiting::enter();
