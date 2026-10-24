@@ -434,19 +434,6 @@ fn with_skipper<R>(f: impl FnOnce(&mut Skipper) -> R) -> Option<R> {
     with_any_skipper(f)
 }
 
-/// Whether the text the game's text functions are writing now (`TextOutA`,
-/// just recorded) is skipped: only text drawn through them (recorded with
-/// its canvas) is. (The replaced import hook, `CIV3R_JGL_TEXT_COMPARE=1`.)
-pub fn skips_text() -> bool {
-    let canvas = TEXT_CANVAS.with(Cell::get);
-    canvas != 0 && skips(canvas, 0)
-}
-
-/// The canvas the exe's text functions are drawing on (0 outside them).
-pub(crate) fn text_canvas() -> u32 {
-    TEXT_CANVAS.with(Cell::get)
-}
-
 /// Whether jgl's pixels of a text run on `canvas` are skipped.
 pub fn skips_text_on(canvas: u32) -> bool {
     canvas != 0 && skips(canvas, 0)
@@ -459,9 +446,6 @@ pub fn skips_colored(sprite: u32, canvas: u32) -> bool {
 }
 
 thread_local! {
-    /// The canvas the game's text functions are drawing on (their `this`),
-    /// for attributing `TextOutA` calls.
-    static TEXT_CANVAS: Cell<u32> = const { Cell::new(0) };
     /// The rectangle of the screen being painted or presented (left, top,
     /// right, bottom), while it is.
     static DIRTY: Cell<Option<[i32; 4]>> = const { Cell::new(None) };
@@ -1283,14 +1267,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         crate::city_screen::native::present(&presenting);
         emit_present(if rect == 0 { None } else { obj::rect(rect) }, presented);
     });
-    // Only to compare the jgl text takeover with the import hook it
-    // replaced (which needs the canvas of these functions).
-    if crate::jgl_hooks::text_compare() {
-        hook!(text_worker, sites.text_worker, |c| with_text_canvas(c.image, || c.original()));
-        hook!(text_draw, sites.text_draw, |c| with_text_canvas(c.image, || c.original()));
-        hook!(text_draw_centered, sites.text_draw_centered, |c| with_text_canvas(c.image, || c.original()));
-        hook!(text_draw_rect, sites.text_draw_rect, |c| with_text_canvas(c.image, || c.original()));
-    }
     hook!(sprite_draw_masked, sites.sprite_draw_masked, |c| {
         if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
         draw(c.dest, c.sprite, || c.original())
@@ -1548,12 +1524,6 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
             c.original()
         }
     }).map(|i| Box::new(i) as _));
-}
-fn with_text_canvas<R>(canvas: u32, f: impl FnOnce() -> R) -> R {
-    let outer = TEXT_CANVAS.with(|c| c.replace(canvas));
-    let r = f();
-    TEXT_CANVAS.with(|c| c.set(outer));
-    r
 }
 
 

@@ -132,22 +132,6 @@ fn remember(recent: &mut std::collections::VecDeque<(std::time::Instant, TextRun
     }
 }
 
-/// The replaced import hook's run (`CIV3R_JGL_TEXT_COMPARE=1` only): made
-/// as before, from the DC's font and colour, and compared with the run the
-/// jgl takeover recorded for the same call.
-fn record_text(call: &hooks::text_out::Call) {
-    let len = (call.len as i32).clamp(0, 1024) as usize;
-    let Ok(bytes) = inproc::Ptr32::<u8>::new(call.text).read_array(len) else { return };
-    // Windows-1252, read as Latin-1 (the glyph set covers the same codes).
-    let text: String = bytes.iter().map(|&b| b as char).collect();
-    let Some(font) = inproc::gdi::dc_font(call.dc) else { return };
-    let (r, g, b) = inproc::gdi::dc_text_color(call.dc);
-    let run = TextRun { x: call.x as i32, y: call.y as i32, color: [r, g, b], face: font.face, height: font.height, weight: font.weight, italic: font.italic, underline: font.underline, text, backdrop: None };
-    let canvas = crate::ui_trace::text_canvas();
-    let clip = if canvas == 0 { None } else { civ3_sys::ui_hooks::canvas_text_clip(canvas) };
-    crate::jgl_hooks::compare::old_run(&run, canvas, clip);
-}
-
 /// A text run the game drew (any canvas), for [`recent_texts`].
 pub(crate) fn recent_text(run: TextRun) {
     // The semantic notice reader owns this text in UI and text-only modes.
@@ -190,30 +174,6 @@ fn merge_new_text() {
 
 fn request_path() -> PathBuf {
     PathBuf::from("civ3-trace.request")
-}
-
-/// The text import is redirected before the game's LoadLibraryA returns.
-/// Keep its guard process-wide; the later tracer setup may discover the
-/// same module concurrently and must not patch the import twice.
-static TEXT_HOOK: inproc::loader::InstallOnce = inproc::loader::InstallOnce::new();
-
-/// Installs jgl's text capture synchronously, before its first draw. Safe
-/// during early DLL setup: this only reads and patches an existing import,
-/// without loading a library or waiting for another initialization thread.
-/// Returns whether the module imports TextOutA; an installed hook is reused.
-pub(crate) fn hook_jgl_text(base: u32) -> Result<bool, inproc::hook::HookError> {
-    TEXT_HOOK.run(|| {
-        let Some(slot) = inproc::pe::import_slot(base, "GDI32.dll", "TextOutA")? else { return Ok(false); };
-        // Stays for the life of the process.
-        std::mem::forget(hooks::text_out::install_slot(slot, |call| {
-            record_text(call);
-            // Measuring text remains available even when its mirrored pixel
-            // drawing is skipped; GetTextExtentPoint32 is not redirected.
-            if crate::ui_trace::skips_text() { 1 } else { call.original() }
-        })?);
-        log::info!("tracing text (jgl.dll TextOutA, synchronous import hook)");
-        Ok(true)
-    })
 }
 
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
