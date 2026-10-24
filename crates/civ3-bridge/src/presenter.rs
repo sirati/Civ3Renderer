@@ -360,6 +360,19 @@ impl Presenter {
         }
     }
 
+    /// Tells the renderer that the game quits (`Update::Close`,
+    /// `crate::session_end`): it shows nothing newer and closes. False if
+    /// it did not take it (busy: ask again).
+    pub fn close(&mut self) -> bool {
+        let close = vec![Update::Close];
+        match &mut self.sink {
+            Sink::InProcess { driver, .. } => driver.send(close),
+            // (Pushed when the library takes pushes: never busy.)
+            Sink::Native(n) => n.publish(&close).0 || push(close),
+            Sink::External(client) => client.publish(&close).0,
+        }
+    }
+
     /// The host's status for the renderer, with this side's render errors
     /// for its on-screen count: not for an in-process renderer, which counts
     /// them itself (the same `render_errors::ERRORS`).
