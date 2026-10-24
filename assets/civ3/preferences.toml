@@ -2337,6 +2337,37 @@ text = "{value} px"
 style = "label"
 show_if = "tab=layout"
 
+# The dividers drawn as the zoom's glass, round where they stop.
+[[panels.preferences.items]]
+checkbox = "layout.glass_dividers"
+at = [72, 632]
+size = [376, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Glass dividers"
+style = "label"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+text = "The divider lines as the zoom's glass, round where they stop."
+style = "caption"
+at = [72, 652]
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "layout.glass_dividers"
+at = [497, 629]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=layout & dialog.changed.layout.glass_dividers"
+
 # Undo uses the same parchment buttons and brown pixel art as other panel
 # controls. The curved arrow is generated, so it needs no new game file.
 [art.undo_icon]

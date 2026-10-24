@@ -608,7 +608,7 @@ impl Prefs {
                         continue;
                     }
                     if control == UNDO {
-                        self.undo_slider(value);
+                        self.undo_control(value);
                         continue;
                     }
                 }
@@ -680,9 +680,18 @@ impl Prefs {
         self.draft.as_ref().unwrap_or(&self.settings)
     }
 
-    fn undo_slider(&mut self, key: &str) {
-        // Only sliders can be undone, and the saved value is authoritative,
-        // including values loaded from disk outside today's slider steps.
+    fn undo_control(&mut self, key: &str) {
+        // Sliders and checkboxes can be undone, and the saved value is
+        // authoritative, including values loaded from disk outside today's
+        // slider steps.
+        if let Some(ControlValue::On(original)) = self.settings.control(key) {
+            if let Some(draft) = &mut self.draft {
+                draft.set_control(key, &ControlValue::On(original));
+            }
+            self.state.values.insert(key.into(), Value::On(original));
+            self.project_settings();
+            return;
+        }
         let slider = self.panels.as_ref().and_then(|p| p.panel(PANEL)).and_then(|p| p.slider_range(key));
         if slider.is_none() { return; }
         let Some(ControlValue::Number(original)) = self.settings.control(key) else { return };
@@ -898,7 +907,7 @@ impl Prefs {
         values.insert(PREVIEWING_BASE.into(), Value::On(self.base_preview));
         values.insert(HOST_MACOS.into(), Value::On(self.host_macos));
         for (key, accepted) in self.settings.controls() {
-            if matches!(accepted, ControlValue::Number(_)) {
+            if matches!(accepted, ControlValue::Number(_) | ControlValue::On(_)) {
                 values.insert(format!("dialog.changed.{key}"), Value::On(self.editing().control(&key).as_ref() != Some(&accepted)));
             }
         }
@@ -981,6 +990,7 @@ fn changed_controls(active: &Settings, draft: &Settings) -> Vec<String> {
         "layout.zoom_content" => "Zoom shows".into(),
         "layout.roles" => "View roles".into(),
         "layout.unit_buttons" => "Unit buttons".into(),
+        "layout.glass_dividers" => "Glass dividers".into(),
         _ => key.split('.').skip(1).collect::<Vec<_>>().join(" ").replace('_', " "),
     };
     let display = |value: &ControlValue| match value {
@@ -2438,6 +2448,12 @@ mod tests {
         prefs.tab = TAB_ACCESSIBILITY.into();
         prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
         shot(&prefs, "tab-accessibility-undo");
+        // Glass dividers on: checked, its undo button.
+        prefs.draft.as_mut().unwrap().layout.glass_dividers = true;
+        prefs.project_settings();
+        prefs.tab = TAB_LAYOUT.into();
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-layout-glass-dividers-undo");
         // A box at the mouse: its distances above and below, then changed
         // (their undo buttons).
         prefs.draft.as_mut().unwrap().layout.zoom = Zoom::Mouse131;
@@ -2766,6 +2782,33 @@ mod tests {
             assert!(!prefs.dirty(), "undoing the only edit leaves a clean dialog");
             assert_eq!(std::fs::read(&path).unwrap(), saved);
         }
+    }
+
+    #[test]
+    fn glass_dividers_preview_live_and_undo_like_the_sliders() {
+        let (mut p, path) = open_prefs("glass-dividers");
+        let texts = |p: &Prefs| -> Vec<String> { p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect() };
+        let undo_at = |p: &Prefs| p.looks(&Fonts::default()).into_iter().find(|look| look.rect == [497, 629, 23, 23]);
+        // The Layout tab: off by default, no undo.
+        assert!(click(&mut p, 330, 55).is_empty());
+        assert!(texts(&p).iter().any(|t| t == "Glass dividers"), "{:?}", texts(&p));
+        assert!(!p.editing().layout.glass_dividers && !p.settings().layout.glass_dividers);
+        assert!(undo_at(&p).is_none());
+        // On: drafted and previewed at once (the viewer draws with
+        // `settings`), the undo shown, nothing saved.
+        assert!(click(&mut p, 80, 640).is_empty());
+        assert!(p.editing().layout.glass_dividers && p.settings().layout.glass_dividers);
+        let undo = undo_at(&p).expect("changed: undo");
+        assert_eq!(undo.kind, scene::InteractableKind::Button);
+        assert!(changed_controls(&Settings::default(), p.editing()).contains(&"Glass dividers: Off to On".to_string()));
+        // An unrelated draft edit survives the undo.
+        p.draft.as_mut().unwrap().display.show_fps = !p.settings.display.show_fps;
+        assert!(click(&mut p, 508, 640).is_empty());
+        assert!(!p.editing().layout.glass_dividers && !p.settings().layout.glass_dividers);
+        assert!(undo_at(&p).is_none(), "restored");
+        assert_ne!(p.editing().display.show_fps, p.settings.display.show_fps);
+        assert!(!path.exists(), "undo never saves");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
