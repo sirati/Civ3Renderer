@@ -207,26 +207,6 @@ inproc::cdecl_hook! {
     pub mod present(rect) -> ();
 }
 
-inproc::fastcall_hook! {
-    /// The text worker `0x5FE7B0 (this, char *s, x, y, len)` every text function
-    /// (left, centred, in a rectangle, right-aligned...) ends in.
-    pub mod text_worker(image, edx; text, x, y, len) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `PCX_Image::draw_text(this, char *s, x, y, len)`.
-    pub mod text_draw(image, edx; text, x, y, len) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `PCX_Image::draw_centered_text(this, char *s, x, y, width, len)`.
-    pub mod text_draw_centered(image, edx; text, x, y, width, len) -> i32;
-}
-
-inproc::fastcall_hook! {
-    /// `PCX_Image::draw_text_in_rect(this, char *s, RECT *r, len)`.
-    pub mod text_draw_rect(image, edx; text, rect, len) -> i32;
-}
 
 inproc::fastcall_hook! {
     /// Creates navigator geometry and images, then optionally tints and reveals them.
@@ -290,10 +270,6 @@ pub struct UiSites {
     pub paint: Site,
     pub compose_all: Site,
     pub present: Site,
-    pub text_draw: Site,
-    pub text_worker: Site,
-    pub text_draw_centered: Site,
-    pub text_draw_rect: Site,
 }
 
 pub fn ui_sites(build: Build) -> Option<UiSites> {
@@ -357,14 +333,6 @@ pub fn ui_sites(build: Build) -> Option<UiSites> {
             compose_all: (0x60_9210, &[0xA1, 0xC0, 0xD3, 0xCA, 0x00, 0x83, 0xEC, 0x10]),
             // mov eax,[0CAD2ECh]
             present: (0x60_6680, &[0xA1, 0xEC, 0xD2, 0xCA, 0x00]),
-            // sub esp,8 / mov eax,[esp+0Ch] / push ebp
-            text_worker: (0x5F_E7B0, &[0x83, 0xEC, 0x08, 0x8B, 0x44, 0x24, 0x0C, 0x55]),
-            // push ebx / push esi / mov esi,[esp+0Ch]
-            text_draw: (0x5F_EE50, &[0x53, 0x56, 0x8B, 0x74, 0x24, 0x0C]),
-            // push ebx / mov ebx,[esp+8]
-            text_draw_centered: (0x5F_EFC0, &[0x53, 0x8B, 0x5C, 0x24, 0x08]),
-            // mov edx,[esp+4] / sub esp,10h
-            text_draw_rect: (0x5F_F0D0, &[0x8B, 0x54, 0x24, 0x04, 0x83, 0xEC, 0x10]),
         }),
         Build::Gog | Build::Steam => None,
     }
