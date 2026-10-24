@@ -956,10 +956,15 @@ fn forget_form_surface(image: u32) {
 /// the canvas's clip rectangle (the game's copies keep to it: e.g. a list
 /// box redrawing one row through tiles of its background).
 fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool) {
+    copy_within(from, src, canvas, x, y, keyed, clip_of(canvas));
+}
+
+/// [`copy`] with the canvas's clip as `clip_of` gives it.
+fn copy_within(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool, clip: Option<[i32; 4]>) {
     if rerendered(canvas) { return; }
     note_form_surface(from, canvas);
     let (mut src, mut x, mut y) = (src, x, y);
-    if let Some([l, t, r, b]) = clip_of(canvas) {
+    if let Some([l, t, r, b]) = clip {
         let (dl, dt) = ((l - x).max(0), (t - y).max(0));
         let (w, hh) = ((src[2] - dl).min(r - x - dl), (src[3] - dt).min(b - y - dt));
         if w <= 0 || hh <= 0 {
@@ -996,6 +1001,18 @@ pub fn on_fill(canvas: u32, size: Option<(i32, i32)>, rects: &[[i32; 4]], rgb: [
     for &rect in rects {
         emit(Event::Fill { canvas, rect, rgb, alpha, clip });
     }
+}
+
+/// A copy from jgl's copy group (`civ3_ui::draw`): the sizes of the canvas
+/// and of the one copied from first, when given.
+#[allow(clippy::too_many_arguments)]
+pub fn on_copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool, sizes: Option<((i32, i32), (i32, i32))>, clip: Option<[i32; 4]>) {
+    if rerendered(canvas) { return; }
+    if let Some((canvas_size, from_size)) = sizes {
+        emit(Event::Size { image: canvas, size: canvas_size });
+        emit(Event::Size { image: from, size: from_size });
+    }
+    copy_within(from, src, canvas, x, y, keyed, clip_from(canvas, clip));
 }
 
 /// Whether jgl's drawing onto `canvas` (from `source`, 0: none), taken by
@@ -1153,47 +1170,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         // No crop offset: the stored pixels go to (x, y).
         if !rerendered(c.dest) { emit(Event::MaskedBlit { sprite: c.sprite, mask: c.mask, canvas: c.dest, x: c.x as i32, y: c.y as i32, clip: clip_of(c.dest) }); }
         draw(c.dest, c.sprite, || c.original())
-    });
-    hook!(pcx_draw_onto, sites.pcx_draw_onto, |c| {
-        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
-        if let Some((w, hh)) = obj::image_size(c.image) {
-            copy(c.image, [0, 0, w, hh], c.dst, c.x as i32, c.y as i32, true);
-        }
-        draw(c.dst, c.image, || c.original())
-    });
-    hook!(pcx_copy, sites.pcx_copy, |c| {
-        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
-        size_of(c.dst);
-        size_of(c.image);
-        let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
-        copy(c.image, src, c.dst, c.dx as i32, c.dy as i32, false);
-        draw(c.dst, c.image, || c.original())
-    });
-    hook!(pcx_copy_same, sites.pcx_copy_same, |c| {
-        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
-        size_of(c.dst);
-        size_of(c.image);
-        let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
-        copy(c.image, src, c.dst, src[0], src[1], false);
-        draw(c.dst, c.image, || c.original())
-    });
-    hook!(pcx_copy_rect, sites.pcx_copy_rect, |c| {
-        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
-        size_of(c.dst);
-        size_of(c.image);
-        if let Some(src) = rect_xywh(c.rect) {
-            copy(c.image, src, c.dst, src[0], src[1], false);
-        }
-        draw(c.dst, c.image, || c.original())
-    });
-    hook!(pcx_copy_rects, sites.pcx_copy_rects, |c| {
-        if rerendered(c.dst) { return draw(c.dst, c.image, || c.original()); }
-        size_of(c.dst);
-        size_of(c.image);
-        if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
-            copy(c.image, src, c.dst, dst[0], dst[1], false);
-        }
-        draw(c.dst, c.image, || c.original())
     });
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
@@ -1359,7 +1335,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
 }
 
 
-/// The exe detours the jgl fill group replaced, with the old
+/// The exe detours the jgl fill and copy groups replaced, with the old
 /// path's events, beside the takeover (`CIV3R_JGL_COMPARE=1` only; see
 /// `jgl_hooks::compare`). Each calls the original always: the takeover
 /// below decides the pixels.
@@ -1371,6 +1347,52 @@ fn hook_old_draws(sites: &h::UiSites, hooks: &mut Vec<Box<dyn std::any::Any + Se
         };
     }
     let reach = |canvas: u32, source: u32| has_pixels(canvas) && (source == 0 || has_pixels(source));
+    hook!(pcx_draw_onto, sites.pcx_draw_onto, move |c| old_call("draw_onto", reach(c.dst, c.image), || {
+        if !rerendered(c.dst) {
+            if let Some((w, hh)) = obj::image_size(c.image) {
+                copy(c.image, [0, 0, w, hh], c.dst, c.x as i32, c.y as i32, true);
+            }
+        }
+        Some((c.dst, c.image))
+    }, || c.original()));
+    hook!(pcx_copy, sites.pcx_copy, move |c| old_call("copy", reach(c.dst, c.image), || {
+        if !rerendered(c.dst) {
+            size_of(c.dst);
+            size_of(c.image);
+            let src = [c.sx as i32, c.sy as i32, c.sw as i32, c.sh as i32];
+            copy(c.image, src, c.dst, c.dx as i32, c.dy as i32, false);
+        }
+        Some((c.dst, c.image))
+    }, || c.original()));
+    hook!(pcx_copy_same, sites.pcx_copy_same, move |c| old_call("copy_same", reach(c.dst, c.image), || {
+        if !rerendered(c.dst) {
+            size_of(c.dst);
+            size_of(c.image);
+            let src = [c.x as i32, c.y as i32, c.w as i32, c.h as i32];
+            copy(c.image, src, c.dst, src[0], src[1], false);
+        }
+        Some((c.dst, c.image))
+    }, || c.original()));
+    hook!(pcx_copy_rect, sites.pcx_copy_rect, move |c| old_call("copy_rect", reach(c.dst, c.image), || {
+        if !rerendered(c.dst) {
+            size_of(c.dst);
+            size_of(c.image);
+            if let Some(src) = rect_xywh(c.rect) {
+                copy(c.image, src, c.dst, src[0], src[1], false);
+            }
+        }
+        Some((c.dst, c.image))
+    }, || c.original()));
+    hook!(pcx_copy_rects, sites.pcx_copy_rects, move |c| old_call("copy_rects", reach(c.dst, c.image), || {
+        if !rerendered(c.dst) {
+            size_of(c.dst);
+            size_of(c.image);
+            if let (Some(src), Some(dst)) = (rect_xywh(c.src_rect), rect_xywh(c.dst_rect)) {
+                copy(c.image, src, c.dst, dst[0], dst[1], false);
+            }
+        }
+        Some((c.dst, c.image))
+    }, || c.original()));
     hook!(pcx_fill, sites.pcx_fill, move |c| old_call("fill", reach(c.image, 0), || {
         if let Some((w, hh)) = obj::image_size(c.image) {
             fill(c.image, [0, 0, w, hh], c.color);
@@ -1419,8 +1441,9 @@ fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result
         Ok(slot)
     };
     let present_slot = check(h::jgl_present_slot(base))?;
-    // Fills, lines and shades: jgl's own method group, taken over.
+    // Fills, lines, shades and copies: jgl's own method groups, taken over.
     crate::jgl_hooks::install_fill(base)?;
+    crate::jgl_hooks::install_copy(base)?;
     if crate::jgl_hooks::compare::on() {
         // The old `shade_rect` slot hook, over the takeover's entry point.
         let (shade_slot, _) = h::jgl_shade_slot(base);

@@ -8,8 +8,8 @@
 
 use std::collections::HashSet;
 
-use crate::draw::FillCall;
-use crate::hooks::{FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
+use crate::draw::{CopyCall, FillCall};
+use crate::hooks::{CopyHooks, FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
 use crate::record::{Record, Records, Writer};
 use crate::text::{FontDesc, TextColor, TextState};
 use crate::{FontId, ImageId, Rect};
@@ -87,6 +87,12 @@ impl Producer {
         self.policy.original_fill(call)
     }
 
+    /// Returns whether jgl's original is to run.
+    pub fn copy(&mut self, call: &CopyCall) -> bool {
+        self.writer.push(&Record::Copy(*call));
+        self.policy.original_copy(call)
+    }
+
     /// The records not yet consumed.
     pub fn pending(&self) -> &[u8] {
         self.writer.bytes()
@@ -98,6 +104,7 @@ pub struct Consumer {
     text: TextState,
     hooks: Box<dyn TextHooks>,
     fill: Box<dyn FillHooks>,
+    copy: Box<dyn CopyHooks>,
     /// Malformed buffers seen (logged once).
     pub errors: u32,
     /// Text records whose image had no state (should not happen: the
@@ -106,8 +113,8 @@ pub struct Consumer {
 }
 
 impl Consumer {
-    pub fn new(hooks: Box<dyn TextHooks>, fill: Box<dyn FillHooks>, stock: FontDesc) -> Consumer {
-        Consumer { text: TextState::new(stock), hooks, fill, errors: 0, stateless: 0 }
+    pub fn new(hooks: Box<dyn TextHooks>, fill: Box<dyn FillHooks>, copy: Box<dyn CopyHooks>, stock: FontDesc) -> Consumer {
+        Consumer { text: TextState::new(stock), hooks, fill, copy, errors: 0, stateless: 0 }
     }
 
     pub fn text_state(&self) -> &TextState {
@@ -160,6 +167,7 @@ impl Consumer {
                 self.hooks.text(&TextDraw { image, owner, x, y, bytes, font: &font, color, clip });
             }
             Record::Fill(call) => self.fill.fill(&call),
+            Record::Copy(call) => self.copy.copy(&call),
         }
     }
 }
@@ -182,7 +190,7 @@ impl Jgl {
     pub fn new(hooks: Hooks, stock: FontDesc) -> Jgl {
         let mut producer = Producer::new(hooks.policy);
         producer.font_defined(FontId::STOCK, &stock);
-        let mut jgl = Jgl { producer, consumer: Consumer::new(hooks.text, hooks.fill, stock), tap: None };
+        let mut jgl = Jgl { producer, consumer: Consumer::new(hooks.text, hooks.fill, hooks.copy, stock), tap: None };
         jgl.flush();
         jgl
     }

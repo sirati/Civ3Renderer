@@ -13,7 +13,7 @@
 //! The format is the same in memory and in a dump file (`jgl::record`
 //! streams can be written out and replayed offline).
 
-use crate::draw::{FillCall, MAX_ARGS, Surface};
+use crate::draw::{CopyCall, FillCall, MAX_ARGS, Surface};
 use crate::{FontId, ImageId, Rect};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -49,6 +49,14 @@ pub enum Op {
     Line = 12,
     /// The fill group's other slots (`FillCall::Other`).
     FillOther = 13,
+    /// Image slot +0x40 (`CopyCall::Stretch`).
+    CopyStretch = 14,
+    /// Image slot +0x84 (`CopyCall::Keyed`).
+    CopyKeyed = 15,
+    /// Image slot +0x38 (`CopyCall::Indexed`).
+    CopyIndexed = 16,
+    /// The copy group's other slots (`CopyCall::Other`).
+    CopyOther = 17,
 }
 
 impl Op {
@@ -67,6 +75,10 @@ impl Op {
             11 => Op::ReplaceColor,
             12 => Op::Line,
             13 => Op::FillOther,
+            14 => Op::CopyStretch,
+            15 => Op::CopyKeyed,
+            16 => Op::CopyIndexed,
+            17 => Op::CopyOther,
             _ => return None,
         })
     }
@@ -88,6 +100,7 @@ pub enum Record<'a> {
     /// group is ours, the consumer cannot know them otherwise.
     Text { image: ImageId, owner: u32, x: i32, y: i32, clip: Rect, bytes: &'a [u8] },
     Fill(FillCall),
+    Copy(CopyCall),
 }
 
 /// The longest tail a record keeps (`text_out` lengths are clamped to it,
@@ -153,6 +166,7 @@ impl Writer {
                 bytes,
             ),
             Record::Fill(call) => self.fill(&call),
+            Record::Copy(call) => self.copy(&call),
         }
     }
 
@@ -183,6 +197,28 @@ impl Writer {
         self.put(op, f.get(), &[]);
     }
 
+    fn copy(&mut self, call: &CopyCall) {
+        let mut f = Fields::new();
+        let op = match *call {
+            CopyCall::Stretch { source, target, src, dst } => {
+                f.surface(source).surface(target).rect(src).rect(dst);
+                Op::CopyStretch
+            }
+            CopyCall::Keyed { source, target, x, y } => {
+                f.surface(source).surface(target).point((x, y));
+                Op::CopyKeyed
+            }
+            CopyCall::Indexed { source, target, src, at, size, mode } => {
+                f.surface(source).surface(target).point(src).point(at).point(size).push(mode);
+                Op::CopyIndexed
+            }
+            CopyCall::Other { slot, this, args } => {
+                f.push(slot as u32).surface(this).words(&args);
+                Op::CopyOther
+            }
+        };
+        self.put(op, f.get(), &[]);
+    }
 }
 
 /// The fixed fields of a drawing record, without allocating.
@@ -312,6 +348,7 @@ fn decode(op: Op, body: &[u8]) -> Option<Record<'_>> {
             bytes: tail(9)?,
         },
         Op::Fill | Op::Shade | Op::ReplaceColor | Op::Line | Op::FillOther => Record::Fill(fill(op, &mut Cursor { body, at: 0 })?),
+        Op::CopyStretch | Op::CopyKeyed | Op::CopyIndexed | Op::CopyOther => Record::Copy(copy(op, &mut Cursor { body, at: 0 })?),
     })
 }
 
@@ -370,6 +407,25 @@ fn fill(op: Op, c: &mut Cursor<'_>) -> Option<FillCall> {
     })
 }
 
+fn copy(op: Op, c: &mut Cursor<'_>) -> Option<CopyCall> {
+    Some(match op {
+        Op::CopyStretch => CopyCall::Stretch { source: c.surface()?, target: c.surface()?, src: c.rect()?, dst: c.rect()? },
+        Op::CopyKeyed => {
+            let (source, target, (x, y)) = (c.surface()?, c.surface()?, c.point()?);
+            CopyCall::Keyed { source, target, x, y }
+        }
+        Op::CopyIndexed => CopyCall::Indexed {
+            source: c.surface()?,
+            target: c.surface()?,
+            src: c.point()?,
+            at: c.point()?,
+            size: c.point()?,
+            mode: c.word()?,
+        },
+        Op::CopyOther => CopyCall::Other { slot: c.word()? as u16, this: c.surface()?, args: c.words::<4>()? },
+        _ => return None,
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -392,6 +448,10 @@ mod tests {
             Record::Fill(FillCall::ReplaceColor { target: surface(0x2000), rect: Rect::new(0, 0, 9, 9), from: 7, to: 8 }),
             Record::Fill(FillCall::Line { target: surface(0x2000), from: (-3, 4), to: (50, 60), color: 0x1F, flag: 1 }),
             Record::Fill(FillCall::Other { slot: 0x60, target: surface(0x2000), args: [1, 2, 3, 4, 5, 6, 7, 8, 9] }),
+            Record::Copy(CopyCall::Stretch { source: surface(0x2100), target: surface(0x2000), src: Rect::new(0, 0, 10, 10), dst: Rect::new(5, 5, 25, 25) }),
+            Record::Copy(CopyCall::Keyed { source: surface(0x2100), target: surface(0x2000), x: -7, y: 8 }),
+            Record::Copy(CopyCall::Indexed { source: surface(0x2100), target: surface(0x2000), src: (1, 2), at: (3, 4), size: (5, 6), mode: 7 }),
+            Record::Copy(CopyCall::Other { slot: 0x8C, this: surface(0x2100), args: [0x2000, 1, 2, 3] }),
         ]
     }
 

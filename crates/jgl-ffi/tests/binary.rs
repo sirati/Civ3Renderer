@@ -308,7 +308,30 @@ fn fill_group_slot_bodies_are_the_ones_taken_over() {
     assert!(contains(frame, &[0x83, 0x38, 0x08, 0x74, 0x06, 0x33, 0xC0]));
 }
 
-/// The exe's `PCX_Image` functions whose detours the fill group
+#[test]
+fn copy_group_slot_bodies_are_the_ones_taken_over() {
+    let Some(pe) = pe() else { return };
+    for offset in jgl_ffi::copy::SLOTS {
+        assert!(returns_with(&pe, Class::Image, offset, 0x100), "+{offset:#x}");
+    }
+    // copy(target, src, dst): any null argument answers 0x10; StretchBlt from
+    // this image's DC onto the target's.
+    let header = u32::from_le_bytes(pe.data[0x3C..0x40].try_into().unwrap()) as usize;
+    let imports = u32::from_le_bytes(pe.data[header + 0x80..header + 0x84].try_into().unwrap());
+    let stretch = import_rva(&pe, imports, "GDI32.dll", "StretchBlt").expect("jgl imports StretchBlt");
+    let copy = pe.slot_body(Class::Image, 0x40, 0xD8);
+    assert!(contains(copy, &[[0xFF, 0x15].as_slice(), &(pe.image_base + stretch).to_le_bytes()].concat()));
+    assert!(contains(copy, &[0xB8, 0x10, 0x00, 0x00, 0x00]));
+    // SRCCOPY, then (hdcDest = the target's DC, saved over the third argument).
+    assert!(contains(copy, &[0x68, 0x20, 0x00, 0xCC, 0x00]));
+    assert!(contains(copy, &[0x8B, 0x54, 0x24, 0x3C, 0x51, 0x53, 0x50, 0x52]));
+    // copy_38: this image 8-bit (cmp [format], 8), the target 8 or 16.
+    let indexed = pe.slot_body(Class::Image, 0x38, 0x40);
+    assert!(contains(indexed, &[0x83, 0x38, 0x08, 0x74, 0x0A]));
+    assert!(contains(indexed, &[0x83, 0xF8, 0x10]));
+}
+
+/// The exe's `PCX_Image` functions whose detours the fill and copy groups
 /// replaced reach jgl through these slots, with these arguments. Needs the
 /// game's exe (`CIV3_EXE`, or the dataset copy next to `jgl.dll`).
 #[test]
@@ -339,5 +362,12 @@ fn the_exe_wrappers_call_the_taken_over_slots() {
     for (va, call) in [(0x5F_FFB0, [0xFF, 0x50, 0x64]), (0x5F_FFE0, [0xFF, 0x52, 0x64]), (0x60_0010, [0xFF, 0x52, 0x64])] {
         let body = at(va, 0x28);
         assert!(contains(body, &[0x6A, 0x01]) && contains(body, &call), "{va:#x}");
+    }
+    // draw_onto (0x5FC9F0): +0x84 on this image's jgl image, the target's first.
+    assert!(contains(at(0x5F_C9F0, 0x38), &[0xFF, 0x92, 0x84, 0x00, 0x00, 0x00]));
+    // copy_same, copy_rect, copy_stretch, copy_rects: +0x40 (target, &src, &dst).
+    for va in [0x5F_CB60, 0x5F_CBD0, 0x5F_CC10, 0x5F_CCB0] {
+        let body = at(va, 0x90);
+        assert!(contains(body, &[0xFF, 0x52, 0x40]) || contains(body, &[0xFF, 0x56, 0x40]), "{va:#x}");
     }
 }

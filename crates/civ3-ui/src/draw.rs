@@ -1,13 +1,14 @@
-//! The game's fills, lines and translucent rectangles on interface
-//! canvases, as the jgl fill group gets them, in the terms of the
-//! interface model: rectangles of a colour.
+//! The game's fills, lines, translucent rectangles and copies on interface
+//! canvases, as the jgl fill and copy groups get them, in the terms of the
+//! interface model: rectangles of a colour and regions copied from one
+//! canvas to another.
 //!
-//! [`FillCapture`] is the hook; [`mirrored_fill`] tells which calls it
-//! takes (whose pixels the interface model has, so jgl's need not be
-//! drawn). What it leaves out (+0x58 and the slots not seen called) jgl
-//! still draws.
+//! [`FillCapture`] and [`CopyCapture`] are the hooks; [`mirrored_fill`] and
+//! [`mirrored_copy`] tell which calls they take (whose pixels the
+//! interface model has, so jgl's need not be drawn). What they leave out
+//! (+0x38, +0x58 and the slots not seen called) jgl still draws.
 
-use jgl::{FillCall, FillHooks, Rect, Surface};
+use jgl::{CopyCall, CopyHooks, FillCall, FillHooks, Rect, Surface};
 
 /// A drawing on a canvas (a `PCX_Image*`, the jgl image's owner).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,6 +17,10 @@ pub enum CanvasDraw {
     /// `size`: the canvas's, for the model to know before it (not given
     /// for translucent rectangles).
     Fill { canvas: u32, size: Option<(i32, i32)>, rects: Vec<[i32; 4]>, rgb: [u8; 3], alpha: u8, clip: Option<[i32; 4]> },
+    /// Region `src` (x, y, w, h) of `from` copied to (x, y) of `canvas`,
+    /// its colour key left out when `keyed`. `sizes`: the canvas's and
+    /// `from`'s, for the model to know first.
+    Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool, sizes: Option<((i32, i32), (i32, i32))>, clip: Option<[i32; 4]> },
 }
 
 /// Where the captures hand their drawings.
@@ -146,6 +151,17 @@ pub fn mirrored_fill(call: &FillCall) -> Option<u32> {
     (taken && owner != 0).then_some(owner)
 }
 
+/// The canvas and the canvas copied from whose pixels the interface model
+/// takes from `call` (see [`mirrored_fill`]).
+pub fn mirrored_copy(call: &CopyCall) -> Option<(u32, u32)> {
+    match call {
+        CopyCall::Stretch { source, target, .. } | CopyCall::Keyed { source, target, .. } => {
+            (source.owner != 0 && target.owner != 0).then_some((target.owner, source.owner))
+        }
+        CopyCall::Indexed { .. } | CopyCall::Other { .. } => None,
+    }
+}
+
 /// What `call` draws in the interface model's terms.
 pub fn fill_of(call: &FillCall) -> Option<CanvasDraw> {
     let canvas = mirrored_fill(call)?;
@@ -165,6 +181,27 @@ pub fn fill_of(call: &FillCall) -> Option<CanvasDraw> {
     Some(CanvasDraw::Fill { canvas, size, rects, rgb: rgb555(color), alpha, clip: canvas_clip(target) })
 }
 
+/// What `call` draws in the interface model's terms.
+pub fn copy_of(call: &CopyCall) -> Option<CanvasDraw> {
+    let (canvas, from) = mirrored_copy(call)?;
+    Some(match *call {
+        CopyCall::Stretch { source, target, src, dst } => CanvasDraw::Copy {
+            from,
+            src: xywh(src),
+            canvas,
+            x: dst.left,
+            y: dst.top,
+            keyed: false,
+            sizes: Some((target.size(), source.size())),
+            clip: canvas_clip(&target),
+        },
+        CopyCall::Keyed { source, target, x, y } => {
+            CanvasDraw::Copy { from, src: area(&source, None), canvas, x, y, keyed: true, sizes: None, clip: canvas_clip(&target) }
+        }
+        CopyCall::Indexed { .. } | CopyCall::Other { .. } => return None,
+    })
+}
+
 /// The fill hooks of the interface.
 pub struct FillCapture<S> {
     sink: S,
@@ -179,6 +216,25 @@ impl<S: DrawSink> FillCapture<S> {
 impl<S: DrawSink> FillHooks for FillCapture<S> {
     fn fill(&mut self, call: &FillCall) {
         if let Some(d) = fill_of(call) {
+            self.sink.draw(d);
+        }
+    }
+}
+
+/// The copy hooks of the interface.
+pub struct CopyCapture<S> {
+    sink: S,
+}
+
+impl<S: DrawSink> CopyCapture<S> {
+    pub fn new(sink: S) -> CopyCapture<S> {
+        CopyCapture { sink }
+    }
+}
+
+impl<S: DrawSink> CopyHooks for CopyCapture<S> {
+    fn copy(&mut self, call: &CopyCall) {
+        if let Some(d) = copy_of(call) {
             self.sink.draw(d);
         }
     }
@@ -239,20 +295,35 @@ mod tests {
     }
 
     #[test]
+    fn copies() {
+        let (src, dst) = (canvas(0x7000, FULL), canvas(0x9000, Rect::new(0, 0, 100, 100)));
+        let copy = copy_of(&CopyCall::Stretch { source: src, target: dst, src: Rect::new(10, 20, 40, 60), dst: Rect::new(5, 6, 35, 46) }).unwrap();
+        assert_eq!(copy, CanvasDraw::Copy { from: 0x7000, src: [10, 20, 30, 40], canvas: 0x9000, x: 5, y: 6, keyed: false, sizes: Some(((200, 100), (200, 100))), clip: Some([0, 0, 100, 100]) });
+        let keyed = copy_of(&CopyCall::Keyed { source: src, target: dst, x: -3, y: 4 }).unwrap();
+        assert_eq!(keyed, CanvasDraw::Copy { from: 0x7000, src: [0, 0, 200, 100], canvas: 0x9000, x: -3, y: 4, keyed: true, sizes: None, clip: Some([0, 0, 100, 100]) });
+        let indexed = CopyCall::Indexed { source: src, target: dst, src: (0, 0), at: (0, 0), size: (1, 1), mode: 0 };
+        assert_eq!(mirrored_copy(&indexed), None);
+        assert_eq!(copy_of(&indexed), None);
+    }
+
+    #[test]
     fn jgl_calls_reach_the_sink() {
         let out = Rc::new(RefCell::new(Vec::new()));
-        let a = out.clone();
+        let (a, b) = (out.clone(), out.clone());
         let stock = FontDesc { face: "System".into(), height: 16, weight: 700, italic: false, underline: false };
         let hooks = Hooks {
             fill: Box::new(FillCapture::new(move |d| a.borrow_mut().push(d))),
+            copy: Box::new(CopyCapture::new(move |d| b.borrow_mut().push(d))),
             ..Hooks::default()
         };
         let mut j = Jgl::new(hooks, stock);
         let t = canvas(0x9000, FULL);
         assert!(j.with(|p| p.fill(&FillCall::Fill { target: t, rect: None, color: 0 })));
         j.with(|p| p.fill(&FillCall::ReplaceColor { target: t, rect: FULL, from: 0, to: 1 }));
+        j.with(|p| p.copy(&CopyCall::Keyed { source: canvas(0x7000, FULL), target: t, x: 0, y: 0 }));
         let out = out.borrow();
-        assert_eq!(out.len(), 1);
+        assert_eq!(out.len(), 2);
         assert!(matches!(out[0], CanvasDraw::Fill { canvas: 0x9000, .. }));
+        assert!(matches!(out[1], CanvasDraw::Copy { from: 0x7000, canvas: 0x9000, keyed: true, .. }));
     }
 }
