@@ -150,7 +150,7 @@ pub fn clock_ms(at: Instant) -> u64 {
 
 /// The game's slides: the game thread alone records them (`record`), the
 /// publisher reads the latest copy.
-static SLIDES: civ3r_sync::Latest<Slides> = civ3r_sync::Latest::new();
+static SLIDES: handoff::Latest<Slides> = handoff::Latest::new();
 static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How long a slide is kept after it began.

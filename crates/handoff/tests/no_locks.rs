@@ -1,7 +1,7 @@
 //! The renderer's own code shares no locks between threads (see
 //! `docs/concurrency.md`): this fails if a lock type reappears in a crate's
 //! Rust sources or a lock crate in a manifest, outside `locks-allowlist.txt`.
-//! Run alone: `cargo test -p civ3r-sync --test no_locks`.
+//! Run alone: `cargo test -p handoff --test no_locks`.
 
 use std::path::{Path, PathBuf};
 
@@ -51,7 +51,7 @@ fn no_locks_outside_the_allowlist() {
     files(&crates, &mut all);
     for path in all {
         let relative = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
-        if relative.ends_with("civ3r-sync/tests/no_locks.rs") {
+        if relative.ends_with("handoff/tests/no_locks.rs") {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
@@ -65,7 +65,7 @@ fn no_locks_outside_the_allowlist() {
     }
     assert!(
         found.is_empty(),
-        "locks are not used in this code base: use channels or `civ3r_sync` (docs/concurrency.md), or add a justified entry to crates/civ3r-sync/locks-allowlist.txt:\n{}",
+        "locks are not used in this code base: use channels or `handoff` (docs/concurrency.md), or add a justified entry to crates/handoff/locks-allowlist.txt:\n{}",
         found.join("\n")
     );
 }

@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use crate::ui_capture::CapturePoint;
 
 /// What was done, for the log (most of it happens before there is one).
-static NOTES: LazyLock<civ3r_sync::Mailbox<String>> = LazyLock::new(civ3r_sync::Mailbox::new);
+static NOTES: LazyLock<handoff::Mailbox<String>> = LazyLock::new(handoff::Mailbox::new);
 
 /// `jgl.dll`'s base once it is redirected (0: not yet).
 static JGL: AtomicU32 = AtomicU32::new(0);

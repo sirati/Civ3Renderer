@@ -133,7 +133,7 @@ pub(crate) struct UiCapture<T> {
     ready: AtomicBool,
     /// Whether the model was made (it is kept across a failed late retry).
     made: AtomicBool,
-    model: civ3r_sync::Mailbox<UiModel>,
+    model: handoff::Mailbox<UiModel>,
     /// Installed hooks stay for the life of the process.
     _hooks: std::marker::PhantomData<fn() -> T>,
 }
@@ -145,7 +145,7 @@ impl<T> UiCapture<T> {
             failure: OnceLock::new(),
             ready: AtomicBool::new(false),
             made: AtomicBool::new(false),
-            model: civ3r_sync::Mailbox::new(),
+            model: handoff::Mailbox::new(),
             _hooks: std::marker::PhantomData,
         }
     }

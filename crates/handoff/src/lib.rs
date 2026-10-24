@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
 
-//! Hand-off primitives for code that shares a process with the game.
+//! Lock-free hand-off primitives between threads.
 //!
-//! The game's thread runs foreign code and must never wait for one of
-//! ours. Nothing here blocks: there are no locks to wait on and every
+//! Written for a thread that runs foreign code (a host program's main
+//! thread, its window procedures) and must never wait for one of ours. Nothing here blocks: there are no locks to wait on and every
 //! send is unbounded. See `docs/concurrency.md` for where each is used.
 //!
 //! - [`Latest`]: the newest value of something one side produces and
@@ -12,7 +12,7 @@
 //!   points, reachable from a `static` because the receiving end is
 //!   shared (`try_recv` takes `&self`).
 //! - [`Posted`]: payloads for private window messages. The message
-//!   carries a token; the game thread's handler takes what was sent for
+//!   carries a token; the receiving thread's handler takes what was sent for
 //!   it, in order, with consecutive pointer moves merged.
 //! - [`Bounded`]: a FIFO of fixed capacity for a side that must never
 //!   wait or grow (a recording writer's records): a push onto a full one
@@ -332,8 +332,8 @@ impl<T> Posted<T> {
 }
 
 /// Wakes one thread of ours that waits for something to do (the
-/// publisher): any thread may [`ring`](Wake::ring) it, the game's
-/// included, which then never waits (one atomic swap and, when the bell
+/// publisher): any thread may [`ring`](Wake::ring) it, a foreign
+/// host thread included, which then never waits (one atomic swap and, when the bell
 /// was not rung yet, an unpark: a futex or `WakeByAddressSingle`, no
 /// lock). Rings while the waiter is busy collapse into one wake-up.
 pub struct Wake {

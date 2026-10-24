@@ -1,2 +1,0 @@
-# Lock types allowed in the renderer's own code: `path[: text on the line]  # why`.
-# Each entry needs a justification. Prefer channels or civ3r_sync (docs/concurrency.md).

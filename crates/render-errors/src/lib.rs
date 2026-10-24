@@ -28,7 +28,7 @@ use std::fmt;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
-use civ3r_sync::Mailbox;
+use handoff::Mailbox;
 
 mod file;
 mod forward;

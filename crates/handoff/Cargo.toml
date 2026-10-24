@@ -1,0 +1,10 @@
+[package]
+name = "handoff"
+description = "Lock-free hand-off between threads that must never wait on each other: latest values, mailboxes, bounded queues, wake bells and posted window-message payloads"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arc-swap = "1.7"
+crossbeam-channel = "0.5"

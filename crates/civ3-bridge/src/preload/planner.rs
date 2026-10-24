@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use civ3_assets::GameFiles;
-use civ3r_sync::{Latest, Wake};
+use handoff::{Latest, Wake};
 use menu::screen::{Region, ScreenArt};
 
 use super::{ArtList, Preload};

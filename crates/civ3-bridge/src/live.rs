@@ -97,7 +97,7 @@ pub(crate) fn effect(e: &civ3_sys::DrawnEffect) -> crate::world::Civ3Effect {
 /// bits are known (`civ3_sys::world::Diplomacy`).
 fn relations(game: &Civ3, player: i32) -> Vec<civ3_sys::world::Relation> {
     // (Read by the publisher and the preview: either may log a change.)
-    static LAST: civ3r_sync::Latest<civ3_sys::world::Diplomacy> = civ3r_sync::Latest::new();
+    static LAST: handoff::Latest<civ3_sys::world::Diplomacy> = handoff::Latest::new();
     let Ok(d) = game.diplomacy(player) else { return Vec::new() };
     if LAST.load().as_deref() != Some(&d) {
         let known: Vec<String> = (0..32)
@@ -301,7 +301,7 @@ impl ArtFolders {
 struct Compiler {
     install: PathBuf,
     /// Reuse resolved roots and listings until scenario search paths change.
-    files: civ3r_sync::Latest<(ArtFolders, civ3_assets::GameFiles)>,
+    files: handoff::Latest<(ArtFolders, civ3_assets::GameFiles)>,
     name: String,
     text: String,
     /// An explicit environment override, parsed once. Some(None) disables
@@ -427,7 +427,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     });
     // (Screen pictures are at most the game's screen.)
     let largest = crate::game_window::game_screen().map_or(0, |(w, h)| w.max(h));
-    let compiler = Compiler { install, files: civ3r_sync::Latest::new(), name, text, ring_override, max_page, largest };
+    let compiler = Compiler { install, files: handoff::Latest::new(), name, text, ring_override, max_page, largest };
     let folders = ArtFolders::of(&game);
     // Playing in the viewer's own views while a menu is open
     // (`crate::modal`, `CIV3R_MODAL_INPUT=off`: not).

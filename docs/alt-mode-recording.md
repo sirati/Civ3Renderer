@@ -10,7 +10,7 @@ The files sit in the game's folder, next to `civ3-bridge.log`, named `alt-mode-<
 
 A file is appended to while the session runs. Past 8 MiB the writer closes it and starts the next part. Each part starts with the rate and the last target snapshot, so it can be read on its own. After every write the writer deletes the oldest `alt-mode-*.altrec` files in the folder until all of them together are at most 64 MiB. It never deletes the file being written or any other file.
 
-The viewer's thread builds the records and hands them to a writer thread (`civ3r-altrec`) through a `civ3r_sync::Bounded` queue of 16384 records. Nothing on the viewer's thread waits for the disk. When the queue is full a record is dropped, and the writer later writes a `Dropped` record with the count. When the viewer closes (window closed, Quit, the host's Close) it asks the writer to finish and waits for it at most 100 ms.
+The viewer's thread builds the records and hands them to a writer thread (`civ3r-altrec`) through a `handoff::Bounded` queue of 16384 records. Nothing on the viewer's thread waits for the disk. When the queue is full a record is dropped, and the writer later writes a `Dropped` record with the count. When the viewer closes (window closed, Quit, the host's Close) it asks the writer to finish and waits for it at most 100 ms.
 
 ## What is recorded
 

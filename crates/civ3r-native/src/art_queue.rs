@@ -3,7 +3,7 @@
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use civ3r_sync::{Latest, Mailbox};
+use handoff::{Latest, Mailbox};
 use scene::wire::Assets;
 
 /// Pushed on the game's thread, popped by the art thread. Pushing never

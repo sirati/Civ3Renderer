@@ -388,8 +388,8 @@ pub mod native {
 
     use super::{WorkIdentity as Identity, WorkSnapshot as Snapshot};
     static EPOCH: AtomicU64 = AtomicU64::new(0);
-    static PAINTED: civ3r_sync::Latest<Snapshot> = civ3r_sync::Latest::new();
-    static PRESENTED: civ3r_sync::Latest<Snapshot> = civ3r_sync::Latest::new();
+    static PAINTED: handoff::Latest<Snapshot> = handoff::Latest::new();
+    static PRESENTED: handoff::Latest<Snapshot> = handoff::Latest::new();
 
     fn identity(game: &Civ3) -> Option<Identity> {
         let map = game.map().ok()?;

@@ -7,7 +7,7 @@ version.workspace = true
 
 [dependencies]
 inproc = { path = "../inproc" }
-civ3r-sync = { path = "../civ3r-sync" }
+handoff = { path = "../handoff" }
 gdi-text = { path = "../gdi-text" }
 bytemuck.workspace = true
 thiserror.workspace = true

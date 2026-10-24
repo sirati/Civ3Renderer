@@ -338,7 +338,7 @@ mod live {
     use super::{Action, GateState, Pending, Refused, Walk, gate, may_enter, refusal_notice, selection_outcome, step, walk_goes_on};
 
     /// Actions for the game's thread, taken one at a time by the modal loop.
-    static QUEUE: LazyLock<civ3r_sync::Mailbox<Pending>> = LazyLock::new(civ3r_sync::Mailbox::new);
+    static QUEUE: LazyLock<handoff::Mailbox<Pending>> = LazyLock::new(handoff::Mailbox::new);
     static RUNNING: AtomicBool = AtomicBool::new(false);
     static HUMAN_PUMPS: AtomicI32 = AtomicI32::new(0);
     static ANIMATION_PUMPS: AtomicI32 = AtomicI32::new(0);
@@ -349,7 +349,7 @@ mod live {
     }
     /// Refusal notices: since when, the tile, the text. Written by the game's
     /// thread (the only writer), read by the publisher.
-    static NOTICES: civ3r_sync::Latest<Vec<(Instant, (i32, i32), &'static str)>> = civ3r_sync::Latest::new();
+    static NOTICES: handoff::Latest<Vec<(Instant, (i32, i32), &'static str)>> = handoff::Latest::new();
 
     struct Live {
         game: Civ3,
