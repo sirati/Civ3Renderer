@@ -1,11 +1,11 @@
-# The loading (busy) cursor: the wait cursor's hourglass (the system's
-# IDC_WAIT, under Wine the hourglass of Wine's user32.dll, as `viewer_busy`
-# in civ3.toml; the game has none of its own and cursor.pcx cell 12 is the
-# "NEW UNIT" arrow). The art is one still frame, so it is turned in twelve
-# 30-degree steps, pre-rendered (civ3-assets `rotate`): 46x46 frames, the
-# hourglass centred and spinning in place. One set for the OS pointer
-# (hot spot in the middle), the load-game progress bar and the viewer's
-# "Game appears busy / stuck" panel (scene `loading_cursor`).
+# The viewer's loading (busy) cursor: the wait cursor's hourglass (the
+# system's IDC_WAIT; under Wine the hourglass of Wine's user32.dll). The
+# art is one still frame, so it is turned in twelve 30-degree steps,
+# pre-rendered by the driver's art loader (`rotations`): 46x46 frames, the
+# hourglass centred and spinning in place. One set for the OS pointer (hot
+# spot in the middle), a loading progress bar and the viewer's "Game
+# appears busy / stuck" panel (scene `loading_cursor`). Game-agnostic: a
+# driver appends it to its own render description.
 [images.viewer_loading_cursor]
 source = "system-cursor:32514/32"
 rotations = 12

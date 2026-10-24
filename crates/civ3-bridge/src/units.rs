@@ -2346,7 +2346,7 @@ mod tests {
             let mapper = crate::scene_map::Mapper::new(&compiled);
             let mut scene = mapper.scene(world, &view, viewport, 0);
             place_sliding(world, &view, &mut art, &compiled, None, &mut UnitMemory::default(), &mut scene, &Default::default(), sliding, selected(world));
-            // The renderer's move along the walk (`tile_viewer::unit_motions`).
+            // The renderer's move along the walk (`tile_viewer::piece_motions`).
             for m in scene.motions.clone() {
                 tile_viewer::move_motion(&mut scene, &m, *walk);
             }

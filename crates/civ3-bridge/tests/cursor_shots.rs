@@ -38,7 +38,7 @@ fn art() -> (Art, render_desc::Compiled) {
     let prefix = std::env::var("WINEPREFIX").unwrap_or_else(|_| "/mnt/datasets/winvm/wine-civ3".into());
     let root = std::path::Path::new(&prefix).join("drive_c/Games");
     let files = civ3_assets::GameFiles::with_roots(vec![root.join("Civilization III Complete"), root]);
-    let text = format!("{DESCRIPTION}\n{}", include_str!("../../../assets/civ3/loading-cursor.toml"));
+    let text = format!("{DESCRIPTION}\n{}", include_str!("../../../assets/viewer/loading-cursor.toml"));
     let desc = render_desc::Description::parse(&text).unwrap();
     let compiled = desc.compile(&civ3_assets::loader::Civ3Loader::new(files), 1024).unwrap();
     (Art::of(&compiled), compiled)
