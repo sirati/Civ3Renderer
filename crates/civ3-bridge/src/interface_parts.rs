@@ -536,12 +536,21 @@ fn part_from(frame: &Frame, index: usize, size: (i32, i32), modal: bool) -> Opti
         // all of it, black where the form never draws. That clear is its
         // backdrop, not its size, as the cleared window under the title is
         // (`menu_popup`); measured as content it made the board's screen
-        // window-sized, and the viewer shrank all of it to fit. Only for
-        // modal parts: a named screen of the whole window (the city screen)
-        // keeps its margins over the frame under it.
-        let backdrop = |d: &ScreenDraw| modal && matches!(d, ScreenDraw::Fill { .. })
+        // window-sized, and the viewer shrank all of it to fit. For a
+        // modal part every fill of the whole window is such a backdrop.
+        // For a named screen the black clear its canvas starts with: the
+        // histograph (F8) in a game is a canvas of the whole window,
+        // cleared black when it is made (`ui_trace::initialized_canvas`),
+        // its board in the middle; measured by that clear it was no part
+        // at all, and the viewer fitted the whole black window into the
+        // screen's place, a small board in wide black margins. Art that
+        // covers the window after it (the city screen's, an advisor's
+        // board in a window of its size) still measures the screen.
+        let whole = |d: &ScreenDraw| matches!(d, ScreenDraw::Fill { .. })
             && reach(d).is_some_and(|r| r[0] <= 0 && r[1] <= 0 && r[2] >= size.0 && r[3] >= size.1);
-        let content = |all: bool| frame.draws[first..].iter().filter(|d| all || !backdrop(d)).filter_map(reach)
+        let clear = frame.draws[first..].iter().take_while(|d| whole(d) && matches!(d, ScreenDraw::Fill { rgb: [0, 0, 0], .. })).count();
+        let backdrop = |i: usize, d: &ScreenDraw| if modal { whole(d) } else { i < clear };
+        let content = |all: bool| frame.draws[first..].iter().enumerate().filter(|&(i, d)| all || !backdrop(i, d)).filter_map(|(_, d)| reach(d))
             .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
         if let Some(content) = content(false).or_else(|| content(true)) {
             bounds = content;
@@ -1420,3 +1429,7 @@ mod tests {
         assert!(!over.update(&after_game(&[TOP5]), build));
     }
 }
+
+#[cfg(test)]
+#[path = "interface_parts/histograph_tests.rs"]
+mod histograph_tests;
