@@ -19,7 +19,7 @@ fn fixture(gpu: &Headless, color: ColorModel) -> (TileRenderer, tile_render::Atl
     let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, step: (8, 8), wrap_x: false, wrap_y: false }, sets);
     world.color = color;
     world.free.push(PlacedSprite::new(set, 0, 0));
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     (renderer, atlas, world)
@@ -101,3 +101,6 @@ fn several_views_batch_controls_into_two_uploads() {
     assert_eq!(writes, 2, "three camera blocks and output controls use two uploads");
     eprintln!("three-view control snapshot: {bytes} bytes, {writes} queue writes; formerly 4 writes");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

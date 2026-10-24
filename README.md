@@ -17,7 +17,11 @@ The generic crates and the check that keeps them so: `docs/generic-crates.md`.
 | crate | game specific? | what |
 | --- | --- | --- |
 | `tile-render-shared` | no | GPU data model shared by host and shaders (`no_std`) |
-| `tile-render-shaders` | no | rust-gpu shaders (built by `tile-render`'s build script) |
+| `tile-render-shaders` | no | rust-gpu shaders of the tile renderer (`no_std` library, linked into `viewer-shaders`) |
+| `glass-shared`, `glass-shaders`, `glass` | no | the glass lens over views and screen copies (the renderer's view effect): shared parameters, rust-gpu shaders (`no_std`), and its GPU passes with their CPU oracle |
+| `marker-shaders`, `marker` | no | the selection marker (a bouncing gilded arrow and its shadow, the renderer's painted shapes): rust-gpu maths (`no_std`), and the shapes with their CPU oracle and 1:1 art |
+| `viewer-shaders` | no | the one rust-gpu shader module: links every shader library (`no_std`), wires the marker in as the tile renderer's painter |
+| `viewer-spirv` | no | compiles `viewer-shaders` to SPIR-V once per build (rust-gpu) and embeds it; `VIEWER_PRECOMPILED_SPV` supplies a prebuilt module |
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
 | `render-errors` | no | render errors by kind and context: deduplicated per run, counted, logged to a file the bridge names (`civ3-render-errors.log`) |
@@ -953,7 +957,7 @@ Set `CARGO_TARGET_DIR` for both commands if build output lives elsewhere, or
 set `CIV3R_TEST_LAUNCHER` to the compiled `civ3-play-macos` executable.
 
 When building the rust-gpu compiler on the guest is impractical, set
-`TILE_RENDER_PRECOMPILED_SPV` to an absolute path to the SPIR-V module built
+`VIEWER_PRECOMPILED_SPV` to an absolute path to the SPIR-V module built
 from the same shader sources on Linux. The viewer embeds that module, so
 it is not required beside the installed executable. `CARGO_TARGET_DIR`
 selects the renderer build location. Without this override, the build uses

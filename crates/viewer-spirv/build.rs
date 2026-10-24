@@ -1,4 +1,6 @@
-//! Compiles `tile-render-shaders` to SPIR-V with rust-gpu.
+//! Compiles the umbrella shader crate `viewer-shaders` (the tile renderer's,
+//! the glass lens's and the selection marker's shaders) to one SPIR-V module
+//! with rust-gpu: one shader compile per build.
 //!
 //! `cargo-gpu-install` fetches the exact nightly toolchain rust-gpu needs and
 //! builds its codegen backend once (cached per user), so this crate itself
@@ -17,6 +19,9 @@ use cargo_gpu_install::install::Install;
 use cargo_gpu_install::spirv_builder::{ShaderPanicStrategy, SpirvMetadata};
 use cargo_gpu_install::spirv_source::{CrateMetadata, SpirvSource};
 
+/// The crates (beside this one) the shader module is compiled from.
+const SHADER_SOURCES: &[&str] = &["viewer-shaders", "tile-render-shaders", "tile-render-shared", "glass-shaders", "glass-shared", "marker-shaders"];
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(mode) = std::env::args_os().nth(1) {
         if mode == "--compile-source-shader" {
@@ -26,22 +31,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Err("unknown shader build helper mode".into());
     }
-    println!("cargo::rerun-if-env-changed=TILE_RENDER_PRECOMPILED_SPV");
+    println!("cargo::rerun-if-env-changed=VIEWER_PRECOMPILED_SPV");
     println!("cargo::rerun-if-changed=build_dual_source.rs");
     // A shader compiled on another build host is also usable on macOS:
     // SPIR-V is independent of the CPU and wgpu translates it for Metal.
     // This explicit override avoids requiring rust-gpu's compiler backend
     // on the target machine. Normal builds still compile from source.
-    if let Some(path) = std::env::var_os("TILE_RENDER_PRECOMPILED_SPV") {
+    if let Some(path) = std::env::var_os("VIEWER_PRECOMPILED_SPV") {
         let path = PathBuf::from(path).canonicalize()?;
         println!("cargo::rerun-if-changed={}", path.display());
         return emit_shader(&path, false);
     }
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-    let shader_crate = manifest_dir.join("../tile-render-shaders").canonicalize()?;
-    let shared_crate = manifest_dir.join("../tile-render-shared").canonicalize()?;
-    println!("cargo::rerun-if-changed={}", shader_crate.display());
-    println!("cargo::rerun-if-changed={}", shared_crate.display());
+    let shader_crate = manifest_dir.join("../viewer-shaders").canonicalize()?;
+    // The umbrella and every crate it links (shader libraries and the
+    // types they share with host code).
+    for linked in SHADER_SOURCES {
+        println!("cargo::rerun-if-changed={}", manifest_dir.join("..").join(linked).canonicalize()?.display());
+    }
 
     println!("cargo::rerun-if-changed=build_support.rs");
     // The installer clears CARGO_TARGET_DIR but does not override a global
@@ -95,12 +102,12 @@ fn emit_shader(path: &Path, compiler_output: bool) -> Result<(), Box<dyn std::er
     // Keep the compiler's canonical output path for source-build provenance.
     // Explicit precompiled inputs are immutable and copied to the build output.
     let output = if compiler_output { path.to_owned() } else {
-        PathBuf::from(std::env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?).join("tile_render_shaders.spv")
+        PathBuf::from(std::env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?).join("viewer_shaders.spv")
     };
     let fallback_path = output.with_extension("fallback.spv");
     std::fs::write(&output, dual)?;
     std::fs::write(&fallback_path, fallback)?;
-    println!("cargo::rustc-env=TILE_RENDER_SPV={}", output.display());
-    println!("cargo::rustc-env=TILE_RENDER_SPV_FALLBACK={}", fallback_path.display());
+    println!("cargo::rustc-env=VIEWER_SPV={}", output.display());
+    println!("cargo::rustc-env=VIEWER_SPV_FALLBACK={}", fallback_path.display());
     Ok(())
 }

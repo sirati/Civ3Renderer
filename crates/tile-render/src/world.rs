@@ -268,14 +268,42 @@ pub struct PlacedSprite {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Shape {
     Rect(OutputRect),
-    /// The gilded arrow over the active unit (`tile_render_shared::arrow_frame`):
-    /// `size` in sixteenths of its 1:1 art, its tip `tip` full-size world
-    /// pixels from the position, `bob` 64ths of a pixel below that.
-    Arrow { size: u32, tip: (i32, i32), bob: i32, rgba: [u8; 4] },
-    /// The arrow's ground shadow, centred `centre` from the position and
-    /// shaped by the arrow's `bob`.
-    ArrowShadow { size: u32, centre: (i32, i32), bob: i32, rgba: [u8; 4] },
+    Painted(PaintedShape),
 }
+
+/// A shape painted per pixel at the scale of the stage drawing it, by the
+/// renderer's painter (`Shaders::painter`) and its CPU oracle's
+/// (`reference::Painter`) (`tile_render_shared::PRIMITIVE_PAINTED`).
+#[derive(Copy, Clone, Debug)]
+pub struct PaintedShape {
+    /// Which shape the painter paints.
+    pub shape: u32,
+    /// Its size, in sixteenths of its 1:1 art.
+    pub size: u32,
+    /// Its reference point, in full-size world pixels from the position.
+    pub at: (f32, f32),
+    /// The rectangle it may cover (left, top, right, bottom), in pixels of
+    /// its 1:1 art from its reference point.
+    pub extent: [f32; 4],
+    /// A word for the painter, and the colour it paints with.
+    pub param: f32,
+    pub rgba: [u8; 4],
+}
+
+impl PaintedShape {
+    fn bits(&self) -> (u32, u32, [u32; 2], [u32; 4], u32, [u8; 4]) {
+        (self.shape, self.size, [self.at.0.to_bits(), self.at.1.to_bits()], self.extent.map(f32::to_bits), self.param.to_bits(), self.rgba)
+    }
+}
+
+/// The same bits: the same shape.
+impl PartialEq for PaintedShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.bits() == other.bits()
+    }
+}
+
+impl Eq for PaintedShape {}
 
 /// A solid rectangle laid out in the pixels of the stage drawing it
 /// (`tile_render_shared::output_rect`): its edges whole multiples of two
@@ -294,13 +322,13 @@ pub struct OutputRect {
 
 impl Shape {
     pub(crate) fn primitive(&self) -> tile_render_shared::FreePrimitive {
-        use tile_render_shared::{FreePrimitive, PRIMITIVE_ARROW, PRIMITIVE_ARROW_SHADOW};
         match *self {
             Shape::Rect(r) => tile_render_shared::output_rect_primitive(r.rgba, r.lengths, r.x, r.y, r.scale),
-            Shape::Arrow { size, tip, bob, rgba } => FreePrimitive { kind: PRIMITIVE_ARROW, rgba: u32::from_le_bytes(rgba),
-                a: size, b: bob as u32, c: tip.0 as u32, d: tip.1 as u32, ..Default::default() },
-            Shape::ArrowShadow { size, centre, bob, rgba } => FreePrimitive { kind: PRIMITIVE_ARROW_SHADOW, rgba: u32::from_le_bytes(rgba),
-                a: size, b: bob as u32, c: centre.0 as u32, d: centre.1 as u32, ..Default::default() },
+            Shape::Painted(p) => {
+                let [e, f, g, h] = p.extent.map(f32::to_bits);
+                tile_render_shared::FreePrimitive { kind: tile_render_shared::PRIMITIVE_PAINTED, width: p.shape, rgba: u32::from_le_bytes(p.rgba),
+                    a: p.size, b: p.param.to_bits(), c: p.at.0.to_bits(), d: p.at.1.to_bits(), e, f, g, h, ..Default::default() }
+            }
         }
     }
 }

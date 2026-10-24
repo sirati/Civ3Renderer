@@ -20,7 +20,7 @@ fn a_viewer_clock_layer_animates_with_the_driver_frozen() {
     let viewer = world.add_layer(LayerSpec { ticks_per_frame: HOST_CLOCK | 83, per_cell_phase: true, ..LayerSpec::new("viewer", lut) });
     world.set(driver, 0, 0, 1);
     world.set_phase(driver, 0, 0, 9);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas.finish());
     renderer.set_world(&gpu.device, &world);
     let camera = Camera::new((8, 4));
@@ -57,3 +57,6 @@ fn a_viewer_clock_layer_animates_with_the_driver_frozen() {
     gpu.render_presented(&mut renderer, &[camera], &[], present, 3, [0; 4]);
     assert!(renderer.reused());
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

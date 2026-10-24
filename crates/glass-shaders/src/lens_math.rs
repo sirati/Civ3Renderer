@@ -4,7 +4,7 @@
 #![allow(unexpected_cfgs)]
 #[cfg(target_arch = "spirv")]
 use spirv_std::num_traits::Float;
-use tile_render_shared::LensParams;
+use glass_shared::LensParams;
 
 pub struct Surface {
     pub distance: f32,

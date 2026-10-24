@@ -42,7 +42,7 @@ fn gpu_marker_text_draws_without_world_text_and_keeps_mixed_painter_order() {
     let camera=Camera {cells:false,..Camera::new((32,32))};
     for canonical_text in [false,true] {
         let mut world=world(canonical_text);
-        let mut renderer=TileRenderer::new(&gpu.device,wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer=TileRenderer::new(&gpu.device,wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_world(&gpu.device,&world);
         let markers=vec![solid(3,3,14,22,[120,0,0,255]),
             PlacedSprite {view:Some(0),clip:Some([4,8,16,18]),..text(4,20,[255,160,0])},
@@ -64,7 +64,7 @@ fn gpu_marker_text_draws_without_world_text_and_keeps_mixed_painter_order() {
         renderer.set_markers(&gpu.device,&gpu.queue,&changed);
         let after=gpu.render_presented(&mut renderer,&[camera],&[],present,0,CLEAR);
         assert_ne!(before,after,"cached scaled picture must observe a text-only marker change");
-        let mut fresh=TileRenderer::new(&gpu.device,wgpu::TextureFormat::Rgba8Unorm);
+        let mut fresh=TileRenderer::new(&gpu.device,wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         fresh.set_world(&gpu.device,&world);fresh.set_markers(&gpu.device,&gpu.queue,&changed);
         assert_eq!(after,gpu.render_presented(&mut fresh,&[camera],&[],present,0,CLEAR));
         near(&gpu.render(&mut renderer,&camera,0,CLEAR),&expected(&world,&changed,&camera));
@@ -79,3 +79,6 @@ fn gpu_marker_text_draws_without_world_text_and_keeps_mixed_painter_order() {
         near(&gpu.render(&mut renderer,&camera,0,CLEAR),&expected(&world,&[],&camera));
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

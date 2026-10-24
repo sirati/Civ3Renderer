@@ -192,7 +192,7 @@ fn indexed_and_colour_sprites_are_pixel_exact_together() {
         if color == ColorModel::Direct {
             direct_only(&mut world, &mut atlas);
         }
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         let mut drawn = 0;
@@ -269,7 +269,7 @@ fn indexed_sprites_shrink_and_zoom_like_colour_ones() {
             let s = &mut atlas.sprites[t];
             (s.box_x, s.box_w) = (1, 126);
         }
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         for (x, y) in [(0, 0), (167, 51), (-259, 20)] {
@@ -306,7 +306,7 @@ fn indexed_sprites_blend_as_their_colour_twins() {
         for (i, blend) in blends.into_iter().enumerate() {
             w.free.push(PlacedSprite { screen: true, palette, blend, ..PlacedSprite::new(set, 60 + 31 * i as i32, 40 + 17 * i as i32) });
         }
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &w);
         let camera = Camera { overhang: (0, 64, 0, 0), ..Camera::new((400, 240)) };
@@ -323,7 +323,7 @@ fn indexed_sprites_blend_as_their_colour_twins() {
         world.layer_mut(tile_render::LayerId(l)).hidden = true;
     }
     world.free.push(PlacedSprite { screen: true, palette: 2, blend: Blend::Subpixel { color: [250, 30, 90] }, ..PlacedSprite::new(sets.single, 50, 60) });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
     renderer.set_world(&gpu.device, &world);
     let camera = Camera::new((200, 160));
@@ -339,3 +339,6 @@ fn trimmed(atlas: &tile_render::Atlas) -> tile_render::Atlas {
     a.trim_blank();
     a
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

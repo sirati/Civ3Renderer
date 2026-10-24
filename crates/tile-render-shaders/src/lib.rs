@@ -20,8 +20,6 @@
 
 pub mod text;
 pub mod glyph_cache;
-mod lens_math;
-mod marker_math;
 
 use spirv_std::glam::{IVec2, UVec2, UVec3, UVec4, Vec2, Vec4};
 use spirv_std::num_traits::Float;
@@ -367,10 +365,12 @@ pub fn free_vs(
             (l, t, r, b) = (ax + rl, ay + rt, ax + rr, ay + rb);
             *out_background = UVec4::ZERO;
         } else {
-            let ([ml, mt, mr, mb], scale, (px, py)) = tile_render_shared::marker_place(&f.primitive, (ax, ay), zn, zd, n);
+            let ([ml, mt, mr, mb], scale, (px, py)) = tile_render_shared::painted_place(&f.primitive, (ax, ay), zn, zd, n);
             (l, t, r, b) = (ml, mt, mr, mb);
-            // (Its reference point from the rectangle's top-left.)
-            *out_background = UVec4::new(scale.to_bits(), px.to_bits(), py.to_bits(), tile_render_shared::marker_bob(&f.primitive).to_bits());
+            // (Its reference point from the rectangle's top-left; which
+            // shape, for its painter, in `page`.)
+            *out_background = UVec4::new(scale.to_bits(), px.to_bits(), py.to_bits(), f.primitive.b);
+            *out_page = f.primitive.width;
         }
         if f.flags & FREE_CLIP != 0 {
             l = max(l, scaled(shrunk(f.clip[0], n) - bx, zn, zd));
@@ -567,8 +567,6 @@ pub fn tile_fs(
     let mut color = if kind == tile_render_shared::PRIMITIVE_SOLID || kind == tile_render_shared::PRIMITIVE_OUTPUT_RECT {
         let c = primitive.y;
         Vec4::new((c & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, ((c >> 16) & 255) as f32 / 255.0, (c >> 24) as f32 / 255.0)
-    } else if kind == tile_render_shared::PRIMITIVE_ARROW || kind == tile_render_shared::PRIMITIVE_ARROW_SHADOW {
-        marker_color(local, background, primitive)
     } else { texel(origin + offset, page, palette, params, atlas, index_atlas, palettes) };
     let background_mode = params.background_sampling;
     let scaled_background = background.x != 0 && scaled_view != 0 && params.zoom_num != params.zoom_den && color.w != 0.0;
@@ -618,6 +616,13 @@ pub fn tile_fs(
             color = Vec4::new(sampled.x, sampled.y, sampled.z, color.w);
         }
     }
+    finish(color, scale_den, tint, params, output);
+}
+
+/// What a fragment of colour `color` (straight alpha, 0..1) writes into the
+/// target, as `params` has it stored and blended: `scale_den` and `tint` as
+/// a free sprite's (see `FreeSprite`).
+fn finish(mut color: Vec4, scale_den: u32, tint: u32, params: &FrameParams, output: &mut Vec4) {
     if scale_den == 0 && tint >> 24 != 0 {
         // The high byte is inverse opacity: existing zero tints stay opaque.
         let opacity = 255 - (tint >> 24);
@@ -984,37 +989,6 @@ pub fn output_fs(
     #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
     output: &mut Vec4,
 ) {
-    if params.lens_width > 0.0 {
-        let p = tile_render_shared::LensParams { x: params.dst_x as f32, y: params.dst_y as f32,
-            width: params.lens_width, height: params.lens_height, radius: params.lens_radius,
-            rim: params.lens_rim, ..Default::default() };
-        let s = lens_math::surface(&p, frag.x, frag.y);
-        if s.distance >= -p.rim.max(0.5) {
-            let size = UVec2::new(params.canvas_width, params.canvas_height);
-            let ratio = params.canvas_den as f32 / params.canvas_num as f32;
-            let bounds = [0, 0, size.x as i32, size.y as i32];
-            let zoom = params.zoom_den as f32 / params.zoom_num as f32;
-            let sample = |channel: f32| {
-                let bend = s.bend + s.dispersion * channel;
-                // Preserve the clear face's nearest-pixel phase, then bend
-                // in window pixels before converting to source texels.
-                let x = params.src_x as f32 + ((frag.x - p.x) * zoom).floor() + 0.5 - s.nx * bend * zoom;
-                let y = params.src_y as f32 + ((frag.y - p.y) * zoom).floor() + 0.5 - s.ny * bend * zoom;
-                lens_sample(source, x, y, bounds, params.bits, params.quantized_float)
-            };
-            let base = lens_nearest(source, (frag.x - params.canvas_x as f32) * ratio,
-                    (frag.y - params.canvas_y as f32) * ratio,
-                    bounds, params.bits, params.quantized_float);
-            let backdrop = if params.lens_glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
-            let glass = if params.lens_glass != 0 {
-                let (r, g, b) = (sample(1.0), sample(0.0), sample(-1.0));
-                lens_math::shade(&s, lens_math::dispersed(r, g, b))
-            } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
-            let rgb = lens_math::composite(&s, glass, backdrop);
-            *output = Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
-            return;
-        }
-    }
     let (ox, oy) = (offset(frag.x, params.dst_x), offset(frag.y, params.dst_y));
     // (A copy 1:1 divides nothing.)
     let (ox, oy) = if params.zoom_den == params.zoom_num { (ox, oy) } else { (ox * params.zoom_den / params.zoom_num, oy * params.zoom_den / params.zoom_num) };
@@ -1060,102 +1034,22 @@ fn pixel(c: f32) -> u32 {
     round(c.floor())
 }
 
-/// Restores cut-off corners and shades only the lens's narrow border.
-#[spirv(fragment)]
-pub fn lens_fs(
-    #[spirv(frag_coord)] frag: Vec4,
-    #[spirv(uniform, descriptor_set = 0, binding = 1)] p: &tile_render_shared::LensParams,
-    #[spirv(descriptor_set = 0, binding = 0)] source: &Image!(2D, type = f32, sampled),
-    #[spirv(descriptor_set = 0, binding = 2)] face: &Image!(2D, type = f32, sampled),
-    #[spirv(descriptor_set = 0, binding = 3)] composed: &Image!(2D, type = f32, sampled),
-    #[spirv(descriptor_set = 0, binding = 4)] shaded: &Image!(2D, type = f32, sampled),
-    output: &mut Vec4,
-) {
-    let s = lens_math::surface(p, frag.x, frag.y);
-    // Restore a source-pixel guard inside the bevel when re-shading boxed
-    // pixels, so no old coarse highlight leaks onto the clear face.
-    let guard = if p.sample_scale != 1.0 { 1.0 / p.sample_scale } else { 0.0 };
-    if s.distance < -p.rim.max(0.5) - guard { spirv_std::arch::kill(); }
-    let bounds = [p.snapshot_x, p.snapshot_y, p.snapshot_w, p.snapshot_h];
-    let (x, y) = (frag.x * p.sample_scale + p.sample_x, frag.y * p.sample_scale + p.sample_y);
-    if p.check_occlusion != 0 {
-        // Compare stored texels exactly, before colour decoding. Later UI or
-        // another camera can cover a rim, including with translucent art.
-        let xy = IVec2::new(x.floor() as i32, y.floor() as i32);
-        let before: Vec4 = shaded.fetch(IVec2::new((xy.x-p.snapshot_x).clamp(0,p.snapshot_w-1), (xy.y-p.snapshot_y).clamp(0,p.snapshot_h-1)));
-        let after: Vec4 = composed.fetch(xy);
-        if before.x != after.x || before.y != after.y || before.z != after.z { spirv_std::arch::kill(); }
-    }
-    // Backdrop art retains nearest boxed pixels, even when the rim is shaded
-    // at final window resolution. Only the refracted face is interpolated.
-    let base = lens_nearest(source, x, y, bounds, p.bits, p.quantized_float);
-    let backdrop = if p.glass != 0 { lens_math::halo(&s, base, p.rim) } else { base };
-    let rgb = if s.distance >= 0.5 {
-        // Halo pixels have no glass coverage. Avoid three refracted samples
-        // and the lighting calculation across the border's outer padding.
-        backdrop
-    } else {
-        let glass = if s.distance < -p.rim.max(0.5) {
-            lens_nearest(face, x, y, bounds, p.bits, p.quantized_float)
-        } else if p.glass != 0 {
-            let fetch = |channel: f32| {
-                let bend = (s.bend + s.dispersion * channel) * p.sample_scale;
-                lens_sample(face, x - s.nx * bend, y - s.ny * bend, bounds, p.bits, p.quantized_float)
-            };
-            let (r, g, b) = (fetch(1.0), fetch(0.0), fetch(-1.0));
-            lens_math::shade(&s, lens_math::dispersed(r, g, b))
-        } else { [if s.distance > -p.rim * 0.5 { 0.78 } else { 0.08 }; 3] };
-        lens_math::composite(&s, glass, backdrop)
-    };
-    let encode = |v: f32| if p.output_bits == 0 { v } else {
-        let q = quantize((v * 255.0 + 0.5) as u32, p.output_bits);
-        if p.quantized_float != 0 { (q + tile_render_shared::FLOAT_QUANTIZED_BIAS) as f32 }
-        else { (q + QUANTIZED_BIAS) as f32 / 255.0 }
-    };
-    *output = Vec4::new(encode(rgb[0]), encode(rgb[1]), encode(rgb[2]), 1.0);
-}
-
-/// Backdrop and clear-face guards keep boxed art. Fetch a single texel rather
-/// than running four-tap interpolation with three zero weights on every rim pixel.
-fn lens_nearest(source: &Image!(2D, type = f32, sampled), x: f32, y: f32,
-    bounds: [i32; 4], bits: u32, float_encoding: u32) -> [f32; 3] {
-    let v: Vec4 = source.fetch(IVec2::new(
-        (x.floor() as i32 - bounds[0]).clamp(0, bounds[2]-1),
-        (y.floor() as i32 - bounds[1]).clamp(0, bounds[3]-1)));
-    if bits == 0 { [v.x, v.y, v.z] }
-    else { [to_unorm(v.x, bits, float_encoding), to_unorm(v.y, bits, float_encoding), to_unorm(v.z, bits, float_encoding)] }
-}
-
-/// Bilinear refraction avoids bright nearest-sample ticks along straight edges.
-/// Decode each quantized texel before interpolation, never interpolate its code.
-fn lens_sample(source: &Image!(2D, type = f32, sampled), x: f32, y: f32,
-    bounds: [i32; 4], bits: u32, float_encoding: u32) -> [f32; 3] {
-    let (x, y) = (x - 0.5 - bounds[0] as f32, y - 0.5 - bounds[1] as f32);
-    let (ix, iy) = (x.floor() as i32, y.floor() as i32);
-    let (fx, fy) = (x - x.floor(), y - y.floor());
-    let fetch = |dx: i32, dy: i32| {
-        let v: Vec4 = source.fetch(IVec2::new((ix+dx).clamp(0, bounds[2]-1), (iy+dy).clamp(0, bounds[3]-1)));
-        if bits == 0 { v } else { Vec4::new(to_unorm(v.x, bits, float_encoding), to_unorm(v.y, bits, float_encoding), to_unorm(v.z, bits, float_encoding), 1.0) }
-    };
-    let top = fetch(0,0) * (1.0-fx) + fetch(1,0) * fx;
-    let bottom = fetch(0,1) * (1.0-fx) + fetch(1,1) * fx;
-    let v = top * (1.0-fy) + bottom * fy;
-    [v.x, v.y, v.z]
-}
-
-/// The arrow marker or its shadow (`primitive`: kind, RGBA) over the pixel
-/// at `local` from its rectangle's top-left, `background` its scale, its
-/// reference point from that corner and its bob (see `free_vs`).
-fn marker_color(local: Vec2, background: UVec4, primitive: UVec2) -> Vec4 {
+/// A painted shape's fragment ([`tile_render_shared::PRIMITIVE_PAINTED`]),
+/// for the painter fragment entry point a shader module linking a painter
+/// defines, with `tile_fs`' inputs (from `free_vs`) and output: `page`
+/// holds which shape, `primitive` its kind and RGBA, `background` its
+/// scale, its reference point from its rectangle's top-left and its
+/// painter's word (see `free_vs`). `paint` gives the shape's colour (RGBA,
+/// 0..255) over the pixel whose top-left is (x, y) from the reference
+/// point, from the shape, x, y, the scale, the word and the RGBA (0..255);
+/// it is drawn as `tile_fs` draws a sprite's texel.
+pub fn painted(local: Vec2, page: u32, background: UVec4, primitive: UVec2, params: &FrameParams, output: &mut Vec4,
+    paint: impl Fn(u32, f32, f32, f32, f32, [f32; 4]) -> [f32; 4]) {
     let scale = f32::from_bits(background.x);
     let x = pixel(local.x) as f32 - f32::from_bits(background.y);
     let y = pixel(local.y) as f32 - f32::from_bits(background.z);
     let c = primitive.y;
     let rgba = [(c & 255) as f32, ((c >> 8) & 255) as f32, ((c >> 16) & 255) as f32, (c >> 24) as f32];
-    let p = if primitive.x == tile_render_shared::PRIMITIVE_ARROW {
-        marker_math::arrow_pixel(x, y, scale, rgba)
-    } else {
-        marker_math::shadow_pixel(x, y, scale, f32::from_bits(background.w), rgba)
-    };
-    Vec4::new(p[0] / 255.0, p[1] / 255.0, p[2] / 255.0, p[3] / 255.0)
+    let p = paint(page, x, y, scale, f32::from_bits(background.w), rgba);
+    finish(Vec4::new(p[0] / 255.0, p[1] / 255.0, p[2] / 255.0, p[3] / 255.0), 0, 0, params, output);
 }

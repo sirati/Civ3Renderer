@@ -17,7 +17,7 @@ fn atlas_free_solids_clip_and_zoom_with_direct_alpha() {
     eprintln!("procedural solid adapter: {:?}", gpu.adapter.get_info());
     let mut world = world();
     world.free.push(PlacedSprite { clip: Some([3, 1, 5, 5]), ..solid(2, 2, 4, 3, [255, 0, 0, 128]) });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_world(&gpu.device, &world); // No set_atlas call.
     for zoom in [(1, 1), (2, 1), (1, 2), (3, 2)] {
         let camera = Camera { zoom, ..Camera::new((20, 16)) };
@@ -37,7 +37,7 @@ fn atlas_free_solids_clip_and_zoom_with_direct_alpha() {
 #[test]
 fn successive_quantized_solids_preserve_each_integer_boundary() {
     let gpu = Headless::new().expect("GPU");
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     let camera = Camera::new((32, 32));
     for k in 1..32u32 {
         let mut world = world();
@@ -75,7 +75,7 @@ fn solids_and_atlas_commands_keep_their_original_order() {
     world.free = vec![solid(0, 0, 8, 4, [255, 0, 0, 255]),
         PlacedSprite { screen: true, ..PlacedSprite::new(blue, 0, 0) },
         solid(4, 0, 4, 4, [0, 255, 0, 255])];
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     // Exercise adoption after an atlas-free frame as well.
     renderer.set_world(&gpu.device, &world);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
@@ -92,7 +92,7 @@ fn world_plates_keep_their_size_while_their_anchor_shrinks() {
     let gpu = Headless::new().expect("GPU");
     let mut world = world();
     world.free.push(PlacedSprite { screen: false, ..solid(12, 8, 7, 5, [0, 255, 0, 255]) });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_world(&gpu.device, &world);
     for downscale in [1, 2] {
         let got = gpu.render(&mut renderer, &Camera { downscale, ..Camera::new((24, 16)) }, 0, [0, 0, 0, 255]);
@@ -118,10 +118,13 @@ fn atlas_free_solids_and_outline_text_keep_composition_order() {
     world.free = vec![solid(0, 0, 12, 8, [255, 0, 0, 255]),
         PlacedSprite { screen: true, text: Some(bar), ..PlacedSprite::new(SpriteSetId::EMPTY, 1, 2) },
         solid(7, 0, 5, 8, [0, 255, 0, 255])];
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_world(&gpu.device, &world);
     let got = gpu.render(&mut renderer, &Camera::new((12, 8)), 0, [0, 0, 0, 255]);
     assert_eq!(got.get(0, 0), [255, 0, 0, 255], "background before the text");
     assert_eq!(got.get(4, 3), [0, 0, 255, 255], "text over the background");
     assert_eq!(got.get(8, 3), [0, 255, 0, 255], "later solid over the text");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

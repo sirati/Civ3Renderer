@@ -41,7 +41,7 @@ fn fixture(color: ColorModel) -> (Atlas, TileWorld) {
 }
 
 fn renderer(gpu: &Headless, atlas: &Atlas, world: &TileWorld) -> TileRenderer {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, atlas);
     renderer.set_world(&gpu.device, world);
     renderer
@@ -112,32 +112,32 @@ fn cached_presentations_survive_incompatible_art_and_match_normal_scaling_and_co
             source: [1, 0, 7, 6],
             at: (8, 3),
             zoom: (3, 2),
-            lens: None,
+            effect: None,
         },
         ScreenCopy {
             source: [-2, 2, 8, 6],
             at: (-1, 5),
             zoom: (2, 1),
-            lens: None,
+            effect: None,
         },
         ScreenCopy {
             source: [4, -1, 8, 7],
             at: (5, -2),
             zoom: (2, 3),
-            lens: None,
+            effect: None,
         },
         ScreenCopy {
             source: [0, 0, 2, 2],
             at: (12, 9),
             zoom: (1, 1),
-            lens: None,
+            effect: None,
         },
         // The public method must apply the same MAX_COPIES limit.
         ScreenCopy {
             source: [0, 0, 8, 8],
             at: (0, 0),
             zoom: (4, 1),
-            lens: None,
+            effect: None,
         },
     ];
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
@@ -195,7 +195,7 @@ fn cached_presentations_survive_incompatible_art_and_match_normal_scaling_and_co
 #[test]
 fn missing_and_direct_pictures_return_false_without_drawing() {
     let gpu = Headless::new().expect("AMD GPU");
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     let (shown, got) = cached(&gpu, &renderer, SOURCE, &[], Present::unscaled(SOURCE));
     assert!(!shown);
     assert!(got.pixels.iter().all(|p| *p == SENTINEL));
@@ -223,7 +223,7 @@ fn uploaded_world_colour_changes_do_not_redecode_the_retained_canvas() {
     let colors = [ColorModel::Quantized { bits: 5 }, ColorModel::Quantized { bits: 6 }, ColorModel::Direct];
     let camera = Camera::new(SOURCE);
     // A copy also forces direct colour through the retained canvas path.
-    let copies = [ScreenCopy { source: [1, 0, 7, 6], at: (8, 3), zoom: (1, 1), lens: None }];
+    let copies = [ScreenCopy { source: [1, 0, 7, 6], at: (8, 3), zoom: (1, 1), effect: None }];
     for old in colors {
         for new in colors {
             let (atlas, mut world) = fixture(old);
@@ -244,3 +244,6 @@ fn uploaded_world_colour_changes_do_not_redecode_the_retained_canvas() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

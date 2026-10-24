@@ -169,7 +169,7 @@ fn outline_fallback_and_twins_match_reference_at_one_and_magnified() {
         glyph(20, [0, 0, 255], ZoomArt::Any),
     ];
     let atlas = AtlasBuilder::new(64).finish();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     for (zoom, selected) in [((1, 1), 0), ((2, 1), 1)] {
@@ -196,7 +196,7 @@ fn outline_fallback_matches_reference_in_offset_source_rectangles() {
         });
     }
     let atlas = AtlasBuilder::new(64).finish();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     for zoom in [(1, 1), (2, 1)] {
@@ -242,7 +242,7 @@ fn outline_coverage_is_bit_exact() {
             }
             world.fonts = faces.clone();
             let atlas = AtlasBuilder::new(64).finish();
-            let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+            let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
             renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
             renderer.set_world(&gpu.device, &world);
             for zoom in [(1, 1), (2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] {
@@ -274,7 +274,7 @@ fn outline_text_matches_the_reference() {
     // view: world text at its positions halved, at its own size.)
     for (color, downscale) in [(ColorModel::Quantized { bits: 5 }, 1), (ColorModel::Direct, 1), (ColorModel::Quantized { bits: 5 }, 2), (ColorModel::Direct, 2)] {
         let (world, atlas) = world(color, faces.clone(), downscale as i32);
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         let zooms: &[(u32, u32)] = if downscale == 1 { &[(2, 1), (3, 2), (3, 1), (2, 3), (5, 4)] } else { &[(2, 1), (3, 2), (3, 1)] };
@@ -316,7 +316,7 @@ fn ordinary_styled_layered_text_matches_reference_and_is_visible_at_one_to_one()
         }
         let mut bare = world.clone();
         bare.free.retain(|sprite| sprite.text.is_none());
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
         renderer.set_world(&gpu.device, &world);
         for zoomed_art in [false, true] {
@@ -343,7 +343,7 @@ fn ordinary_styled_layered_text_matches_reference_and_is_visible_at_one_to_one()
 fn text_is_left_out_where_zoomed_art_is_not_shown() {
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = world(ColorModel::Quantized { bits: 5 }, vec![Arc::new(shapes())], 1);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
     renderer.set_world(&gpu.device, &world);
     let mut bare = world.clone();
@@ -370,7 +370,7 @@ fn screen_text_in_a_fitted_screen_shows_off_the_corner_too() {
     for s in &mut world.free {
         s.view = Some(1);
     }
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &trimmed(&atlas));
     renderer.set_world(&gpu.device, &world);
     let mut picture = |origin: (i32, i32), zoomed_art: bool| {
@@ -415,7 +415,7 @@ fn clean_map_masks_outline_glyphs_per_camera() {
     world.free.push(glyph(1, 1));
     world.free.push(glyph(14, 2));
     let atlas = AtlasBuilder::new(64).finish();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let mut camera = Camera::new((24, 24));
@@ -460,7 +460,7 @@ fn cropped_panel_text_twins_and_fallback_keep_visible_pixels_at_every_scale() {
         text: Some(OutlineGlyph { font: 0, shape: GlyphShape::Glyph(0), em64: 16 * 64, advance: 10, bold: false, italic: false, color: [0, 0, 255], key: None }),
         ..PlacedSprite::new(SpriteSetId::EMPTY, 540, 200)
     });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     for zoom in [(239, 256), (957, 1024), (4095, 4096), (1, 1), (3, 2), (2, 1)] {
@@ -510,7 +510,7 @@ fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_swi
         world.free.extend(glyphs);
     }
     assert_eq!(CATEGORY_ALL & (CATEGORY_FULL_RESOLUTION | CATEGORY_REDUCED_RESOLUTION), 0);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     for downscale in [1, 2, 1, 2] {
@@ -542,3 +542,6 @@ fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_swi
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

@@ -95,7 +95,7 @@ fn half(image: &RgbaImage, x0: u32, w: u32) -> Vec<[u8; 4]> {
 }
 
 fn renderer(gpu: &Headless, f: &Fixture) -> TileRenderer {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &f.atlas);
     renderer
 }
@@ -231,3 +231,6 @@ fn slots_come_and_go_incrementally() {
     renderer.update_world(&gpu.device, &gpu.queue, &f.world);
     check(&mut renderer, &f.world, "update_world");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

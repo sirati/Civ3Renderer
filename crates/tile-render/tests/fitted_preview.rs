@@ -65,7 +65,7 @@ fn assert_same(got: &RgbaImage, want: &RgbaImage, what: &str) {
 fn a_fitted_preview_taller_than_a_picture_is_shown_whole_at_pixel_scale_two() {
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = tall_world();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     // The world shown half size (the bridge's downscale), fitted into a
@@ -105,7 +105,7 @@ fn a_view_zoomed_out_a_little_past_the_picture_limit_is_shown_whole() {
     // picture holds, though zoomed out less than half.
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = tall_world();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let camera = Camera { x: 40, y: 100, zoom: (4, 5), origin: (6, 0), ..Camera::new((30, 5000)) };
@@ -119,7 +119,7 @@ fn a_view_zoomed_out_a_little_past_the_picture_limit_is_shown_whole() {
 fn a_clipped_preview_preserves_its_fractional_zoom_phase() {
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = tall_world();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     for zoom in [(1, 12), (2, 7)] {
@@ -156,7 +156,7 @@ fn direct_scaled_quads_keep_their_full_extent() {
     let grid = Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, step: (1, 1), wrap_x: false, wrap_y: false };
     let mut world = TileWorld::new(grid, sets);
     world.free.push(tile_render::PlacedSprite { screen: true, view: Some(0), ..tile_render::PlacedSprite::new(set, 0, 0) });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     for position in [(0, 0), (-3, -2)] {
         (world.free[0].x, world.free[0].y) = position;
@@ -180,3 +180,6 @@ fn direct_scaled_quads_keep_their_full_extent() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

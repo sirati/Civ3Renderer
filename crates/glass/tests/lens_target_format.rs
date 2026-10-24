@@ -2,7 +2,8 @@
 //! pixel scales 1 and 2: their rim pipelines must be made for the format
 //! of the pass they are drawn in (the internal canvas, or the window when
 //! a scaled picture is presented), not for one fixed format.
-use tile_render::{AtlasBuilder, Camera, ColorModel, Grid, Headless, LayerSpec, Lens, Layout, Present, RgbaImage, SpriteSets, TileRenderer, TileWorld};
+use glass::Lens;
+use tile_render::{AtlasBuilder, Camera, ColorModel, Grid, Headless, LayerSpec, Layout, Present, RgbaImage, SpriteSets, TileRenderer, TileWorld};
 
 /// Red left half, blue right half: a red/blue swap shows at once.
 fn fixture(color: ColorModel) -> (tile_render::Atlas, TileWorld) {
@@ -38,11 +39,11 @@ fn cameras(canvas: (u32, u32), scale: u32, placement: Placement, rounded: bool, 
         Placement::Strip => (0, h - lh / 2),
     };
     let (vw, vh) = if matches!(placement, Placement::Strip) { (w as u32, (lh / 2) as u32) } else { (lw as u32, lh as u32) };
-    cameras.push(Camera { x: 200, y: 150, zoom: (2, 1), origin, lens: Some(lens), ..Camera::new((vw, vh)) });
+    cameras.push(Camera { x: 200, y: 150, zoom: (2, 1), origin, effect: Some(lens.into()), ..Camera::new((vw, vh)) });
     if dividers {
         let t = (16 / scale) as i32;
         let bar = |[x, y, bw, bh]: [i32; 4]| Camera { origin: (x, y), cells: false,
-            lens: Some(Lens { radius: t as f32 / 2.0, rim: t as f32 / 2.0, glass: true }),
+            effect: Some(Lens { radius: t as f32 / 2.0, rim: t as f32 / 2.0, glass: true }.into()),
             target_clip: Some([x, y.max(0), x + bw, y + bh]), ..Camera::new((bw as u32, bh as u32)) };
         cameras.push(bar([w / 2 - t / 2, 0, t, h]));
         cameras.push(bar([-t, h / 2, w + 2 * t, t]));
@@ -101,7 +102,7 @@ fn lens_and_glass_draw_into_every_window_format_at_every_pixel_scale() {
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (atlas, world) = fixture(color);
         for format in FORMATS {
-            let mut renderer = TileRenderer::new(&gpu.device, format);
+            let mut renderer = TileRenderer::new(&gpu.device, format, SHADERS);
             renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
             renderer.set_world(&gpu.device, &world);
             let mut frame = 0;
@@ -140,7 +141,7 @@ fn a_renderer_follows_its_target_to_another_format() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let window = (640, 400);
     let (atlas, world) = fixture(ColorModel::Quantized { bits: 5 });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let mut frame = 0;
@@ -166,7 +167,7 @@ fn zoom_at_mouse_at_pixel_scale_2_looks_the_same_in_both_formats() {
     let (atlas, world) = fixture(ColorModel::Quantized { bits: 5 });
     let mut pictures = Vec::new();
     for format in [wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Bgra8Unorm] {
-        let mut renderer = TileRenderer::new(&gpu.device, format);
+        let mut renderer = TileRenderer::new(&gpu.device, format, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         let canvas = (window.0 / 2, window.1 / 2);
@@ -189,3 +190,6 @@ fn zoom_at_mouse_at_pixel_scale_2_looks_the_same_in_both_formats() {
     assert!(red[0] > 150 && red[2] < 80, "red {red:?}");
     assert!(blue[2] > 150 && blue[0] < 80, "blue {blue:?}");
 }
+
+/// The viewer's shader module (it holds the lens's shaders), drawing with the lens.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK).with_effect(glass::effect);

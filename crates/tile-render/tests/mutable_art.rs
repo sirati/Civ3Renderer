@@ -27,7 +27,7 @@ fn world(sprites: &[SpriteId]) -> TileWorld {
 }
 
 fn renderer(gpu: &Headless, atlas: &Atlas, world: &TileWorld) -> TileRenderer {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, atlas);
     renderer.set_world(&gpu.device, world);
     renderer
@@ -446,3 +446,6 @@ fn staged_adoption_restores_translucent_draws_and_changed_bounds() {
     let moved = Camera { x: 1, ..camera };
     check(&gpu, &mut renderer, &after, &world, &moved);
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

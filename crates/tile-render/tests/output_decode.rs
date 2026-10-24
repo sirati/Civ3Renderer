@@ -57,9 +57,9 @@ fn output_decoder_matches_manual_bytes_across_depths_encodings_zooms_and_origins
     let gpu = Headless::new().expect("GPU");
     eprintln!("numeric oracle adapter: {:?}", gpu.adapter.get_info());
     let bytes: &[u8] = if gpu.device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) {
-        include_bytes!(env!("TILE_RENDER_SPV"))
+        viewer_spirv::SPIRV
     } else {
-        include_bytes!(env!("TILE_RENDER_SPV_FALLBACK"))
+        viewer_spirv::SPIRV_FALLBACK
     };
     let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("output decode shader"), source: wgpu::util::make_spirv(bytes),

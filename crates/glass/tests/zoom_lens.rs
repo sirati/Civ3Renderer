@@ -1,5 +1,6 @@
 //! Rounded magnifiers, bounded glass refraction and review images.
-use tile_render::{AtlasBuilder, Camera, ColorModel, Grid, Headless, LayerSpec, Lens, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld, reference};
+use glass::Lens;
+use tile_render::{AtlasBuilder, Camera, ColorModel, Grid, Headless, LayerSpec, Layout, RgbaImage, SpriteSets, TileRenderer, TileWorld};
 
 fn fixture(color: ColorModel) -> (tile_render::Atlas, TileWorld) {
     let mut atlas = AtlasBuilder::new(256);
@@ -48,7 +49,7 @@ fn cameras(scale: u32, rounded: bool, glass: bool, background: bool) -> Vec<Came
     let mut cameras = Vec::new();
     if background { cameras.push(Camera::new((1024/scale, 640/scale))); }
     cameras.push(Camera { x: 170, y: 180, zoom: (2, 1), origin: (170/scale as i32, 150/scale as i32),
-        lens: Some(Lens { radius: if rounded { 25.0/scale as f32 } else { 0.0 }, rim: if glass { 14.0 } else { 2.0 } / scale as f32, glass }),
+        effect: Some(Lens { radius: if rounded { 25.0/scale as f32 } else { 0.0 }, rim: if glass { 14.0 } else { 2.0 } / scale as f32, glass }.into()),
         ..Camera::new((684/scale, 330/scale)) });
     cameras
 }
@@ -59,13 +60,13 @@ fn rounded_corners_preserve_the_backdrop_and_glass_lights_black() {
     eprintln!("lens adapter: {:?}", gpu.adapter.get_info());
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (atlas, world) = fixture(color);
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         for scale in [1, 2] { for rounded in [false, true] { for glass in [false, true] { for background in [false, true] {
             let cameras = cameras(scale, rounded, glass, background);
             let size = (1024/scale, 640/scale);
-            let expected = reference::render_views(&world, &atlas, &cameras, size, 0, [0, 0, 0, 255]);
+            let expected = REFERENCE.render_views(&world, &atlas, &cameras, size, 0, [0, 0, 0, 255]);
             let actual = gpu.render_views(&mut renderer, &cameras, size, 0, [0, 0, 0, 255]);
             let mut differences = 0;
             let mut worst = 0;
@@ -78,8 +79,8 @@ fn rounded_corners_preserve_the_backdrop_and_glass_lights_black() {
             let (x, y) = (lens.origin.0 as u32, lens.origin.1 as u32);
             if rounded && !background { assert_eq!(actual.get(x, y), [0, 0, 0, 255]); }
             if glass && !background { assert!(actual.get(x + lens.viewport.0/2, y)[0] > 0); }
-            let mut square = cameras.clone(); square.last_mut().unwrap().lens = None;
-            let unframed = reference::render_views(&world, &atlas, &square, size, 0, [0, 0, 0, 255]);
+            let mut square = cameras.clone(); square.last_mut().unwrap().effect = None;
+            let unframed = REFERENCE.render_views(&world, &atlas, &square, size, 0, [0, 0, 0, 255]);
             assert_eq!(actual.get(x + lens.viewport.0/2, y + lens.viewport.1/2), unframed.get(x + lens.viewport.0/2, y + lens.viewport.1/2));
             if color == ColorModel::Direct && rounded && glass {
                 if let Some(dir) = std::env::var_os("C3R_ZOOM_SHOTS") {
@@ -97,17 +98,17 @@ fn rounded_corners_preserve_the_backdrop_and_glass_lights_black() {
 fn clipped_moving_lenses_keep_their_shape_and_casting_marks() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let (atlas, world) = fixture(ColorModel::Direct);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
-    let lens = Camera { cells: false, origin: (20, 30), lens: Some(Lens { radius: 24.0, rim: 14.0, glass: true }), ..Camera::new((120, 90)) };
+    let lens = Camera { cells: false, origin: (20, 30), effect: Some(Lens { radius: 24.0, rim: 14.0, glass: true }.into()), ..Camera::new((120, 90)) };
     let first = gpu.render_views(&mut renderer, &[lens], (240, 180), 0, [0, 0, 0, 255]);
     let moved = Camera { origin: (70, 60), ..lens };
     let second = gpu.render_views(&mut renderer, &[moved], (240, 180), 0, [0, 0, 0, 255]);
     for y in 0..90 { for x in 0..120 { assert_eq!(first.get(x+20, y+30), second.get(x+70, y+60)); } }
     for origin in [(-25, -20), (180, 140)] {
         let clipped = Camera { origin, target_clip: Some([5, 8, 235, 175]), ..lens };
-        let expected = reference::render_views(&world, &atlas, &[clipped], (240, 180), 0, [0, 0, 0, 255]);
+        let expected = REFERENCE.render_views(&world, &atlas, &[clipped], (240, 180), 0, [0, 0, 0, 255]);
         let actual = gpu.render_views(&mut renderer, &[clipped], (240, 180), 0, [0, 0, 0, 255]);
         for (a, b) in actual.pixels.iter().zip(expected.pixels) { for c in 0..3 { assert!(a[c].abs_diff(b[c]) <= 1); } }
     }
@@ -121,7 +122,7 @@ fn measure_lens_gpu_cost_at_4k() {
     let gpu = Headless::new().expect("Vulkan GPU");
     eprintln!("lens benchmark adapter: {:?}", gpu.adapter.get_info());
     let (atlas, world) = fixture(ColorModel::Quantized { bits: 5 });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     assert!(renderer.enable_timing(&gpu.device, &gpu.queue));
@@ -139,7 +140,7 @@ fn measure_lens_gpu_cost_at_4k() {
             let mut paired = [None; 2];
             for glass in if frame % 2 == 0 { [false, true] } else { [true, false] } {
                 let c = Camera { origin: (768/scale, 216/scale), zoom: (2, 1), x: 170, y: 180,
-                    lens: glass.then_some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
+                    effect: glass.then_some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }.into()),
                     ..Camera::new((2304/scale as u32, 432/scale as u32)) };
                 let cams = [Camera::new((3840/scale as u32, 2160/scale as u32)), c];
                 let present = tile_render::Present { canvas: (3840/scale as u32, 2160/scale as u32), target: (3840, 2160), zoom: (scale as u32, 1), at: (0, 0) };
@@ -178,26 +179,26 @@ fn measure_lens_gpu_cost_at_4k() {
 fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let (atlas, world) = survey_grid();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let (field_atlas, field_world) = survey_pattern(false);
-    let mut field_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut field_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     field_renderer.set_atlas(&gpu.device, &gpu.queue, &field_atlas);
     field_renderer.set_world(&gpu.device, &field_world);
     for scale in [1, 2] { for menu in [false, true] {
         let lens = Camera { cells: false, origin: (40/scale,40/scale),
-            lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
+            effect: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }.into()),
             ..Camera::new((600/scale as u32,200/scale as u32)) };
         let present = tile_render::Present { canvas: (700/scale as u32,300/scale as u32), target: (700,300), zoom: (scale as u32,1), at: (0,0) };
         let base = Camera::new(present.canvas);
         let (cameras, copies) = if menu {
-            let copy = tile_render::ScreenCopy { source: [100/scale,40/scale,300/scale,100/scale], at: lens.origin, zoom: (2,1), lens: lens.lens };
+            let copy = tile_render::ScreenCopy { source: [100/scale,40/scale,300/scale,100/scale], at: lens.origin, zoom: (2,1), effect: lens.effect };
             (vec![base], vec![copy])
         } else { (vec![base,lens], Vec::new()) };
         let image = gpu.render_presented(&mut renderer, &cameras, &copies, present, 0, [0,0,0,255]);
-        let plain_cameras: Vec<_> = cameras.iter().map(|c| Camera { lens: None, ..*c }).collect();
-        let plain_copies: Vec<_> = copies.iter().map(|c| tile_render::ScreenCopy { lens: None, ..*c }).collect();
+        let plain_cameras: Vec<_> = cameras.iter().map(|c| Camera { effect: None, ..*c }).collect();
+        let plain_copies: Vec<_> = copies.iter().map(|c| tile_render::ScreenCopy { effect: None, ..*c }).collect();
         let plain = gpu.render_presented(&mut renderer, &plain_cameras, &plain_copies, present, 0, [0,0,0,255]);
         let field = gpu.render_presented(&mut field_renderer, &cameras, &copies, present, 0, [0,0,0,255]);
         // Subtract the same green field without lines, including its coloured
@@ -280,12 +281,12 @@ fn straight_lines_bend_continuously_across_the_bevel_at_both_scales() {
 fn presented_glass_keeps_physical_width_and_smooth_corners() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let (atlas, world) = fixture(ColorModel::Direct);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let render = |renderer: &mut TileRenderer, scale: u32| {
         let c = Camera { cells: false, origin: (40/scale as i32,40/scale as i32),
-            lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }),
+            effect: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }.into()),
             ..Camera::new((600/scale,200/scale)) };
         gpu.render_presented(renderer, &[c], &[], tile_render::Present {
             canvas: (700/scale,300/scale), target: (700,300), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255])
@@ -318,11 +319,11 @@ fn window_glass_preserves_later_interface_views_and_cached_frames() {
     let gpu = Headless::new().expect("Vulkan GPU");
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (atlas, world) = fixture(color);
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         let lens = Camera { cells: false, origin: (20,20),
-            lens: Some(Lens { radius: 28.0, rim: 12.0, glass: true }), ..Camera::new((300,100)) };
+            effect: Some(Lens { radius: 28.0, rim: 12.0, glass: true }.into()), ..Camera::new((300,100)) };
         let ui = Camera { origin: (60,20), ..Camera::new((100,24)) };
         let before = gpu.render_views(&mut renderer, &[lens], (350,150), 0, [0,0,0,255]);
         let after = gpu.render_views(&mut renderer, &[lens,ui], (350,150), 0, [0,0,0,255]);
@@ -349,10 +350,10 @@ fn window_glass_preserves_later_interface_views_and_cached_frames() {
 fn black_glass_has_a_curved_luminous_rim_without_periodic_ticks() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let (atlas, world) = fixture(ColorModel::Direct);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
-    let c = Camera { cells: false, origin: (40, 40), lens: Some(Lens { radius: 30.0, rim: 14.0, glass: true }), ..Camera::new((600, 200)) };
+    let c = Camera { cells: false, origin: (40, 40), effect: Some(Lens { radius: 30.0, rim: 14.0, glass: true }.into()), ..Camera::new((600, 200)) };
     let image = gpu.render_views(&mut renderer, &[c], (700, 300), 0, [0,0,0,255]);
     assert_eq!(image.get(340, 140), [0,0,0,255], "clear, untinted face");
     assert!(image.get(340, 39)[2] > 0, "scattered light outside the silhouette");
@@ -398,7 +399,7 @@ fn screen_copy_lenses_preserve_corners_and_clear_menu_content() {
     let gpu = Headless::new().expect("Vulkan GPU");
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (atlas, world) = fixture(color);
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         for scale in [1, 2] { for glass in [false, true] {
@@ -406,13 +407,13 @@ fn screen_copy_lenses_preserve_corners_and_clear_menu_content() {
             let cameras = [Camera::new(size)];
             let copy = ScreenCopy { source: [40/scale as i32, 100/scale as i32, 160/scale as i32, 120/scale as i32],
                 at: (350/scale as i32, 200/scale as i32), zoom: (2,1),
-                lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass }) };
+                effect: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass }.into()) };
             let actual = gpu.render_composed(&mut renderer, &cameras, &[copy], size, 0, [0,0,0,255]);
-            let expected = reference::render_composed(&world, &atlas, &cameras, &[copy], size, 0, [0,0,0,255]);
+            let expected = REFERENCE.render_composed(&world, &atlas, &cameras, &[copy], size, 0, [0,0,0,255]);
             for (a,b) in actual.pixels.iter().zip(&expected.pixels) { for ch in 0..3 {
                 assert!(a[ch].abs_diff(b[ch]) <= 1, "menu lens {color:?}, scale {scale}, glass {glass}: {a:?} vs {b:?}");
             } }
-            let plain = gpu.render_composed(&mut renderer, &cameras, &[ScreenCopy { lens: None, ..copy }], size, 0, [0,0,0,255]);
+            let plain = gpu.render_composed(&mut renderer, &cameras, &[ScreenCopy { effect: None, ..copy }], size, 0, [0,0,0,255]);
             assert_eq!(actual.get(500/scale,300/scale), plain.get(500/scale,300/scale));
             let base = gpu.render_views(&mut renderer, &cameras, size, 0, [0,0,0,255]);
             assert_eq!(actual.get(350/scale,200/scale), base.get(350/scale,200/scale));
@@ -439,7 +440,7 @@ fn capture_glass_review_at_4k() {
     let (phase_x, phase_y) = (phase_x.parse::<i32>().unwrap(), phase_y.parse::<i32>().unwrap());
     eprintln!("terrain capture phase: {phase_x},{phase_y}; survey phase: 200,180");
     let gpu = Headless::new().expect("Vulkan GPU");
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     let save = |name: String, image: &RgbaImage| image::save_buffer(dir.join(name), bytemuck::cast_slice(&image.pixels), image.width, image.height, image::ColorType::Rgba8).unwrap();
     for grid in [false, true] {
       let (atlas, world) = if grid { survey_grid() } else { fixture(ColorModel::Direct) };
@@ -450,7 +451,7 @@ fn capture_glass_review_at_4k() {
         let mut cams = Vec::new();
         if background { cams.push(Camera::new((3840/scale,2160/scale))); }
         cams.push(Camera { x: if grid { 200 } else { phase_x }, y: if grid { 180 } else { phase_y }, zoom: (2,1), origin: (768/scale as i32,216/scale as i32),
-            lens: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }), ..Camera::new((2304/scale,432/scale)) });
+            effect: Some(Lens { radius: 56.0/scale as f32, rim: 24.0/scale as f32, glass: true }.into()), ..Camera::new((2304/scale,432/scale)) });
         let image = gpu.render_presented(&mut renderer, &cams, &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, 0, [0,0,0,255]);
         let background = if grid { "grid" } else if background { "map" } else { "black" };
         save(format!("glass6-{background}-4k-scale{scale}.png"), &image);
@@ -461,11 +462,11 @@ fn capture_glass_review_at_4k() {
             // Independently build and render each empty-black scale. Identical
             // output is valid for window-pixel optics, but cannot be a cached
             // scale-1 image or an accidentally copied file.
-            let mut empty_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+            let mut empty_renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
             empty_renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
             empty_renderer.set_world(&gpu.device, &world);
             eprintln!("independent empty-black scale {scale}: canvas {}x{}, lens {}x{}, rim {} composition pixels",
-                3840/scale, 2160/scale, empty.viewport.0, empty.viewport.1, empty.lens.unwrap().rim);
+                3840/scale, 2160/scale, empty.viewport.0, empty.viewport.1, Lens::of(empty.effect.unwrap()).rim);
             let image = gpu.render_presented(&mut empty_renderer, &[empty], &[], tile_render::Present { canvas: (3840/scale,2160/scale), target: (3840,2160), zoom: (scale,1), at: (0,0) }, scale, [0,0,0,255]);
             save(format!("glass6-empty-black-4k-scale{scale}.png"), &image);
             let crop = RgbaImage::from_fn(420,330, |x,y| image.get(752+x/3,200+y/3));
@@ -492,7 +493,7 @@ fn measure_glass_divider_gpu_cost_at_4k() {
     let gpu = Headless::new().expect("Vulkan GPU");
     eprintln!("glass divider benchmark adapter: {:?}", gpu.adapter.get_info());
     let (atlas, world) = fixture(ColorModel::Quantized { bits: 5 });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     assert!(renderer.enable_timing(&gpu.device, &gpu.queue));
@@ -506,7 +507,7 @@ fn measure_glass_divider_gpu_cost_at_4k() {
         let s = scale as i32;
         let t = 16 / s;
         let bar = |[x, y, w, h]: [i32; 4]| Camera { origin: (x, y), cells: false,
-            lens: Some(Lens { radius: t as f32 / 2.0, rim: t as f32 / 2.0, glass: true }),
+            effect: Some(Lens { radius: t as f32 / 2.0, rim: t as f32 / 2.0, glass: true }.into()),
             target_clip: Some([x, y.max(0), x + w, y + h]), ..Camera::new((w as u32, h as u32)) };
         let (w, h) = (3840 / s, 2160 / s);
         let strip = h / 5;
@@ -565,3 +566,9 @@ fn measure_glass_divider_gpu_cost_at_4k() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the lens's shaders), drawing with the lens.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK).with_effect(glass::effect);
+
+/// The oracle of a renderer drawing with the lens.
+const REFERENCE: tile_render::reference::Oracle<'static> = tile_render::reference::Oracle { effect: Some(&glass::ORACLE), painter: None };

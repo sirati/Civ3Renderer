@@ -163,7 +163,7 @@ impl GpuTimer {
 
     /// The timestamp writes of a pass labelled `label` (none once the
     /// frame's queries are used up).
-    pub(crate) fn pass(&self, label: impl FnOnce() -> String) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+    pub fn pass(&self, label: impl FnOnce() -> String) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         let i = self.next.get();
         if i + 2 > QUERIES {
             self.incomplete.set(true);

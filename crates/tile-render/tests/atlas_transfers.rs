@@ -33,7 +33,7 @@ fn base() -> (Atlas, SpriteId) {
 }
 
 fn renderer(gpu: &Headless, atlas: &Atlas, world: &TileWorld) -> TileRenderer {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, atlas);
     renderer.set_world(&gpu.device, world);
     renderer
@@ -324,7 +324,7 @@ fn legacy_adoption_rejects_overlap_without_changing_the_runtime_source() {
 fn first_runtime_atlas_retains_its_upload_workspace_until_retirement() {
     let gpu = Headless::new().expect("GPU");
     let (atlas, _) = base();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     let source = AtlasTransferSource::Whole(&atlas);
     renderer.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
     finish(&gpu, &mut renderer, source, 269);
@@ -497,7 +497,7 @@ fn superseded_preparation_releases_its_candidate_before_replacement_allocation()
 fn runtime_transfer_and_retirement_progress_with_nonblocking_polls_only() {
     let gpu = Headless::new().expect("GPU");
     let (atlas, _) = base();
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     let source = AtlasTransferSource::Whole(&atlas);
     renderer.begin_atlas_transfer(&gpu.device, source, (0, 0)).unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -516,3 +516,6 @@ fn runtime_transfer_and_retirement_progress_with_nonblocking_polls_only() {
     }
     assert_eq!(renderer.atlas_room(), (1, 0));
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

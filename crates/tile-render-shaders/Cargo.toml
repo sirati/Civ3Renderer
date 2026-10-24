@@ -1,12 +1,12 @@
 [package]
 name = "tile-render-shaders"
-description = "rust-gpu shaders of the tile renderer (built by tile-render's build script)"
+description = "rust-gpu shaders of the tile renderer (linked into viewer-shaders)"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 version = "0.1.0"
 
 [lib]
-crate-type = ["dylib", "lib"]
+crate-type = ["lib"]
 
 [dependencies]
 spirv-std = "0.11"

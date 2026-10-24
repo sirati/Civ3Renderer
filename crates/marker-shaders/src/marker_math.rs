@@ -1,11 +1,33 @@
-//! The viewer's gilded arrow over the active unit and its ground shadow,
-//! painted at any scale: shared by the render description's 1:1 art, the
+//! The gilded arrow over the active selection and its ground shadow,
+//! painted at any scale: shared by a render description's 1:1 art, the
 //! GPU (painting them at the target's resolution) and its CPU oracle.
 
 #![allow(unexpected_cfgs)]
 #[cfg(target_arch = "spirv")]
 use spirv_std::num_traits::Float;
-use tile_render_shared::{ARROW_TIP, shadow_half};
+
+/// The shapes [`paint`] paints (the painter's shape numbers).
+pub const SHAPE_ARROW: u32 = 0;
+pub const SHAPE_SHADOW: u32 = 1;
+
+/// The arrow's 1:1 art: its size, and its tip in it.
+pub const ARROW_ART: (f32, f32) = (33.0, 48.0);
+pub const ARROW_TIP: (f32, f32) = (16.0, 44.0);
+
+/// Half the width and height of the arrow's ground shadow, in pixels of
+/// the 1:1 art, with the arrow `bob` of them below its rest: wider the
+/// lower it is (41 by 13 at rest).
+pub fn shadow_half(bob: f32) -> (f32, f32) {
+    ((41.0 + bob) / 2.0, (13.0 + bob / 2.0) / 2.0)
+}
+
+/// Shape `shape` ([`SHAPE_ARROW`] or [`SHAPE_SHADOW`], the latter shaped by
+/// `bob`) over the pixel whose top-left is (x, y) from its reference point
+/// (the arrow's tip, the shadow's centre), at `scale`, in `rgba`: RGBA
+/// 0..255 (see [`arrow_pixel`], [`shadow_pixel`]).
+pub fn paint(shape: u32, x: f32, y: f32, scale: f32, bob: f32, rgba: [f32; 4]) -> [f32; 4] {
+    if shape == SHAPE_ARROW { arrow_pixel(x, y, scale, rgba) } else { shadow_pixel(x, y, scale, bob, rgba) }
+}
 
 /// The arrow's outline in the pixels of its 1:1 art (33×48): slightly
 /// unequal shoulders and a tapered, chamfered shaft, the tip at (16, 44).
