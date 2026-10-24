@@ -231,7 +231,7 @@ pub fn relative([bx, by, bw, bh]: [i32; 4], [x, y, ..]: [i32; 4]) -> [i32; 4] {
 }
 
 #[cfg(windows)]
-pub use live::{hidden_canvas, on_modal_pass};
+pub use live::{hidden_canvas, on_modal_pass, popup_text_key};
 
 #[cfg(windows)]
 mod live {
@@ -273,7 +273,9 @@ mod live {
         HIDDEN.load(Ordering::Acquire)
     }
 
-    fn text_key(form: u32) -> Option<String> {
+    /// The text key of the generic popup `form` (its class is
+    /// [`super::POPUP_VTABLE`]: the key is at [`super::TEXT_KEY`]).
+    pub fn popup_text_key(form: u32) -> Option<String> {
         let at = inproc::Ptr32::<u32>::new(form + super::TEXT_KEY).read().ok().filter(|&p| p != 0)?;
         let bytes = inproc::Ptr32::<u8>::new(at).read_array(64).ok()?;
         let end = bytes.iter().position(|&b| b == 0)?;
@@ -299,7 +301,7 @@ mod live {
         if vtable != super::POPUP_VTABLE {
             return false;
         }
-        let key = text_key(form);
+        let key = popup_text_key(form);
         let identity = key.clone().unwrap_or_default();
         let passes = PASSES.with_borrow_mut(|p| {
             if p.0 == form && p.1 == identity {
