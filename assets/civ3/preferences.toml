@@ -2719,7 +2719,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 image = "section"
 at = [70, 280]
-size = [420, 150]
+size = [420, 163]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -2756,7 +2756,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 checkbox = "accessibility.stack_count"
 text = "Show unit count on stacks"
-at = [90, 392]
+at = [90, 383]
 size = [370, 23]
 style = "label"
 normal = "check_off"
@@ -2764,23 +2764,38 @@ hover = "check_hover"
 selected = "check_on"
 show_if = "tab=accessibility"
 
+[[panels.preferences.items]]
+checkbox = "accessibility.stack_backdrop"
+text = "Dark backdrop behind the count"
+at = [114, 410]
+size = [346, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+tooltip = "Off, the count is white with a dark outline."
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "accessibility.stack_count"
+show_if = "tab=accessibility"
+
 # Button snapping (the Alt mode): the cursor jumps between buttons.
 [[panels.preferences.items]]
 image = "section"
-at = [70, 443]
-size = [420, 236]
+at = [70, 456]
+size = [420, 216]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Mouse (Alt mode)"
-at = [90, 456]
+at = [90, 469]
 style = "heading"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 checkbox = "input.alt_in_menus"
 text = "Alt mode in menus"
-at = [90, 485]
+at = [90, 498]
 size = [370, 23]
 style = "label"
 normal = "check_off"
@@ -2791,18 +2806,18 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 text = "Menus open with the cursor snapping to buttons."
 style = "caption"
-at = [114, 513]
+at = [114, 524]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "On the map, press Alt."
 style = "caption"
-at = [114, 530]
+at = [114, 540]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Snap updates per second"
-at = [90, 560]
+at = [90, 564]
 style = "label"
 show_if = "tab=accessibility"
 
@@ -2811,7 +2826,7 @@ slider = "input.snap_updates_per_second"
 tick_step = 5
 tick_label_step = 5
 tick_style = "ruler"
-at = [90, 585]
+at = [90, 588]
 size = [280, 23]
 normal = "track"
 knob = "knob"
@@ -2827,14 +2842,14 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 text = "How often mouse motion picks the next button."
 style = "caption"
-at = [90, 622]
+at = [90, 619]
 show_if = "tab=accessibility"
 
 # Recording the Alt mode for tuning its picking (`docs/alt-mode-recording.md`).
 [[panels.preferences.items]]
 checkbox = "input.record_alt_mode"
 text = "Record Alt mode interactions (for tuning)"
-at = [90, 648]
+at = [90, 641]
 size = [370, 23]
 style = "label"
 normal = "check_off"
@@ -2848,7 +2863,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 image = "section"
 at = [520, 95]
-size = [432, 584]
+size = [432, 577]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -3216,7 +3231,7 @@ show_if = "tab=accessibility & dialog.changed.accessibility.ring_width"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "input.snap_updates_per_second"
-at = [464, 585]
+at = [464, 588]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
