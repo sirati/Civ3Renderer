@@ -10,7 +10,7 @@
 enum Event {
     Move((i32, i32)),
     Order {
-        action: scene::UnitOrderAction,
+        action: scene::WorldOrderAction,
         at: (i32, i32),
     },
     Button {
@@ -50,7 +50,7 @@ impl Queue {
         match event {
             Event::Move(_) => 1,
             Event::Order {
-                action: scene::UnitOrderAction::Preview,
+                action: scene::WorldOrderAction::Preview,
                 ..
             } => 2,
             _ => 0,
@@ -305,7 +305,7 @@ mod tests {
         let preview = |x| Pending {
             world: WORLD,
             event: Event::Order {
-                action: scene::UnitOrderAction::Preview,
+                action: scene::WorldOrderAction::Preview,
                 at: (x, 300),
             },
         };
@@ -794,11 +794,11 @@ mod live {
     pub fn post_order(
         game: &Civ3,
         window: Window,
-        action: scene::UnitOrderAction,
+        action: scene::WorldOrderAction,
         at: (i32, i32),
     ) -> bool {
         let posted = post(game, window, Event::Order { action, at });
-        if !posted && action == scene::UnitOrderAction::Cancel {
+        if !posted && action == scene::WorldOrderAction::Cancel {
             // Loading a save can temporarily remove the map or window.
             // Retire bookkeeping without calling native code off thread.
             RETIRE_PREVIEW.store(true, Ordering::Release);
@@ -951,7 +951,7 @@ mod live {
             }
         }
         if let Event::Order {
-            action: scene::UnitOrderAction::Cancel,
+            action: scene::WorldOrderAction::Cancel,
             ..
         } = pending.event
         {
@@ -998,7 +998,7 @@ mod live {
         }
         if under_screen {
             if let Err(refused) = crate::modal::screen_gate() {
-                if let Event::Button { down: true, at, .. } | Event::Order { action: scene::UnitOrderAction::Confirm, at } = pending.event
+                if let Event::Button { down: true, at, .. } | Event::Order { action: scene::WorldOrderAction::Confirm, at } = pending.event
                     && let Some(t) = tile(game, at)
                 {
                     crate::modal::refuse(game, t, &refused);
@@ -1063,7 +1063,7 @@ mod live {
                 }
             }
             Event::Order {
-                action: scene::UnitOrderAction::Preview,
+                action: scene::WorldOrderAction::Preview,
                 ..
             } => {
                 hold_preselection();
@@ -1107,7 +1107,7 @@ mod live {
                 hover(live, pending.world, tile, p);
             }
             Event::Order {
-                action: scene::UnitOrderAction::Confirm,
+                action: scene::WorldOrderAction::Confirm,
                 ..
             } => {
                 let preview = take_preview();
@@ -1142,7 +1142,7 @@ mod live {
                 }
             }
             Event::Order {
-                action: scene::UnitOrderAction::Cancel,
+                action: scene::WorldOrderAction::Cancel,
                 ..
             }
             | Event::Dismiss => unreachable!(),
