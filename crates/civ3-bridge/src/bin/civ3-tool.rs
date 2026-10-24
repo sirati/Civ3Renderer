@@ -6,11 +6,13 @@
 //!       description covers
 //!   civ3-tool render TRACE OUT.png [--viewport WxH] [--reference]
 //!       renders the trace's world on the GPU, or with the CPU reference
-//!   civ3-tool screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--before]
-//!       renders a trace of the screens after a game as the viewer shows
-//!       them in a window (default 3840x2160) at those settings: the screen
-//!       open a part of its own over the frame; --before as the bridge
-//!       handed them over before (all of it a menu, the screen a popup)
+//!   civ3-tool screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before]
+//!       renders a trace of the screens after a game, or of a screen open
+//!       in a game (over its world), as the viewer shows them in a window
+//!       (default 3840x2160) at those settings (--place: where screens go
+//!       in a split): the screen open a part of its own over the frame;
+//!       --before as the bridge handed the screens after a game over
+//!       before (all of it a menu, the screen a popup)
 //!   civ3-tool stats TRACE
 //!       how big the atlas compiled for the trace is
 //!   civ3-tool preview SCENARIO.biq OUT.png [--viewport WxH]
@@ -186,11 +188,11 @@ fn screen_scene(trace: &Trace, compiled: &Compiled, fonts: &text::Fonts, before:
     let frame = trace.ui.clone().ok_or("the trace has no interface")?;
     let build = civ3_sys::Build::PcGames;
     let size = frame.forms.first().map(|f| f.3).ok_or("no forms")?;
-    if !parts::GameOver::default().update(&frame, build) && !before {
-        return Err("not a trace of the screens after a game".into());
-    }
     let unit_colors = trace.world.color_tables.get(trace.world.player.max(0) as usize).copied().unwrap_or(0);
     let sprites = |f: &ifc23::ui::Frame| ui_screen::sprites(&ui_screen::items(f, &[], GENERATED, unit_colors), fonts, compiled, ui_screen::under_pass(compiled), false);
+    if !parts::GameOver::default().update(&frame, build) && !before {
+        return game_screen_scene(trace, compiled, &frame, size, sprites);
+    }
     let mut scene = scene::Scene::empty(scene::WorldShape::default(), compiled.layers.len());
     scene.screen_size = (size.0 as u32, size.1 as u32);
     let open = parts::active_screen(&frame, build);
@@ -220,6 +222,38 @@ fn screen_scene(trace: &Trace, compiled: &Compiled, fonts: &text::Fonts, before:
             ifc23::scene_map::overlay_menus(&mut scene, sprites(&below));
         }
     }
+    Ok(scene)
+}
+
+/// A screen open in a running game (an advisor, the histograph), as live
+/// hands it to the viewer: the world, the frame, and the screen a part of
+/// its own over them where `active_screen_part` makes one (else all of it
+/// over the frame a menu).
+fn game_screen_scene(trace: &Trace, compiled: &Compiled, frame: &ifc23::ui::Frame, size: (i32, i32), sprites: impl Fn(&ifc23::ui::Frame) -> Vec<scene::FreeSprite>) -> Result<scene::Scene, String> {
+    use ifc23::interface_parts as parts;
+    let build = civ3_sys::Build::PcGames;
+    let (name, index) = parts::active_screen(frame, build).map(|(i, n)| (n, i)).ok_or("no screen open in the trace")?;
+    let mut scene = Mapper::new(compiled).scene(&trace.world, &trace.view, (size.0 as u32, size.1 as u32), 0);
+    scene.screen_size = (size.0 as u32, size.1 as u32);
+    let part = (name != "City").then(|| parts::active_screen_part(frame, index, build, size)).flatten();
+    let (visible, above) = match part {
+        Some((first, rect)) => {
+            let (below, above) = parts::split_at(frame, first);
+            (below, Some((rect, parts::clipped(&above, rect))))
+        }
+        None => (frame.clone(), None),
+    };
+    let (hud, menus) = ui_screen::split(&visible, ui_screen::menus_from(&visible));
+    scene.sprites.extend(sprites(&hud));
+    ifc23::scene_map::overlay_screen_sprites(&mut scene);
+    match above {
+        Some((rect, above)) => {
+            parts::part_view(&mut scene, parts::SCREEN_VIEW, rect, sprites(&above));
+            scene.interface.screen_view = Some(parts::SCREEN_VIEW);
+        }
+        None => ifc23::scene_map::overlay_menus(&mut scene, sprites(&menus)),
+    }
+    scene.interface.screen = Some(name.to_owned());
     Ok(scene)
 }
 
@@ -277,7 +311,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Some("screen") => {
-            let usage = "screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--before]";
+            let usage = "screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before]";
             let trace = load_trace(args.get(1).ok_or(usage)?)?;
             let out = args.get(2).ok_or(usage)?;
             let (compiled, mut art) = compile(Some(&trace))?;
@@ -294,6 +328,13 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             if let Some(m) = arg("--menus") { resolution.scale_menus = true; resolution.menu_scale_percent = m.parse().map_err(|_| "bad percent")?; }
             let mut layout = viewer_settings::Layout::default();
             if args.iter().any(|a| a == "--split") { layout.split = viewer_settings::Split::Vertical1To1; }
+            let place = match arg("--place").map(String::as_str) {
+                None | Some("floating") => viewer_settings::Place::Floating,
+                Some("left") => viewer_settings::Place::LeftOrBottom,
+                Some("right") => viewer_settings::Place::RightOrTop,
+                Some(_) => return Err("--place floating|left|right".into()),
+            };
+            layout.screen_place = viewer_settings::ScreenPlace { vertical: place, horizontal: place };
             let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
             let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
             let img = tile_viewer::render_planned(&gpu, &compiled, &scene, window, &resolution, &layout, &config);
