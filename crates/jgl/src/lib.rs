@@ -27,6 +27,7 @@ pub mod surface;
 pub mod record;
 pub mod slots;
 pub mod text;
+pub mod window;
 
 pub use blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 pub use draw::{CopyCall, FillCall, Surface};

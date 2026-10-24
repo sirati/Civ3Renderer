@@ -19,7 +19,7 @@ use crate::takeover::{Takeover, TakeoverError};
 mod entries {
     use super::*;
     use crate::state::{guarded, read, record};
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use jgl::CopyCall;
 
     pub static INDEXED: AtomicU32 = AtomicU32::new(0);
@@ -85,6 +85,16 @@ mod entries {
         let jgl = drawn("keyed_draw_onto_8c", || Some(CopyCall::Other { slot: 0x8C, this: surface(this)?, args: [a, b, c, d] }));
         if jgl { original::<M4>(&SLOT_8C)(this, a, b, c, d) } else { 0 }
     }
+
+    /// The group's image slots.
+    pub fn image() -> Vec<Entry> {
+        vec![
+            Entry { offset: SLOTS[0], function: indexed as M8 as usize as u32, original: &INDEXED },
+            Entry { offset: SLOTS[1], function: stretch as M3 as usize as u32, original: &STRETCH },
+            Entry { offset: SLOTS[2], function: keyed as M3 as usize as u32, original: &KEYED },
+            Entry { offset: SLOTS[3], function: slot_8c as M4 as usize as u32, original: &SLOT_8C },
+        ]
+    }
 }
 
 /// The taken-over copy group (for the life of the process, in practice).
@@ -105,19 +115,12 @@ pub const SLOTS: [u16; 4] = [0x38, 0x40, 0x84, 0x8C];
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32) -> Result<CopyGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
-    use entries::*;
+    use crate::takeover::take_over;
     use jgl::slots::Class;
     if !crate::state::has_hooks() {
         return Err(TakeoverError::NoHooks);
     }
-    let image = [
-        Entry { offset: SLOTS[0], function: indexed as M8 as usize as u32, original: &INDEXED },
-        Entry { offset: SLOTS[1], function: stretch as M3 as usize as u32, original: &STRETCH },
-        Entry { offset: SLOTS[2], function: keyed as M3 as usize as u32, original: &KEYED },
-        Entry { offset: SLOTS[3], function: slot_8c as M4 as usize as u32, original: &SLOT_8C },
-    ];
-    Ok(CopyGroup { _image: take_over(base, Class::Image, &image)? })
+    Ok(CopyGroup { _image: take_over(base, Class::Image, &entries::image())? })
 }
 
 #[cfg(not(all(windows, target_arch = "x86")))]

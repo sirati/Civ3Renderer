@@ -31,7 +31,7 @@ use crate::takeover::{Takeover, TakeoverError};
 mod entries {
     use super::*;
     use crate::layout::{JglFont, JglImage, Rect32};
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use std::mem::offset_of;
 
     pub static IMAGE_CLEAR: AtomicU32 = AtomicU32::new(0);
@@ -210,6 +210,24 @@ mod entries {
         }, || ());
         original::<M0>(&FONT_RELEASE)(this)
     }
+
+    /// The group's slots: (image, font).
+    pub fn split() -> (Vec<Entry>, Vec<Entry>) {
+        let image = vec![
+            Entry { offset: 0x08, function: image_clear as M0 as usize as u32, original: &IMAGE_CLEAR },
+            Entry { offset: 0xA8, function: select_font as M1 as usize as u32, original: &SELECT_FONT },
+            Entry { offset: 0xAC, function: deselect_font as M0 as usize as u32, original: &DESELECT_FONT },
+            Entry { offset: 0xB0, function: set_text_color16 as M1 as usize as u32, original: &TEXT_COLOR16 },
+            Entry { offset: 0xB4, function: set_text_color as M3 as usize as u32, original: &TEXT_COLOR },
+            Entry { offset: 0xB8, function: text_out as M4 as usize as u32, original: &TEXT_OUT },
+        ];
+        let font = vec![
+            Entry { offset: 0x00, function: font_delete as M1 as usize as u32, original: &FONT_DELETE },
+            Entry { offset: 0x08, function: font_create as M3 as usize as u32, original: &FONT_CREATE },
+            Entry { offset: 0x0C, function: font_release as M0 as usize as u32, original: &FONT_RELEASE },
+        ];
+        (image, font)
+    }
 }
 
 /// The taken-over text group (for the life of the process, in practice).
@@ -227,8 +245,7 @@ pub fn install(base: u32, hooks: HooksFactory) -> Result<TextGroup, TakeoverErro
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32, hooks: HooksFactory) -> Result<TextGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
-    use entries::*;
+    use crate::takeover::take_over;
     use jgl::slots::Class;
     if FACTORY.set(hooks).is_err() {
         return Err(inproc::hook::HookError::AlreadyInstalled.into());
@@ -237,19 +254,7 @@ fn install_impl(base: u32, hooks: HooksFactory) -> Result<TextGroup, TakeoverErr
     if let Some(lf) = inproc::gdi::stock_font(13) {
         let _ = STOCK.set(FontDesc { face: lf.face, height: lf.height, weight: lf.weight, italic: lf.italic, underline: lf.underline });
     }
-    let image = [
-        Entry { offset: 0x08, function: image_clear as M0 as usize as u32, original: &IMAGE_CLEAR },
-        Entry { offset: 0xA8, function: select_font as M1 as usize as u32, original: &SELECT_FONT },
-        Entry { offset: 0xAC, function: deselect_font as M0 as usize as u32, original: &DESELECT_FONT },
-        Entry { offset: 0xB0, function: set_text_color16 as M1 as usize as u32, original: &TEXT_COLOR16 },
-        Entry { offset: 0xB4, function: set_text_color as M3 as usize as u32, original: &TEXT_COLOR },
-        Entry { offset: 0xB8, function: text_out as M4 as usize as u32, original: &TEXT_OUT },
-    ];
-    let font = [
-        Entry { offset: 0x00, function: font_delete as M1 as usize as u32, original: &FONT_DELETE },
-        Entry { offset: 0x08, function: font_create as M3 as usize as u32, original: &FONT_CREATE },
-        Entry { offset: 0x0C, function: font_release as M0 as usize as u32, original: &FONT_RELEASE },
-    ];
+    let (image, font) = entries::split();
     // Fonts first: an image may select one the moment its slots change.
     let font = take_over(base, Class::Font, &font)?;
     let image = take_over(base, Class::Image, &image)?;
