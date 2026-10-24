@@ -1083,6 +1083,10 @@ pub fn launch(
     let settings = environment("CIV3R_SETTINGS")
         .map(PathBuf::from)
         .unwrap_or_else(|| options.home.join("settings.toml"));
+    // System shortcuts the game paused to have F1-F12 (macOS) are on again
+    // once it is gone, however it ended; and now, if an earlier run left
+    // them paused. (Dropped after the game's process, declared below.)
+    let _function_keys = function_keys::Recovery::new(function_keys::journal_path(&settings));
     if let Some(progress) = &progress {
         let _ = progress.send(Update::Logs(format!(
             "Wine: {}\nRenderer: {}\nBridge: {}\nRegistry: {}",

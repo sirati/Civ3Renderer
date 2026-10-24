@@ -840,6 +840,48 @@ style = "caption"
 at = [72, 426]
 show_if = "tab=layout"
 
+# macOS only: F1-F12 reach the game, not the system's shortcuts on them
+# (F11 Show Desktop, ...), while its window is in front.
+[[panels.preferences.items]]
+checkbox = "input.capture_function_keys"
+at = [72, 556]
+size = [440, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Capture function keys (F1-F12) while playing"
+style = "label"
+show_if = "tab=layout & host.macos"
+
+[[panels.preferences.items]]
+text = "macOS shortcuts on these keys pause meanwhile."
+style = "caption"
+at = [96, 578]
+show_if = "tab=layout & host.macos"
+
+[[panels.preferences.items]]
+checkbox = "input.media_keys_as_function_keys"
+at = [96, 604]
+size = [416, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Top-row media keys act as F1-F12 too"
+style = "label"
+show_if = "tab=layout & host.macos"
+
+[[panels.preferences.items]]
+text = "Brightness, volume, media: as if Fn were held."
+style = "caption"
+at = [120, 626]
+show_if = "tab=layout & host.macos"
+
+[[panels.preferences.items]]
+text = "Needs the Accessibility permission."
+style = "caption"
+at = [120, 644]
+show_if = "tab=layout & host.macos"
+
 # ------------------------------------------------ Layout, screen locations
 
 [[panels.preferences.items]]
