@@ -208,6 +208,7 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         selection: optional("selection", game.selection()).map(|(id, _)| (id, 0)),
         targeting: optional("targeting", game.targeting()),
         goto: crate::targeting::latest_path(),
+        preselected: crate::world_input::preselected(),
         relations: relations(game, view.player_civ),
         wall_buildings: players
             .wall_buildings

@@ -428,6 +428,9 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
     if let Some(p) = crate::targeting::latest_path() {
         let _ = writeln!(out, "{}", p.trace_line());
     }
+    if let Some((x, y)) = crate::world_input::preselected() {
+        let _ = writeln!(out, "preselected {x} {y}");
+    }
     if let Ok(modes) = game.navigator_modes() {
         use civ3_sys::ui_hooks::NavigatorMode;
         let _ = writeln!(out, "navigator_modes {} {}", u8::from(modes.main == NavigatorMode::Geography), u8::from(modes.advisor == NavigatorMode::Geography));
