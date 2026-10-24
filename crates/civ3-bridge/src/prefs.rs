@@ -1497,8 +1497,16 @@ mod tests {
         assert_eq!(p.editing().input.map_movement, viewer_settings::MapMovement::Drag);
         assert!(click(&mut p, 250, 389).is_empty());
         assert_eq!(p.editing().input.map_movement, viewer_settings::MapMovement::EdgeScroll);
+        // Snapping lists to items: only with smooth scrolling, on by default.
+        assert!(click(&mut p, 580, 319).is_empty());
+        assert!(p.editing().input.snap_lists_to_items, "disabled without smooth scrolling");
         assert!(click(&mut p, 560, 297).is_empty());
         assert!(p.editing().input.smooth_menu_scrolling);
+        assert!(click(&mut p, 580, 319).is_empty());
+        assert!(!p.editing().input.snap_lists_to_items);
+        assert_eq!(p.settings().input.snap_lists_to_items, false, "previews at once");
+        assert!(click(&mut p, 580, 319).is_empty());
+        assert!(p.editing().input.snap_lists_to_items);
         assert!(click(&mut p, 560, 297).is_empty());
         assert!(!p.editing().input.smooth_menu_scrolling);
         // Alt mode in menus, on the Accessibility tab: on by default, off, on again.
@@ -1635,12 +1643,12 @@ mod tests {
         let (mut p, path) = open_prefs("capture-sensitivity");
         assert!(click(&mut p, 330, 55).is_empty());
         assert_eq!(p.editing().input.capture_sensitivity, 3.0);
-        assert!(click(&mut p, 850, 355).is_empty());
+        assert!(click(&mut p, 850, 377).is_empty());
         assert_eq!(p.editing().input.capture_sensitivity, 10.0);
         assert_eq!(p.settings().input.capture_sensitivity, p.editing().input.capture_sensitivity);
         let texts: Vec<String> = p.draws(&Fonts::default()).iter().filter_map(|d| if let Draw::Text(t) = d { Some(t.text.clone()) } else { None }).collect();
         assert!(texts.contains(&"10x".to_owned()), "{texts:?}");
-        assert!(click(&mut p, 553, 355).is_empty());
+        assert!(click(&mut p, 553, 377).is_empty());
         assert_eq!(p.editing().input.capture_sensitivity, 0.1);
         assert_eq!(p.settings().input.capture_sensitivity, p.editing().input.capture_sensitivity);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -2407,6 +2415,7 @@ mod tests {
         draft.display.max_fps = 120;
         draft.accessibility.active_unit_arrow = true;
         draft.accessibility.unit_rings = true;
+        draft.input.smooth_menu_scrolling = true;
         prefs.project_settings();
         for (tab, name) in [(TAB_RESOLUTION, "tab-resolution"), (TAB_LAYOUT, "tab-layout"), (TAB_ZOOM, "tab-zoom"),
             (TAB_CLEAN_MAP, "tab-clean-map"), (TAB_ACCESSIBILITY, "tab-accessibility")] {
@@ -3472,7 +3481,7 @@ mod tests {
         let (mut p, path) = open_prefs("sensitivity-preview");
         let opening = p.settings().clone();
         click(&mut p,330,55);
-        click(&mut p,800,355);
+        click(&mut p,800,377);
         assert_ne!(p.settings().input.capture_sensitivity, opening.input.capture_sensitivity);
         assert_eq!(p.settings().input.capture_sensitivity, p.editing().input.capture_sensitivity);
         p.draft.as_mut().unwrap().display.present = viewer_settings::Present::Immediate;

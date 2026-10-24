@@ -439,6 +439,9 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     if let Err(e) = crate::native_sliders::install(game) {
         log::warn!("no transactional native sliders: {e}");
     }
+    if let Err(e) = crate::build_queue::install(game) {
+        log::warn!("no build queue reordering: {e}");
+    }
     if let Err(e) = crate::ui_wheel::install(game) {
         log::warn!("no wheel on the interface where the game has none: {e}");
     }
@@ -2153,6 +2156,7 @@ fn publish(
             targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
             // Go-to and the stack moves only: the cursor tile by tile.
             snap_to_tiles: matches!(shown, Shown::Map(world, _) if crate::targeting::go_to(world.targeting.mode)),
+            build_queue: None,
         };
         if let (Shown::Map(_, view), Some(([x, y, w, h], _))) = (shown, city) {
             let camera = city_anchor.map_or((view.camera_x, view.camera_y), |a| a.camera);
@@ -2162,6 +2166,11 @@ fn publish(
         scene.settings = Some(prefs.settings().clone());
         scene.settings_preview = prefs.settings_preview();
         scene.interactables = interactables.clone();
+        // The city screen's build queue, reordered by dragging.
+        if let Some((queue, grips)) = crate::build_queue::publish(&civ3_sys::controls::Live, &scene.interactables, scene.interface.focus_control) {
+            scene.interactables.extend(grips);
+            scene.interface.build_queue = Some(queue);
+        }
         if let (Shown::Map(world, _), Some(frame), Some(anchor)) = (shown, ui.as_ref(), city_anchor) {
             let eligible = crate::city_screen::native::eligibility(&game, world);
             scene.interactables.extend(crate::city_screen::tile_targets(world, frame, anchor,
@@ -2687,6 +2696,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 log::info!("input: queued report {serial} read");
                 crate::async_popups::close(serial);
             }
+            Input::BuildQueue { stamp, from, to } => crate::build_queue::post(window, stamp, from, to),
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");
@@ -2750,6 +2760,14 @@ fn hook_game_window(hidden_window: bool) {
         Ok(Some(hook)) => std::mem::forget(hook),
         Ok(None) => log::warn!("edge scroll: the game does not import GetFocus"),
         Err(e) => log::warn!("edge scroll: hooking GetFocus: {e}"),
+    }
+    // Shift and Ctrl held in the viewer: the game (Shift+click queues a
+    // build in the city screen) and C3X ask GetAsyncKeyState, which never
+    // sees keys forwarded from another window.
+    match inproc::keyboard::hook_async_key_state(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => log::warn!("modifiers: the game does not import GetAsyncKeyState"),
+        Err(e) => log::warn!("modifiers: hooking GetAsyncKeyState: {e}"),
     }
     std::thread::spawn(move || {
         let Some(jgl) = (0..600).find_map(|_| inproc::pe::module_base("jgl.dll").or_else(|| {
