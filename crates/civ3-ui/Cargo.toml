@@ -12,3 +12,6 @@ viewer-settings = { path = "../viewer-settings" }
 log.workspace = true
 tile-game = { path = "../tile-game" }
 tile-viewer = { path = "../tile-viewer" }
+
+[dev-dependencies]
+menu = { path = "../menu" }
