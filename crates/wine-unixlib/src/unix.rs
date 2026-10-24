@@ -6,7 +6,8 @@ use crate::{Buffer32, STATUS_INVALID_PARAMETER, Status};
 /// `fn(&mut Args) -> Status` whose `Args` is a `bytemuck::Pod` struct
 /// without pointers (buffers as [`Buffer32`]), so 32- and 64-bit callers
 /// share one layout and one table serves both. Panics are caught and
-/// reported as `STATUS_UNSUCCESSFUL`.
+/// reported as `STATUS_UNSUCCESSFUL`; the end of a thread (by Wine or a
+/// cancellation) waits for the handler to return, see [`dispatch`].
 ///
 /// ```ignore
 /// wine_unixlib::unix_call_table![start, publish];
@@ -18,12 +19,14 @@ macro_rules! unix_call_table {
         #[doc(hidden)]
         mod __wine_unixlib_entries {
             $(
-                pub unsafe extern "C" fn $handler(args: *mut ::core::ffi::c_void) -> $crate::Status {
+                // "C-unwind": a thread ended at the end of a call (see
+                // `dispatch`) unwinds through here into Wine's frames.
+                pub unsafe extern "C-unwind" fn $handler(args: *mut ::core::ffi::c_void) -> $crate::Status {
                     $crate::unix::dispatch(args, super::$handler)
                 }
             )*
         }
-        type __WineUnixEntry = unsafe extern "C" fn(*mut ::core::ffi::c_void) -> $crate::Status;
+        type __WineUnixEntry = unsafe extern "C-unwind" fn(*mut ::core::ffi::c_void) -> $crate::Status;
         #[unsafe(no_mangle)]
         #[used]
         pub static __wine_unix_call_funcs: [__WineUnixEntry; [$(stringify!($handler)),*].len()] =
@@ -37,8 +40,103 @@ macro_rules! unix_call_table {
 
 /// Runs `handler` on the argument struct at `args` (used by
 /// [`unix_call_table!`]).
+///
+/// A panic of `handler` is caught here. The end of the thread is not: Wine
+/// ends a thread (another thread's `ExitProcess`, `TerminateThread`) with
+/// `SIGQUIT`, whose handler calls `pthread_exit`, and that, like
+/// `pthread_cancel`, is a forced unwind. Caught by `catch_unwind` it aborts
+/// the process (glibc: "FATAL: exception not rethrown"); it has to reach
+/// the thread's start. So while `handler` runs, `SIGQUIT` is blocked and
+/// cancellation disabled; both take effect once it has returned and the
+/// arguments are written back, from this frame, outside the catch, and
+/// the unwind passes through the entry point (`extern "C-unwind"`) into
+/// Wine's frames. A thread that never returns from `handler` ends with
+/// the process.
 #[doc(hidden)]
 pub fn dispatch<T: bytemuck::Pod>(
+    args: *mut core::ffi::c_void,
+    handler: fn(&mut T) -> Status,
+) -> Status {
+    let held = ThreadEnd::hold();
+    let status = dispatch_caught(args, handler);
+    held.release();
+    status
+}
+
+/// The ways a thread is ended from outside, held back for the length of a
+/// call: Wine's `SIGQUIT` (blocked) and, on Linux, `pthread_cancel`
+/// (disabled). [`ThreadEnd::release`] puts both back as they were; one
+/// pending acts then.
+struct ThreadEnd {
+    mask: libc::sigset_t,
+    #[cfg(target_os = "linux")]
+    cancel: libc::c_int,
+}
+
+/// The calls where the thread may end, declared as unwinding: a forced
+/// unwind starts in them (in the `SIGQUIT` handler run on return from
+/// `pthread_sigmask`, or at the cancellation point).
+mod thread_end {
+    unsafe extern "C-unwind" {
+        pub fn pthread_sigmask(
+            how: libc::c_int,
+            set: *const libc::sigset_t,
+            old: *mut libc::sigset_t,
+        ) -> libc::c_int;
+    }
+    /// glibc's cancellation state (not in the `libc` crate for Linux).
+    #[cfg(target_os = "linux")]
+    pub const CANCEL_DISABLE: libc::c_int = 1;
+    #[cfg(target_os = "linux")]
+    unsafe extern "C-unwind" {
+        pub fn pthread_setcancelstate(state: libc::c_int, old: *mut libc::c_int) -> libc::c_int;
+        /// A cancellation point: unwinds when one is pending.
+        pub fn pthread_testcancel();
+    }
+}
+
+impl ThreadEnd {
+    fn hold() -> ThreadEnd {
+        // SAFETY: calls on this thread's own signal mask and cancellation
+        // state, with pointers to locals.
+        unsafe {
+            let mut quit: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut quit);
+            libc::sigaddset(&mut quit, libc::SIGQUIT);
+            let mut mask: libc::sigset_t = std::mem::zeroed();
+            thread_end::pthread_sigmask(libc::SIG_BLOCK, &quit, &mut mask);
+            #[cfg(target_os = "linux")]
+            let cancel = {
+                let mut old = 0;
+                thread_end::pthread_setcancelstate(thread_end::CANCEL_DISABLE, &mut old);
+                old
+            };
+            ThreadEnd {
+                mask,
+                #[cfg(target_os = "linux")]
+                cancel,
+            }
+        }
+    }
+
+    /// Puts back what [`ThreadEnd::hold`] found. Not a `Drop`: it is the
+    /// point where the thread may end, which must not happen while it
+    /// unwinds.
+    fn release(self) {
+        // SAFETY: as in `hold`. A pending `SIGQUIT` or cancellation ends
+        // the thread in these calls, unwinding from here: no catch on the
+        // way out.
+        unsafe {
+            #[cfg(target_os = "linux")]
+            thread_end::pthread_setcancelstate(self.cancel, std::ptr::null_mut());
+            thread_end::pthread_sigmask(libc::SIG_SETMASK, &self.mask, std::ptr::null_mut());
+            #[cfg(target_os = "linux")]
+            thread_end::pthread_testcancel();
+        }
+    }
+}
+
+fn dispatch_caught<T: bytemuck::Pod>(
     args: *mut core::ffi::c_void,
     handler: fn(&mut T) -> Status,
 ) -> Status {
@@ -320,5 +418,197 @@ mod signal_policy_tests {
         })
         .join()
         .unwrap();
+    }
+}
+
+/// A thread ended while inside a call (by Wine's `SIGQUIT`, or cancelled)
+/// ends once the call has returned, without passing the call's
+/// `catch_unwind`; a handler's panic is still caught. Each ending runs in
+/// a child process of this test binary: done wrong, it aborts the process.
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+mod thread_end_tests {
+    use super::*;
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    const CHILD: &str = "WINE_UNIXLIB_THREAD_END_CHILD";
+
+    #[repr(C)]
+    #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+    struct Args {
+        value: u32,
+    }
+
+    crate::unix_call_table![slow, panics];
+
+    static INSIDE: AtomicBool = AtomicBool::new(false);
+    static RETURNED: AtomicBool = AtomicBool::new(false);
+
+    /// Sits in cancellation points (`nanosleep`) for 300 ms, then answers.
+    fn slow(args: &mut Args) -> Status {
+        INSIDE.store(true, Ordering::SeqCst);
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        args.value = 7;
+        RETURNED.store(true, Ordering::SeqCst);
+        crate::STATUS_SUCCESS
+    }
+
+    fn panics(_: &mut Args) -> Status {
+        panic!("a handler's panic (expected by the test)");
+    }
+
+    unsafe extern "C-unwind" {
+        /// Declared unwinding: it unwinds (libc's declaration says it does not).
+        fn pthread_exit(value: *mut c_void) -> !;
+    }
+
+    /// An argument struct where a 32-bit caller's would be (below 4 GiB).
+    fn low_args() -> *mut Args {
+        // SAFETY: a fresh anonymous mapping, owned by the test (never unmapped).
+        let p = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                4096,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_32BIT,
+                -1,
+                0,
+            )
+        };
+        assert_ne!(p, libc::MAP_FAILED);
+        assert!((p as usize) < u32::MAX as usize);
+        p.cast()
+    }
+
+    /// A thread as Wine has them: no Rust thread runtime around the call.
+    extern "C-unwind" fn call_slow(args: *mut c_void) -> *mut c_void {
+        // SAFETY: the entry point of the table above, on a low mapping.
+        unsafe { __wine_unixlib_entries::slow(args) };
+        std::ptr::null_mut()
+    }
+
+    fn spawn(args: *mut Args) -> libc::pthread_t {
+        type Start = extern "C" fn(*mut c_void) -> *mut c_void;
+        // SAFETY: the same ABI; "C-unwind" only lets the thread's end
+        // unwind through it into glibc's thread start, which expects that.
+        let start: Start = unsafe {
+            std::mem::transmute::<extern "C-unwind" fn(*mut c_void) -> *mut c_void, Start>(call_slow)
+        };
+        let mut t: libc::pthread_t = 0;
+        // SAFETY: valid out pointer, default attributes.
+        let created = unsafe { libc::pthread_create(&mut t, std::ptr::null(), start, args.cast()) };
+        assert_eq!(created, 0);
+        while !INSIDE.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        t
+    }
+
+    fn join(t: libc::pthread_t) -> *mut c_void {
+        let mut ret = std::ptr::null_mut();
+        // SAFETY: a joinable thread of `spawn`, joined once.
+        assert_eq!(unsafe { libc::pthread_join(t, &mut ret) }, 0);
+        ret
+    }
+
+    fn in_child(test: &str) {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([test, "--exact", "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{test}: {:?}\n{stdout}\n{stderr}", out.status);
+        assert!(stdout.contains("1 passed"), "{test} did not run:\n{stdout}");
+        assert!(!stderr.contains("FATAL"), "{test}:\n{stderr}");
+    }
+
+    fn child() -> bool {
+        std::env::var_os(CHILD).is_some()
+    }
+
+    #[test]
+    fn a_thread_cancelled_in_a_call_ends_when_it_returns() {
+        in_child("unix::thread_end_tests::cancelled_child");
+    }
+
+    #[test]
+    fn a_thread_wine_ends_in_a_call_ends_when_it_returns() {
+        in_child("unix::thread_end_tests::sigquit_child");
+    }
+
+    #[test]
+    fn cancelled_child() {
+        if !child() {
+            return;
+        }
+        let args = low_args();
+        let t = spawn(args);
+        // SAFETY: a live thread of `spawn`.
+        assert_eq!(unsafe { libc::pthread_cancel(t) }, 0);
+        // glibc's PTHREAD_CANCELED.
+        assert_eq!(join(t) as isize, -1);
+        assert!(RETURNED.load(Ordering::SeqCst));
+        // SAFETY: the mapping of `low_args`, the thread is gone.
+        assert_eq!(unsafe { (*args).value }, 7);
+    }
+
+    const QUIT: usize = 0x5157;
+
+    /// What Wine's `SIGQUIT` handler does in the end (`abort_thread`).
+    extern "C-unwind" fn quit(_: libc::c_int) {
+        // SAFETY: ends this thread, unwinding its frames.
+        unsafe { pthread_exit(QUIT as *mut c_void) }
+    }
+
+    #[test]
+    fn sigquit_child() {
+        if !child() {
+            return;
+        }
+        // SAFETY: a handler for this child process only.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = quit as extern "C-unwind" fn(libc::c_int) as usize;
+            libc::sigemptyset(&mut action.sa_mask);
+            assert_eq!(libc::sigaction(libc::SIGQUIT, &action, std::ptr::null_mut()), 0);
+        }
+        let args = low_args();
+        let t = spawn(args);
+        // SAFETY: a live thread of `spawn`.
+        assert_eq!(unsafe { libc::pthread_kill(t, libc::SIGQUIT) }, 0);
+        assert_eq!(join(t) as usize, QUIT);
+        assert!(RETURNED.load(Ordering::SeqCst));
+        // SAFETY: as in `cancelled_child`.
+        assert_eq!(unsafe { (*args).value }, 7);
+    }
+
+    #[test]
+    fn a_panic_is_caught_and_the_thread_left_as_it_was() {
+        fn state() -> (libc::sigset_t, libc::c_int) {
+            // SAFETY: queries only (a null set; the state set and put back).
+            unsafe {
+                let mut mask: libc::sigset_t = std::mem::zeroed();
+                libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut mask);
+                let mut cancel = 0;
+                thread_end::pthread_setcancelstate(0, &mut cancel);
+                thread_end::pthread_setcancelstate(cancel, std::ptr::null_mut());
+                (mask, cancel)
+            }
+        }
+        let before = state();
+        let args = low_args();
+        // SAFETY: the table's entry point on a low mapping.
+        let status = unsafe { __wine_unixlib_entries::panics(args.cast()) };
+        assert_eq!(status, crate::STATUS_UNSUCCESSFUL);
+        let after = state();
+        // SAFETY: plain reads of two initialized signal sets.
+        let quit = |m: &libc::sigset_t| unsafe { libc::sigismember(m, libc::SIGQUIT) };
+        assert_eq!(quit(&after.0), quit(&before.0));
+        assert_eq!(after.1, before.1);
     }
 }
