@@ -134,6 +134,10 @@ fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, 
             },
         }
     }) { return; }
+    match crate::jgl_hooks::install_display(base) {
+        Ok(()) => note("display modes: the game's screen is the mode it asks for; the display is never switched (jgl graphics +0x58..+0x60)".into()),
+        Err(e) => note(format!("display modes left to jgl: {e}")),
+    }
     if let Some(size) = scale {
         install("CIV3R_SCALE: jgl.dll's GetSystemMetrics", inproc::screen::hook_scaled(base, size), "");
     }

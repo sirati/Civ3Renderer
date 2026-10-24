@@ -9,6 +9,8 @@
 //! - [`text`]: the text group's `extern "thiscall"` entry points. Each
 //!   reads its raw arguments, makes safe values, calls [`jgl::Jgl`], and
 //!   calls jgl's original where the answer says so;
+//! - [`display`]: the display-mode group's entry points (the display is
+//!   never switched);
 //! - [`count`]: the counting mode's generated stubs.
 //!
 //! No policy lives here: what to record, what the state means and whether
@@ -17,6 +19,7 @@
 //! See `docs/jgl-replacement.md`.
 
 pub mod count;
+pub mod display;
 pub mod layout;
 pub mod takeover;
 pub mod text;

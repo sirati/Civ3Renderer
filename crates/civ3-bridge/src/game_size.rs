@@ -23,11 +23,11 @@ pub fn for_display(display: (u32, u32), n: f64) -> (u32, u32) {
     (side(w, MIN.0), side(h, MIN.1))
 }
 
-/// [`for_display`] where the display offers `modes`: the game switches the
-/// display to the size it takes (Wine emulates the modes it lists) and
-/// fails at one there is no mode of, so the mode nearest that size, about
-/// the display's shape and no smaller than [`MIN`]; [`for_display`] if
-/// none is (or no modes are known).
+/// [`for_display`] where the display offers `modes`: the mode nearest
+/// that size, about the display's shape and no smaller than [`MIN`];
+/// [`for_display`] if none is (or no modes are known). The game does not
+/// switch the display to that size (`jgl::display`), so it needs no
+/// listed mode.
 pub fn for_display_modes(display: (u32, u32), n: f64, modes: &[(u32, u32)]) -> (u32, u32) {
     let want = for_display(display, n);
     if want == (display.0.max(1), display.1.max(1)) {
