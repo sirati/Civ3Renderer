@@ -166,7 +166,7 @@ mod tests {
         let id = builder.add(&image, (0, 0)).unwrap();
         let atlas = builder.finish(); let mut world = world(); let set = world.sets.single(id);
         world.free.push(PlacedSprite { screen: true, blend: Blend::NativePaletteAlpha, ..PlacedSprite::new(set, 0, 0) });
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas); renderer.set_world(&gpu.device, &world);
         for d in 0..32 {
             let dst = [d, 31 - d, (d * 3) % 32];
@@ -196,7 +196,7 @@ mod tests {
             world.free.extend([twice, twice]); // alpha255 must still compose twice.
         }
         let cameras = [Camera { origin: (7, 5), screen_shift: (7, 5), zoom: (3, 2), ..Camera::new((27, 18)) }, Camera { origin: (43, 4), screen_shift: (43, 4), zoom: (2, 1), ..Camera::new((32, 24)) }];
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas); renderer.set_world(&gpu.device, &world);
         let got = gpu.render_views(&mut renderer, &cameras, (80, 36), 0, [80, 120, 160, 255]);
         for (view, camera) in cameras.iter().enumerate() {
@@ -218,7 +218,7 @@ mod tests {
         let mut atlas = builder.finish(); atlas.trim_blank();
         let mut world = world(); let set = world.sets.single(id);
         world.free.push(PlacedSprite { screen: true, ..PlacedSprite::new(set, 0, 0) });
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas); renderer.set_world(&gpu.device, &world);
         let _ = gpu.render(&mut renderer, &Camera::new((16, 16)), 0, [0, 0, 0, 255]);
         assert!(renderer.smoke.borrow().is_none(), "ordinary frames allocate no smoke resources");
@@ -256,7 +256,7 @@ mod native_capture_test {
         let base = world.sets.single(base); let sets: Vec<_> = ids.into_iter().map(|id| world.sets.single(id)).collect();
         world.free.push(PlacedSprite { screen: true, ..PlacedSprite::new(base, 0, 0) });
         world.free.push(PlacedSprite { screen: true, blend: Blend::NativePaletteAlpha, ..PlacedSprite::new(sets[0], 0, 0) });
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas); renderer.set_world(&gpu.device, &world);
         for (j, set) in sets.into_iter().enumerate() {
             world.free[1].set = set; renderer.update_free(&gpu.device, &gpu.queue, &world);

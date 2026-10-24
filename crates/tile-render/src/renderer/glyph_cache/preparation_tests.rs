@@ -54,7 +54,7 @@ fn fixture(smoke: bool) -> (TileWorld, crate::Atlas) {
 }
 
 fn renderer(gpu: &Headless, world: &TileWorld, atlas: &crate::Atlas) -> TileRenderer {
-    let mut r = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut r = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
     r.set_atlas(&gpu.device, &gpu.queue, atlas);
     r.set_world(&gpu.device, world);
     r

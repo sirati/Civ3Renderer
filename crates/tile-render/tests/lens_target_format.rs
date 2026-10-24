@@ -101,7 +101,7 @@ fn lens_and_glass_draw_into_every_window_format_at_every_pixel_scale() {
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (atlas, world) = fixture(color);
         for format in FORMATS {
-            let mut renderer = TileRenderer::new(&gpu.device, format);
+            let mut renderer = TileRenderer::new(&gpu.device, format, SHADERS);
             renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
             renderer.set_world(&gpu.device, &world);
             let mut frame = 0;
@@ -140,7 +140,7 @@ fn a_renderer_follows_its_target_to_another_format() {
     let gpu = Headless::new().expect("Vulkan GPU");
     let window = (640, 400);
     let (atlas, world) = fixture(ColorModel::Quantized { bits: 5 });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let mut frame = 0;
@@ -166,7 +166,7 @@ fn zoom_at_mouse_at_pixel_scale_2_looks_the_same_in_both_formats() {
     let (atlas, world) = fixture(ColorModel::Quantized { bits: 5 });
     let mut pictures = Vec::new();
     for format in [wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Bgra8Unorm] {
-        let mut renderer = TileRenderer::new(&gpu.device, format);
+        let mut renderer = TileRenderer::new(&gpu.device, format, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         let canvas = (window.0 / 2, window.1 / 2);
@@ -189,3 +189,6 @@ fn zoom_at_mouse_at_pixel_scale_2_looks_the_same_in_both_formats() {
     assert!(red[0] > 150 && red[2] < 80, "red {red:?}");
     assert!(blue[2] > 150 && blue[0] < 80, "blue {blue:?}");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

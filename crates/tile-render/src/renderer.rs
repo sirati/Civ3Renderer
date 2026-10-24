@@ -13,8 +13,29 @@ use crate::atlas::Atlas;
 use crate::camera::Camera;
 use crate::world::{ColorModel, Grid, Pass, TileWorld};
 
-const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
-const FALLBACK_SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV_FALLBACK"));
+/// The SPIR-V module a [`TileRenderer`] draws with. It is compiled
+/// elsewhere (e.g. by `viewer-spirv`, together with other shader libraries
+/// in one module) and must hold `tile-render-shaders`' entry points.
+#[derive(Copy, Clone)]
+pub struct Shaders {
+    /// The module, for a device with dual-source blending (its dual-source
+    /// text and ClearType-like entry points decorated for it).
+    pub spirv: &'static [u8],
+    /// The same module without dual-source outputs, for any other device.
+    pub spirv_fallback: &'static [u8],
+}
+
+impl Shaders {
+    pub const fn new(spirv: &'static [u8], spirv_fallback: &'static [u8]) -> Self {
+        Shaders { spirv, spirv_fallback }
+    }
+}
+
+impl std::fmt::Debug for Shaders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Shaders").field("spirv", &self.spirv.len()).field("spirv_fallback", &self.spirv_fallback.len()).finish()
+    }
+}
 
 /// Per-pass `FrameParams` live in one buffer at this stride (the minimum
 /// uniform offset alignment wgpu guarantees).
@@ -596,7 +617,8 @@ impl TileRenderer {
     /// `target_format` should be a non-sRGB format (e.g. `Rgba8Unorm`,
     /// `Bgra8Unorm`): atlas colours are written unchanged, which is what
     /// makes the output byte-identical to the source art.
-    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+    /// `shaders`: the module it draws with.
+    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat, shaders: Shaders) -> Self {
         let subpixel_dual = device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING)
             && std::env::var("TILE_RENDER_SUBPIXEL_DUAL").as_deref() != Ok("0");
         let tiles555 = std::env::var("TILE_RENDER_TILES555").as_deref() != Ok("0");
@@ -606,7 +628,7 @@ impl TileRenderer {
         if quantized_float { log::info!("integer FP16 composition for the measured Microsoft software adapter"); }
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tile-render shaders"),
-            source: wgpu::util::make_spirv(if device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) { SPV } else { FALLBACK_SPV }),
+            source: wgpu::util::make_spirv(if device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) { shaders.spirv } else { shaders.spirv_fallback }),
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tile-render"),
@@ -3326,7 +3348,7 @@ mod tests {
         let mut builder = crate::AtlasBuilder::new(16);
         builder.add(&crate::RgbaImage::from_fn(1, 1, |_, _| [255; 4]), (0, 0)).unwrap();
         let atlas = builder.finish();
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         let before = renderer.atlas_resident_bytes();
         renderer.set_atlas_transfer_limit(NonZeroU64::new(1).unwrap());
@@ -3446,3 +3468,7 @@ mod atlas_transfer_planning {
         assert!(matches!(transfer_room(16, (1, 1), (1, 1), (1, 1), true, 1024, 128, required - 1), Err(AtlasTransferError::BudgetExceeded { .. })));
     }
 }
+
+/// The viewer's module, for the tests drawing with a renderer.
+#[cfg(test)]
+pub(crate) const TEST_SHADERS: Shaders = Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

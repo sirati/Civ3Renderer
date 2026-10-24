@@ -39,7 +39,7 @@ fn setup(overlays: usize) -> (Headless, tile_render::Atlas, TileWorld, tile_rend
     world.color = ColorModel::Quantized { bits: 5 };
     world.free.push(PlacedSprite::new(base_set, 0, 0));
     world.free.extend((0..overlays).map(|_| PlacedSprite::new(over_set, 0, 0)));
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let camera = Camera::new((32, 32));
@@ -86,3 +86,6 @@ fn successive_blends_preserve_every_five_bit_integer_boundary() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

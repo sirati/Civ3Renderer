@@ -42,7 +42,7 @@ fn subpixel_coverage_and_tint_bytes_keep_exact_blends() {
     let index = sets.single(index);
     let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal,
         step: (1, 1), wrap_x: false, wrap_y: false }, sets);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     let mut capture = std::env::var_os("TILE_RENDER_SUBPIXEL_ORACLE")
         .map(|path| BufWriter::new(File::create(path).expect("create capture")));
@@ -128,3 +128,6 @@ fn subpixel_coverage_and_tint_bytes_keep_exact_blends() {
     if let Some(out) = &mut capture { out.flush().unwrap(); }
     eprintln!("subpixel coverage/tint oracle checked {checked} pixels");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

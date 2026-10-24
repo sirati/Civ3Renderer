@@ -17,6 +17,7 @@ sha2 = "0.10.9"
 winit.workspace = true
 font8x8 = "0.3"
 tile-render.workspace = true
+viewer-spirv.workspace = true
 wgpu.workspace = true
 pollster.workspace = true
 civ3r-process = { path = "../civ3r-process" }

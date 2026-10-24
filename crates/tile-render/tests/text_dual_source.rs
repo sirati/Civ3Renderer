@@ -60,8 +60,8 @@ fn dual_source_and_three_draw_lcd_match_for_real_glyphs_and_partial_alpha() {
     let mut compared=0;
     for model in [ColorModel::Direct,ColorModel::Quantized {bits:4},ColorModel::Quantized {bits:5},ColorModel::Quantized {bits:6},ColorModel::Quantized {bits:7}] {
         let (world,atlas)=world(font(),model);
-        let mut a=TileRenderer::new(&dual.device,wgpu::TextureFormat::Rgba8Unorm);
-        let mut b=TileRenderer::new(&fallback.device,wgpu::TextureFormat::Rgba8Unorm);
+        let mut a=TileRenderer::new(&dual.device,wgpu::TextureFormat::Rgba8Unorm, SHADERS);
+        let mut b=TileRenderer::new(&fallback.device,wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         a.set_atlas(&dual.device,&dual.queue,&atlas); a.set_world(&dual.device,&world);
         b.set_atlas(&fallback.device,&fallback.queue,&atlas); b.set_world(&fallback.device,&world);
         for zoom in [(1,1),(239,256),(3,2),(2,3),(5,4),(2,1)] {
@@ -78,3 +78,6 @@ fn dual_source_and_three_draw_lcd_match_for_real_glyphs_and_partial_alpha() {
     }
     eprintln!("dual/fallback exact RGBA pixel comparisons: {compared}");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

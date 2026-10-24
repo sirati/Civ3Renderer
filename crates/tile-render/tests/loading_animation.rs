@@ -14,7 +14,7 @@ fn gpu_waiting_animation_uses_host_clock_and_preserves_game_clock_and_replay() {
     let mut world = TileWorld::new(Grid { cols: 1, rows: 1, layout: Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (1, 1) }, sets);
     world.free.push(PlacedSprite { ticks_per_frame: HOST_CLOCK | 83, screen: true, ..PlacedSprite::new(set, 4, 5) });
     world.free.push(PlacedSprite { ticks_per_frame: 1, screen: true, ..PlacedSprite::new(set, 14, 5) });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas.finish());
     renderer.set_world(&gpu.device, &world);
     let camera = Camera::new((20, 10));
@@ -41,3 +41,6 @@ fn gpu_waiting_animation_uses_host_clock_and_preserves_game_clock_and_replay() {
     assert_eq!(pixels_checked, 24000);
     eprintln!("loading animation exact replay comparisons: {pixels_checked} pixels, all30frames and wrap; gameclock preserved");
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

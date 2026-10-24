@@ -23,7 +23,7 @@ fn bar(x: i32, y: i32, scale: u16, segments: i8) -> Vec<PlacedSprite> {
 }
 
 fn compare(gpu: &Headless, world: &TileWorld, cameras: &[Camera], tolerance: u8) {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_world(&gpu.device, world);
     let atlas = AtlasBuilder::new(16).finish();
     for camera in cameras {
@@ -123,3 +123,6 @@ fn segments_and_gaps_keep_one_width_at_the_views_resolution() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

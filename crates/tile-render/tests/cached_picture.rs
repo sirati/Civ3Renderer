@@ -41,7 +41,7 @@ fn fixture(color: ColorModel) -> (Atlas, TileWorld) {
 }
 
 fn renderer(gpu: &Headless, atlas: &Atlas, world: &TileWorld) -> TileRenderer {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, atlas);
     renderer.set_world(&gpu.device, world);
     renderer
@@ -195,7 +195,7 @@ fn cached_presentations_survive_incompatible_art_and_match_normal_scaling_and_co
 #[test]
 fn missing_and_direct_pictures_return_false_without_drawing() {
     let gpu = Headless::new().expect("AMD GPU");
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     let (shown, got) = cached(&gpu, &renderer, SOURCE, &[], Present::unscaled(SOURCE));
     assert!(!shown);
     assert!(got.pixels.iter().all(|p| *p == SENTINEL));
@@ -244,3 +244,6 @@ fn uploaded_world_colour_changes_do_not_redecode_the_retained_canvas() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

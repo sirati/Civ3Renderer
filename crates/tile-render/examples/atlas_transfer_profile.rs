@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             named_palettes: 1,
         };
         for sample in 1..=3 {
-            let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+            let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
             let start = Instant::now();
             renderer.begin_atlas_transfer(&gpu.device, AtlasTransferSource::Whole(&atlas), (0, 0))?;
             let begin = start.elapsed().as_secs_f64() * 1000.0;
@@ -125,3 +125,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
