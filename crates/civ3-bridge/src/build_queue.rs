@@ -91,7 +91,7 @@ pub use live::{handle_message, install, post};
 #[cfg(windows)]
 mod live {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{LazyLock, OnceLock};
 
     use civ3_sys::build_queue::{self as q, Edit};
     use civ3_sys::{Build, Civ3};
@@ -105,7 +105,7 @@ mod live {
     }
     static LIVE: OnceLock<Live> = OnceLock::new();
     /// Edits posted, taken on the game's thread in order.
-    static PENDING: Mutex<Vec<(u32, u8, u8)>> = Mutex::new(Vec::new());
+    static PENDING: LazyLock<civ3r_sync::Mailbox<(u32, u8, u8)>> = LazyLock::new(civ3r_sync::Mailbox::new);
     /// An edit is being made (the game may run a dialog's loop meanwhile).
     static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -129,7 +129,7 @@ mod live {
     /// posted before it.
     pub fn post(window: Window, stamp: u32, from: u8, to: u8) {
         let Some(live) = LIVE.get() else { return };
-        PENDING.lock().unwrap_or_else(|e| e.into_inner()).push((stamp, from, to));
+        PENDING.send((stamp, from, to));
         window.post_message(live.message, 0);
     }
 
@@ -144,7 +144,7 @@ mod live {
             message.window.post_message(live.message, 0);
             return Some(0);
         }
-        let edits = std::mem::take(&mut *PENDING.lock().unwrap_or_else(|e| e.into_inner()));
+        let edits: Vec<_> = PENDING.drain().collect();
         for (stamp, from, to) in edits {
             apply(live, stamp, from, to);
         }
