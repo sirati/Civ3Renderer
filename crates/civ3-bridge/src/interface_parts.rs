@@ -158,6 +158,29 @@ pub fn active_screen(frame: &Frame, build: civ3_sys::Build) -> Option<(usize, &'
     })
 }
 
+/// The text key of the popup Escape opens on the map ("Oh No! Do you really
+/// want to quit?"): the map's key handler 0x4E06B0 calls 0x4DFEF0 for
+/// Escape (at 0x4E095C) when no command waits for its tile, which shows a
+/// generic popup (`crate::async_popups::POPUP_VTABLE`) with this key. C3X
+/// wraps that handler (`patch_Main_Screen_Form_handle_key_down`) and passes
+/// Escape on unchanged; Escape on the map opens no other dialogue.
+pub const REALLY_QUIT: &str = "REALLYQUIT";
+
+/// Whether one of the dialogues is open that let go of the pointer
+/// (`scene::Interface::releases_pointer`): the game menu, with Save, Load
+/// and Quit Game (the HUD's menu button and Ctrl+M open it; the screen
+/// form of class "Menu" in `screen_forms`, not Preferences, which the
+/// viewer places as "Menu" too), or the popup Escape opens on the map
+/// ([`REALLY_QUIT`]). `screen`: the class (vtable) of the active screen's
+/// form ([`active_screen`]); `modal`: the modal form's class and, for a
+/// generic popup, its text key. From the game's state as it is now.
+pub fn releases_pointer(build: civ3_sys::Build, screen: Option<u32>, modal: Option<(u32, Option<&str>)>) -> bool {
+    let menu = civ3_sys::ui_hooks::screen_forms(build).iter().find(|s| s.1 == "Menu").map(|s| s.0);
+    let game_menu = screen.is_some_and(|class| Some(class) == menu);
+    let really_quit = modal.is_some_and(|(class, key)| class == crate::async_popups::POPUP_VTABLE && key == Some(REALLY_QUIT));
+    game_menu || really_quit
+}
+
 /// Whether the game has ended: the screens after it are open, or were
 /// since `Main_GUI` was last composed. Its end-of-game sequence (docs
 /// §16.5) shows the victory screen, the summary replay, demographics (F11),
@@ -619,6 +642,31 @@ pub fn part_view(scene: &mut scene::Scene, id: u32, [x, y, w, h]: [i32; 4], over
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_game_menu_and_the_quit_popup_release_the_pointer() {
+        use civ3_sys::Build;
+        let popup = crate::async_popups::POPUP_VTABLE;
+        for build in [Build::PcGames, Build::Gog] {
+            // The game menu (class 0x66DD80), with or without a popup over it.
+            assert!(releases_pointer(build, Some(0x66_DD80), None));
+            assert!(releases_pointer(build, Some(0x66_DD80), Some((popup, Some("GAMESAVED")))));
+            // Escape on the map: the "really quit?" popup, over nothing or
+            // over a screen.
+            assert!(releases_pointer(build, None, Some((popup, Some(REALLY_QUIT)))));
+            assert!(releases_pointer(build, Some(0x66_C270), Some((popup, Some(REALLY_QUIT)))));
+            // Everything else stays as it was: the advisors, the city
+            // screen, Preferences (placed as "Menu" too), other popups, a
+            // popup of another class with that key.
+            let preferences = civ3_sys::ui_hooks::preferences_form(build).map(|p| p.vtable);
+            for screen in [Some(0x66_C270), Some(0x66_58B0), Some(0x66_B0A8), preferences, None] {
+                assert!(!releases_pointer(build, screen, None), "{screen:x?}");
+                assert!(!releases_pointer(build, screen, Some((popup, Some("WONDERPRODUCE")))), "{screen:x?}");
+                assert!(!releases_pointer(build, screen, Some((popup, None))), "{screen:x?}");
+            }
+            assert!(!releases_pointer(build, None, Some((0x66_DD80 + 4, Some(REALLY_QUIT)))));
+        }
+    }
 
     #[test]
     fn the_capture_hint_is_there_wherever_the_world_can_be_captured() {
