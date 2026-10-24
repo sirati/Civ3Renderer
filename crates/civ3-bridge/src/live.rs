@@ -401,12 +401,16 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     // What the map shows while a command waits for its tile (`crate::targeting`).
     text += &crate::targeting::description();
     let mode = std::env::var("CIV3R_VIEWER").unwrap_or_default();
+    // Fullscreen if the launcher asked for it (its default) and the saved
+    // settings do not ask for a window (`Display::windowed`, switched at
+    // run time from Preferences).
+    let fullscreen = mode.ends_with("fullscreen") && !crate::prefs::saved_windowed(&crate::prefs::settings_path());
     // Remote viewers connect first so their GPU limits size both sides'
     // atlas tables. The Windows process never initializes a GPU for them.
     let remote = if mode == "external" || mode == "external-fullscreen" {
-        Some(Presenter::external(mode == "external-fullscreen").map_err(LiveError::Install)?)
+        Some(Presenter::external(fullscreen).map_err(LiveError::Install)?)
     } else if mode.starts_with("native") {
-        let native = presenter::Native::load(mode == "native-fullscreen").map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
+        let native = presenter::Native::load(fullscreen).map_err(|e| LiveError::Install(std::io::Error::other(e)))?;
         Some(Presenter::native(native))
     } else {
         None
@@ -510,7 +514,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         let config = tile_viewer::ViewerConfig {
             title: VIEWER_TITLE.into(),
             size: (1024, 768),
-            fullscreen: mode == "fullscreen",
+            fullscreen,
             overhang: crate::scene_map::OVERHANG,
             ..Default::default()
         };
@@ -524,7 +528,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let timing = crate::art_schedule::Timing::GROWING;
     std::thread::Builder::new()
         .name("civ3r-publish".into())
-        .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels, prefs_audio))
+        .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels, prefs_audio, fullscreen))
         .map_err(LiveError::Install)?;
     Ok(())
 }
@@ -589,6 +593,7 @@ fn publish(
     timing: crate::art_schedule::Timing,
     pixels: bool,
     _prefs_audio: Option<civ3_sys::preferences::Installed>,
+    fullscreen: bool,
 ) {
     let mut mapper = Mapper::new(&compiled);
     let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| {
@@ -673,6 +678,7 @@ fn publish(
     // The renderer's own settings, and our tabs over the game's Preferences
     // screen (`crate::prefs`); what they drew and the settings last published.
     let mut prefs = crate::prefs::Prefs::load(crate::prefs::settings_path());
+    prefs.launched(fullscreen);
     civ3_sys::combat_speed::set_speed_quarters((prefs.settings().animation.effective_combat_speed() * 4.0) as u8);
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>, Option<scene::SettingsPreview>) = (Vec::new(), None, None);
     // The open popup's canvas and where it is anchored (`scene::Interface::popup_anchor`).
