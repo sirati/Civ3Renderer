@@ -1124,6 +1124,16 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
         hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
     }
+    // (Compare: the art presence test at start, jgl's pixel against the
+    // interface model's answer.)
+    if let Some((site, expected)) = h::art_presence_site(game.build).filter(|_| placeholder_sprites()) {
+        hooks.push(Box::new(h::art_presence_pixel::install_call_site(site, expected, |c| {
+            let jgl = c.original();
+            let model = art_presence_pixel(c.image, c.x as i32, c.y as i32);
+            log::info!("art presence: image {:#x} ({}, {}): jgl {jgl:#x}, model {model:?}", c.image, c.x, c.y);
+            jgl
+        })?));
+    }
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
@@ -1602,6 +1612,57 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
 
 thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
+thread_local! {
+    /// The last blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
+    /// stored pixels went): what [`art_presence_pixel`] answers from.
+    static INDEX_BLITS: std::cell::RefCell<Vec<(u32, u32, (i32, i32))>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The last file decoded for it.
+    static INDEX_FILE: std::cell::RefCell<Option<(String, Option<std::sync::Arc<civ3_assets::pcx::Indexed>>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Notes a blit onto an 8-bit image (see [`art_presence_pixel`]).
+fn note_index_blit(b: &GameBlit) {
+    if obj::image_bits(b.canvas).is_some_and(|bits| bits <= 8) {
+        INDEX_BLITS.with_borrow_mut(|v| {
+            v.retain(|e| e.0 != b.canvas);
+            if v.len() >= 16 {
+                v.remove(0);
+            }
+            v.push((b.canvas, b.sprite, b.at));
+        });
+    }
+}
+
+/// The palette index of the 8-bit image `image` at (x, y) for the game's
+/// art presence test at start (`h::art_presence_site`): the last sprite
+/// drawn onto it, whose pixels are a region of a file (the interface
+/// model's `sprite_source`), read from that file. Outside the sprite's
+/// stored pixels (its crop trimmed the key away) 0xFF, the key. `None`
+/// if nothing known was drawn there.
+fn art_presence_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
+    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
+    let (path, rect) = with_model(false, |m| match m.sprite_source(sprite) {
+        Some(crate::ui::Source::File { path, rect, .. }) => Some((path.clone(), *rect)),
+        _ => None,
+    })??;
+    let (sx, sy) = (x - at.0, y - at.1);
+    if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
+        return Some(0xFF);
+    }
+    let file = INDEX_FILE.with_borrow_mut(|f| {
+        if f.as_ref().is_none_or(|(p, _)| *p != path) {
+            let decoded = civ3_assets::files::read_file(&path).ok().and_then(|b| civ3_assets::pcx::decode(&b).ok()).map(std::sync::Arc::new);
+            *f = Some((path.clone(), decoded));
+        }
+        f.as_ref().and_then(|(_, i)| i.clone())
+    })?;
+    let (fx, fy) = (rect[0] + sx, rect[1] + sy);
+    if fx < 0 || fy < 0 || fx >= file.width as i32 || fy >= file.height as i32 {
+        return Some(0xFF);
+    }
+    Some(u32::from(file.get(fx as u32, fy as u32)))
+}
+
 /// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
 /// it draws onto the screen last (docs §16.5, §16.11): not mirrored, the
 /// viewer shows the pointer itself, where the mouse is now (a mirrored one
@@ -1674,6 +1735,7 @@ fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option
 /// `b.wrapper`: the interface mirror's events, and the map tracer's record
 /// for the map's three.
 pub fn on_blit(b: &GameBlit) {
+    note_index_blit(b);
     use civ3_ui::blit::Wrapper as W;
     let (x, y) = wrapper_xy(b);
     let clip = clip_from(b.canvas, b.clip);

@@ -67,6 +67,11 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The same `get_pixel` at [`art_presence_site`].
+    pub mod art_presence_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// `void Base_Form::m79_composite(this, RECT *dirty)`: copies the form's
     /// canvas onto the back buffer.
     pub mod form_composite(form, edx; dirty) -> ();
@@ -193,6 +198,18 @@ pub fn graphics_initialized(build: Build) -> bool {
 pub fn keyed_hit_test_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
     match build {
         Build::PcGames => Some((0x60_8FE3, &[0xE8, 0x38, 0x72, 0xFF, 0xFF])),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// At start the game cuts 32×32 sprites from `Art\oldinterface.pcx`
+/// (0x549D60..), draws each into a new 8-bit image (the three `PCX_Image`s
+/// from 0xB3F3E0, 0x2B8 apart) and reads its pixel (0, 0) here, `call
+/// PCX_Image::get_pixel`: 0xFF (the file has nothing there) and it deletes
+/// the image (`docs/rerender-roadmap.md` §4 #5).
+pub fn art_presence_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
+    match build {
+        Build::PcGames => Some((0x54_9FAD, &[0xE8, 0x6E, 0x62, 0x0B, 0x00])),
         Build::Gog | Build::Steam => None,
     }
 }
