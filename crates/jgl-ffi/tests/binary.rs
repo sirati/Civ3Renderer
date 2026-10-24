@@ -174,3 +174,28 @@ fn text_slot_bodies_are_the_ones_taken_over() {
     // font create: weight 0x2BC for flag bit 0.
     assert!(contains(pe.slot_body(Class::Font, 0x08, 0xA0), &[0x81, 0xE1, 0xBC, 0x02, 0x00, 0x00]));
 }
+
+#[test]
+fn set_mode_keep_takes_the_size_without_switching_the_display() {
+    let Some(pe) = pe() else { return };
+    // The display-mode group answers with this slot's keep branch.
+    let body = pe.slot_body(Class::Graphics, 0x60, 0x55);
+    // mov al, [esp + 0x10]; test al, al; jne keep (the byte argument).
+    assert_eq!(&body[..8], &[0x8A, 0x44, 0x24, 0x10, 0x84, 0xC0, 0x75, 0x19]);
+    let keep = &body[0x21..];
+    let store = |op: u8, field: usize| [[0x89, op].as_slice(), &disp32(field)].concat();
+    assert!(contains(keep, &store(0x81, offset_of!(JglGraphics, screen_width))));
+    assert!(contains(keep, &store(0x91, offset_of!(JglGraphics, screen_height))));
+    assert!(contains(keep, &store(0xB1, offset_of!(JglGraphics, depth))));
+    // mov ecx, [ecx + owner]; ...; push 1; ...; call [edi] (the owner's method 0); ret 0x10.
+    assert!(contains(keep, &[[0x8B, 0x89].as_slice(), &disp32(offset_of!(JglGraphics, owner))].concat()));
+    assert!(contains(keep, &[0x6A, 0x01, 0x8B, 0x39, 0x56, 0x52, 0x50, 0xFF, 0x17]));
+    assert!(contains(keep, &[0xC2, 0x10, 0x00]));
+    // No import is called on that branch (ChangeDisplaySettingsA would be `call [imm32]`).
+    assert!(!contains(keep, &[0xFF, 0x15]));
+    // set_mode and set_mode_refresh switch through +0x64 (call [reg + 0x64]).
+    for slot in [0x58, 0x5C] {
+        let body = pe.slot_body(Class::Graphics, slot, 0xA0);
+        assert!(contains(body, &[0xFF, 0x50, 0x64]) || contains(body, &[0xFF, 0x52, 0x64]), "+{slot:#x}");
+    }
+}

@@ -83,6 +83,7 @@ fn record<R>(f: impl FnOnce(&mut Producer) -> R) -> Option<R> {
 mod entries {
     use super::*;
     use crate::layout::{JglFont, JglImage, Rect32};
+    use crate::takeover::original;
     use std::mem::offset_of;
 
     pub static IMAGE_CLEAR: AtomicU32 = AtomicU32::new(0);
@@ -99,17 +100,6 @@ mod entries {
     pub type M1 = extern "thiscall" fn(u32, u32) -> u32;
     pub type M3 = extern "thiscall" fn(u32, u32, u32, u32) -> u32;
     pub type M4 = extern "thiscall" fn(u32, u32, u32, u32, u32) -> u32;
-
-    /// jgl's original of a taken-over slot.
-    fn original<F: Copy>(cell: &AtomicU32) -> F {
-        let f = cell.load(Ordering::Acquire) as usize;
-        assert_eq!(size_of::<F>(), size_of::<usize>());
-        // SAFETY: `cell` holds the function jgl had in the slot (stored by
-        // `take_over` before the slot changed), whose signature is the one
-        // its entry point here declares (checked against jgl's `ret n`,
-        // `jgl::slots`). `F` is one of the `extern "thiscall" fn` types.
-        unsafe { std::mem::transmute_copy::<usize, F>(&f) }
-    }
 
     /// A `u32` field of an object.
     ///

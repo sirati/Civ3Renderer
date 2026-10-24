@@ -292,6 +292,16 @@ font measure +0x10 (2.2 M calls, kept by jgl). No call came from a thread
 other than the game's. A longer session (city screen, diplomacy, combat,
 turn change, Civilopedia) should run before group 6.
 
+Display modes (part of group 7, `jgl::display`, `jgl-ffi::display`):
+graphics +0x58, +0x5C and +0x60 are taken over, so the game's mode never
+switches the display. The game asks for its screen's size at 16 bits
+(`KeepRes=1`: the display's size, at least 1024×768), and jgl's +0x58 and
++0x5C answer 1 (the game quits at 0x56C3BA, exit code 0) when the display
+lists no such mode: any display shorter than 768 lines. Each now answers
+with jgl's own +0x60 keep branch (screen fields, the window owner told the
+mode). [V] on a 1280×729 output (the game at 1280×768, the viewer at
+1280×729) and on 1920×1080. The movie slots +0x6C/+0x70 stay jgl's.
+
 Next groups, in order: fills, lines and shade (group 2, small, removes the
 `pcx_fill_area`/`pcx_line` and `jgl_shade` detours); copies (group 3,
 includes image +0x38); sprite blits and colour tables (group 4, the

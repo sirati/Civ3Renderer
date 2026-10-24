@@ -78,8 +78,8 @@ separately in 1.3.
 | +0x2C | 0x3BBD0 | `GetCursorPos` + `ScreenToClient` | 2 | input |
 | +0x30 | 0x3BBB0 | `InvalidateRect(hwnd, r, FALSE)` | 5 (Base_Form m73) | paint |
 | +0x38 | 0x3BB70 | `GetWindowRect` | 2 | window |
-| +0x5C, +0x60 | 0x3B900, 0x3B810 | [G] mode list queries | 1 each | video |
-| +0x64..+0x70 | 0x3B9E0.. | `EnumDisplaySettingsA` / `ChangeDisplaySettingsA` | 2+2 | video mode |
+| +0x58, +0x5C, +0x60 | 0x3B870, 0x3B900, 0x3B810 | set the mode: look it up in +0x68's list and switch with +0x64 (no such mode: 1, the game quits); +0x60 with its flag set takes the size without switching. Taken over: `jgl::display` | 1 each (0x56C376, 0x56C3A0, 0x56C3B7) | video mode |
+| +0x64..+0x70 | 0x3B9E0.. | set mode by index (`ChangeDisplaySettingsA`), the mode list (`EnumDisplaySettingsA`), a movie's 640×480 switch and back | 2+2 | video mode |
 | +0x74 / +0x78 / +0x7C / +0x80 | | new font / colour table / image / sprite | 2 / 1 / 1 / 5 | factories |
 | +0x88..+0x94 | 0x3C0C0 | delete an object | 1 each | factories |
 | +0x9C / +0xA0 | 0x3C0E0/0x3C100 | set / get the global draw scale (num_x, num_y, den) | 30 / 6 | drawing state |
