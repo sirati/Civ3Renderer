@@ -10,6 +10,7 @@ either *data* (a TOML render description plus the game's own art files, read
 by an asset loader) or lives in exactly one crate, `civ3-bridge`, which runs
 inside the game and turns its state into game-agnostic scene snapshots. Another
 game could drive the same renderer, with or without Civ III's art.
+The generic crates and the check that keeps them so: `docs/generic-crates.md`.
 
 ## Crates
 
@@ -23,9 +24,12 @@ game could drive the same renderer, with or without Civ III's art.
 | `scene` | no | world snapshots and input events between driver and renderer |
 | `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; panels of controls (choices, tabs, checkboxes, sliders) bound to named values, drawn as run-time screen elements and text; run-time screens (image regions, fills, clipped) |
 | `viewer-settings` | no | the viewer's own settings (resolution, layout, input) saved as TOML, and as named controls for a preferences screen |
-| `tile-viewer` | no | window that draws scenes and reports input |
+| `tile-viewer` | no | window that draws scenes and reports input; extension points (`tile_viewer::extension`) for behaviour other crates plug in |
+| `tile-game` | no | tile strategy-game concepts no single game owns (a site's production queue), as scene extensions plugged into the viewer |
+| `handoff` | no | lock-free hand-off primitives between threads (latest values, mailboxes, bounded queues, wake bells) |
+| `civ3-ui` | **yes** | the Civ III interface model, and what the viewer hosts plug in for Civ III (`civ3_ui::viewer`) |
 | `pointer-api`, `pointer-control` | no | physical-pixel pointer contract and backend selection |
-| `pointer-wayland`, `pointer-x11`, `pointer-windows`, `pointer-macos` | no | display-specific capture, barriers and pointer placement |
+| `pointer-wayland`, `pointer-x11`, `pointer-windows`, `pointer-macos` | no | display-specific capture, barriers and pointer placement (`pointer-windows-ffi`: its Windows calls) |
 | `pointer-fallback` | no | portable window grabs and warps used by the backends |
 | `viewer-transport` | no | bounded authenticated loopback transport for a separate native viewer |
 | `civ3r-viewer` | asset loader only | standalone native viewer, with Wine path mapping |
