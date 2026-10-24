@@ -2751,6 +2751,14 @@ fn hook_game_window(hidden_window: bool) {
         Ok(None) => log::warn!("edge scroll: the game does not import GetFocus"),
         Err(e) => log::warn!("edge scroll: hooking GetFocus: {e}"),
     }
+    // Shift and Ctrl held in the viewer: the game (Shift+click queues a
+    // build in the city screen) and C3X ask GetAsyncKeyState, which never
+    // sees keys forwarded from another window.
+    match inproc::keyboard::hook_async_key_state(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => log::warn!("modifiers: the game does not import GetAsyncKeyState"),
+        Err(e) => log::warn!("modifiers: hooking GetAsyncKeyState: {e}"),
+    }
     std::thread::spawn(move || {
         let Some(jgl) = (0..600).find_map(|_| inproc::pe::module_base("jgl.dll").or_else(|| {
             std::thread::sleep(Duration::from_millis(200));
