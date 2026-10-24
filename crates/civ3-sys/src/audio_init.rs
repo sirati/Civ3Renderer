@@ -7,6 +7,10 @@
 //! the audited failed-Wave callsite is redirected; ordinary audio startup
 //! and the normal shutdown callsites remain native.
 
+// The audited contracts and the unwinding are used by the Windows install
+// (and the tests); the host library build only has `status`/`diagnostics`.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::Build;
