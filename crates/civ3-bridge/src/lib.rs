@@ -23,6 +23,7 @@ pub fn recv_bounded<T>(rx: &mut tokio::sync::mpsc::UnboundedReceiver<T>, poll: s
 }
 
 pub mod anim_steps;
+pub mod build_queue;
 pub mod art;
 pub mod art_schedule;
 pub mod assets;

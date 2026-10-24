@@ -16,6 +16,7 @@
 pub mod ai_camera_focus;
 pub mod audio_init;
 pub mod build;
+pub mod build_queue;
 pub mod c3x;
 pub mod c3x_layout;
 pub mod city_label;
