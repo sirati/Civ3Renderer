@@ -680,6 +680,7 @@ fn emit(e: Event) {
     // MapMessage draws onto the animator's map overlay. It is rebuilt as
     // tile-anchored world art, never copied into a misplaced UI overlay.
     if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::TextClipped { .. } | Event::Fill { .. }) { return; }
+    if crate::jgl_hooks::compare::swallow(&e) { return; }
     let present = matches!(e, Event::Present { .. });
     watch(&e);
     with_model(present, |m| m.apply(e));
@@ -976,6 +977,33 @@ fn fill(canvas: u32, rect: [i32; 4], color: u32) {
     emit(Event::Fill { canvas, rect, rgb: rgb555(color), alpha: 255, clip: clip_of(canvas) });
 }
 
+/// The clip of a draw onto `canvas` from its jgl call's clip (see
+/// [`clip_of`]): on the back buffer, a paint's rectangle is no clip.
+fn clip_from(canvas: u32, clip: Option<[i32; 4]>) -> Option<[i32; 4]> {
+    let dirty = if BACK_BUFFER.get() == Some(&canvas) { DIRTY.with(Cell::get) } else { None };
+    crate::ui::content_clip(clip, dirty)
+}
+
+/// A fill, line or translucent rectangle from jgl's fill group
+/// (`civ3_ui::draw`): the canvas's size first, when given, then the
+/// rectangles.
+pub fn on_fill(canvas: u32, size: Option<(i32, i32)>, rects: &[[i32; 4]], rgb: [u8; 3], alpha: u8, clip: Option<[i32; 4]>) {
+    if rerendered(canvas) { return; }
+    if let Some(size) = size {
+        emit(Event::Size { image: canvas, size });
+    }
+    let clip = clip_from(canvas, clip);
+    for &rect in rects {
+        emit(Event::Fill { canvas, rect, rgb, alpha, clip });
+    }
+}
+
+/// Whether jgl's drawing onto `canvas` (from `source`, 0: none), taken by
+/// the interface model, is skipped.
+pub fn skips_drawing(canvas: u32, source: u32) -> bool {
+    skips(canvas, source)
+}
+
 /// Records the initial content before the form draws into a new canvas.
 fn initialized_canvas(image: u32, result: i32) -> i32 {
     // Software JGL canvases allocate zeroed DIBs. Opaque copies include
@@ -1176,40 +1204,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         }
         c.original()
     });
-    hook!(pcx_fill, sites.pcx_fill, |c| {
-        if let Some((w, hh)) = obj::image_size(c.image) {
-            fill(c.image, [0, 0, w, hh], c.color);
-        }
-        draw(c.image, 0, || c.original())
-    });
-    hook!(pcx_fill_area, sites.pcx_fill_area, |c| {
-        if let Some(rect) = rect_xywh(c.rect) {
-            fill(c.image, rect, c.color);
-        }
-        draw(c.image, 0, || c.original())
-    });
-    hook!(pcx_hline, sites.pcx_hline, |c| {
-        let (x1, x2) = (c.x1 as i32, c.x2 as i32);
-        fill(c.image, [x1.min(x2), c.y as i32, (x2 - x1).abs() + 1, 1], c.color);
-        draw(c.image, 0, || c.original())
-    });
-    hook!(pcx_vline, sites.pcx_vline, |c| {
-        let (y1, y2) = (c.y1 as i32, c.y2 as i32);
-        fill(c.image, [c.x as i32, y1.min(y2), 1, (y2 - y1).abs() + 1], c.color);
-        draw(c.image, 0, || c.original())
-    });
-    hook!(pcx_line, sites.pcx_line, |c| {
-        // (The map's grid and range outline go onto the renderer's image:
-        // not mirrored, see `rerendered`.)
-        if !rerendered(c.image) {
-            size_of(c.image);
-            let (rgb, clip) = (rgb555(c.color), clip_of(c.image));
-            for rect in crate::ui::line_runs(&crate::ui::line_points((c.x1 as i32, c.y1 as i32), (c.x2 as i32, c.y2 as i32))) {
-                emit(Event::Fill { canvas: c.image, rect, rgb, alpha: 255, clip });
-            }
-        }
-        draw(c.image, 0, || c.original())
-    });
     hook!(form_composite, sites.form_composite, |c| {
         if let Some(p) = obj::placement(c.form) {
             emit(Event::Composite { canvas: p.canvas, vtable: p.vtable, origin: p.origin, size: p.size, clip: p.clip, keyed: p.keyed });
@@ -1333,6 +1327,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     }
     hook_lines(game, &mut hooks);
     hook_jgl(jgl, &mut hooks)?;
+    if crate::jgl_hooks::compare::on() {
+        hook_old_draws(&sites, &mut hooks)?;
+        log::info!("jgl compare: the replaced exe detours and the shade_rect slot hook run beside the takeover");
+    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1361,6 +1359,54 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
 }
 
 
+/// The exe detours the jgl fill group replaced, with the old
+/// path's events, beside the takeover (`CIV3R_JGL_COMPARE=1` only; see
+/// `jgl_hooks::compare`). Each calls the original always: the takeover
+/// below decides the pixels.
+fn hook_old_draws(sites: &h::UiSites, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result<(), HookError> {
+    use crate::jgl_hooks::compare::old_call;
+    macro_rules! hook {
+        ($module:ident, $site:expr, $handler:expr) => {
+            hooks.push(Box::new(h::$module::install_at_start($site.0, $site.1, $handler)?));
+        };
+    }
+    let reach = |canvas: u32, source: u32| has_pixels(canvas) && (source == 0 || has_pixels(source));
+    hook!(pcx_fill, sites.pcx_fill, move |c| old_call("fill", reach(c.image, 0), || {
+        if let Some((w, hh)) = obj::image_size(c.image) {
+            fill(c.image, [0, 0, w, hh], c.color);
+        }
+        Some((c.image, 0))
+    }, || c.original()));
+    hook!(pcx_fill_area, sites.pcx_fill_area, move |c| old_call("fill_area", reach(c.image, 0), || {
+        if let Some(rect) = rect_xywh(c.rect) {
+            fill(c.image, rect, c.color);
+        }
+        Some((c.image, 0))
+    }, || c.original()));
+    hook!(pcx_hline, sites.pcx_hline, move |c| old_call("hline", reach(c.image, 0), || {
+        let (x1, x2) = (c.x1 as i32, c.x2 as i32);
+        fill(c.image, [x1.min(x2), c.y as i32, (x2 - x1).abs() + 1, 1], c.color);
+        Some((c.image, 0))
+    }, || c.original()));
+    hook!(pcx_vline, sites.pcx_vline, move |c| old_call("vline", reach(c.image, 0), || {
+        let (y1, y2) = (c.y1 as i32, c.y2 as i32);
+        fill(c.image, [c.x as i32, y1.min(y2), 1, (y2 - y1).abs() + 1], c.color);
+        Some((c.image, 0))
+    }, || c.original()));
+    hook!(pcx_line, sites.pcx_line, move |c| old_call("line", reach(c.image, 0), || {
+        if !rerendered(c.image) {
+            size_of(c.image);
+            let (rgb, clip) = (rgb555(c.color), clip_of(c.image));
+            for rect in crate::ui::line_runs(&crate::ui::line_points((c.x1 as i32, c.y1 as i32), (c.x2 as i32, c.y2 as i32))) {
+                emit(Event::Fill { canvas: c.image, rect, rgb, alpha: 255, clip });
+            }
+        }
+        Some((c.image, 0))
+    }, || c.original()));
+    Ok(())
+}
+
+
 /// Install jgl capture synchronously at the known loaded base. Present
 /// always has a hook, including drawing-ON startup, and checks suppression
 /// dynamically so restoring the original renderer takes effect immediately.
@@ -1372,15 +1418,16 @@ fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result
         }
         Ok(slot)
     };
-    let shade_slot = check(h::jgl_shade_slot(base))?;
     let present_slot = check(h::jgl_present_slot(base))?;
-    hooks.push(Box::new(h::jgl_shade::install_slot(shade_slot, |c| {
-        let recorded = shade(c);
-        match recorded {
-            Some(canvas) if skips(canvas, 0) => 0,
-            _ => c.original(),
-        }
-    })?));
+    // Fills, lines and shades: jgl's own method group, taken over.
+    crate::jgl_hooks::install_fill(base)?;
+    if crate::jgl_hooks::compare::on() {
+        // The old `shade_rect` slot hook, over the takeover's entry point.
+        let (shade_slot, _) = h::jgl_shade_slot(base);
+        hooks.push(Box::new(h::jgl_shade::install_slot(shade_slot, |c| {
+            crate::jgl_hooks::compare::old_call("shade", true, || shade(c).map(|canvas| (canvas, 0)), || c.original())
+        })?));
+    }
     hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| audit_call(PixelClass::Present, skipping(), || c.original()))?));
     Ok(())
 }
@@ -1428,7 +1475,7 @@ fn trace_pixel_access(base: u32) {
 
 /// The first return address into the game's exe found on this thread's
 /// stack (scanning up from here), or 0.
-fn game_caller() -> u32 {
+pub(crate) fn game_caller() -> u32 {
     let here = 0u32;
     let sp = &here as *const u32 as usize as u32;
     // As far as the stack goes (its top may be nearer than the most asked for).

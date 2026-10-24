@@ -8,7 +8,8 @@
 
 use std::collections::HashSet;
 
-use crate::hooks::{Hooks, PixelPolicy, TextDraw, TextHooks};
+use crate::draw::FillCall;
+use crate::hooks::{FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
 use crate::record::{Record, Records, Writer};
 use crate::text::{FontDesc, TextColor, TextState};
 use crate::{FontId, ImageId, Rect};
@@ -80,6 +81,12 @@ impl Producer {
         self.policy.original_pixels(image, owner)
     }
 
+    /// Returns whether jgl's original is to run.
+    pub fn fill(&mut self, call: &FillCall) -> bool {
+        self.writer.push(&Record::Fill(*call));
+        self.policy.original_fill(call)
+    }
+
     /// The records not yet consumed.
     pub fn pending(&self) -> &[u8] {
         self.writer.bytes()
@@ -90,6 +97,7 @@ impl Producer {
 pub struct Consumer {
     text: TextState,
     hooks: Box<dyn TextHooks>,
+    fill: Box<dyn FillHooks>,
     /// Malformed buffers seen (logged once).
     pub errors: u32,
     /// Text records whose image had no state (should not happen: the
@@ -98,8 +106,8 @@ pub struct Consumer {
 }
 
 impl Consumer {
-    pub fn new(hooks: Box<dyn TextHooks>, stock: FontDesc) -> Consumer {
-        Consumer { text: TextState::new(stock), hooks, errors: 0, stateless: 0 }
+    pub fn new(hooks: Box<dyn TextHooks>, fill: Box<dyn FillHooks>, stock: FontDesc) -> Consumer {
+        Consumer { text: TextState::new(stock), hooks, fill, errors: 0, stateless: 0 }
     }
 
     pub fn text_state(&self) -> &TextState {
@@ -151,6 +159,7 @@ impl Consumer {
                 let (font, color) = (dc.font.clone(), dc.color);
                 self.hooks.text(&TextDraw { image, owner, x, y, bytes, font: &font, color, clip });
             }
+            Record::Fill(call) => self.fill.fill(&call),
         }
     }
 }
@@ -173,7 +182,7 @@ impl Jgl {
     pub fn new(hooks: Hooks, stock: FontDesc) -> Jgl {
         let mut producer = Producer::new(hooks.policy);
         producer.font_defined(FontId::STOCK, &stock);
-        let mut jgl = Jgl { producer, consumer: Consumer::new(hooks.text, stock), tap: None };
+        let mut jgl = Jgl { producer, consumer: Consumer::new(hooks.text, hooks.fill, stock), tap: None };
         jgl.flush();
         jgl
     }
@@ -232,7 +241,7 @@ mod tests {
     fn text_arrives_with_the_selected_font_and_colour() {
         let seen = Seen::default();
         let out = seen.0.clone();
-        let mut j = Jgl::new(Hooks { text: Box::new(seen), policy: Box::new(Skip) }, system());
+        let mut j = Jgl::new(Hooks { text: Box::new(seen), policy: Box::new(Skip), ..Hooks::default() }, system());
         let (img, font) = (ImageId(0x5000), FontId(0x6000));
         j.with(|p| p.image_reset(img));
         assert!(!j.with(|p| p.text(img, 0x7000, 1, 2, Rect::default(), b"a")));

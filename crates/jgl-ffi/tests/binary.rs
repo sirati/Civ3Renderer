@@ -269,3 +269,75 @@ fn every_display_change_of_jgl_goes_through_its_one_import() {
     let fields = jgl::display::DM_BITSPERPEL | jgl::display::DM_PELSWIDTH | jgl::display::DM_PELSHEIGHT;
     assert!(contains(movie, &[[0xC7, 0x44, 0x24, 0x38].as_slice(), &fields.to_le_bytes()].concat()));
 }
+
+/// Where `ret n` ends a slot body of `class` (the first one within `len`
+/// bytes), checked against the argument bytes the catalogue (and so the
+/// entry point taking it over) has.
+fn returns_with(pe: &Pe, class: Class, offset: u16, len: usize) -> bool {
+    let stack = class.slot(offset).expect("a slot").stack;
+    contains(pe.slot_body(class, offset, len), &[0xC2, stack, 0x00])
+}
+
+#[test]
+fn fill_group_slot_bodies_are_the_ones_taken_over() {
+    let Some(pe) = pe() else { return };
+    // Every slot pops the arguments its entry point takes.
+    for offset in [0x44, 0x48, 0x4C, 0x50, 0x54, 0x58, 0x5C, 0x60, 0x64] {
+        assert!(returns_with(&pe, Class::Image, offset, 0x80), "+{offset:#x}");
+    }
+    // fill(rect, color): one worker per bit count, both given (rect, color); answers 0.
+    let fill = pe.slot_body(Class::Image, 0x44, 0x44);
+    assert!(contains(fill, &[0x8B, 0x4C, 0x24, 0x0C, 0x8B, 0x54, 0x24, 0x08, 0x51, 0x52, 0x8B, 0xCE, 0xE8]));
+    assert!(contains(fill, &[0x33, 0xC0, 0x5E, 0xC2, 0x08, 0x00]));
+    // shade_rect: 16-bit images only (cmp [format], 0x10), else 0x17.
+    let shade = pe.slot_body(Class::Image, 0x48, 0x34);
+    assert!(contains(shade, &[0x83, 0x38, 0x10]));
+    assert!(contains(shade, &[0xB8, 0x17, 0x00, 0x00, 0x00]));
+    // line(x1, y1, x2, y2, color, flag): answers 0.
+    assert!(contains(pe.slot_body(Class::Image, 0x64, 0x64), &[0x33, 0xC0, 0x5E, 0xC2, 0x18, 0x00]));
+    // replace_color(rect, from, to): null rect answers 0x10; the 16-bit worker
+    // (RVA 0x2740) clips to the image's clip (+0xCC) and swaps `from` for `to`.
+    let replace = pe.slot_body(Class::Image, 0x58, 0x30);
+    assert!(contains(replace, &[0x85, 0xF6, 0x75, 0x0A]) && contains(replace, &[0xB8, 0x10, 0x00, 0x00, 0x00]));
+    let worker = pe.at(0x2740, 0xD0);
+    assert!(contains(worker, &[0xFF, 0x92, 0xCC, 0x00, 0x00, 0x00]));
+    // cmp [edi], ax; jne +3; mov [edi], bx
+    assert!(contains(worker, &[0x66, 0x39, 0x07, 0x75, 0x03, 0x66, 0x89, 0x1F]));
+    // frame (+0x5C): 8-bit images only; 16-bit ones answer 0 undrawn.
+    let frame = pe.slot_body(Class::Image, 0x5C, 0x20);
+    assert!(contains(frame, &[0x83, 0x38, 0x08, 0x74, 0x06, 0x33, 0xC0]));
+}
+
+/// The exe's `PCX_Image` functions whose detours the fill group
+/// replaced reach jgl through these slots, with these arguments. Needs the
+/// game's exe (`CIV3_EXE`, or the dataset copy next to `jgl.dll`).
+#[test]
+fn the_exe_wrappers_call_the_taken_over_slots() {
+    let path = std::env::var("CIV3_EXE").unwrap_or_else(|_| DATASET.replace("jgl.dll", "Civ3Conquests.exe"));
+    let Ok(exe) = std::fs::read(&path) else {
+        eprintln!("Civ3Conquests.exe not found (CIV3_EXE): skipped");
+        return;
+    };
+    let u32_at = |o: usize| u32::from_le_bytes(exe[o..o + 4].try_into().unwrap());
+    let pe = u32_at(0x3C) as usize;
+    let image_base = u32_at(pe + 24 + 28);
+    let table = pe + 24 + u16::from_le_bytes([exe[pe + 20], exe[pe + 21]]) as usize;
+    let at = |va: u32, len: usize| -> &[u8] {
+        let rva = va - image_base;
+        let s = (0..u16::from_le_bytes([exe[pe + 6], exe[pe + 7]]) as usize)
+            .map(|i| table + i * 40)
+            .find(|&s| rva >= u32_at(s + 12) && rva < u32_at(s + 12) + u32_at(s + 8).max(u32_at(s + 16)))
+            .expect("in a section");
+        let o = (u32_at(s + 20) + rva - u32_at(s + 12)) as usize;
+        &exe[o..o + len]
+    };
+    // PCX_Image::fill (0x5FFF30): push color; push 0 (no rect: the whole image); call [eax+0x44].
+    assert!(contains(at(0x5F_FF30, 0x16), &[0x52, 0x6A, 0x00, 0xFF, 0x50, 0x44]));
+    // fill_area (0x5FFF50): jmp [eax+0x44] with (rect, color).
+    assert!(contains(at(0x5F_FF50, 0x14), &[0xFF, 0x60, 0x44]));
+    // line, hline, vline (0x5FFFB0, 0x5FFFE0, 0x600010): +0x64 with flag 1.
+    for (va, call) in [(0x5F_FFB0, [0xFF, 0x50, 0x64]), (0x5F_FFE0, [0xFF, 0x52, 0x64]), (0x60_0010, [0xFF, 0x52, 0x64])] {
+        let body = at(va, 0x28);
+        assert!(contains(body, &[0x6A, 0x01]) && contains(body, &call), "{va:#x}");
+    }
+}
