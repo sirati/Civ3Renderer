@@ -1284,7 +1284,14 @@ mod tests {
         click(&mut prefs, 550, 150);
         click(&mut prefs, 550, 220);
         click(&mut prefs, 820, 313);
-        click(&mut prefs, 100, 403);
+        // The count's backdrop: greyed out while the count is off.
+        click(&mut prefs, 120, 421);
+        assert!(prefs.editing().accessibility.stack_backdrop, "disabled without the stack count");
+        click(&mut prefs, 100, 394);
+        let alt_target = prefs.looks(&Fonts::default()).into_iter().find(|l| l.rect[..2] == [114, 410]).expect("the backdrop's checkbox");
+        assert!(alt_target.anchor.is_some(), "an Alt target, on its box");
+        click(&mut prefs, 120, 421);
+        assert!(!prefs.editing().accessibility.stack_backdrop);
         assert!(prefs.editing().accessibility.active_unit_arrow);
         assert!(!prefs.editing().accessibility.arrow_bobbing);
         assert!(prefs.editing().accessibility.unit_rings);
@@ -1299,6 +1306,9 @@ mod tests {
         let (mut prefs, _) = open_prefs("accessibility-cancel");
         click(&mut prefs, 680, 55);
         click(&mut prefs, 100, 151);
+        click(&mut prefs, 100, 394);
+        click(&mut prefs, 120, 421);
+        assert!(!prefs.settings().accessibility.stack_backdrop, "previewed");
         prefs.action("cancel", &mut Vec::new());
         prefs.action("discard", &mut Vec::new());
         assert_eq!(prefs.settings().accessibility, Default::default());
@@ -1402,6 +1412,7 @@ mod tests {
         let (mut prefs, _) = open_prefs("alt-checkbox-labels");
         let draft = prefs.draft.as_mut().unwrap();
         draft.accessibility.active_unit_arrow = true;
+        draft.accessibility.stack_count = true;
         draft.resolution.scale_menus = true;
         prefs.project_settings();
         let fonts = Fonts::default();
@@ -1672,15 +1683,15 @@ mod tests {
         // Alt mode in menus, on the Accessibility tab: on by default, off, on again.
         assert!(click(&mut p, 680, 55).is_empty());
         assert!(p.editing().input.alt_in_menus);
-        assert!(click(&mut p, 100, 496).is_empty());
+        assert!(click(&mut p, 100, 509).is_empty());
         assert!(!p.editing().input.alt_in_menus);
-        assert!(click(&mut p, 100, 496).is_empty());
+        assert!(click(&mut p, 100, 509).is_empty());
         assert!(p.editing().input.alt_in_menus);
         // Recording the Alt mode, below it: on by default, off, on again.
         assert!(p.editing().input.record_alt_mode);
-        assert!(click(&mut p, 100, 659).is_empty());
+        assert!(click(&mut p, 100, 652).is_empty());
         assert!(!p.editing().input.record_alt_mode);
-        assert!(click(&mut p, 100, 659).is_empty());
+        assert!(click(&mut p, 100, 652).is_empty());
         assert!(p.editing().input.record_alt_mode);
         assert_eq!(p.settings(), p.editing(), "previews at once");
         assert!(!path.exists());
@@ -2590,6 +2601,19 @@ mod tests {
             prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
             shot(&prefs, name);
         }
+        // The stack count on, its backdrop's checkbox enabled, then off.
+        prefs.tab = TAB_ACCESSIBILITY.into();
+        prefs.draft.as_mut().unwrap().accessibility.stack_count = true;
+        prefs.project_settings();
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-accessibility-stack-count");
+        prefs.draft.as_mut().unwrap().accessibility.stack_backdrop = false;
+        prefs.project_settings();
+        prefs.route(vec![Input::MouseMove { x: 1000, y: 10 }], (1024, 768));
+        shot(&prefs, "tab-accessibility-stack-no-backdrop");
+        prefs.draft.as_mut().unwrap().accessibility.stack_count = false;
+        prefs.draft.as_mut().unwrap().accessibility.stack_backdrop = true;
+        prefs.project_settings();
         // Base UI scale changed and previewed.
         prefs.tab = TAB_RESOLUTION.into();
         click(&mut prefs, 218, 231);
