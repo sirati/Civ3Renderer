@@ -23,6 +23,7 @@ civ3-assets = { path = "../civ3-assets" }
 handoff = { path = "../handoff" }
 render-desc = { path = "../render-desc" }
 tile-viewer = { path = "../tile-viewer" }
+civ3-ui = { path = "../civ3-ui" }
 tile-render.workspace = true
 env_logger.workspace = true
 

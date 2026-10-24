@@ -7,4 +7,7 @@ version.workspace = true
 
 [dependencies]
 jgl = { path = "../jgl" }
+scene = { path = "../scene" }
 log.workspace = true
+tile-game = { path = "../tile-game" }
+tile-viewer = { path = "../tile-viewer" }

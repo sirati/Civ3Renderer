@@ -24,6 +24,7 @@ scene = { path = "../scene" }
 viewer-transport = { path = "../viewer-transport" }
 menu = { path = "../menu" }
 civ3-ui = { path = "../civ3-ui" }
+tile-game = { path = "../tile-game" }
 jgl = { path = "../jgl" }
 jgl-ffi = { path = "../jgl-ffi" }
 wine-unixlib = { path = "../wine-unixlib" }

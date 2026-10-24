@@ -520,6 +520,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         presenter
     } else {
         let config = tile_viewer::ViewerConfig {
+            extensions: civ3_ui::viewer::extensions(),
             title: VIEWER_TITLE.into(),
             size: (1024, 768),
             fullscreen,
@@ -2162,6 +2163,7 @@ fn publish(
         }
         scene.interface = scene::Interface {
             screen: screen_open.map(|s| s.1.to_owned()),
+            screen_role: screen_open.map_or(scene::ScreenRole::Other, |s| civ3_ui::screens::role(s.1)),
             menu_fit: prefs.screen_rect().is_some() || own_title.is_some() || native_title.is_some(),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
             capture_hint: (map_hint || preview_hint).then_some(crate::interface_parts::HINT_VIEW),
@@ -2198,7 +2200,7 @@ fn publish(
             targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
             // Go-to and the stack moves only: the cursor tile by tile.
             snap_to_tiles: matches!(shown, Shown::Map(world, _) if crate::targeting::go_to(world.targeting.mode)),
-            build_queue: None,
+            extensions: Vec::new(),
             // The game menu or the popup Escape opens on the map: the
             // viewer lets the pointer go entirely while either is open.
             releases_pointer: {
@@ -2221,7 +2223,7 @@ fn publish(
         // The city screen's build queue, reordered by dragging.
         if let Some((queue, grips)) = crate::build_queue::publish(&civ3_sys::controls::Live, &scene.interactables, scene.interface.focus_control) {
             scene.interactables.extend(grips);
-            scene.interface.build_queue = Some(queue);
+            scene.interface.extensions.push(queue.extension());
         }
         if let (Shown::Map(world, _), Some(frame), Some(anchor)) = (shown, ui.as_ref(), city_anchor) {
             let eligible = crate::city_screen::native::eligibility(&game, world);
@@ -2787,7 +2789,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 log::info!("input: queued report {serial} read");
                 crate::async_popups::close(serial);
             }
-            Input::BuildQueue { stamp, from, to } => crate::build_queue::post(window, stamp, from, to),
+            Input::Extension { .. } => match tile_game::production_queue::QueueEdit::of(&input) {
+                Some(edit) => crate::build_queue::post(window, edit),
+                None => log::debug!("input: an extension message of no extension of ours"),
+            },
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");

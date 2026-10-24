@@ -230,6 +230,7 @@ fn screen_scene(trace: &Trace, compiled: &Compiled, fonts: &text::Fonts, before:
             ifc23::scene_map::overlay_screen_sprites(&mut scene);
             parts::part_view(&mut scene, parts::SCREEN_VIEW, rect, sprites(&parts::clipped(&above, rect)));
             scene.interface.screen = Some(name.to_owned());
+            scene.interface.screen_role = civ3_ui::screens::role(name);
             scene.interface.screen_view = Some(parts::SCREEN_VIEW);
         }
         None => {
@@ -279,6 +280,7 @@ fn game_screen_scene(trace: &Trace, compiled: &Compiled, frame: &ifc23::ui::Fram
         None => ifc23::scene_map::overlay_menus(&mut scene, sprites(&menus)),
     }
     scene.interface.screen = Some(name.to_owned());
+    scene.interface.screen_role = civ3_ui::screens::role(name);
     Ok(scene)
 }
 
