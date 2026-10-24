@@ -10,6 +10,8 @@
 //!   sprite groups' `extern "thiscall"` entry points. Each reads its raw
 //!   arguments, makes safe values, calls [`jgl::Jgl`] (the game thread's one, `state`), and
 //!   calls jgl's original where the answer says so;
+//! - [`present`]: the present group (invalidate, present);
+//! - [`surface`]: the factories and deletes, and our method tables;
 //! - [`display`]: the display-mode group's entry points (the display is
 //!   never switched);
 //! - [`count`]: the counting mode's generated stubs.
@@ -25,6 +27,8 @@ pub mod count;
 pub mod display;
 pub mod fill;
 pub mod layout;
+pub mod present;
+pub mod surface;
 mod state;
 pub mod takeover;
 pub mod text;

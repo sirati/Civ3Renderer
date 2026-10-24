@@ -6,6 +6,8 @@
 
 use crate::blit::{BlitCall, Scale, SpriteCall, TableCall};
 use crate::draw::{CopyCall, FillCall};
+use crate::present::PresentCall;
+use crate::surface::SurfaceCall;
 use crate::text::{FontDesc, TextColor};
 use crate::{ImageId, Rect};
 
@@ -59,6 +61,16 @@ pub trait PaletteHooks {
     fn table(&mut self, _call: &TableCall) {}
 }
 
+/// The present group: graphics +0x30 `invalidate` and +0xA4 `present`.
+pub trait PresentHooks {
+    fn present(&mut self, _call: &PresentCall) {}
+}
+
+/// The surface group: objects made and deleted (graphics +0x74..+0x94).
+pub trait SurfaceHooks {
+    fn surface(&mut self, _call: &SurfaceCall) {}
+}
+
 /// Whether jgl's own pixel work still runs for a drawing call (only while
 /// jgl.dll is loaded: canvases the game reads back, calls the consumer does
 /// not take, compare mode). Asked synchronously by the producer, so it
@@ -87,6 +99,13 @@ pub trait PixelPolicy {
     fn original_sprite_pixels(&self) -> bool {
         true
     }
+
+    /// Whether jgl copies the back buffer to its window (+0xA4). jgl's
+    /// +0x30 `invalidate` always runs while the window is jgl's: the
+    /// window's painting depends on it.
+    fn original_present(&self, _call: &PresentCall) -> bool {
+        true
+    }
 }
 
 /// Every hook a consumer gives [`crate::Jgl`].
@@ -96,6 +115,8 @@ pub struct Hooks {
     pub copy: Box<dyn CopyHooks>,
     pub blit: Box<dyn BlitHooks>,
     pub palette: Box<dyn PaletteHooks>,
+    pub present: Box<dyn PresentHooks>,
+    pub surface: Box<dyn SurfaceHooks>,
     pub policy: Box<dyn PixelPolicy>,
 }
 
@@ -107,6 +128,8 @@ impl FillHooks for NoHooks {}
 impl CopyHooks for NoHooks {}
 impl BlitHooks for NoHooks {}
 impl PaletteHooks for NoHooks {}
+impl PresentHooks for NoHooks {}
+impl SurfaceHooks for NoHooks {}
 impl PixelPolicy for NoHooks {}
 
 impl Default for Hooks {
@@ -117,6 +140,8 @@ impl Default for Hooks {
             copy: Box::new(NoHooks),
             blit: Box::new(NoHooks),
             palette: Box::new(NoHooks),
+            present: Box::new(NoHooks),
+            surface: Box::new(NoHooks),
             policy: Box::new(NoHooks),
         }
     }

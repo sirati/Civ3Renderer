@@ -17,6 +17,10 @@
 //! `eax` is free at a method's entry (not an argument in `thiscall`).
 //! Install it after every other slot patch: it wraps what is there, and
 //! patches that check for jgl's own function would no longer find it.
+//!
+//! Our method tables (`crate::surface`), when installed, get stubs too,
+//! counted apart: calls through jgl's tables are then the objects that
+//! still have jgl's.
 
 use std::sync::OnceLock;
 
@@ -32,6 +36,8 @@ const STUB: usize = 32;
 struct Block {
     at: u32,
     slots: usize,
+    /// Whether the second half counts our tables.
+    ours: bool,
 }
 
 impl Block {
@@ -84,20 +90,26 @@ pub fn install(base: u32, thread: u32) -> Result<(), HookError> {
     if BLOCK.get().is_some() {
         return Ok(());
     }
-    let slots: usize = Class::ALL.iter().map(|c| c.slots().len()).sum();
+    let per_set: usize = Class::ALL.iter().map(|c| c.slots().len()).sum();
+    let ours = crate::surface::tables();
+    let slots = per_set * if ours.is_some() { 2 } else { 1 };
     let at = inproc::hook::alloc_code(Block::len(slots))?;
-    let block = Block { at, slots };
+    let block = Block { at, slots, ours: ours.is_some() };
+    let mut sets = vec![Class::ALL.map(|c| base + c.vtable_rva())];
+    sets.extend(ours);
     Ptr32::<u32>::new(block.first_thread()).write(&thread)?;
     let mut i = 0;
     let mut patches = Vec::with_capacity(slots);
-    for class in Class::ALL {
+    for tables in sets {
+    for (class, table) in Class::ALL.into_iter().zip(tables) {
         for slot in class.slots() {
-            let cell = Ptr32::<u32>::new(base + class.vtable_rva() + slot.offset as u32);
+            let cell = Ptr32::<u32>::new(table + slot.offset as u32);
             Ptr32::<u32>::new(block.original(i)).write(&cell.read()?)?;
             inproc::hook::write_code(block.stub(i), &stub_code(&block, i))?;
             patches.push(SlotPatch::replace(cell, block.stub(i))?);
             i += 1;
         }
+    }
     }
     // For the life of the process.
     std::mem::forget(patches);
@@ -105,20 +117,26 @@ pub fn install(base: u32, thread: u32) -> Result<(), HookError> {
     Ok(())
 }
 
-/// The counts so far and the calls from other threads than the game's,
-/// if the counting mode is installed.
-pub fn snapshot() -> Option<(Counts, u32)> {
+/// The counts so far through jgl's tables and through ours (if the
+/// surface group made them), and the calls from other threads than the
+/// game's, if the counting mode is installed.
+pub fn snapshot() -> Option<(Counts, Option<Counts>, u32)> {
     let b = BLOCK.get()?;
     let all = Ptr32::<u32>::new(b.at).read_array(b.slots).ok()?;
-    let mut counts = Counts::zero();
     let mut rest = &all[..];
-    for (i, class) in Class::ALL.iter().enumerate() {
-        let (mine, more) = rest.split_at(class.slots().len());
-        counts.per_class[i] = mine.to_vec();
-        rest = more;
-    }
+    let mut set = || {
+        let mut counts = Counts::zero();
+        for (i, class) in Class::ALL.iter().enumerate() {
+            let (mine, more) = rest.split_at(class.slots().len());
+            counts.per_class[i] = mine.to_vec();
+            rest = more;
+        }
+        counts
+    };
+    let jgls = set();
+    let ours = b.ours.then(set);
     let other = Ptr32::<u32>::new(b.other_threads()).read().ok()?;
-    Some((counts, other))
+    Some((jgls, ours, other))
 }
 
 #[cfg(test)]
@@ -127,7 +145,7 @@ mod tests {
 
     #[test]
     fn stubs_fit_and_point_at_their_cells() {
-        let b = Block { at: 0x0100_0000, slots: 201 };
+        let b = Block { at: 0x0100_0000, slots: 201, ours: false };
         let c = stub_code(&b, 3);
         assert_eq!(&c[0..6], &[0x64, 0xA1, 0x24, 0, 0, 0]);
         assert_eq!(&c[20..22], &[0xFF, 0x05]);

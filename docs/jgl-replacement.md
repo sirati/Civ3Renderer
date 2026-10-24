@@ -134,10 +134,12 @@ pub trait PixelPolicy {
 Since then `FillHooks`, `CopyHooks` (groups 2 and 3), `BlitHooks` (blits,
 the sprites' state, the draw scale) and `PaletteHooks` (the colour tables)
 exist, and `PixelPolicy` answers per group (`original_fill`,
-`original_copy`, `original_blit`, `original_sprite_pixels`). Groups to
-come, in the same style: `SurfaceHooks` (image created/resized/destroyed,
-clip set/reset, colour key, palette), `PresentHooks` (+0x30 invalidate, +0xA4 present),
-`WindowHooks` (the graphics window, pump and pointer slots).
+`original_copy`, `original_blit`, `original_sprite_pixels`). Groups 5 and 6
+added `PresentHooks` (+0x30 invalidate, +0xA4 present; `PixelPolicy::
+original_present`) and `SurfaceHooks` (objects made and deleted). To come,
+in the same style: the rest of `SurfaceHooks` (image created/resized,
+clip set/reset, colour key, palette, pixel access), `WindowHooks` (the
+graphics window, pump and pointer slots).
 
 jgl's state for a group lives in `jgl`, not in the consumer: for text, the
 font each image has selected (+0xA8/+0xAC) and its colour (+0xB0/+0xB4)
@@ -172,6 +174,8 @@ u8  ...              tail bytes (text), zero padded to 4
 | `SpriteInit`, `SpriteDuplicate`, `SpriteSetTable`, `SpriteSetKey`, `SpriteClear` | the sprite state slots (`jgl::SpriteCall`) | 24 to 52 |
 | `SetScale` | graphics +0x9C's three numbers and its call site | 20 |
 | `Table` | a colour table slot that changes it (`jgl::TableCall`), slot first | 16 to 28 |
+| `Invalidate`, `Present` | graphics +0x30 and +0xA4 (`jgl::PresentCall`): the rectangle (or none); for a present the back buffer as a `Surface` | 24, 68 |
+| `Created`, `Deleted` | a factory (+0x74..+0x80) or delete (+0x88..+0x94) (`jgl::SurfaceCall`): class, object, the factory's arguments, whether it has our method table | 24, 12 |
 
 During migration the buffer is drained right after each append (the
 consumers interleave with today's detours, which emit synchronously, and
@@ -219,8 +223,8 @@ Groups, and the order they move in:
 | 2 | fills, lines, frames, shade | image +0x44..+0x64 | 0x5FFF30.., `jgl_shade` |
 | 3 | copies | image +0x40, +0x84, +0x8C | 0x5FC9F0.. detours |
 | 4 | sprite blits and colour tables (done, §9) | sprite +0x00..+0x18, +0x38..+0xA0; colour table +0x04..+0x20; graphics +0x9C `set_scale` | the exe wrapper detours (roadmap §2) and the map blit detours; jgl makes no sprite pixels (placeholder) |
-| 5 | present and invalidate | graphics +0x30, +0xA4 | `jgl_present` slot patch |
-| 6 | surfaces | factories +0x74..+0x94, image +0x04/+0x08, pixel access | roadmap step 5 |
+| 5 | present and invalidate (done, §9) | graphics +0x30, +0xA4 | `jgl_present` slot patch |
+| 6 | surfaces (first part done, §9: factories, deletes, our method tables) | factories +0x74..+0x94, image +0x04/+0x08, pixel access | roadmap step 5 |
 | 7 | window, pump, pointer, video modes | the remaining graphics slots | roadmap step 6 |
 
 ## 7. Counting mode
@@ -232,7 +236,10 @@ needed. It wraps whatever is in the slot at that moment, so it is
 installed after the group takeovers and counts our entry points too. Every
 60 s, and at exit, the bridge logs the slots called since start, with
 names from `jgl::slots`, and the number of calls from threads other than
-the first caller (the single-producer assumption). This closes the gap the
+the first caller (the single-producer assumption). Once the surface group
+has made our method tables (§9, group 6) they get stubs too, counted
+apart: what still goes through jgl's tables are objects that kept
+jgl's. This closes the gap the
 static scan of the roadmap (§1.2) leaves: calls through spilled pointers,
 C3X's own calls, and any path the scan missed.
 
@@ -470,9 +477,8 @@ and every read of one]:
 - three 8-bit images at 0xB3F3E0 (0x2B8 apart): at startup the game
   (0x549D60..) cuts sprites from `Art\oldinterface.pcx`, blits them into
   these images and reads them with `get_pixel` (0x549FAD, roadmap §4 #5).
-  No record answers that yet: **sprites cut from that file keep jgl's
-  pixels** (`ui_trace::READ_BACK_ART`, set around the slice) and their
-  blits onto the 8-bit images run jgl's original, as before;
+  No record answered that in this round: sprites cut from that file kept
+  jgl's pixels (`READ_BACK_ART`, gone with group 6, below);
 - no other read of a canvas whose sprites were left out was logged.
   `CIV3R_TRACE_PIXELS=1` adds `pixel_at`/`lock` reads to the check [not
   run this round].
@@ -515,5 +521,143 @@ prefs, popups), and the world files: `world.rs`'s model is made of
 `civ3-sys` types, and `scene_map`, `units`, `effects`, `districts`,
 `city_labels`, `targeting`, `minimap` build on it.
 
-Next: present and invalidate (group 5); the surfaces (group 6), where the
-placeholder becomes our sprite object.
+### Live check of main (fourth round)
+
+Main at 8991bd5 and a6381cb (the placeholder's buffers as atomics) in a
+real game [V, `/tmp/c3r-live-main/` with `index.txt`]: main menu, load,
+map; a click on the minimap, on a map tile just above the HUD bar and on
+a HUD order button; the city screen, its production list, a queue entry
+dragged onto the current build (swapped) and one dragged down the queue
+(reordered); advisors F1 to F4, F6, F7, F8; the Civilopedia; the game
+menu and Escape; the split view with the floating lens, glass rims, glass
+dividers and the bouncing arrow over the selected unit. Every one worked;
+no near-magenta pixel in any shot. Nothing needed fixing.
+
+For scripted input: with `input.alt_in_menus` on (the default) the city
+screen turns on button snapping, which locks the pointer, and the test
+harness's absolute VNC moves no longer steer it (the game's pointer stayed
+on the city screen's close button). The sessions of this round run with it
+off; a person's mouse is not affected.
+
+### Group 5: present and invalidate
+
+Done:
+
+- Graphics +0x30 `invalidate` and +0xA4 `present` are taken over
+  (`jgl-ffi::present`) after the RVA check. Both record a
+  `jgl::PresentCall`: the rectangle (or none) and, for a present, the back
+  buffer it copies from (`[[graphics + 0x148] + 4]`, as jgl's body reads
+  it [V]). `invalidate` always runs jgl's original (`InvalidateRect` on
+  jgl's window, whose paint `inproc::paint` turns into the game's paint
+  while the window is jgl's). `present` runs it only where
+  `PixelPolicy::original_present` says; the bridge answers as the slot hook
+  did (`skipping()`, audited as `Present`) and returns jgl's 0 otherwise.
+- Removed: the `jgl_present` slot hook and its definitions in `civ3-sys`.
+
+Equivalence [V, `CIV3R_JGL_COMPARE=1`, commit 31f4d74]: each of the exe's
+presents (0x606680, which passes its rectangle to +0xA4) brought exactly
+one `Present` record with that rectangle, the exe's back buffer
+(0xCACFF0) and the old hook's decision; each `Invalidate` record one call
+of jgl's `InvalidateRect` import with the same rectangle. Two sessions:
+3092 presents and 1905 invalidates (map, advisors, city screen and its
+queue, diplomacy, HUD clicks, game menu, a turn change), and 35500
+presents and 1494 invalidates (war declared on Babylon, two turns with
+combat and a city lost, the Civilopedia): all the same, none missing or
+extra. One `InvalidateRect` call of jgl's came without a record (a path
+other than +0x30, at start [G]). Screenshots before (a6381cb) and after
+(46f6201) of the same walk differ only in unit and leader animation:
+`/tmp/c3r-g56-shots/{before,after5,diff-after5}`.
+
+### Counting mode, the longer session (before group 6)
+
+[V, `CIV3R_JGL_COUNT=1`, the two sessions above:
+`/tmp/c3r-g56-shots/{compare-counts.txt,count-long.log-counts.txt}`]
+102 slots were called. No call came from a thread other than the game's
+(drawing threads 1, re-entered 0). Most called in the long session:
+image +0xE0 `row_width` 10.4 M, graphics +0xB4 5.7 M, +0x128 4.0 M,
+image +0x28/+0x2C `acquire_dc`/`release_dc` 1.5 M each, +0x34 `set_clip`
+1.5 M, graphics +0x9C 737 k, image +0xC4 731 k, +0x84 694 k, font +0x10
+437 k, image +0xD8/+0xDC 209 k, +0x10 `lock` 205 k, +0x0C `pixel_at`
+194 k, +0x1C 169 k, +0xC0 103 k, +0x24 `read_pixel` 66 k. Factories: new
+image 1123, new sprite 5223, new colour table 729, new font 297; deletes
+906 colour tables, 266 images, 138 sprites (with their `scalar_delete`).
+Slots seen called that the first round's list did not have: graphics
++0x12C (110, the long session only), sprite +0x74 (5698, the first
+session only). Never called in either: graphics +0x00, +0x08..+0x1C
+except +0x10, +0x34, +0x3C, +0x48..+0x58, +0x60..+0x70, +0x84, +0x88,
++0x98, +0x120, +0x134, +0x13C..+0x144, +0x154; image +0x30, +0x3C,
++0x4C..+0x54, +0x5C, +0x60, +0x74, +0x78, +0x8C, +0xBC; colour table
++0x1C; font +0x00.
+
+### Group 6, first part: factories, deletes, our method tables
+
+Done:
+
+- The factories graphics +0x74 `new_font`, +0x78 `new_color_table`,
+  +0x7C `new_image`, +0x80 `new_sprite` and the deletes +0x88..+0x94 are
+  taken over (`jgl-ffi::surface`). A factory runs jgl's (allocation and
+  constructor [V]) and gives the new object **our method table** of its
+  class: a copy of jgl's table made when the group is installed, after
+  every other group (the display modes' too), so it holds the same entry
+  points. A group taken over later writes both tables
+  (`takeover::take_over`). The graphics object gets ours at the first
+  factory call. Factories and deletes record a `jgl::SurfaceCall`
+  (`Created`, `Deleted`); the consumer counts live objects per class.
+- The counting mode counts calls through our tables apart.
+
+Result [V, counting mode, the walk above, commit d24b8bc]: through
+jgl's tables only graphics +0x04 (`create_window`, before any factory),
+the first +0x7C (whose call gives the graphics object our table), +0xB4
+once, and 172 calls of sprite +0x20/+0x24: jgl's own temporary sprites on
+the stack inside its keyed copies +0x84/+0x8C (it calls the sprite
+constructor 0x7E80 directly at RVA 0x2432 and 0x2512). Everything else
+the game calls goes through our tables. Screens unchanged
+(`/tmp/c3r-g56-shots/{before,after6b,diff-after6b}`: unit and leader
+animation only).
+
+Not done (the rest of group 6): the objects themselves are jgl's: their
+memory, constructors, DIB sections and DCs; image +0x04 `create`, +0x08
+`clear` (recorded by the text group), the pixel access slots +0x0C..+0x24,
+the DC slots +0x28/+0x2C (1.5 M calls a session), clip, colour key and
+getters. Making them plain memory needs every pixel path that still runs
+jgl's original to have an answer first: text, fills and copies onto
+read-back canvases (the `Skipper`'s keep set), copies the mirror does not
+take (+0x38, the exe's tiling at 0x5FCE9F, 4136 calls), +0x58, and the
+DC users (C3X's mill icons and GDI+ lines, jgl's text measuring and
+`text_out`).
+
+### The art presence read (0x549FAD): resolved
+
+What it is [V, the exe disassembled]: at start (0x549D60..) the game
+loads `Art\oldinterface.pcx`, and for three 32×32 regions (x = 8, 55, 102;
+y = 8) cuts a sprite (`Sprite::slice`), makes an 8-bit image (the three
+`PCX_Image`s from 0xB3F3E0, 0x2B8 apart), draws the sprite at (0, 0)
+(`Sprite::draw`), gives the image the sprite's colour table and reads its
+pixel (0, 0) with `get_pixel`: 0xFF (the file has nothing there) deletes
+the image, else it is kept in a table at 0xB40430.
+
+Now answered from the model (`ui_trace::art_presence_pixel`, a hook on
+that one call): the last sprite drawn into the image (its blit record:
+the sprite and where its stored pixels went), the file region it was cut
+from (the interface model's `sprite_source`) and that file's pixel,
+decoded by `civ3_assets` (the same decoding the exe does into jgl's
+image). Outside the sprite's stored pixels (its crop trimmed the key away)
+it answers 0xFF [G: no such read seen]. `READ_BACK_ART` is gone: no sprite
+gets jgl's pixels with a viewer.
+
+Equivalence [V, commit 4075030]: the three reads gave jgl 0x40
+and the model 0x40 (64). After the switch the game keeps the three images
+as before; screens unchanged.
+
+`CIV3R_TRACE_PIXELS=1` [V]: the three images are also read by jgl's +0x38
+inside the exe's image tiling (0x5FCE9F), which tiles them onto form
+canvases; that call runs jgl's original and now tiles the placeholder's
+(empty) content. Nothing shows or reads those pixels: the viewer draws
+the forms from the model (+0x38 is not mirrored, as before), and the
+keyed hit test answers from the model too. The same run lists the keyed
+form canvases read by 0x5FCE9F (sources of +0x38 too); those were already
+left without sprite pixels in group 4.
+
+Read-back exceptions left: none for sprites. Canvases whose fills, copies
+and text jgl still draws: the `Skipper`'s keep set (palette-index images
+of region maps, keyed form canvases, the navigator), unchanged.

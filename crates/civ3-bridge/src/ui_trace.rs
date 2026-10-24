@@ -200,26 +200,9 @@ pub(crate) fn placeholder_sprites() -> bool {
     })
 }
 
-thread_local! {
-    /// Set while a sprite is cut from [`READ_BACK_ART`]: jgl makes its pixels.
-    static REAL_SPRITES: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Art whose sprites the game draws into 8-bit images it then reads back
-/// with `get_pixel` (0x549D60.., `Art\oldinterface.pcx` into the three
-/// images at 0xB3F3E0, read at 0x549FAD): no record answers those reads
-/// yet, so these sprites keep jgl's pixels and their blits onto such
-/// images jgl's original (`docs/jgl-replacement.md` §9).
-const READ_BACK_ART: [&str; 1] = ["art/oldinterface.pcx"];
-
-fn read_back_art(path: &str) -> bool {
-    let path = path.replace('\\', "/").to_ascii_lowercase();
-    READ_BACK_ART.iter().any(|a| path.ends_with(a))
-}
-
 /// Whether the sprite being made gets jgl's pixels (see [`placeholder_sprites`]).
 pub(crate) fn real_sprite_pixels() -> bool {
-    !placeholder_sprites() || REAL_SPRITES.with(Cell::get)
+    !placeholder_sprites()
 }
 
 pub(crate) fn requested_game_draws() -> bool {
@@ -1095,12 +1078,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: a sprite cut from image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
-        // Sprites the game draws into images it reads back keep jgl's
-        // pixels (`READ_BACK_ART`).
-        let real = placeholder_sprites() && with_model(false, |m| m.file_of(c.image).is_some_and(read_back_art)) == Some(true);
-        let previous = REAL_SPRITES.with(|r| r.replace(real));
         let r = c.original();
-        REAL_SPRITES.with(|r| r.set(previous));
         if obj::sprite_has_pixels(c.sprite) {
             if let Some((cx, cy, w, hh)) = obj::sprite_crop(c.sprite) {
                 let rect = [c.x as i32 + cx, c.y as i32 + cy, w, hh];
@@ -1123,6 +1101,17 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // the interface model answers it, from what the viewer shows.
     if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
         hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
+    }
+    // The art presence test at start reads back an 8-bit image the game
+    // drew a sprite into: with placeholder sprites jgl drew nothing there;
+    // the sprite's file answers.
+    if let Some((site, expected)) = h::art_presence_site(game.build).filter(|_| placeholder_sprites()) {
+        hooks.push(Box::new(h::art_presence_pixel::install_call_site(site, expected, |c| {
+            art_presence_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| {
+                log::warn!("art presence: image {:#x} ({}, {}): no sprite known drawn there; jgl's pixel", c.image, c.x, c.y);
+                c.original()
+            })
+        })?));
     }
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
@@ -1252,7 +1241,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
-    hook_jgl(jgl, &mut hooks)?;
+    hook_jgl(jgl)?;
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1283,23 +1272,17 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
 
 
 /// Install jgl capture synchronously at the known loaded base. Present
-/// always has a hook, including drawing-ON startup, and checks suppression
-/// dynamically so restoring the original renderer takes effect immediately.
-fn hook_jgl(base: u32, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result<(), HookError> {
-    let check = |(slot, expected): (inproc::Ptr32<u32>, u32)| -> Result<inproc::Ptr32<u32>, HookError> {
-        let found = slot.read()?;
-        if found != expected {
-            return Err(HookError::UnexpectedCode { addr: slot.raw(), found: found.to_le_bytes().to_vec(), expected: expected.to_le_bytes().to_vec() });
-        }
-        Ok(slot)
-    };
-    let present_slot = check(h::jgl_present_slot(base))?;
+/// is always taken over, including drawing-ON startup, and asks whether to
+/// skip at each call, so restoring the original renderer takes effect
+/// immediately.
+fn hook_jgl(base: u32) -> Result<(), HookError> {
     // Fills, lines, shades and copies: jgl's own method groups, taken over.
     crate::jgl_hooks::install_fill(base)?;
     crate::jgl_hooks::install_copy(base)?;
     // Sprite blits, their state and the colour tables: the sprite group.
     crate::jgl_hooks::install_blit(base)?;
-    hooks.push(Box::new(h::jgl_present::install_slot(present_slot, |c| audit_call(PixelClass::Present, skipping(), || c.original()))?));
+    // Invalidate and present.
+    crate::jgl_hooks::install_present(base)?;
     Ok(())
 }
 
@@ -1608,6 +1591,57 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
 
 thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
+thread_local! {
+    /// The last blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
+    /// stored pixels went): what [`art_presence_pixel`] answers from.
+    static INDEX_BLITS: std::cell::RefCell<Vec<(u32, u32, (i32, i32))>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The last file decoded for it.
+    static INDEX_FILE: std::cell::RefCell<Option<(String, Option<std::sync::Arc<civ3_assets::pcx::Indexed>>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Notes a blit onto an 8-bit image (see [`art_presence_pixel`]).
+fn note_index_blit(b: &GameBlit) {
+    if obj::image_bits(b.canvas).is_some_and(|bits| bits <= 8) {
+        INDEX_BLITS.with_borrow_mut(|v| {
+            v.retain(|e| e.0 != b.canvas);
+            if v.len() >= 16 {
+                v.remove(0);
+            }
+            v.push((b.canvas, b.sprite, b.at));
+        });
+    }
+}
+
+/// The palette index of the 8-bit image `image` at (x, y) for the game's
+/// art presence test at start (`h::art_presence_site`): the last sprite
+/// drawn onto it, whose pixels are a region of a file (the interface
+/// model's `sprite_source`), read from that file. Outside the sprite's
+/// stored pixels (its crop trimmed the key away) 0xFF, the key. `None`
+/// if nothing known was drawn there.
+fn art_presence_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
+    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
+    let (path, rect) = with_model(false, |m| match m.sprite_source(sprite) {
+        Some(crate::ui::Source::File { path, rect, .. }) => Some((path.clone(), *rect)),
+        _ => None,
+    })??;
+    let (sx, sy) = (x - at.0, y - at.1);
+    if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
+        return Some(0xFF);
+    }
+    let file = INDEX_FILE.with_borrow_mut(|f| {
+        if f.as_ref().is_none_or(|(p, _)| *p != path) {
+            let decoded = civ3_assets::files::read_file(&path).ok().and_then(|b| civ3_assets::pcx::decode(&b).ok()).map(std::sync::Arc::new);
+            *f = Some((path.clone(), decoded));
+        }
+        f.as_ref().and_then(|(_, i)| i.clone())
+    })?;
+    let (fx, fy) = (rect[0] + sx, rect[1] + sy);
+    if fx < 0 || fy < 0 || fx >= file.width as i32 || fy >= file.height as i32 {
+        return Some(0xFF);
+    }
+    Some(u32::from(file.get(fx as u32, fy as u32)))
+}
+
 /// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
 /// it draws onto the screen last (docs §16.5, §16.11): not mirrored, the
 /// viewer shows the pointer itself, where the mouse is now (a mirrored one
@@ -1680,6 +1714,7 @@ fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option
 /// `b.wrapper`: the interface mirror's events, and the map tracer's record
 /// for the map's three.
 pub fn on_blit(b: &GameBlit) {
+    note_index_blit(b);
     use civ3_ui::blit::Wrapper as W;
     let (x, y) = wrapper_xy(b);
     let clip = clip_from(b.canvas, b.clip);
