@@ -90,6 +90,7 @@ use serde::{Deserialize, Serialize};
 use crate::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use crate::monitor::MonitorHandle;
 use crate::window::{Window, WindowAttributes};
+pub use crate::platform_impl::PointerFeed;
 
 /// The accessibility pointer size factor (System Settings, Accessibility,
 /// Display, Pointer size), normally 1 to 4; 0 when unset or unreadable.
@@ -112,7 +113,9 @@ pub trait WindowExtMacOS {
     /// A width or height of one holds that axis at a single physical pixel.
     ///
     /// This uses public CoreGraphics APIs scoped to the active window. It
-    /// needs no global event tap or Accessibility permission. Losing focus
+    /// needs no Accessibility permission. Once [`WindowExtMacOS::pointer_feed`]
+    /// started the pointer thread (a listen-only event tap), that thread
+    /// moves the pointer within the region, whatever the main thread does. Losing focus
     /// or closing the window releases the pointer. `None` removes a custom
     /// confinement but leaves a separate `CursorGrabMode::Locked` intact.
     /// The pointer must already be inside the requested region.
@@ -121,6 +124,14 @@ pub trait WindowExtMacOS {
         bounds: Option<[i32; 4]>,
         exclusions: &[[i32; 4]],
     ) -> Result<(), crate::error::ExternalError>;
+
+    /// A thread-safe reader of the pointer's position, kept by a thread of
+    /// its own (a listen-only event tap) whatever the main thread is doing.
+    /// That thread also moves the pointer within a
+    /// [`WindowExtMacOS::set_cursor_confinement`] region. `None` if it
+    /// cannot run; then the main thread does that. `thread_init` runs first on
+    /// that thread when this call starts it (a host's thread policy).
+    fn pointer_feed(&self, thread_init: Option<fn()>) -> Option<PointerFeed>;
 
     /// Returns whether or not the window is in simple fullscreen mode.
     fn simple_fullscreen(&self) -> bool;
@@ -209,6 +220,11 @@ impl WindowExtMacOS for Window {
         exclusions: &[[i32; 4]],
     ) -> Result<(), crate::error::ExternalError> {
         self.window.maybe_wait_on_main(|w| w.set_cursor_confinement(bounds, exclusions))
+    }
+
+    #[inline]
+    fn pointer_feed(&self, thread_init: Option<fn()>) -> Option<PointerFeed> {
+        self.window.maybe_wait_on_main(|w| w.pointer_feed(thread_init))
     }
 
     #[inline]

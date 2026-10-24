@@ -13,13 +13,20 @@
 //! is the application's own, other applications, system gestures, and
 //! anything else that warps the pointer can still move it; losing focus
 //! releases it.
+//!
+//! The deltas are applied and the warps made on the window backend's pointer
+//! thread (a listen-only CoreGraphics event tap), as each motion happens,
+//! not on the main thread, which can be busy drawing or running the host's
+//! work for tens of milliseconds. That thread also tracks the free pointer
+//! ([`Backend::feed`]). If the system refuses the tap (or
+//! `WINIT_POINTER_TAP=0`), the main thread places the pointer as before.
 
 #![forbid(unsafe_code)]
 
 #![cfg(target_os = "macos")]
 
 use std::sync::Arc;
-use pointer_api::{Backend, Error, Grab, Move, Point, Region, Update};
+use pointer_api::{Backend, Error, Feed, Grab, Move, Point, Region, Update};
 use winit::{platform::macos::WindowExtMacOS, window::Window};
 
 pub struct Controller {
@@ -27,11 +34,12 @@ pub struct Controller {
     fallback: pointer_fallback::Controller,
     confined: bool,
     grabbed: bool,
+    thread_init: Option<fn()>,
 }
 
 impl Controller {
-    pub fn new(window: Arc<Window>) -> Self {
-        Self { fallback: pointer_fallback::Controller::new(window.clone()), window, confined: false, grabbed: false }
+    pub fn new(window: Arc<Window>, thread_init: Option<fn()>) -> Self {
+        Self { fallback: pointer_fallback::Controller::new(window.clone()), window, confined: false, grabbed: false, thread_init }
     }
 
     fn release_region(&mut self) {
@@ -68,6 +76,12 @@ impl Backend for Controller {
             self.release_region();
         }
         Update { confined: self.confined && region.is_some(), placement: None }
+    }
+
+    fn feed(&self) -> Option<Feed> {
+        // (The window's event tap thread: it also moves a held pointer.)
+        let feed = self.window.pointer_feed(self.thread_init)?;
+        Some(std::sync::Arc::new(move || feed.position()))
     }
 }
 

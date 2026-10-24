@@ -1709,6 +1709,10 @@ impl WindowExtMacOS for WindowDelegate {
         self.view().set_cursor_confinement(bounds, exclusions)
     }
 
+    fn pointer_feed(&self, thread_init: Option<fn()>) -> Option<crate::platform::macos::PointerFeed> {
+        self.view().pointer_feed(thread_init)
+    }
+
     #[inline]
     fn simple_fullscreen(&self) -> bool {
         self.ivars().is_simple_fullscreen.get()

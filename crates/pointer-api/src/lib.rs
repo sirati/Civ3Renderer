@@ -70,7 +70,16 @@ pub trait Backend {
     fn moving(&self) -> bool { false }
     /// `None` releases region confinement. `inside` includes keyboard focus.
     fn update(&mut self, region: Option<&Region>, pointer: (f64, f64), inside: bool) -> Update;
+    /// A reader of the pointer's position (physical window pixels) that any
+    /// thread may call at any time, for backends whose pointer is tracked
+    /// off the main thread (macOS's event tap). `None`: the window's own
+    /// events are the only source.
+    fn feed(&self) -> Option<Feed> { None }
 }
+
+/// See [`Backend::feed`]: `None` when the backend does not know where the
+/// pointer is right now.
+pub type Feed = std::sync::Arc<dyn Fn() -> Option<(f64, f64)> + Send + Sync>;
 
 #[cfg(test)]
 mod tests {

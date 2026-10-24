@@ -291,7 +291,7 @@ impl ApplicationHandler<String> for Probe {
         match event_loop.create_window(attrs) {
             Ok(window) => {
                 let window = Arc::new(window);
-                self.pointer.attach(window.clone());
+                self.pointer.attach(window.clone(), None);
                 self.focused = window.has_focus();
                 self.log(format_args!(
                     "READY size={:?} inner_origin={:?} outer_origin={:?} scale={} focused={}",

@@ -21,6 +21,7 @@ use super::app_state::ApplicationDelegate;
 use super::cursor::{default_cursor, invisible_cursor};
 use super::cursor_confinement::{locked_position, view_pixels, PointerState, Region};
 use super::monitor::flip_window_screen_coordinates;
+use super::pointer_tap::{Geometry, PointerFeed, PointerTap};
 use super::{app, cursor_system};
 use crate::error::ExternalError;
 use crate::window::CursorGrabMode;
@@ -121,6 +122,9 @@ pub struct ViewState {
 
     cursor_state: RefCell<CursorState>,
     pointer_state: RefCell<PointerState>,
+    /// The pointer's own thread (`pointer_tap`), started when first needed;
+    /// `None` inside if it cannot run.
+    pointer_tap: std::cell::OnceCell<Option<PointerTap>>,
     ime_position: Cell<NSPoint>,
     ime_size: Cell<NSSize>,
     modifiers: Cell<Modifiers>,
@@ -823,6 +827,7 @@ impl WinitView {
             app_delegate: app_delegate.retain(),
             cursor_state: Default::default(),
             pointer_state: Default::default(),
+            pointer_tap: Default::default(),
             ime_position: Default::default(),
             ime_size: Default::default(),
             modifiers: Default::default(),
@@ -1105,12 +1110,46 @@ impl WinitView {
             cursor_system::associate(true)?;
             state.release();
         }
+        drop(state);
+        if let Some(Some(tap)) = self.ivars().pointer_tap.get() {
+            tap.hold(None, (0.0, 0.0));
+        }
         Ok(())
     }
 
     fn detach_pointer(&self) -> Result<(), ExternalError> {
         cursor_system::associate(false)?;
         Ok(())
+    }
+
+    /// The pointer's own thread, once [`Self::pointer_feed`] started it.
+    fn pointer_tap(&self) -> Option<&PointerTap> {
+        self.ivars().pointer_tap.get()?.as_ref()
+    }
+
+    /// The pointer's own thread if started and running (else the main
+    /// thread places the pointer), told the view's current place on the
+    /// screen.
+    fn live_pointer_tap(&self) -> Option<&PointerTap> {
+        let tap = self.pointer_tap()?;
+        tap.set_geometry(self.screen_geometry());
+        tap.live().then_some(tap)
+    }
+
+    /// A thread-safe reader of the pointer as the pointer's thread sees it.
+    pub(super) fn pointer_feed(&self, thread_init: Option<fn()>) -> Option<PointerFeed> {
+        let tap = self.ivars().pointer_tap.get_or_init(|| PointerTap::start(thread_init)).as_ref()?;
+        tap.set_geometry(self.screen_geometry());
+        Some(PointerFeed { shared: tap.shared() })
+    }
+
+    /// Where the view is on the screen (global display points, y down).
+    fn screen_geometry(&self) -> Geometry {
+        let view = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
+        let window = self.convertRect_toView(view, None);
+        let origin = flip_window_screen_coordinates(self.window().convertRectToScreen(window));
+        let size = self.frame().size;
+        Geometry { origin: (origin.x, origin.y), size: (size.width, size.height), scale: self.scale_factor() }
     }
 
     pub(super) fn set_cursor_grab(&self, mode: CursorGrabMode) -> Result<(), ExternalError> {
@@ -1136,6 +1175,10 @@ impl WinitView {
             state.locked = true;
             state.region = None;
             state.position = position;
+        }
+        if let Some(tap) = self.pointer_tap() {
+            // (Locked, the pointer moves by device motion: no region to hold.)
+            tap.hold(None, position);
         }
         if position != at {
             if let Err(error) = self.warp_pointer(position) {
@@ -1176,6 +1219,11 @@ impl WinitView {
             return Err(ExternalError::Ignored);
         }
         self.detach_pointer()?;
+        if let Some(tap) = self.pointer_tap() {
+            // (Its thread moves the pointer in the region from here on.)
+            tap.set_geometry(self.screen_geometry());
+            tap.hold(Some(region.clone()), at);
+        }
         let mut state = self.ivars().pointer_state.borrow_mut();
         state.position = at;
         state.locked = false;
@@ -1204,6 +1252,11 @@ impl WinitView {
         }
         let mut state = self.ivars().pointer_state.borrow_mut();
         state.position = physical;
+        if state.region.is_some() {
+            if let Some(Some(tap)) = self.ivars().pointer_tap.get() {
+                tap.placed(physical);
+            }
+        }
         // Apple's CGAssociateMouseAndMouseCursorPosition contract permits
         // CGWarpMouseCursorPosition while detached. Preserve that raw lock.
         // Free-pointer warps reassociate to avoid the known post-warp pause.
@@ -1238,9 +1291,16 @@ impl WinitView {
         // SAFETY: AppKit supplied a live NSEvent to this main-thread
         // callback. Its typed scalar type getter has no additional state.
         let motion = matches!(unsafe { event.r#type() }, NSEventType::MouseMoved | NSEventType::LeftMouseDragged | NSEventType::RightMouseDragged | NSEventType::OtherMouseDragged);
+        let tap = self.live_pointer_tap();
         let next = {
             let mut state = self.ivars().pointer_state.borrow_mut();
-            if let Some(region) = &state.region {
+            let tapped = state.region.is_some().then(|| tap.and_then(|t| t.held_position())).flatten();
+            if let Some(at) = tapped {
+                // The pointer's thread moved it already (and warped it).
+                state.position = at;
+                position = crate::dpi::PhysicalPosition::new(at.0, at.1);
+                None
+            } else if let Some(region) = &state.region {
                 let delta = if motion { app::mouse_delta(event) } else { (0.0, 0.0) };
                 let next = region.advance(state.position, (delta.0 * scale, delta.1 * scale));
                 let changed = next != state.position;
