@@ -9,7 +9,7 @@
 //!       --host-ms: as the viewer shows it MS ms into its own clock, the
 //!       animations that run on it (the selection cursor) from their start
 //!       as live (the trace's cursor frame left out)
-//!   civ3-tool screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before | --world] [--set KEY=VALUE]...
+//!   civ3-tool screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before | --world] [--pointer X,Y] [--set KEY=VALUE]...
 //!       renders a trace of the screens after a game, or of a screen open
 //!       in a game (over its world), as the viewer shows them in a window
 //!       (default 3840x2160) at those settings (--place: where screens go
@@ -18,7 +18,8 @@
 //!       before (all of it a menu, the screen a popup)
 //!       --world: the trace's world and interface instead, as `render` has them;
 //!       --set: any Preferences control (`viewer_settings::controls`), e.g.
-//!       layout.split=Vertical1To1, layout.glass_dividers=on, layout.separator_width=6
+//!       layout.split=Vertical1To1, layout.glass_dividers=on, layout.separator_width=6;
+//!       --pointer: the pointer there (canvas pixels), for the zoom at or beside the mouse
 //!   civ3-tool stats TRACE
 //!       how big the atlas compiled for the trace is
 //!   civ3-tool preview SCENARIO.biq OUT.png [--viewport WxH]
@@ -330,7 +331,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Some("screen") => {
-            let usage = "screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before | --world] [--set KEY=VALUE]...";
+            let usage = "screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before | --world] [--pointer X,Y] [--set KEY=VALUE]...";
             let trace = load_trace(args.get(1).ok_or(usage)?)?;
             let out = args.get(2).ok_or(usage)?;
             let (compiled, mut art) = compile(Some(&trace))?;
@@ -374,7 +375,14 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             let (resolution, layout) = (settings.resolution, settings.layout);
             let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
             let config = tile_viewer::ViewerConfig { overhang: ifc23::scene_map::OVERHANG, ..Default::default() };
-            let img = tile_viewer::render_planned(&gpu, &compiled, &scene, window, &resolution, &layout, &config);
+            let img = match arg("--pointer") {
+                Some(p) => {
+                    let (x, y) = p.split_once(',').ok_or("--pointer X,Y")?;
+                    let p = (x.parse().map_err(|_| "bad pointer x")?, y.parse().map_err(|_| "bad pointer y")?);
+                    tile_viewer::render_planned_at(&gpu, &compiled, &scene, window, &resolution, &layout, &config, p)
+                }
+                None => tile_viewer::render_planned(&gpu, &compiled, &scene, window, &resolution, &layout, &config),
+            };
             image::save_buffer(out, img.as_bytes(), img.width, img.height, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
             println!("{out}: {} ({}x{})", scene.interface.screen.as_deref().unwrap_or("no screen"), img.width, img.height);
             Ok(ExitCode::SUCCESS)
