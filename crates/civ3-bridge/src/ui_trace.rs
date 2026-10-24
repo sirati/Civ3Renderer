@@ -1103,6 +1103,12 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     if crate::jgl_hooks::compare::on() {
         hook_old_blits(game, &sites, &mut hooks)?;
     }
+    // The keyed forms' hit test reads the pixel under the mouse from the
+    // form's canvas. With placeholder sprites jgl draws no sprite there:
+    // the interface model answers it, from what the viewer shows.
+    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
+        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
+    }
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
@@ -1530,6 +1536,37 @@ fn copied_civ_colors(ct: u32) -> Option<menu::screen::PaletteFrom> {
     let n = h::civ_table_with(*BUILD.get()?, 64, &entries)?;
     Some(menu::screen::PaletteFrom { image: format!("Art/Units/Palettes/ntp{n:02}.pcx"), first: 64, count: 2 })
 }
+
+/// The pixel of keyed form canvas `canvas` at (x, y) for the game's hit
+/// test, from what the interface model shows there
+/// (`UiModel::shown_at`, the files' pixels from `ui_opacity::pixel`):
+/// the colour key where it is see-through, else its colour as the
+/// canvas's 16-bit value. `None` (jgl's pixel then) outside the canvas
+/// or when the model has no answer.
+fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
+    let (w, hh) = obj::image_size(canvas)?;
+    if x < 0 || y < 0 || x >= w || y >= hh {
+        return None;
+    }
+    let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
+    let shown = with_model(false, |m| m.shown_at(canvas, x, y, &crate::ui_opacity::pixel))?;
+    let answer = match shown {
+        crate::ui::Shown::Rgb(rgb) if rgb == crate::ui::KEY_RGB => key,
+        crate::ui::Shown::Rgb([r, g, b]) => (u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3),
+        // Nothing drawn: cleared to the key (the model drops what a fill
+        // of the key clears); a file not read yet: the form, as a drawn
+        // pixel would be.
+        crate::ui::Shown::Nothing => key,
+        crate::ui::Shown::Unknown => key ^ 1,
+        crate::ui::Shown::NotMirrored => return None,
+    };
+    if HIT_LOG.with(|n| { let k = n.get(); n.set(k + 1); k < 40 }) {
+        log::debug!("keyed hit test: canvas {canvas:#x} ({x}, {y}): {shown:?} -> {answer:#x}");
+    }
+    Some(answer)
+}
+
+thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
 /// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
 /// it draws onto the screen last (docs §16.5, §16.11): not mirrored, the

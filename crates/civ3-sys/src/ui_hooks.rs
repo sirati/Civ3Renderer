@@ -123,6 +123,13 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The same `get_pixel` at one call: the keyed forms' hit test
+    /// ([`keyed_hit_test_site`]). A hook of its own: [`pcx_get_pixel`] is
+    /// installed at the function's start.
+    pub mod keyed_hit_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// `void Base_Form::m79_composite(this, RECT *dirty)`: copies the form's
     /// canvas onto the back buffer.
     pub mod form_composite(form, edx; dirty) -> ();
@@ -269,6 +276,21 @@ pub fn graphics_initialized(build: Build) -> bool {
         Build::Gog | Build::Steam => false,
     }
 }
+
+/// The keyed forms' hit test (0x608C70) reads the pixel of the form's
+/// canvas (+0x274) under the mouse here, `call PCX_Image::get_pixel`, and
+/// compares it with the colour key (0x72FEB0) (`docs/rerender-roadmap.md`
+/// §4 #1).
+pub fn keyed_hit_test_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
+    match build {
+        Build::PcGames => Some((0x60_8FE3, &[0xE8, 0x38, 0x72, 0xFF, 0xFF])),
+        Build::Gog | Build::Steam => None,
+    }
+}
+
+/// Where the game keeps its 16-bit colour key (bit 31 a flag), which the
+/// keyed hit test compares with.
+pub const COLOR_KEY: u32 = 0x72_FEB0;
 
 /// The back buffer (`PCX_Image` at 0xCACFF0): its pixels are the window's.
 pub fn back_buffer(build: Build) -> Option<u32> {
