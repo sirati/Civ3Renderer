@@ -1935,8 +1935,10 @@ fn publish(
                 // (In the game view's pixels: halved zoomed out; the sprites
                 // stay at full size, the renderer halves them.)
                 scene.focus = units::focus(world);
+                scene.focus_motion = units::focus_motion(world, &sliding);
                 if view.zoomed_out {
                     scene.focus = scene.focus.map(|(x, y)| (x / 2, y / 2));
+                    scene.focus_motion = scene.focus_motion.map(|m| scene::FocusMotion { from: (m.from.0 / 2, m.from.1 / 2), ..m });
                 }
                 scene
             }

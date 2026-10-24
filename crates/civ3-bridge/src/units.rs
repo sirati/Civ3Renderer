@@ -114,6 +114,8 @@ pub struct UnitArt {
     /// (INI file, animation) → file, cached (effects, §10.14).
     by_ini: HashMap<(String, i32), Option<AnimFile>>,
     smoke: Option<Vec<[u8; 4]>>,
+    /// The movement LED's pixels (green, yellow, red), read once.
+    led: Option<[[[u8; 4]; 36]; 3]>,
     /// Whether it reads what it has not resolved yet (else: as if it were
     /// not there, for now; see [`UnitArt::set_reading`]).
     reading: bool,
@@ -131,7 +133,28 @@ impl UnitArt {
                 }
             }
         }
-        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new(), by_ini: HashMap::new(), smoke: None, reading: true }
+        Self { files, anim_names, resolved: HashMap::new(), cursor: None, by_path: HashMap::new(), inis: HashMap::new(), by_ini: HashMap::new(), smoke: None, led: None, reading: true }
+    }
+
+    /// The movement LED's 6×6 pixels in state `state` (0 green, 1 yellow,
+    /// 2 red), as `Art/interface/MovementLED.pcx` has them (the description's
+    /// `movement_led`: cells from (1, 1), 8 pixels apart, index 255
+    /// transparent); without the file, a square of its colour.
+    pub fn led(&mut self, state: usize) -> [[u8; 4]; 36] {
+        const PLAIN: [[u8; 4]; 3] = [[0, 200, 0, 255], [200, 200, 0, 255], [200, 0, 0, 255]];
+        let state = state.min(2);
+        if self.led.is_none() && self.reading {
+            let read = self.files.read("Art/interface/MovementLED.pcx").ok().and_then(|b| civ3_assets::pcx::decode(&b).ok());
+            self.led = Some(std::array::from_fn(|k| std::array::from_fn(|p| match &read {
+                Some(img) if img.width >= 1 + 14 * k as u32 + 6 && img.height >= 7 => {
+                    let i = img.get(1 + 14 * k as u32 + (p % 6) as u32, 1 + (p / 6) as u32);
+                    let c = img.palette.0[i as usize];
+                    if i == 255 { [0; 4] } else { [c.0, c.1, c.2, 255] }
+                }
+                _ => PLAIN[k],
+            })));
+        }
+        self.led.map_or([PLAIN[state]; 36], |l| l[state])
     }
 
     /// How the blit draws the smoke indices ([`SMOKE`], docs §10.14), as
@@ -713,6 +736,20 @@ pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
     world.units.iter().find(|u| u.id == id && u.visible).map(|u| u.pixel)
 }
 
+/// Where the marker over the selected unit is while it slides to the next
+/// tile (`place_sliding`): from its slide's start along its motion, the
+/// renderer moving it on; held at the end of its way, there (`serial` 0).
+/// The marker follows that rather than [`focus`] (the game's own steps).
+pub fn focus_motion(world: &Civ3World, sliding: &HashMap<i32, crate::unit_slides::Shown>) -> Option<scene::FocusMotion> {
+    let id = world.current_unit.or_else(|| world.selection.map(|(id, _)| id))?;
+    world.units.iter().find(|u| u.id == id && u.visible)?;
+    match sliding.get(&id)? {
+        &crate::unit_slides::Shown::Sliding { serial, from, .. } => Some(scene::FocusMotion { serial, from }),
+        // (At the end of its way: there, though the game has it not yet.)
+        &crate::unit_slides::Shown::Held(at) => Some(scene::FocusMotion { serial: 0, from: at }),
+    }
+}
+
 /// The layers a tile's units are drawn on (civ3.toml), one set per unit
 /// the tile shows, in drawing order: the animator draws a tile's units one
 /// after the other, at most two (a moving unit over the one under it,
@@ -791,11 +828,17 @@ pub struct Piece {
     /// The named palette its indexed art is drawn with (a palette of the
     /// description; empty: none).
     pub palette: String,
+    /// What a HUD piece shows (`hud`), drawn as rectangles at the
+    /// resolution of the views showing it when enlarged (`hud_scale`).
+    pub hud: Option<Hud>,
+    /// The HUD's enlargement in sixteenths (0: its 1:1 sprite instead; see
+    /// [`hud_rects`]).
+    pub hud_scale: u16,
 }
 
 impl Piece {
     fn new(part: Part, set: String, at: (i32, i32)) -> Piece {
-        Piece { part, set, phase: 0, sprite: None, smoke: None, viewer_ms: 0, at, scale_den: 0, tint: 0, palette: String::new() }
+        Piece { part, set, phase: 0, sprite: None, smoke: None, viewer_ms: 0, at, scale_den: 0, tint: 0, palette: String::new(), hud: None, hud_scale: 0 }
     }
 }
 
@@ -997,8 +1040,7 @@ pub fn place_sliding(
             let first = scene.sprites.len() as u32;
             for p in &pieces {
                 let after = if p.part == Part::Ring { under_units } else { units_pass };
-                scene.sprites.extend(free_sprite(compiled, p, after));
-                scene.sprites.extend(smoke_free_sprite(compiled, p, after));
+                scene.sprites.extend(piece_sprites(compiled, art, p, after));
             }
             log::debug!("units: unit {} slides as sprites {first}..{} ({:?})", u.id, scene.sprites.len(), pieces.iter().map(|p| (p.part, p.at)).collect::<Vec<_>>());
             scene.motions.push(scene::Motion { serial, sprites: (first, scene.sprites.len() as u32), way, duration_ms: ms });
@@ -1009,8 +1051,7 @@ pub fn place_sliding(
             // Inverting rings under the units (a layer cannot invert).
             let Some(slot) = slot.filter(|_| !free_tail && p.part != Part::Ring) else {
                 let after = if p.part == Part::Ring { under_units } else { units_pass };
-                scene.sprites.extend(free_sprite(compiled, &p, after));
-                scene.sprites.extend(smoke_free_sprite(compiled, &p, after));
+                scene.sprites.extend(piece_sprites(compiled, art, &p, after));
                 continue;
             };
             let layer = format!("{}_{}", SLOTS[slot], p.part.layer());
@@ -1180,6 +1221,15 @@ fn wrapped_offset(d: i32, wraps: bool, period: i32) -> i16 {
     d.clamp(i16::MIN.into(), i16::MAX.into()) as i16
 }
 
+/// `p` as free sprites after pass `after`: its frame's own sprite and its
+/// smoke, or an enlarged HUD piece's rectangles ([`hud_rects`]).
+fn piece_sprites(compiled: &Compiled, art: &mut UnitArt, p: &Piece, after: u32) -> Vec<scene::FreeSprite> {
+    if p.hud.is_some() && p.hud_scale != 0 {
+        return hud_rects(art, p, after);
+    }
+    free_sprite(compiled, p, after).into_iter().chain(smoke_free_sprite(compiled, p, after)).collect()
+}
+
 /// `p` as a free sprite after pass `after_pass` (its frame's own sprite).
 fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene::FreeSprite> {
     // (On the renderer's clock: the whole animation, from the piece's frame.)
@@ -1204,7 +1254,7 @@ fn free_sprite(compiled: &Compiled, p: &Piece, after_pass: u32) -> Option<scene:
         zoom_offset: (0, 0),
         clip: None,
         not_in_view: None,
-        glyph: None, solid: None,
+        glyph: None, solid: None, output_rect: None,
         palette: piece_palette(compiled, p),
         category: viewer_settings::clean_map::UNITS,
     })
@@ -1250,8 +1300,7 @@ pub fn free_sprites_accessible(world: &Civ3World, art: &mut UnitArt, compiled: &
         let pieces = accessible_pieces(pieces(world, art, u, rings), accessibility);
         for p in memory.drawable(world, art, compiled, u, pieces) {
             let after = if p.part == Part::Ring { under_units } else { units_pass };
-            out.extend(free_sprite(compiled, &p, after));
-            out.extend(smoke_free_sprite(compiled, &p, after));
+            out.extend(piece_sprites(compiled, art, &p, after));
         }
     }
     out
@@ -1322,7 +1371,7 @@ fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<Piece> {
         hud::RED
     };
     if has_bar {
-        out.push(Piece::new(Part::Bar, format!("UnitHud_bar/{}", hud::bar_index(max, hp, color)), at));
+        out.push(Piece { hud: Some(Hud::Bar { max, segments: hp.clamp(0, 20).min(max.clamp(1, 21)), color }), ..Piece::new(Part::Bar, format!("UnitHud_bar/{}", hud::bar_index(max, hp, color)), at) });
     }
     // §10.10: fortified land units on land with moves left get a white
     // outline around the bar (the LED drawn next covers most of its top).
@@ -1330,7 +1379,7 @@ fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<Piece> {
     let left_moves = (total_moves - u.moves).clamp(0, 9999);
     let on_water = world.tile(u.x, u.y).is_some_and(|t| t.terrain() >= COAST);
     if has_bar && class == 0 && !on_water && u.state == STATE_FORTIFIED && left_moves > 0 {
-        out.push(Piece::new(Part::Frame, format!("UnitHud_frame/{bar}"), at));
+        out.push(Piece { hud: Some(Hud::Frame { max }), ..Piece::new(Part::Frame, format!("UnitHud_frame/{bar}"), at) });
     }
     // Own units: whether the native move-point allowance has been spent.
     if u.civ == world.player {
@@ -1341,12 +1390,12 @@ fn hud(world: &Civ3World, u: &Civ3Unit, anchor: (i32, i32)) -> Vec<Piece> {
         } else {
             0
         };
-        out.push(Piece::new(Part::Led, format!("UnitHud_led@{bar}/{led}"), at));
+        out.push(Piece { hud: Some(Hud::Led { max, state: led }), ..Piece::new(Part::Led, format!("UnitHud_led@{bar}/{led}"), at) });
     }
     // Stack lines: one per unit on the tile (up to 8), when there are
     // several and the unit is not moving.
     if let Some(n) = stack_count(world, u) {
-        out.push(Piece::new(Part::Stack, format!("UnitHud_stack/{}", n.min(8)), at));
+        out.push(Piece { hud: Some(Hud::Stack { lines: n.min(8) }), ..Piece::new(Part::Stack, format!("UnitHud_stack/{}", n.min(8)), at) });
     }
     out
 }
@@ -1364,18 +1413,108 @@ fn accessible_pieces(mut pieces: Vec<Piece>, a: &viewer_settings::accessibility:
     if a.stack_count { pieces.retain(|p| p.part != Part::Stack); }
     let scale = a.hud_scale();
     if scale != 1.0 {
-        for p in pieces.iter_mut().filter(|p| matches!(p.part, Part::Bar | Part::Frame | Part::Led | Part::Stack)) {
-            let (group, index) = p.set.rsplit_once('/').unwrap();
-            p.set = format!("{group}@size{}/{index}", a.hud_size.min(3));
-            // Put the world origin at the bar's bottom centre. The enlarged
-            // sheet keeps its pixel size in native reduced views, but its
-            // baseline must downscale with the unit rather than sit 24
-            // unscaled pixels below the old HUD origin.
-            p.at.0 += 7;
-            p.at.1 += 24;
+        // Enlarged, the HUD is drawn as rectangles at the resolution of
+        // the views showing it ([`hud_rects`]), not as its sprites scaled.
+        for p in pieces.iter_mut().filter(|p| p.hud.is_some()) {
+            p.hud_scale = (scale * scene::OUTPUT_SCALE_ONE as f32).round() as u16;
         }
     }
     pieces
+}
+
+/// What a HUD piece shows (§10.6), for drawing it at any size.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Hud {
+    /// A health bar of `max` hit points (at most 21: more look the same),
+    /// `segments` of them filled, in colour `color` (`hud::GREEN`, ...).
+    Bar { max: i32, segments: i32, color: usize },
+    /// The fortified unit's white outline around the bar of `max`.
+    Frame { max: i32 },
+    /// The movement LED (0 green, 1 yellow, 2 red) above the bar of `max`.
+    Led { max: i32, state: usize },
+    /// The stack lines (2..=8) below the bar.
+    Stack { lines: usize },
+}
+
+/// The world sprites drawing HUD piece `p` (enlarged, `Piece::hud_scale`)
+/// as rectangles laid out at the resolution of whatever view shows them
+/// (`scene::OutputRect`), all from the bar's bottom centre (7, 24 from the
+/// HUD's origin), which moves with the unit; their size kept where the
+/// world is shown smaller, as the HUD's sprites keep theirs.
+///
+/// The layout is the 1:1 HUD's, with every length that repeats rounded to
+/// whole pixels once at the scale it is drawn at: one pixel `x1`/`y1`,
+/// the bar's width `x2`, a segment's height `y2` (its slot is `y2 + y1`).
+/// Each segment, gap and border thus has the same width as the others:
+/// at a whole number of window pixels per world pixel and scale 1 exactly
+/// the 1:1 sprites scaled; else close to the scale, never uneven.
+pub fn hud_rects(art: &mut UnitArt, p: &Piece, after_pass: u32) -> Vec<scene::FreeSprite> {
+    let Some(hud) = p.hud.filter(|_| p.hud_scale != 0) else { return Vec::new() };
+    let s = p.hud_scale;
+    let (x, y) = (p.at.0 + 7, p.at.1 + 24);
+    let rect = |rgba: [u8; 4], lengths: [u8; 4], ex: [[i8; 2]; 2], ey: [[i8; 2]; 2], scale: (u16, u16)| scene::FreeSprite {
+        x, y, after_pass, ticks_per_frame: 1, category: viewer_settings::clean_map::UNITS,
+        output_rect: Some(scene::OutputRect { rgba, lengths, x: ex, y: ey, scale }),
+        ..Default::default()
+    };
+    // The bar's top, as coefficients of (y1, y2) (negative: up), and the
+    // y lengths of a bar of `max` hit points.
+    let bar = |max: i32| {
+        let max = max.clamp(1, 21);
+        let (pitch, height) = hud::pitch_and_height(max);
+        let slots = if pitch * max - 1 > height { 20 } else { max };
+        let top = if pitch * max - 1 > height { [-20, -20] } else { [-(max as i8 - 1), -(max as i8)] };
+        (top, [1, 2, 1, (pitch - 1) as u8], slots)
+    };
+    const BLACK: [u8; 4] = [0, 0, 0, 255];
+    const WHITE: [u8; 4] = [255, 255, 255, 255];
+    // x: the bar from -x1 to -x1 + x2, its outline a pixel around it.
+    let (bar_x, outer_x) = ([[-1, 0], [-1, 1]], [[-2, 0], [0, 1]]);
+    match hud {
+        Hud::Bar { max, segments, color } => {
+            let (top, lengths, _) = bar(max);
+            let rgba = [[0, 255, 0, 255], [255, 255, 0, 255], [255, 0, 0, 255]][color.min(2)];
+            let mut out = vec![rect(BLACK, lengths, bar_x, [[top[0], top[1]], [0, 0]], (s, s))];
+            // From the bottom up, a pixel apart.
+            out.extend((0..segments.clamp(0, 20) as i8).map(|k| rect(rgba, lengths, bar_x, [[-k, -k - 1], [-k, -k]], (s, s))));
+            out
+        }
+        Hud::Frame { max } => {
+            let (top, lengths, _) = bar(max);
+            let (left, right) = ([outer_x[0], bar_x[0]], [bar_x[1], outer_x[1]]);
+            vec![
+                rect(WHITE, lengths, outer_x, [[top[0] - 1, top[1]], [top[0], top[1]]], (s, s)),
+                rect(WHITE, lengths, outer_x, [[0, 0], [1, 0]], (s, s)),
+                rect(WHITE, lengths, left, [[top[0], top[1]], [0, 0]], (s, s)),
+                rect(WHITE, lengths, right, [[top[0], top[1]], [0, 0]], (s, s)),
+            ]
+        }
+        Hud::Led { max, state } => {
+            // Its 6×6 pixels, each x1 by y1, centred over the bar, its
+            // bottom on the bar's top; a row's runs of a colour together.
+            let (top, lengths, _) = bar(max);
+            let pixels = art.led(state);
+            let mut out = Vec::new();
+            for j in 0..6 {
+                let mut i = 0;
+                while i < 6 {
+                    let c = pixels[j * 6 + i];
+                    let start = i;
+                    while i < 6 && pixels[j * 6 + i] == c { i += 1; }
+                    if c[3] == 0 { continue; }
+                    let (l, r) = (start as i8 - 3, i as i8 - 3);
+                    let row = top[0] - 6 + j as i8;
+                    out.push(rect(c, lengths, [[l, 0], [r, 0]], [[row, top[1]], [row + 1, top[1]]], (s, s)));
+                }
+            }
+            out
+        }
+        Hud::Stack { lines } => {
+            // Lines across the outline's width, at the 1:1 pitch below the
+            // bar (enlarged, they would hang below the unit's feet).
+            (0..lines.clamp(2, 8) as i8).map(|k| rect(WHITE, [1, 2, 1, 2], outer_x, [[0, k + 1], [1, k + 1]], (s, scene::OUTPUT_SCALE_ONE))).collect()
+        }
+    }
 }
 
 /// World text and plates use the same font and translucent brown/black
@@ -1523,37 +1662,6 @@ pub mod hud {
         let stacks: Vec<String> = (2..=8).map(|n| format!("{WHITE}:{},0,4,1*{n},0,2", 4 * (n - 2))).collect();
         let _ = writeln!(out, "[images.unit_hud_stack]\nsource = \"rects:28x15;{}\"\n", stacks.join(";"));
         sheet(&mut out, ("unit_hud_stack", "UnitHud_stack"), (4, 15), 7, (5, 26), 2);
-        // Keep the original sets byte-for-byte at 1x. Additional sheets
-        // share the source pixels and carry the enlarged anchors as well.
-        let base: toml::Table = toml::from_str(&out).expect("generated HUD description");
-        for (index, scale) in viewer_settings::accessibility::HUD_SCALES.into_iter().enumerate().skip(1) {
-            let mut sheets = toml::Table::new();
-            for (name, original) in base["sheets"].as_table().unwrap() {
-                let mut sheet = original.as_table().unwrap().clone();
-                let scaled = |key: &str| toml::Value::Array(sheet[key].as_array().unwrap().iter().map(|v|
-                    toml::Value::Integer((v.as_integer().unwrap() as f32 * scale).round() as i64)).collect());
-                let mut resize = scaled("cell");
-                let mut anchor = toml::Value::Array(sheet["anchor"].as_array().unwrap().iter().enumerate().map(|(axis, v)| {
-                    let pivot = [7.0, 24.0][axis];
-                    toml::Value::Integer(((v.as_integer().unwrap() as f32 - pivot) * scale).round() as i64)
-                }).collect());
-                if name == "unit_hud_stack" {
-                    // Enlarge the hashes across the bar, while retaining the
-                    // native vertical pitch and the gap below its baseline.
-                    // Scaling that gap/pitch makes them dangle below the feet.
-                    resize.as_array_mut().unwrap()[1] = sheet["cell"][1].clone();
-                    anchor.as_array_mut().unwrap()[1] = 2.into();
-                }
-                sheet.insert("resize".into(), resize);
-                sheet.insert("anchor".into(), anchor);
-                let group = format!("{}@size{index}", sheet["group"].as_str().unwrap());
-                sheet.insert("group".into(), group.into());
-                sheets.insert(format!("{name}_size{index}"), sheet.into());
-            }
-            let mut extra = toml::Table::new();
-            extra.insert("sheets".into(), sheets.into());
-            out.push_str(&toml::to_string(&extra).unwrap());
-        }
         out
     }
 }
@@ -1573,29 +1681,19 @@ mod tests {
         let original = hud(&world, &u, (100, 100));
         assert!(original.iter().any(|p| p.part == Part::Stack && p.set.ends_with("/2")));
         assert_eq!(accessible_pieces(original.clone(), &Accessibility::default()), original);
-        let desc: toml::Table = toml::from_str(&hud::description()).unwrap();
+        let mut art = UnitArt::new(GameFiles::complete("/nonexistent"));
         for (index, scale) in viewer_settings::accessibility::HUD_SCALES.into_iter().enumerate().skip(1) {
-            let stack = &desc["sheets"][format!("unit_hud_stack_size{index}")];
-            assert_eq!(stack["anchor"][1].as_integer(), Some(2), "hashes remain two pixels below the bar");
-            assert_eq!(stack["resize"][1].as_integer(), Some(15), "stack pitch must not grow below the unit's feet");
             let a = Accessibility { hud_size: index, stack_count: true, ..Default::default() };
             let changed = accessible_pieces(original.clone(), &a);
             assert!(!changed.iter().any(|p| p.part == Part::Stack));
             for p in &changed {
                 let old = original.iter().find(|q| q.part == p.part).unwrap();
-                assert_eq!(p.at, (old.at.0+7, old.at.1+24), "the origin is the bar's bottom centre at both native downscales");
-                let group = p.set.rsplit_once('/').unwrap().0;
-                let (_, sheet) = desc["sheets"].as_table().unwrap().iter().find(|(_, s)| s["group"].as_str() == Some(group)).unwrap();
-                for axis in 0..2 {
-                    let cell = sheet["cell"][axis].as_integer().unwrap();
-                    assert_eq!(sheet["resize"][axis].as_integer().unwrap(), (cell as f32*scale).round() as i64);
-                }
-                if p.part == Part::Bar {
-                    let ax = sheet["anchor"][0].as_integer().unwrap() as f32;
-                    let ay = sheet["anchor"][1].as_integer().unwrap() as f32;
-                    assert!((ax+scale).abs() <= 0.5);
-                    assert_eq!(ay + sheet["resize"][1].as_integer().unwrap() as f32, 0.0);
-                }
+                assert_eq!((p.at, &p.set, p.hud_scale), (old.at, &old.set, (scale * 16.0) as u16), "the 1:1 piece, enlarged");
+                // Drawn from the bar's bottom centre, which moves with the
+                // unit (halved in native reduced views), at the views'
+                // resolution.
+                let rects = hud_rects(&mut art, p, 7);
+                assert!(!rects.is_empty() && rects.iter().all(|s| (s.x, s.y, s.after_pass) == (old.at.0 + 7, old.at.1 + 24, 7) && s.output_rect.is_some()));
             }
         }
         struct Env;
@@ -1736,6 +1834,199 @@ mod tests {
             }
         }
         out
+    }
+
+    /// The HUD's own description with the LED sheet's image as civ3.toml
+    /// cuts it (each LED one colour, as `UnitArt::led` without the file).
+    fn hud_compiled() -> Compiled {
+        let desc = format!(
+            "grid = {{ layout = \"staggered\", step = [64, 32] }}\n[images.movement_led]\nsource = \"rects:44x8;0,200,0,255:1,1,6,6;200,200,0,255:15,1,6,6;200,0,0,255:29,1,6,6\"\n{}",
+            hud::description()
+        );
+        struct NoFiles;
+        impl render_desc::ImageLoader for NoFiles {
+            fn load(&self, source: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+                Err(format!("no file {source}"))
+            }
+        }
+        render_desc::Description::parse(&desc).unwrap().compile(&NoFiles, 4096).unwrap()
+    }
+
+    /// `sprites` drawn by the reference renderer in a view at `zoom`
+    /// (showing zoomed art: drawn at its zoom from the first shape on).
+    fn drawn(compiled: &Compiled, sprites: Vec<scene::FreeSprite>, size: (u32, u32), zoom: (u32, u32)) -> tile_render::RgbaImage {
+        let mut scene = scene::Scene::empty(scene::WorldShape { cols: 1, rows: 1, wrap_x: false, wrap_y: false }, compiled.layers.len());
+        scene.sprites = sprites;
+        let world = tile_viewer::scene_world(compiled, &scene);
+        let camera = tile_render::Camera { zoom, zoomed_art: true, ..tile_render::Camera::new((size.0 * zoom.0 / zoom.1, size.1 * zoom.0 / zoom.1)) };
+        tile_render::reference::render(&world, &compiled.atlas, &camera, 0, [105, 119, 73, 255])
+    }
+
+    /// Units showing every part of the HUD: bars of several heights and
+    /// fills, fortified frames, the LEDs, stack lines.
+    fn hud_states() -> Vec<(Civ3World, Civ3Unit)> {
+        let mut out = Vec::new();
+        let mut w = world();
+        w.unit_type_stats.push([0, 0, 1, 0, 0, 0, 0]);
+        for bonus in [0, 4, 9, 17, 30] {
+            w.unit_type_stats[0][3] = bonus;
+            for damage in [0, 2, 5, 12] {
+                for (state, moves, civ, stack) in [(STATE_FORTIFIED, 1, 0, 3), (STATE_FORTIFIED, 3, 1, 9), (0, 2, 0, 2), (0, 0, 0, 1)] {
+                    w.unit_tiles = vec![(4, 6, -1); stack];
+                    out.push((w.clone(), Civ3Unit { x: 4, y: 6, damage, state, moves, civ, ..Default::default() }));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_hud_at_one_drawn_at_the_views_resolution_is_its_sprites_at_whole_zooms() {
+        // At 1:1 (scale 16) and k window pixels per world pixel, the
+        // rectangles laid out at the window's resolution are exactly the
+        // sprites scaled k times: the rounding rule changes nothing there.
+        let compiled = hud_compiled();
+        let mut art = UnitArt::new(GameFiles::complete("/nonexistent"));
+        for (w, u) in hud_states() {
+            let pieces = hud(&w, &u, (64, 80));
+            let sprites: Vec<_> = pieces.iter().flat_map(|p| free_sprite(&compiled, p, 0)).collect();
+            let rects: Vec<_> = pieces.iter().flat_map(|p| hud_rects(&mut art, &Piece { hud_scale: 16, ..p.clone() }, 0)).collect();
+            assert!(rects.len() > pieces.len());
+            for k in 1..=4 {
+                assert!(drawn(&compiled, sprites.clone(), (64, 100), (k, 1)) == drawn(&compiled, rects.clone(), (64, 100), (k, 1)),
+                    "{u:?} (bonus {}, tiles {}) at {k}x", w.unit_type_stats[0][3], w.unit_tiles.len());
+            }
+        }
+    }
+
+    /// The runs of colours (colour, length) along `pixels`, the background
+    /// left out.
+    fn runs(pixels: impl Iterator<Item = [u8; 4]>) -> Vec<([u8; 4], u32)> {
+        let mut out: Vec<([u8; 4], u32)> = Vec::new();
+        for c in pixels {
+            match out.last_mut() {
+                Some((last, n)) if *last == c => *n += 1,
+                _ => out.push((c, 1)),
+            }
+        }
+        out.retain(|(c, _)| *c != [105, 119, 73, 255]);
+        out
+    }
+
+    #[test]
+    fn enlarged_huds_keep_every_segment_gap_and_border_one_width_in_window_pixels() {
+        use viewer_settings::accessibility::Accessibility;
+        let compiled = hud_compiled();
+        let mut art = UnitArt::new(GameFiles::complete("/nonexistent"));
+        let (green, black, white) = ([0, 255, 0, 255], [0, 0, 0, 255], [255, 255, 255, 255]);
+        let mut w = world();
+        w.unit_type_stats[0][3] = 2;
+        // (Another player's: no LED over the frame's top.)
+        let u = Civ3Unit { x: 4, y: 6, damage: 0, state: STATE_FORTIFIED, moves: 1, civ: w.player + 1, ..Default::default() };
+        let max = max_hp(&w, &u);
+        for index in 1..=3 {
+            let scale = viewer_settings::accessibility::HUD_SCALES[index];
+            for zoom in [(2, 1), (3, 1), (3, 2), (1, 1)] {
+                let a = Accessibility { hud_size: index, ..Default::default() };
+                let pieces = accessible_pieces(hud(&w, &u, (96, 140)), &a);
+                let rects: Vec<_> = pieces.iter().flat_map(|p| hud_rects(&mut art, p, 0)).collect();
+                let image = drawn(&compiled, rects, (128, 160), zoom);
+                let e = f64::from(scale) * f64::from(zoom.0) / f64::from(zoom.1);
+                let px = |len: f64| (len * e + 0.5).floor() as u32;
+                // Down the bar's middle: the frame's top, then segments a
+                // gap apart (no gap above the top one), the frame's bottom.
+                let column = (0..image.width).find(|&x| (0..image.height).any(|y| image.get(x, y) == green)).unwrap() + px(1.0) / 2;
+                let down = runs((0..image.height).map(|y| image.get(column, y)));
+                let colours: Vec<_> = down.iter().map(|r| r.0).collect();
+                let mut want = vec![white];
+                for k in 0..max { if k > 0 { want.push(black); } want.push(green); }
+                want.push(white);
+                assert_eq!(colours, want, "{scale}x at {zoom:?}");
+                let lengths: Vec<_> = down.iter().map(|r| r.1).collect();
+                let (pitch, _) = hud::pitch_and_height(max);
+                for (i, &(c, n)) in down.iter().enumerate() {
+                    let want = if c == green { px(f64::from(pitch - 1)) } else { px(1.0) };
+                    assert_eq!(n, want, "{scale}x at {zoom:?}: run {i} of {lengths:?}");
+                }
+                // Across a segment: the frame's sides as wide as its top.
+                let row = (0..image.height).find(|&y| image.get(column, y) == green).unwrap();
+                let across = runs((0..image.width).map(|x| image.get(x, row)));
+                assert_eq!(across.iter().map(|r| r.0).collect::<Vec<_>>(), [white, green, white], "{scale}x at {zoom:?}");
+                assert_eq!(across.iter().map(|r| r.1).collect::<Vec<_>>(), [px(1.0), px(2.0), px(1.0)], "{scale}x at {zoom:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn enlarged_huds_draw_over_their_unit_and_under_what_comes_later() {
+        use viewer_settings::accessibility::Accessibility;
+        let compiled = hud_compiled();
+        let mut art = UnitArt::new(GameFiles::complete("/nonexistent"));
+        let mut w = world();
+        w.unit_type_stats[0][3] = 2;
+        let u = Civ3Unit { x: 4, y: 6, civ: 0, ..Default::default() };
+        let pieces = accessible_pieces(hud(&w, &u, (96, 140)), &Accessibility { hud_size: 2, ..Default::default() });
+        // A body under it, a solid over half of it (as an effect drawn
+        // after the units would be), all in the pass after the units.
+        let under = scene::FreeSprite { x: 40, y: 60, solid: Some(scene::SolidRect { width: 80, height: 100, rgba: [9, 9, 200, 255] }), ..Default::default() };
+        let over = scene::FreeSprite { x: 40, y: 60, solid: Some(scene::SolidRect { width: 32, height: 100, rgba: [200, 9, 9, 255] }), ..Default::default() };
+        let mut sprites = vec![under];
+        sprites.extend(pieces.iter().flat_map(|p| hud_rects(&mut art, p, 0)));
+        sprites.push(over);
+        let image = drawn(&compiled, sprites, (128, 160), (2, 1));
+        let row = (0..image.height).find(|&y| (0..image.width).any(|x| image.get(x, y) == [0, 255, 0, 255])).unwrap();
+        let reds = (0..image.width).filter(|&x| image.get(x, row) == [200, 9, 9, 255]).count();
+        assert_eq!(reds, 64, "the later solid covers the bar's row where it lies");
+        assert!((0..image.width).any(|x| image.get(x, row) == [0, 255, 0, 255]), "the bar over the body");
+        // Clipped by its view (as a split's divider clips each pane).
+        let mut scene = scene::Scene::empty(scene::WorldShape { cols: 1, rows: 1, wrap_x: false, wrap_y: false }, compiled.layers.len());
+        scene.sprites = pieces.iter().flat_map(|p| hud_rects(&mut art, p, 0)).collect();
+        let world = tile_viewer::scene_world(&compiled, &scene);
+        let x0 = (0..image.width).find(|&x| image.get(x, row) == [0, 255, 0, 255]).unwrap() as i32;
+        let camera = tile_render::Camera { zoom: (2, 1), zoomed_art: true, target_clip: Some([0, 0, x0 + 1, 1000]), ..tile_render::Camera::new((256, 320)) };
+        let clipped = tile_render::reference::render(&world, &compiled.atlas, &camera, 0, [105, 119, 73, 255]);
+        assert!((0..clipped.height).all(|y| (x0 + 1..256).all(|x| clipped.get(x as u32, y) == [105, 119, 73, 255])), "nothing drawn past the view's clip");
+        assert_eq!(clipped.get(x0 as u32, row), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn an_enlarged_hud_slides_with_its_unit() {
+        use viewer_settings::accessibility::Accessibility;
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !std::path::Path::new(&install).join("Art").is_dir() {
+            return eprintln!("no Civ III installation, skipped");
+        }
+        let (width, height) = (16, 16);
+        let mut world = Civ3World {
+            width, height, player: 1, color_tables: vec![0, 3],
+            unit_type_keys: vec!["PRTO_Warrior".into()], unit_type_stats: vec![[1, 1, 1, 0, 0, 0, 0]], experience_hit_points: vec![3],
+            tiles: vec![crate::world::Civ3Tile { city: -1, ..Default::default() }; (width * height / 2) as usize],
+            ..Default::default()
+        };
+        let from = (64 * 6 + 64, 32 * 4 + 32);
+        world.units = vec![Civ3Unit { id: 1, x: 6, y: 4, civ: 1, pixel: (from.0 + 20, from.1 + 10), moving: true, animation: 1, direction: 3, visible: true, ..Default::default() }];
+        world.current_unit = Some(1);
+        let mut art = UnitArt::new(civ3_assets::GameFiles::complete(&install));
+        let text = format!("{}{}", crate::assets::BUILTIN_DESC, Needed::of(&world, &mut art).description());
+        let compiled = crate::assets::compile(&text, civ3_assets::GameFiles::complete(&install)).unwrap();
+        let view = Civ3View { tile_x: (0, width - 1), tile_y: (0, height - 1), ..Default::default() };
+        let mapper = crate::scene_map::Mapper::new(&compiled);
+        let sliding = HashMap::from([(1, crate::unit_slides::Shown::Sliding { serial: 77, from, way: (64, 32), ms: 100 })]);
+        let mut scene = mapper.scene(&world, &view, (1100, 600), 0);
+        let a = Accessibility { hud_size: 3, ..Default::default() };
+        place_sliding(&world, &view, &mut art, &compiled, None, &mut UnitMemory::default(), &mut scene, &a, &sliding);
+        let m = &scene.motions[0];
+        let moving = &scene.sprites[m.sprites.0 as usize..m.sprites.1 as usize];
+        let rects: Vec<_> = moving.iter().filter(|s| s.output_rect.is_some()).collect();
+        assert!(!rects.is_empty(), "the HUD's rectangles move with the unit");
+        assert!(scene.sprites.iter().filter(|s| s.output_rect.is_some()).count() == rects.len(), "all of them");
+        // From the bar's bottom centre at the start of the way.
+        assert!(rects.iter().all(|s| (s.x, s.y) == (from.0 - 32 + 7, from.1 - 32 + 24)));
+        // And the arrow over it.
+        assert_eq!(focus_motion(&world, &sliding), Some(scene::FocusMotion { serial: 77, from }));
+        let held = HashMap::from([(1, crate::unit_slides::Shown::Held((from.0 + 64, from.1 + 32)))]);
+        assert_eq!(focus_motion(&world, &held), Some(scene::FocusMotion { serial: 0, from: (from.0 + 64, from.1 + 32) }));
+        assert_eq!(focus_motion(&world, &HashMap::new()), None);
     }
 
     #[test]
