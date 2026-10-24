@@ -11,7 +11,8 @@
 # size as "W×H", `resolution.effective` the pixel scale in effect ("×3",
 # "×2, ×1 in this small window").
 # Also `dialog.changed.<key>` (a slider differs from its accepted value)
-# and `dialog.previewing_base` (the Base UI scale Preview button is on).
+# and `dialog.previewing.<name>` / `dialog.preview_offered.<name>` (an eye
+# button previews its setting / is shown; names base, menus, windowed).
 #
 # Art: the game's own where it has pieces (parchment buttons in three
 # states from the player setup screen, the checkboxes, the Preferences
@@ -357,36 +358,78 @@ style = "label"
 at = [90, 199]
 show_if = "tab=resolution"
 
-# Base UI scale waits for Accept so this window keeps its size. Preview
-# shows the drafted base on the game behind it until pressed again, a tab
-# change, Cancel or Accept.
+# Base UI scale, the menu size and the window mode wait for Accept (the
+# scales would resize this window under the pointer, the mode moves it).
+# Each has an eye button, shown while its value differs from the accepted
+# one or is previewed: the open eye shows the drafted value until Accept or
+# Cancel, across tabs; while it shows, the button is pressed in and its eye
+# struck through, ending the preview. The menu size and window mode ask
+# the viewer's timed "keep this?" first and revert unless kept.
 [[panels.preferences.items]]
 choice = "dialog.action"
-value = "preview_base"
-at = [556, 217]
-size = [130, 27]
-text = "Preview"
-style = "button"
+value = "preview.base"
+at = [550, 220]
+size = [23, 23]
 normal = "button"
 hover = "button_hover"
-tooltip = "Show this base UI scale behind Preferences"
+icon = "eye_icon"
+tooltip = "Preview"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
-show_if = "tab=resolution & !dialog.previewing_base"
+show_if = "tab=resolution & dialog.preview_offered.base & !dialog.previewing.base"
 
 [[panels.preferences.items]]
 choice = "dialog.action"
-value = "stop_preview_base"
-at = [556, 217]
-size = [130, 27]
-text = "Stop preview"
-style = "button"
+value = "end_preview.base"
+at = [550, 220]
+size = [23, 23]
 normal = "button_selected"
 hover = "button_hover"
-tooltip = "Back to the current base UI scale until Accept"
+icon = "eye_end_icon"
+tooltip = "End preview"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
-show_if = "tab=resolution & dialog.previewing_base"
+show_if = "tab=resolution & dialog.previewing.base"
+
+[[panels.preferences.items]]
+checkbox = "display.windowed"
+at = [600, 224]
+size = [120, 16]
+text = "Windowed"
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+tooltip = "A window on the desktop instead of fullscreen, also at the next start"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution"
+
+[[panels.preferences.items]]
+choice = "dialog.action"
+value = "preview.windowed"
+at = [700, 220]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "eye_icon"
+tooltip = "Preview"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.preview_offered.windowed & !dialog.previewing.windowed"
+
+[[panels.preferences.items]]
+choice = "dialog.action"
+value = "end_preview.windowed"
+at = [700, 220]
+size = [23, 23]
+normal = "button_selected"
+hover = "button_hover"
+icon = "eye_end_icon"
+tooltip = "End preview"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.previewing.windowed"
 
 [[panels.preferences.items]]
 text = "Rendered at {resolution.realised}"
@@ -2374,6 +2417,16 @@ show_if = "tab=layout & dialog.changed.layout.glass_dividers"
 generated = "rects:16x16;60,48,24,255:5,1,1,2;60,48,24,255:4,2,2,2;60,48,24,255:3,3,8,2;60,48,24,255:2,4,4,3;60,48,24,255:1,5,5,1;60,48,24,255:3,7,3,1;60,48,24,255:4,8,2,1;60,48,24,255:5,9,1,1;60,48,24,255:10,4,3,2;60,48,24,255:12,6,2,4;60,48,24,255:10,10,3,2;60,48,24,255:6,11,5,2"
 size = [16, 16]
 
+# The eye buttons' icons, in the undo icon's brown pixel art: an open eye
+# (Preview), and the same eye struck through (End preview).
+[art.eye_icon]
+generated = "rects:16x16;60,48,24,255:5,3,6,1;60,48,24,255:3,4,2,1;60,48,24,255:11,4,2,1;60,48,24,255:2,5,1,1;60,48,24,255:13,5,1,1;60,48,24,255:1,6,1,1;60,48,24,255:14,6,1,1;60,48,24,255:0,7,1,2;60,48,24,255:15,7,1,2;60,48,24,255:1,9,1,1;60,48,24,255:14,9,1,1;60,48,24,255:2,10,1,1;60,48,24,255:13,10,1,1;60,48,24,255:3,11,2,1;60,48,24,255:11,11,2,1;60,48,24,255:5,12,6,1;60,48,24,255:6,5,4,6;60,48,24,255:5,6,6,4;242,225,184,255:6,6,2,2"
+size = [16, 16]
+
+[art.eye_end_icon]
+generated = "rects:16x16;60,48,24,255:5,3,6,1;60,48,24,255:3,4,2,1;60,48,24,255:11,4,2,1;60,48,24,255:2,5,1,1;60,48,24,255:13,5,1,1;60,48,24,255:1,6,1,1;60,48,24,255:14,6,1,1;60,48,24,255:0,7,1,2;60,48,24,255:15,7,1,2;60,48,24,255:1,9,1,1;60,48,24,255:14,9,1,1;60,48,24,255:2,10,1,1;60,48,24,255:13,10,1,1;60,48,24,255:3,11,2,1;60,48,24,255:11,11,2,1;60,48,24,255:5,12,6,1;60,48,24,255:6,5,4,6;60,48,24,255:5,6,6,4;242,225,184,255:6,6,2,2;120,24,16,255:1,13,2,2;120,24,16,255:2,12,2,2;120,24,16,255:3,11,2,2;120,24,16,255:4,10,2,2;120,24,16,255:5,9,2,2;120,24,16,255:6,8,2,2;120,24,16,255:7,7,2,2;120,24,16,255:8,6,2,2;120,24,16,255:9,5,2,2;120,24,16,255:10,4,2,2;120,24,16,255:11,3,2,2;120,24,16,255:12,2,2,2;120,24,16,255:13,1,2,2"
+size = [16, 16]
+
 [art.tooltip]
 fill = [242, 225, 184]
 border = [104, 88, 60]
@@ -2403,6 +2456,32 @@ tooltip = "Undo to current state"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
 show_if = "tab=resolution & dialog.changed.resolution.menu_scale_percent"
+
+[[panels.preferences.items]]
+choice = "dialog.action"
+value = "preview.menus"
+at = [790, 334]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "eye_icon"
+tooltip = "Preview"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.preview_offered.menus & !dialog.previewing.menus"
+
+[[panels.preferences.items]]
+choice = "dialog.action"
+value = "end_preview.menus"
+at = [790, 334]
+size = [23, 23]
+normal = "button_selected"
+hover = "button_hover"
+icon = "eye_end_icon"
+tooltip = "End preview"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=resolution & dialog.previewing.menus"
 
 [[panels.preferences.items]]
 choice = "dialog.undo"
