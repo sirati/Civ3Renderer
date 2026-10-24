@@ -196,7 +196,7 @@ pub(crate) fn placeholder_sprites() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         let p = policy();
-        p.capture && !p.game_draws && !p.fallback && !crate::jgl_hooks::compare::on()
+        p.capture && !p.game_draws && !p.fallback
     })
 }
 
@@ -311,11 +311,6 @@ pub fn skipping() -> bool {
 /// at +4): drawings without them do nothing (and return an error code).
 fn has_pixels(object: u32) -> bool {
     inproc::Ptr32::<u32>::new(object.wrapping_add(4)).read().is_ok_and(|p| p != 0)
-}
-
-/// Whether a blit of `sprite` onto `canvas` reaches jgl (both have pixels).
-pub(crate) fn reaches(sprite: u32, canvas: u32) -> bool {
-    has_pixels(sprite) && has_pixels(canvas)
 }
 
 /// Whether the game's drawing onto `canvas` from `source` (0: none), just
@@ -690,7 +685,6 @@ fn emit(e: Event) {
     // MapMessage draws onto the animator's map overlay. It is rebuilt as
     // tile-anchored world art, never copied into a misplaced UI overlay.
     if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::TextClipped { .. } | Event::Fill { .. }) { return; }
-    if crate::jgl_hooks::compare::swallow(&e) { return; }
     let present = matches!(e, Event::Present { .. });
     watch(&e);
     with_model(present, |m| m.apply(e));
@@ -1097,9 +1091,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         emit(Event::Reset { sprite: c.sprite });
         c.original()
     });
-    if crate::jgl_hooks::compare::on() {
-        hook_old_blits(game, &sites, &mut hooks)?;
-    }
     // The keyed forms' hit test reads the pixel under the mouse from the
     // form's canvas. With placeholder sprites jgl draws no sprite there:
     // the interface model answers it, from what the viewer shows.
@@ -1432,15 +1423,9 @@ pub fn map_redraw(map_renderer: u32) {
     });
 }
 
-/// An unscaled map-sprite blit onto an interface canvas (Top 5 Cities).
-/// The tracer excludes the main map pass, which the renderer draws itself.
-/// Returns whether the game's own drawing of this recorded blit is skipped.
-pub fn on_map_sprite(sprite: u32, canvas: u32, x: u32, y: u32, scale: [u32; 3], ct: u32) -> bool {
-    map_sprite_events(sprite, canvas, x, y, Placement::default(), scale, ct, clip_of(canvas));
-    skips(canvas, sprite)
-}
-
-/// The events of [`on_map_sprite`] (`placed`: see [`resized_blit`]).
+/// A map-sprite blit (`draw_on_map`) onto an interface canvas (Top 5
+/// Cities): the main map pass is the renderer's (`placed`: see
+/// [`resized_blit`]).
 #[allow(clippy::too_many_arguments)]
 fn map_sprite_events(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement, scale: [u32; 3], ct: u32, clip: Option<[i32; 4]>) {
     if scale[0] == scale[1] && scale[1] == scale[2] {
@@ -1450,17 +1435,10 @@ fn map_sprite_events(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement
     }
 }
 
-/// A blend-table blit (`Sprite::draw_blend` through its scaled wrapper,
-/// the tracer's hook) onto an interface canvas: the shadows of resources
-/// and terrain buildings, e.g. in the tile information box's picture of the
-/// map. `table`: the blend tables. Returns whether the game's own drawing
-/// of it is skipped.
-pub fn on_map_blend(sprite: u32, canvas: u32, x: u32, y: u32, table: u32, scale: [u32; 3], ct: u32) -> bool {
-    map_blend_events(sprite, canvas, x, y, Placement::default(), table, scale, ct, clip_of(canvas));
-    skips(canvas, sprite)
-}
-
-/// The events of [`on_map_blend`] (`placed`: see [`resized_blit`]).
+/// A blend-table blit (`Sprite::draw_blend`, alone or through its scaled
+/// wrapper) onto an interface canvas: the shadows of resources and terrain
+/// buildings, e.g. in the tile information box's picture of the map.
+/// `table`: the blend tables (`placed`: see [`resized_blit`]).
 #[allow(clippy::too_many_arguments)]
 fn map_blend_events(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement, table: u32, scale: [u32; 3], ct: u32, clip: Option<[i32; 4]>) {
     // (Nothing is mirrored onto the world's canvases: no tables to look up.)
@@ -1742,76 +1720,6 @@ pub fn skips_blit(b: &GameBlit) -> bool {
         }
         _ => skips(canvas, sprite),
     }
-}
-
-/// The exe detours on the `Sprite` drawing functions that jgl's sprite
-/// group replaces, with the old path's events, beside the takeover
-/// (`CIV3R_JGL_COMPARE=1` only; see `jgl_hooks::compare`). Each calls the
-/// original always: the takeover below decides the pixels.
-fn hook_old_blits(game: &Civ3, sites: &h::UiSites, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) -> Result<(), HookError> {
-    use crate::jgl_hooks::compare::old_call;
-    macro_rules! hook {
-        ($module:ident, $site:expr, $handler:expr) => {
-            hooks.push(Box::new(h::$module::install_at_start($site.0, $site.1, $handler)?));
-        };
-    }
-    let lazy = |sprite: u32| obj::sprite_loads_file(sprite);
-    let reach = move |sprite: u32, canvas: u32| !lazy(sprite) && has_pixels(sprite) && has_pixels(canvas);
-    hook!(sprite_draw, sites.sprite_draw, move |c| old_call("draw", reach(c.sprite, c.canvas), || {
-        if !is_cursor(c.sprite, c.canvas) { blit(c.sprite, c.canvas, c.x, c.y, true, c.ct, clip_of(c.canvas)); }
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_variant, sites.sprite_draw_variant, move |c| old_call("variant", reach(c.sprite, c.canvas), || {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_a4, sites.sprite_draw_a4, move |c| old_call("a4", reach(c.sprite, c.canvas), || {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_a4b, sites.sprite_draw_a4b, move |c| old_call("a4b", reach(c.sprite, c.canvas), || {
-        blit(c.sprite, c.canvas, c.x, c.y, true, c.ct, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_scaled_a4, sites.sprite_draw_scaled_a4, move |c| old_call("scaled_a4", reach(c.sprite, c.canvas), || {
-        resized_blit(c.sprite, c.canvas, c.x, c.y, Placement::default(), [c.num_x, c.num_y, c.den], c.ct, None, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_scaled_a8, sites.sprite_draw_scaled_a8, move |c| old_call("scaled_a8", reach(c.sprite, c.canvas), || {
-        resized_blit(c.sprite, c.canvas, c.x, c.y, Placement::default(), [c.num_x, c.num_y, c.den], c.ct, None, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_scaled_colored, sites.sprite_draw_scaled_colored, move |c| {
-        let reaches = has_pixels(c.sprite) && has_pixels(c.canvas) && has_pixels(c.canvas2);
-        old_call("scaled_colored", reaches, || {
-            scaled_colored(c.sprite, c.canvas2, c.x, c.y, Placement::default(), [c.num_x, c.num_y, c.den], c.flags, c.ct, clip_of(c.canvas2));
-            skips(c.canvas2, c.sprite)
-        }, || c.original())
-    });
-    hook!(sprite_draw_blend, sites.sprite_draw_blend, move |c| old_call("blend", reach(c.sprite, c.canvas), || {
-        map_blend_events(c.sprite, c.canvas, c.x, c.y, Placement::default(), c.lut, [1, 1, 1], c.ct, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_opacity, sites.sprite_draw_opacity, move |c| old_call("opacity", reach(c.sprite, c.canvas), || {
-        opacity_blit(c.sprite, c.canvas, c.x, c.y, c.opacity, c.ct, clip_of(c.canvas));
-        skips(c.canvas, c.sprite)
-    }, || c.original()));
-    hook!(sprite_draw_alpha, sites.sprite_draw_alpha, move |c| {
-        let reaches = has_pixels(c.sprite) && has_pixels(c.mask) && has_pixels(c.background) && has_pixels(c.dest);
-        old_call("alpha", reaches, || {
-            masked_blit(c.sprite, c.mask, c.dest, c.x, c.y, clip_of(c.dest));
-            skips(c.dest, c.sprite)
-        }, || c.original())
-    });
-    hook!(sprite_draw_masked, sites.sprite_draw_masked, move |c| {
-        let reaches = has_pixels(c.sprite) && has_pixels(c.mask) && has_pixels(c.dest);
-        old_call("masked", reaches, || {
-            masked_blit(c.sprite, c.mask, c.dest, c.x, c.y, clip_of(c.dest));
-            skips(c.dest, c.sprite)
-        }, || c.original())
-    });
-    let _ = game;
-    Ok(())
 }
 
 #[cfg(test)]

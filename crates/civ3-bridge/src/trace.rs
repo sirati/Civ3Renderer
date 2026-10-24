@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use civ3_sys::hooks::{draw_tiles, sprite_draw_on_map, sprite_draw_on_map_blend, sprite_draw_with_color_table};
+use civ3_sys::hooks::draw_tiles;
 use civ3_sys::sprites::{SpriteRef, identify_canonical};
 use civ3_sys::{Civ3, hooks};
 
@@ -81,9 +81,6 @@ pub static DRAW_TILES_CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::A
 
 pub struct Tracer {
     _draw_tiles: draw_tiles::Installed,
-    _sprite: Option<sprite_draw_on_map::Installed>,
-    _blend: Option<sprite_draw_on_map_blend::Installed>,
-    _colored: Option<sprite_draw_with_color_table::Installed>,
 }
 
 /// Whether a map redraw (`Draw_Tiles`) is running.
@@ -111,9 +108,6 @@ pub(crate) fn record_colored(sprite: u32, x: u32, y: u32, params: Vec<u32>) {
 
 /// Records a draw and reports whether it belongs to the main map pass.
 fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) -> bool {
-    if crate::jgl_hooks::compare::swallow_record(map_renderer, sprite, x, y, &params, kind) {
-        return STATE.with_borrow(|s| s.depth > 0);
-    }
     let in_map = STATE.with_borrow_mut(|s| {
         let in_map = s.depth > 0;
         if let Some((_, frame, at)) = s.frame.as_mut() {
@@ -205,45 +199,7 @@ fn request_path() -> PathBuf {
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let _ = BUILD.set(game.build);
     // The map's own blits come from jgl's sprite group (`ui_trace::on_blit`:
-    // `record_map`, `record_colored`); with `CIV3R_JGL_COMPARE=1` the old
-    // detours on the exe's functions run beside it.
-    let compare = crate::jgl_hooks::compare::on();
-    let sprite = match hooks::sprite_draw_on_map_site(game.build).filter(|_| compare) {
-        Some((addr, prologue)) => Some(sprite_draw_on_map::install_at_start(addr, prologue, |call| {
-            let file_source = civ3_sys::ui_hooks::obj::sprite_loads_file(call.sprite);
-            let reaches = !file_source && crate::ui_trace::reaches(call.sprite, call.map_renderer);
-            crate::jgl_hooks::compare::old_call("draw_on_map", reaches, || {
-                let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
-                let skip_ui = !file_source && !in_map
-                    && crate::ui_trace::on_map_sprite(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, [call.p4, call.p5, call.p6], call.p7);
-                !file_source && (map_blits_off() || skip_ui)
-            }, || call.original())
-        })?),
-        None => None,
-    };
-    let blend = match hooks::sprite_draw_on_map_blend_site(game.build).filter(|_| compare) {
-        Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_at_start(addr, prologue, |call| {
-            let reaches = crate::ui_trace::reaches(call.sprite, call.map_renderer);
-            crate::jgl_hooks::compare::old_call("on_map_blend", reaches, || {
-                let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
-                let skip_ui = !in_map && crate::ui_trace::on_map_blend(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, call.table, [call.p5, call.p6, call.p7], call.p8);
-                map_blits_off() || skip_ui
-            }, || call.original())
-        })?),
-        None => None,
-    };
-    let colored = match hooks::sprite_draw_with_color_table_site(game.build).filter(|_| compare) {
-        Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_at_start(addr, prologue, |call| {
-            let reaches = crate::ui_trace::reaches(call.sprite, call.canvas) && crate::ui_trace::reaches(call.sprite, call.canvas2);
-            crate::jgl_hooks::compare::old_call("with_color_table", reaches, || {
-                let mr = STATE.with_borrow(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
-                record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
-                crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y, call.table, call.p6, crate::ui_trace::clip_of(call.canvas2));
-                map_blits_off() && crate::ui_trace::skipping() || crate::ui_trace::skips_colored(call.sprite, call.canvas2)
-            }, || call.original())
-        })?),
-        None => None,
-    };
+    // `record_map`, `record_colored`).
     // Normally game_window's early LoadLibraryA callback took jgl's text
     // group over before any jgl call. Cover injection into an
     // already-loaded module synchronously as well.
@@ -278,7 +234,7 @@ pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     if !crate::runtime::spawn(serve_requests(game)) {
         log::warn!("trace: no runtime for the request server");
     }
-    Ok(Tracer { _draw_tiles: draw_tiles, _sprite: sprite, _blend: blend, _colored: colored })
+    Ok(Tracer { _draw_tiles: draw_tiles })
 }
 
 /// Answers trace requests with the latest redraw, once it has been quiet
