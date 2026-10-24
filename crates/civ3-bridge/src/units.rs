@@ -1529,7 +1529,7 @@ pub fn hud_rects(art: &mut UnitArt, p: &Piece, after_pass: u32) -> Vec<scene::Fr
 }
 
 /// World text and plates use the same font and translucent brown/black
-/// backing as city labels. Each native reduced view gets its own layout.
+/// backing as city labels (no plates with `stack_backdrop` off). Each native reduced view gets its own layout.
 pub fn stack_items(world: &Civ3World, reduced: bool, a: &viewer_settings::accessibility::Accessibility, env: &mut dyn crate::city_labels::Env) -> Vec<crate::ui_screen::Item> {
     use crate::{city_labels::LabelOp, text::TextRun, ui_screen::Item};
     if !a.stack_count { return Vec::new(); }
@@ -1552,19 +1552,31 @@ pub fn stack_items(world: &Civ3World, reduced: bool, a: &viewer_settings::access
         // just above the ring. Leave the head, left-hand HUD and arrow clear,
         // including when native reduced views retain the large text size.
         let (x, y) = (member.pixel.0 / div + 19 + pad, member.pixel.1 / div - 3 - pad);
-        for (rect, rgb, alpha) in [([x-pad-1, y-height-pad-1, width+2*pad+2, height+2*pad+2], [0, 0, 0], 176),
-            ([x-pad, y-height-pad, width+2*pad, height+2*pad], [74, 41, 41], 176)] {
+        let plates = [([x-pad-1, y-height-pad-1, width+2*pad+2, height+2*pad+2], [0, 0, 0], 176),
+            ([x-pad, y-height-pad, width+2*pad, height+2*pad], [74, 41, 41], 176)];
+        for (rect, rgb, alpha) in plates.into_iter().filter(|_| a.stack_backdrop) {
             out.extend(LabelOp::Fill { rect, rgb, alpha }.draws((0, 0), clip).into_iter().filter_map(|d| match d {
                 crate::ui::ScreenDraw::Fill { rect, rgb, alpha, clip } => Some(Item::Element(menu::screen::Element::Fill { rect, rgb, alpha, clip }, true)), _ => None,
             }));
         }
         let run = TextRun { x, y, face: font.face.clone(), height: -height, weight: 700, italic: false, underline: false, color: [248; 3], text, backdrop: None };
-        // The dark shadow keeps the white glyphs legible over light terrain.
-        out.push(Item::Text(TextRun { x: x+1, y: y+1, color: [0; 3], ..run.clone() }, clip, true));
+        // On the plate, a dark shadow down and right. Bare, a full dark
+        // outline (a copy in each of the 8 directions, as far as the HUD is
+        // enlarged): legible on light terrain and apart from the ring under
+        // the unit. World pixels; the text and its outline are drawn from
+        // outlines at the view's resolution.
+        let offsets: &[(i32, i32)] = if a.stack_backdrop { &[(1, 1)] } else { &OUTLINE };
+        let reach = if a.stack_backdrop { 1 } else { (a.hud_scale().round() as i32).max(1) };
+        for &(dx, dy) in offsets {
+            out.push(Item::Text(TextRun { x: x+dx*reach, y: y+dy*reach, color: [0; 3], ..run.clone() }, clip, true));
+        }
         out.push(Item::Text(run, clip, true));
     }
     out
 }
+
+/// The 8 directions of the bare stack count's outline.
+const OUTLINE: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// The unit HUD's art (§10.6), made once for every state it can show:
 /// health bars, fortified frames, LEDs at every bar height, stack lines.
@@ -1722,6 +1734,20 @@ mod tests {
                 let texts: Vec<_> = items.iter().filter_map(|i| if let crate::ui_screen::Item::Text(t, _, _) = i { Some(t) } else { None }).collect();
                 assert_eq!(texts.len(), 2, "one count per tile, plus its shadow");
                 assert!(texts.iter().all(|t| t.text == format!("x{count}") && t.height == -22));
+                let fills = |items: &[crate::ui_screen::Item]| items.iter().filter(|i| matches!(i, crate::ui_screen::Item::Element(menu::screen::Element::Fill { .. }, _))).count();
+                assert_eq!(fills(&items), 2, "the plate: its dark border and brown fill");
+                // Without the backdrop: the same count and place, no plate,
+                // a dark outline in all 8 directions as wide as the HUD is
+                // enlarged (2 at 2×), the white text over it.
+                let bare = stack_items(&world, reduced, &Accessibility { stack_backdrop: false, ..a.clone() }, &mut Env);
+                assert_eq!(fills(&bare), 0);
+                let bare_texts: Vec<_> = bare.iter().filter_map(|i| if let crate::ui_screen::Item::Text(t, _, _) = i { Some(t) } else { None }).collect();
+                assert_eq!(bare_texts.len(), 9, "the outline's 8 copies, then the text");
+                let text = bare_texts[8];
+                assert_eq!((text.x, text.y, text.color), (texts[1].x, texts[1].y, [248; 3]));
+                let mut around: Vec<_> = bare_texts[..8].iter().map(|t| { assert_eq!(t.color, [0; 3]); (t.x - text.x, t.y - text.y) }).collect();
+                around.sort();
+                assert_eq!(around, [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2)]);
                 assert!(accessible_pieces(hud(&world, &u, (0, 0)), &a).iter().all(|p| p.part != Part::Stack));
                 assert!(hud(&world, &u, (0, 0)).iter().any(|p| p.part == Part::Stack && p.set.ends_with(&format!("/{}", count.min(8)))));
             }
