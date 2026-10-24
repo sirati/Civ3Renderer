@@ -25,6 +25,9 @@ CIV3_WINE=${CIV3_WINE:-$HOME/winvm/civ3/civ3-wine}
 GAME=${CIV3_GAME:-"/mnt/datasets/winvm/wine-civ3/drive_c/Games/Civilization III Complete/Conquests"}
 eval "$("$WLH" env)"
 export CIV3R_GAME_WINDOW=${CIV3R_GAME_WINDOW:-show}
+# The bridge hooks the game (traces, probes) even where no viewer is asked
+# for; without either it only forwards to the original ifc23.dll.
+export CIV3R_TRACE=${CIV3R_TRACE:-on}
 S=${CIV3_SESSION_SCALE:-1}
 # Pointer moves and clicks at game pixels (scaled to the output's).
 at() { awk -v v="$1" -v s="$S" 'BEGIN { printf "%d", (v + 0.5) * s }'; }
