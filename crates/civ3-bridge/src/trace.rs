@@ -71,7 +71,7 @@ pub static GAME_MAP_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 
 /// Whether map sprites are not to be blitted: the game's map rendering is
 /// off and a map redraw is in progress.
-fn map_blits_off() -> bool {
+pub(crate) fn map_blits_off() -> bool {
     GAME_MAP_OFF.load(std::sync::atomic::Ordering::Relaxed) && STATE.with_borrow(|s| s.depth > 0)
 }
 
@@ -86,8 +86,34 @@ pub struct Tracer {
     _colored: Option<sprite_draw_with_color_table::Installed>,
 }
 
+/// Whether a map redraw (`Draw_Tiles`) is running.
+pub(crate) fn in_map_pass() -> bool {
+    STATE.with_borrow(|s| s.depth > 0)
+}
+
+/// A map blit of jgl's sprite group (`ui_trace::on_blit`): `draw_on_map`
+/// ("map") or its blend-table form ("blend") onto `map_renderer`, with
+/// the wrapper's own arguments. Records it and reports whether it belongs
+/// to the main map pass.
+pub(crate) fn record_map(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) -> bool {
+    if kind == "map" {
+        SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    record(map_renderer, sprite, x, y, params, kind)
+}
+
+/// A colour-table blit of jgl's sprite group (`draw_with_color_table`),
+/// resolved against the map renderer of the redraw in progress.
+pub(crate) fn record_colored(sprite: u32, x: u32, y: u32, params: Vec<u32>) {
+    let mr = STATE.with_borrow(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
+    record(mr, sprite, x, y, params, "colored");
+}
+
 /// Records a draw and reports whether it belongs to the main map pass.
 fn record(map_renderer: u32, sprite: u32, x: u32, y: u32, params: Vec<u32>, kind: &'static str) -> bool {
+    if crate::jgl_hooks::compare::swallow_record(map_renderer, sprite, x, y, &params, kind) {
+        return STATE.with_borrow(|s| s.depth > 0);
+    }
     let in_map = STATE.with_borrow_mut(|s| {
         let in_map = s.depth > 0;
         if let Some((_, frame, at)) = s.frame.as_mut() {
@@ -178,49 +204,43 @@ fn request_path() -> PathBuf {
 
 pub fn install(game: Civ3) -> Result<Tracer, inproc::hook::HookError> {
     let _ = BUILD.set(game.build);
-    let sprite = match hooks::sprite_draw_on_map_site(game.build) {
+    // The map's own blits come from jgl's sprite group (`ui_trace::on_blit`:
+    // `record_map`, `record_colored`); with `CIV3R_JGL_COMPARE=1` the old
+    // detours on the exe's functions run beside it.
+    let compare = crate::jgl_hooks::compare::on();
+    let sprite = match hooks::sprite_draw_on_map_site(game.build).filter(|_| compare) {
         Some((addr, prologue)) => Some(sprite_draw_on_map::install_at_start(addr, prologue, |call| {
-            SPRITE_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
-            // Top 5 Cities also draws through this entry, onto its form's
-            // canvas at identity scale. JGL receives those blits directly,
-            // bypassing the ordinary Sprite::draw hooks.
-            //8060's lazy branch ignores scale/crop. Keep its file load;
-            // the hooked PCX read records the source, and its hooked draw
-            // captures the ordinary copy before suppressing native pixels.
             let file_source = civ3_sys::ui_hooks::obj::sprite_loads_file(call.sprite);
-            let skip_ui = !file_source && !in_map
-                && crate::ui_trace::on_map_sprite(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, [call.p4, call.p5, call.p6], call.p7);
-            let skip = !file_source && (map_blits_off() || skip_ui);
-            if !skip { crate::ui_trace::audit_map_original("map_sprite", call.sprite, call.map_renderer, &[call.pixel_x, call.pixel_y, call.p4, call.p5, call.p6, call.p7]); }
-            crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Map, skip, || call.original())
-        })?),
-        None => {
-            log::warn!("no Sprite_draw_on_map site for {:?}; tracing disabled", game.build);
-            None
-        }
-    };
-    let blend = match hooks::sprite_draw_on_map_blend_site(game.build) {
-        Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_at_start(addr, prologue, |call| {
-            let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
-            let skip_ui = !in_map && crate::ui_trace::on_map_blend(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, call.table, [call.p5, call.p6, call.p7], call.p8);
-            let skip = map_blits_off() || skip_ui;
-            if !skip { crate::ui_trace::audit_map_original("map_blend", call.sprite, call.map_renderer, &[call.pixel_x, call.pixel_y, call.table, call.p5, call.p6, call.p7, call.p8]); }
-            crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Map, skip, || crate::ui_trace::blend_wrapper_original(|| call.original()))
+            let reaches = !file_source && crate::ui_trace::reaches(call.sprite, call.map_renderer);
+            crate::jgl_hooks::compare::old_call("draw_on_map", reaches, || {
+                let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.p4, call.p5, call.p6, call.p7], "map");
+                let skip_ui = !file_source && !in_map
+                    && crate::ui_trace::on_map_sprite(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, [call.p4, call.p5, call.p6], call.p7);
+                !file_source && (map_blits_off() || skip_ui)
+            }, || call.original())
         })?),
         None => None,
     };
-    // Resolve the sprite against the map renderer of the redraw in progress.
-    let colored = match hooks::sprite_draw_with_color_table_site(game.build) {
+    let blend = match hooks::sprite_draw_on_map_blend_site(game.build).filter(|_| compare) {
+        Some((addr, prologue)) => Some(sprite_draw_on_map_blend::install_at_start(addr, prologue, |call| {
+            let reaches = crate::ui_trace::reaches(call.sprite, call.map_renderer);
+            crate::jgl_hooks::compare::old_call("on_map_blend", reaches, || {
+                let in_map = record(call.map_renderer, call.sprite, call.pixel_x, call.pixel_y, vec![call.table, call.p5, call.p6, call.p7, call.p8], "blend");
+                let skip_ui = !in_map && crate::ui_trace::on_map_blend(call.sprite, call.map_renderer, call.pixel_x, call.pixel_y, call.table, [call.p5, call.p6, call.p7], call.p8);
+                map_blits_off() || skip_ui
+            }, || call.original())
+        })?),
+        None => None,
+    };
+    let colored = match hooks::sprite_draw_with_color_table_site(game.build).filter(|_| compare) {
         Some((addr, prologue)) => Some(sprite_draw_with_color_table::install_at_start(addr, prologue, |call| {
-            let mr = STATE.with_borrow(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
-            record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
-            crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y, call.table, call.p6);
-            // Inside a map redraw like the map's other blits; elsewhere a
-            // unit picture the mirror recorded.
-            let skip = map_blits_off() && crate::ui_trace::skipping() || crate::ui_trace::skips_colored(call.sprite, call.canvas2);
-            if !skip { crate::ui_trace::audit_map_original("map_colored", call.sprite, call.canvas2, &[call.pixel_x, call.pixel_y, call.canvas, call.table, call.p6]); }
-            crate::ui_trace::audit_call(crate::ui_trace::PixelClass::Map, skip, || call.original())
+            let reaches = crate::ui_trace::reaches(call.sprite, call.canvas) && crate::ui_trace::reaches(call.sprite, call.canvas2);
+            crate::jgl_hooks::compare::old_call("with_color_table", reaches, || {
+                let mr = STATE.with_borrow(|s| s.frame.as_ref().map(|f| f.0)).unwrap_or(0);
+                record(mr, call.sprite, call.pixel_x, call.pixel_y, vec![call.canvas, call.canvas2, call.table, call.p6], "colored");
+                crate::ui_trace::on_colored(call.sprite, call.canvas2, call.pixel_x, call.pixel_y, call.table, call.p6, crate::ui_trace::clip_of(call.canvas2));
+                map_blits_off() && crate::ui_trace::skipping() || crate::ui_trace::skips_colored(call.sprite, call.canvas2)
+            }, || call.original())
         })?),
         None => None,
     };

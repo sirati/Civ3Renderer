@@ -13,6 +13,7 @@
 //! The format is the same in memory and in a dump file (`jgl::record`
 //! streams can be written out and replayed offline).
 
+use crate::blit::{BlitCall, MAX_BLIT_ARGS, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 use crate::draw::{CopyCall, FillCall, MAX_ARGS, Surface};
 use crate::{FontId, ImageId, Rect};
 
@@ -57,6 +58,23 @@ pub enum Op {
     CopyIndexed = 16,
     /// The copy group's other slots (`CopyCall::Other`).
     CopyOther = 17,
+    /// A sprite slot of +0x38..+0xA0 (`BlitCall`).
+    Blit = 18,
+    /// Sprite +0x04 (`SpriteCall::Init`).
+    SpriteInit = 19,
+    /// Sprite +0x0C (`SpriteCall::Duplicate`).
+    SpriteDuplicate = 20,
+    /// Sprite +0x10 (`SpriteCall::SetTable`).
+    SpriteSetTable = 21,
+    /// Sprite +0x18 (`SpriteCall::SetKey`).
+    SpriteSetKey = 22,
+    /// Sprite +0x08 and +0x00 (`SpriteCall::Clear`).
+    SpriteClear = 25,
+    /// Graphics +0x9C `set_scale`, or the scale read from jgl when it was
+    /// set before the takeover.
+    SetScale = 23,
+    /// A colour table slot (`TableCall`): the call's slot in the first field.
+    Table = 24,
 }
 
 impl Op {
@@ -79,6 +97,14 @@ impl Op {
             15 => Op::CopyKeyed,
             16 => Op::CopyIndexed,
             17 => Op::CopyOther,
+            18 => Op::Blit,
+            19 => Op::SpriteInit,
+            20 => Op::SpriteDuplicate,
+            21 => Op::SpriteSetTable,
+            22 => Op::SpriteSetKey,
+            23 => Op::SetScale,
+            24 => Op::Table,
+            25 => Op::SpriteClear,
             _ => return None,
         })
     }
@@ -101,6 +127,10 @@ pub enum Record<'a> {
     Text { image: ImageId, owner: u32, x: i32, y: i32, clip: Rect, bytes: &'a [u8] },
     Fill(FillCall),
     Copy(CopyCall),
+    Blit(BlitCall),
+    Sprite(SpriteCall),
+    SetScale(Scale),
+    Table(TableCall),
 }
 
 /// The longest tail a record keeps (`text_out` lengths are clamped to it,
@@ -167,6 +197,14 @@ impl Writer {
             ),
             Record::Fill(call) => self.fill(&call),
             Record::Copy(call) => self.copy(&call),
+            Record::Blit(call) => self.blit(&call),
+            Record::Sprite(call) => self.sprite(&call),
+            Record::SetScale(s) => {
+                let mut f = Fields::new();
+                f.scale(s);
+                self.put(Op::SetScale, f.get(), &[]);
+            }
+            Record::Table(call) => self.table(&call),
         }
     }
 
@@ -219,17 +257,64 @@ impl Writer {
         };
         self.put(op, f.get(), &[]);
     }
+
+    fn blit(&mut self, c: &BlitCall) {
+        let mut f = Fields::new();
+        f.push(c.slot as u32).push(c.caller).sprite(c.sprite).opt_surface(c.target).opt_surface(c.other);
+        f.push(u32::from(c.mask.is_some())).sprite(c.mask.unwrap_or_default());
+        f.point(c.at).table(c.table).scale(c.scale).words(&c.args);
+        self.put(Op::Blit, f.get(), &[]);
+    }
+
+    fn sprite(&mut self, c: &SpriteCall) {
+        let mut f = Fields::new();
+        let op = match *c {
+            SpriteCall::Init { sprite, pixels, size, depth, a5, table, compile } => {
+                f.sprite(sprite).push(pixels).point(size).push(depth).push(a5).push(table.0).push(u32::from(compile));
+                Op::SpriteInit
+            }
+            SpriteCall::Duplicate { sprite, source } => {
+                f.sprite(sprite).sprite(source);
+                Op::SpriteDuplicate
+            }
+            SpriteCall::SetTable { sprite, table } => {
+                f.sprite(sprite).push(table.0);
+                Op::SpriteSetTable
+            }
+            SpriteCall::SetKey { sprite, key } => {
+                f.sprite(sprite).push(key);
+                Op::SpriteSetKey
+            }
+            SpriteCall::Clear { sprite } => {
+                f.sprite(sprite);
+                Op::SpriteClear
+            }
+        };
+        self.put(op, f.get(), &[]);
+    }
+
+    fn table(&mut self, c: &TableCall) {
+        let mut f = Fields::new();
+        match *c {
+            TableCall::Init { table } => f.push(0x04).table(table),
+            TableCall::ResetFade { table } => f.push(0x08).table(table),
+            TableCall::Animate { table } => f.push(0x0C).table(table),
+            TableCall::SetColors { table, first, count, colors } => f.push(0x14).table(table).push(first).push(count).push(colors),
+            TableCall::Slot20 { table, arg } => f.push(0x20).table(table).push(arg),
+        };
+        self.put(Op::Table, f.get(), &[]);
+    }
 }
 
-/// The fixed fields of a drawing record, without allocating.
+/// The fixed fields of a drawing record), without allocating.
 struct Fields {
-    words: [u32; 32],
+    words: [u32; 64],
     len: usize,
 }
 
 impl Fields {
     fn new() -> Fields {
-        Fields { words: [0; 32], len: 0 }
+        Fields { words: [0; 64], len: 0 }
     }
 
     fn get(&self) -> &[u32] {
@@ -263,6 +348,22 @@ impl Fields {
 
     fn surface(&mut self, s: Surface) -> &mut Fields {
         self.push(s.image.0).push(s.owner).rect(s.clip).rect(s.bounds)
+    }
+
+    fn opt_surface(&mut self, s: Option<Surface>) -> &mut Fields {
+        self.push(u32::from(s.is_some())).surface(s.unwrap_or_default())
+    }
+
+    fn sprite(&mut self, s: SpriteRef) -> &mut Fields {
+        self.push(s.sprite.0).push(s.owner).push(s.table.0).push(s.bits).push(u32::from(s.compiled))
+    }
+
+    fn table(&mut self, t: TableRef) -> &mut Fields {
+        self.push(t.table.0).push(t.owner)
+    }
+
+    fn scale(&mut self, s: Scale) -> &mut Fields {
+        self.push(s.num_x).push(s.num_y).push(s.den).push(s.set_at)
     }
 }
 
@@ -349,6 +450,10 @@ fn decode(op: Op, body: &[u8]) -> Option<Record<'_>> {
         },
         Op::Fill | Op::Shade | Op::ReplaceColor | Op::Line | Op::FillOther => Record::Fill(fill(op, &mut Cursor { body, at: 0 })?),
         Op::CopyStretch | Op::CopyKeyed | Op::CopyIndexed | Op::CopyOther => Record::Copy(copy(op, &mut Cursor { body, at: 0 })?),
+        Op::Blit => Record::Blit(blit(&mut Cursor { body, at: 0 })?),
+        Op::SpriteInit | Op::SpriteDuplicate | Op::SpriteSetTable | Op::SpriteSetKey | Op::SpriteClear => Record::Sprite(sprite(op, &mut Cursor { body, at: 0 })?),
+        Op::SetScale => Record::SetScale(Cursor { body, at: 0 }.scale()?),
+        Op::Table => Record::Table(table(&mut Cursor { body, at: 0 })?),
     })
 }
 
@@ -385,6 +490,24 @@ impl Cursor<'_> {
 
     fn surface(&mut self) -> Option<Surface> {
         Some(Surface { image: ImageId(self.word()?), owner: self.word()?, clip: self.rect()?, bounds: self.rect()? })
+    }
+
+    fn opt_surface(&mut self) -> Option<Option<Surface>> {
+        let some = self.word()? != 0;
+        let s = self.surface()?;
+        Some(some.then_some(s))
+    }
+
+    fn sprite(&mut self) -> Option<SpriteRef> {
+        Some(SpriteRef { sprite: SpriteId(self.word()?), owner: self.word()?, table: TableId(self.word()?), bits: self.word()?, compiled: self.word()? != 0 })
+    }
+
+    fn table(&mut self) -> Option<TableRef> {
+        Some(TableRef { table: TableId(self.word()?), owner: self.word()? })
+    }
+
+    fn scale(&mut self) -> Option<Scale> {
+        Some(Scale { num_x: self.word()?, num_y: self.word()?, den: self.word()?, set_at: self.word()? })
     }
 
     fn words<const N: usize>(&mut self) -> Option<[u32; N]> {
@@ -427,6 +550,51 @@ fn copy(op: Op, c: &mut Cursor<'_>) -> Option<CopyCall> {
     })
 }
 
+fn blit(c: &mut Cursor<'_>) -> Option<BlitCall> {
+    let (slot, caller, sprite) = (c.word()? as u16, c.word()?, c.sprite()?);
+    let (target, other) = (c.opt_surface()?, c.opt_surface()?);
+    let mask = (c.word()? != 0, c.sprite()?);
+    Some(BlitCall {
+        slot,
+        caller,
+        sprite,
+        target,
+        other,
+        mask: mask.0.then_some(mask.1),
+        at: c.point()?,
+        table: c.table()?,
+        scale: c.scale()?,
+        args: c.words::<MAX_BLIT_ARGS>()?,
+    })
+}
+
+fn sprite(op: Op, c: &mut Cursor<'_>) -> Option<SpriteCall> {
+    let sprite = c.sprite()?;
+    Some(match op {
+        Op::SpriteInit => {
+            let (pixels, size, depth, a5, table) = (c.word()?, c.point()?, c.word()?, c.word()?, TableId(c.word()?));
+            SpriteCall::Init { sprite, pixels, size, depth, a5, table, compile: c.word()? != 0 }
+        }
+        Op::SpriteDuplicate => SpriteCall::Duplicate { sprite, source: c.sprite()? },
+        Op::SpriteSetTable => SpriteCall::SetTable { sprite, table: TableId(c.word()?) },
+        Op::SpriteSetKey => SpriteCall::SetKey { sprite, key: c.word()? },
+        Op::SpriteClear => SpriteCall::Clear { sprite },
+        _ => return None,
+    })
+}
+
+fn table(c: &mut Cursor<'_>) -> Option<TableCall> {
+    let (slot, table) = (c.word()?, c.table()?);
+    Some(match slot {
+        0x04 => TableCall::Init { table },
+        0x08 => TableCall::ResetFade { table },
+        0x0C => TableCall::Animate { table },
+        0x14 => TableCall::SetColors { table, first: c.word()?, count: c.word()?, colors: c.word()? },
+        0x20 => TableCall::Slot20 { table, arg: c.word()? },
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,6 +620,41 @@ mod tests {
             Record::Copy(CopyCall::Keyed { source: surface(0x2100), target: surface(0x2000), x: -7, y: 8 }),
             Record::Copy(CopyCall::Indexed { source: surface(0x2100), target: surface(0x2000), src: (1, 2), at: (3, 4), size: (5, 6), mode: 7 }),
             Record::Copy(CopyCall::Other { slot: 0x8C, this: surface(0x2100), args: [0x2000, 1, 2, 3] }),
+            Record::Blit(BlitCall {
+                slot: 0x88,
+                caller: 0x5F_8954,
+                sprite: SpriteRef { sprite: SpriteId(0x4000), owner: 0x4104, table: TableId(0x4200), bits: 8, compiled: true },
+                target: Some(surface(0x2000)),
+                other: Some(surface(0x2100)),
+                mask: None,
+                at: (-3, 70),
+                table: TableRef { table: TableId(0x4300), owner: 0x4400 },
+                scale: Scale { num_x: 32, num_y: 32, den: 64, set_at: 0x5F_88EB },
+                args: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            }),
+            Record::Blit(BlitCall {
+                slot: 0x58,
+                caller: 0,
+                sprite: SpriteRef::default(),
+                target: None,
+                other: None,
+                mask: Some(SpriteRef { sprite: SpriteId(0x4800), owner: 0x4904, table: TableId(0), bits: 16, compiled: false }),
+                at: (0, 0),
+                table: TableRef::default(),
+                scale: Scale::default(),
+                args: [0; MAX_BLIT_ARGS],
+            }),
+            Record::Sprite(SpriteCall::Init { sprite: SpriteRef { sprite: SpriteId(0x4000), owner: 0x4104, table: TableId(0), bits: 0, compiled: false }, pixels: 0x5000, size: (64, 48), depth: 8, a5: 1, table: TableId(0x4200), compile: true }),
+            Record::Sprite(SpriteCall::Clear { sprite: SpriteRef::default() }),
+            Record::Sprite(SpriteCall::Duplicate { sprite: SpriteRef::default(), source: SpriteRef { sprite: SpriteId(1), owner: 2, table: TableId(3), bits: 4, compiled: true } }),
+            Record::Sprite(SpriteCall::SetTable { sprite: SpriteRef::default(), table: TableId(0x4200) }),
+            Record::Sprite(SpriteCall::SetKey { sprite: SpriteRef::default(), key: 0xFF }),
+            Record::SetScale(Scale { num_x: 1, num_y: 2, den: 3, set_at: 4 }),
+            Record::Table(TableCall::Init { table: TableRef { table: TableId(0x4300), owner: 0x4400 } }),
+            Record::Table(TableCall::ResetFade { table: TableRef::default() }),
+            Record::Table(TableCall::Animate { table: TableRef::default() }),
+            Record::Table(TableCall::SetColors { table: TableRef::default(), first: 0, count: 256, colors: 0x6000 }),
+            Record::Table(TableCall::Slot20 { table: TableRef::default(), arg: 7 }),
         ]
     }
 

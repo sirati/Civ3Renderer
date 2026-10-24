@@ -117,8 +117,9 @@ pub struct JglSprite {
     pub vtable: u32,
     pub field_04: u32,
     pub field_08: u32,
-    /// +0x0C: constructor argument.
-    pub source: u32,
+    /// +0x0C: the constructor's argument, the owner: the exe passes its
+    /// `Sprite`'s +4 (the field this sprite is kept in).
+    pub owner: u32,
     /// +0x10: slots +0x10/+0x14.
     pub color_table: u32,
     /// +0x14: slot +0x20.
@@ -126,8 +127,8 @@ pub struct JglSprite {
     /// +0x18: flags.
     pub flags: u32,
     pub field_1c: u32,
-    /// +0x20: slot +0x28.
-    pub field_20: u32,
+    /// +0x20: bits per pixel, 8 or 16 (slot +0x28; the blits dispatch on it).
+    pub bits: u32,
     pub field_24: u32,
     /// +0x28: the key index (0xFF; slots +0x18/+0x1C).
     pub key: u32,
@@ -148,8 +149,9 @@ pub struct JglColorTable {
     /// +0x40C, +0x60C: the 16-bit tables (slots +0x18, +0x1C).
     pub table16_a: [u16; 256],
     pub table16_b: [u16; 256],
-    /// +0x80C: constructor argument.
-    pub field_80c: u32,
+    /// +0x80C: the constructor's argument, the owner: the exe passes its
+    /// `PCX_Color_Table`.
+    pub owner: u32,
     /// +0x810/+0x814: fade state (slot +0x08 clears it).
     pub fade: [u32; 2],
     pub field_818: [u32; 2],
@@ -207,14 +209,16 @@ mod tests {
         assert_eq!(offset_of!(JglImage, bits), 0x4C0);
         assert_eq!(offset_of!(JglImage, current_bits), 0x4CC);
         assert_eq!(offset_of!(JglImage, color_key), 0x4D0);
+        assert_eq!(offset_of!(JglSprite, owner), 0x0C);
         assert_eq!(offset_of!(JglSprite, color_table), 0x10);
+        assert_eq!(offset_of!(JglSprite, bits), 0x20);
         assert_eq!(offset_of!(JglSprite, flags), 0x18);
         assert_eq!(offset_of!(JglSprite, key), 0x28);
         assert_eq!(offset_of!(JglSprite, lock), 0x38);
         assert_eq!(offset_of!(JglColorTable, entries), 0x0C);
         assert_eq!(offset_of!(JglColorTable, table16_a), 0x40C);
         assert_eq!(offset_of!(JglColorTable, table16_b), 0x60C);
-        assert_eq!(offset_of!(JglColorTable, field_80c), 0x80C);
+        assert_eq!(offset_of!(JglColorTable, owner), 0x80C);
         assert_eq!(offset_of!(JglColorTable, fade), 0x810);
         assert_eq!(offset_of!(JglFont, flags), 0x14);
         assert_eq!(offset_of!(JglFont, hfont), 0x18);

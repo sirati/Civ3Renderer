@@ -371,3 +371,64 @@ fn the_exe_wrappers_call_the_taken_over_slots() {
         assert!(contains(body, &[0xFF, 0x52, 0x40]) || contains(body, &[0xFF, 0x56, 0x40]), "{va:#x}");
     }
 }
+
+#[test]
+fn sprite_and_colour_table_constructors_store_their_owners() {
+    let Some(pe) = pe() else { return };
+    // JGLSprite's constructor (0x7E80, which graphics +0x80 new_sprite
+    // calls with its first argument at 0x3C097): mov [esi + owner], eax.
+    let call = pe.at(0x3_C097, 5);
+    assert_eq!(call[0], 0xE8);
+    assert_eq!(0x3_C09Cu32.wrapping_add(u32::from_le_bytes(call[1..5].try_into().unwrap())), 0x7E80);
+    assert!(contains(pe.at(0x7E80, 0x40), &[0x89, 0x46, offset_of!(JglSprite, owner) as u8]));
+    // JGL_Color_Table's (0x3CEE0, from +0x78): mov [esi + owner], eax.
+    assert!(contains(pe.at(0x3_CEE0, 0x20), &[[0x89, 0x86].as_slice(), &disp32(offset_of!(JglColorTable, owner))].concat()));
+    // The blits dispatch on the sprite's bits: mov eax, [esi + bits]; cmp eax, 8.
+    assert!(contains(pe.slot_body(Class::Sprite, 0x44, 0x40), &[0x8B, 0x46, offset_of!(JglSprite, bits) as u8, 0x83, 0xF8, 0x08]));
+}
+
+#[test]
+fn set_scale_stores_the_globals_the_shim_reads() {
+    let Some(pe) = pe() else { return };
+    let at = |i: u32| (pe.image_base + jgl_ffi::blit::SCALE_RVA + 4 * i).to_le_bytes();
+    let body = pe.slot_body(Class::Graphics, 0x9C, 0x20);
+    // mov [num_x], eax; mov [num_y], ecx; mov [den], edx; ret 0xC.
+    assert!(contains(body, &[[0xA3].as_slice(), &at(0)].concat()));
+    assert!(contains(body, &[[0x89, 0x0D].as_slice(), &at(1)].concat()));
+    assert!(contains(body, &[[0x89, 0x15].as_slice(), &at(2)].concat()));
+    // get_scale reads them back.
+    let get = pe.slot_body(Class::Graphics, 0xA0, 0x24);
+    assert!(contains(get, &[[0x8B, 0x0D].as_slice(), &at(0)].concat()));
+}
+
+#[test]
+fn sprite_inits_write_the_fields_the_placeholder_writes() {
+    let Some(pe) = pe() else { return };
+    let compile = (pe.image_base + jgl_ffi::blit::COMPILE_RVA).to_le_bytes();
+    // 8-bit (0xAA60) and 16-bit (0x9F50) inits: width +0x30, height +0x34,
+    // bits +0x20, bytes +0x24, pixels +0x14; both test the compile switch.
+    for (at, bits) in [(0xAA60, 8u8), (0x9F50, 16)] {
+        let body = pe.at(at, 0x80);
+        for store in [&[0x89, 0x6B, 0x30][..], &[0x89, 0x43, 0x14], &[0xC7, 0x43, 0x20, bits, 0, 0, 0]] {
+            assert!(contains(body, store), "{at:#x} {store:x?}");
+        }
+        assert!(contains(body, &[[0xA1].as_slice(), &compile].concat()), "{at:#x}");
+    }
+    // init calls its clear through the table first ([eax + 8]) and the
+    // colour table setter after (call [edx + 0x10]).
+    let init = pe.slot_body(Class::Sprite, 0x04, 0x64);
+    assert!(contains(init, &[0xFF, 0x52, 0x10]));
+    // The destructor (0x7ED0) calls clear (0x7F40) directly at 0x7F14:
+    // the delete slot must let go of the placeholder first.
+    let call = pe.at(0x7F14, 5);
+    assert_eq!(call[0], 0xE8);
+    assert_eq!(0x7F19u32.wrapping_add(u32::from_le_bytes(call[1..5].try_into().unwrap())), 0x7F40);
+    // clear frees +0x14 and zeroes it: mov eax, [esi + 0x14] ... mov [esi + 0x14], edi.
+    let clear = pe.slot_body(Class::Sprite, 0x08, 0x80);
+    assert!(contains(clear, &[0x8B, 0x46, 0x14]) && contains(clear, &[0x89, 0x7E, 0x14]));
+    // duplicate copies table, flags, sizes, key, bits and bytes.
+    let dup = pe.slot_body(Class::Sprite, 0x0C, 0x40);
+    for f in [0x10u8, 0x18, 0x34, 0x30, 0x2C, 0x28, 0x20, 0x24] {
+        assert!(dup.windows(3).any(|w| w[0] == 0x8B && w[2] == f), "+{f:#x}");
+    }
+}

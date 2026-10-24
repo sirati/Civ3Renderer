@@ -6,10 +6,11 @@
 //! the producer keeps no more state than it must to know what to ask the
 //! shim (which images and fonts it has seen), the consumer has the rest.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, compiles};
 use crate::draw::{CopyCall, FillCall};
-use crate::hooks::{CopyHooks, FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
+use crate::hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, TextDraw, TextHooks};
 use crate::record::{Record, Records, Writer};
 use crate::text::{FontDesc, TextColor, TextState};
 use crate::{FontId, ImageId, Rect};
@@ -19,12 +20,17 @@ pub struct Producer {
     writer: Writer,
     images: HashSet<ImageId>,
     fonts: HashSet<FontId>,
+    /// The draw scale (graphics +0x9C), once known.
+    scale: Option<Scale>,
+    /// Whether the sprites made since the takeover are compiled (jgl's
+    /// rule): their pixels in memory may not be jgl's.
+    compiled: HashMap<SpriteId, bool>,
     policy: Box<dyn PixelPolicy>,
 }
 
 impl Producer {
     fn new(policy: Box<dyn PixelPolicy>) -> Producer {
-        Producer { writer: Writer::new(), images: HashSet::new(), fonts: HashSet::from([FontId::STOCK]), policy }
+        Producer { writer: Writer::new(), images: HashSet::new(), fonts: HashSet::from([FontId::STOCK]), scale: None, compiled: HashMap::new(), policy }
     }
 
     /// Whether `font` must be defined (from GDI, [`Producer::font_defined`])
@@ -93,6 +99,59 @@ impl Producer {
         self.policy.original_copy(call)
     }
 
+    /// Whether the draw scale must be read (and given to
+    /// [`Producer::set_scale`] with `set_at` 0) before the next blit: it
+    /// was set before the takeover.
+    pub fn needs_scale(&self) -> bool {
+        self.scale.is_none()
+    }
+
+    /// Graphics +0x9C `set_scale`, or the scale read from jgl.
+    pub fn set_scale(&mut self, scale: Scale) {
+        self.scale = Some(scale);
+        self.writer.push(&Record::SetScale(scale));
+    }
+
+    /// Returns whether jgl's original is to run. The call's scale is
+    /// this producer's.
+    /// `sprite` with what this producer knows of it.
+    fn known(&self, sprite: SpriteRef) -> SpriteRef {
+        SpriteRef { compiled: self.compiled.get(&sprite.sprite).copied().unwrap_or(sprite.compiled), ..sprite }
+    }
+
+    pub fn blit(&mut self, call: &BlitCall) -> bool {
+        let call = BlitCall { scale: self.scale.unwrap_or_default(), sprite: self.known(call.sprite), mask: call.mask.map(|m| self.known(m)), ..*call };
+        self.writer.push(&Record::Blit(call));
+        self.policy.original_blit(&call)
+    }
+
+    /// Whether jgl makes sprites' pixels ([`PixelPolicy::original_sprite_pixels`]).
+    pub fn sprite_pixels(&self) -> bool {
+        self.policy.original_sprite_pixels()
+    }
+
+    pub fn sprite(&mut self, call: &SpriteCall) {
+        match *call {
+            SpriteCall::Init { sprite, pixels, size, compile, .. } => {
+                self.compiled.insert(sprite.sprite, compiles(pixels, compile, size));
+            }
+            SpriteCall::Duplicate { sprite, source } => {
+                let c = self.known(source).compiled;
+                self.compiled.insert(sprite.sprite, c);
+            }
+            SpriteCall::Clear { sprite } => {
+                // (Its flags in memory are cleared too.)
+                self.compiled.remove(&sprite.sprite);
+            }
+            SpriteCall::SetTable { .. } | SpriteCall::SetKey { .. } => {}
+        }
+        self.writer.push(&Record::Sprite(*call));
+    }
+
+    pub fn table(&mut self, call: &TableCall) {
+        self.writer.push(&Record::Table(*call));
+    }
+
     /// The records not yet consumed.
     pub fn pending(&self) -> &[u8] {
         self.writer.bytes()
@@ -105,6 +164,8 @@ pub struct Consumer {
     hooks: Box<dyn TextHooks>,
     fill: Box<dyn FillHooks>,
     copy: Box<dyn CopyHooks>,
+    blit: Box<dyn BlitHooks>,
+    palette: Box<dyn PaletteHooks>,
     /// Malformed buffers seen (logged once).
     pub errors: u32,
     /// Text records whose image had no state (should not happen: the
@@ -113,8 +174,17 @@ pub struct Consumer {
 }
 
 impl Consumer {
-    pub fn new(hooks: Box<dyn TextHooks>, fill: Box<dyn FillHooks>, copy: Box<dyn CopyHooks>, stock: FontDesc) -> Consumer {
-        Consumer { text: TextState::new(stock), hooks, fill, copy, errors: 0, stateless: 0 }
+    pub fn new(hooks: Hooks, stock: FontDesc) -> Consumer {
+        Consumer {
+            text: TextState::new(stock),
+            hooks: hooks.text,
+            fill: hooks.fill,
+            copy: hooks.copy,
+            blit: hooks.blit,
+            palette: hooks.palette,
+            errors: 0,
+            stateless: 0,
+        }
     }
 
     pub fn text_state(&self) -> &TextState {
@@ -168,6 +238,10 @@ impl Consumer {
             }
             Record::Fill(call) => self.fill.fill(&call),
             Record::Copy(call) => self.copy.copy(&call),
+            Record::Blit(call) => self.blit.blit(&call),
+            Record::Sprite(call) => self.blit.sprite(&call),
+            Record::SetScale(scale) => self.blit.scale(&scale),
+            Record::Table(call) => self.palette.table(&call),
         }
     }
 }
@@ -188,9 +262,11 @@ pub struct Jgl {
 impl Jgl {
     /// `stock`: GDI's `SYSTEM_FONT`, as the shim reads it.
     pub fn new(hooks: Hooks, stock: FontDesc) -> Jgl {
-        let mut producer = Producer::new(hooks.policy);
+        let mut hooks = hooks;
+        let policy = std::mem::replace(&mut hooks.policy, Box::new(crate::hooks::NoHooks));
+        let mut producer = Producer::new(policy);
         producer.font_defined(FontId::STOCK, &stock);
-        let mut jgl = Jgl { producer, consumer: Consumer::new(hooks.text, hooks.fill, hooks.copy, stock), tap: None };
+        let mut jgl = Jgl { producer, consumer: Consumer::new(hooks, stock), tap: None };
         jgl.flush();
         jgl
     }
@@ -279,6 +355,30 @@ mod tests {
         j.with(|p| p.font_released(font));
         assert!(j.producer.needs_font(font));
         assert_eq!(j.consumer.text_state().dc(img).unwrap().color, TextColor::Rgb([0xFF, 0, 0]));
+    }
+
+    #[test]
+    fn blits_carry_the_scale_and_what_init_made() {
+        use crate::blit::{BlitCall, Scale, SpriteCall, SpriteRef};
+        struct Seen(Rc<RefCell<Vec<BlitCall>>>);
+        impl crate::hooks::BlitHooks for Seen {
+            fn blit(&mut self, c: &BlitCall) {
+                self.0.borrow_mut().push(*c);
+            }
+        }
+        let out = Rc::new(RefCell::new(Vec::new()));
+        let mut j = Jgl::new(Hooks { blit: Box::new(Seen(out.clone())), ..Hooks::default() }, system());
+        let s = SpriteRef { sprite: crate::SpriteId(0x10), ..SpriteRef::default() };
+        let blit = BlitCall { slot: 0x44, caller: 0, sprite: s, target: None, other: None, mask: None, at: (0, 0), table: Default::default(), scale: Scale::default(), args: [0; 9] };
+        assert!(j.producer.needs_scale());
+        j.with(|p| p.set_scale(Scale { num_x: 1, num_y: 1, den: 2, set_at: 7 }));
+        j.with(|p| p.sprite(&SpriteCall::Init { sprite: s, pixels: 1, size: (32, 32), depth: 8, a5: 0, table: Default::default(), compile: true }));
+        j.with(|p| p.blit(&blit));
+        j.with(|p| p.sprite(&SpriteCall::Clear { sprite: s }));
+        j.with(|p| p.blit(&blit));
+        let out = out.borrow();
+        assert_eq!((out[0].scale.den, out[0].scale.set_at, out[0].sprite.compiled), (2, 7, true));
+        assert!(!out[1].sprite.compiled);
     }
 
     #[test]

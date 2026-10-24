@@ -16,6 +16,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blit;
 pub mod counts;
 pub mod display;
 pub mod draw;
@@ -25,8 +26,9 @@ pub mod record;
 pub mod slots;
 pub mod text;
 
+pub use blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 pub use draw::{CopyCall, FillCall, Surface};
-pub use hooks::{CopyHooks, FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
+pub use hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, TextDraw, TextHooks};
 pub use machine::{Consumer, Jgl, Producer};
 pub use text::{FontDesc, TextColor};
 

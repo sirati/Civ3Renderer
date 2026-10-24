@@ -100,6 +100,16 @@ pub(crate) mod read {
         unsafe { std::ptr::read_unaligned(at as usize as *const u32) }
     }
 
+    /// Writes `v` at `at`.
+    ///
+    /// # Safety
+    /// `at` must be a writable field of the object the entry point was
+    /// called on.
+    pub unsafe fn set_u32(at: u32, v: u32) {
+        // SAFETY: the caller's contract.
+        unsafe { std::ptr::write_unaligned(at as usize as *mut u32, v) }
+    }
+
     /// A `RECT` at `at`.
     ///
     /// # Safety
