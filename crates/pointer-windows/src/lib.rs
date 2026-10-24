@@ -13,11 +13,18 @@ mod windows {
     use std::sync::Arc;
 
     use pointer_api::{Backend, Error, Grab, Move, Point, Region, Update};
-    use winit::window::Window;
+    use winit::window::{CursorGrabMode, Window};
+
+    /// The system's clip, through `inproc`.
+    struct System;
+
+    impl super::SystemClip for System {
+        fn current(&self) -> Option<[i32; 4]> { inproc::pointer::clip_rect() }
+        fn set(&mut self, screen: Option<[i32; 4]>) -> bool { inproc::pointer::clip_cursor(screen) }
+    }
 
     pub struct Controller {
-        // Release the custom clip before dropping the window grab.
-        clip: inproc::pointer::Confinement,
+        clip: super::Confinement,
         fallback: pointer_fallback::Controller,
         window: Arc<Window>,
     }
@@ -25,7 +32,7 @@ mod windows {
     impl Controller {
         pub fn new(window: Arc<Window>) -> Self {
             Self {
-                clip: inproc::pointer::Confinement::default(),
+                clip: super::Confinement::default(),
                 fallback: pointer_fallback::Controller::new(window.clone()),
                 window,
             }
@@ -34,12 +41,20 @@ mod windows {
 
     impl Backend for Controller {
         fn grab(&mut self, on: bool) -> Result<Grab, Error> {
-            self.clip.release();
+            self.clip.release(&mut System);
             self.fallback.grab(on)
         }
 
         fn move_pointer(&mut self, at: Point) -> Result<Move, Error> {
-            self.fallback.move_pointer(at)
+            // A locked grab is a one-pixel clip at the pointer, which
+            // SetCursorPos cannot leave: lock again where it is put.
+            if !self.fallback.grabbed() {
+                return self.fallback.move_pointer(at);
+            }
+            let _ = self.window.set_cursor_grab(CursorGrabMode::None);
+            let moved = self.fallback.move_pointer(at);
+            self.fallback.grab(true)?;
+            moved
         }
 
         fn update(
@@ -53,7 +68,7 @@ mod windows {
                 let origin = self.window.inner_position().ok()?;
                 super::screen_bounds(region.bounds, (origin.x, origin.y))
             });
-            let clipped = self.clip.set(screen);
+            let clipped = self.clip.set(&mut System, screen);
             // ClipCursor cannot represent exclusions inside the bounds.
             // Keep the layout's warps active for those holes.
             Update {
@@ -61,6 +76,11 @@ mod windows {
                 placement: None,
             }
         }
+    }
+
+    impl Drop for Controller {
+        // Release the custom clip before dropping the window grab.
+        fn drop(&mut self) { self.clip.release(&mut System); }
     }
 
     /// The operating system's nominal cursor size at 96 DPI, in pixels:
@@ -72,6 +92,62 @@ mod windows {
 
 #[cfg(windows)]
 pub use windows::{nominal_cursor_size, Controller};
+
+/// The system's one pointer clip, in screen coordinates `[left, top,
+/// right, bottom]`.
+#[cfg(any(windows, test))]
+trait SystemClip {
+    /// The clip in effect (the desktop's bounds while there is none).
+    fn current(&self) -> Option<[i32; 4]>;
+    /// Clips to `screen`, or releases with `None`; whether it took.
+    fn set(&mut self, screen: Option<[i32; 4]>) -> bool;
+}
+
+/// This window's pointer clip. The clip is the whole system's: anyone may
+/// replace or release it (the window library on every cursor change, the
+/// game, the system on activation), so each [`Confinement::set`] checks it
+/// is still in effect and installs it again if not. The system cuts it to
+/// the desktop: what it shows once installed is what is compared, never
+/// the request (else a window partly off the screen would clip again every
+/// frame, and its clip never be released). Releasing removes only a clip
+/// still ours.
+#[cfg(any(windows, test))]
+#[derive(Default)]
+struct Confinement {
+    requested: Option<[i32; 4]>,
+    installed: Option<[i32; 4]>,
+}
+
+#[cfg(any(windows, test))]
+impl Confinement {
+    /// Clips to a nonempty `screen`, or releases with `None`. Whether a
+    /// requested clip is in effect.
+    fn set(&mut self, system: &mut impl SystemClip, screen: Option<[i32; 4]>) -> bool {
+        let Some(screen) = screen.filter(|r| r[2] > r[0] && r[3] > r[1]) else {
+            self.release(system);
+            return false;
+        };
+        if self.requested == Some(screen) && self.installed.is_some() && system.current() == self.installed {
+            return true;
+        }
+        if !system.set(Some(screen)) {
+            (self.requested, self.installed) = (None, None);
+            return false;
+        }
+        (self.requested, self.installed) = (Some(screen), system.current());
+        true
+    }
+
+    /// Releases the clip if it is still the one installed here.
+    fn release(&mut self, system: &mut impl SystemClip) {
+        self.requested = None;
+        if let Some(installed) = self.installed.take() {
+            if system.current() == Some(installed) {
+                system.set(None);
+            }
+        }
+    }
+}
 
 /// Whether the region is just its bounds: every exclusion lies wholly
 /// outside them, so one clip rectangle holds the pointer exactly.
@@ -102,7 +178,7 @@ fn screen_bounds([x, y, w, h]: pointer_api::Rect, origin: pointer_api::Point) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{one_rectangle, screen_bounds};
+    use super::{one_rectangle, screen_bounds, Confinement, SystemClip};
     use pointer_api::{outside, Region};
 
     fn edge(bounds: pointer_api::Rect, mut extra: Vec<pointer_api::Rect>) -> Region {
@@ -184,5 +260,70 @@ mod tests {
         for bounds in [[0, 0, 0, 20], [0, 0, 20, 0], [0, 0, -1, 20], [0, 0, 20, -1]] {
             assert_eq!(screen_bounds(bounds, (0, 0)), None);
         }
+    }
+
+    /// The system's clip on a 1920×1080 desktop, cut to it as Windows
+    /// does; counts the calls that move it (each one a mouse move).
+    struct Desktop { clip: Option<[i32; 4]>, calls: usize }
+
+    const DESKTOP: [i32; 4] = [0, 0, 1920, 1080];
+
+    impl SystemClip for Desktop {
+        fn current(&self) -> Option<[i32; 4]> { Some(self.clip.unwrap_or(DESKTOP)) }
+        fn set(&mut self, screen: Option<[i32; 4]>) -> bool {
+            self.calls += 1;
+            self.clip = screen.map(|[l, t, r, b]| [l.max(0), t.max(0), r.min(1920), b.min(1080)]);
+            true
+        }
+    }
+
+    #[test]
+    fn a_clip_released_by_someone_else_is_installed_again() {
+        let mut system = Desktop { clip: None, calls: 0 };
+        let mut clip = Confinement::default();
+        let view = Some([100, 200, 900, 800]);
+        assert!(clip.set(&mut system, view));
+        assert!(clip.set(&mut system, view));
+        assert_eq!(system.calls, 1, "unchanged: the system is left alone");
+        // winit on a cursor change, or the game, releases it.
+        system.clip = None;
+        assert!(clip.set(&mut system, view));
+        assert_eq!((system.clip, system.calls), (view, 2));
+        // Another rectangle replaces it: ours again.
+        system.clip = Some([0, 0, 10, 10]);
+        assert!(clip.set(&mut system, view));
+        assert_eq!(system.clip, view);
+        // The window moved: the new place.
+        assert!(clip.set(&mut system, Some([150, 230, 950, 830])));
+        assert_eq!(system.clip, Some([150, 230, 950, 830]));
+    }
+
+    #[test]
+    fn a_clip_cut_to_the_desktop_is_kept_and_released() {
+        let mut system = Desktop { clip: None, calls: 0 };
+        let mut clip = Confinement::default();
+        // A windowed view partly off the left and bottom of the screen.
+        let view = Some([-300, 600, 500, 1400]);
+        assert!(clip.set(&mut system, view));
+        assert_eq!(system.clip, Some([0, 600, 500, 1080]));
+        for _ in 0..3 { assert!(clip.set(&mut system, view)); }
+        assert_eq!(system.calls, 1, "no clip again each frame");
+        clip.set(&mut system, None);
+        assert_eq!(system.clip, None, "released though the system cut it");
+    }
+
+    #[test]
+    fn release_leaves_a_clip_that_is_not_ours() {
+        let mut system = Desktop { clip: None, calls: 0 };
+        let mut clip = Confinement::default();
+        assert!(clip.set(&mut system, Some([100, 100, 200, 200])));
+        // A grab's one-pixel lock replaced it.
+        system.clip = Some([150, 150, 151, 151]);
+        clip.release(&mut system);
+        assert_eq!(system.clip, Some([150, 150, 151, 151]));
+        // Empty requests release too, and claim nothing.
+        assert!(clip.set(&mut system, Some([100, 100, 200, 200])));
+        assert!(!clip.set(&mut system, Some([100, 100, 100, 200])));
+        assert_eq!(system.clip, None);
     }
 }

@@ -498,6 +498,13 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         Ok(None) => log::debug!("cursor: the game does not import ShowCursor"),
         Err(e) => log::warn!("cursor: hooking ShowCursor: {e}"),
     }
+    // (Nor its clips of the system pointer: the clip is global, and the
+    // game releasing its own released the viewer window's.)
+    match inproc::pointer::hook_clip_cursor(inproc::pe::main_module()) {
+        Ok(Some(hook)) => std::mem::forget(hook),
+        Ok(None) => log::debug!("cursor: the game does not import ClipCursor"),
+        Err(e) => log::warn!("cursor: hooking ClipCursor: {e}"),
+    }
     crate::preview::install(&game);
     // Remote viewers make their own atlas: this side needs the tables only.
     let pixels = remote.is_none();

@@ -78,6 +78,8 @@ bitflags! {
         const HIDDEN    = 1 << 1;
         const IN_WINDOW = 1 << 2;
         const LOCKED    = 1 << 3;
+        /// civ3-renderer patch: the system's clip is winit's own.
+        const CLIPPED   = 1 << 4;
     }
 }
 bitflags! {
@@ -479,8 +481,19 @@ impl WindowFlags {
     }
 }
 
+/// civ3-renderer patch: the clip to apply (`Some(None)`: release), if any,
+/// for the `desired` clip, the system's `active` one (`None`: the whole
+/// desktop) and whether the active clip is winit's own (`clipped`). Where
+/// winit wants no clip it releases only its own.
+fn clip_change<R: PartialEq>(desired: Option<R>, active: Option<R>, clipped: bool) -> Option<Option<R>> {
+    if desired.is_none() && !clipped {
+        return None;
+    }
+    (active != desired).then_some(desired)
+}
+
 impl CursorFlags {
-    fn refresh_os_cursor(self, window: HWND) -> Result<(), io::Error> {
+    fn refresh_os_cursor(&mut self, window: HWND) -> Result<(), io::Error> {
         let client_rect = util::WindowArea::Inner.get_rect(window)?;
 
         if util::is_focused(window) {
@@ -528,9 +541,19 @@ impl CursorFlags {
             // loop with `WM_MOUSEMOVE` events, and `refresh_os_cursor` is called by
             // `set_cursor_flags` which at times gets called once every iteration of the
             // eventloop.
-            if active_cursor_clip != cursor_clip.map(rect_to_tuple) {
-                util::set_cursor_clip(cursor_clip)?;
+            //
+            // civ3-renderer patch: while not grabbed, a clip winit did not
+            // install is left alone. The application may confine the
+            // pointer itself (`ClipCursor` to a view of the window); every
+            // cursor visibility change and every entry into the window
+            // used to release that clip.
+            let desired = cursor_clip.map(rect_to_tuple);
+            if let Some(change) =
+                clip_change(desired, active_cursor_clip, self.contains(CursorFlags::CLIPPED))
+            {
+                util::set_cursor_clip(change.and(cursor_clip))?;
             }
+            self.set(CursorFlags::CLIPPED, desired.is_some());
         }
 
         let cursor_in_client = self.contains(CursorFlags::IN_WINDOW);
