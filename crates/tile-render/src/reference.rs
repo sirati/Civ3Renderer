@@ -35,8 +35,8 @@ pub struct Draw {
     pub text: Option<TextPixels>,
     /// Procedural colour used only by this reference oracle.
     pub solid: Option<[u8; 4]>,
-    /// An arrow marker painted per pixel instead (see `MarkerPixels`).
-    pub shape: Option<MarkerPixels>,
+    /// A painted shape painted per pixel instead (see `PaintedPixels`).
+    pub shape: Option<PaintedPixels>,
     /// The named palette an indexed sprite is drawn with (0: none).
     pub palette: u32,
     /// True only for screen-space UI art. Background metadata must never
@@ -78,36 +78,37 @@ impl Draw {
     }
 }
 
-/// An arrow marker or its shadow (`tile_render::Shape`) as a draw paints
-/// it: its kind and colour, its scale, its reference point from the
-/// draw's top-left, its shadow's bob (f32 bits, as the shader has them).
+/// A painted shape (`tile_render::Shape::Painted`) as a draw paints it:
+/// which shape and its colour, its scale, its reference point from the
+/// draw's top-left, its painter's word (f32 bits, as the shader has them).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct MarkerPixels {
-    pub kind: u32,
+pub struct PaintedPixels {
+    pub shape: u32,
     pub rgba: u32,
     pub scale: u32,
     pub at: (u32, u32),
-    pub bob: u32,
+    pub param: u32,
 }
 
-impl MarkerPixels {
-    /// What it paints at pixel (i, j) of the draw.
-    fn color(&self, i: u32, j: u32) -> [u8; 4] {
+impl PaintedPixels {
+    /// What `painter` paints at pixel (i, j) of the draw.
+    fn color(&self, painter: &dyn Painter, i: u32, j: u32) -> [u8; 4] {
         let c = self.rgba;
         let rgba = [(c & 255) as f32, ((c >> 8) & 255) as f32, ((c >> 16) & 255) as f32, (c >> 24) as f32];
         let (x, y) = (i as f32 - f32::from_bits(self.at.0), j as f32 - f32::from_bits(self.at.1));
-        let scale = f32::from_bits(self.scale);
-        let p = if self.kind == tile_render_shared::PRIMITIVE_ARROW {
-            marker_math::arrow_pixel(x, y, scale, rgba)
-        } else {
-            marker_math::shadow_pixel(x, y, scale, f32::from_bits(self.bob), rgba)
-        };
+        let p = painter.paint(self.shape, x, y, f32::from_bits(self.scale), f32::from_bits(self.param), rgba);
         p.map(|v| v as u8)
     }
 }
 
-#[path = "../../tile-render-shaders/src/marker_math.rs"]
-mod marker_math;
+/// The CPU part of a renderer's painter (`Shaders::painter`), the oracle
+/// of its GPU part.
+pub trait Painter {
+    /// Shape `shape`'s colour (RGBA, 0..255) over the pixel whose top-left
+    /// is (x, y) from its reference point, at `scale` (pixels per pixel of
+    /// its 1:1 art), from its word `param` and its `rgba` (0..255).
+    fn paint(&self, shape: u32, x: f32, y: f32, scale: f32, param: f32, rgba: [f32; 4]) -> [f32; 4];
+}
 
 /// A glyph drawn from its outline (see `tile_render_shared::text`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -185,10 +186,12 @@ pub trait EffectOracle {
 }
 
 /// The oracle of a renderer drawing with other crates' parts: the CPU
-/// parts of its effect (none: views and copies must have none).
+/// parts of its effect and painter (none: views and copies must have no
+/// effects, the world no painted shapes).
 #[derive(Copy, Clone, Default)]
 pub struct Oracle<'a> {
     pub effect: Option<&'a dyn EffectOracle>,
+    pub painter: Option<&'a dyn Painter>,
 }
 
 impl Oracle<'_> {
@@ -377,7 +380,7 @@ fn compose<P: CanvasPixel>(
             };
             match d.text {
                 Some(text) => each_text_pixel(&words, &d, &text, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
-                None => each_texel(atlas, &d, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
+                None => each_texel(atlas, &d, size, oracle, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
             }
         });
         // The group's picture scaled into its rectangle.
@@ -404,7 +407,7 @@ fn compose<P: CanvasPixel>(
                     let d = Draw { clip: Some(clip), ..d };
                     match &d.text {
                         Some(t) => each_text_pixel(&words, &d, t, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
-                        None => each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
+                        None => each_texel(atlas, &d, (w, h), oracle, |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
                     }
                     return;
                 }
@@ -531,7 +534,7 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
 }
 
 /// Calls `f` for every opaque texel of `d` inside the viewport.
-fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32, u32, [u8; 4])) {
+fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), oracle: &Oracle<'_>, mut f: impl FnMut(u32, u32, [u8; 4])) {
     let sprite = d.descriptor(atlas);
     for sy in 0..d.placed.height {
         for sx in 0..d.placed.width {
@@ -543,7 +546,10 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
                 continue;
             }
             let (tx, ty) = d.texel(&sprite, sx, sy);
-            let src = match d.shape { Some(m) => m.color(sx, sy), None => d.color(atlas, &sprite, (tx, ty)) };
+            let src = match d.shape {
+                Some(m) => m.color(oracle.painter.expect("a painted shape needs the oracle's painter (`Oracle::painter`)"), sx, sy),
+                None => d.color(atlas, &sprite, (tx, ty)),
+            };
             if src[3] != 0 {
                 f(px as u32, py as u32, src);
             }
@@ -640,16 +646,16 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 let sc = |v: i32| (v as i64 * zoom.0 as i64).div_euclid(zoom.1 as i64) as i32;
                 let (ax, ay) = (vx + sc(rx), vy + sc(ry));
                 let prim = shape.primitive();
-                let (l, t, r, b, marker) = match shape {
+                let (l, t, r, b, painted) = match shape {
                     crate::Shape::Rect(_) => {
                         let (l, t, r, b) = tile_render_shared::output_rect(&prim, zoom.0, zoom.1);
                         (ax + l, ay + t, ax + r, ay + b, None)
                     }
                     _ => {
-                        let ([l, t, r, b], scale, at) = tile_render_shared::marker_place(&prim, (ax, ay), zoom.0, zoom.1, n);
-                        let marker = MarkerPixels { kind: prim.kind, rgba: prim.rgba, scale: scale.to_bits(),
-                            at: (at.0.to_bits(), at.1.to_bits()), bob: tile_render_shared::marker_bob(&prim).to_bits() };
-                        (l, t, r, b, Some(marker))
+                        let ([l, t, r, b], scale, at) = tile_render_shared::painted_place(&prim, (ax, ay), zoom.0, zoom.1, n);
+                        let painted = PaintedPixels { shape: prim.width, rgba: prim.rgba, scale: scale.to_bits(),
+                            at: (at.0.to_bits(), at.1.to_bits()), param: prim.b };
+                        (l, t, r, b, Some(painted))
                     }
                 };
                 if r <= l || b <= t { continue; }
@@ -667,7 +673,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     placed: Placed { width: (r - l) as u32, height: (b - t) as u32, step: 1, ..Default::default() },
                     text: None,
                     solid: Some(prim.rgba.to_le_bytes()),
-                    shape: marker,
+                    shape: painted,
                     palette: 0,
                     screen: s.screen,
                 }, true);

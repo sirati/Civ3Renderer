@@ -26,6 +26,9 @@ pub struct Shaders {
     /// (`Camera::effect`, `ScreenCopy::effect`) from the device and this
     /// module (whose entry points it draws with), when one first does.
     pub effect: Option<MakeEffect>,
+    /// The fragment entry point painting painted shapes (`Shape::Painted`,
+    /// see `tile_render_shaders::painted`), if the module has one.
+    pub painter: Option<&'static str>,
 }
 
 /// See [`Shaders::effect`].
@@ -33,18 +36,23 @@ pub type MakeEffect = fn(&wgpu::Device, &wgpu::ShaderModule) -> Box<dyn crate::e
 
 impl Shaders {
     pub const fn new(spirv: &'static [u8], spirv_fallback: &'static [u8]) -> Self {
-        Shaders { spirv, spirv_fallback, effect: None }
+        Shaders { spirv, spirv_fallback, effect: None, painter: None }
     }
 
     /// The same, with `effect` (see [`Shaders::effect`]).
     pub const fn with_effect(self, effect: MakeEffect) -> Self {
         Shaders { effect: Some(effect), ..self }
     }
+
+    /// The same, with `painter` (see [`Shaders::painter`]).
+    pub const fn with_painter(self, painter: &'static str) -> Self {
+        Shaders { painter: Some(painter), ..self }
+    }
 }
 
 impl std::fmt::Debug for Shaders {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Shaders").field("spirv", &self.spirv.len()).field("spirv_fallback", &self.spirv_fallback.len()).field("effect", &self.effect.is_some()).finish()
+        f.debug_struct("Shaders").field("spirv", &self.spirv.len()).field("spirv_fallback", &self.spirv_fallback.len()).field("effect", &self.effect.is_some()).field("painter", &self.painter).finish()
     }
 }
 
@@ -130,6 +138,8 @@ pub struct TileRenderer {
     /// The effect's GPU part, made when first needed.
     effect: std::cell::RefCell<Option<Box<dyn crate::effect::ViewEffect>>>,
     make_effect: Option<MakeEffect>,
+    /// The painter's entry point (`Shaders::painter`).
+    painter: Option<&'static str>,
     glyph_cache: std::cell::RefCell<Option<glyph_cache::State>>,
     /// Decoding of the retained canvas, independent of later world uploads.
     picture_bits: u32,
@@ -714,6 +724,7 @@ impl TileRenderer {
             smoke: Default::default(),
             effect: Default::default(),
             make_effect: shaders.effect,
+            painter: shaders.painter,
             glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
@@ -834,7 +845,6 @@ impl TileRenderer {
         self.timer.as_mut()
     }
 
-    /// The timestamp writes of a pass, when timing.
     /// The effect's GPU part, made the first time it is asked for. None
     /// (reported) when the renderer's shaders have no effect.
     fn effect(&self, device: &wgpu::Device) -> Option<std::cell::RefMut<'_, Box<dyn crate::effect::ViewEffect>>> {
@@ -849,6 +859,7 @@ impl TileRenderer {
         Some(std::cell::RefMut::map(effect, |e| e.as_mut().expect("made above")))
     }
 
+    /// The timestamp writes of a pass, when timing.
     fn timed(&self, label: impl FnOnce() -> String) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         self.timer.as_ref().and_then(|t| t.pass(label))
     }
@@ -905,6 +916,10 @@ impl TileRenderer {
                     let stages = if matches!(p, P::SubpixelDual(_)) { ("free_vs", "subpixel_dual_fs") } else { ("text_vs", "text_dual_fs") };
                     (stages, &self.layout, format, blend,
                         wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE)
+                }
+                P::Painted(into) => {
+                    let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
+                    (("free_vs", self.painter.expect("asked for only with a painter (`FreePipelines::of`)")), &self.layout, format, blend, all)
                 }
                 P::TextKeyed(into) => {
                     let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
@@ -1152,6 +1167,7 @@ impl TileRenderer {
             smoke: Default::default(),
             effect: Default::default(),
             make_effect: self.make_effect,
+            painter: self.painter,
             glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
@@ -2763,6 +2779,11 @@ impl FreePipelines<'_> {
             (FreeKind::Text, into) if self.device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) => one(P::TextDual(into)),
             (FreeKind::Text, into) => std::array::from_fn(|c| Some(get(P::Text(into, c as u8)))),
             (FreeKind::TextKeyed, into) => one(P::TextKeyed(into)),
+            (FreeKind::Painted, into) if self.renderer.painter.is_some() => one(P::Painted(into)),
+            (FreeKind::Painted, _) => {
+                render_errors::report(render_errors::Kind::Gpu, "painted shapes", format_args!("the renderer's shaders have no painter; they are left out"));
+                [None, None, None]
+            }
         };
         pipelines.into_iter().flatten()
     }
@@ -2918,6 +2939,8 @@ enum FreeKind {
     Text,
     /// Text drawn from outlines onto a colour key (likewise).
     TextKeyed,
+    /// Painted shapes (`Shape::Painted`), by the shader module's painter.
+    Painted,
 }
 
 /// Runs of free sprites in drawing order: which instances, and how they
@@ -3084,6 +3107,7 @@ fn smoke_instances(runs: &[FreeRuns]) -> usize {
 
 /// How free sprite `s` (not text) is drawn.
 fn free_kind(s: &crate::PlacedSprite) -> FreeKind {
+    if matches!(s.shape, Some(crate::Shape::Painted(_))) { return FreeKind::Painted; }
     if s.solid.is_some() || s.shape.is_some() { return FreeKind::Normal; }
     match s.blend {
         crate::Blend::NativePaletteAlpha => FreeKind::NativePaletteAlpha,
@@ -3271,6 +3295,8 @@ enum P {
     Text(u8, u8),
     TextDual(u8),
     TextKeyed(u8),
+    /// Painted shapes: into.
+    Painted(u8),
     /// Copies (scaled) into the caller's target, expanding quantized values.
     Output,
     /// Copies (scaled) into the internal target.
@@ -3279,7 +3305,7 @@ enum P {
 }
 
 impl P {
-    const COUNT: usize = 43;
+    const COUNT: usize = 46;
 
     fn index(self) -> usize {
         match self {
@@ -3302,6 +3328,7 @@ impl P {
             P::SubpixelDual(into) => 39 + into.min(2) as usize,
             P::Text(into, channel) => 19 + 3 * into.min(2) as usize + channel.min(2) as usize,
             P::TextKeyed(into) => 28 + into.min(2) as usize,
+            P::Painted(into) => 43 + into.min(2) as usize,
         }
     }
 }
