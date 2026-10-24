@@ -179,6 +179,13 @@ fn trace_scene(trace: &Trace, compiled: &Compiled, art: Option<&mut (units::Unit
         // shows them halved.)
     }
     ifc23::scene_map::overlay_screen_sprites(&mut scene);
+    // The unit's orders on the map's own screen, reachable from every view
+    // (and placed by the viewer), as live reports them.
+    if city.is_none() {
+        let build = civ3_sys::Build::PcGames;
+        let hud = civ3_sys::ui_hooks::hud_buttons(build);
+        scene.interface.reachable = ui.as_ref().and_then(|f| ifc23::interface_parts::map_hud(f, build)).and_then(|f| ifc23::interface_parts::forms_rect(f, |c| hud.is_unit_order(c)));
+    }
     if let Some((rect, _)) = city {
         ifc23::scene_map::city_view(&mut scene, (trace.view.camera_x, trace.view.camera_y), rect);
     }
