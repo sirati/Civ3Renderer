@@ -1181,7 +1181,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if full { log::debug!("original renderer: presenting complete restored screen"); }
         let rect = if full { 0 } else { c.rect };
         emit(Event::PresentBegin);
+        let compare = crate::jgl_compare::on();
+        if compare { crate::jgl_compare::exe_present_begin(rect, back_buffer); }
         updating(rect, || if full { c.original_with(0) } else { c.original() });
+        if compare { crate::jgl_compare::exe_present_end(); }
         size_of(back_buffer);
         // (Read on this thread, as the screen is presented: the publisher
         // composes the world it reads later only with a matching screen.)
@@ -1253,6 +1256,16 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     }
     hook_lines(game, &mut hooks);
     hook_jgl(jgl)?;
+    if std::env::var("CIV3R_JGL_COMPARE").as_deref() == Ok("1") {
+        if let Some(slot) = h::jgl_invalidate_rect_slot(jgl) {
+            crate::jgl_compare::ON.store(true, Relaxed);
+            hooks.push(Box::new(h::jgl_invalidate_rect::install_slot(slot, |c| {
+                crate::jgl_compare::import_invalidate(c.rect);
+                c.original()
+            })?));
+            log::info!("jgl compare: the present group against the exe's present and jgl's InvalidateRect");
+        }
+    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
