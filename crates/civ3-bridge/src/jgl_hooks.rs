@@ -66,6 +66,11 @@ impl jgl::PixelPolicy for Pixels {
         // skipped, which tells when the game reads one back.)
         let decided = game.as_ref().is_some_and(crate::ui_trace::skips_blit);
         let skipped = crate::ui_trace::placeholder_sprites() || decided;
+        if !decided && skipped {
+            if let Some(g) = &game {
+                crate::ui_trace::placeholder_lost(g.canvas);
+            }
+        }
         if compare::on() {
             compare::asked(call, game.is_some(), skipped);
         }
