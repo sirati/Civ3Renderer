@@ -1939,7 +1939,7 @@ fn publish(
                 // Units the game slides to the next tile: where their slides
                 // have them, the renderer moving them on (`crate::unit_slides`).
                 let sliding = crate::unit_slides::shown(std::time::Instant::now(), world.units.iter().map(|u| (u.id, (u.x, u.y))));
-                units::place_sliding(world, view, &mut art, &compiled, rings.as_ref(), &mut unit_memory, &mut scene, accessibility, &sliding);
+                units::place_sliding(world, view, &mut art, &compiled, rings.as_ref(), &mut unit_memory, &mut scene, accessibility, &sliding, units::selected(world));
                 crate::effects::place(world, view, &mut art, &compiled, &mut scene);
                 // The mirrored interface has the city icons already.
                 if ui.is_none() {
