@@ -262,7 +262,16 @@ game's drawing when the game's pointer moves onto a row and lights it
 with no click or key: what the highlight adds and which colours it
 changes must turn the row's plain drawing into its lit one exactly and
 back. Wherever the list shows away from the game's drawing, a learned
-highlight is drawn on the row under the pointer. Lists without matching
+highlight is drawn on the row under the pointer. The game's scroll bar thumb (its own art, moved) shows where the list
+is, by pixels, proportionally, and lands exactly on the game's thumb at
+a whole item. A press in the bar's track glides the list to where it puts
+the thumb's middle (as a notch glides; snapping after), the thumb dragged
+moves the list with it by pixels, and the Alt mode's edit of the bar
+glides the list to its value; the arrows step the game's list and the
+list glides after it. The bar's scale comes from the positions seen with
+its values: until it is known (one movement), the bar is the game's.
+A menu the game opens at a click on a row shown scrolled (the domestic
+advisor's production menu) opens at the pointer. Lists without matching
 rows across an update change immediately.
 
 The game decides what its interface shows; how a control looks under the
