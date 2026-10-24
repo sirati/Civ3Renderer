@@ -22,10 +22,10 @@ struct Barrier {
     pending: AtomicU64,
     arrived: AtomicU64,
     failed: AtomicU64,
-    wake: civ3r_sync::Wake,
+    wake: handoff::Wake,
 }
 impl Barrier {
-    const fn new() -> Self { Self { pending: AtomicU64::new(0), arrived: AtomicU64::new(0), failed: AtomicU64::new(0), wake: civ3r_sync::Wake::new() } }
+    const fn new() -> Self { Self { pending: AtomicU64::new(0), arrived: AtomicU64::new(0), failed: AtomicU64::new(0), wake: handoff::Wake::new() } }
     fn arm(&self, serial: u64) { self.pending.store(serial, Ordering::Release); }
     fn receipt(&self, serial: u64, arrived: bool) {
         if serial == 0 || self.pending.load(Ordering::Acquire) != serial { return; }

@@ -1,18 +1,18 @@
 //! Render errors, so that none is lost among the log's lines again.
 //!
 //! An error is reported by its [`Kind`] and its context (the screen or
-//! surface it happened on, the class of asset: `"F7 screen; sheet
+//! surface it happened on, the class of asset: `"report screen; sheet
 //! screen_resized_region"`), with the details of this occurrence (which
-//! leader, which tile, which file) apart from them. The kind and the
+//! portrait, which tile, which file) apart from them. The kind and the
 //! context make the error's type, its key: the first report of a type is
 //! kept with its details and written to the render error log
-//! (`civ3-render-errors.log`, next to `civ3-bridge.log`, [`log_to_file`]);
+//! (a file the program names, next to its main log, [`log_to_file`]);
 //! every report is counted, per type and in all (for the viewer's on-screen
 //! notice, [`Rolling`] and [`Notice`]).
 //!
 //! # One run, both sides
 //!
-//! Each binary (the bridge DLL, the native unixlib, a viewer process) has
+//! Each binary (the driver's, a native side of it, a viewer process) has
 //! its own [`ERRORS`]: an in-process table keyed by a stable hash of the
 //! type, per process and so per game run, never a file shared between
 //! runs. A report is a few atomic operations: the hash, a lock-free insert
@@ -28,13 +28,13 @@ use std::fmt;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
-use civ3r_sync::Mailbox;
+use handoff::Mailbox;
 
 mod file;
 mod forward;
 mod rolling;
 
-pub use file::{FILE_NAME, Log, log_to_file};
+pub use file::{Log, log_to_file};
 pub use forward::{Forwarded, PREFIX, TARGET, absorb, decode, encode_count, encode_record, take_forward};
 pub use rolling::{HOLD, Notice, REFRESH, Rolling, WINDOW, notice_text};
 
@@ -147,7 +147,7 @@ pub fn title(kind: Kind, context: &str) -> String {
 }
 
 /// The class of an asset named `name`, for a context: a file's folder
-/// (`Art/Leaderheads/AL01.pcx` → `Art/Leaderheads`), else the name without
+/// (`Art/Portraits/P01.png` → `Art/Portraits`), else the name without
 /// the numbers that tell its instances apart (`screen_resized_region_0` →
 /// `screen_resized_region`).
 pub fn class_of(name: &str) -> &str {
@@ -338,15 +338,15 @@ mod tests {
     #[test]
     fn a_type_is_its_kind_and_context_not_its_details() {
         let r = Registry::new();
-        assert!(r.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("the Greek leader failed to load")));
-        assert!(!r.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("the Roman leader failed to load")));
+        assert!(r.report(Kind::ArtImage, "portraits; report screen", format_args!("the first portrait failed to load")));
+        assert!(!r.report(Kind::ArtImage, "portraits; report screen", format_args!("the second portrait failed to load")));
         // Another screen, another type; another kind, too.
-        assert!(r.report(Kind::ArtImage, "leader portraits; diplomacy screen", format_args!("the Greek leader failed to load")));
-        assert!(r.report(Kind::ArtSheet, "leader portraits; F4 screen", format_args!("x")));
+        assert!(r.report(Kind::ArtImage, "portraits; talks screen", format_args!("the first portrait failed to load")));
+        assert!(r.report(Kind::ArtSheet, "portraits; report screen", format_args!("x")));
         let records = r.take_records();
         assert_eq!(records.len(), 3);
-        assert_eq!(records[0].detail, "the Greek leader failed to load", "the first occurrence's details are kept");
-        assert_eq!(r.count_of(key_hash(Kind::ArtImage, "leader portraits; F4 screen")), 2);
+        assert_eq!(records[0].detail, "the first portrait failed to load", "the first occurrence's details are kept");
+        assert_eq!(r.count_of(key_hash(Kind::ArtImage, "portraits; report screen")), 2);
         assert_eq!(r.total(), 4);
         assert!(r.take_records().is_empty());
     }
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn classes_drop_what_tells_instances_apart() {
         assert_eq!(class_of("screen_resized_region_0"), "screen_resized_region");
-        assert_eq!(class_of("Art/Leaderheads/AL01.pcx"), "Art/Leaderheads");
+        assert_eq!(class_of("Art/Portraits/P01.png"), "Art/Portraits");
         assert_eq!(class_of("Art\\Units\\Warrior\\Warrior.ini"), "Art\\Units\\Warrior");
         assert_eq!(class_of("Viewer@busy_panel"), "Viewer@busy_panel");
         assert_eq!(class_of("42"), "42");

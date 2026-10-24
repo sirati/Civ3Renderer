@@ -17,6 +17,5 @@ gpu-text.workspace = true
 
 [dev-dependencies]
 image.workspace = true
-
-[build-dependencies]
-cargo-gpu-install = "0.11"
+# The module its GPU tests draw with (it holds this renderer's shaders).
+viewer-spirv.workspace = true

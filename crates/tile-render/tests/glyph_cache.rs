@@ -42,7 +42,7 @@ fn world(fonts: Vec<Arc<Face>>, font: u32, count: usize) -> TileWorld {
 }
 
 fn renderer(gpu: &Headless, world: &TileWorld) -> TileRenderer {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_world(&gpu.device, world);
     renderer
 }
@@ -163,3 +163,6 @@ fn bounded_default_atlas_eviction_regenerates_a_revisited_glyph() {
     assert!(stats.pinned_face_word_bytes <= 64 * 1024 * 1024);
     assert!(stats.resident_bytes >= stats.atlas_bytes + 65_536);
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

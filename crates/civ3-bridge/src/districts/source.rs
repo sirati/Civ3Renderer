@@ -53,7 +53,7 @@ fn c3x_state() -> Option<C3xState> {
 /// read from, then the names of the improvements their wonders were matched
 /// with.
 fn configs(state: &C3xState, names: &[String]) -> Option<Arc<DistrictConfigs>> {
-    static CACHE: civ3r_sync::Latest<((u64, u64), Arc<DistrictConfigs>)> = civ3r_sync::Latest::new();
+    static CACHE: handoff::Latest<((u64, u64), Arc<DistrictConfigs>)> = handoff::Latest::new();
     let key = (state.fingerprint().ok()?, {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();

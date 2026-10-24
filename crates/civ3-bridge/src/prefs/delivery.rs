@@ -47,9 +47,9 @@ mod live {
 
     /// Receipts waiting for their fence message: posted by the publisher,
     /// acknowledged on the game's thread, without a lock.
-    static REQUESTS: LazyLock<civ3r_sync::Posted<Receipt>> = LazyLock::new(civ3r_sync::Posted::new);
+    static REQUESTS: LazyLock<handoff::Posted<Receipt>> = LazyLock::new(handoff::Posted::new);
     thread_local! {
-        static INBOX: RefCell<civ3r_sync::Inbox<Receipt>> = RefCell::new(civ3r_sync::Inbox::default());
+        static INBOX: RefCell<handoff::Inbox<Receipt>> = RefCell::new(handoff::Inbox::default());
     }
 
     fn message_id() -> u32 {

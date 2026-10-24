@@ -39,7 +39,7 @@ fn render(gpu: &Headless, world: &TileWorld, atlas: &Atlas, camera: &Camera, fra
 /// reference's blend is exact only for alpha 0 and 255, so translucent
 /// draws may round one step apart.
 fn render_within(gpu: &Headless, world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, tolerance: u8) -> RgbaImage {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, atlas);
     renderer.set_world(&gpu.device, world);
     let actual = gpu.render(&mut renderer, camera, frame, CLEAR);
@@ -128,7 +128,7 @@ fn clipped_cropped_moved_and_stacked_backgrounds_keep_their_source_phase() {
     stacked_world.free[0].view = Some(1);
     let head = Camera { cells: false, ..base_camera };
     let child = Camera { stacked: true, zoom: (1, 1), viewport: (64, 64), ..camera((64, 64), (1, 1)) };
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &stacked_world);
     let stacked = gpu.render_views(&mut renderer, &[head, child], (32, 32), 0, CLEAR);
@@ -355,7 +355,7 @@ fn integer_magnification_has_known_bilinear_colours_instead_of_replicated_neares
 fn scaled_background_colour_keeps_outline_text_and_opaque_ui_plate_exact() {
     let gpu = Headless::new().expect("GPU");
     let (mut world, atlas) = scene(&pattern(64,64), (0,0), true);
-    let bytes = std::fs::read("/mnt/datasets/winvm/civ3-src/Civilization III Complete/LSANS.TTF").expect("existing real font fixture");
+    let bytes = std::fs::read(std::env::var_os("TEST_FONT").expect("TEST_FONT: a real TrueType font (the dev shell sets it)")).expect("existing real font fixture");
     let face = std::sync::Arc::new(tile_render::gpu_text::Face::parse(&bytes,0).unwrap());
     let shape = tile_render::GlyphShape::Glyph(face.glyph('G').unwrap()); world.fonts.push(face);
     world.free.push(PlacedSprite { screen: true, view: Some(0), solid: Some(tile_render::SolidRect { width: 36, height: 24, rgba: [249,244,211,255] }),
@@ -380,3 +380,6 @@ fn scaled_background_colour_keeps_outline_text_and_opaque_ui_plate_exact() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

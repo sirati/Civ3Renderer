@@ -110,7 +110,7 @@ mod unix_side {
     use std::sync::{Arc, LazyLock, OnceLock};
 
     use civ3_assets::GameFiles;
-    use civ3r_sync::{Latest, Mailbox};
+    use handoff::{Latest, Mailbox};
     use civ3_assets::loader::Civ3Loader;
     use scene::Driver;
     use wine_unixlib::{STATUS_BUFFER_TOO_SMALL, STATUS_DEVICE_BUSY, STATUS_INVALID_PARAMETER, STATUS_SUCCESS, STATUS_UNSUCCESSFUL, Status};
@@ -465,6 +465,10 @@ mod unix_side {
         let assets = tile_viewer::Assets::new(compiled.clone());
         assets.set(compiled, generation);
         let config = tile_viewer::ViewerConfig {
+            extensions: civ3_ui::viewer::extensions(),
+            settings_path: civ3_ui::viewer::settings_path(),
+            startup_ready_file: civ3_ui::viewer::startup_ready_file(),
+            launcher_scale: civ3_ui::viewer::launcher_scale(),
             title: "Civ III (native renderer)".into(),
             native_thread_init: Some(wine_unixlib::unix::block_native_signals),
             size: (1024, 768),
@@ -474,7 +478,7 @@ mod unix_side {
             overhang: (128, 128, 128, 128),
             // (The game's folder, where civ3-bridge.log is: the launcher
             // starts the game there.)
-            recording_dir: tile_viewer::altrec::recording_dir(std::env::current_dir().ok()),
+            recording_dir: civ3_ui::viewer::recording_dir(std::env::current_dir().ok()),
             ..Default::default()
         };
         let a = assets.clone();

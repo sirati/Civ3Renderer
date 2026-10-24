@@ -97,7 +97,7 @@ pub(crate) fn effect(e: &civ3_sys::DrawnEffect) -> crate::world::Civ3Effect {
 /// bits are known (`civ3_sys::world::Diplomacy`).
 fn relations(game: &Civ3, player: i32) -> Vec<civ3_sys::world::Relation> {
     // (Read by the publisher and the preview: either may log a change.)
-    static LAST: civ3r_sync::Latest<civ3_sys::world::Diplomacy> = civ3r_sync::Latest::new();
+    static LAST: handoff::Latest<civ3_sys::world::Diplomacy> = handoff::Latest::new();
     let Ok(d) = game.diplomacy(player) else { return Vec::new() };
     if LAST.load().as_deref() != Some(&d) {
         let known: Vec<String> = (0..32)
@@ -301,7 +301,7 @@ impl ArtFolders {
 struct Compiler {
     install: PathBuf,
     /// Reuse resolved roots and listings until scenario search paths change.
-    files: civ3r_sync::Latest<(ArtFolders, civ3_assets::GameFiles)>,
+    files: handoff::Latest<(ArtFolders, civ3_assets::GameFiles)>,
     name: String,
     text: String,
     /// An explicit environment override, parsed once. Some(None) disables
@@ -427,7 +427,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     });
     // (Screen pictures are at most the game's screen.)
     let largest = crate::game_window::game_screen().map_or(0, |(w, h)| w.max(h));
-    let compiler = Compiler { install, files: civ3r_sync::Latest::new(), name, text, ring_override, max_page, largest };
+    let compiler = Compiler { install, files: handoff::Latest::new(), name, text, ring_override, max_page, largest };
     let folders = ArtFolders::of(&game);
     // Playing in the viewer's own views while a menu is open
     // (`crate::modal`, `CIV3R_MODAL_INPUT=off`: not).
@@ -520,12 +520,16 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
         presenter
     } else {
         let config = tile_viewer::ViewerConfig {
+            extensions: civ3_ui::viewer::extensions(),
+            settings_path: civ3_ui::viewer::settings_path(),
+            startup_ready_file: civ3_ui::viewer::startup_ready_file(),
+            launcher_scale: civ3_ui::viewer::launcher_scale(),
             title: VIEWER_TITLE.into(),
             size: (1024, 768),
             fullscreen,
             overhang: crate::scene_map::OVERHANG,
             // (The game's folder, where civ3-bridge.log is.)
-            recording_dir: tile_viewer::altrec::recording_dir(std::env::current_dir().ok()),
+            recording_dir: civ3_ui::viewer::recording_dir(std::env::current_dir().ok()),
             ..Default::default()
         };
         Presenter::in_process(config, compiled.clone()).map_err(LiveError::Install)?
@@ -2162,6 +2166,7 @@ fn publish(
         }
         scene.interface = scene::Interface {
             screen: screen_open.map(|s| s.1.to_owned()),
+            screen_role: screen_open.map_or(scene::ScreenRole::Other, |s| civ3_ui::screens::role(s.1)),
             menu_fit: prefs.screen_rect().is_some() || own_title.is_some() || native_title.is_some(),
             roaming: corner.map(|_| crate::interface_parts::CORNER_VIEW),
             capture_hint: (map_hint || preview_hint).then_some(crate::interface_parts::HINT_VIEW),
@@ -2198,7 +2203,7 @@ fn publish(
             targeting: matches!(shown, Shown::Map(world, _) if screen_open.is_none() && popup.is_none() && crate::targeting::active(world.targeting.mode)),
             // Go-to and the stack moves only: the cursor tile by tile.
             snap_to_tiles: matches!(shown, Shown::Map(world, _) if crate::targeting::go_to(world.targeting.mode)),
-            build_queue: None,
+            extensions: Vec::new(),
             // The game menu or the popup Escape opens on the map: the
             // viewer lets the pointer go entirely while either is open.
             releases_pointer: {
@@ -2221,7 +2226,7 @@ fn publish(
         // The city screen's build queue, reordered by dragging.
         if let Some((queue, grips)) = crate::build_queue::publish(&civ3_sys::controls::Live, &scene.interactables, scene.interface.focus_control) {
             scene.interactables.extend(grips);
-            scene.interface.build_queue = Some(queue);
+            scene.interface.extensions.push(queue.extension());
         }
         if let (Shown::Map(world, _), Some(frame), Some(anchor)) = (shown, ui.as_ref(), city_anchor) {
             let eligible = crate::city_screen::native::eligibility(&game, world);
@@ -2661,7 +2666,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
         if !matches!(input, Input::Slider { action: scene::SliderAction::Preview, .. }) {
             crate::native_sliders::barrier();
         }
-        if !matches!(input, Input::WorldMove { .. } | Input::UnitOrder { action: scene::UnitOrderAction::Preview, .. }
+        if !matches!(input, Input::WorldMove { .. } | Input::WorldOrder { action: scene::WorldOrderAction::Preview, .. }
             | Input::Views { .. } | Input::MainView { .. } | Input::Zooms(_) | Input::Edge { .. } | Input::Window { .. } | Input::Resized { .. }) {
             crate::world_input::barrier();
         }
@@ -2738,7 +2743,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 }
             }
             Input::WorldMove { x, y } => { crate::world_input::post_move(game, window, (x, y)); }
-            Input::UnitOrder { action, x, y } => { crate::world_input::post_order(game, window, action, (x, y)); }
+            Input::WorldOrder { action, x, y } => { crate::world_input::post_order(game, window, action, (x, y)); }
             Input::WorldButton { button, down, x, y } => {
                 // (Under a screen too: the game's thread decides what may be
                 // done there, and says so where not, `crate::world_input`.)
@@ -2765,7 +2770,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 // arrive. Retire them in the same owned window queue before
                 // its native UI becomes the fallback input target.
                 let _ = inproc::keyboard::release(window);
-                crate::world_input::post_order(game, window, scene::UnitOrderAction::Cancel, (0, 0));
+                crate::world_input::post_order(game, window, scene::WorldOrderAction::Cancel, (0, 0));
                 forwarder.world_buttons.clear();
                 forwarder.look = None;
                 forwarder.plain_keys.clear();
@@ -2787,7 +2792,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 log::info!("input: queued report {serial} read");
                 crate::async_popups::close(serial);
             }
-            Input::BuildQueue { stamp, from, to } => crate::build_queue::post(window, stamp, from, to),
+            Input::Extension { .. } => match tile_game::production_queue::QueueEdit::of(&input) {
+                Some(edit) => crate::build_queue::post(window, edit),
+                None => log::debug!("input: an extension message of no extension of ours"),
+            },
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");

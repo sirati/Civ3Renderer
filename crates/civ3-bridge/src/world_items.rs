@@ -82,7 +82,7 @@ mod tests {
         let items = WorldItems::new(true, sample);
         let compiled = compile(&items);
         let mut sprites = items.sprites(&Fonts::default(), &compiled, 0, false);
-        for sprite in &mut sprites { sprite.category |= tile_render::CATEGORY_CITIES; }
+        for sprite in &mut sprites { sprite.category |= viewer_settings::clean_map::CITIES; }
         assert_eq!(sprites.len(), 2);
         assert_eq!((sprites[0].x, sprites[0].y), (95, 115));
         assert_eq!((sprites[1].x, sprites[1].y), (70, 150));
@@ -94,8 +94,8 @@ mod tests {
             let plate = selected.solid.expect("world plates are GPU rectangle commands");
             assert_eq!((plate.width, plate.height), (40, 10), "KEEP_SIZE preserves native plate dimensions in reduced views");
             assert!(!selected.screen && selected.clip.is_none());
-            assert_ne!(selected.category & tile_render::CATEGORY_CITIES, 0);
-            let hidden = tile_render::Camera { downscale, hidden_categories: tile_render::CATEGORY_CITIES, ..tile_render::Camera::new((100, 100)) }.effective_hidden_categories();
+            assert_ne!(selected.category & viewer_settings::clean_map::CITIES, 0);
+            let hidden = tile_render::Camera { downscale, hidden_categories: viewer_settings::clean_map::CITIES, ..tile_render::Camera::new((100, 100)) }.effective_hidden_categories();
             assert!(sprites.iter().all(|s| s.category & hidden != 0));
         }
     }
@@ -107,6 +107,6 @@ mod tests {
         let sprites = items.sprites(&Fonts::default(), &compiled, 0, false);
         assert_eq!(sprites.len(), 1);
         assert_eq!(sprites[0].category, 0);
-        assert_eq!(tile_render::CATEGORY_ALL & (tile_render::CATEGORY_FULL_RESOLUTION | tile_render::CATEGORY_REDUCED_RESOLUTION), 0);
+        assert_eq!(viewer_settings::clean_map::ALL & (tile_render::CATEGORY_FULL_RESOLUTION | tile_render::CATEGORY_REDUCED_RESOLUTION), 0);
     }
 }

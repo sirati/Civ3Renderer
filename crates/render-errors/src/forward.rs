@@ -1,12 +1,12 @@
-//! Records and counts of another side, as text lines: the native unixlib's
-//! go with its log lines (`civ3r_native::log_lines`, target [`TARGET`]), a
+//! Records and counts of another side, as text lines: a native side's
+//! go with its log lines (target [`TARGET`]), a
 //! viewer process's with its error messages (`viewer_transport`). The
 //! bridge takes them into its [`ERRORS`] ([`absorb`]).
 
 use super::{ERRORS, Kind, Origin, Record, Registry};
 
 /// The log target of forwarded lines.
-pub const TARGET: &str = "civ3r_render_error";
+pub const TARGET: &str = "render_errors_forwarded";
 
 /// The start of every forwarded line.
 pub const PREFIX: &str = "\u{1}render-error\t";
@@ -94,10 +94,10 @@ mod tests {
     #[test]
     fn both_sides_land_in_the_bridges_registry_once_per_type() {
         let (native, bridge) = (Registry::new(), Registry::new());
-        for leader in ["Greek", "Roman"] {
-            native.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("the {leader} leader"));
+        for portrait in ["first", "second"] {
+            native.report(Kind::ArtImage, "portraits; report screen", format_args!("the {portrait} portrait"));
         }
-        bridge.report(Kind::ArtImage, "leader portraits; F4 screen", format_args!("on the bridge"));
+        bridge.report(Kind::ArtImage, "portraits; report screen", format_args!("on the bridge"));
         native.report(Kind::Gpu, "surface", format_args!("lost"));
         for line in take_forward_from(&native) {
             assert!(absorb_into(&bridge, &line, Origin::Native));
@@ -106,7 +106,7 @@ mod tests {
         // The bridge's own, then the native side's two (the log's writer
         // keeps the first of each hash, `Log`).
         assert_eq!(records.len(), 3);
-        assert_eq!(bridge.count_of(key_hash(Kind::ArtImage, "leader portraits; F4 screen")), 3);
+        assert_eq!(bridge.count_of(key_hash(Kind::ArtImage, "portraits; report screen")), 3);
         assert_eq!(bridge.count_of(key_hash(Kind::Gpu, "surface")), 1);
         // Forwarded reports do not count as the bridge's own (the viewer
         // counts the native side's itself).

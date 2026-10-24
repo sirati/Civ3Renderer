@@ -2,7 +2,6 @@
 
 use std::num::NonZeroU64;
 mod smoke;
-mod lens;
 mod glyph_cache;
 pub use glyph_cache::GlyphCacheStats;
 
@@ -13,14 +12,55 @@ use crate::atlas::Atlas;
 use crate::camera::Camera;
 use crate::world::{ColorModel, Grid, Pass, TileWorld};
 
-const SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV"));
-const FALLBACK_SPV: &[u8] = include_bytes!(env!("TILE_RENDER_SPV_FALLBACK"));
+/// The SPIR-V module a [`TileRenderer`] draws with. It is compiled
+/// elsewhere (e.g. by `viewer-spirv`, together with other shader libraries
+/// in one module) and must hold `tile-render-shaders`' entry points.
+#[derive(Copy, Clone)]
+pub struct Shaders {
+    /// The module, for a device with dual-source blending (its dual-source
+    /// text and ClearType-like entry points decorated for it).
+    pub spirv: &'static [u8],
+    /// The same module without dual-source outputs, for any other device.
+    pub spirv_fallback: &'static [u8],
+    /// Makes the GPU part of the effect views and screen copies may have
+    /// (`Camera::effect`, `ScreenCopy::effect`) from the device and this
+    /// module (whose entry points it draws with), when one first does.
+    pub effect: Option<MakeEffect>,
+    /// The fragment entry point painting painted shapes (`Shape::Painted`,
+    /// see `tile_render_shaders::painted`), if the module has one.
+    pub painter: Option<&'static str>,
+}
+
+/// See [`Shaders::effect`].
+pub type MakeEffect = fn(&wgpu::Device, &wgpu::ShaderModule) -> Box<dyn crate::effect::ViewEffect>;
+
+impl Shaders {
+    pub const fn new(spirv: &'static [u8], spirv_fallback: &'static [u8]) -> Self {
+        Shaders { spirv, spirv_fallback, effect: None, painter: None }
+    }
+
+    /// The same, with `effect` (see [`Shaders::effect`]).
+    pub const fn with_effect(self, effect: MakeEffect) -> Self {
+        Shaders { effect: Some(effect), ..self }
+    }
+
+    /// The same, with `painter` (see [`Shaders::painter`]).
+    pub const fn with_painter(self, painter: &'static str) -> Self {
+        Shaders { painter: Some(painter), ..self }
+    }
+}
+
+impl std::fmt::Debug for Shaders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Shaders").field("spirv", &self.spirv.len()).field("spirv_fallback", &self.spirv_fallback.len()).field("effect", &self.effect.is_some()).field("painter", &self.painter).finish()
+    }
+}
 
 /// Per-pass `FrameParams` live in one buffer at this stride (the minimum
 /// uniform offset alignment wgpu guarantees).
 const PARAMS_STRIDE: u64 = 256;
 /// Only draw controls are tripled, never world buffers or atlas textures.
-const CONTROL_SLOTS: usize = 3;
+pub(crate) const CONTROL_SLOTS: usize = 3;
 
 #[derive(Default)]
 struct ControlFrames {
@@ -95,7 +135,11 @@ pub struct TileRenderer {
     output_params: [wgpu::Buffer; CONTROL_SLOTS],
     scratch: Option<Scratch>,
     smoke: std::cell::RefCell<Option<smoke::State>>,
-    lens: std::cell::RefCell<Option<lens::State>>,
+    /// The effect's GPU part, made when first needed.
+    effect: std::cell::RefCell<Option<Box<dyn crate::effect::ViewEffect>>>,
+    make_effect: Option<MakeEffect>,
+    /// The painter's entry point (`Shaders::painter`).
+    painter: Option<&'static str>,
     glyph_cache: std::cell::RefCell<Option<glyph_cache::State>>,
     /// Decoding of the retained canvas, independent of later world uploads.
     picture_bits: u32,
@@ -596,7 +640,8 @@ impl TileRenderer {
     /// `target_format` should be a non-sRGB format (e.g. `Rgba8Unorm`,
     /// `Bgra8Unorm`): atlas colours are written unchanged, which is what
     /// makes the output byte-identical to the source art.
-    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+    /// `shaders`: the module it draws with.
+    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat, shaders: Shaders) -> Self {
         let subpixel_dual = device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING)
             && std::env::var("TILE_RENDER_SUBPIXEL_DUAL").as_deref() != Ok("0");
         let tiles555 = std::env::var("TILE_RENDER_TILES555").as_deref() != Ok("0");
@@ -606,7 +651,7 @@ impl TileRenderer {
         if quantized_float { log::info!("integer FP16 composition for the measured Microsoft software adapter"); }
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("tile-render shaders"),
-            source: wgpu::util::make_spirv(if device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) { SPV } else { FALLBACK_SPV }),
+            source: wgpu::util::make_spirv(if device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) { shaders.spirv } else { shaders.spirv_fallback }),
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tile-render"),
@@ -677,7 +722,9 @@ impl TileRenderer {
             output_params,
             scratch: None,
             smoke: Default::default(),
-            lens: Default::default(),
+            effect: Default::default(),
+            make_effect: shaders.effect,
+            painter: shaders.painter,
             glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
@@ -798,6 +845,20 @@ impl TileRenderer {
         self.timer.as_mut()
     }
 
+    /// The effect's GPU part, made the first time it is asked for. None
+    /// (reported) when the renderer's shaders have no effect.
+    fn effect(&self, device: &wgpu::Device) -> Option<std::cell::RefMut<'_, Box<dyn crate::effect::ViewEffect>>> {
+        let mut effect = self.effect.borrow_mut();
+        if effect.is_none() {
+            let Some(make) = self.make_effect else {
+                render_errors::report(render_errors::Kind::Gpu, "a view effect", format_args!("the renderer's shaders have none; it is left out"));
+                return None;
+            };
+            *effect = Some(make(device, &self.shader));
+        }
+        Some(std::cell::RefMut::map(effect, |e| e.as_mut().expect("made above")))
+    }
+
     /// The timestamp writes of a pass, when timing.
     fn timed(&self, label: impl FnOnce() -> String) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         self.timer.as_ref().and_then(|t| t.pass(label))
@@ -855,6 +916,10 @@ impl TileRenderer {
                     let stages = if matches!(p, P::SubpixelDual(_)) { ("free_vs", "subpixel_dual_fs") } else { ("text_vs", "text_dual_fs") };
                     (stages, &self.layout, format, blend,
                         wgpu::ColorWrites::RED | wgpu::ColorWrites::GREEN | wgpu::ColorWrites::BLUE)
+                }
+                P::Painted(into) => {
+                    let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
+                    (("free_vs", self.painter.expect("asked for only with a painter (`FreePipelines::of`)")), &self.layout, format, blend, all)
                 }
                 P::TextKeyed(into) => {
                     let (format, blend) = [(target, alpha), (quantized, premultiplied), (internal, alpha)][into as usize];
@@ -1100,7 +1165,9 @@ impl TileRenderer {
             output_params: self.output_params.clone(),
             scratch: None,
             smoke: Default::default(),
-            lens: Default::default(),
+            effect: Default::default(),
+            make_effect: self.make_effect,
+            painter: self.painter,
             glyph_cache: Default::default(),
             picture_bits: 0,
             sources: None,
@@ -1161,7 +1228,7 @@ impl TileRenderer {
         }
         let mut bytes = workspaces + self.smoke.borrow().as_ref().map_or(0, smoke::State::bytes)
             + self.glyph_cache.borrow().as_ref().map_or(0, glyph_cache::State::bytes)
-            + self.lens.borrow().as_ref().map_or(0, lens::State::bytes);
+            + self.effect.borrow().as_ref().map_or(0, |e| e.bytes());
         for texture in self.scratch.iter().map(|s| &s.main).chain(self.sources.iter().map(|s| &s.main)).chain(self.base.iter()) {
             let texel_bytes = if texture.format() == wgpu::TextureFormat::Rgba16Float { 8 } else { 4 };
             bytes += u64::from(texture.width()) * u64::from(texture.height()) * texel_bytes;
@@ -2250,9 +2317,9 @@ impl TileRenderer {
         }
         let copies = &copies[..copies.len().min(MAX_COPIES)];
         // Copies read the finished picture, and a scaled one is shown from
-        // it: then it is composed internally. Lenses only need a bounded
+        // it: then it is composed internally. Effects (lenses) only need a bounded
         // backdrop copy; use the caller's target directly when copyable.
-        let direct = bits == 0 && copies.is_empty() && unscaled && world.smoke_count == 0 && (cameras.iter().all(|c| c.lens.is_none()) || target.usage().contains(wgpu::TextureUsages::COPY_SRC));
+        let direct = bits == 0 && copies.is_empty() && unscaled && world.smoke_count == 0 && (cameras.iter().all(|c| c.effect.is_none()) || target.usage().contains(wgpu::TextureUsages::COPY_SRC));
         // The picture of the views but the overlays drawn last, if this
         // frame's are the same (then only the overlays are drawn, over a
         // copy of it without the last frame's).
@@ -2350,9 +2417,10 @@ impl TileRenderer {
             (self.pipeline(device, if self.tiles555 && bits == 5 && !self.quantized_float { P::Tiles555 } else { P::TilesQuantized }), self.free_pipelines(device, 1))
         };
         let steps = Steps { renderer: self, device, control_slot, params: &self.control_uploads[control_slot].params, world, bind_group, frame, named_palettes: self.named_palettes, timer: self.timer.as_ref(), quantized_float: self.quantized_float, cell_indices: &self.cell_indices, onto_target: false };
-        if let Some(lens) = self.lens.borrow_mut().as_mut() {
-            lens.begin_frame(if reuse { overlay_from } else { 0 });
+        if let Some(effect) = self.effect.borrow_mut().as_mut() {
+            effect.begin_frame(if reuse { overlay_from } else { 0 });
         }
+        let effects = crate::effect::EffectContext { device, queue, slot: control_slot, bits, quantized_float: float_encoding, timer: self.timer.as_ref() };
         for (v, place) in placements.iter().enumerate().take(on_target) {
             if reuse && v < overlay_from {
                 continue;
@@ -2362,13 +2430,12 @@ impl TileRenderer {
                 let (base, canvas) = (self.base.as_ref().expect("made above"), &self.scratch.as_ref().expect("made above").main);
                 encoder.copy_texture_to_texture(canvas.as_image_copy(), base.as_image_copy(), canvas.size());
             }
-            // Snapshot only this lens's bounds before its camera draws.
-            let lens_params = if cameras[v].lens.is_some() {
+            // The view's effect sees the canvas before it is drawn.
+            let effect = cameras[v].effect.and_then(|_| self.effect(device));
+            if let Some(mut effect) = effect {
                 let texture = if direct { target } else { &self.scratch.as_ref().expect("internal canvas").main };
-                let mut lens = self.lens.borrow_mut();
-                lens.get_or_insert_with(|| lens::State::new(device, &self.shader))
-                    .snapshot(device, queue, encoder, texture, &cameras[v], control_slot, v, bits, float_encoding)
-            } else { None };
+                effect.before_view(&effects, encoder, texture, &cameras[v], v);
+            }
             // Its steps at zoom 1.
             let rect = place.rect;
             let scissor = match place.source {
@@ -2421,13 +2488,9 @@ impl TileRenderer {
                 let art = if place.art { 2 } else { 0 };
                 steps.draw(encoder, &canvas, if direct { target } else { &self.scratch.as_ref().expect("canvas").main }, (viewport, scissor), c, v, (art, Some(c.origin)), place.steps_scaled(), MAX_PASSES + 1, (canvas_tiles, canvas_free));
             }
-            if let Some(params) = lens_params {
-                let lens = self.lens.borrow();
-                let lens = lens.as_ref().unwrap();
+            if cameras[v].effect.is_some() && let Some(effect) = self.effect.borrow_mut().as_mut() {
                 let texture = if direct { target } else { &self.scratch.as_ref().unwrap().main };
-                lens.capture(encoder, texture, params, v, false);
-                lens.draw(device, encoder, &canvas, texture.format(), &cameras[v], params, control_slot, v, self.timed(|| format!("v{v} lens rim")));
-                lens.capture(encoder, texture, params, v, true);
+                effect.after_view(&effects, encoder, texture, &cameras[v], v);
             }
         }
         if direct {
@@ -2549,8 +2612,9 @@ impl TileRenderer {
         pass.set_bind_group(0, &scratch.output[control_slot], &[offset]);
         pass.draw(0..3, 0..1);
         drop(pass);
-        if let Some(lens) = self.lens.borrow().as_ref() {
-            lens.draw_presented(device, queue, encoder, target, &scratch.main, present, control_slot, self.timer.as_ref());
+        let effects = crate::effect::EffectContext { device, queue, slot: control_slot, bits, quantized_float: u32::from(self.quantized_float && bits != 0), timer: self.timer.as_ref() };
+        if let Some(effect) = self.effect.borrow().as_ref() {
+            effect.presented(&effects, encoder, target, &scratch.main, present);
         }
         if copies.is_empty() { return true; }
         let mut pass = begin_pass(encoder, &view, wgpu::LoadOp::Load, self.timed(|| "screen copies".into()));
@@ -2558,34 +2622,22 @@ impl TileRenderer {
         for (i, c) in copies.iter().enumerate() {
             // (A copy of a scaled picture samples it at the target's pixels,
             // not the canvas's.)
-            let Some(mut on_target) = c.scissor((canvas_w, canvas_h)).and_then(shown) else { continue };
+            let Some(on_target) = c.scissor((canvas_w, canvas_h)).and_then(shown) else { continue };
             let (zoom_num, zoom_den) = (c.zoom.0.max(1) * n, c.zoom.1.max(1) * d);
             let [src_x, src_y, _, _] = c.source;
             let at = |v: i32, a: i32| a + (v as i64 * n as i64).div_euclid(d as i64) as i32;
             let (dst_x, dst_y) = (at(c.at.0, ax), at(c.at.1, ay));
-            let mut params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, quantized_float: u32::from(self.quantized_float && bits != 0), ..Default::default() };
-            if let Some(lens) = c.lens {
-                let factor = n as f32 / d as f32;
-                params.lens_width = (c.source[2] as u32 * c.zoom.0).div_ceil(c.zoom.1) as f32 * factor;
-                params.lens_height = (c.source[3] as u32 * c.zoom.0).div_ceil(c.zoom.1) as f32 * factor;
-                params.lens_radius = lens.radius * factor;
-                params.lens_rim = lens.rim * factor;
-                params.lens_glass = u32::from(lens.glass);
-                params.canvas_x = ax;
-                params.canvas_y = ay;
-                params.canvas_num = n;
-                params.canvas_den = d;
-                params.canvas_width = canvas_w;
-                params.canvas_height = canvas_h;
-                let halo = if lens.glass { (params.lens_rim * 0.28).ceil() as i32 } else { 0 };
-                let [x, y, w, h] = on_target.map(|v| v as i32);
-                let Some(expanded) = clipped([x-halo, y-halo, w+2*halo, h+2*halo], picture.map(|v| v as i32)) else { continue };
-                on_target = expanded;
-            }
+            let params = OutputParams { src_x, src_y, dst_x, dst_y, zoom_num, zoom_den, bits, quantized_float: u32::from(self.quantized_float && bits != 0) };
             let offset = write_output(MAX_VIEWS + 1 + i, params);
             pass.set_scissor_rect(on_target[0], on_target[1], on_target[2], on_target[3]);
             pass.set_bind_group(0, &scratch.output[control_slot], &[offset]);
             pass.draw(0..3, 0..1);
+            // Its effect over it (from the canvas, as the copy reads it).
+            if c.effect.is_some() && let Some(effect) = self.effect(device) {
+                let placement = crate::effect::CopyPlacement { index: i, on_target, picture, src: (src_x, src_y), dst: (dst_x, dst_y), zoom: (zoom_num, zoom_den), format: target.format() };
+                effect.over_copy(&effects, &mut pass, c, placement, &scratch.main, present);
+                pass.set_pipeline(self.pipeline(device, P::Output));
+            }
         }
         true
     }
@@ -2662,8 +2714,9 @@ pub struct ScreenCopy {
     pub at: (i32, i32),
     /// Target pixels per source pixel, as a fraction.
     pub zoom: (u32, u32),
-    /// Optional rounded glass edge, in canvas pixels.
-    pub lens: Option<crate::Lens>,
+    /// An effect drawn over the copy (e.g. a lens's rounded edge), its
+    /// lengths in canvas pixels (see `Camera::effect`).
+    pub effect: Option<crate::Effect>,
 }
 
 impl ScreenCopy {
@@ -2671,7 +2724,7 @@ impl ScreenCopy {
     /// `Camera::boxed`): the same part of the picture, at the same zoom.
     pub fn boxed(&self, k: u32) -> ScreenCopy {
         let k = k.max(1) as i32;
-        ScreenCopy { source: self.source.map(|v| v.saturating_mul(k)), at: (self.at.0.saturating_mul(k), self.at.1.saturating_mul(k)), zoom: self.zoom, lens: self.lens.map(|l| crate::Lens { radius: l.radius * k as f32, rim: l.rim * k as f32, ..l }) }
+        ScreenCopy { source: self.source.map(|v| v.saturating_mul(k)), at: (self.at.0.saturating_mul(k), self.at.1.saturating_mul(k)), zoom: self.zoom, effect: self.effect.map(|e| e.scaled(k as f32)) }
     }
 
     /// Target pixel `p` of the copy shows source pixel `source + (p − at)·den/num`
@@ -2726,6 +2779,11 @@ impl FreePipelines<'_> {
             (FreeKind::Text, into) if self.device.features().contains(wgpu::Features::DUAL_SOURCE_BLENDING) => one(P::TextDual(into)),
             (FreeKind::Text, into) => std::array::from_fn(|c| Some(get(P::Text(into, c as u8)))),
             (FreeKind::TextKeyed, into) => one(P::TextKeyed(into)),
+            (FreeKind::Painted, into) if self.renderer.painter.is_some() => one(P::Painted(into)),
+            (FreeKind::Painted, _) => {
+                render_errors::report(render_errors::Kind::Gpu, "painted shapes", format_args!("the renderer's shaders have no painter; they are left out"));
+                [None, None, None]
+            }
         };
         pipelines.into_iter().flatten()
     }
@@ -2881,6 +2939,8 @@ enum FreeKind {
     Text,
     /// Text drawn from outlines onto a colour key (likewise).
     TextKeyed,
+    /// Painted shapes (`Shape::Painted`), by the shader module's painter.
+    Painted,
 }
 
 /// Runs of free sprites in drawing order: which instances, and how they
@@ -3047,6 +3107,7 @@ fn smoke_instances(runs: &[FreeRuns]) -> usize {
 
 /// How free sprite `s` (not text) is drawn.
 fn free_kind(s: &crate::PlacedSprite) -> FreeKind {
+    if matches!(s.shape, Some(crate::Shape::Painted(_))) { return FreeKind::Painted; }
     if s.solid.is_some() || s.shape.is_some() { return FreeKind::Normal; }
     match s.blend {
         crate::Blend::NativePaletteAlpha => FreeKind::NativePaletteAlpha,
@@ -3234,6 +3295,8 @@ enum P {
     Text(u8, u8),
     TextDual(u8),
     TextKeyed(u8),
+    /// Painted shapes: into.
+    Painted(u8),
     /// Copies (scaled) into the caller's target, expanding quantized values.
     Output,
     /// Copies (scaled) into the internal target.
@@ -3242,7 +3305,7 @@ enum P {
 }
 
 impl P {
-    const COUNT: usize = 43;
+    const COUNT: usize = 46;
 
     fn index(self) -> usize {
         match self {
@@ -3265,6 +3328,7 @@ impl P {
             P::SubpixelDual(into) => 39 + into.min(2) as usize,
             P::Text(into, channel) => 19 + 3 * into.min(2) as usize + channel.min(2) as usize,
             P::TextKeyed(into) => 28 + into.min(2) as usize,
+            P::Painted(into) => 43 + into.min(2) as usize,
         }
     }
 }
@@ -3326,7 +3390,7 @@ mod tests {
         let mut builder = crate::AtlasBuilder::new(16);
         builder.add(&crate::RgbaImage::from_fn(1, 1, |_, _| [255; 4]), (0, 0)).unwrap();
         let atlas = builder.finish();
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, TEST_SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         let before = renderer.atlas_resident_bytes();
         renderer.set_atlas_transfer_limit(NonZeroU64::new(1).unwrap());
@@ -3446,3 +3510,7 @@ mod atlas_transfer_planning {
         assert!(matches!(transfer_room(16, (1, 1), (1, 1), (1, 1), true, 1024, 128, required - 1), Err(AtlasTransferError::BudgetExceeded { .. })));
     }
 }
+
+/// The viewer's module, for the tests drawing with a renderer.
+#[cfg(test)]
+pub(crate) const TEST_SHADERS: Shaders = Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

@@ -111,7 +111,7 @@ fn sheet_heights(dir: Option<std::path::PathBuf>, font: &FontStyle) -> Vec<i32> 
 /// lacks noted once), with GDI the height asked for. Text at other zooms is
 /// drawn from the face's outlines, so only the game's own sizes are needed.
 pub fn available_height(font: &FontStyle) -> i32 {
-    use civ3r_sync::Latest;
+    use handoff::Latest;
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
     let wanted = font.height.abs().max(1);
@@ -242,7 +242,7 @@ pub fn glyph_sizes(files: &GameFiles, font: &FontStyle) -> Result<BTreeMap<char,
         // style.)
         // Grown copy-on-write; a race rasterises a style twice.
         type Sizes = std::collections::HashMap<(Vec<std::path::PathBuf>, FontStyle), std::sync::Arc<BTreeMap<char, (u32, u32)>>>;
-        static MADE: civ3r_sync::Latest<Sizes> = civ3r_sync::Latest::new();
+        static MADE: handoff::Latest<Sizes> = handoff::Latest::new();
         let key = (files.roots().to_vec(), font.clone());
         if let Some(sizes) = MADE.load().as_ref().and_then(|m| m.get(&key)) {
             return Ok((**sizes).clone());

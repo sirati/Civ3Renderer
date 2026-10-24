@@ -1,6 +1,6 @@
 //! Shapes laid out at the scale of the stage drawing them
 //! (`tile_render::Shape`): output rectangles exactly as the reference
-//! oracle draws them, the painted arrow marker within float tolerance.
+//! oracle draws them (the painted selection marker's are the marker crate's).
 use tile_render::{AtlasBuilder, Camera, Grid, Headless, Layout, OutputRect, PlacedSprite, RgbaImage, Shape, SpriteSetId, SpriteSets, TileRenderer, TileWorld};
 
 fn world() -> TileWorld {
@@ -12,8 +12,8 @@ fn shape(x: i32, y: i32, shape: Shape) -> PlacedSprite {
     PlacedSprite { shape: Some(shape), palette: u32::MAX, ..PlacedSprite::new(SpriteSetId::from_raw(u32::MAX), x, y) }
 }
 
-/// A health bar's background and segments as the unit HUD lays them out
-/// (`civ3_bridge::units::hud_rects`): x1 1, x2 2, y1 1, y2 4.
+/// A health bar's background and segments as a piece's HUD lays them out:
+/// x1 1, x2 2, y1 1, y2 4.
 fn bar(x: i32, y: i32, scale: u16, segments: i8) -> Vec<PlacedSprite> {
     let lengths = [1, 2, 1, 4];
     let r = |rgba, ey| shape(x, y, Shape::Rect(OutputRect { rgba, lengths, x: [[-1, 0], [-1, 1]], y: ey, scale: (scale, scale) }));
@@ -23,7 +23,7 @@ fn bar(x: i32, y: i32, scale: u16, segments: i8) -> Vec<PlacedSprite> {
 }
 
 fn compare(gpu: &Headless, world: &TileWorld, cameras: &[Camera], tolerance: u8) {
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_world(&gpu.device, world);
     let atlas = AtlasBuilder::new(16).finish();
     for camera in cameras {
@@ -67,21 +67,6 @@ fn output_rectangles_match_the_reference_at_every_stage() {
     compare(&gpu, &world, &cameras((180, 120)), 0);
 }
 
-#[test]
-fn arrows_paint_as_the_reference_does() {
-    let gpu = Headless::new().expect("GPU");
-    let mut world = world();
-    for (i, (size, bob)) in [(24, 0), (32, 100), (48, -150)].into_iter().enumerate() {
-        let (x, y) = (24 + 40 * i as i32, 110);
-        world.free.push(shape(x, y, Shape::ArrowShadow { size, centre: (8, 4), bob, rgba: [32, 23, 14, 255] }));
-        world.free.push(shape(x, y, Shape::Arrow { size, tip: (0, -68), bob, rgba: [232, 183, 87, 255] }));
-    }
-    let cameras: Vec<_> = [(1, 1), (2, 1), (3, 2)].into_iter().map(|zoom| Camera { zoom, zoomed_art: true, ..Camera::new((150 * zoom.0 / zoom.1, 130 * zoom.0 / zoom.1)) }).collect();
-    // (Their sines and square roots may differ by an ulp, which can move a
-    // sample at an edge across it: a sixteenth of a pixel's coverage.)
-    compare(&gpu, &world, &cameras, 20);
-}
-
 /// The widths of the runs of each colour along column `x` of `image`.
 fn runs(image: &RgbaImage, x: u32) -> Vec<([u8; 4], u32)> {
     let mut out: Vec<([u8; 4], u32)> = Vec::new();
@@ -123,3 +108,6 @@ fn segments_and_gaps_keep_one_width_at_the_views_resolution() {
         }
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

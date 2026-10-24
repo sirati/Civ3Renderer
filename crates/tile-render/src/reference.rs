@@ -35,8 +35,8 @@ pub struct Draw {
     pub text: Option<TextPixels>,
     /// Procedural colour used only by this reference oracle.
     pub solid: Option<[u8; 4]>,
-    /// An arrow marker painted per pixel instead (see `MarkerPixels`).
-    pub shape: Option<MarkerPixels>,
+    /// A painted shape painted per pixel instead (see `PaintedPixels`).
+    pub shape: Option<PaintedPixels>,
     /// The named palette an indexed sprite is drawn with (0: none).
     pub palette: u32,
     /// True only for screen-space UI art. Background metadata must never
@@ -78,36 +78,37 @@ impl Draw {
     }
 }
 
-/// An arrow marker or its shadow (`tile_render::Shape`) as a draw paints
-/// it: its kind and colour, its scale, its reference point from the
-/// draw's top-left, its shadow's bob (f32 bits, as the shader has them).
+/// A painted shape (`tile_render::Shape::Painted`) as a draw paints it:
+/// which shape and its colour, its scale, its reference point from the
+/// draw's top-left, its painter's word (f32 bits, as the shader has them).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct MarkerPixels {
-    pub kind: u32,
+pub struct PaintedPixels {
+    pub shape: u32,
     pub rgba: u32,
     pub scale: u32,
     pub at: (u32, u32),
-    pub bob: u32,
+    pub param: u32,
 }
 
-impl MarkerPixels {
-    /// What it paints at pixel (i, j) of the draw.
-    fn color(&self, i: u32, j: u32) -> [u8; 4] {
+impl PaintedPixels {
+    /// What `painter` paints at pixel (i, j) of the draw.
+    fn color(&self, painter: &dyn Painter, i: u32, j: u32) -> [u8; 4] {
         let c = self.rgba;
         let rgba = [(c & 255) as f32, ((c >> 8) & 255) as f32, ((c >> 16) & 255) as f32, (c >> 24) as f32];
         let (x, y) = (i as f32 - f32::from_bits(self.at.0), j as f32 - f32::from_bits(self.at.1));
-        let scale = f32::from_bits(self.scale);
-        let p = if self.kind == tile_render_shared::PRIMITIVE_ARROW {
-            marker_math::arrow_pixel(x, y, scale, rgba)
-        } else {
-            marker_math::shadow_pixel(x, y, scale, f32::from_bits(self.bob), rgba)
-        };
+        let p = painter.paint(self.shape, x, y, f32::from_bits(self.scale), f32::from_bits(self.param), rgba);
         p.map(|v| v as u8)
     }
 }
 
-#[path = "../../tile-render-shaders/src/marker_math.rs"]
-mod marker_math;
+/// The CPU part of a renderer's painter (`Shaders::painter`), the oracle
+/// of its GPU part.
+pub trait Painter {
+    /// Shape `shape`'s colour (RGBA, 0..255) over the pixel whose top-left
+    /// is (x, y) from its reference point, at `scale` (pixels per pixel of
+    /// its 1:1 art), from its word `param` and its `rgba` (0..255).
+    fn paint(&self, shape: u32, x: f32, y: f32, scale: f32, param: f32, rgba: [f32; 4]) -> [f32; 4];
+}
 
 /// A glyph drawn from its outline (see `tile_render_shared::text`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -153,110 +154,155 @@ pub fn draw_list(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32) 
     out
 }
 
-/// Renders like `TileRenderer::render`.
+/// Renders like `TileRenderer::render` (with no effects or painted shapes,
+/// see [`Oracle`]).
 pub fn render(world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
-    render_views(world, atlas, std::slice::from_ref(camera), camera.viewport, frame, clear)
+    Oracle::default().render(world, atlas, camera, frame, clear)
 }
 
 /// Renders like `TileRenderer::render_views` into a target of `size`.
 pub fn render_views(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
-    render_composed(world, atlas, cameras, &[], size, frame, clear)
+    Oracle::default().render_views(world, atlas, cameras, size, frame, clear)
 }
 
 /// Renders like `TileRenderer::render_composed` into a target of `size`.
-pub fn render_composed(
-    world: &TileWorld,
-    atlas: &Atlas,
-    cameras: &[Camera],
-    copies: &[ScreenCopy],
-    size: (u32, u32),
-    frame: u32,
-    clear: [u8; 4],
-) -> RgbaImage {
-    let (w, h) = size;
-    let copies = &copies[..copies.len().min(crate::renderer::MAX_COPIES)];
-    let bits = match world.color {
-        ColorModel::Direct => {
-            let mut out = compose(world, atlas, cameras, size, frame, clear, |dst: &mut [u8; 4], d, src| match d.blend {
-                Blend::Alpha => *dst = blend(src, *dst),
-                Blend::NativePaletteAlpha => panic!("native palette composition is GPU-only"),
-                Blend::AlphaOpacity { opacity } => {
-                    let mut src = src;
-                    src[3] = (u32::from(src[3]) * u32::from(opacity) / 255) as u8;
-                    *dst = blend(src, *dst);
+pub fn render_composed(world: &TileWorld, atlas: &Atlas, cameras: &[Camera], copies: &[ScreenCopy], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
+    Oracle::default().render_composed(world, atlas, cameras, copies, size, frame, clear)
+}
+
+/// The CPU part of a renderer's effect (`Shaders::effect`), the oracle of
+/// its GPU part (`effect::ViewEffect`). Pixels are RGB, 0..1, row by row
+/// (a quantized canvas's decoded, and what the effect paints encoded back
+/// as the GPU canvas stores it).
+pub trait EffectOracle {
+    /// The pixels the effect of `camera`, the view drawn last into a canvas
+    /// of `size`, paints over it (index, colour): `backdrop` is the canvas
+    /// before the view, `face` after it.
+    fn view(&self, camera: &Camera, size: (u32, u32), backdrop: &[[f32; 3]], face: &[[f32; 3]]) -> Vec<(usize, [f32; 3])>;
+
+    /// Likewise over screen copy `copy`, drawn over the finished picture
+    /// `picture` (in direct colour).
+    fn copy(&self, copy: &ScreenCopy, size: (u32, u32), picture: &[[f32; 3]]) -> Vec<(usize, [f32; 3])>;
+}
+
+/// The oracle of a renderer drawing with other crates' parts: the CPU
+/// parts of its effect and painter (none: views and copies must have no
+/// effects, the world no painted shapes).
+#[derive(Copy, Clone, Default)]
+pub struct Oracle<'a> {
+    pub effect: Option<&'a dyn EffectOracle>,
+    pub painter: Option<&'a dyn Painter>,
+}
+
+impl Oracle<'_> {
+    /// Renders like `TileRenderer::render`.
+    pub fn render(&self, world: &TileWorld, atlas: &Atlas, camera: &Camera, frame: u32, clear: [u8; 4]) -> RgbaImage {
+        self.render_views(world, atlas, std::slice::from_ref(camera), camera.viewport, frame, clear)
+    }
+
+    /// Renders like `TileRenderer::render_views` into a target of `size`.
+    pub fn render_views(&self, world: &TileWorld, atlas: &Atlas, cameras: &[Camera], size: (u32, u32), frame: u32, clear: [u8; 4]) -> RgbaImage {
+        self.render_composed(world, atlas, cameras, &[], size, frame, clear)
+    }
+
+    /// Renders like `TileRenderer::render_composed` into a target of `size`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_composed(
+        &self,
+        world: &TileWorld,
+        atlas: &Atlas,
+        cameras: &[Camera],
+        copies: &[ScreenCopy],
+        size: (u32, u32),
+        frame: u32,
+        clear: [u8; 4],
+    ) -> RgbaImage {
+        let oracle = self;
+        let (w, h) = size;
+        let copies = &copies[..copies.len().min(crate::renderer::MAX_COPIES)];
+        let bits = match world.color {
+            ColorModel::Direct => {
+                let mut out = compose(world, atlas, cameras, size, frame, clear, oracle, |dst: &mut [u8; 4], d, src| match d.blend {
+                    Blend::Alpha => *dst = blend(src, *dst),
+                    Blend::NativePaletteAlpha => panic!("native palette composition is GPU-only"),
+                    Blend::AlphaOpacity { opacity } => {
+                        let mut src = src;
+                        src[3] = (u32::from(src[3]) * u32::from(opacity) / 255) as u8;
+                        *dst = blend(src, *dst);
+                    }
+                    // Each channel with its own coverage (the GPU draws one channel
+                    // at a time).
+                    Blend::Subpixel { color } => {
+                        for c in 0..3 {
+                            let a = src[c] as f32 / 255.0;
+                            dst[c] = (color[c] as f32 * a + dst[c] as f32 * (1.0 - a)).round() as u8;
+                        }
+                    }
+                    Blend::Invert => *dst = [255 - dst[0], 255 - dst[1], 255 - dst[2], dst[3]],
+                    // Black at alpha 1 − k/den, as the shader blends it.
+                    Blend::Scale { denominator } if (src[0] as u32) < denominator => {
+                        let keep = src[0] as f32 / denominator as f32;
+                        let a = 1.0 - keep;
+                        let [r, g, b, da] = dst.map(|c| c as f32);
+                        *dst = [(r * keep).round() as u8, (g * keep).round() as u8, (b * keep).round() as u8, (a * 255.0 + da * keep).round() as u8];
+                    }
+                    Blend::Scale { .. } => {}
+                });
+                apply_copies(&mut out, size, copies, oracle);
+                return RgbaImage::from_fn(w, h, |x, y| out[(y * w + x) as usize]);
+            }
+            ColorModel::Quantized { bits } => bits,
+        };
+        // Stored values (q + QUANTIZED_BIAS), like the GPU's internal target.
+        let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
+        let background = [stored(clear[0]), stored(clear[1]), stored(clear[2])];
+        let out = compose(world, atlas, cameras, size, frame, background, oracle, |dst: &mut [u32; 3], d, src| match d.blend {
+            Blend::NativePaletteAlpha => panic!("native palette composition is GPU-only"),
+            Blend::Scale { denominator } if (src[0] as u32) < denominator => {
+                for c in dst.iter_mut() {
+                    *c = scale_stored(*c, src[0] as u32, denominator);
                 }
-                // Each channel with its own coverage (the GPU draws one channel
-                // at a time).
-                Blend::Subpixel { color } => {
-                    for c in 0..3 {
-                        let a = src[c] as f32 / 255.0;
-                        dst[c] = (color[c] as f32 * a + dst[c] as f32 * (1.0 - a)).round() as u8;
+            }
+            Blend::Scale { .. } => {}
+            // Translucent texels mix in whole alpha steps, rounded down.
+            // ClearType-like: each channel with its own coverage.
+            Blend::Subpixel { color } => {
+                for (c, i) in dst.iter_mut().zip(0..3) {
+                    let k = alpha_steps(src[i].into());
+                    if k > 0 {
+                        *c = mix_stored(stored(color[i]), *c, k);
                     }
                 }
-                Blend::Invert => *dst = [255 - dst[0], 255 - dst[1], 255 - dst[2], dst[3]],
-                // Black at alpha 1 − k/den, as the shader blends it.
-                Blend::Scale { denominator } if (src[0] as u32) < denominator => {
-                    let keep = src[0] as f32 / denominator as f32;
-                    let a = 1.0 - keep;
-                    let [r, g, b, da] = dst.map(|c| c as f32);
-                    *dst = [(r * keep).round() as u8, (g * keep).round() as u8, (b * keep).round() as u8, (a * 255.0 + da * keep).round() as u8];
-                }
-                Blend::Scale { .. } => {}
-            });
-            apply_copies(&mut out, size, copies);
-            return RgbaImage::from_fn(w, h, |x, y| out[(y * w + x) as usize]);
-        }
-        ColorModel::Quantized { bits } => bits,
-    };
-    // Stored values (q + QUANTIZED_BIAS), like the GPU's internal target.
-    let stored = |c: u8| quantize(c.into(), bits) + QUANTIZED_BIAS;
-    let background = [stored(clear[0]), stored(clear[1]), stored(clear[2])];
-    let out = compose(world, atlas, cameras, size, frame, background, |dst: &mut [u32; 3], d, src| match d.blend {
-        Blend::NativePaletteAlpha => panic!("native palette composition is GPU-only"),
-        Blend::Scale { denominator } if (src[0] as u32) < denominator => {
-            for c in dst.iter_mut() {
-                *c = scale_stored(*c, src[0] as u32, denominator);
             }
-        }
-        Blend::Scale { .. } => {}
-        // Translucent texels mix in whole alpha steps, rounded down.
-        // ClearType-like: each channel with its own coverage.
-        Blend::Subpixel { color } => {
-            for (c, i) in dst.iter_mut().zip(0..3) {
-                let k = alpha_steps(src[i].into());
+            // (Inverting: the highest stored value less what is there.)
+            Blend::Invert => {
+                let top = (1 << bits) - 1 + 2 * QUANTIZED_BIAS;
+                for c in dst.iter_mut() {
+                    *c = top - *c;
+                }
+            }
+            Blend::Alpha | Blend::AlphaOpacity { .. } => {
+                let opacity = match d.blend { Blend::AlphaOpacity { opacity } => u32::from(opacity), _ => 255 };
+                let k = alpha_steps(u32::from(src[3]) * opacity / 255);
                 if k > 0 {
-                    *c = mix_stored(stored(color[i]), *c, k);
+                    for (c, s) in dst.iter_mut().zip(src) {
+                        *c = mix_stored(stored(s), *c, k);
+                    }
                 }
             }
-        }
-        // (Inverting: the highest stored value less what is there.)
-        Blend::Invert => {
-            let top = (1 << bits) - 1 + 2 * QUANTIZED_BIAS;
-            for c in dst.iter_mut() {
-                *c = top - *c;
-            }
-        }
-        Blend::Alpha | Blend::AlphaOpacity { .. } => {
-            let opacity = match d.blend { Blend::AlphaOpacity { opacity } => u32::from(opacity), _ => 255 };
-            let k = alpha_steps(u32::from(src[3]) * opacity / 255);
-            if k > 0 {
-                for (c, s) in dst.iter_mut().zip(src) {
-                    *c = mix_stored(stored(s), *c, k);
-                }
-            }
-        }
-    });
-    let mut image = RgbaImage::from_fn(w, h, |x, y| {
-        let p = out[(y * w + x) as usize];
-        let c = |v: u32| expand(v.saturating_sub(QUANTIZED_BIAS), bits) as u8;
-        [c(p[0]), c(p[1]), c(p[2]), clear[3]]
-    });
-    apply_copies(&mut image.pixels, size, copies);
-    image
+        });
+        let mut image = RgbaImage::from_fn(w, h, |x, y| {
+            let p = out[(y * w + x) as usize];
+            let c = |v: u32| expand(v.saturating_sub(QUANTIZED_BIAS), bits) as u8;
+            [c(p[0]), c(p[1]), c(p[2]), clear[3]]
+        });
+        apply_copies(&mut image.pixels, size, copies, oracle);
+        image
+    }
 }
 
 /// Copies rectangles of the finished picture `out` on top of it.
-fn apply_copies(out: &mut [[u8; 4]], (w, h): (u32, u32), copies: &[ScreenCopy]) {
+fn apply_copies(out: &mut [[u8; 4]], (w, h): (u32, u32), copies: &[ScreenCopy], oracle: &Oracle<'_>) {
     let finished = out.to_vec();
     for c in copies {
         let Some([x, y, cw, ch]) = c.scissor((w, h)) else { continue };
@@ -268,10 +314,12 @@ fn apply_copies(out: &mut [[u8; 4]], (w, h): (u32, u32), copies: &[ScreenCopy]) 
                 out[(py * w + px) as usize] = finished[(sy as u32 * w + sx as u32) as usize];
             }
         }
-        if let Some(lens) = c.lens {
-            let size = ((c.source[2] as u32*n).div_ceil(d), (c.source[3] as u32*n).div_ceil(d));
-            let camera = Camera { origin: c.at, lens: Some(lens), ..Camera::new(size) };
-            apply_lens(out, &finished, (w, h), &camera, 0, Some(c));
+        if c.effect.is_some() {
+            let effect = oracle.effect.expect("a screen copy's effect needs the oracle's effect (`Oracle::effect`)");
+            let picture: Vec<_> = finished.iter().map(|p| p.rgb(0)).collect();
+            for (i, rgb) in effect.copy(c, (w, h), &picture) {
+                out[i] = <[u8; 4]>::from_rgb(rgb, 0);
+            }
         }
     }
 }
@@ -284,13 +332,14 @@ fn apply_copies(out: &mut [[u8; 4]], (w, h): (u32, u32), copies: &[ScreenCopy]) 
 /// `camera::Placement`), its group is drawn at its zoom straight into the
 /// canvas: every target pixel blended with the texels its zoom-1 pixel
 /// gets, zoomed art at full resolution.
-fn compose<P: LensPixel>(
+fn compose<P: CanvasPixel>(
     world: &TileWorld,
     atlas: &Atlas,
     cameras: &[Camera],
     (w, h): (u32, u32),
     frame: u32,
     background: P,
+    oracle: &Oracle<'_>,
     mut put: impl FnMut(&mut P, &Draw, [u8; 4]),
 ) -> Vec<P> {
     let mut out = vec![background; (w * h) as usize];
@@ -302,7 +351,7 @@ fn compose<P: LensPixel>(
     let (sw, sh) = placements.iter().filter_map(|p| p.source).fold((1, 1), |(sw, sh), r| (sw.max(r[0] + r[2]), sh.max(r[1] + r[3])));
     let mut source = vec![background; (sw * sh) as usize];
     for (v, place) in placements.iter().enumerate() {
-        let backdrop = cameras[v].lens.map(|_| out.clone());
+        let backdrop = cameras[v].effect.map(|_| out.clone());
         // Draws come in target pixels from the drawn camera's origin; they
         // land in the view's rectangle, clipped to it (and to its group's
         // picture or the target).
@@ -331,7 +380,7 @@ fn compose<P: LensPixel>(
             };
             match d.text {
                 Some(text) => each_text_pixel(&words, &d, &text, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
-                None => each_texel(atlas, &d, size, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
+                None => each_texel(atlas, &d, size, oracle, |px, py, src| put(&mut buffer[(py * bw + px) as usize], &d, src)),
             }
         });
         // The group's picture scaled into its rectangle.
@@ -358,7 +407,7 @@ fn compose<P: LensPixel>(
                     let d = Draw { clip: Some(clip), ..d };
                     match &d.text {
                         Some(t) => each_text_pixel(&words, &d, t, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
-                        None => each_texel(atlas, &d, (w, h), |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
+                        None => each_texel(atlas, &d, (w, h), oracle, |px, py, src| put(&mut out[(py * w + px) as usize], &d, src)),
                     }
                     return;
                 }
@@ -442,63 +491,32 @@ fn compose<P: LensPixel>(
                 }
             });
         }
-        if let Some(backdrop) = backdrop { apply_lens(&mut out, &backdrop, (w, h), &cameras[v], world.color.bits(), None); }
+        if let Some(backdrop) = backdrop {
+            let bits = world.color.bits();
+            let decoded = |pixels: &[P]| pixels.iter().map(|p| p.rgb(bits)).collect::<Vec<_>>();
+            let effect = oracle.effect.expect("a view effect needs the oracle's effect (`Oracle::effect`)");
+            for (i, rgb) in effect.view(&cameras[v], (w, h), &decoded(&backdrop), &decoded(&out)) {
+                out[i] = P::from_rgb(rgb, bits);
+            }
+        }
     }
     out
 }
 
-#[path = "../../tile-render-shaders/src/lens_math.rs"]
-mod lens_math;
-
-trait LensPixel: Copy {
+/// A canvas pixel as an effect sees it: RGB, 0..1.
+trait CanvasPixel: Copy {
     fn rgb(self, bits: u32) -> [f32; 3];
     fn from_rgb(rgb: [f32; 3], bits: u32) -> Self;
 }
-impl LensPixel for [u8; 4] {
+impl CanvasPixel for [u8; 4] {
     fn rgb(self, _: u32) -> [f32; 3] { [self[0] as f32 / 255.0, self[1] as f32 / 255.0, self[2] as f32 / 255.0] }
     fn from_rgb(rgb: [f32; 3], _: u32) -> Self { [(rgb[0]*255.0).round() as u8, (rgb[1]*255.0).round() as u8, (rgb[2]*255.0).round() as u8, 255] }
 }
-impl LensPixel for [u32; 3] {
+impl CanvasPixel for [u32; 3] {
     fn rgb(self, bits: u32) -> [f32; 3] { self.map(|v| expand(v.saturating_sub(QUANTIZED_BIAS), bits) as f32 / 255.0) }
     fn from_rgb(rgb: [f32; 3], bits: u32) -> Self { rgb.map(|v| quantize((v*255.0).round() as u32, bits) + QUANTIZED_BIAS) }
 }
 
-fn apply_lens<P: LensPixel>(out: &mut [P], backdrop: &[P], (w, h): (u32, u32), camera: &Camera, bits: u32, copy: Option<&ScreenCopy>) {
-    let lens = camera.lens.unwrap();
-    let face = out.to_vec();
-    let p = tile_render_shared::LensParams { x: camera.origin.0 as f32, y: camera.origin.1 as f32, width: camera.viewport.0 as f32, height: camera.viewport.1 as f32,
-        radius: lens.radius, rim: lens.rim, glass: u32::from(lens.glass), bits, ..Default::default() };
-    let halo = if lens.glass { (lens.rim * 0.28).ceil() as i32 } else { 0 };
-    let clip = camera.target_clip.unwrap_or([0, 0, w as i32, h as i32]);
-    for y in (camera.origin.1-halo).max(clip[1]).max(0)..(camera.origin.1+camera.viewport.1 as i32+halo).min(clip[3]).min(h as i32) {
-      for x in (camera.origin.0-halo).max(clip[0]).max(0)..(camera.origin.0+camera.viewport.0 as i32+halo).min(clip[2]).min(w as i32) {
-        let s = lens_math::surface(&p, x as f32 + 0.5, y as f32 + 0.5);
-        let i = (y*w as i32+x) as usize;
-        let sample = |channel: f32| -> [f32; 3] {
-            let bend = s.bend + s.dispersion * channel;
-            let (px, py, image) = if let Some(copy) = copy {
-                let ratio = copy.zoom.1.max(1) as f32 / copy.zoom.0.max(1) as f32;
-                (copy.source[0] as f32 + (((x-copy.at.0) as f32+0.5)*ratio).floor() - s.nx*bend*ratio,
-                 copy.source[1] as f32 + (((y-copy.at.1) as f32+0.5)*ratio).floor() - s.ny*bend*ratio, backdrop)
-            } else { (x as f32 - s.nx*bend, y as f32 - s.ny*bend, &face[..]) };
-            let (ix, iy) = (px.floor() as i32, py.floor() as i32);
-            let (fx, fy) = (px-px.floor(), py-py.floor());
-            let fetch = |dx: i32, dy: i32| image[(
-                (iy+dy).clamp(0, h as i32-1)*w as i32+(ix+dx).clamp(0, w as i32-1)) as usize].rgb(bits);
-            let (a,b,c,d) = (fetch(0,0),fetch(1,0),fetch(0,1),fetch(1,1));
-            std::array::from_fn(|ch| (a[ch]*(1.0-fx)+b[ch]*fx)*(1.0-fy)+(c[ch]*(1.0-fx)+d[ch]*fx)*fy)
-        };
-        if s.distance >= -p.rim.max(0.5) {
-            let base = backdrop[i].rgb(bits);
-            let background = if lens.glass { lens_math::halo(&s, base, lens.rim) } else { base };
-            let glass = if lens.glass {
-                lens_math::shade(&s, lens_math::dispersed(sample(1.0), sample(0.0), sample(-1.0)))
-            } else { [if s.distance > -p.rim*0.5 { 0.78 } else { 0.08 }; 3] };
-            out[i] = P::from_rgb(lens_math::composite(&s, glass, background), bits);
-        }
-      }
-    }
-}
 
 /// The pixels `p` whose zoom-1 pixel `floor(p·d/n)` is in `[lo, hi)`, as in
 /// the shaders: from `ceil(lo·n/d)` to `ceil(hi·n/d)`; with `hair`, at least
@@ -516,7 +534,7 @@ fn scaled_span(lo: i32, hi: i32, n: u32, d: u32, hair: bool) -> Option<(i32, i32
 }
 
 /// Calls `f` for every opaque texel of `d` inside the viewport.
-fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32, u32, [u8; 4])) {
+fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), oracle: &Oracle<'_>, mut f: impl FnMut(u32, u32, [u8; 4])) {
     let sprite = d.descriptor(atlas);
     for sy in 0..d.placed.height {
         for sx in 0..d.placed.width {
@@ -528,7 +546,10 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
                 continue;
             }
             let (tx, ty) = d.texel(&sprite, sx, sy);
-            let src = match d.shape { Some(m) => m.color(sx, sy), None => d.color(atlas, &sprite, (tx, ty)) };
+            let src = match d.shape {
+                Some(m) => m.color(oracle.painter.expect("a painted shape needs the oracle's painter (`Oracle::painter`)"), sx, sy),
+                None => d.color(atlas, &sprite, (tx, ty)),
+            };
             if src[3] != 0 {
                 f(px as u32, py as u32, src);
             }
@@ -625,16 +646,16 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 let sc = |v: i32| (v as i64 * zoom.0 as i64).div_euclid(zoom.1 as i64) as i32;
                 let (ax, ay) = (vx + sc(rx), vy + sc(ry));
                 let prim = shape.primitive();
-                let (l, t, r, b, marker) = match shape {
+                let (l, t, r, b, painted) = match shape {
                     crate::Shape::Rect(_) => {
                         let (l, t, r, b) = tile_render_shared::output_rect(&prim, zoom.0, zoom.1);
                         (ax + l, ay + t, ax + r, ay + b, None)
                     }
                     _ => {
-                        let ([l, t, r, b], scale, at) = tile_render_shared::marker_place(&prim, (ax, ay), zoom.0, zoom.1, n);
-                        let marker = MarkerPixels { kind: prim.kind, rgba: prim.rgba, scale: scale.to_bits(),
-                            at: (at.0.to_bits(), at.1.to_bits()), bob: tile_render_shared::marker_bob(&prim).to_bits() };
-                        (l, t, r, b, Some(marker))
+                        let ([l, t, r, b], scale, at) = tile_render_shared::painted_place(&prim, (ax, ay), zoom.0, zoom.1, n);
+                        let painted = PaintedPixels { shape: prim.width, rgba: prim.rgba, scale: scale.to_bits(),
+                            at: (at.0.to_bits(), at.1.to_bits()), param: prim.b };
+                        (l, t, r, b, Some(painted))
                     }
                 };
                 if r <= l || b <= t { continue; }
@@ -652,7 +673,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     placed: Placed { width: (r - l) as u32, height: (b - t) as u32, step: 1, ..Default::default() },
                     text: None,
                     solid: Some(prim.rgba.to_le_bytes()),
-                    shape: marker,
+                    shape: painted,
                     palette: 0,
                     screen: s.screen,
                 }, true);

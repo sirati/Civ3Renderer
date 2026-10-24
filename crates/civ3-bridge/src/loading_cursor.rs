@@ -1,5 +1,5 @@
 //! The loading cursor beside the native loading bar: the wait cursor's
-//! hourglass, turning (`scene::loading_cursor`, `assets/civ3/
+//! hourglass, turning (`scene::loading_cursor`, `assets/viewer/
 //! loading-cursor.toml`). Optional art: a missing system cursor leaves
 //! clear frames, never a pending or failed UI group.
 use crate::ui::Frame;
@@ -15,7 +15,7 @@ const ENVELOPE: i32 = scene::loading_cursor::ENVELOPE as i32;
 /// the system's wait cursor, which is clear where there is none, so it
 /// cannot break the first compile or hold a mandatory UI group pending.
 pub fn description() -> &'static str {
-    include_str!("../../../assets/civ3/loading-cursor.toml")
+    include_str!("../../../assets/viewer/loading-cursor.toml")
 }
 
 /// Place the hourglass to the left of the bar, centred on its native form.
@@ -181,7 +181,7 @@ mod gpu_tests {
         fonts.set_game_layout(&run([0, 0, 255]), gdi_text::TextLayout { advances: vec![14; 5], ascent: 20, descent: 4, underline: (1, 1) });
         let gpu = tile_render::Headless::new().expect("GPU clipping correctness lease");
         eprintln!("inverse loading text adapter: {:?}", gpu.adapter.get_info());
-        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
         let clear = [13, 29, 47, 255];
         let mut compared_pixels = 0;

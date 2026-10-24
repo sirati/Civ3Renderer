@@ -1,5 +1,6 @@
 //! The city screen's build queue, reordered by dragging in the viewer
-//! (`scene::Interface::build_queue`, `scene::Input::BuildQueue`).
+//! as a site's production queue (`tile_game::production_queue`, with the
+//! city screen's colours in `civ3_ui::production_queue`).
 //!
 //! The publisher names the queue list's entries the screen shows (the
 //! game's own list rows, `civ3_sys::build_queue::queue_list_form`), each
@@ -15,7 +16,8 @@
 
 use civ3_sys::build_queue::{self as q, Drop, Order};
 use civ3_sys::controls::Mem;
-use scene::{BuildQueue, BuildQueueRow, Interactable, InteractableKind};
+use scene::{Interactable, InteractableKind};
+use tile_game::production_queue::{ProductionQueue, QueueEdit, QueueRow, Target};
 
 /// How wide a row's handle is (the viewer draws it there and moves the
 /// row's text right of it).
@@ -28,15 +30,15 @@ const GRIP_TAG: u64 = 0x7F00_0000;
 /// The queue's rows among `interactables`: the entries of the list whose
 /// form part is `form`, the first `count` of them (the one after them is
 /// the game's empty "next" slot, not an entry).
-pub fn rows(interactables: &[Interactable], form: u32, count: usize) -> Vec<BuildQueueRow> {
-    let mut rows: Vec<BuildQueueRow> = interactables
+pub fn rows(interactables: &[Interactable], form: u32, count: usize) -> Vec<QueueRow> {
+    let mut rows: Vec<QueueRow> = interactables
         .iter()
         .filter(|i| i.kind == InteractableKind::ListItem && i.id >> 32 == u64::from(form) && i.rect[2] > GRIP_WIDTH && i.rect[3] > 0)
         .filter_map(|i| {
             let slot = i.id & 0x0FFF_FFFF;
             (slot < count as u64).then(|| {
                 let [x, y, _, h] = i.rect;
-                BuildQueueRow { slot: slot as u8, rect: i.rect, grip: [x, y, GRIP_WIDTH, h], grip_id: u64::from(form) << 32 | GRIP_TAG | slot }
+                QueueRow { slot: slot as u8, rect: i.rect, grip: [x, y, GRIP_WIDTH, h], grip_id: u64::from(form) << 32 | GRIP_TAG | slot }
             })
         })
         .collect();
@@ -48,7 +50,7 @@ pub fn rows(interactables: &[Interactable], form: u32, count: usize) -> Vec<Buil
 /// What the publisher sends: the open city screen's queue where it is
 /// shown (`current`: the production box), and the handles to point at.
 /// `None` without one, for another player's city, or in a network game.
-pub fn publish(mem: &dyn Mem, interactables: &[Interactable], current: Option<[i32; 4]>) -> Option<(BuildQueue, Vec<Interactable>)> {
+pub fn publish(mem: &dyn Mem, interactables: &[Interactable], current: Option<[i32; 4]>) -> Option<(ProductionQueue, Vec<Interactable>)> {
     let current = current?;
     let queue = q::Queue::read(mem)?;
     if q::network_game(mem) || q::player(mem) != Some(queue.civ) || queue.entries.is_empty() {
@@ -62,18 +64,21 @@ pub fn publish(mem: &dyn Mem, interactables: &[Interactable], current: Option<[i
         .iter()
         .map(|r| Interactable { region: None, alt_right_click: false, anchor: None, rect: r.grip, kind: InteractableKind::Button, id: r.grip_id })
         .collect();
-    Some((BuildQueue { stamp: queue.stamp(), current, rows }, grips))
+    Some((ProductionQueue { stamp: queue.stamp(), current, rows }, grips))
 }
 
-/// The drop an `Input::BuildQueue` names.
-pub fn drop_of(to: u8) -> Drop {
-    if to == scene::BUILD_QUEUE_CURRENT { Drop::Current } else { Drop::Before(usize::from(to)) }
+/// The drop a `QueueEdit` names.
+pub fn drop_of(to: Target) -> Drop {
+    match to {
+        Target::Current => Drop::Current,
+        Target::Before(n) => Drop::Before(usize::from(n)),
+    }
 }
 
 /// The game's calls for the edit, against `queue` as it is now: `None` if
 /// it is not for this queue (`stamp`) or changes nothing.
-pub fn planned(queue: &q::Queue, stamp: u32, from: u8, to: u8) -> Option<q::Plan> {
-    (queue.stamp() == stamp).then(|| q::plan(queue.current, &queue.entries, usize::from(from), drop_of(to))).flatten()
+pub fn planned(queue: &q::Queue, edit: QueueEdit) -> Option<q::Plan> {
+    (queue.stamp() == edit.stamp).then(|| q::plan(queue.current, &queue.entries, usize::from(edit.from), drop_of(edit.to))).flatten()
 }
 
 /// A short form for the log.
@@ -94,6 +99,7 @@ mod live {
     use std::sync::{LazyLock, OnceLock};
 
     use civ3_sys::build_queue::{self as q, Edit};
+    use tile_game::production_queue::QueueEdit;
     use civ3_sys::{Build, Civ3};
     use inproc::message::Message;
     use inproc::window::Window;
@@ -105,7 +111,7 @@ mod live {
     }
     static LIVE: OnceLock<Live> = OnceLock::new();
     /// Edits posted, taken on the game's thread in order.
-    static PENDING: LazyLock<civ3r_sync::Mailbox<(u32, u8, u8)>> = LazyLock::new(civ3r_sync::Mailbox::new);
+    static PENDING: LazyLock<handoff::Mailbox<QueueEdit>> = LazyLock::new(handoff::Mailbox::new);
     /// An edit is being made (the game may run a dialog's loop meanwhile).
     static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -127,9 +133,9 @@ mod live {
 
     /// Queues the edit for the game's thread, in order with the input
     /// posted before it.
-    pub fn post(window: Window, stamp: u32, from: u8, to: u8) {
+    pub fn post(window: Window, edit: QueueEdit) {
         let Some(live) = LIVE.get() else { return };
-        PENDING.send((stamp, from, to));
+        PENDING.send(edit);
         window.post_message(live.message, 0);
     }
 
@@ -145,21 +151,22 @@ mod live {
             return Some(0);
         }
         let edits: Vec<_> = PENDING.drain().collect();
-        for (stamp, from, to) in edits {
-            apply(live, stamp, from, to);
+        for edit in edits {
+            apply(live, edit);
         }
         RUNNING.store(false, Ordering::Release);
         Some(0)
     }
 
-    fn apply(live: &Live, stamp: u32, from: u8, to: u8) {
+    fn apply(live: &Live, edit: QueueEdit) {
+        let (from, to) = (edit.from, edit.to);
         let mem = civ3_sys::controls::Live;
         let Some(queue) = q::Queue::read(&mem) else { return log::debug!("build queue: no city screen for the edit") };
         if q::network_game(&mem) || q::player(&mem) != Some(queue.civ) {
             return log::debug!("build queue: not the player's city, or a network game");
         }
-        let Some(plan) = super::planned(&queue, stamp, from, to) else {
-            return log::debug!("build queue: edit {from} -> {to} is not for the queue now, or changes nothing");
+        let Some(plan) = super::planned(&queue, edit) else {
+            return log::debug!("build queue: edit {from} -> {to:?} is not for the queue now, or changes nothing");
         };
         let form = q::CITY_FORM;
         for edit in &plan.edits {
@@ -177,9 +184,9 @@ mod live {
         }
         let after = q::Queue::read(&mem).map(|q| (q.current, q.entries));
         if after.as_ref() == Some(&plan.result) {
-            log::info!("build queue: entry {from} -> {to}: builds {}, then {:?}", super::name(plan.result.0), plan.result.1.iter().map(|&o| super::name(o)).collect::<Vec<_>>());
+            log::info!("build queue: entry {from} -> {to:?}: builds {}, then {:?}", super::name(plan.result.0), plan.result.1.iter().map(|&o| super::name(o)).collect::<Vec<_>>());
         } else {
-            log::warn!("build queue: entry {from} -> {to}: expected {:?}, the city has {after:?}", plan.result);
+            log::warn!("build queue: entry {from} -> {to:?}: expected {:?}, the city has {after:?}", plan.result);
         }
     }
 }
@@ -245,7 +252,7 @@ mod tests {
             let y = by + 10 + row_h * k as i32;
             items.push(text(bx + 8, y + 16, &format!("{}. {name}", k + 2), -12));
             let rect = [bx + 4, y, 195, row_h];
-            rows.push(BuildQueueRow { slot: k as u8, rect, grip: [rect[0], y, GRIP_WIDTH, row_h], grip_id: 0x7F00_0000 | k as u64 });
+            rows.push(QueueRow { slot: k as u8, rect, grip: [rect[0], y, GRIP_WIDTH, row_h], grip_id: 0x7F00_0000 | k as u64 });
         }
         items.push(text(bx + 8, by + 10 + row_h * names.len() as i32 + 16, &format!("{}. ", names.len() + 2), -12));
         let mut fonts = Fonts::default();
@@ -257,7 +264,8 @@ mod tests {
         let compiled = crate::assets::compile(&description, civ3_assets::GameFiles::with_roots(files.roots().to_vec())).unwrap();
         let sprites = crate::ui_screen::sprites(&items, &fonts, &compiled, 0, false);
         let mut scene = scene::Scene { views: vec![scene::ViewState { id: 0, view: scene::View { interface_only: true, ..Default::default() }, overlay: sprites }], ..Default::default() };
-        scene.interface.build_queue = Some(BuildQueue { stamp: 1, current: [850, 520, 100, 95], rows });
+        let queue = ProductionQueue { stamp: 1, current: [850, 520, 100, 95], rows };
+        scene.interface.extensions = vec![queue.extension()];
         let rect_of = |s: &tile_render::PlacedSprite| -> Option<[i32; 4]> {
             let (x0, y0, x1, y1) = if let Some(r) = s.solid {
                 (s.x, s.y, s.x + r.width as i32, s.y + r.height as i32)
@@ -273,9 +281,9 @@ mod tests {
             let (x0, y0, x1, y1) = match s.clip { Some(c) => (x0.max(c[0]), y0.max(c[1]), x1.min(c[2]), y1.min(c[3])), None => (x0, y0, x1, y1) };
             (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
         };
-        let shot = |drag: &tile_viewer::build_queue::BuildQueueDrag, name: &str| {
+        let shot = |drag: &tile_game::production_queue::QueueDrag, name: &str| {
             let mut world = tile_viewer::scene_world(&compiled, &scene);
-            let free = drag.draw(&scene, &world.free, rect_of).expect("a queue is shown");
+            let free = drag.draw(&queue, &world.free, &rect_of).expect("a queue is shown");
             world.free = free;
             let picture = tile_render::reference::render(&world, &compiled.atlas, &tile_render::Camera::new((1024, 768)), 0, [0, 0, 0, 255]);
             let full = image::RgbaImage::from_raw(picture.width, picture.height, picture.as_bytes().to_vec()).unwrap();
@@ -283,22 +291,22 @@ mod tests {
             crop.save(directory.join(format!("queue-{name}.png"))).unwrap();
         };
         let press = |down: bool, (x, y): (i32, i32)| scene::Input::MouseButton { button: scene::Button::Left, down, x, y };
-        let mut drag = tile_viewer::build_queue::BuildQueueDrag::default();
+        let mut drag = tile_game::production_queue::QueueDrag::new(civ3_ui::production_queue::STYLE);
         shot(&drag, "grips");
         // "Warrior" (slot 0) dragged down between "Settler" and "Temple".
-        drag.route(&press(true, (bx + 9, by + 20)), &scene);
-        drag.route(&scene::Input::MouseMove { x: bx + 60, y: by + 10 + 3 * row_h - 4 }, &scene);
+        drag.route(&press(true, (bx + 9, by + 20)), Some(&queue));
+        drag.route(&scene::Input::MouseMove { x: bx + 60, y: by + 10 + 3 * row_h - 4 }, Some(&queue));
         shot(&drag, "drag");
-        assert_eq!(drag.route(&press(false, (bx + 60, by + 10 + 3 * row_h - 4)), &scene), Some(vec![scene::Input::BuildQueue { stamp: 1, from: 0, to: 3 }]));
+        assert_eq!(drag.route(&press(false, (bx + 60, by + 10 + 3 * row_h - 4)), Some(&queue)), Some(vec![QueueEdit { stamp: 1, from: 0, to: Target::Before(3) }.input()]));
         // "Temple" (slot 3) over the production box.
-        drag.route(&press(true, (bx + 9, by + 10 + 3 * row_h + 10)), &scene);
-        drag.route(&scene::Input::MouseMove { x: 890, y: 560 }, &scene);
+        drag.route(&press(true, (bx + 9, by + 10 + 3 * row_h + 10)), Some(&queue));
+        drag.route(&scene::Input::MouseMove { x: 890, y: 560 }, Some(&queue));
         shot(&drag, "swap-hover");
-        assert_eq!(drag.route(&press(false, (890, 560)), &scene), Some(vec![scene::Input::BuildQueue { stamp: 1, from: 3, to: scene::BUILD_QUEUE_CURRENT }]));
+        assert_eq!(drag.route(&press(false, (890, 560)), Some(&queue)), Some(vec![QueueEdit { stamp: 1, from: 3, to: Target::Current }.input()]));
         // Picked up by a click on its handle (the Alt mode's way).
-        drag.route(&press(true, (bx + 9, by + 10 + row_h + 10)), &scene);
-        drag.route(&press(false, (bx + 9, by + 10 + row_h + 10)), &scene);
-        drag.route(&scene::Input::MouseMove { x: bx + 100, y: by + 10 + 4 * row_h + 10 }, &scene);
+        drag.route(&press(true, (bx + 9, by + 10 + row_h + 10)), Some(&queue));
+        drag.route(&press(false, (bx + 9, by + 10 + row_h + 10)), Some(&queue));
+        drag.route(&scene::Input::MouseMove { x: bx + 100, y: by + 10 + 4 * row_h + 10 }, Some(&queue));
         shot(&drag, "click-picked");
     }
 
@@ -306,9 +314,9 @@ mod tests {
     fn an_edit_for_another_queue_is_dropped() {
         let queue = q::Queue { city: 1, city_id: 2, civ: 1, current: Order { kind: q::UNIT, id: 4 }, entries: vec![Order { kind: q::UNIT, id: 5 }, Order { kind: q::IMPROVEMENT, id: 6 }] };
         let stamp = queue.stamp();
-        assert!(planned(&queue, stamp ^ 1, 1, 0).is_none());
-        let swap = planned(&queue, stamp, 1, scene::BUILD_QUEUE_CURRENT).unwrap();
+        assert!(planned(&queue, QueueEdit { stamp: stamp ^ 1, from: 1, to: Target::Before(0) }).is_none());
+        let swap = planned(&queue, QueueEdit { stamp, from: 1, to: Target::Current }).unwrap();
         assert_eq!(swap.result, (Order { kind: q::IMPROVEMENT, id: 6 }, vec![Order { kind: q::UNIT, id: 4 }, Order { kind: q::UNIT, id: 5 }]));
-        assert_eq!(planned(&queue, stamp, 1, 0).unwrap().result.1, vec![Order { kind: q::IMPROVEMENT, id: 6 }, Order { kind: q::UNIT, id: 5 }]);
+        assert_eq!(planned(&queue, QueueEdit { stamp, from: 1, to: Target::Before(0) }).unwrap().result.1, vec![Order { kind: q::IMPROVEMENT, id: 6 }, Order { kind: q::UNIT, id: 5 }]);
     }
 }

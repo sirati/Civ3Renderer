@@ -11,9 +11,7 @@ fn fixture_faces() -> Vec<Face> {
     curves.push([(600.0,200.0),(1100.0,500.0),(600.0,700.0)]);
     curves.push([(600.0,700.0),(300.0,400.0),(600.0,200.0)]);
     let mut faces = vec![Face::from_curves(1000, &[('M',curves,700)])];
-    let install = std::env::var_os("CIV3_INSTALL").map(std::path::PathBuf::from)
-        .unwrap_or_else(|| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-    if let Ok(bytes) = std::fs::read(install.join("LSANS.TTF")) {
+    if let Some(bytes) = std::env::var_os("TEST_FONT").and_then(|path| std::fs::read(path).ok()) {
         faces.push(Face::parse(&bytes, 0).unwrap());
     }
     faces

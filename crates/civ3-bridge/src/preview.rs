@@ -333,7 +333,7 @@ pub struct Selected {
 }
 
 /// Written only by the game's thread (its Load Scenario hook).
-static SELECTED: civ3r_sync::Latest<Selected> = civ3r_sync::Latest::new();
+static SELECTED: handoff::Latest<Selected> = handoff::Latest::new();
 
 /// The next selection after the latest, of `file`, loaded now.
 fn select(file: Option<String>) -> Selected {
@@ -511,7 +511,7 @@ fn make(install: &Path, job: &Job, superseded: &dyn Fn() -> bool, send: &mut dyn
 /// How the Load Scenario hook asks the preview thread for the scenario the
 /// game just loaded (once the thread runs): its latest job and its queue.
 #[allow(clippy::type_complexity)]
-static ASKER: civ3r_sync::Latest<(Arc<std::sync::atomic::AtomicU64>, tokio::sync::mpsc::UnboundedSender<Job>)> = civ3r_sync::Latest::new();
+static ASKER: handoff::Latest<(Arc<std::sync::atomic::AtomicU64>, tokio::sync::mpsc::UnboundedSender<Job>)> = handoff::Latest::new();
 
 /// Asks the preview thread for `job` at once (none running: the publisher
 /// asks when it sees the selection).

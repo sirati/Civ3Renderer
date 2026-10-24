@@ -19,7 +19,7 @@
 //! still plans) goes to the renderer that moment, not with the next scene
 //! (`crate::presenter::push`, `scene::Update::Walk`); the publisher draws
 //! the unit to be moved (`scene::Motion`) and the renderer plays the walk
-//! on its own clock from the game's starts (`tile_viewer::unit_motions`).
+//! on its own clock from the game's starts (`tile_viewer::piece_motions`).
 //! A game with its own pixels shown (no parked camera, the comparison modes) keeps its
 //! frames.
 
@@ -66,7 +66,7 @@ const HOLD: Duration = Duration::from_millis(500);
 const AFTER: Duration = Duration::from_millis(400);
 
 /// Slides of a unit at most this far apart are one walk (as
-/// `tile_viewer::unit_motions` plays them).
+/// `tile_viewer::piece_motions` plays them).
 const WALK: Duration = Duration::from_millis(600);
 
 /// How many of a walk's tiles are told (its last ones).
@@ -150,7 +150,7 @@ pub fn clock_ms(at: Instant) -> u64 {
 
 /// The game's slides: the game thread alone records them (`record`), the
 /// publisher reads the latest copy.
-static SLIDES: civ3r_sync::Latest<Slides> = civ3r_sync::Latest::new();
+static SLIDES: handoff::Latest<Slides> = handoff::Latest::new();
 static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How long a slide is kept after it began.

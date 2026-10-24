@@ -45,10 +45,9 @@ fn shapes() -> Face {
     )
 }
 
-/// The game's font, where there is a Civ III installation.
-fn lucida() -> Option<Face> {
-    let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
-    let data = std::fs::read(std::path::Path::new(&install).join("LSANS.TTF")).ok()?;
+/// A real TrueType font, where the environment names one (`TEST_FONT`).
+fn test_font() -> Option<Face> {
+    let data = std::fs::read(std::env::var_os("TEST_FONT")?).ok()?;
     Some(Face::parse(&data, 0).unwrap())
 }
 
@@ -111,10 +110,10 @@ fn art_cameras() -> Vec<Camera> {
 #[test]
 fn boxed_cameras_show_art_exactly_as_boxes_do() {
     let gpu = Headless::new().expect("GPU");
-    let copies = [ScreenCopy { source: [10, 12, 30, 20], at: (96, 70), zoom: (2, 1), lens: None }, ScreenCopy { source: [50, 20, 40, 40], at: (5, 70), zoom: (3, 4), lens: None }];
+    let copies = [ScreenCopy { source: [10, 12, 30, 20], at: (96, 70), zoom: (2, 1), effect: None }, ScreenCopy { source: [50, 20, 40, 40], at: (5, 70), zoom: (3, 4), effect: None }];
     for color in [ColorModel::Direct, ColorModel::Quantized { bits: 5 }] {
         let (world, atlas) = art_world(color);
-        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+        let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
         renderer.set_world(&gpu.device, &world);
         for k in [2u32, 3] {
@@ -148,7 +147,7 @@ fn boxed_cameras_show_art_exactly_as_boxes_do() {
 fn one_to_one_is_left_as_it_is() {
     let gpu = Headless::new().expect("GPU");
     let (world, atlas) = art_world(ColorModel::Quantized { bits: 5 });
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     let present = Present::unscaled((160, 120));
@@ -216,7 +215,7 @@ fn boxed_picture(image: &RgbaImage, [x0, y0, x1, y1]: [i32; 4], k: i32) -> bool 
 fn interface_text_is_drawn_at_the_target_resolution() {
     let gpu = Headless::new().expect("GPU");
     let mut faces = vec![Arc::new(shapes())];
-    faces.extend(lucida().map(Arc::new));
+    faces.extend(test_font().map(Arc::new));
     let mut atlas = AtlasBuilder::new(64);
     let mut sets = SpriteSets::default();
     let plate = sets.single(atlas.add(&RgbaImage::from_fn(6, 9, |_, _| [255, 0, 0, 255]), (0, -9)).unwrap());
@@ -227,7 +226,7 @@ fn interface_text_is_drawn_at_the_target_resolution() {
         runs.extend([(1, "New Game", (10, 90), 14), (1, "Preferences", (80, 90), 11)]);
     }
     let world = text_world(&faces, &runs, plate, sets);
-    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, SHADERS);
     renderer.set_atlas(&gpu.device, &gpu.queue, &atlas);
     renderer.set_world(&gpu.device, &world);
     // (Canvas zoom, pixel box): 2×, 3×, 0.5×, 3×.
@@ -282,3 +281,6 @@ fn interface_text_is_drawn_at_the_target_resolution() {
         assert!(l as f64 >= x0 - 1.0 && r as f64 <= x1 + 1.0, "{what}: run ink {l}..{r} within its scaled layout {x0}..{x1}");
     }
 }
+
+/// The viewer's shader module (it holds the tile renderer's shaders).
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);

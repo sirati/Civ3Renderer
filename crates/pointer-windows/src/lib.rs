@@ -15,12 +15,12 @@ mod windows {
     use pointer_api::{Backend, Error, Grab, Move, Point, Region, Update};
     use winit::window::{CursorGrabMode, Window};
 
-    /// The system's clip, through `inproc`.
+    /// The system's clip, through `pointer-windows-ffi`.
     struct System;
 
     impl super::SystemClip for System {
-        fn current(&self) -> Option<[i32; 4]> { inproc::pointer::clip_rect() }
-        fn set(&mut self, screen: Option<[i32; 4]>) -> bool { inproc::pointer::clip_cursor(screen) }
+        fn current(&self) -> Option<[i32; 4]> { pointer_windows_ffi::clip_rect() }
+        fn set(&mut self, screen: Option<[i32; 4]>) -> bool { pointer_windows_ffi::clip_cursor(screen) }
     }
 
     pub struct Controller {
@@ -84,7 +84,7 @@ mod windows {
     /// The operating system's nominal cursor size at 96 DPI, in pixels:
     /// the accessibility pointer size, else the system metric.
     pub fn nominal_cursor_size() -> Option<u32> {
-        inproc::pointer::cursor_base_size().or_else(inproc::pointer::cursor_metric_size)
+        pointer_windows_ffi::cursor_base_size().or_else(pointer_windows_ffi::cursor_metric_size)
     }
 }
 

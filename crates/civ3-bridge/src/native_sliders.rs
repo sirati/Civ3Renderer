@@ -8,10 +8,10 @@ use scene::SliderAction;
 struct Request { id: u64, action: SliderAction, value: i32 }
 
 /// Requests waiting for their private message, handed to the game's thread
-/// without a lock (`civ3r_sync::Posted`): consecutive previews of one
+/// without a lock (`handoff::Posted`): consecutive previews of one
 /// slider share a message, the latest value winning.
 #[derive(Default)]
-struct Requests(civ3r_sync::Posted<Request>);
+struct Requests(handoff::Posted<Request>);
 
 impl Requests {
     fn barrier(&self) { self.0.barrier(); }
@@ -26,7 +26,7 @@ impl Requests {
     fn retract(&self, token: u32) { self.0.retract(token); }
 
     /// On the game's thread: the requests up to `token`'s message.
-    fn take(&self, token: u32, inbox: &mut civ3r_sync::Inbox<Request>) -> Vec<Request> {
+    fn take(&self, token: u32, inbox: &mut handoff::Inbox<Request>) -> Vec<Request> {
         self.0.take(token, inbox)
     }
 }
@@ -115,7 +115,7 @@ mod live {
     static DISPATCHING: AtomicBool = AtomicBool::new(false);
     thread_local! {
         /// Received requests whose messages are still queued.
-        static INBOX: RefCell<civ3r_sync::Inbox<Request>> = RefCell::new(civ3r_sync::Inbox::default());
+        static INBOX: RefCell<handoff::Inbox<Request>> = RefCell::new(handoff::Inbox::default());
         /// The edit in progress, owned by the game's thread.
         static TRANSACTION: Cell<Transaction> = const { Cell::new(Transaction { original: None }) };
     }

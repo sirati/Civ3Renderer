@@ -96,11 +96,11 @@ pub const TEXT_BAR: u32 = 1 << 11;
 /// The contrast boost of black text and of white text (others in between
 /// per channel), in 256ths: coverage `c` (of 255) becomes
 /// `c + c·(255 − c)·boost / (255·256)`. Measured against the glyph sheets
-/// Windows draws (Lucida Sans, letters and digits, `tools/gen-civ3-fonts`):
+/// Windows draws (Lucida Sans, letters and digits, measured):
 /// the boosts at which the outlines put down as much ink per glyph as
 /// ClearType does, black text on white and white on black, are 16 and 120
 /// at 24 pixels (at 10..16 pixels, where hinting thins stems, 0..56 and
-/// 8..160). White text gets less, 72: compared with the city labels Windows
+/// 8..160). White text gets less, 72: compared with the labels Windows
 /// draws at each zoomed size (white names), the outlines with 120 came out
 /// 7 to 12 % heavier at 2x, with 72 within -6..+7 % at 1.5x, 2x and 3x.
 pub const BOOST_DARK: u32 = 16;

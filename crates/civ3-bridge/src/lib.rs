@@ -139,8 +139,9 @@ fn init() {
     }
     let _ = inproc::log_to_file(std::path::Path::new("civ3-bridge.log"), log::LevelFilter::Debug);
     // Render errors, every type once per run, from every side (`render_errors`).
-    if let Err(e) = render_errors::log_to_file(std::path::Path::new(render_errors::FILE_NAME)) {
-        log::warn!("no render error log ({}): {e}", render_errors::FILE_NAME);
+    const RENDER_ERROR_LOG: &str = "civ3-render-errors.log";
+    if let Err(e) = render_errors::log_to_file(std::path::Path::new(RENDER_ERROR_LOG)) {
+        log::warn!("no render error log ({RENDER_ERROR_LOG}): {e}");
     }
     log::info!("native audio failed-init cleanup: {:?}", civ3_sys::audio_init::status());
     // Hangs (a stuck allocator guard, a publisher that stopped) are noted

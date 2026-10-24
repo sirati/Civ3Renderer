@@ -289,12 +289,16 @@ fn run(options: Options) -> Result<(), String> {
             }
         };
         let config = tile_viewer::ViewerConfig {
+            extensions: civ3_ui::viewer::extensions(),
+            settings_path: civ3_ui::viewer::settings_path(),
+            startup_ready_file: civ3_ui::viewer::startup_ready_file(),
+            launcher_scale: civ3_ui::viewer::launcher_scale(),
             title: "Civ III (native renderer)".into(),
             application_icon: icon::application(),
             size: (1024, 768),
             fullscreen,
             overhang: (128, 128, 128, 128),
-            recording_dir: tile_viewer::altrec::recording_dir(None),
+            recording_dir: civ3_ui::viewer::recording_dir(None),
             ..Default::default()
         };
         tile_viewer::run_until(config, assets, display, stop.clone()).map_err(|e| e.to_string())

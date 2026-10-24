@@ -493,7 +493,7 @@ mod live {
         static FOUND: RefCell<Option<(Key, Instant, Option<GotoPath>)>> = const { RefCell::new(None) };
     }
     /// The path last found, for the publisher.
-    static LATEST: civ3r_sync::Latest<GotoPath> = civ3r_sync::Latest::new();
+    static LATEST: handoff::Latest<GotoPath> = handoff::Latest::new();
 
     pub fn install(game: Civ3) -> Result<(), String> {
         let sites = t::sites(game.build).ok_or_else(|| format!("no path finder sites for {:?}", game.build))?;
