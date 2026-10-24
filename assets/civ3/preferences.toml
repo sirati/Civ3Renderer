@@ -1745,90 +1745,265 @@ image = "section"
 at = [70, 95]
 size = [882, 560]
 show_if = "tab=zoom"
+
+# Where the zoom goes: one picture per place (see the `zoom_place_` art),
+# its name below, what it does in its tooltip.
+
 [[panels.preferences.items]]
 text = "Zoom placement"
 style = "heading"
-at = [90, 105]
+at = [90, 103]
 show_if = "tab=zoom"
 
 [[panels.preferences.items]]
-text = "(vertical splits)"
+choice = "layout.zoom"
+value = "Off"
+at = [90, 128]
+size = [104, 64]
+icon = "zoom_place_Off"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "No zoom"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Floating131"
+at = [202, 128]
+size = [104, 64]
+icon = "zoom_place_Floating131"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "A box at the top; it moves down out of the mouse's way"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Floating171"
+at = [314, 128]
+size = [104, 64]
+icon = "zoom_place_Floating171"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "A wide box at the top; it moves down out of the mouse's way"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Mouse111"
+at = [426, 128]
+size = [104, 64]
+icon = "zoom_place_Mouse111"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "A box just above the mouse, following it"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Mouse131"
+at = [538, 128]
+size = [104, 64]
+icon = "zoom_place_Mouse131"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "A wide box just above the mouse, following it"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "Beside"
+at = [650, 128]
+size = [104, 64]
+icon = "zoom_place_Beside"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "A box beside the mouse, next to the part it enlarges"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom"
+value = "TopStrip"
+at = [762, 128]
+size = [104, 64]
+icon = "zoom_place_TopStrip"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+tooltip = "A strip across the top; the views make room below it"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+repeat = ["Off", "Box", "Wide box", "At the mouse", "Wide, at mouse", "Beside the mouse", "Top strip"]
+spacing = [112, 0]
+text = "{item}"
 style = "caption"
-at = [250, 108]
+at = [90, 195]
+size = [104, 14]
+align = "center"
+show_if = "tab=zoom"
+
+# What the zoom shows, wherever it goes: the world drawn again, or the
+# picture with menus, its pixels enlarged.
+
+[[panels.preferences.items]]
+text = "Zoom shows"
+style = "heading"
+at = [90, 222]
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_content"
+value = "World"
+at = [90, 247]
+size = [104, 64]
+icon = "zoom_content_World"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+disabled_over = "veil"
+tooltip = "The map alone, drawn again larger"
+disabled_tooltip = "The zoom is off: choose a placement first"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "layout.zoom!=Off"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+choice = "layout.zoom_content"
+value = "WorldAndMenus"
+at = [202, 247]
+size = [104, 64]
+icon = "zoom_content_WorldAndMenus"
+normal = "button"
+hover = "button_hover"
+selected = "button_selected"
+disabled = "button_disabled"
+disabled_over = "veil"
+tooltip = "Everything under the mouse, menus too"
+disabled_tooltip = "The zoom is off: choose a placement first"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "layout.zoom!=Off"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+repeat = ["World only", "World with menus"]
+spacing = [112, 0]
+text = "{item}"
+style = "caption"
+at = [90, 314]
+size = [104, 14]
+align = "center"
+show_if = "tab=zoom"
+
+[[panels.preferences.items]]
+text = "Rendering menus doesn't render in a higher resolution. It just shows the pixels."
+style = "caption"
+at = [90, 334]
+show_if = "tab=zoom"
+
+# In a vertical split: over both views, or over one of them (the box
+# beside the mouse goes wherever the mouse is). Why not, in the tooltip.
+
+[[panels.preferences.items]]
+text = "In a vertical split"
+style = "heading"
+at = [560, 222]
 show_if = "tab=zoom"
 
 [[panels.preferences.items]]
 choice = "layout.zoom_place"
 value = "Floating"
-at = [90, 135]
-size = [104, 26]
-text = "Floating"
-style = "button"
+at = [560, 247]
+size = [104, 64]
+icon = "zoom_region_Floating"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
 disabled = "button_disabled"
-enable_if = "layout.split=Vertical1To1|Vertical2To1"
+disabled_over = "veil"
+tooltip = "Over both views"
+disabled_tooltip = "{layout.zoom_place_why}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "layout.split=Vertical1To1|Vertical2To1 & layout.zoom!=Off|Beside"
 show_if = "tab=zoom"
 
 [[panels.preferences.items]]
 choice = "layout.zoom_place"
 value = "LeftOrBottom"
-at = [250, 135]
-size = [104, 26]
-text = "Left"
-style = "button"
+at = [672, 247]
+size = [104, 64]
+icon = "zoom_region_LeftOrBottom"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
 disabled = "button_disabled"
-enable_if = "layout.split=Vertical1To1|Vertical2To1"
+disabled_over = "veil"
+tooltip = "Over the left view only"
+disabled_tooltip = "{layout.zoom_place_why}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "layout.split=Vertical1To1|Vertical2To1 & layout.zoom!=Off|Beside"
 show_if = "tab=zoom"
 
 [[panels.preferences.items]]
 choice = "layout.zoom_place"
 value = "RightOrTop"
-at = [410, 135]
-size = [104, 26]
-text = "Right"
-style = "button"
+at = [784, 247]
+size = [104, 64]
+icon = "zoom_region_RightOrTop"
 normal = "button"
 hover = "button_hover"
 selected = "button_selected"
 disabled = "button_disabled"
-enable_if = "layout.split=Vertical1To1|Vertical2To1"
+disabled_over = "veil"
+tooltip = "Over the right view only"
+disabled_tooltip = "{layout.zoom_place_why}"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "layout.split=Vertical1To1|Vertical2To1 & layout.zoom!=Off|Beside"
 show_if = "tab=zoom"
 
 [[panels.preferences.items]]
-checkbox = "layout.menu_zoom"
-at = [550, 135]
-size = [350, 23]
-text = "Menu zoom beside pointer"
-style = "label"
-normal = "check_off"
-hover = "check_hover"
-selected = "check_on"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
-text = "Temporarily replaces world zoom"
+repeat = ["Over both views", "Left view", "Right view"]
+spacing = [112, 0]
+text = "{item}"
 style = "caption"
-at = [550, 166]
+at = [560, 314]
+size = [104, 14]
+align = "center"
 show_if = "tab=zoom"
 
-[[panels.preferences.items]]
-text = "Zoom box"
-style = "heading"
-at = [90, 190]
-show_if = "tab=zoom"
-
-# Menu zoom shares the magnification and height of world zoom.
 # How much every zoom enlarges its content: indices of
 # `Layout::MAGNIFICATIONS`, with magnifications on the ruler.
+
 [[panels.preferences.items]]
 text = "Magnification"
 style = "label"
-at = [90, 315]
+at = [90, 375]
 show_if = "tab=zoom & layout.zoom_controls"
 
 [[panels.preferences.items]]
@@ -1837,146 +2012,58 @@ tick_step = 1
 tick_label_step = 1
 tick_labels = ["1.5×", "2×", "3×", "4×"]
 tick_style = "ruler"
-at = [280, 310]
-size = [408, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
 min = 0
 max = 3
 step = 1
 decimals = 0
 text = "{layout.zoom_magnification_label}"
+at = [280, 370]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
 style = "label"
 show_if = "tab=zoom & layout.zoom_controls"
 
 [[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Off"
-at = [90, 220]
-size = [260, 26]
-text = "Off"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Floating131"
-at = [370, 220]
-size = [260, 26]
-text = "Floating box 1:3:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Floating171"
-at = [650, 220]
-size = [260, 26]
-text = "Floating box 1:7:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Mouse111"
-at = [90, 255]
-size = [260, 26]
-text = "At the mouse 1:1:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "Mouse131"
-at = [370, 255]
-size = [260, 26]
-text = "At the mouse 1:3:1"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
-choice = "layout.zoom"
-value = "TopStrip"
-at = [650, 255]
-size = [260, 26]
-text = "Strip at the top"
-style = "button"
-normal = "button"
-hover = "button_hover"
-selected = "button_selected"
-show_if = "tab=zoom"
-
-[[panels.preferences.items]]
 text = "Strip height"
 style = "label"
-at = [90, 365]
+at = [90, 415]
 show_if = "tab=zoom & layout.zoom=TopStrip"
 
 [[panels.preferences.items]]
 text = "Box height"
 style = "label"
-at = [90, 365]
-show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131"
-
-[[panels.preferences.items]]
-text = "Menu height"
-style = "label"
-at = [90, 365]
-show_if = "tab=zoom & layout.menu_zoom & layout.zoom=Off"
+at = [90, 415]
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171|Mouse111|Mouse131|Beside"
 
 [[panels.preferences.items]]
 slider = "layout.zoom_strip"
 tick_step = 0.05
 tick_label_step = 0.25
 tick_style = "ruler"
-at = [280, 360]
-size = [408, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
 min = 0.05
 max = 0.5
 step = 0.05
 decimals = 0
 percent = true
 text = "{value}%"
+at = [280, 410]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
 style = "label"
 show_if = "tab=zoom & layout.zoom_controls"
 
 # A floating box: its space below the top, the gap below where it rests
 # that it moves to while the mouse is there, or that it keeps the mouse
-# out instead.
-[[panels.preferences.items]]
-checkbox = "layout.zoom_box_block_pointer"
-at = [90, 515]
-size = [180, 16]
-normal = "check_off"
-hover = "check_hover"
-selected = "check_on"
-text = "Keep mouse out"
-style = "label"
-show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+# out instead (one showing menus always moves).
 
 [[panels.preferences.items]]
 text = "Top margin"
 style = "label"
-at = [90, 415]
+at = [90, 455]
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
@@ -1984,24 +2071,24 @@ slider = "layout.zoom_box_top"
 tick_step = 0.005
 tick_label_step = 0.01
 tick_style = "ruler"
-at = [280, 410]
-size = [408, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
 min = 0.0
 max = 0.05
 step = 0.005
 decimals = 1
 percent = true
 text = "{value}%"
+at = [280, 450]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
 style = "label"
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
 text = "Gap when moved"
 style = "label"
-at = [90, 465]
+at = [90, 495]
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 [[panels.preferences.items]]
@@ -2009,26 +2096,42 @@ slider = "layout.zoom_box_drop"
 tick_step = 0.005
 tick_label_step = 0.025
 tick_style = "ruler"
-at = [280, 460]
-size = [408, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
 min = 0.05
 max = 0.15
 step = 0.005
 decimals = 1
 percent = true
 text = "{value}%"
+at = [280, 490]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
 style = "label"
+show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
+
+[[panels.preferences.items]]
+checkbox = "layout.zoom_box_block_pointer"
+at = [90, 532]
+size = [180, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Keep mouse out"
+style = "label"
+disabled_tooltip = "A box showing menus always moves out of the mouse's way"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+enable_if = "layout.zoom_content=World"
 show_if = "tab=zoom & layout.zoom=Floating131|Floating171"
 
 # A box at the mouse: the space between the mouse and the box above it,
 # and below it where there is no room above.
+
 [[panels.preferences.items]]
 text = "Above the mouse"
 style = "label"
-at = [90, 415]
+at = [90, 455]
 show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
 
 [[panels.preferences.items]]
@@ -2036,24 +2139,24 @@ slider = "layout.zoom_mouse_above"
 tick_step = 0.01
 tick_label_step = 0.1
 tick_style = "ruler"
-at = [280, 410]
-size = [408, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
 min = 0.0
 max = 0.3
 step = 0.01
 decimals = 0
 percent = true
 text = "{value}%"
+at = [280, 450]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
 style = "label"
 show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
 
 [[panels.preferences.items]]
 text = "Below, if no room"
 style = "label"
-at = [90, 465]
+at = [90, 495]
 show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
 
 [[panels.preferences.items]]
@@ -2061,24 +2164,23 @@ slider = "layout.zoom_mouse_below"
 tick_step = 0.01
 tick_label_step = 0.1
 tick_style = "ruler"
-at = [280, 460]
-size = [408, 23]
-normal = "track"
-knob = "knob"
-knob_hover = "knob_hover"
 min = 0.0
 max = 0.4
 step = 0.01
 decimals = 0
 percent = true
 text = "{value}%"
+at = [280, 490]
+size = [408, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
 style = "label"
 show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131"
 
-
 [[panels.preferences.items]]
 checkbox = "layout.zoom_rounded"
-at = [90, 565]
+at = [90, 567]
 size = [400, 23]
 text = "Zoom uses rounded corners"
 style = "label"
@@ -2089,7 +2191,7 @@ show_if = "tab=zoom & layout.zoom_lens_controls"
 
 [[panels.preferences.items]]
 checkbox = "layout.zoom_glass"
-at = [90, 600]
+at = [90, 602]
 size = [400, 23]
 text = "Zoom uses the glass effect"
 style = "label"
@@ -2097,6 +2199,65 @@ normal = "check_off"
 hover = "check_hover"
 selected = "check_on"
 show_if = "tab=zoom & layout.zoom_lens_controls"
+
+# A disabled picture, greyed out: the parchment over it.
+[art.veil]
+fill = [236, 226, 196]
+alpha = 150
+
+
+# The zoom pictures (84x52, `rects:`, in the brown of the other
+# pictures). Placement: the window, the zoom box (shaded, a two-pixel rim,
+# a glint of glass) and the pointer; region: the split's two views and the
+# box over both or one; content: Civ III's diamond tiles and some land,
+# with menus the game's bar, a dialog and the unit box over them.
+[art.zoom_place_Off]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;60,48,24,255:18,5,2,1*12,4,0;60,48,24,255:18,17,2,1*12,4,0;60,48,24,255:18,5,1,2*3,0,4;60,48,24,255:65,5,1,2*3,0,4;60,48,24,255:26,4,2,1*16,2,1;60,48,24,255:27,4,2,1*16,2,1;60,48,24,255:39,28,1,1;60,48,24,255:39,29,2,1;60,48,24,255:39,30,1,1;246,236,206,255:40,30,1,1;60,48,24,255:41,30,1,1;60,48,24,255:39,31,1,1;246,236,206,255:40,31,2,1;60,48,24,255:42,31,1,1;60,48,24,255:39,32,1,1;246,236,206,255:40,32,3,1;60,48,24,255:43,32,1,1;60,48,24,255:39,33,1,1;246,236,206,255:40,33,4,1;60,48,24,255:44,33,1,1;60,48,24,255:39,34,1,1;246,236,206,255:40,34,5,1;60,48,24,255:45,34,1,1;60,48,24,255:39,35,1,1;246,236,206,255:40,35,6,1;60,48,24,255:46,35,1,1;60,48,24,255:39,36,1,1;246,236,206,255:40,36,7,1;60,48,24,255:47,36,1,1;60,48,24,255:39,37,1,1;246,236,206,255:40,37,4,1;60,48,24,255:44,37,5,1;60,48,24,255:39,38,1,1;246,236,206,255:40,38,2,1;60,48,24,255:42,38,1,1;246,236,206,255:43,38,2,1;60,48,24,255:45,38,1,1;60,48,24,255:39,39,1,1;246,236,206,255:40,39,1,1;60,48,24,255:41,39,1,1;60,48,24,255:43,39,1,1;246,236,206,255:44,39,2,1;60,48,24,255:46,39,1,1;60,48,24,255:39,40,2,1;60,48,24,255:44,40,1,1;246,236,206,255:45,40,2,1;60,48,24,255:47,40,1,1;60,48,24,255:44,41,1,1;246,236,206,255:45,41,2,1;60,48,24,255:47,41,1,1;60,48,24,255:45,42,2,1"
+size = [84, 52]
+
+[art.zoom_place_Floating131]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;0,0,0,0:18,4,48,14;60,48,24,120:20,6,44,10;60,48,24,255:18,4,48,1;60,48,24,255:18,17,48,1;60,48,24,255:18,4,1,14;60,48,24,255:65,4,1,14;60,48,24,255:19,5,46,1;60,48,24,255:19,16,46,1;60,48,24,255:19,5,1,12;60,48,24,255:64,5,1,12;246,236,206,255:21,7,4,1;246,236,206,255:21,8,1,2;60,48,24,255:39,30,1,1;60,48,24,255:39,31,2,1;60,48,24,255:39,32,1,1;246,236,206,255:40,32,1,1;60,48,24,255:41,32,1,1;60,48,24,255:39,33,1,1;246,236,206,255:40,33,2,1;60,48,24,255:42,33,1,1;60,48,24,255:39,34,1,1;246,236,206,255:40,34,3,1;60,48,24,255:43,34,1,1;60,48,24,255:39,35,1,1;246,236,206,255:40,35,4,1;60,48,24,255:44,35,1,1;60,48,24,255:39,36,1,1;246,236,206,255:40,36,5,1;60,48,24,255:45,36,1,1;60,48,24,255:39,37,1,1;246,236,206,255:40,37,6,1;60,48,24,255:46,37,1,1;60,48,24,255:39,38,1,1;246,236,206,255:40,38,7,1;60,48,24,255:47,38,1,1;60,48,24,255:39,39,1,1;246,236,206,255:40,39,4,1;60,48,24,255:44,39,5,1;60,48,24,255:39,40,1,1;246,236,206,255:40,40,2,1;60,48,24,255:42,40,1,1;246,236,206,255:43,40,2,1;60,48,24,255:45,40,1,1;60,48,24,255:39,41,1,1;246,236,206,255:40,41,1,1;60,48,24,255:41,41,1,1;60,48,24,255:43,41,1,1;246,236,206,255:44,41,2,1;60,48,24,255:46,41,1,1;60,48,24,255:39,42,2,1;60,48,24,255:44,42,1,1;246,236,206,255:45,42,2,1;60,48,24,255:47,42,1,1;60,48,24,255:44,43,1,1;246,236,206,255:45,43,2,1;60,48,24,255:47,43,1,1;60,48,24,255:45,44,2,1"
+size = [84, 52]
+
+[art.zoom_place_Floating171]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;0,0,0,0:9,4,66,14;60,48,24,120:11,6,62,10;60,48,24,255:9,4,66,1;60,48,24,255:9,17,66,1;60,48,24,255:9,4,1,14;60,48,24,255:74,4,1,14;60,48,24,255:10,5,64,1;60,48,24,255:10,16,64,1;60,48,24,255:10,5,1,12;60,48,24,255:73,5,1,12;246,236,206,255:12,7,4,1;246,236,206,255:12,8,1,2;60,48,24,255:39,30,1,1;60,48,24,255:39,31,2,1;60,48,24,255:39,32,1,1;246,236,206,255:40,32,1,1;60,48,24,255:41,32,1,1;60,48,24,255:39,33,1,1;246,236,206,255:40,33,2,1;60,48,24,255:42,33,1,1;60,48,24,255:39,34,1,1;246,236,206,255:40,34,3,1;60,48,24,255:43,34,1,1;60,48,24,255:39,35,1,1;246,236,206,255:40,35,4,1;60,48,24,255:44,35,1,1;60,48,24,255:39,36,1,1;246,236,206,255:40,36,5,1;60,48,24,255:45,36,1,1;60,48,24,255:39,37,1,1;246,236,206,255:40,37,6,1;60,48,24,255:46,37,1,1;60,48,24,255:39,38,1,1;246,236,206,255:40,38,7,1;60,48,24,255:47,38,1,1;60,48,24,255:39,39,1,1;246,236,206,255:40,39,4,1;60,48,24,255:44,39,5,1;60,48,24,255:39,40,1,1;246,236,206,255:40,40,2,1;60,48,24,255:42,40,1,1;246,236,206,255:43,40,2,1;60,48,24,255:45,40,1,1;60,48,24,255:39,41,1,1;246,236,206,255:40,41,1,1;60,48,24,255:41,41,1,1;60,48,24,255:43,41,1,1;246,236,206,255:44,41,2,1;60,48,24,255:46,41,1,1;60,48,24,255:39,42,2,1;60,48,24,255:44,42,1,1;246,236,206,255:45,42,2,1;60,48,24,255:47,42,1,1;60,48,24,255:44,43,1,1;246,236,206,255:45,43,2,1;60,48,24,255:47,43,1,1;60,48,24,255:45,44,2,1"
+size = [84, 52]
+
+[art.zoom_place_Mouse111]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;0,0,0,0:26,13,28,14;60,48,24,120:28,15,24,10;60,48,24,255:26,13,28,1;60,48,24,255:26,26,28,1;60,48,24,255:26,13,1,14;60,48,24,255:53,13,1,14;60,48,24,255:27,14,26,1;60,48,24,255:27,25,26,1;60,48,24,255:27,14,1,12;60,48,24,255:52,14,1,12;246,236,206,255:29,16,4,1;246,236,206,255:29,17,1,2;60,48,24,255:40,30,1,1;60,48,24,255:40,31,2,1;60,48,24,255:40,32,1,1;246,236,206,255:41,32,1,1;60,48,24,255:42,32,1,1;60,48,24,255:40,33,1,1;246,236,206,255:41,33,2,1;60,48,24,255:43,33,1,1;60,48,24,255:40,34,1,1;246,236,206,255:41,34,3,1;60,48,24,255:44,34,1,1;60,48,24,255:40,35,1,1;246,236,206,255:41,35,4,1;60,48,24,255:45,35,1,1;60,48,24,255:40,36,1,1;246,236,206,255:41,36,5,1;60,48,24,255:46,36,1,1;60,48,24,255:40,37,1,1;246,236,206,255:41,37,6,1;60,48,24,255:47,37,1,1;60,48,24,255:40,38,1,1;246,236,206,255:41,38,7,1;60,48,24,255:48,38,1,1;60,48,24,255:40,39,1,1;246,236,206,255:41,39,4,1;60,48,24,255:45,39,5,1;60,48,24,255:40,40,1,1;246,236,206,255:41,40,2,1;60,48,24,255:43,40,1,1;246,236,206,255:44,40,2,1;60,48,24,255:46,40,1,1;60,48,24,255:40,41,1,1;246,236,206,255:41,41,1,1;60,48,24,255:42,41,1,1;60,48,24,255:44,41,1,1;246,236,206,255:45,41,2,1;60,48,24,255:47,41,1,1;60,48,24,255:40,42,2,1;60,48,24,255:45,42,1,1;246,236,206,255:46,42,2,1;60,48,24,255:48,42,1,1;60,48,24,255:45,43,1,1;246,236,206,255:46,43,2,1;60,48,24,255:48,43,1,1;60,48,24,255:46,44,2,1"
+size = [84, 52]
+
+[art.zoom_place_Mouse131]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;0,0,0,0:16,13,48,14;60,48,24,120:18,15,44,10;60,48,24,255:16,13,48,1;60,48,24,255:16,26,48,1;60,48,24,255:16,13,1,14;60,48,24,255:63,13,1,14;60,48,24,255:17,14,46,1;60,48,24,255:17,25,46,1;60,48,24,255:17,14,1,12;60,48,24,255:62,14,1,12;246,236,206,255:19,16,4,1;246,236,206,255:19,17,1,2;60,48,24,255:40,30,1,1;60,48,24,255:40,31,2,1;60,48,24,255:40,32,1,1;246,236,206,255:41,32,1,1;60,48,24,255:42,32,1,1;60,48,24,255:40,33,1,1;246,236,206,255:41,33,2,1;60,48,24,255:43,33,1,1;60,48,24,255:40,34,1,1;246,236,206,255:41,34,3,1;60,48,24,255:44,34,1,1;60,48,24,255:40,35,1,1;246,236,206,255:41,35,4,1;60,48,24,255:45,35,1,1;60,48,24,255:40,36,1,1;246,236,206,255:41,36,5,1;60,48,24,255:46,36,1,1;60,48,24,255:40,37,1,1;246,236,206,255:41,37,6,1;60,48,24,255:47,37,1,1;60,48,24,255:40,38,1,1;246,236,206,255:41,38,7,1;60,48,24,255:48,38,1,1;60,48,24,255:40,39,1,1;246,236,206,255:41,39,4,1;60,48,24,255:45,39,5,1;60,48,24,255:40,40,1,1;246,236,206,255:41,40,2,1;60,48,24,255:43,40,1,1;246,236,206,255:44,40,2,1;60,48,24,255:46,40,1,1;60,48,24,255:40,41,1,1;246,236,206,255:41,41,1,1;60,48,24,255:42,41,1,1;60,48,24,255:44,41,1,1;246,236,206,255:45,41,2,1;60,48,24,255:47,41,1,1;60,48,24,255:40,42,2,1;60,48,24,255:45,42,1,1;246,236,206,255:46,42,2,1;60,48,24,255:48,42,1,1;60,48,24,255:45,43,1,1;246,236,206,255:46,43,2,1;60,48,24,255:48,43,1,1;60,48,24,255:46,44,2,1"
+size = [84, 52]
+
+[art.zoom_place_Beside]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;60,48,24,255:11,14,2,1*5,4,0;60,48,24,255:11,30,2,1*5,4,0;60,48,24,255:11,14,1,2*4,0,4;60,48,24,255:29,14,1,2*4,0,4;0,0,0,0:36,9,40,27;60,48,24,120:38,11,36,23;60,48,24,255:36,9,40,1;60,48,24,255:36,35,40,1;60,48,24,255:36,9,1,27;60,48,24,255:75,9,1,27;60,48,24,255:37,10,38,1;60,48,24,255:37,34,38,1;60,48,24,255:37,10,1,25;60,48,24,255:74,10,1,25;246,236,206,255:39,12,4,1;246,236,206,255:39,13,1,2;60,48,24,70:30,13,2,1*3,2,-1;60,48,24,70:30,30,2,1*3,2,1;60,48,24,255:20,22,1,1;60,48,24,255:20,23,2,1;60,48,24,255:20,24,1,1;246,236,206,255:21,24,1,1;60,48,24,255:22,24,1,1;60,48,24,255:20,25,1,1;246,236,206,255:21,25,2,1;60,48,24,255:23,25,1,1;60,48,24,255:20,26,1,1;246,236,206,255:21,26,3,1;60,48,24,255:24,26,1,1;60,48,24,255:20,27,1,1;246,236,206,255:21,27,4,1;60,48,24,255:25,27,1,1;60,48,24,255:20,28,1,1;246,236,206,255:21,28,5,1;60,48,24,255:26,28,1,1;60,48,24,255:20,29,1,1;246,236,206,255:21,29,6,1;60,48,24,255:27,29,1,1;60,48,24,255:20,30,1,1;246,236,206,255:21,30,7,1;60,48,24,255:28,30,1,1;60,48,24,255:20,31,1,1;246,236,206,255:21,31,4,1;60,48,24,255:25,31,5,1;60,48,24,255:20,32,1,1;246,236,206,255:21,32,2,1;60,48,24,255:23,32,1,1;246,236,206,255:24,32,2,1;60,48,24,255:26,32,1,1;60,48,24,255:20,33,1,1;246,236,206,255:21,33,1,1;60,48,24,255:22,33,1,1;60,48,24,255:24,33,1,1;246,236,206,255:25,33,2,1;60,48,24,255:27,33,1,1;60,48,24,255:20,34,2,1;60,48,24,255:25,34,1,1;246,236,206,255:26,34,2,1;60,48,24,255:28,34,1,1;60,48,24,255:25,35,1,1;246,236,206,255:26,35,2,1;60,48,24,255:28,35,1,1;60,48,24,255:26,36,2,1"
+size = [84, 52]
+
+[art.zoom_place_TopStrip]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;60,48,24,120:1,1,82,12;60,48,24,255:1,13,82,2;246,236,206,255:4,3,4,1;246,236,206,255:4,4,1,2;60,48,24,255:39,28,1,1;60,48,24,255:39,29,2,1;60,48,24,255:39,30,1,1;246,236,206,255:40,30,1,1;60,48,24,255:41,30,1,1;60,48,24,255:39,31,1,1;246,236,206,255:40,31,2,1;60,48,24,255:42,31,1,1;60,48,24,255:39,32,1,1;246,236,206,255:40,32,3,1;60,48,24,255:43,32,1,1;60,48,24,255:39,33,1,1;246,236,206,255:40,33,4,1;60,48,24,255:44,33,1,1;60,48,24,255:39,34,1,1;246,236,206,255:40,34,5,1;60,48,24,255:45,34,1,1;60,48,24,255:39,35,1,1;246,236,206,255:40,35,6,1;60,48,24,255:46,35,1,1;60,48,24,255:39,36,1,1;246,236,206,255:40,36,7,1;60,48,24,255:47,36,1,1;60,48,24,255:39,37,1,1;246,236,206,255:40,37,4,1;60,48,24,255:44,37,5,1;60,48,24,255:39,38,1,1;246,236,206,255:40,38,2,1;60,48,24,255:42,38,1,1;246,236,206,255:43,38,2,1;60,48,24,255:45,38,1,1;60,48,24,255:39,39,1,1;246,236,206,255:40,39,1,1;60,48,24,255:41,39,1,1;60,48,24,255:43,39,1,1;246,236,206,255:44,39,2,1;60,48,24,255:46,39,1,1;60,48,24,255:39,40,2,1;60,48,24,255:44,40,1,1;246,236,206,255:45,40,2,1;60,48,24,255:47,40,1,1;60,48,24,255:44,41,1,1;246,236,206,255:45,41,2,1;60,48,24,255:47,41,1,1;60,48,24,255:45,42,2,1"
+size = [84, 52]
+
+[art.zoom_region_Floating]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;60,48,24,255:41,1,2,50;0,0,0,0:20,4,44,14;60,48,24,120:22,6,40,10;60,48,24,255:20,4,44,1;60,48,24,255:20,17,44,1;60,48,24,255:20,4,1,14;60,48,24,255:63,4,1,14;60,48,24,255:21,5,42,1;60,48,24,255:21,16,42,1;60,48,24,255:21,5,1,12;60,48,24,255:62,5,1,12;246,236,206,255:23,7,4,1;246,236,206,255:23,8,1,2"
+size = [84, 52]
+
+[art.zoom_region_LeftOrBottom]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;60,48,24,255:41,1,2,50;0,0,0,0:8,4,26,14;60,48,24,120:10,6,22,10;60,48,24,255:8,4,26,1;60,48,24,255:8,17,26,1;60,48,24,255:8,4,1,14;60,48,24,255:33,4,1,14;60,48,24,255:9,5,24,1;60,48,24,255:9,16,24,1;60,48,24,255:9,5,1,12;60,48,24,255:32,5,1,12;246,236,206,255:11,7,4,1;246,236,206,255:11,8,1,2"
+size = [84, 52]
+
+[art.zoom_region_RightOrTop]
+generated = "rects:84x52;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52;60,48,24,255:41,1,2,50;0,0,0,0:50,4,26,14;60,48,24,120:52,6,22,10;60,48,24,255:50,4,26,1;60,48,24,255:50,17,26,1;60,48,24,255:50,4,1,14;60,48,24,255:75,4,1,14;60,48,24,255:51,5,24,1;60,48,24,255:51,16,24,1;60,48,24,255:51,5,1,12;60,48,24,255:74,5,1,12;246,236,206,255:53,7,4,1;246,236,206,255:53,8,1,2"
+size = [84, 52]
+
+[art.zoom_content_World]
+generated = "rects:84x52;60,48,24,70:-48,1,2,1*26,2,1;60,48,24,70:-48,1,2,1*26,-2,1;60,48,24,70:-32,1,2,1*26,2,1;60,48,24,70:-32,1,2,1*26,-2,1;60,48,24,70:-16,1,2,1*26,2,1;60,48,24,70:-16,1,2,1*26,-2,1;60,48,24,70:0,1,2,1*26,2,1;60,48,24,70:0,1,2,1*26,-2,1;60,48,24,70:16,1,2,1*26,2,1;60,48,24,70:16,1,2,1*26,-2,1;60,48,24,70:32,1,2,1*26,2,1;60,48,24,70:32,1,2,1*26,-2,1;60,48,24,70:48,1,2,1*26,2,1;60,48,24,70:48,1,2,1*26,-2,1;60,48,24,70:64,1,2,1*26,2,1;60,48,24,70:64,1,2,1*26,-2,1;60,48,24,70:80,1,2,1*26,2,1;60,48,24,70:80,1,2,1*26,-2,1;60,48,24,70:96,1,2,1*26,2,1;60,48,24,70:96,1,2,1*26,-2,1;60,48,24,70:112,1,2,1*26,2,1;60,48,24,70:112,1,2,1*26,-2,1;60,48,24,70:128,1,2,1*26,2,1;60,48,24,70:128,1,2,1*26,-2,1;60,48,24,120:24,16,4,1;60,48,24,120:22,17,8,1;60,48,24,120:20,18,12,1;60,48,24,120:18,19,16,1;60,48,24,120:18,20,16,1;60,48,24,120:20,21,12,1;60,48,24,120:22,22,8,1;60,48,24,120:24,23,4,1;60,48,24,120:40,24,4,1;60,48,24,120:38,25,8,1;60,48,24,120:36,26,12,1;60,48,24,120:34,27,16,1;60,48,24,120:34,28,16,1;60,48,24,120:36,29,12,1;60,48,24,120:38,30,8,1;60,48,24,120:40,31,4,1;60,48,24,120:56,16,4,1;60,48,24,120:54,17,8,1;60,48,24,120:52,18,12,1;60,48,24,120:50,19,16,1;60,48,24,120:50,20,16,1;60,48,24,120:52,21,12,1;60,48,24,120:54,22,8,1;60,48,24,120:56,23,4,1;60,48,24,120:16,32,4,1;60,48,24,120:14,33,8,1;60,48,24,120:12,34,12,1;60,48,24,120:10,35,16,1;60,48,24,120:10,36,16,1;60,48,24,120:12,37,12,1;60,48,24,120:14,38,8,1;60,48,24,120:16,39,4,1;60,48,24,120:64,32,4,1;60,48,24,120:62,33,8,1;60,48,24,120:60,34,12,1;60,48,24,120:58,35,16,1;60,48,24,120:58,36,16,1;60,48,24,120:60,37,12,1;60,48,24,120:62,38,8,1;60,48,24,120:64,39,4,1;60,48,24,120:32,40,4,1;60,48,24,120:30,41,8,1;60,48,24,120:28,42,12,1;60,48,24,120:26,43,16,1;60,48,24,120:26,44,16,1;60,48,24,120:28,45,12,1;60,48,24,120:30,46,8,1;60,48,24,120:32,47,4,1;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52"
+size = [84, 52]
+
+[art.zoom_content_WorldAndMenus]
+generated = "rects:84x52;60,48,24,70:-48,1,2,1*26,2,1;60,48,24,70:-48,1,2,1*26,-2,1;60,48,24,70:-32,1,2,1*26,2,1;60,48,24,70:-32,1,2,1*26,-2,1;60,48,24,70:-16,1,2,1*26,2,1;60,48,24,70:-16,1,2,1*26,-2,1;60,48,24,70:0,1,2,1*26,2,1;60,48,24,70:0,1,2,1*26,-2,1;60,48,24,70:16,1,2,1*26,2,1;60,48,24,70:16,1,2,1*26,-2,1;60,48,24,70:32,1,2,1*26,2,1;60,48,24,70:32,1,2,1*26,-2,1;60,48,24,70:48,1,2,1*26,2,1;60,48,24,70:48,1,2,1*26,-2,1;60,48,24,70:64,1,2,1*26,2,1;60,48,24,70:64,1,2,1*26,-2,1;60,48,24,70:80,1,2,1*26,2,1;60,48,24,70:80,1,2,1*26,-2,1;60,48,24,70:96,1,2,1*26,2,1;60,48,24,70:96,1,2,1*26,-2,1;60,48,24,70:112,1,2,1*26,2,1;60,48,24,70:112,1,2,1*26,-2,1;60,48,24,70:128,1,2,1*26,2,1;60,48,24,70:128,1,2,1*26,-2,1;60,48,24,120:24,16,4,1;60,48,24,120:22,17,8,1;60,48,24,120:20,18,12,1;60,48,24,120:18,19,16,1;60,48,24,120:18,20,16,1;60,48,24,120:20,21,12,1;60,48,24,120:22,22,8,1;60,48,24,120:24,23,4,1;60,48,24,120:40,24,4,1;60,48,24,120:38,25,8,1;60,48,24,120:36,26,12,1;60,48,24,120:34,27,16,1;60,48,24,120:34,28,16,1;60,48,24,120:36,29,12,1;60,48,24,120:38,30,8,1;60,48,24,120:40,31,4,1;60,48,24,120:56,16,4,1;60,48,24,120:54,17,8,1;60,48,24,120:52,18,12,1;60,48,24,120:50,19,16,1;60,48,24,120:50,20,16,1;60,48,24,120:52,21,12,1;60,48,24,120:54,22,8,1;60,48,24,120:56,23,4,1;60,48,24,120:16,32,4,1;60,48,24,120:14,33,8,1;60,48,24,120:12,34,12,1;60,48,24,120:10,35,16,1;60,48,24,120:10,36,16,1;60,48,24,120:12,37,12,1;60,48,24,120:14,38,8,1;60,48,24,120:16,39,4,1;60,48,24,120:64,32,4,1;60,48,24,120:62,33,8,1;60,48,24,120:60,34,12,1;60,48,24,120:58,35,16,1;60,48,24,120:58,36,16,1;60,48,24,120:60,37,12,1;60,48,24,120:62,38,8,1;60,48,24,120:64,39,4,1;60,48,24,120:32,40,4,1;60,48,24,120:30,41,8,1;60,48,24,120:28,42,12,1;60,48,24,120:26,43,16,1;60,48,24,120:26,44,16,1;60,48,24,120:28,45,12,1;60,48,24,120:30,46,8,1;60,48,24,120:32,47,4,1;246,236,206,255:1,1,82,7;60,48,24,255:1,8,82,1;60,48,24,255:4,2,6,1;60,48,24,255:4,6,6,1;60,48,24,255:4,2,1,5;60,48,24,255:9,2,1,5;60,48,24,255:12,2,6,1;60,48,24,255:12,6,6,1;60,48,24,255:12,2,1,5;60,48,24,255:17,2,1,5;60,48,24,255:20,2,6,1;60,48,24,255:20,6,6,1;60,48,24,255:20,2,1,5;60,48,24,255:25,2,1,5;246,236,206,255:22,16,40,24;60,48,24,255:22,16,40,1;60,48,24,255:22,39,40,1;60,48,24,255:22,16,1,24;60,48,24,255:61,16,1,24;60,48,24,255:22,16,40,4;60,48,24,120:26,23,30,2;60,48,24,120:26,27,30,2;60,48,24,120:26,31,20,2;60,48,24,255:48,33,10,1;60,48,24,255:48,37,10,1;60,48,24,255:48,33,1,5;60,48,24,255:57,33,1,5;246,236,206,255:60,41,23,10;60,48,24,255:60,41,23,1;60,48,24,255:60,50,23,1;60,48,24,255:60,41,1,10;60,48,24,255:82,41,1,10;60,48,24,120:63,44,12,2;60,48,24,120:63,47,8,1;60,48,24,255:0,0,84,1;60,48,24,255:0,51,84,1;60,48,24,255:0,0,1,52;60,48,24,255:83,0,1,52"
+size = [84, 52]
 
 [[panels.preferences.items]]
 text = "Separator width (window pixels)"
@@ -2226,7 +2387,7 @@ show_if = "tab=layout & dialog.changed.animation.combat_speed"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.zoom_magnification_step"
-at = [780, 310]
+at = [780, 370]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2239,7 +2400,7 @@ show_if = "tab=zoom & layout.zoom_controls & dialog.changed.layout.zoom_magnific
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.zoom_strip"
-at = [780, 360]
+at = [780, 410]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2252,7 +2413,7 @@ show_if = "tab=zoom & layout.zoom_controls & dialog.changed.layout.zoom_strip"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.zoom_box_top"
-at = [780, 410]
+at = [780, 450]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2265,7 +2426,7 @@ show_if = "tab=zoom & layout.zoom=Floating131|Floating171 & dialog.changed.layou
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.zoom_box_drop"
-at = [780, 460]
+at = [780, 490]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2278,7 +2439,7 @@ show_if = "tab=zoom & layout.zoom=Floating131|Floating171 & dialog.changed.layou
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.zoom_mouse_above"
-at = [780, 410]
+at = [780, 450]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2291,7 +2452,7 @@ show_if = "tab=zoom & layout.zoom=Mouse111|Mouse131 & dialog.changed.layout.zoom
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "layout.zoom_mouse_below"
-at = [780, 460]
+at = [780, 490]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
