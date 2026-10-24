@@ -4,8 +4,11 @@
 //!       compares the sprites we draw with the ones the game drew (same
 //!       names, positions and order), for the sprite arrays our render
 //!       description covers
-//!   civ3-tool render TRACE OUT.png [--viewport WxH] [--reference]
-//!       renders the trace's world on the GPU, or with the CPU reference
+//!   civ3-tool render TRACE OUT.png [--viewport WxH] [--reference] [--host-ms MS]
+//!       renders the trace's world on the GPU, or with the CPU reference;
+//!       --host-ms: as the viewer shows it MS ms into its own clock, the
+//!       animations that run on it (the selection cursor) from their start
+//!       as live (the trace's cursor frame left out)
 //!   civ3-tool screen TRACE OUT.png [--window WxH] [--pixel-scale N] [--base S] [--menus PCT] [--split] [--place floating|left|right] [--before]
 //!       renders a trace of the screens after a game, or of a screen open
 //!       in a game (over its world), as the viewer shows them in a window
@@ -282,8 +285,13 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             drawdiff(&trace, viewport(args)?)
         }
         Some("render") => {
-            let trace = load_trace(args.get(1).ok_or("render TRACE OUT.png")?)?;
+            let mut trace = load_trace(args.get(1).ok_or("render TRACE OUT.png")?)?;
             let out = args.get(2).ok_or("render TRACE OUT.png")?;
+            let host_ms = args.iter().position(|a| a == "--host-ms").map(|i| args.get(i + 1).and_then(|v| v.parse::<u32>().ok()).ok_or("--host-ms needs milliseconds")).transpose()?;
+            if host_ms.is_some() && let Some(sel) = &mut trace.world.selection {
+                // (As `live` reads it: the viewer's clock runs the frames.)
+                sel.1 = 0;
+            }
             let (mut compiled, mut art) = compile(Some(&trace))?;
             let size = viewport(args)?;
             let scene = trace_scene(&trace, &compiled, art.as_mut(), size);
@@ -301,6 +309,14 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 let world = tile_viewer::scene_world(&compiled, &scene);
                 let cameras = tile_viewer::scene_cameras(&scene, size, config.overhang);
                 reference::render_views(&world, &compiled.atlas, &cameras, size, scene.tick, config.clear)
+            } else if let Some(ms) = host_ms {
+                let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
+                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+                renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
+                renderer.set_world(&gpu.device, &tile_viewer::scene_world(&compiled, &scene));
+                tile_viewer::apply_patches(&mut renderer, &gpu.queue, &compiled, &scene.patches);
+                renderer.set_host_tick_ms(ms);
+                gpu.render_views(&mut renderer, &tile_viewer::scene_cameras(&scene, size, config.overhang), size, scene.tick, config.clear)
             } else {
                 let gpu = tile_render::Headless::new().map_err(|e| e.to_string())?;
                 tile_viewer::render_offscreen(&gpu, &compiled, &scene, size, &config)

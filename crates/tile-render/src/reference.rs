@@ -4,7 +4,7 @@
 //! a fallback for tools that have no GPU.
 
 use tile_render_shared::text;
-use tile_render_shared::{ByteReader, Placed, cell_offset, frame_of, record_at, window_col, QUANTIZED_BIAS, alpha_steps, cell_origin, drawn_sprite, expand, mix_stored, placed, quantize, scale_stored, shrunk, wrap_cell};
+use tile_render_shared::{ByteReader, Placed, cell_offset, record_at, window_col, QUANTIZED_BIAS, alpha_steps, cell_origin, drawn_sprite, expand, mix_stored, placed, quantize, scale_stored, shrunk, wrap_cell};
 
 use crate::atlas::{Atlas, RgbaImage};
 use crate::camera::Camera;
@@ -665,7 +665,8 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 if frames == 0 {
                     continue;
                 }
-                let f = frame_of(frame, layer.ticks_per_frame, phase, frames);
+                // (No viewer clock here: a host-clock layer shows its frame at 0 ms.)
+                let f = tile_render_shared::layer_frame_of(frame, 0, layer.ticks_per_frame, phase, frames);
                 let (dx, dy) = cell_offset(&data, layer, byte, dn);
                 let sprite_id = drawn_sprite(&atlas.sprites, packed.sets[set + 1 + f as usize], dn);
                 let placed = placed(&atlas.sprites[sprite_id as usize], dn);

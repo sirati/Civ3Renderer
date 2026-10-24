@@ -202,7 +202,10 @@ pub fn snapshot(game: &Civ3) -> Result<(Civ3World, Civ3View), Civ3Error> {
         current_unit: optional("current_unit", game.current_unit()),
         focus_city: optional("focus_city", game.focus_city()),
         outposts: optional("outposts", game.outposts()),
-        selection: optional("selection", game.selection()),
+        // Which unit's cursor shows, not its frame: the viewer runs the
+        // cursor's frames on its own clock (`units::CURSOR_FRAME_MS`), so
+        // the game's frame neither makes it jump nor starts a round.
+        selection: optional("selection", game.selection()).map(|(id, _)| (id, 0)),
         targeting: optional("targeting", game.targeting()),
         goto: crate::targeting::latest_path(),
         relations: relations(game, view.player_civ),

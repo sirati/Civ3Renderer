@@ -22,7 +22,7 @@ pub use renderer::{GlyphCacheStats, AtlasTransferError, AtlasTransferProgress, A
 pub use world::{ALL_CELLS, Blend, ColorModel, Dirty, GlyphShape, Grid, LayerId, LayerSpec, Layout, OutlineGlyph, Pass, PlacedSprite, SolidRect, SHARED_BINDING, SlotId, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
 /// How sprites are drawn in views showing the world smaller
 /// (`Camera::downscale`).
-pub use tile_render_shared::{BLANK_EMPTY, KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, placed};
+pub use tile_render_shared::{BLANK_EMPTY, HOST_CLOCK, KEEP_SIZE, Placed, SHRINK, SHRINK_KEEP_ANCHOR, layer_frame_of, placed};
 /// Per-camera clean-map category bits and indexed-sprite palette helpers.
 pub use tile_render_shared::{
     CATEGORY_FULL_RESOLUTION, CATEGORY_REDUCED_RESOLUTION, CATEGORY_HALF_RESOLUTION, CATEGORY_NOT_HALF_RESOLUTION, CATEGORY_ALL, CATEGORY_CITIES, CATEGORY_FORESTS_JUNGLES, CATEGORY_HILLS, CATEGORY_IRRIGATION, CATEGORY_MOUNTAINS,

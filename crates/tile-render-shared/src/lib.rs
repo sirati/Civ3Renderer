@@ -215,7 +215,8 @@ pub struct FrameParams {
     pub layer_table: u32,
     /// 1: integer FP16 storage; 0: biased UNORM8 storage.
     pub quantized_float: u32,
-    /// Viewer milliseconds, used only by HOST_CLOCK free sprites.
+    /// Viewer milliseconds, used only by [`HOST_CLOCK`] layers and free
+    /// sprites.
     pub host_tick_ms: u32,
     pub _host_reserved0: u32,
     pub _host_reserved1: u32,
@@ -272,7 +273,8 @@ pub struct LayerDesc {
 
     /// Animation ticks per frame for this layer; 0: the animation does not
     /// follow the clock, a cell shows the frame its phase says (see
-    /// [`frame_of`]).
+    /// [`frame_of`]). With [`HOST_CLOCK`]: viewer milliseconds per frame
+    /// (see [`layer_frame_of`]).
     pub ticks_per_frame: u32,
     /// Offset from the cell origin to the point tested against the
     /// camera's cull rectangle.
@@ -355,6 +357,19 @@ pub fn free_frame_of(game_tick: u32, host_tick_ms: u32, ticks_per_frame: u32, ph
     let tick = if ticks_per_frame & HOST_CLOCK != 0 { host_tick_ms } else { game_tick };
     let period = (ticks_per_frame & !HOST_CLOCK).max(1);
     (tick / period).wrapping_add(phase) % frames.max(1)
+}
+
+/// The frame a layer's cell shows: with [`HOST_CLOCK`] in
+/// `ticks_per_frame`, by the viewer's milliseconds (`host_tick_ms`), a
+/// frame every `ticks_per_frame & !HOST_CLOCK` of them, from the cell's
+/// phase on (an animation that runs whatever the driver does); else
+/// [`frame_of`] by the driver's clock.
+pub fn layer_frame_of(game_tick: u32, host_tick_ms: u32, ticks_per_frame: u32, phase: u32, frames: u32) -> u32 {
+    if ticks_per_frame & HOST_CLOCK != 0 {
+        free_frame_of(game_tick, host_tick_ms, ticks_per_frame, phase, frames)
+    } else {
+        frame_of(game_tick, ticks_per_frame, phase, frames)
+    }
 }
 
 /// The column of the visible window drawn as its `local`-th cell of a row
@@ -1168,6 +1183,22 @@ mod tests {
         assert_eq!((floor_div(-7, 2), floor_div(7, 2), floor_div(-6, 3), floor_div(-7, 1)), (-4, 3, -2, -7));
         assert_eq!((sign_extend_16(0xFFFF), sign_extend_16(0x8000), sign_extend_16(0x7FFF)), (-1, -32768, 32767));
         assert_eq!((frame_of(10, 3, 1, 4), frame_of(10, 0, 5, 4), frame_of(u32::MAX, 0, 2, 3)), (0, 1, 2));
+    }
+
+    #[test]
+    fn a_host_clock_layer_runs_on_viewer_milliseconds_whatever_the_driver_tick() {
+        // 30 frames of 83 ms: the driver's tick frozen, the viewer's running.
+        for game_tick in [0, 7, u32::MAX] {
+            assert_eq!(layer_frame_of(game_tick, 0, HOST_CLOCK | 83, 0, 30), 0);
+            assert_eq!(layer_frame_of(game_tick, 82, HOST_CLOCK | 83, 0, 30), 0);
+            assert_eq!(layer_frame_of(game_tick, 83, HOST_CLOCK | 83, 0, 30), 1);
+            assert_eq!(layer_frame_of(game_tick, 29 * 83, HOST_CLOCK | 83, 0, 30), 29);
+            assert_eq!(layer_frame_of(game_tick, 30 * 83, HOST_CLOCK | 83, 0, 30), 0);
+            assert_eq!(layer_frame_of(game_tick, 83, HOST_CLOCK | 83, 5, 30), 6, "from the cell's phase on");
+        }
+        // Without the flag: as before (the phase alone with 0 ticks).
+        assert_eq!(layer_frame_of(10, 999, 3, 1, 4), frame_of(10, 3, 1, 4));
+        assert_eq!(layer_frame_of(10, 999, 0, 5, 4), 1);
     }
 
     #[test]

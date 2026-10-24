@@ -2304,7 +2304,11 @@ sets = ["Fog_Of_War_Images/*"]
 # with shadow (an army: its banner art, then its member), HUD. A unit's
 # cells carry the offset of where it is from where it would stand
 # (crate::units::place); frames come from the cells' phases (the game's own
-# frame), not from the clock.
+# frame), not from the clock. Only the selection cursor runs on the
+# renderer's clock: the game's runs free on its own (`Animator.
+# Unit_Cursor_Animation`, docs §10.6), 30 frames of `Cursor.flc` at
+# 2500 / 30 = 83 ms each (header +0x6C over +0x62), so it goes on pulsing
+# while the game's thread is held up (a modal loop, emulation).
 [[layers]]
 name = "unit_disc"
 category = 4096
@@ -2330,7 +2334,7 @@ pass = 6
 descending = true
 per_cell_offset = true
 per_cell_phase = true
-ticks_per_frame = 0
+viewer_ms_per_frame = 83
 sets = ["UnitAnim@Art/Animations/Cursor/*"]
 palettes = true
 
@@ -2433,7 +2437,7 @@ pass = 6
 descending = true
 per_cell_offset = true
 per_cell_phase = true
-ticks_per_frame = 0
+viewer_ms_per_frame = 83
 sets = ["UnitAnim@Art/Animations/Cursor/*"]
 palettes = true
 
