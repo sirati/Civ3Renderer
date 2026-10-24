@@ -21,6 +21,7 @@
 pub mod text;
 pub mod glyph_cache;
 mod lens_math;
+mod marker_math;
 
 use spirv_std::glam::{IVec2, UVec2, UVec3, UVec4, Vec2, Vec4};
 use spirv_std::num_traits::Float;
@@ -360,8 +361,17 @@ pub fn free_vs(
         };
         let (zn, zd) = (params.zoom_num, params.zoom_den);
         let (ax, ay) = (scaled(fx, zn, zd), scaled(fy, zn, zd));
-        let (rl, rt, rr, rb) = tile_render_shared::output_rect(&f.primitive, zn, zd);
-        let (mut l, mut t, mut r, mut b) = (ax + rl, ay + rt, ax + rr, ay + rb);
+        let (mut l, mut t, mut r, mut b);
+        if kind == tile_render_shared::PRIMITIVE_OUTPUT_RECT {
+            let (rl, rt, rr, rb) = tile_render_shared::output_rect(&f.primitive, zn, zd);
+            (l, t, r, b) = (ax + rl, ay + rt, ax + rr, ay + rb);
+            *out_background = UVec4::ZERO;
+        } else {
+            let ([ml, mt, mr, mb], scale, (px, py)) = tile_render_shared::marker_place(&f.primitive, (ax, ay), zn, zd, n);
+            (l, t, r, b) = (ml, mt, mr, mb);
+            // (Its reference point from the rectangle's top-left.)
+            *out_background = UVec4::new(scale.to_bits(), px.to_bits(), py.to_bits(), tile_render_shared::marker_bob(&f.primitive).to_bits());
+        }
         if f.flags & FREE_CLIP != 0 {
             l = max(l, scaled(shrunk(f.clip[0], n) - bx, zn, zd));
             t = max(t, scaled(shrunk(f.clip[1], n) - by, zn, zd));
@@ -557,6 +567,8 @@ pub fn tile_fs(
     let mut color = if kind == tile_render_shared::PRIMITIVE_SOLID || kind == tile_render_shared::PRIMITIVE_OUTPUT_RECT {
         let c = primitive.y;
         Vec4::new((c & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, ((c >> 16) & 255) as f32 / 255.0, (c >> 24) as f32 / 255.0)
+    } else if kind == tile_render_shared::PRIMITIVE_ARROW || kind == tile_render_shared::PRIMITIVE_ARROW_SHADOW {
+        marker_color(local, background, primitive)
     } else { texel(origin + offset, page, palette, params, atlas, index_atlas, palettes) };
     let background_mode = params.background_sampling;
     let scaled_background = background.x != 0 && scaled_view != 0 && params.zoom_num != params.zoom_den && color.w != 0.0;
@@ -1129,4 +1141,21 @@ fn lens_sample(source: &Image!(2D, type = f32, sampled), x: f32, y: f32,
     let bottom = fetch(0,1) * (1.0-fx) + fetch(1,1) * fx;
     let v = top * (1.0-fy) + bottom * fy;
     [v.x, v.y, v.z]
+}
+
+/// The arrow marker or its shadow (`primitive`: kind, RGBA) over the pixel
+/// at `local` from its rectangle's top-left, `background` its scale, its
+/// reference point from that corner and its bob (see `free_vs`).
+fn marker_color(local: Vec2, background: UVec4, primitive: UVec2) -> Vec4 {
+    let scale = f32::from_bits(background.x);
+    let x = pixel(local.x) as f32 - f32::from_bits(background.y);
+    let y = pixel(local.y) as f32 - f32::from_bits(background.z);
+    let c = primitive.y;
+    let rgba = [(c & 255) as f32, ((c >> 8) & 255) as f32, ((c >> 16) & 255) as f32, (c >> 24) as f32];
+    let p = if primitive.x == tile_render_shared::PRIMITIVE_ARROW {
+        marker_math::arrow_pixel(x, y, scale, rgba)
+    } else {
+        marker_math::shadow_pixel(x, y, scale, f32::from_bits(background.w), rgba)
+    };
+    Vec4::new(p[0] / 255.0, p[1] / 255.0, p[2] / 255.0, p[3] / 255.0)
 }

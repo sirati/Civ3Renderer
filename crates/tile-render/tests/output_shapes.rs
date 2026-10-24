@@ -1,6 +1,6 @@
 //! Shapes laid out at the scale of the stage drawing them
 //! (`tile_render::Shape`): output rectangles exactly as the reference
-//! oracle draws them.
+//! oracle draws them, the painted arrow marker within float tolerance.
 use tile_render::{AtlasBuilder, Camera, Grid, Headless, Layout, OutputRect, PlacedSprite, RgbaImage, Shape, SpriteSetId, SpriteSets, TileRenderer, TileWorld};
 
 fn world() -> TileWorld {
@@ -65,6 +65,21 @@ fn output_rectangles_match_the_reference_at_every_stage() {
     world.free.push(PlacedSprite { clip: Some([0, 0, 70, 37]), ..bar(75, 44, 24, 2).remove(0) });
     world.free.push(PlacedSprite { screen: true, ..bar(10, 12, 32, 1).remove(1) });
     compare(&gpu, &world, &cameras((180, 120)), 0);
+}
+
+#[test]
+fn arrows_paint_as_the_reference_does() {
+    let gpu = Headless::new().expect("GPU");
+    let mut world = world();
+    for (i, (size, bob)) in [(24, 0), (32, 100), (48, -150)].into_iter().enumerate() {
+        let (x, y) = (24 + 40 * i as i32, 110);
+        world.free.push(shape(x, y, Shape::ArrowShadow { size, centre: (8, 4), bob, rgba: [32, 23, 14, 255] }));
+        world.free.push(shape(x, y, Shape::Arrow { size, tip: (0, -68), bob, rgba: [232, 183, 87, 255] }));
+    }
+    let cameras: Vec<_> = [(1, 1), (2, 1), (3, 2)].into_iter().map(|zoom| Camera { zoom, zoomed_art: true, ..Camera::new((150 * zoom.0 / zoom.1, 130 * zoom.0 / zoom.1)) }).collect();
+    // (Their sines and square roots may differ by an ulp, which can move a
+    // sample at an edge across it: a sixteenth of a pixel's coverage.)
+    compare(&gpu, &world, &cameras, 20);
 }
 
 /// The widths of the runs of each colour along column `x` of `image`.

@@ -35,6 +35,8 @@ pub struct Draw {
     pub text: Option<TextPixels>,
     /// Procedural colour used only by this reference oracle.
     pub solid: Option<[u8; 4]>,
+    /// An arrow marker painted per pixel instead (see `MarkerPixels`).
+    pub shape: Option<MarkerPixels>,
     /// The named palette an indexed sprite is drawn with (0: none).
     pub palette: u32,
     /// True only for screen-space UI art. Background metadata must never
@@ -75,6 +77,37 @@ impl Draw {
         tile_render_shared::indexed_color(index.into(), sprite.palette, sprite.remap, self.palette, atlas.named_palettes, &atlas.palettes).map(|c| c as u8)
     }
 }
+
+/// An arrow marker or its shadow (`tile_render::Shape`) as a draw paints
+/// it: its kind and colour, its scale, its reference point from the
+/// draw's top-left, its shadow's bob (f32 bits, as the shader has them).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct MarkerPixels {
+    pub kind: u32,
+    pub rgba: u32,
+    pub scale: u32,
+    pub at: (u32, u32),
+    pub bob: u32,
+}
+
+impl MarkerPixels {
+    /// What it paints at pixel (i, j) of the draw.
+    fn color(&self, i: u32, j: u32) -> [u8; 4] {
+        let c = self.rgba;
+        let rgba = [(c & 255) as f32, ((c >> 8) & 255) as f32, ((c >> 16) & 255) as f32, (c >> 24) as f32];
+        let (x, y) = (i as f32 - f32::from_bits(self.at.0), j as f32 - f32::from_bits(self.at.1));
+        let scale = f32::from_bits(self.scale);
+        let p = if self.kind == tile_render_shared::PRIMITIVE_ARROW {
+            marker_math::arrow_pixel(x, y, scale, rgba)
+        } else {
+            marker_math::shadow_pixel(x, y, scale, f32::from_bits(self.bob), rgba)
+        };
+        p.map(|v| v as u8)
+    }
+}
+
+#[path = "../../tile-render-shaders/src/marker_math.rs"]
+mod marker_math;
 
 /// A glyph drawn from its outline (see `tile_render_shared::text`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -495,7 +528,7 @@ fn each_texel(atlas: &Atlas, d: &Draw, (w, h): (u32, u32), mut f: impl FnMut(u32
                 continue;
             }
             let (tx, ty) = d.texel(&sprite, sx, sy);
-            let src = d.color(atlas, &sprite, (tx, ty));
+            let src = match d.shape { Some(m) => m.color(sx, sy), None => d.color(atlas, &sprite, (tx, ty)) };
             if src[3] != 0 {
                 f(px as u32, py as u32, src);
             }
@@ -572,6 +605,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     placed: Placed::default(),
                     solid: None,
                     text: Some(TextPixels { place, size: (r - l, b - t_), origin: (vx, vy), color: g.color, key: t.key.map(|_| g.key) }),
+                    shape: None,
                     palette: 0,
                     screen: s.screen,
                 }, true);
@@ -591,8 +625,18 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 let sc = |v: i32| (v as i64 * zoom.0 as i64).div_euclid(zoom.1 as i64) as i32;
                 let (ax, ay) = (vx + sc(rx), vy + sc(ry));
                 let prim = shape.primitive();
-                let (l, t, r, b) = tile_render_shared::output_rect(&prim, zoom.0, zoom.1);
-                let (l, t, r, b) = (ax + l, ay + t, ax + r, ay + b);
+                let (l, t, r, b, marker) = match shape {
+                    crate::Shape::Rect(_) => {
+                        let (l, t, r, b) = tile_render_shared::output_rect(&prim, zoom.0, zoom.1);
+                        (ax + l, ay + t, ax + r, ay + b, None)
+                    }
+                    _ => {
+                        let ([l, t, r, b], scale, at) = tile_render_shared::marker_place(&prim, (ax, ay), zoom.0, zoom.1, n);
+                        let marker = MarkerPixels { kind: prim.kind, rgba: prim.rgba, scale: scale.to_bits(),
+                            at: (at.0.to_bits(), at.1.to_bits()), bob: tile_render_shared::marker_bob(&prim).to_bits() };
+                        (l, t, r, b, Some(marker))
+                    }
+                };
                 if r <= l || b <= t { continue; }
                 let clip = s.clip.map(crate::world::bound_clip).map(|[x0, y0, x1, y1]| {
                     let cl = |v: i32, b: i32| sc(shrunk(v, n) - b);
@@ -608,6 +652,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     placed: Placed { width: (r - l) as u32, height: (b - t) as u32, step: 1, ..Default::default() },
                     text: None,
                     solid: Some(prim.rgba.to_le_bytes()),
+                    shape: marker,
                     palette: 0,
                     screen: s.screen,
                 }, true);
@@ -649,7 +694,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     blend: if s.solid.is_some() { Blend::Alpha } else { s.blend },
                     clip: within(s.clip.map(crate::world::bound_clip).map(|[x0, y0, x1, y1]| [vx + cl(x0, bx), vy + cl(y0, by), vx + cl(x1, bx), vy + cl(y1, by)])),
                     placed,
-                    text: None, solid: s.solid.map(|r| r.rgba),
+                    text: None, solid: s.solid.map(|r| r.rgba), shape: None,
                     palette: s.palette,
                     screen: s.screen,
                 }, true);
@@ -663,7 +708,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                 blend: if s.solid.is_some() { Blend::Alpha } else { s.blend },
                 clip: within(s.clip.map(crate::world::bound_clip).map(|[x0, y0, x1, y1]| [x0 + sx, y0 + sy, x1 + sx, y1 + sy])),
                 placed,
-                text: None, solid: s.solid.map(|r| r.rgba),
+                text: None, solid: s.solid.map(|r| r.rgba), shape: None,
                 palette: s.palette,
                 screen: s.screen,
             }, false);
@@ -713,7 +758,7 @@ fn visit(world: &TileWorld, atlas: &Atlas, camera: &Camera, view: u32, frame: u3
                     blend: if layer.scale_den == 0 { Blend::Alpha } else { Blend::Scale { denominator: layer.scale_den } },
                     clip: within(None),
                     placed,
-                    text: None, solid: None,
+                    text: None, solid: None, shape: None,
                     palette,
                     screen: false,
                 }, false);

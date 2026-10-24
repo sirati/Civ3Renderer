@@ -2334,7 +2334,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 image = "section"
 at = [70, 95]
-size = [420, 120]
+size = [420, 173]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -2346,7 +2346,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 checkbox = "accessibility.active_unit_arrow"
 text = "Arrow above active unit"
-at = [90, 140]
+at = [90, 135]
 size = [370, 23]
 style = "label"
 normal = "check_off"
@@ -2357,7 +2357,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 checkbox = "accessibility.arrow_bobbing"
 text = "Arrow bobs up and down"
-at = [114, 177]
+at = [114, 167]
 size = [340, 23]
 style = "label"
 normal = "check_off"
@@ -2366,20 +2366,46 @@ selected = "check_on"
 show_if = "tab=accessibility & accessibility.active_unit_arrow"
 
 [[panels.preferences.items]]
+text = "Arrow size"
+at = [114, 199]
+style = "label"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
+slider = "accessibility.arrow_size"
+text = "{accessibility.arrow_percent}%"
+tick_step = 1
+tick_label_step = 1
+tick_labels = ["100%", "150%", "200%", "250%", "300%"]
+tick_style = "ruler"
+at = [114, 223]
+size = [256, 23]
+normal = "track"
+knob = "knob"
+knob_hover = "knob_hover"
+min = 0
+max = 4
+step = 1
+decimals = 0
+style = "label"
+enable_if = "accessibility.active_unit_arrow"
+show_if = "tab=accessibility"
+
+[[panels.preferences.items]]
 image = "section"
-at = [70, 230]
-size = [420, 175]
+at = [70, 280]
+size = [420, 150]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Unit markers"
-at = [90, 243]
+at = [90, 293]
 style = "heading"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Unit health and move markers size"
-at = [90, 276]
+at = [90, 322]
 style = "label"
 show_if = "tab=accessibility"
 
@@ -2390,7 +2416,7 @@ tick_step = 1
 tick_label_step = 1
 tick_labels = ["100%", "150%", "200%", "300%"]
 tick_style = "ruler"
-at = [90, 304]
+at = [90, 347]
 size = [280, 23]
 normal = "track"
 knob = "knob"
@@ -2405,7 +2431,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 checkbox = "accessibility.stack_count"
 text = "Show unit count on stacks"
-at = [90, 352]
+at = [90, 392]
 size = [370, 23]
 style = "label"
 normal = "check_off"
@@ -2416,20 +2442,20 @@ show_if = "tab=accessibility"
 # Button snapping (the Alt mode): the cursor jumps between buttons.
 [[panels.preferences.items]]
 image = "section"
-at = [70, 420]
-size = [420, 235]
+at = [70, 443]
+size = [420, 212]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Mouse (Alt mode)"
-at = [90, 433]
+at = [90, 456]
 style = "heading"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 checkbox = "input.alt_in_menus"
 text = "Alt mode in menus"
-at = [90, 465]
+at = [90, 485]
 size = [370, 23]
 style = "label"
 normal = "check_off"
@@ -2440,18 +2466,18 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 text = "Menus open with the cursor snapping to buttons."
 style = "caption"
-at = [114, 494]
+at = [114, 513]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "On the map, press Alt."
 style = "caption"
-at = [114, 511]
+at = [114, 530]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 text = "Snap updates per second"
-at = [90, 545]
+at = [90, 560]
 style = "label"
 show_if = "tab=accessibility"
 
@@ -2460,7 +2486,7 @@ slider = "input.snap_updates_per_second"
 tick_step = 5
 tick_label_step = 5
 tick_style = "ruler"
-at = [90, 573]
+at = [90, 585]
 size = [280, 23]
 normal = "track"
 knob = "knob"
@@ -2476,7 +2502,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 text = "How often mouse motion picks the next button."
 style = "caption"
-at = [90, 618]
+at = [90, 628]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -2811,7 +2837,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "accessibility.hud_size"
-at = [464, 304]
+at = [464, 347]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"
@@ -2820,6 +2846,19 @@ tooltip = "Undo to current state"
 tooltip_art = "tooltip"
 tooltip_style = "caption"
 show_if = "tab=accessibility & dialog.changed.accessibility.hud_size"
+
+[[panels.preferences.items]]
+choice = "dialog.undo"
+value = "accessibility.arrow_size"
+at = [464, 223]
+size = [23, 23]
+normal = "button"
+hover = "button_hover"
+icon = "undo_icon"
+tooltip = "Undo to current state"
+tooltip_art = "tooltip"
+tooltip_style = "caption"
+show_if = "tab=accessibility & dialog.changed.accessibility.arrow_size"
 
 [[panels.preferences.items]]
 choice = "dialog.undo"
@@ -2837,7 +2876,7 @@ show_if = "tab=accessibility & dialog.changed.accessibility.ring_width"
 [[panels.preferences.items]]
 choice = "dialog.undo"
 value = "input.snap_updates_per_second"
-at = [464, 573]
+at = [464, 585]
 size = [23, 23]
 normal = "button"
 hover = "button_hover"

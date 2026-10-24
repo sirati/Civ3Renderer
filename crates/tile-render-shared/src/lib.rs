@@ -422,7 +422,8 @@ pub struct FreePrimitive {
     /// RGBA, red in the low byte.
     pub rgba: u32,
     /// Kind-specific words: for [`PRIMITIVE_OUTPUT_RECT`] the rectangle
-    /// (see [`output_rect`]).
+    /// (see [`output_rect`]), for [`PRIMITIVE_ARROW`] and
+    /// [`PRIMITIVE_ARROW_SHADOW`] the marker (see [`arrow_frame`]).
     pub a: u32,
     pub b: u32,
     pub c: u32,
@@ -435,16 +436,21 @@ pub const PRIMITIVE_SOLID: u32 = 1;
 /// scaled (see [`output_rect`]): drawn in every stage at that stage's
 /// scale, every edge on a whole pixel and equal parts equally wide.
 pub const PRIMITIVE_OUTPUT_RECT: u32 = 2;
+/// The gilded arrow over the active unit, painted at the stage's scale
+/// (see [`arrow_frame`]).
+pub const PRIMITIVE_ARROW: u32 = 3;
+/// The arrow's ground shadow, likewise.
+pub const PRIMITIVE_ARROW_SHADOW: u32 = 4;
 
 /// Whether primitive `kind` is laid out at the scale of the stage that
 /// draws it. A view drawn at its zoom (showing zoomed art) switches to
 /// drawing at it from the first such sprite on, as for art made for every
 /// zoom.
 pub fn output_scaled(kind: u32) -> bool {
-    kind == PRIMITIVE_OUTPUT_RECT
+    kind >= PRIMITIVE_OUTPUT_RECT && kind <= PRIMITIVE_ARROW_SHADOW
 }
 
-/// Sixteenths: the unit of output rectangles' scales.
+/// Sixteenths: the unit of output rectangles' and arrows' scales.
 pub const SCALE_ONE: u32 = 16;
 
 /// `len` pixels at scale `scale / SCALE_ONE`, drawn at zoom `zn / zd`, in
@@ -497,6 +503,59 @@ pub fn output_rect_primitive(rgba: [u8; 4], lengths: [u8; 4], x: [[i8; 2]; 2], y
         c: u32::from_le_bytes(lengths),
         d: scale.0 as u32 | (scale.1 as u32) << 16,
     }
+}
+
+/// Where an arrow marker ([`PRIMITIVE_ARROW`], [`PRIMITIVE_ARROW_SHADOW`])
+/// is in the pixels of a stage at zoom `zn / zd` showing the world `n`
+/// times smaller: its scale (stage pixels per pixel of the 1:1 art) and
+/// its reference point (the arrow's tip, the shadow's centre) from the
+/// sprite's position scaled. `a`: its size in sixteenths; `b`: the arrow's
+/// bob, in 64ths of a full-size world pixel downwards (signed; the shadow
+/// stays put, shaped by it); `c`, `d`: the reference point from the
+/// position, in full-size world pixels (signed).
+pub fn arrow_frame(p: &FreePrimitive, zn: u32, zd: u32, n: u32) -> (f32, f32, f32) {
+    let (zn, zd, n) = (if zn == 0 { 1 } else { zn }, if zd == 0 { 1 } else { zd }, if n == 0 { 1 } else { n });
+    let zoom = zn as f32 / (zd * n) as f32;
+    let bob = if p.kind == PRIMITIVE_ARROW { p.b as i32 as f32 / 64.0 } else { 0.0 };
+    (p.a as f32 / SCALE_ONE as f32 * zoom, p.c as i32 as f32 * zoom, (p.d as i32 as f32 + bob) * zoom)
+}
+
+/// An arrow marker's bob in the pixels of its 1:1 art (what shapes its
+/// shadow): `b` over its size.
+pub fn marker_bob(p: &FreePrimitive) -> f32 {
+    let size = if p.a == 0 { 1 } else { p.a };
+    p.b as i32 as f32 / 64.0 * SCALE_ONE as f32 / size as f32
+}
+
+/// The arrow marker's 1:1 art: its size, and its tip in it.
+pub const ARROW_ART: (f32, f32) = (33.0, 48.0);
+pub const ARROW_TIP: (f32, f32) = (16.0, 44.0);
+
+/// Half the width and height of the arrow's ground shadow, in pixels of
+/// the 1:1 art, with the arrow `bob` of them below its rest: wider the
+/// lower it is (41 by 13 at rest).
+pub fn shadow_half(bob: f32) -> (f32, f32) {
+    ((41.0 + bob) / 2.0, (13.0 + bob / 2.0) / 2.0)
+}
+
+/// Where an arrow marker is drawn in the pixels of a stage at zoom
+/// `zn / zd` showing the world `n` times smaller, its position scaled to
+/// that stage at `anchor`: the rectangle it may cover (left, top, right,
+/// bottom), its scale ([`arrow_frame`]) and its reference point (the
+/// arrow's tip, the shadow's centre) from the rectangle's top-left.
+pub fn marker_place(p: &FreePrimitive, anchor: (i32, i32), zn: u32, zd: u32, n: u32) -> ([i32; 4], f32, (f32, f32)) {
+    let floor = |v: f32| { let i = v as i32; if (i as f32) > v { i - 1 } else { i } };
+    let ceil = |v: f32| { let i = v as i32; if (i as f32) < v { i + 1 } else { i } };
+    let (scale, rx, ry) = arrow_frame(p, zn, zd, n);
+    let (px, py) = (anchor.0 as f32 + rx, anchor.1 as f32 + ry);
+    let (x0, y0, x1, y1) = if p.kind == PRIMITIVE_ARROW {
+        (px - ARROW_TIP.0 * scale, py - ARROW_TIP.1 * scale, px + (ARROW_ART.0 - ARROW_TIP.0) * scale, py + (ARROW_ART.1 - ARROW_TIP.1) * scale)
+    } else {
+        let (hx, hy) = shadow_half(marker_bob(p));
+        (px - hx * scale, py - hy * scale, px + hx * scale, py + hy * scale)
+    };
+    let (l, t) = (floor(x0), floor(y0));
+    ([l, t, ceil(x1), ceil(y1)], scale, (px - l as f32, py - t as f32))
 }
 
 /// The free sprite's position is in viewport pixels, unaffected by the

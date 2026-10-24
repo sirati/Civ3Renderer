@@ -724,6 +724,20 @@ pub fn focus(world: &Civ3World) -> Option<(i32, i32)> {
     world.units.iter().find(|u| u.id == id && u.visible).map(|u| u.pixel)
 }
 
+/// Where the marker over the selected unit is while it slides to the next
+/// tile (`place_sliding`): from its slide's start along its motion, the
+/// renderer moving it on; held at the end of its way, there (`serial` 0).
+/// The marker follows that rather than [`focus`] (the game's own steps).
+pub fn focus_motion(world: &Civ3World, sliding: &HashMap<i32, crate::unit_slides::Shown>) -> Option<scene::FocusMotion> {
+    let id = world.current_unit.or_else(|| world.selection.map(|(id, _)| id))?;
+    world.units.iter().find(|u| u.id == id && u.visible)?;
+    match sliding.get(&id)? {
+        &crate::unit_slides::Shown::Sliding { serial, from, .. } => Some(scene::FocusMotion { serial, from }),
+        // (At the end of its way: there, though the game has it not yet.)
+        &crate::unit_slides::Shown::Held(at) => Some(scene::FocusMotion { serial: 0, from: at }),
+    }
+}
+
 /// The layers a tile's units are drawn on (civ3.toml), one set per unit
 /// the tile shows, in drawing order: the animator draws a tile's units one
 /// after the other, at most two (a moving unit over the one under it,
@@ -1973,6 +1987,11 @@ mod tests {
         assert!(scene.sprites.iter().filter(|s| s.output_rect.is_some()).count() == rects.len(), "all of them");
         // From the bar's bottom centre at the start of the way.
         assert!(rects.iter().all(|s| (s.x, s.y) == (from.0 - 32 + 7, from.1 - 32 + 24)));
+        // And the arrow over it.
+        assert_eq!(focus_motion(&world, &sliding), Some(scene::FocusMotion { serial: 77, from }));
+        let held = HashMap::from([(1, crate::unit_slides::Shown::Held((from.0 + 64, from.1 + 32)))]);
+        assert_eq!(focus_motion(&world, &held), Some(scene::FocusMotion { serial: 0, from: (from.0 + 64, from.1 + 32) }));
+        assert_eq!(focus_motion(&world, &HashMap::new()), None);
     }
 
     #[test]
