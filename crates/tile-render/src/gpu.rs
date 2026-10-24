@@ -56,6 +56,7 @@ pub async fn select_adapter(
             if unpresentable.len() == 1 { "matches" } else { "match" },
             if seen.is_empty() { "none".into() } else { seen.join(", ") }
         );
+        render_errors::report(render_errors::Kind::Gpu, "the chosen adapter cannot present", format_args!("{} ({f:?})", unpresentable.join(", ")));
     }
     default_adapter(instance, surface).await
 }

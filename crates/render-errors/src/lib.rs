@@ -75,10 +75,12 @@ pub enum Kind {
     RenderWorker = 14,
     /// Art a screen shows did not arrive; it is drawn as nothing.
     VisibleArtMissing = 15,
+    /// Views were left out: more than the renderer draws at once.
+    ViewsLeftOut = 16,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 15] = [
+    pub const ALL: [Kind; 16] = [
         Kind::ArtDescription,
         Kind::ArtImage,
         Kind::ArtSheet,
@@ -94,6 +96,7 @@ impl Kind {
         Kind::Viewer,
         Kind::RenderWorker,
         Kind::VisibleArtMissing,
+        Kind::ViewsLeftOut,
     ];
 
     pub fn id(self) -> u16 {
@@ -122,6 +125,7 @@ impl Kind {
             Kind::Viewer => "the viewer failed",
             Kind::RenderWorker => "the render worker refused a frame",
             Kind::VisibleArtMissing => "art shown on screen did not arrive",
+            Kind::ViewsLeftOut => "views were left out (too many to draw)",
         }
     }
 }
