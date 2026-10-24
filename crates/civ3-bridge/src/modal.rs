@@ -412,6 +412,11 @@ mod live {
         if LIVE.get().is_some_and(|live| crate::detached::on_modal_pass(&live.game)) {
             return 0;
         }
+        // So does a report the game does not need an answer to, accepted
+        // at once (`crate::async_popups`).
+        if LIVE.get().is_some_and(|live| crate::async_popups::on_modal_pass(&live.game)) {
+            return 0;
+        }
         run_pending();
         call.original()
     }
