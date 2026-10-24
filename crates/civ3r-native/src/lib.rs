@@ -96,6 +96,12 @@ pub const LIMIT_UPLOADED: u32 = 1;
 /// [`Limits::_pad`] advertises that [`CALL_INPUT`] waits for input as long
 /// as [`TakeInput::_pad`] asks (older libraries return at once).
 pub const LIMIT_INPUT_WAIT: u32 = 2;
+/// Call 7. A batch of updates ([`Publish`]) handed to the viewer at once,
+/// whether or not it took the last published batch: what must not wait for
+/// the publisher (a unit's walk, `scene::Update::Walk`), from any thread.
+pub const CALL_PUSH: u32 = 7;
+/// [`Limits::_pad`] advertises that [`CALL_PUSH`] exists.
+pub const LIMIT_PUSH: u32 = 4;
 
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -319,7 +325,7 @@ mod unix_side {
 
     pub fn limits(args: &mut Limits) -> Status {
         log_init();
-        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT };
+        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT | LIMIT_PUSH };
         STATUS_SUCCESS
     }
 
@@ -605,6 +611,25 @@ mod unix_side {
         }
     }
 
+    /// [`CALL_PUSH`]: never busy.
+    pub fn push(args: &mut Publish) -> Status {
+        let Ok(bytes) = wine_unixlib::unix::read(args.scene) else { return STATUS_INVALID_PARAMETER };
+        let updates = match scene::wire::decode_updates(&bytes) {
+            Ok(u) => u,
+            Err(e) => {
+                log::warn!("civ3r-native: pushed updates: {e}");
+                return STATUS_INVALID_PARAMETER;
+            }
+        };
+        match VIEWER.get() {
+            Some(v) => {
+                v.driver.send(updates);
+                STATUS_SUCCESS
+            }
+            None => STATUS_UNSUCCESSFUL,
+        }
+    }
+
     pub fn input(args: &mut TakeInput) -> Status {
         let Some(v) = VIEWER.get() else {
             args.len = 0;
@@ -667,7 +692,7 @@ mod unix_side {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use unix_side::{assets, input, limits, publish, status, take_log, uploaded};
+use unix_side::{assets, input, limits, publish, push, status, take_log, uploaded};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded];
+wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded, push];

@@ -444,9 +444,11 @@ AI actions request focus. B and the zoom view keep their own positions.
 Native animation updates include visible units and effects across the map,
 using the original elapsed time once. A unit the game slides to the next
 tile (with "animate movement" on) moves in the viewer at the viewer's frame
-rate, over the slide's own 100 ms (a tenth with Shift); the game draws one
-frame of the slide and waits out the rest of its schedule
-(docs/independent-animations.md, "Unit slides"). Window size, UI canvases and the city
+rate (100 ms slides, a tenth with Shift): the bridge tells each walk
+the moment a tile starts, with its go-to path's planned tiles, and the
+viewer plays it from the key press tile after tile at the game's pace.
+The game draws one frame of each slide and waits out the rest of its
+schedule (docs/independent-animations.md, "Unit slides"). Window size, UI canvases and the city
 screen's internal map retain their normal geometry. Parking activates only
 when the checked PCGames hooks and native world-input endpoint are ready;
 an unsupported executable or failed dependency keeps the original camera.

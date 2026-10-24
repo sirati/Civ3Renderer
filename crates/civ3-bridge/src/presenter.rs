@@ -59,11 +59,38 @@ enum Sink {
     External(viewer_transport::Client),
 }
 
+/// What hands updates to the viewer at once, from any thread ([`push`]).
+enum Push {
+    InProcess(scene::Pusher),
+    #[cfg(all(windows, target_arch = "x86"))]
+    Native(wine_unixlib::pe::UnixLib),
+}
+
+static PUSH: std::sync::OnceLock<Push> = std::sync::OnceLock::new();
+
+/// Hands `updates` to the viewer now, from any thread, not with the
+/// publisher's next round (what must not wait for it: a unit's walk,
+/// `scene::Update::Walk`). False without a viewer that takes them so (an
+/// external one, an older native library): the scene's motions then stay.
+pub fn push(updates: Vec<Update>) -> bool {
+    match PUSH.get() {
+        Some(Push::InProcess(pusher)) => pusher.send(updates),
+        #[cfg(all(windows, target_arch = "x86"))]
+        Some(Push::Native(lib)) => {
+            let bytes = scene::wire::encode_updates(&updates);
+            let mut args = civ3r_native::Publish { scene: wine_unixlib::pe::buffer(&bytes) };
+            lib.call(civ3r_native::CALL_PUSH, &mut args) == 0
+        }
+        None => false,
+    }
+}
+
 impl Presenter {
     /// A viewer window on a thread of this process.
     pub fn in_process(config: tile_viewer::ViewerConfig, compiled: Arc<Compiled>) -> std::io::Result<Presenter> {
         let assets = tile_viewer::Assets::new(compiled);
         let (driver, display) = scene::connect();
+        let _ = PUSH.set(Push::InProcess(driver.pusher()));
         let a = assets.clone();
         // The game's own windows stay as DPI aware as the game is (made
         // aware, a DPI-unaware window reports its client area in the
@@ -522,7 +549,11 @@ impl Native {
         let lib = self.lib;
         self.arriving.get_or_insert_with(|| {
             let mut limits = civ3r_native::Limits::default();
-            if lib.call(civ3r_native::CALL_LIMITS, &mut limits) != 0 || limits._pad & civ3r_native::LIMIT_INPUT_WAIT == 0 {
+            let known = lib.call(civ3r_native::CALL_LIMITS, &mut limits) == 0;
+            if known && limits._pad & civ3r_native::LIMIT_PUSH != 0 {
+                let _ = PUSH.set(Push::Native(lib));
+            }
+            if !known || limits._pad & civ3r_native::LIMIT_INPUT_WAIT == 0 {
                 log::info!("native viewer: input is polled (the library cannot wait for it)");
                 return None;
             }
