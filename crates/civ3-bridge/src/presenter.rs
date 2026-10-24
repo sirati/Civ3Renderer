@@ -81,6 +81,7 @@ impl Presenter {
             }
             if let Err(e) = tile_viewer::run(config, a, display) {
                 log::error!("viewer: {e}");
+                render_errors::report(render_errors::Kind::Viewer, "in-process viewer", format_args!("{e}"));
             }
             // The drop guard also covers initialization errors and unwinding
             // before the viewer's normal close handler exists.
@@ -149,6 +150,7 @@ impl Presenter {
                 Sink::External(client) => {
                     if let Err(error) = client.set_assets(&wire) {
                         log::error!("external viewer: assets: {error}");
+                        render_errors::report(render_errors::Kind::ArtHandOver, "external viewer", format_args!("art {}: {error}", wire.generation));
                     }
                 }
                 Sink::InProcess { .. } => unreachable!(),
@@ -165,6 +167,9 @@ impl Presenter {
     pub fn adopt_assets(&mut self, compiled: &Arc<Compiled>, generation: u64) -> bool {
         if let Err(why) = self.tables.adopt(generation) {
             log::info!("art: generation {generation} not adopted: {why}");
+            if Tables::refusal_is_error(why) {
+                render_errors::report(render_errors::Kind::ArtNotAdopted, why, format_args!("whole art {generation}"));
+            }
             return false;
         }
         self.generation = generation;
@@ -194,6 +199,9 @@ impl Presenter {
     pub fn adopt_growth(&mut self, growth: &Arc<render_desc::Growth>, generation: u64) -> bool {
         if let Err(why) = self.tables.adopt(generation) {
             log::info!("art: growth {generation} not adopted: {why}");
+            if Tables::refusal_is_error(why) {
+                render_errors::report(render_errors::Kind::ArtNotAdopted, why, format_args!("growth {generation}"));
+            }
             return false;
         }
         self.generation = generation;
@@ -440,14 +448,25 @@ impl Tables {
         }
         if whole != generation {
             if whole != self.adopted {
-                return Err("grows a sprite table that is not the adopted one");
+                return Err(Self::NOT_ADOPTED_TABLE);
             }
             if self.of.range(..generation).any(|(_, prior)| *prior == whole) {
-                return Err("an earlier growth of this sprite table is not adopted yet");
+                return Err(Self::EARLIER_GROWTH);
             }
         }
         Ok(())
     }
+
+    /// Whether refusal `why` ([`Tables::adoptable`]) is a render error:
+    /// art adopted out of order. The rest are routine: art of a table that
+    /// a newer whole description replaced, or one given up (the art
+    /// folders changed), is dropped as intended.
+    pub fn refusal_is_error(why: &str) -> bool {
+        matches!(why, Self::NOT_ADOPTED_TABLE | Self::EARLIER_GROWTH)
+    }
+
+    const NOT_ADOPTED_TABLE: &'static str = "grows a sprite table that is not the adopted one";
+    const EARLIER_GROWTH: &'static str = "an earlier growth of this sprite table is not adopted yet";
 
     /// Adopts `generation` if [`Tables::adoptable`].
     pub fn adopt(&mut self, generation: u64) -> Result<(), &'static str> {
@@ -526,12 +545,14 @@ impl Native {
                             }
                             Err(error) => {
                                 log::error!("native viewer input: {error}");
+                                render_errors::report(render_errors::Kind::SceneTransfer, "input from the native viewer", format_args!("{error}"));
                                 return quit(&to);
                             }
                         },
                         wine_unixlib::STATUS_BUFFER_TOO_SMALL => buffer.resize(args.len as usize, 0),
                         status => {
                             log::error!("native viewer input: status {status:#x}");
+                            render_errors::report(render_errors::Kind::SceneTransfer, "input from the native viewer", format_args!("status {status:#x}"));
                             return quit(&to);
                         }
                     }
@@ -578,6 +599,7 @@ impl Native {
             let status = self.lib.call(civ3r_native::CALL_ASSETS, &mut args);
             if status != 0 {
                 log::error!("native viewer: assets: status {status:#x}");
+                render_errors::report(render_errors::Kind::ArtHandOver, "native viewer", format_args!("art {}: status {status:#x}", wire.generation));
             }
         }
         #[cfg(not(all(windows, target_arch = "x86")))]
@@ -671,6 +693,7 @@ impl Native {
                         Ok(input) => return input,
                         Err(error) => {
                             log::error!("native viewer input: {error}");
+                            render_errors::report(render_errors::Kind::SceneTransfer, "input from the native viewer", format_args!("{error}"));
                             self.quit_reported = true;
                             return vec![Input::Quit];
                         }
@@ -678,6 +701,7 @@ impl Native {
                     wine_unixlib::STATUS_BUFFER_TOO_SMALL => self.input.resize(args.len as usize, 0),
                     status => {
                         log::error!("native viewer input: status {status:#x}");
+                        render_errors::report(render_errors::Kind::SceneTransfer, "input from the native viewer", format_args!("status {status:#x}"));
                         self.quit_reported = true;
                         return vec![Input::Quit];
                     },

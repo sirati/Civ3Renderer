@@ -645,6 +645,7 @@ fn with_model<R>(present: bool, f: impl FnOnce(&mut UiModel) -> R) -> Option<R> 
             if OWNER.get().is_some_and(|&owner| owner != std::thread::current().id()) {
                 static NOTED: AtomicBool = AtomicBool::new(false);
                 if !NOTED.swap(true, Relaxed) { log::warn!("UI mirror: drawing on another thread than the game's is not mirrored"); }
+                render_errors::report(render_errors::Kind::UnsupportedDraw, "drawing off the game's thread", format_args!("not mirrored"));
                 return None;
             }
             *slot = CAPTURE.take_model();
@@ -1491,7 +1492,10 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
     let Some([bind, color, opacity, width, draw]) = h::line_sites(game.build) else { return };
     let mut install = |r: Result<Box<dyn std::any::Any + Send>, HookError>| match r {
         Ok(hook) => hooks.push(hook),
-        Err(e) => log::warn!("UI mirror: line drawer not mirrored: {e}"),
+        Err(e) => {
+            log::warn!("UI mirror: line drawer not mirrored: {e}");
+            render_errors::report(render_errors::Kind::UnsupportedDraw, "the game's lines (no hook)", format_args!("{e}"));
+        }
     };
     install(h::line_bind::install_over_jmp(bind, |c| {
         with_pen(c.renderer, |p| p.canvas = c.canvas);

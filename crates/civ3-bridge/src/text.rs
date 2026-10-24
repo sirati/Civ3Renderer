@@ -148,6 +148,7 @@ impl Fonts {
             .inspect_err(|e| {
                 if self.failed.insert(key.0.clone()) {
                     log::warn!("font {:?}: {e}", key.0);
+                    render_errors::report(render_errors::Kind::MissingFont, &format!("font {}", key.0.face), format_args!("{:?}: {e}", key.0));
                 }
             })
             .ok();
@@ -635,6 +636,9 @@ impl Fonts {
             let glyph = scene::Glyph { font: face, ch: outline_char(c), em64, advance, bold: r.weight >= 600, italic: r.italic, key: r.backdrop, bar: None };
             // Missing cmap entries are independent missing glyphs, not
             // glyph zero boxes. Their measured advance still positions later text.
+            if outline.glyph(glyph.ch).is_none() && !c.is_whitespace() && !c.is_control() {
+                render_errors::report(render_errors::Kind::TextShape, &format!("font {}", r.face), format_args!("{c:?} in {:?}", r.text));
+            }
             if outline.glyph(glyph.ch).is_some() {
                 out.push(scene::FreeSprite { x: pen, y: r.y, screen: true, after_pass, ticks_per_frame: 1, tint, clip, glyph: Some(glyph), zoom_art, ..Default::default() });
             }

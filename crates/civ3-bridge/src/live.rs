@@ -417,6 +417,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     };
     let max_page = max_page.unwrap_or_else(|| {
         log::warn!("the renderer's texture limit is unknown: atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE);
+        render_errors::report(render_errors::Kind::Gpu, "texture limit unknown", format_args!("atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE));
         render_desc::ANY_DEVICE_PAGE
     });
     // (Screen pictures are at most the game's screen.)
@@ -587,7 +588,10 @@ fn publish(
     _prefs_audio: Option<civ3_sys::preferences::Installed>,
 ) {
     let mut mapper = Mapper::new(&compiled);
-    let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| log::error!("menus: {e}")).ok();
+    let menus_of = |c: &Compiled| menu::Menus::parse(MENUS, c).inspect_err(|e| {
+        log::error!("menus: {e}");
+        render_errors::report(render_errors::Kind::ArtDescription, "the viewer's menus", format_args!("{e}"));
+    }).ok();
     let mut menus = menus_of(&compiled);
     let mut last: Option<(Shown, Vec<text::TextRun>, Option<crate::ui::Frame>, Vec<scene::Interactable>, scene::Cursor, Option<Arc<ui_trace::NativeUi>>)> = None;
     let mut last_camera_focus = None;
@@ -1893,7 +1897,9 @@ fn publish(
                 if !pending && !retry_wanted && !partial_reported {
                     partial_reported = true;
                     log::warn!("scene: visible art did not arrive; drawn as nothing");
-                    for missing in ui_screen::missing_art(visible, &fonts, &compiled) { log::warn!("scene: not resident: {missing}"); }
+                    let missing = ui_screen::missing_art(visible, &fonts, &compiled);
+                    for missing in &missing { log::warn!("scene: not resident: {missing}"); }
+                    render_errors::report(render_errors::Kind::VisibleArtMissing, &art_context, format_args!("drawn as nothing: {}", missing.iter().take(4).map(|m| m.to_string()).collect::<Vec<_>>().join("; ")));
                 }
             }
             ui_screen::Publication::Complete => {
