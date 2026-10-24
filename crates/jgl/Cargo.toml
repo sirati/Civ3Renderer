@@ -1,0 +1,9 @@
+[package]
+name = "jgl"
+description = "jgl.dll's object model as a safe API: fonts, per-surface drawing state, the record encoding and the hook traits a game-specific consumer implements"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+log.workspace = true
