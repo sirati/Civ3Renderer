@@ -300,7 +300,7 @@ fn contains([x, y, w, h]: [i32; 4], (px, py): (i32, i32)) -> bool {
 fn interactive(input: &Input) -> bool {
     matches!(input, Input::Key { .. } | Input::WorldKey { .. } | Input::MouseMove { .. }
         | Input::MouseButton { .. } | Input::WorldMove { .. } | Input::WorldButton { .. }
-        | Input::Wheel { .. } | Input::Slider { .. } | Input::UnitOrder { .. })
+        | Input::Wheel { .. } | Input::Slider { .. } | Input::WorldOrder { .. })
 }
 
 /// The renderer's preferences: the settings, and the tabs over the game's

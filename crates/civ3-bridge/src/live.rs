@@ -2663,7 +2663,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
         if !matches!(input, Input::Slider { action: scene::SliderAction::Preview, .. }) {
             crate::native_sliders::barrier();
         }
-        if !matches!(input, Input::WorldMove { .. } | Input::UnitOrder { action: scene::UnitOrderAction::Preview, .. }
+        if !matches!(input, Input::WorldMove { .. } | Input::WorldOrder { action: scene::WorldOrderAction::Preview, .. }
             | Input::Views { .. } | Input::MainView { .. } | Input::Zooms(_) | Input::Edge { .. } | Input::Window { .. } | Input::Resized { .. }) {
             crate::world_input::barrier();
         }
@@ -2740,7 +2740,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 }
             }
             Input::WorldMove { x, y } => { crate::world_input::post_move(game, window, (x, y)); }
-            Input::UnitOrder { action, x, y } => { crate::world_input::post_order(game, window, action, (x, y)); }
+            Input::WorldOrder { action, x, y } => { crate::world_input::post_order(game, window, action, (x, y)); }
             Input::WorldButton { button, down, x, y } => {
                 // (Under a screen too: the game's thread decides what may be
                 // done there, and says so where not, `crate::world_input`.)
@@ -2767,7 +2767,7 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 // arrive. Retire them in the same owned window queue before
                 // its native UI becomes the fallback input target.
                 let _ = inproc::keyboard::release(window);
-                crate::world_input::post_order(game, window, scene::UnitOrderAction::Cancel, (0, 0));
+                crate::world_input::post_order(game, window, scene::WorldOrderAction::Cancel, (0, 0));
                 forwarder.world_buttons.clear();
                 forwarder.look = None;
                 forwarder.plain_keys.clear();
