@@ -1266,7 +1266,7 @@ mod window_resolution_tests {
             let scene = scene::Scene {
                 screen_size: screen,
                 zooms: vec![(0, 0)],
-                interface: scene::Interface { menu_fit: true, screen: prefs_screen.then(|| "Menu".into()), screen_view: prefs_screen.then_some(258), ..Default::default() },
+                interface: scene::Interface { menu_fit: true, screen: prefs_screen.then(|| "Menu".into()), screen_role: if prefs_screen { scene::ScreenRole::Menu } else { scene::ScreenRole::Other }, screen_view: prefs_screen.then_some(258), ..Default::default() },
                 views: vec![scene::ViewState { id: if prefs_screen { 258 } else { 255 }, view, overlay: sprites }],
                 ..Default::default()
             };
