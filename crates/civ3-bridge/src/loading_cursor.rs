@@ -1,5 +1,5 @@
 //! The loading cursor beside the native loading bar: the wait cursor's
-//! hourglass, turning (`scene::loading_cursor`, `assets/civ3/
+//! hourglass, turning (`scene::loading_cursor`, `assets/viewer/
 //! loading-cursor.toml`). Optional art: a missing system cursor leaves
 //! clear frames, never a pending or failed UI group.
 use crate::ui::Frame;
@@ -15,7 +15,7 @@ const ENVELOPE: i32 = scene::loading_cursor::ENVELOPE as i32;
 /// the system's wait cursor, which is clear where there is none, so it
 /// cannot break the first compile or hold a mandatory UI group pending.
 pub fn description() -> &'static str {
-    include_str!("../../../assets/civ3/loading-cursor.toml")
+    include_str!("../../../assets/viewer/loading-cursor.toml")
 }
 
 /// Place the hourglass to the left of the bar, centred on its native form.
