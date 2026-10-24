@@ -150,7 +150,7 @@ pub fn sprites(world: &Civ3World, compiled: &Compiled) -> Vec<scene::FreeSprite>
                 zoom_offset: (0, 0),
                 clip: None,
                 not_in_view: None,
-                glyph: None, solid: None,
+                glyph: None, solid: None, output_rect: None,
                 palette: 0,
                 category: viewer_settings::clean_map::CITIES,
             })

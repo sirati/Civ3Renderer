@@ -21,6 +21,7 @@
 pub mod text;
 pub mod glyph_cache;
 mod lens_math;
+mod marker_math;
 
 use spirv_std::glam::{IVec2, UVec2, UVec3, UVec4, Vec2, Vec4};
 use spirv_std::num_traits::Float;
@@ -323,8 +324,10 @@ pub fn free_vs(
     *out_palette = UVec3::ZERO;
     *out_background = UVec4::ZERO;
     *out_primitive = UVec2::ZERO;
-    let solid = f.primitive.kind == tile_render_shared::PRIMITIVE_SOLID;
-    let frames = if solid { 1 } else { sprite_sets[f.set as usize] };
+    let kind = f.primitive.kind;
+    let solid = kind == tile_render_shared::PRIMITIVE_SOLID;
+    let shaped = tile_render_shared::output_scaled(kind);
+    let frames = if solid || shaped { 1 } else { sprite_sets[f.set as usize] };
     // Zoom art: zoomed sprites only where a view at their zoom is drawn at
     // it, low ones not where zoomed ones are shown.
     let zoomed = f.flags & FREE_ZOOMED != 0;
@@ -337,7 +340,7 @@ pub fn free_vs(
     // world but that one.
     let except = f.flags & FREE_EXCEPT_VIEW != 0;
     let wrong_view = if except { f.view == params.view || params.world == 0 } else { (f.view != ALL_VIEWS && f.view != params.view) || (f.view == ALL_VIEWS && params.world == 0) };
-    if (!solid && f.set == 0) || frames == 0 || wrong_art || wrong_view || f.category & params.hidden_categories != 0 {
+    if (!solid && !shaped && f.set == 0) || frames == 0 || wrong_art || wrong_view || f.category & params.hidden_categories != 0 {
         *out_pos = CULLED;
         return;
     }
@@ -346,6 +349,48 @@ pub fn free_vs(
     // A view showing the world smaller shows world sprites smaller, at
     // their positions shrunk; screen sprites as they are.
     let n = if screen { 1 } else { params.downscale };
+    // Shapes laid out at the stage's scale: in its pixels from the
+    // position scaled to it (`tile_render_shared::output_scaled`).
+    if shaped {
+        let (bx, by) = if screen { (params.origin_x, params.origin_y) } else { (params.camera_x, params.camera_y) };
+        let (fx, fy) = if screen {
+            (f.x - bx, f.y - by)
+        } else {
+            let (px, py) = world_period(&params.grid);
+            (wrap_distance(shrunk(f.x, n) - bx, px), wrap_distance(shrunk(f.y, n) - by, py))
+        };
+        let (zn, zd) = (params.zoom_num, params.zoom_den);
+        let (ax, ay) = (scaled(fx, zn, zd), scaled(fy, zn, zd));
+        let (mut l, mut t, mut r, mut b);
+        if kind == tile_render_shared::PRIMITIVE_OUTPUT_RECT {
+            let (rl, rt, rr, rb) = tile_render_shared::output_rect(&f.primitive, zn, zd);
+            (l, t, r, b) = (ax + rl, ay + rt, ax + rr, ay + rb);
+            *out_background = UVec4::ZERO;
+        } else {
+            let ([ml, mt, mr, mb], scale, (px, py)) = tile_render_shared::marker_place(&f.primitive, (ax, ay), zn, zd, n);
+            (l, t, r, b) = (ml, mt, mr, mb);
+            // (Its reference point from the rectangle's top-left.)
+            *out_background = UVec4::new(scale.to_bits(), px.to_bits(), py.to_bits(), tile_render_shared::marker_bob(&f.primitive).to_bits());
+        }
+        if f.flags & FREE_CLIP != 0 {
+            l = max(l, scaled(shrunk(f.clip[0], n) - bx, zn, zd));
+            t = max(t, scaled(shrunk(f.clip[1], n) - by, zn, zd));
+            r = min(r, scaled(shrunk(f.clip[2], n) - bx, zn, zd));
+            b = min(b, scaled(shrunk(f.clip[3], n) - by, zn, zd));
+        }
+        if r <= l || b <= t {
+            *out_pos = CULLED;
+            return;
+        }
+        let (u, v) = quad_corner(vertex);
+        let (sx, sy) = (l as f32 + u * (r - l) as f32, t as f32 + v * (b - t) as f32);
+        *out_pos = Vec4::new(sx / params.viewport_w as f32 * 2.0 - 1.0, 1.0 - sy / params.viewport_h as f32 * 2.0, 0.0, 1.0);
+        *out_local = Vec2::new(sx - l as f32, sy - t as f32);
+        *out_primitive = UVec2::new(kind, f.primitive.rgba);
+        *out_scale_den = 0;
+        *out_tint = 0;
+        return;
+    }
     // Procedural commands never dereference an atlas sprite or set.
     let solid_desc = SpriteDesc { scaling: tile_render_shared::KEEP_SIZE, width: f.primitive.width, height: f.primitive.height,
         box_w: f.primitive.width, box_h: f.primitive.height, ..SpriteDesc::default() };
@@ -518,9 +563,12 @@ pub fn tile_fs(
     output: &mut Vec4,
 ) {
     let offset = texel_offset(local, base, lo, scaled_view, step, frag, params);
-    let mut color = if primitive.x == tile_render_shared::PRIMITIVE_SOLID {
+    let kind = primitive.x;
+    let mut color = if kind == tile_render_shared::PRIMITIVE_SOLID || kind == tile_render_shared::PRIMITIVE_OUTPUT_RECT {
         let c = primitive.y;
         Vec4::new((c & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, ((c >> 16) & 255) as f32 / 255.0, (c >> 24) as f32 / 255.0)
+    } else if kind == tile_render_shared::PRIMITIVE_ARROW || kind == tile_render_shared::PRIMITIVE_ARROW_SHADOW {
+        marker_color(local, background, primitive)
     } else { texel(origin + offset, page, palette, params, atlas, index_atlas, palettes) };
     let background_mode = params.background_sampling;
     let scaled_background = background.x != 0 && scaled_view != 0 && params.zoom_num != params.zoom_den && color.w != 0.0;
@@ -1093,4 +1141,21 @@ fn lens_sample(source: &Image!(2D, type = f32, sampled), x: f32, y: f32,
     let bottom = fetch(0,1) * (1.0-fx) + fetch(1,1) * fx;
     let v = top * (1.0-fy) + bottom * fy;
     [v.x, v.y, v.z]
+}
+
+/// The arrow marker or its shadow (`primitive`: kind, RGBA) over the pixel
+/// at `local` from its rectangle's top-left, `background` its scale, its
+/// reference point from that corner and its bob (see `free_vs`).
+fn marker_color(local: Vec2, background: UVec4, primitive: UVec2) -> Vec4 {
+    let scale = f32::from_bits(background.x);
+    let x = pixel(local.x) as f32 - f32::from_bits(background.y);
+    let y = pixel(local.y) as f32 - f32::from_bits(background.z);
+    let c = primitive.y;
+    let rgba = [(c & 255) as f32, ((c >> 8) & 255) as f32, ((c >> 16) & 255) as f32, (c >> 24) as f32];
+    let p = if primitive.x == tile_render_shared::PRIMITIVE_ARROW {
+        marker_math::arrow_pixel(x, y, scale, rgba)
+    } else {
+        marker_math::shadow_pixel(x, y, scale, f32::from_bits(background.w), rgba)
+    };
+    Vec4::new(p[0] / 255.0, p[1] / 255.0, p[2] / 255.0, p[3] / 255.0)
 }
