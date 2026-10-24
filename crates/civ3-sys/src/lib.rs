@@ -35,6 +35,7 @@ pub mod native_camera;
 pub mod camera_arrival;
 pub mod native_redraw;
 pub mod preferences;
+pub mod quit;
 pub mod sprites;
 pub mod sliders;
 pub mod targeting;

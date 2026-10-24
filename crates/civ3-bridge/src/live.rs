@@ -534,6 +534,8 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     let compiled = compiled.without_pixels();
     let art_thread = ArtThread::start(Some((compiled.without_pixels(), growing))).map_err(LiveError::Install)?;
     let timing = crate::art_schedule::Timing::GROWING;
+    // The game quitting closes the viewer before it frees its world.
+    crate::session_end::install(game);
     std::thread::Builder::new()
         .name("civ3r-publish".into())
         .spawn(move || publish(game, &compiler, folders, compiled, presenter, art_thread, timing, pixels, prefs_audio, fullscreen))
@@ -801,6 +803,9 @@ fn publish(
         // (Not longer than the host's status may go unsent.)
         previews.wait(std::mem::replace(&mut wait, POLL).min(HOST_EVERY));
         round_began = Some(std::time::Instant::now());
+        // Once the game quits, nothing more of it is read: the viewer is
+        // told to close (`crate::session_end`).
+        let Some(_round) = crate::session_end::SESSION.round() else { end_session(&mut presenter) };
         // Whether the game's thread answers (`crate::heartbeat`), also
         // while nothing changes: the viewer's busy indicator.
         if host_sent.elapsed() >= HOST_EVERY {
@@ -2273,6 +2278,10 @@ fn publish(
             p.count("scene sprites", scene_size.1);
             p.count("scene overlay sprites", scene_size.2);
         }
+        // (Read while the game quit: never shown.)
+        if crate::session_end::SESSION.ending() {
+            continue;
+        }
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
         if let Some(p) = &mut profile {
@@ -2547,6 +2556,33 @@ struct Hiding {
     seen: bool,
 }
 
+/// The publisher once the game quits (`crate::session_end`): it reads
+/// nothing more of the game, tells the viewer to close and waits for it to
+/// say it is gone, which the game's thread waits for (bounded) before it
+/// ends the process. Never returns: the process ends around it.
+fn end_session(presenter: &mut Presenter) -> ! {
+    let session = &crate::session_end::SESSION;
+    let since = || session.since_begin().unwrap_or_default().as_millis();
+    let mut told = false;
+    let mut waiting = true;
+    loop {
+        if !told && presenter.close() {
+            told = true;
+            log::info!("session: the viewer is told to close, {} ms after the game began to quit", since());
+        }
+        presenter.forward_log();
+        if waiting && presenter.take_input().iter().any(|input| matches!(input, scene::Input::Quit)) {
+            log::info!("session: the viewer is gone, {} ms after the game began to quit", since());
+            session.viewer_closed();
+            waiting = false;
+        }
+        // (The process ends meanwhile, once the game's thread is done
+        // waiting; with the compatibility fallback the game's own exit
+        // ends it.)
+        std::thread::sleep(if waiting { Duration::from_millis(2) } else { Duration::from_millis(100) });
+    }
+}
+
 /// Keeps the game's window hidden (`crate::game_window` keeps it from being
 /// shown; this hides it should anything show it all the same) and painted.
 fn hide_window(input: &mut InputForwarder, hiding: &mut Hiding) {
@@ -2594,6 +2630,13 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
         _ => true,
     });
     if inputs.is_empty() {
+        return;
+    }
+    // The game quits: nothing goes to it any more (`crate::session_end`).
+    if crate::session_end::SESSION.ending() {
+        if inputs.iter().any(|input| matches!(input, Input::Quit)) {
+            crate::session_end::SESSION.viewer_closed();
+        }
         return;
     }
     let Some(window) = forwarder.game_window() else {
