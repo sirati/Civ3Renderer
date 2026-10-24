@@ -34,6 +34,17 @@
 //!       line gives the share for the terrain alone: the pixels none of our
 //!       unit, label or interface sprites covers
 //!
+//!   civ3-tool altrec FILE|DIR... [--rate N] [--tick-ms MS] [--cone DEG] [--dead-zone PX]
+//!                  [--idle-reset S] [--angle-weight W] [--distance-weight W]
+//!                  [--attraction F] [--gain G] [--flight F]
+//!       reads Alt mode recordings (`alt-mode-*.altrec`, a folder: all of
+//!       them; docs/alt-mode-recording.md): per session what was recorded
+//!       (landings, clicks, landings on other elements before the click,
+//!       "gave up" clicks after the mode), and the picker run again over the
+//!       same motion and targets with the given values (default: the
+//!       viewer's, `tile_viewer::snap`; --rate: updates per second instead of
+//!       the recorded; --tick-ms: the replay's step, default 8.333)
+//!
 //!   civ3-tool bench TRACE [--frames N] [--rebuild] [--viewport WxH]
 //!       draws the trace's scene as the viewer arranges it, N times
 //!       (default 300) into an offscreen target, and prints where the time
@@ -291,6 +302,7 @@ fn load_trace(path: &str) -> Result<Trace, String> {
 
 fn run(args: &[String]) -> Result<ExitCode, String> {
     match args.first().map(String::as_str) {
+        Some("altrec") => altrec(&args[1..]),
         Some("drawdiff") => {
             let trace = load_trace(args.get(1).ok_or("drawdiff TRACE")?)?;
             drawdiff(&trace, viewport(args)?)
@@ -969,3 +981,54 @@ fn pixeldiff(trace: &Trace, game: &image::RgbaImage, out: Option<&str>) -> Resul
 
 /// The surfaces traces of the PCGames build name (the minimap).
 const GENERATED: &[(u32, &str)] = civ3_sys::ui_hooks::generated_surfaces_pcg();
+
+/// `civ3-tool altrec`: what Alt mode recordings show, and the picker run
+/// again over them with the values given.
+fn altrec(args: &[String]) -> Result<ExitCode, String> {
+    use tile_viewer::altrec::replay;
+    let mut options = replay::Options::default();
+    let mut paths = Vec::new();
+    let mut k = 0;
+    while k < args.len() {
+        let a = args[k].as_str();
+        if !a.starts_with("--") {
+            paths.push(std::path::PathBuf::from(a));
+            k += 1;
+            continue;
+        }
+        let v: f64 = args.get(k + 1).and_then(|v| v.parse().ok()).filter(|v: &f64| v.is_finite()).ok_or(format!("{a} needs a number"))?;
+        let t = &mut options.tuning;
+        match a {
+            "--rate" => options.rate = Some(v),
+            "--tick-ms" => options.tick_us = (v * 1000.0).round().max(1.0) as u64,
+            "--cone" => t.cone = v.to_radians(),
+            "--dead-zone" => t.dead_zone = v,
+            "--idle-reset" => t.idle_reset = v,
+            "--angle-weight" => t.angle_weight = v,
+            "--distance-weight" => t.distance_weight = v,
+            "--attraction" => t.attraction = v,
+            "--gain" => t.motion_gain = v,
+            "--flight" => t.flight = v,
+            _ => return Err(format!("altrec: unknown option {a}")),
+        }
+        k += 2;
+    }
+    if paths.is_empty() {
+        return Err("altrec FILE|DIR... [--cone DEG] [--dead-zone PX] ...".into());
+    }
+    let sessions = replay::sessions(&paths)?;
+    if sessions.is_empty() {
+        return Err("altrec: no recordings (alt-mode-*.altrec) there".into());
+    }
+    let t = &options.tuning;
+    println!(
+        "picker: cone {:.1}°, dead zone {} px, idle reset {} s, angle weight {}, distance weight {}, attraction {}, gain {}, flight {:.3} updates; step {:.3} ms{}",
+        t.cone.to_degrees(), t.dead_zone, t.idle_reset, t.angle_weight, t.distance_weight, t.attraction, t.motion_gain, t.flight,
+        options.tick_us as f64 / 1000.0,
+        options.rate.map_or(String::new(), |r| format!(", {r} updates a second")),
+    );
+    for s in &sessions {
+        print!("{}", replay::report(s, &options));
+    }
+    Ok(ExitCode::SUCCESS)
+}
