@@ -9,6 +9,7 @@
 
 pub mod atlas;
 pub mod camera;
+pub mod effect;
 pub mod gpu;
 pub mod reference;
 pub mod renderer;
@@ -16,7 +17,8 @@ pub mod timing;
 pub mod world;
 
 pub use atlas::{Atlas, AtlasBuilder, AtlasGrowth, Blit, BlitPixels, IndexImage, RgbaImage, Shelves, SpriteId};
-pub use camera::{BackgroundSampling, Camera, Lens};
+pub use camera::{BackgroundSampling, Camera};
+pub use effect::Effect;
 pub use gpu::Headless;
 pub use renderer::{GlyphCacheStats, Shaders, AtlasTransferError, AtlasTransferProgress, AtlasTransferSource, MAX_VIEWS, Present, ScreenCopy, StagedAtlas, TileRenderer};
 pub use world::{ALL_CELLS, Blend, ColorModel, Dirty, GlyphShape, Grid, LayerId, LayerSpec, Layout, OutlineGlyph, OutputRect, Pass, PlacedSprite, Shape, SolidRect, SHARED_BINDING, SlotId, SpriteSetId, SpriteSets, TileWorld, ZoomArt};
