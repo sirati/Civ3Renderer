@@ -10,7 +10,9 @@
 
 pub mod blit;
 pub mod draw;
+pub mod interface_parts;
 pub mod text;
 pub mod production_queue;
 pub mod viewer;
 pub mod screens;
+pub mod ui;
