@@ -188,3 +188,127 @@ mod tests {
         }
     }
 }
+
+/// Which of the pointer moves the bridge posts the game has handled, so
+/// that the scene's cursor tells where it is the game's answer for
+/// (`scene::Scene::cursor_at`).
+///
+/// The game takes its messages through jgl's `PeekMessageA`
+/// (`crate::heartbeat`): a `WM_MOUSEMOVE` it removes there is dispatched
+/// (its form's mouse move setting the cursor, 0x604350 -> 0x606A70) before
+/// it peeks again, so the next peek marks it handled. Each move posted is
+/// kept with the viewer's position it came from ([`posted`]), the last
+/// [`SLOTS`] of them; a handled move not among them (one the bridge made
+/// for the world, or the system's) is no known position. Lock-free: the
+/// game's thread writes on its peeks, the forwarder on posting, the
+/// publisher reads.
+pub mod handled {
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::SeqCst};
+
+    /// The moves remembered.
+    pub const SLOTS: usize = 16;
+    const WM_MOUSEMOVE: u32 = 0x200;
+    const PM_REMOVE: u32 = 1;
+    /// A known message: its `lParam` with this bit above it (0: none).
+    const SET: u64 = 1 << 32;
+
+    static GAME: [AtomicU64; SLOTS] = [const { AtomicU64::new(0) }; SLOTS];
+    static INPUT: [AtomicU32; SLOTS] = [const { AtomicU32::new(0) }; SLOTS];
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    /// The move removed by the last peek, until the next one.
+    static PENDING: AtomicU64 = AtomicU64::new(0);
+    /// The last move handled.
+    static HANDLED: AtomicU64 = AtomicU64::new(0);
+
+    /// `lParam` of a point (x low, y high, 16 bits each).
+    fn pack((x, y): (i32, i32)) -> u32 {
+        (x as u16 as u32) | ((y as u16 as u32) << 16)
+    }
+
+    fn unpack(v: u32) -> (i32, i32) {
+        (v as u16 as i16 as i32, (v >> 16) as u16 as i16 as i32)
+    }
+
+    /// A move to client position `game` was posted for the viewer's
+    /// position `input`.
+    pub fn posted(game: (i32, i32), input: (i32, i32)) {
+        let k = NEXT.fetch_add(1, SeqCst) as usize % SLOTS;
+        INPUT[k].store(pack(input), SeqCst);
+        GAME[k].store(SET | pack(game) as u64, SeqCst);
+    }
+
+    /// The game's thread peeks again: the move it removed before is handled.
+    pub fn peeking() {
+        let p = PENDING.swap(0, SeqCst);
+        if p != 0 {
+            HANDLED.store(p, SeqCst);
+        }
+    }
+
+    /// The peek answered `got` for `remove`, `message` and `lparam` the
+    /// message it gave.
+    pub fn peeked(got: bool, remove: u32, message: u32, lparam: u32) {
+        if got && remove & PM_REMOVE != 0 && message == WM_MOUSEMOVE {
+            PENDING.store(SET | lparam as u64, SeqCst);
+        }
+    }
+
+    /// The viewer's position of the last move the game handled, if it is
+    /// one of those posted. (Read before the cursor: the cursor is then at
+    /// least as new as this.)
+    pub fn at() -> Option<(i32, i32)> {
+        let h = HANDLED.load(SeqCst);
+        if h == 0 {
+            return None;
+        }
+        let next = NEXT.load(SeqCst) as usize;
+        (1..=SLOTS).map(|back| (next + SLOTS * 2 - back) % SLOTS).find(|&k| GAME[k].load(SeqCst) == h).map(|k| unpack(INPUT[k].load(SeqCst)))
+    }
+
+    #[cfg(test)]
+    pub(super) fn reset() {
+        for k in 0..SLOTS {
+            GAME[k].store(0, SeqCst);
+            INPUT[k].store(0, SeqCst);
+        }
+        PENDING.store(0, SeqCst);
+        HANDLED.store(0, SeqCst);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_move_counts_once_the_game_peeks_after_taking_it() {
+            reset();
+            assert_eq!(at(), None);
+            // (The city screen's map: the game's position is not the viewer's.)
+            posted((100, 200), (130, 260));
+            posted((640, 380), (640, 380));
+            // Taken from the queue, not dispatched yet.
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((100, 200)));
+            assert_eq!(at(), None);
+            peeking();
+            assert_eq!(at(), Some((130, 260)));
+            // Looked at without taking it, or another message: nothing.
+            peeked(true, 0, WM_MOUSEMOVE, pack((640, 380)));
+            peeked(true, PM_REMOVE, 0x201, pack((640, 380)));
+            peeked(false, PM_REMOVE, WM_MOUSEMOVE, pack((640, 380)));
+            peeking();
+            assert_eq!(at(), Some((130, 260)));
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((640, 380)));
+            peeking();
+            assert_eq!(at(), Some((640, 380)));
+            // A move the bridge did not post for the viewer: unknown.
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((7, 9)));
+            peeking();
+            assert_eq!(at(), None);
+            // Negative positions keep their sign.
+            posted((-2, 5), (-2, 5));
+            peeked(true, PM_REMOVE, WM_MOUSEMOVE, pack((-2, 5)));
+            peeking();
+            assert_eq!(at(), Some((-2, 5)));
+        }
+    }
+}
