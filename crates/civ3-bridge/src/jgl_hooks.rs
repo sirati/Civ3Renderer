@@ -2,14 +2,17 @@
 //! method groups `jgl-ffi` takes over in jgl.dll's tables, the hooks they
 //! report to, and the counting mode.
 //!
-//! Groups taken over so far: text, fills (lines, shades), copies and the
-//! display modes. Text runs go to the interface mirror
-//! (`ui_trace::on_text`) and to the recent-text list (`trace`); fills and
-//! copies to the interface mirror (`ui_trace::on_fill`,
-//! `ui_trace::on_copy`). The display modes need no hooks: the game's
+//! Groups taken over so far: text, fills (lines, shades), copies, sprites
+//! (blits, their state, colour tables) and the display modes. Text runs go
+//! to the interface mirror (`ui_trace::on_text`) and to the recent-text
+//! list (`trace`); fills and copies to the interface mirror
+//! (`ui_trace::on_fill`, `ui_trace::on_copy`); blits, named by the exe
+//! function that made them (`civ3_ui::blit`), to the interface mirror and
+//! the map tracer (`ui_trace::on_blit`). The display modes need no hooks: the game's
 //! screen is the mode it asks for, and the display is never switched, not
 //! by a movie nor by jgl's shutdown either (`jgl::display`).
 
+use civ3_ui::blit::{BlitCapture, GameBlit};
 use civ3_ui::draw::{CanvasDraw, CopyCapture, FillCapture};
 use civ3_ui::text::{CanvasText, TextCapture};
 
@@ -31,6 +34,11 @@ fn canvas_draw(d: CanvasDraw) {
     }
 }
 
+/// A blit an exe wrapper made, to the interface mirror and the map tracer.
+fn game_blit(b: &GameBlit, _call: &jgl::BlitCall) {
+    crate::ui_trace::on_blit(b);
+}
+
 /// Whether jgl still draws a call's pixels: on canvases the game reads
 /// back (the mirror's keep set), and calls the interface mirror does not
 /// take.
@@ -48,6 +56,29 @@ impl jgl::PixelPolicy for Pixels {
     fn original_copy(&self, call: &jgl::CopyCall) -> bool {
         civ3_ui::draw::mirrored_copy(call).is_none_or(|(canvas, source)| !crate::ui_trace::skips_drawing(canvas, source))
     }
+
+    fn original_blit(&self, call: &jgl::BlitCall) -> bool {
+        let game = civ3_ui::blit::game_blit(call);
+        // With placeholder sprites jgl draws no blit: the interface model
+        // has them all (an unknown caller's too: nothing to draw). Else
+        // the decision the exe detours made.
+        // (Asked either way: it notes the canvases drawing onto was
+        // skipped, which tells when the game reads one back.)
+        let decided = game.as_ref().is_some_and(crate::ui_trace::skips_blit);
+        // (A sprite made before the takeover, or from `ui_trace::READ_BACK_ART`,
+        // has jgl's pixels: the old decision.)
+        let skipped = (crate::ui_trace::placeholder_sprites() && call.sprite.placeholder) || decided;
+        if !decided && skipped {
+            if let Some(g) = &game {
+                crate::ui_trace::placeholder_lost(g.canvas);
+            }
+        }
+        !skipped
+    }
+
+    fn original_sprite_pixels(&self) -> bool {
+        crate::ui_trace::real_sprite_pixels()
+    }
 }
 
 fn hooks() -> jgl::Hooks {
@@ -55,6 +86,8 @@ fn hooks() -> jgl::Hooks {
         text: Box::new(TextCapture::new(canvas_text)),
         fill: Box::new(FillCapture::new(canvas_draw)),
         copy: Box::new(CopyCapture::new(canvas_draw)),
+        blit: Box::new(BlitCapture::new(game_blit)),
+        palette: Box::new(jgl::hooks::NoHooks),
         policy: Box::new(Pixels),
     }
 }
@@ -145,3 +178,12 @@ pub(crate) fn report() {
     }
 }
 
+
+/// Takes over jgl.dll's sprite group (at `base`): the blits, the sprites'
+/// state slots, the draw scale and the colour tables, as [`install_fill`].
+pub(crate) fn install_blit(base: u32) -> Result<(), inproc::hook::HookError> {
+    let group = jgl_ffi::blit::install(base).map_err(takeover_error)?;
+    std::mem::forget(group);
+    log::info!("jgl sprite group taken over (sprite +0x00..+0x18, +0x38..+0xA0; colour table +0x04..+0x20; graphics +0x9C)");
+    Ok(())
+}

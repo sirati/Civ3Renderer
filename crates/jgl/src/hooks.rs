@@ -4,6 +4,7 @@
 //! empty defaults. Arguments are plain values and borrowed slices: what a
 //! hook needs is in its record, never behind a pointer into the game.
 
+use crate::blit::{BlitCall, Scale, SpriteCall, TableCall};
 use crate::draw::{CopyCall, FillCall};
 use crate::text::{FontDesc, TextColor};
 use crate::{ImageId, Rect};
@@ -45,6 +46,19 @@ pub trait CopyHooks {
     fn copy(&mut self, _call: &CopyCall) {}
 }
 
+/// The sprite group: blits (sprite slots +0x38..+0xA0), the sprites'
+/// state slots and the draw scale (graphics +0x9C).
+pub trait BlitHooks {
+    fn blit(&mut self, _call: &BlitCall) {}
+    fn sprite(&mut self, _call: &SpriteCall) {}
+    fn scale(&mut self, _scale: &Scale) {}
+}
+
+/// The colour tables' slots that change them.
+pub trait PaletteHooks {
+    fn table(&mut self, _call: &TableCall) {}
+}
+
 /// Whether jgl's own pixel work still runs for a drawing call (only while
 /// jgl.dll is loaded: canvases the game reads back, calls the consumer does
 /// not take, compare mode). Asked synchronously by the producer, so it
@@ -62,6 +76,17 @@ pub trait PixelPolicy {
     fn original_copy(&self, _call: &CopyCall) -> bool {
         true
     }
+
+    fn original_blit(&self, _call: &BlitCall) -> bool {
+        true
+    }
+
+    /// Whether jgl makes sprites' pixels (`init`, `duplicate` copy them);
+    /// if not, they all point at one placeholder picture: nothing should
+    /// draw them.
+    fn original_sprite_pixels(&self) -> bool {
+        true
+    }
 }
 
 /// Every hook a consumer gives [`crate::Jgl`].
@@ -69,6 +94,8 @@ pub struct Hooks {
     pub text: Box<dyn TextHooks>,
     pub fill: Box<dyn FillHooks>,
     pub copy: Box<dyn CopyHooks>,
+    pub blit: Box<dyn BlitHooks>,
+    pub palette: Box<dyn PaletteHooks>,
     pub policy: Box<dyn PixelPolicy>,
 }
 
@@ -78,10 +105,19 @@ pub struct NoHooks;
 impl TextHooks for NoHooks {}
 impl FillHooks for NoHooks {}
 impl CopyHooks for NoHooks {}
+impl BlitHooks for NoHooks {}
+impl PaletteHooks for NoHooks {}
 impl PixelPolicy for NoHooks {}
 
 impl Default for Hooks {
     fn default() -> Hooks {
-        Hooks { text: Box::new(NoHooks), fill: Box::new(NoHooks), copy: Box::new(NoHooks), policy: Box::new(NoHooks) }
+        Hooks {
+            text: Box::new(NoHooks),
+            fill: Box::new(NoHooks),
+            copy: Box::new(NoHooks),
+            blit: Box::new(NoHooks),
+            palette: Box::new(NoHooks),
+            policy: Box::new(NoHooks),
+        }
     }
 }
