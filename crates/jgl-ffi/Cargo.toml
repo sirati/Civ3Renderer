@@ -1,0 +1,12 @@
+[package]
+name = "jgl-ffi"
+description = "The unsafe shim between Civilization III and the safe jgl crate: jgl.dll's object layouts, thiscall entry points, method-table takeover, counting stubs"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+jgl = { path = "../jgl" }
+inproc = { path = "../inproc" }
+log.workspace = true
+thiserror.workspace = true

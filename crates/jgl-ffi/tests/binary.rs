@@ -1,0 +1,176 @@
+//! The layouts and the slot catalogue checked against jgl.dll itself: its
+//! vtables, factory allocation sizes, constructor stores and getter bodies.
+//! Needs the game's `jgl.dll` (`CIV3_JGL_DLL`, or the dataset copy named in
+//! `docs/rerender-roadmap.md`); skipped without it.
+
+use std::mem::offset_of;
+
+use jgl::slots::Class;
+use jgl_ffi::layout::{JglColorTable, JglFont, JglGraphics, JglImage, JglSprite};
+
+const DATASET: &str = "/mnt/datasets/winvm/civ3-src-c3x28/Civilization III Complete/Conquests/jgl.dll";
+
+/// jgl.dll's sections, enough to read it at RVAs.
+struct Pe {
+    data: Vec<u8>,
+    image_base: u32,
+    /// (rva, size, file offset)
+    sections: Vec<(u32, u32, u32)>,
+}
+
+impl Pe {
+    fn load() -> Option<Pe> {
+        let path = std::env::var("CIV3_JGL_DLL").unwrap_or_else(|_| DATASET.into());
+        let data = std::fs::read(&path).ok()?;
+        let u16_at = |o: usize| u16::from_le_bytes([data[o], data[o + 1]]);
+        let u32_at = |o: usize| u32::from_le_bytes(data[o..o + 4].try_into().unwrap());
+        let pe = u32_at(0x3C) as usize;
+        assert_eq!(&data[pe..pe + 4], b"PE\0\0");
+        let sections = u16_at(pe + 6) as usize;
+        let optional = u16_at(pe + 20) as usize;
+        let image_base = u32_at(pe + 24 + 28);
+        let table = pe + 24 + optional;
+        let sections = (0..sections)
+            .map(|i| {
+                let s = table + i * 40;
+                (u32_at(s + 12), u32_at(s + 8).max(u32_at(s + 16)), u32_at(s + 20))
+            })
+            .collect();
+        Some(Pe { data, image_base, sections })
+    }
+
+    fn at(&self, rva: u32, len: usize) -> &[u8] {
+        let &(start, _, file) = self.sections.iter().find(|&&(s, n, _)| rva >= s && rva < s + n).expect("rva in a section");
+        let o = (file + rva - start) as usize;
+        &self.data[o..o + len]
+    }
+
+    fn u32(&self, rva: u32) -> u32 {
+        u32::from_le_bytes(self.at(rva, 4).try_into().unwrap())
+    }
+
+    /// The body of `class`'s slot at `offset`.
+    fn slot_body(&self, class: Class, offset: u16, len: usize) -> &[u8] {
+        let f = self.u32(class.vtable_rva() + offset as u32) - self.image_base;
+        self.at(f, len)
+    }
+}
+
+fn pe() -> Option<Pe> {
+    let pe = Pe::load();
+    if pe.is_none() {
+        eprintln!("jgl.dll not found (CIV3_JGL_DLL): skipped");
+    }
+    pe
+}
+
+fn contains(hay: &[u8], needle: &[u8]) -> bool {
+    hay.windows(needle.len()).any(|w| w == needle)
+}
+
+fn disp32(field: usize) -> [u8; 4] {
+    (field as u32).to_le_bytes()
+}
+
+#[test]
+fn every_slot_is_where_the_catalogue_says() {
+    let Some(pe) = pe() else { return };
+    assert_eq!(pe.image_base, jgl_ffi::PREFERRED_BASE);
+    for class in Class::ALL {
+        for slot in class.slots() {
+            let f = pe.u32(class.vtable_rva() + slot.offset as u32) - pe.image_base;
+            assert_eq!(f, slot.rva, "{class:?}+{:#x}", slot.offset);
+        }
+    }
+}
+
+#[test]
+fn factories_allocate_the_layout_sizes() {
+    let Some(pe) = pe() else { return };
+    // graphics +0x74..+0x80: push size; call operator new.
+    for (slot, class) in [(0x74, Class::Font), (0x78, Class::ColorTable), (0x7C, Class::Image), (0x80, Class::Sprite)] {
+        let body = pe.slot_body(Class::Graphics, slot, 0x30);
+        let size = class.object_size();
+        let push = if size < 0x80 { vec![0x6A, size as u8] } else { [&[0x68][..], &size.to_le_bytes()].concat() };
+        assert!(contains(body, &push), "{class:?}");
+    }
+}
+
+#[test]
+fn image_getters_read_the_layout_fields() {
+    let Some(pe) = pe() else { return };
+    let body = |o| pe.slot_body(Class::Image, o, 32);
+    // lea eax, [ecx + clip]; ret
+    assert_eq!(&body(0xCC)[..4], &[0x8D, 0x41, offset_of!(JglImage, clip) as u8, 0xC3]);
+    assert_eq!(&body(0xD4)[..4], &[0x8D, 0x41, offset_of!(JglImage, image_rect) as u8, 0xC3]);
+    assert_eq!(&body(0xE4)[..4], &[0x8D, 0x41, offset_of!(JglImage, bit_count) as u8, 0xC3]);
+    // mov eax, [ecx + right]; mov edx, [ecx + left]; sub; ret
+    let r = offset_of!(JglImage, image_rect);
+    assert_eq!(&body(0xD8)[..9], &[0x8B, 0x41, (r + 8) as u8, 0x8B, 0x51, r as u8, 0x2B, 0xC2, 0xC3]);
+    assert_eq!(&body(0xDC)[..9], &[0x8B, 0x41, (r + 12) as u8, 0x8B, 0x51, (r + 4) as u8, 0x2B, 0xC2, 0xC3]);
+    assert_eq!(&body(0xE0)[..4], &[0x8B, 0x41, offset_of!(JglImage, row_width) as u8, 0xC3]);
+    assert_eq!(&body(0xE8)[..4], &[0x8B, 0x41, offset_of!(JglImage, field_7c) as u8, 0xC3]);
+    assert_eq!(&body(0xC0)[..7], &[[0x8B, 0x81].as_slice(), &disp32(offset_of!(JglImage, color_key)), &[0xC3]].concat()[..]);
+    // lock: mov eax, [ecx + bits]
+    assert_eq!(&body(0x10)[..6], &[[0x8B, 0x81].as_slice(), &disp32(offset_of!(JglImage, bits))].concat()[..]);
+    // acquire_dc: mov eax, [ecx + dc] ... mov [ecx + current_dc], eax
+    assert!(contains(body(0x28), &[[0x8B, 0x81].as_slice(), &disp32(offset_of!(JglImage, dc))].concat()));
+    assert!(contains(body(0x28), &[[0x89, 0x81].as_slice(), &disp32(offset_of!(JglImage, current_dc))].concat()));
+}
+
+#[test]
+fn the_image_constructor_stores_owner_and_bitmap_header() {
+    let Some(pe) = pe() else { return };
+    let ctor = pe.at(0x15F0, 0x120);
+    // mov [esi + owner], ecx
+    assert!(contains(ctor, &[[0x89, 0x8E].as_slice(), &disp32(offset_of!(JglImage, owner))].concat()));
+    // mov dword [esi + bitmap_info], 0x28
+    assert!(contains(ctor, &[[0xC7, 0x86].as_slice(), &disp32(offset_of!(JglImage, bitmap_info)), &0x28u32.to_le_bytes()].concat()));
+    // mov [esi + color_key], eax
+    assert!(contains(ctor, &[[0x89, 0x86].as_slice(), &disp32(offset_of!(JglImage, color_key))].concat()));
+}
+
+#[test]
+fn sprite_colour_table_and_font_getters() {
+    let Some(pe) = pe() else { return };
+    let sprite = |o| pe.slot_body(Class::Sprite, o, 8);
+    assert_eq!(&sprite(0x14)[..4], &[0x8B, 0x41, offset_of!(JglSprite, color_table) as u8, 0xC3]);
+    assert_eq!(&sprite(0x1C)[..4], &[0x8B, 0x41, offset_of!(JglSprite, key) as u8, 0xC3]);
+    assert_eq!(&sprite(0x20)[..4], &[0x8B, 0x41, offset_of!(JglSprite, field_14) as u8, 0xC3]);
+    let table = |o| pe.slot_body(Class::ColorTable, o, 8);
+    assert_eq!(&table(0x18)[..7], &[[0x8D, 0x81].as_slice(), &disp32(offset_of!(JglColorTable, table16_a)), &[0xC3]].concat()[..]);
+    assert_eq!(&table(0x1C)[..7], &[[0x8D, 0x81].as_slice(), &disp32(offset_of!(JglColorTable, table16_b)), &[0xC3]].concat()[..]);
+    // font +0x0C release: mov eax, [esi + hfont]; later mov eax, [esi + resource]
+    let release = pe.slot_body(Class::Font, 0x0C, 0x30);
+    assert!(contains(release, &[0x8B, 0x46, offset_of!(JglFont, hfont) as u8]));
+    assert!(contains(release, &[0x8B, 0x46, offset_of!(JglFont, resource) as u8]));
+    // image +0xA8 select_font reads [font + hfont].
+    assert!(contains(pe.slot_body(Class::Image, 0xA8, 0x20), &[0x8B, 0x4A, offset_of!(JglFont, hfont) as u8]));
+}
+
+#[test]
+fn graphics_getters() {
+    let Some(pe) = pe() else { return };
+    let body = |o| pe.slot_body(Class::Graphics, o, 8);
+    let get = |field: usize| [[0x8B, 0x81].as_slice(), &disp32(field), &[0xC3]].concat();
+    assert_eq!(&body(0xA8)[..7], &get(offset_of!(JglGraphics, screen_width))[..]);
+    assert_eq!(&body(0xAC)[..7], &get(offset_of!(JglGraphics, screen_height))[..]);
+    assert_eq!(&body(0xB0)[..7], &get(offset_of!(JglGraphics, depth))[..]);
+    assert_eq!(&body(0x20)[..7], &get(offset_of!(JglGraphics, hwnd))[..]);
+    assert_eq!(&body(0x24)[..7], &get(offset_of!(JglGraphics, hinstance))[..]);
+    assert_eq!(&body(0x3C)[..7], &get(offset_of!(JglGraphics, dc))[..]);
+}
+
+#[test]
+fn text_slot_bodies_are_the_ones_taken_over() {
+    let Some(pe) = pe() else { return };
+    // text_out: TextOutA(dc, x, y, text, len) between acquire/release, ret 0x10.
+    let body = pe.slot_body(Class::Image, 0xB8, 0x40);
+    assert_eq!(&body[..3], &[0x56, 0x8B, 0xF1]);
+    assert!(contains(body, &[0xC2, 0x10, 0x00]));
+    // set_text_color16: and ecx, 0xFFFF; or ecx, 0x10FF0000.
+    let body = pe.slot_body(Class::Image, 0xB0, 0x30);
+    assert!(contains(body, &[0x81, 0xE1, 0xFF, 0xFF, 0x00, 0x00, 0x81, 0xC9, 0x00, 0x00, 0xFF, 0x10]));
+    // font create: weight 0x2BC for flag bit 0.
+    assert!(contains(pe.slot_body(Class::Font, 0x08, 0xA0), &[0x81, 0xE1, 0xBC, 0x02, 0x00, 0x00]));
+}
