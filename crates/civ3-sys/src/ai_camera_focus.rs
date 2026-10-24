@@ -214,6 +214,11 @@ fn focus_bombard(game: Civ3, policy: Policy, unit: u32, target: (i32, i32)) {
 /// Install all semantic hooks as one transaction. Callers must `forget` the
 /// returned handles together; a partial install is not safe because movement,
 /// bombard and combat visibility must share the same visibility gates.
+/// Called on the game's thread after each `Unit::move` while the native
+/// camera is parked, with the unit (set once: a walk's end,
+/// `civ3_bridge::unit_slides`).
+pub static AFTER_MOVE: std::sync::OnceLock<Box<dyn Fn(u32) + Send + Sync>> = std::sync::OnceLock::new();
+
 pub fn install(game: Civ3) -> Result<(unit_move::Installed, unit_bombard::Installed, combat_visibility::Installed), inproc::hook::HookError> {
     let Some(s) = sites(game.build) else { return Err(inproc::hook::HookError::Unsupported) };
     let visible = crate::unit_views::visible_to::Function::at(0x5B_B360, &[0x83, 0xEC, 0x14, 0x53, 0x8B, 0x5C, 0x24, 0x1C])?;
@@ -232,6 +237,7 @@ pub fn install(game: Civ3) -> Result<(unit_move::Installed, unit_bombard::Instal
         let no_op = unit_tile(call.unit) == Some(target);
         if !no_op { focus_move_unit(game, movement_policy, call.unit, target); }
         call.original();
+        if let Some(after) = AFTER_MOVE.get() { after(call.unit); }
     })?;
     let bombard_policy = policy;
     let bombard = match unit_bombard::install_at_start(s.unit_bombard.0, s.unit_bombard.1, move |call| {

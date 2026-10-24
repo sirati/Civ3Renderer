@@ -52,6 +52,35 @@ pub fn sites(build: Build) -> Option<Sites> {
     }
 }
 
+/// `UnitState_Go_To`: the unit walks its path (`Unit+0x64`).
+pub const GO_TO: u32 = 0x10;
+
+/// A unit's go-to: its state (`Unit+0x64`), its destination
+/// (`Unit+0xB0/0xB4`) and how many steps of its path are left
+/// (`Unit+0x1C0`; the path itself, neighbour indices consumed back to
+/// front, at `Unit+0xC0`). The step being taken is already taken off.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct GoTo {
+    pub state: u32,
+    pub dest: (i32, i32),
+    pub steps: u32,
+}
+
+pub fn go_to(unit: u32) -> Result<GoTo, inproc::MemError> {
+    let p = inproc::Ptr32::<u8>::new(unit);
+    let state = p.offset::<u32>(0x64)?.read()?;
+    let dest: [i32; 2] = p.offset::<[i32; 2]>(0xB0)?.read()?;
+    let steps = p.offset::<i32>(0x1C0)?.read()?.clamp(0, 256) as u32;
+    Ok(GoTo { state, dest: (dest[0], dest[1]), steps })
+}
+
+impl GoTo {
+    /// How many more tiles a walk whose step goes to `to` has planned.
+    pub fn planned(&self, to: (i32, i32)) -> u32 {
+        if self.state == GO_TO && self.dest != to { self.steps } else { 0 }
+    }
+}
+
 /// The slide's length in ms as the game takes it: `ms`, a tenth of it when
 /// Shift (down) and Caps Lock (on) differ (`0x5BA913..0x5BA949`: the
 /// signed division by 10 of `imul 0x66666667` / `sar 2`).
@@ -145,6 +174,25 @@ mod tests {
         for _ in 1..9 { now = step_due_ms(now, 100, 9); }
         assert_eq!(now, 88);
         assert_eq!(step_due_ms(now, 100, 9), 100);
+    }
+
+    #[test]
+    fn a_go_to_plans_its_path_s_steps_until_its_destination() {
+        let walking = GoTo { state: GO_TO, dest: (20, 30), steps: 4 };
+        assert_eq!(walking.planned((18, 30)), 4);
+        assert_eq!(walking.planned((20, 30)), 0, "the last step");
+        assert_eq!(GoTo { state: 1, ..walking }.planned((18, 30)), 0, "not on a go-to: a step on its own");
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn a_go_to_is_read_from_the_unit() {
+        let mut unit = [0u8; 0x1C4];
+        unit[0x64] = 0x10;
+        unit[0xB0..0xB4].copy_from_slice(&7i32.to_le_bytes());
+        unit[0xB4..0xB8].copy_from_slice(&9i32.to_le_bytes());
+        unit[0x1C0..0x1C4].copy_from_slice(&3i32.to_le_bytes());
+        assert_eq!(go_to(unit.as_ptr() as usize as u32).unwrap(), GoTo { state: GO_TO, dest: (7, 9), steps: 3 });
     }
 
     #[test]
