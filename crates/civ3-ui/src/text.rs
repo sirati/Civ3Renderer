@@ -134,7 +134,7 @@ mod tests {
         let o = out.clone();
         let capture = TextCapture::new(move |t: CanvasText| o.borrow_mut().push(t));
         let stock = FontDesc { face: "System".into(), height: 16, weight: 700, italic: false, underline: false };
-        let mut j = Jgl::new(Hooks { text: Box::new(capture), policy: Box::new(jgl::hooks::NoHooks) }, stock);
+        let mut j = Jgl::new(Hooks { text: Box::new(capture), ..Hooks::default() }, stock);
         let (img, font) = (ImageId(0x10), FontId(0x20));
         j.with(|p| p.image_reset(img));
         j.with(|p| p.font_created(font, 12, 1, b"Times New Roman"));

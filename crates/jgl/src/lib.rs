@@ -18,18 +18,20 @@
 
 pub mod counts;
 pub mod display;
+pub mod draw;
 pub mod hooks;
 mod machine;
 pub mod record;
 pub mod slots;
 pub mod text;
 
-pub use hooks::{Hooks, PixelPolicy, TextDraw, TextHooks};
+pub use draw::{CopyCall, FillCall, Surface};
+pub use hooks::{CopyHooks, FillHooks, Hooks, PixelPolicy, TextDraw, TextHooks};
 pub use machine::{Consumer, Jgl, Producer};
 pub use text::{FontDesc, TextColor};
 
 /// A `JGL_Image` (surface), by its address in the game's process.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ImageId(pub u32);
 
 /// A jgl font object, by its address. [`FontId::STOCK`] (0) is the stock
