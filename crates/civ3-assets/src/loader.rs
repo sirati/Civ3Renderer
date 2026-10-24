@@ -305,6 +305,7 @@ fn system_cursor(files: &GameFiles, spec: &str) -> Result<RgbaImage, String> {
     let found = crate::syscursor::find(&crate::syscursor::user32_candidates(files.roots()), id, size);
     let c = found.unwrap_or_else(|e| {
         log::warn!("{e}: left clear");
+        render_errors::report(render_errors::Kind::MissingSprite, "a system cursor image, left clear", format_args!("{e}"));
         crate::syscursor::CursorImage { width: 0, height: 0, rgba: Vec::new(), hotspot: (0, 0) }
     });
     Ok(RgbaImage::from_fn(size, size, |x, y| {

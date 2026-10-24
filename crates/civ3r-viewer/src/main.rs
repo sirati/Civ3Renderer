@@ -133,6 +133,10 @@ fn session(
                     break 'serve;
                 }
             }
+            // This process's render errors, for the game's render error log.
+            for line in render_errors::take_forward() {
+                viewer_transport::write_message(&mut stream, &Message::Error(line))?;
+            }
             if stop.load(Ordering::Acquire) {
                 viewer_transport::write_message(&mut stream, &Message::Quit)?;
                 break;

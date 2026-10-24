@@ -228,17 +228,40 @@ mod unix_side {
     type Art = (render_desc::Compiled, render_desc::Growing);
     static FIRST_ART: LazyLock<Mailbox<Art>> = LazyLock::new(Mailbox::new);
 
+    /// An art compile that failed: its message, and the render error it is
+    /// (`render_desc::DescError::render_error`: kind, class of what failed).
+    struct Failed(String, render_errors::Kind, String);
+
+    impl From<render_desc::DescError> for Failed {
+        fn from(e: render_desc::DescError) -> Self {
+            let (kind, class) = e.render_error();
+            Failed(e.to_string(), kind, class)
+        }
+    }
+
+    impl std::fmt::Display for Failed {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    /// The context of art `a`'s errors: what it is for (the screen it was
+    /// asked for on), and the class of what failed.
+    fn art_context(a: &scene::wire::Assets, class: &str) -> String {
+        format!("{}; {class}", if a.context.is_empty() { "art" } else { &a.context })
+    }
+
     /// The art of `a` (a whole description) compiled, kept to be grown.
-    fn compile(a: &scene::wire::Assets, stop: &dyn Fn() -> bool) -> Result<(render_desc::Compiled, render_desc::Growing), String> {
+    fn compile(a: &scene::wire::Assets, stop: &dyn Fn() -> bool) -> Result<(render_desc::Compiled, render_desc::Growing), Failed> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
-        let desc = render_desc::Description::parse(&a.description).map_err(|e| e.to_string())?;
+        let desc = render_desc::Description::parse(&a.description)?;
         // Pages for this GPU, the same the driver's compile of the tables
         // checks against (`CALL_LIMITS`), as large as the description's
         // largest sprite (or what it may grow by) needs: both sides agree on
         // nothing but names and values (the atlas itself never crosses).
         let max_page = max_page();
         let started = std::time::Instant::now();
-        let (compiled, growing) = desc.compile_growing(&render_desc::StopWhen::new(Civ3Loader::new(files), stop), max_page, true).map_err(|e| e.to_string())?;
+        let (compiled, growing) = desc.compile_growing(&render_desc::StopWhen::new(Civ3Loader::new(files), stop), max_page, true)?;
         if compiled.atlas.page_size > render_desc::DEFAULT_PAGE {
             log::info!("civ3r-native: art {}: atlas pages of {1}×{1} for a sprite of {2}", a.generation, compiled.atlas.page_size, desc.largest_sprite());
         }
@@ -258,11 +281,11 @@ mod unix_side {
 
     /// The growth of the art by `a` (an addition), applied to the tables
     /// kept.
-    fn grow(a: &scene::wire::Assets, stop: &dyn Fn() -> bool, art: &mut Option<Art>) -> Result<render_desc::Growth, String> {
+    fn grow(a: &scene::wire::Assets, stop: &dyn Fn() -> bool, art: &mut Option<Art>) -> Result<render_desc::Growth, Failed> {
         let files = GameFiles::with_roots(a.roots.iter().map(|r| unix_path(r)).collect());
-        let Some((compiled, growing)) = art.as_mut() else { return Err("no art to grow".into()) };
+        let Some((compiled, growing)) = art.as_mut() else { return Err(Failed("no art to grow".into(), render_errors::Kind::ArtHandOver, "a growth without its art".into())) };
         let started = std::time::Instant::now();
-        let growth = growing.grow(compiled, &a.description, &render_desc::StopWhen::new(Civ3Loader::new(files), stop)).map_err(|e| e.to_string())?;
+        let growth = growing.grow(compiled, &a.description, &render_desc::StopWhen::new(Civ3Loader::new(files), stop))?;
         compiled.apply(&growth);
         let (rgba, index) = growing.pages();
         log::info!(
@@ -288,6 +311,7 @@ mod unix_side {
             let max = probed.ok().and_then(|_| rx.recv().ok()).flatten();
             max.unwrap_or_else(|| {
                 log::warn!("civ3r-native: the GPU's texture limit is unknown, atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE);
+                render_errors::report(render_errors::Kind::Gpu, "texture limit unknown", format_args!("atlas pages of at most {}", render_desc::ANY_DEVICE_PAGE));
                 render_desc::ANY_DEVICE_PAGE
             })
         })
@@ -358,6 +382,7 @@ mod unix_side {
                         // comes. (A sheet whose pixels fail does not get
                         // here: it is compiled clear, `render_desc`.)
                         log::error!("civ3r-native: art {}: {e}; no art grown until the next whole description", a.generation);
+                        render_errors::report(e.1, &art_context(&a, &e.2), format_args!("art {}: {e}", a.generation));
                         if a.append { art = None; }
                         continue;
                     }
@@ -396,6 +421,7 @@ mod unix_side {
             Ok(a) => a,
             Err(e) => {
                 log::error!("civ3r-native: assets: {e}");
+                render_errors::report(render_errors::Kind::ArtHandOver, "the art's bytes", format_args!("{e}"));
                 return STATUS_INVALID_PARAMETER;
             }
         };
@@ -405,6 +431,7 @@ mod unix_side {
                 Ok(()) => STATUS_SUCCESS,
                 Err(e) => {
                     log::error!("civ3r-native: starting the art thread: {e}");
+                    render_errors::report(render_errors::Kind::ArtHandOver, "the art thread", format_args!("starting it: {e}"));
                     STATUS_UNSUCCESSFUL
                 }
             };
@@ -412,6 +439,7 @@ mod unix_side {
         // The first, before the viewer starts.
         if a.append {
             log::error!("civ3r-native: art {}: an addition before any art", a.generation);
+            render_errors::report(render_errors::Kind::ArtHandOver, "an addition before any art", format_args!("art {}", a.generation));
             return STATUS_INVALID_PARAMETER;
         }
         let generation = a.generation;
@@ -422,6 +450,7 @@ mod unix_side {
             }
             Err(e) => {
                 log::error!("civ3r-native: assets: {e}");
+                render_errors::report(e.1, &art_context(&a, &e.2), format_args!("the first art ({generation}): {e}"));
                 return STATUS_UNSUCCESSFUL;
             }
         };
@@ -443,6 +472,7 @@ mod unix_side {
         let started = start_viewer(config, a, display, QuitWhenStopped(quit));
         if let Err(e) = started {
             log::error!("civ3r-native: starting the viewer: {e}");
+            render_errors::report(render_errors::Kind::Viewer, "starting it", format_args!("{e}"));
             return STATUS_UNSUCCESSFUL;
         }
         log::info!("civ3r-native: viewer started");
@@ -499,6 +529,7 @@ mod unix_side {
             let _quit = quit;
             if let Err(e) = tile_viewer::run(config, assets, display) {
                 log::error!("civ3r-native: viewer: {e}");
+                render_errors::report(render_errors::Kind::Viewer, "running", format_args!("{e}"));
             }
         })
         .map(drop)
@@ -515,7 +546,10 @@ mod unix_side {
             let _quit = quit;
             match end {
                 Ok(()) => log::info!("civ3r-native: viewer closed"),
-                Err(e) => log::error!("civ3r-native: viewer: {e}"),
+                Err(e) => {
+                    log::error!("civ3r-native: viewer: {e}");
+                    render_errors::report(render_errors::Kind::Viewer, "running", format_args!("{e}"));
+                }
             }
         }));
         Ok(())
@@ -558,6 +592,7 @@ mod unix_side {
             Ok(u) => u,
             Err(e) => {
                 log::warn!("civ3r-native: updates: {e}");
+                render_errors::report(render_errors::Kind::SceneTransfer, "updates from the bridge", format_args!("{e}"));
                 return STATUS_INVALID_PARAMETER;
             }
         };
@@ -607,7 +642,11 @@ mod unix_side {
         for line in FOR_DRIVER.drain() {
             queue.push(line);
         }
-        queue.take()
+        let mut lines = queue.take();
+        // This side's render errors, for the bridge's render error log and
+        // counts (after the queue: never folded or dropped as repeats).
+        lines.extend(render_errors::take_forward().into_iter().map(|message| crate::log_lines::LogLine { level: log::Level::Error, target: render_errors::TARGET.into(), message }));
+        lines
     }
 
     pub fn take_log(args: &mut TakeLog) -> Status {

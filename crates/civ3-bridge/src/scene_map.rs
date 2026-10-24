@@ -96,6 +96,7 @@ impl<'a> Mapper<'a> {
         let value = *cache.entry((index, sprite, palette)).or_insert_with_key(|(_, s, p)| {
             self.compiled.value_in(layer, s, *p).unwrap_or_else(|| {
                 log::warn!("layer {layer} has no sprite {s}");
+                render_errors::report(render_errors::Kind::MissingSprite, &format!("map layer {layer}; {}", render_errors::class_of(s)), format_args!("{s}"));
                 0
             })
         });

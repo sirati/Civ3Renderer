@@ -166,6 +166,8 @@ pub fn worker(
             let mut queue = jobs.queue();
             while let Some(a) = queue.pop() {
                 let stop = || jobs.superseded(a.generation);
+                // The render error a failed compile is (`render_errors`).
+                let mut failed: Option<(render_errors::Kind, String)> = None;
                 let result = (|| -> Result<(), String> {
                     let roots = a
                         .roots
@@ -183,7 +185,7 @@ pub fn worker(
                             .ok_or("an art addition arrived before a whole description")?;
                         let growth = growing
                             .grow(compiled, &a.description, &loader)
-                            .map_err(|e| e.to_string())?;
+                            .map_err(|e| { failed = Some(e.render_error()); e.to_string() })?;
                         compiled.apply(&growth);
                         jobs.with_current(a.generation, || {
                             if let Some(assets) = state.assets.get() {
@@ -197,10 +199,10 @@ pub fn worker(
                         });
                     } else {
                         let desc = render_desc::Description::parse(&a.description)
-                            .map_err(|e| e.to_string())?;
+                            .map_err(|e| { failed = Some(e.render_error()); e.to_string() })?;
                         let (compiled, growing) = desc
                             .compile_growing(&loader, max_page, true)
-                            .map_err(|e| e.to_string())?;
+                            .map_err(|e| { failed = Some(e.render_error()); e.to_string() })?;
                         let tables = compiled.without_pixels();
                         let accepted = jobs.with_current(a.generation, || {
                             // Only this thread sets it.
@@ -239,6 +241,8 @@ pub fn worker(
                 if let Err(error) = result {
                     if !stop() {
                         log::error!("native art {}: {error}", a.generation);
+                        let (kind, class) = failed.take().unwrap_or((render_errors::Kind::ArtHandOver, "its folders or order".into()));
+                        render_errors::report(kind, &format!("{}; {class}", if a.context.is_empty() { "art" } else { &a.context }), format_args!("art {}: {error}", a.generation));
                         let _ = errors.try_send(viewer_transport::Message::Error(format!(
                             "art {}: {error}",
                             a.generation
