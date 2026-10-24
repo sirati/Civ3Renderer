@@ -887,7 +887,7 @@ show_if = "tab=layout & host.macos"
 [[panels.preferences.items]]
 image = "section"
 at = [540, 86]
-size = [424, 328]
+size = [424, 344]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -1016,9 +1016,21 @@ style = "label"
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
+checkbox = "input.snap_lists_to_items"
+at = [572, 312]
+size = [378, 16]
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+text = "Snap lists to items"
+style = "label"
+enable_if = "input.smooth_menu_scrolling"
+show_if = "tab=layout"
+
+[[panels.preferences.items]]
 text = "Captured mouse sensitivity"
 style = "label"
-at = [552, 322]
+at = [552, 344]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -1026,7 +1038,7 @@ slider = "input.capture_sensitivity"
 tick_step = 1
 tick_label_step = 1
 tick_style = "ruler"
-at = [552, 344]
+at = [552, 366]
 size = [300, 23]
 normal = "track"
 knob = "knob"
@@ -1042,13 +1054,13 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Only changes the captured world cursor."
 style = "caption"
-at = [552, 382]
+at = [552, 404]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Combat animation speed"
 style = "label"
-at = [552, 420]
+at = [552, 442]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
@@ -1056,7 +1068,7 @@ slider = "animation.combat_speed"
 tick_step = 0.5
 tick_label_step = 1
 tick_style = "ruler"
-at = [552, 446]
+at = [552, 468]
 size = [300, 23]
 normal = "track"
 knob = "knob"
@@ -1072,20 +1084,20 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Fighting animations only. Sound keeps its normal pitch and timing."
 style = "caption"
-at = [552, 484]
+at = [552, 506]
 size = [398, 36]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Unit buttons (two views)"
 style = "label"
-at = [552, 530]
+at = [552, 552]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 choice = "layout.unit_buttons"
 value = "Spanning"
-at = [552, 552]
+at = [552, 574]
 size = [150, 26]
 text = "Spanning"
 style = "button"
@@ -1099,7 +1111,7 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 choice = "layout.unit_buttons"
 value = "ActiveView"
-at = [710, 552]
+at = [710, 574]
 size = [150, 26]
 text = "Active view"
 style = "button"
@@ -1113,13 +1125,13 @@ show_if = "tab=layout"
 [[panels.preferences.items]]
 text = "Spanning: across both views, a gap at the divider."
 style = "caption"
-at = [552, 584]
+at = [552, 606]
 show_if = "tab=layout"
 
 [[panels.preferences.items]]
 text = "Active view: in the mouse's view."
 style = "caption"
-at = [552, 602]
+at = [552, 624]
 show_if = "tab=layout"
 
 # Each map view can follow Civ III or choose its own detail.

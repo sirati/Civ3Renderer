@@ -219,24 +219,40 @@ the Hall of Fame, the load/save file list, text boxes, any vertical
 scroll bar under the pointer, the advisors' lists with the pointer on one
 of their buttons, and diplomacy's trade trees. The bridge does each notch
 as the game's own arrow click on that control (`civ3_bridge::ui_wheel`);
-these step without the smooth slide.
+these step without smooth scrolling.
 
-The Layout tab's **Smooth scrolling in menu lists** option animates rows
-in scrollable lists, including the city's production chooser. It is off
-by default and independent of smooth world movement. The game receives
-wheel input immediately; confirmed row changes slide through the list's
-bounds, and clicks follow the visible row. Lists without matching rows
-across an update change immediately. Alt button snapping keeps its own
-scroll behavior. During a slide the list shows the game's newest drawing
-except for rows that have already left the game's list. The game draws
+The Layout tab's **Smooth scrolling in menu lists** option scrolls the
+game's lists (those with entries the bridge names: the city's production
+chooser, the advisors' tables, list boxes such as the Civilopedia's and
+the file lists) by pixels (`tile_viewer::smooth_menus`). It is off by
+default and independent of smooth world movement. The wheel and the
+trackpad move a list's own position at once and additively: a notch
+glides there (the Alt mode's 0.1 s time constant), a trackpad moves it
+with the fingers, and new input during a glide changes where it goes
+without waiting. The list stops at any pixel. Only once the input has
+rested for 0.15 s, and only with **Snap lists to items** (on by default),
+does it glide to an item's edge: the nearest one, or the next one in the
+direction it moved once it is a third of an item past the last. The game
+can only show whole items. The viewer keeps the game's drawings of the
+list on the way and draws each row's band at the list's position from
+the newest drawing that has the row; the game's position is the list's
+rounded towards where it goes, an item ahead while it moves, reached by
+the wheel notches the viewer sends; a position no drawing covers yet is
+waited for, and the list stops where the game does at an end. The
+pointer and clicks go to the row shown under them, in the game's
+position once it has the notches sent; a press on a row the game does not
+hold yet sends the notch that brings it in first, and the game's
+position stays while a button is held. In the Alt mode the wheel's
+notches (and the motion that scrolls a list) move the list the same way,
+and the snapping targets are the rows where they show. The game draws
 its highlight under the pointer into the list (a list box's selection
 that follows the pointer). The viewer learns that highlight from the
 game's drawing when the game's pointer moves onto a row and lights it
 with no click or key: what the highlight adds and which colours it
 changes must turn the row's plain drawing into its lit one exactly and
-back. A learned highlight is drawn on the row under the pointer in every
-frame of a slide, and for up to 0.3 s after it until the game shows the
-same row lit.
+back. Wherever the list shows away from the game's drawing, a learned
+highlight is drawn on the row under the pointer. Lists without matching
+rows across an update change immediately.
 
 The game decides what its interface shows; how a control looks under the
 pointer the viewer draws itself, at its own frame rate
