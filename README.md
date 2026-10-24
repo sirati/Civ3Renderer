@@ -19,6 +19,7 @@ game could drive the same renderer, with or without Civ III's art.
 | `tile-render-shaders` | no | rust-gpu shaders (built by `tile-render`'s build script) |
 | `tile-render` | no | wgpu renderer for layered tile worlds; CPU reference renderer |
 | `render-desc` | no | TOML render descriptions → atlas, sprite sets, layers |
+| `render-errors` | no | render errors by kind and context: deduplicated per game run, counted, logged to `civ3-render-errors.log` |
 | `scene` | no | world snapshots and input events between driver and renderer |
 | `menu` | no | TOML menus (images, buttons, glyph text) as screen-space sprites, hit testing; panels of controls (choices, tabs, checkboxes, sliders) bound to named values, drawn as run-time screen elements and text; run-time screens (image regions, fills, clipped) |
 | `viewer-settings` | no | the viewer's own settings (resolution, layout, input) saved as TOML, and as named controls for a preferences screen |
@@ -703,6 +704,59 @@ The districts of the C3X mod (`civ3_bridge::districts`, docs §18) are read
 from C3X's state in the game and drawn by C3X's rules; `tools/district-oracle`
 runs C3X's own choice functions, cut out of its source, over all their inputs
 for the tests.
+
+## Render errors
+
+Render errors go to their own log, `civ3-render-errors.log`, next to
+`civ3-bridge.log` in the game's folder (crate `render-errors`). The file is
+made anew at each game start.
+
+Each error has a kind and a context. The context is where it happened (the
+screen or surface) and the class of asset. Details that vary between
+occurrences, such as which leader, tile, file or sprite, are not part of
+the context. The kind and context together are the error's type. Each type
+is logged once per game run, with the details of its first occurrence and
+the side that reported it (`bridge`, `native`, `viewer`). "The Greek leader
+failed to load" and "the Roman leader failed to load" on the same screen are
+one type. The same failure on another screen is another type. Every report
+is counted, and the end of the file lists the count per type, rewritten at
+most once a second while counts change. The first report of a type also
+goes to `civ3-bridge.log` (target `render_error`).
+
+The bridge, the native unixlib and a separate viewer process each keep
+their own lock-free table of types. The table is keyed by a stable 64-bit
+hash of the kind and context, so a report never waits on a lock. The native
+side sends its first reports and counts to the bridge with its log lines; a
+viewer process sends them over its connection. The bridge's log writer owns
+the file and keeps each type once, whichever side reported it first.
+
+While render errors happen, the viewer shows "During the last second, N
+rendering errors happened." in the game's message area at the top left,
+below the corner buttons and below every chat or log message there. It
+never covers or moves a message. N counts every error of the last second
+on all sides, including repeats of types already logged. The number
+changes at most four times a second. The notice stays for one second after
+the last error, so a single error can be read. It is drawn in the game's
+message font (Lucida Sans, white with a dark shadow) at the HUD scale.
+
+| Kind | What |
+| --- | --- |
+| `ArtDescription` | the art description could not be read (its TOML, an unknown name, a layer's palette sets) |
+| `ArtImage` | an image of the art could not be loaded, or is in none of the art folders |
+| `ArtSheet` | a sheet of the art could not be cut (also one left clear) |
+| `Atlas` | the atlas refused art: a sprite too large, more pages than the GPU has, a failed atlas transfer |
+| `ArtHandOver` | art could not be handed to the renderer (art thread gone, call or bytes refused) |
+| `ArtNotAdopted` | art adopted out of order (routine supersession is not an error) |
+| `MissingSprite` | a sprite a scene or the interface names is not in the art |
+| `MissingFont` | a font or its glyph sheets are missing |
+| `TextShape` | text has characters its font cannot draw |
+| `UnsupportedDraw` | a game draw the mirror cannot take |
+| `Gpu` | GPU failures: unknown texture limit, surface, adapter, software present |
+| `SceneTransfer` | scene updates or input could not be decoded or delivered |
+| `Viewer` | the viewer could not start or stopped with an error |
+| `RenderWorker` | the render worker failed or refused a frame |
+| `VisibleArtMissing` | art a screen shows did not arrive and is drawn as nothing |
+| `ViewsLeftOut` | more views than the renderer draws; some were left out |
 
 ## Building
 
