@@ -197,3 +197,115 @@ fn cursor_shots() {
         sheet(&[normal, busy[0].clone(), busy[2].clone(), specials[0].clone(), stuck[0].clone()], 1).save(dir.join(format!("actual-size-{size}.png"))).unwrap();
     }
 }
+
+/// The game's Civilopedia book (cell 13) as the system cursor and as the
+/// viewer's drawing: the arrow's tip its hot spot, at 1× and 2×, the busy
+/// badge beside the book without covering the tip. Skipped without the
+/// game's files.
+#[test]
+fn the_civilopedia_pointer_from_the_games_art() {
+    let prefix = std::env::var("WINEPREFIX").unwrap_or_else(|_| "/mnt/datasets/winvm/wine-civ3".into());
+    if !std::path::Path::new(&prefix).join("drive_c/Games/Civilization III Complete/Art/Cursor.pcx").exists() {
+        return eprintln!("no game files, skipped");
+    }
+    let (art, compiled) = art();
+    let book = compiled.set(&ifc23::cursor::set_name(ifc23::cursor::CIVILOPEDIA)).unwrap().0.raw();
+    let arrow = compiled.set("Viewer@cursors/0").unwrap().0.raw();
+    // Its own pointer, not the arrow; a special one (busy: badge, never the
+    // hourglass in its place).
+    assert!(art.special(scene::Cursor::Sprite(book)));
+    assert_eq!(art.system_shown(scene::Cursor::Sprite(book)), scene::Cursor::Sprite(book));
+    let plain = art.get(book).unwrap();
+    assert_eq!((plain.size, plain.hotspot), ((32, 32), (1, 1)));
+    for (size, n) in [(32u32, 1u16), (64, 2)] {
+        let scale = Scale::new(size, 1);
+        let image = art.native_image(Shown::Custom(book), scale).unwrap();
+        assert_eq!((image.size, image.hotspot), ((32 * n, 32 * n), (n, n)), "{size}");
+        // The tip shows: its pixel is the art's.
+        assert_ne!(image.rgba[((n as usize * image.size.0 as usize) + n as usize) * 4 + 3], 0);
+        let badged = art.native_image(art.badged(book, std::time::Duration::ZERO).unwrap(), scale).unwrap();
+        assert_eq!(badged.hotspot, image.hotspot, "{size}: the badge keeps the hot spot");
+        // The book's own pixels are all still there (the badge sits beside it).
+        let (w, ow) = (badged.size.0 as usize, image.size.0 as usize);
+        for y in 0..image.size.1 as usize {
+            for x in 0..ow {
+                let p = &image.rgba[(y * ow + x) * 4..][..4];
+                if p[3] == 0 { continue; }
+                assert_eq!(&badged.rgba[(y * w + x) * 4..][..4], p, "{size}: covered at {x},{y}");
+            }
+        }
+    }
+    let place = art.badge_for(book, (32, 32), (1, 1)).unwrap();
+    assert_ne!(Some(place), art.badge_for(arrow, (32, 32), (1, 1)), "placed on the book's shape, not the arrow's");
+}
+
+/// The Civilopedia pointer over the F7 screen's Pyramids picture, as the
+/// system cursor (1× and 2×, plain and busy) and as the viewer's drawing in
+/// the Alt mode, on a viewer screenshot of the screen without a pointer
+/// (`CIV3R_PEDIA_BACKDROP`, a PNG; the tip at `CIV3R_PEDIA_AT`, "x,y").
+/// `CIV3R_CURSOR_SHOTS=/tmp/c3r-pedia-cursor-shots cargo test -p
+/// civ3-bridge --test cursor_shots -- --ignored pedia`.
+#[test]
+#[ignore = "needs the game's files and a screenshot; writes pictures"]
+fn pedia_cursor_shots() {
+    let dir = std::path::PathBuf::from(std::env::var("CIV3R_CURSOR_SHOTS").unwrap_or_else(|_| "/tmp/c3r-pedia-cursor-shots".into()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let backdrop = image::open(std::env::var("CIV3R_PEDIA_BACKDROP").expect("CIV3R_PEDIA_BACKDROP")).unwrap().to_rgba8();
+    let at: Vec<i32> = std::env::var("CIV3R_PEDIA_AT").unwrap_or_else(|_| "645,385".into()).split(',').map(|v| v.trim().parse().unwrap()).collect();
+    let (art, compiled) = art();
+    let book = compiled.set(&ifc23::cursor::set_name(ifc23::cursor::CIVILOPEDIA)).unwrap().0.raw();
+    let around = |picture: &RgbaImage, zoom: u32| {
+        let (x0, y0) = ((at[0] - 90).max(0) as u32, (at[1] - 70).max(0) as u32);
+        let crop = image::imageops::crop_imm(picture, x0, y0, 260, 180).to_image();
+        image::imageops::resize(&crop, 260 * zoom, 180 * zoom, image::imageops::FilterType::Nearest)
+    };
+    let put = |picture: &mut RgbaImage, image: &Image| {
+        let origin = (at[0] - image.hotspot.0 as i32, at[1] - image.hotspot.1 as i32);
+        for y in 0..image.size.1 as i32 {
+            for x in 0..image.size.0 as i32 {
+                let p = &image.rgba[((y * image.size.0 as i32 + x) * 4) as usize..][..4];
+                let (px, py) = (origin.0 + x, origin.1 + y);
+                if p[3] == 0 || px < 0 || py < 0 || px as u32 >= picture.width() || py as u32 >= picture.height() { continue; }
+                let under = picture.get_pixel(px as u32, py as u32).0;
+                let a = p[3] as u32;
+                let mix = |c: usize| ((p[c] as u32 * a + under[c] as u32 * (255 - a)) / 255) as u8;
+                picture.put_pixel(px as u32, py as u32, Rgba([mix(0), mix(1), mix(2), 255]));
+            }
+        }
+    };
+    for (size, name) in [(32, "1x"), (64, "2x")] {
+        let scale = Scale::new(size, 1);
+        for (busy, label) in [(false, "plain"), (true, "busy")] {
+            let shown = if busy { art.badged(book, std::time::Duration::from_millis(2 * scene::loading_cursor::FRAME_MS)).unwrap() } else { Shown::Custom(book) };
+            let image = art.native_image(shown, scale).unwrap();
+            let mut picture = backdrop.clone();
+            put(&mut picture, &image);
+            picture.save(dir.join(format!("f7-pyramids-system-{name}-{label}.png"))).unwrap();
+            around(&picture, 3).save(dir.join(format!("f7-pyramids-system-{name}-{label}-zoom3.png"))).unwrap();
+        }
+        // The viewer's own drawing (Alt mode, busy): `compose_with_busy`
+        // through the CPU reference renderer, over the screenshot.
+        let set = tile_render::SpriteSetId::from_raw(book);
+        let set_art = tile_viewer::cursor::SetArt::of(&compiled, set).unwrap();
+        let canvas = (backdrop.width(), backdrop.height());
+        let marks = tile_viewer::cursor::Marks { window: vec![(at[0], at[1])], ..Default::default() };
+        let out = tile_viewer::cursor::compose_with_busy(&compiled, &art, set_art, &marks, &[], &[], scale, canvas, 0, (0, 0), tile_viewer::host_status::Responsiveness::Busy);
+        let mut world = tile_render::TileWorld::new(tile_render::Grid { cols: 1, rows: 1, layout: tile_render::Layout::Orthogonal, wrap_x: false, wrap_y: false, step: (8, 8) }, compiled.sets.clone());
+        world.free = out.sprites;
+        let mut cameras = vec![tile_viewer::cursor::overlay_camera(canvas)];
+        cameras.extend(out.top);
+        let drawn = tile_render::reference::render_views(&world, &compiled.atlas, &cameras, canvas, 0, [0, 0, 0, 0]);
+        let mut picture = backdrop.clone();
+        for y in 0..canvas.1 {
+            for x in 0..canvas.0 {
+                let p = drawn.get(x, y);
+                if p[3] == 0 { continue; }
+                let under = picture.get_pixel(x, y).0;
+                let a = p[3] as u32;
+                let mix = |c: usize| ((p[c] as u32 * a + under[c] as u32 * (255 - a)) / 255) as u8;
+                picture.put_pixel(x, y, Rgba([mix(0), mix(1), mix(2), 255]));
+            }
+        }
+        around(&picture, 3).save(dir.join(format!("f7-pyramids-drawn-{name}-busy-zoom3.png"))).unwrap();
+    }
+}

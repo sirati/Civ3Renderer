@@ -7,6 +7,19 @@
 //! 12 is the "NEW UNIT" arrow, not a busy icon. The plain
 //! arrow, which the game leaves to the system, is shown with the game's
 //! own arrow art (cell 0) unless `CIV3R_SYSTEM_ARROW=1`.
+//!
+//! The cells of `Art\cursor.pcx` (PCGames 1.22 with C3X R21/R28, which
+//! adds no cursor of its own), all shown as the viewer's pointer:
+//! 0 the arrow; 1 and 18 blank (go-to, stack go-to: the marker on the map
+//! shows the target); 2 road to, 3 railroad to; 4 air drop (parachute);
+//! 5 "not here" ([`NOT_HERE`]); 6 bombard, 7 air bombard, 8 airlift,
+//! 9 recon (the viewer's capture pointer too), 10 rebase, 11 precision
+//! strike; 12 "NEW UNIT"; 13 the Civilopedia book ([`CIVILOPEDIA`]);
+//! 14 build colony; 15 to 17 the automatic bombard, air bombard and
+//! precision strike; 19 stack rebase; 20 and 21 the map's modes 0x14 and
+//! 0x15 (0x4E9E62, 0x4E9EB5); 22 empty, never used. Cells 1 to 12 and 14
+//! to 21 are the map form's, by `Unit_Mode_Actions` (0x4DC540, 0x4D9520,
+//! ...); 13 is the only one the screens set.
 
 use civ3_sys::cursor::GameCursor;
 use scene::{Cursor, SystemCursor};
@@ -42,6 +55,20 @@ pub fn scene_cursor(game: Option<GameCursor>, standard: Option<u16>, set: impl F
         },
     }
 }
+
+/// The Civilopedia book (cell 13: the arrow's tip over a book marked
+/// "C", hot spot (1, 1)): over what a click opens the Civilopedia on, when
+/// the preference `P_SHOW_PEDIA_BOOK_CURSOR` (0x80000 of 0xA52638) is on.
+/// Each screen's mouse move sets it on its form with 0x604350 (applied at
+/// once by 0x606A70) and the arrow (0x6043A0 `IDC_ARROW`) when the pointer
+/// leaves: the wonders of F7 (0x5D14F0: six inclusive RECTs at +0x19B8,
+/// one with a wonder, +0x1F34), the city screen's buildings, units and
+/// production (0x41E340, 0x4151A0), the domestic (0x51FF10), foreign
+/// (0x532770), military (0x56FB30) and cultural (0x4FBAC0) advisors, the
+/// espionage screen (0x52B3C0), diplomacy (0x50C230), the trade advisor
+/// (0x5AD690, its parts 0x5AD830..0x5AE890), the spaceship (F10, 0x5A45C0)
+/// and the wonder-completion splash (0x5D0140). C3X changes none of these.
+pub const CIVILOPEDIA: u32 = 13;
 
 /// The "not here" pointer (cell 5 of `Art\cursor.pcx`, a red circle with a
 /// slash).
@@ -81,6 +108,36 @@ mod tests {
 
     fn set(name: &str) -> Option<u32> {
         name.strip_prefix("Viewer@cursors/").and_then(|k| k.parse::<u32>().ok()).filter(|&k| k < 23).map(|k| 100 + k)
+    }
+
+    #[test]
+    fn the_civilopedia_book_is_its_own_pointer() {
+        // (The F7 screen over a wonder: the game's pointer sprite, cell 13.)
+        let s = civ3_sys::cursor::sites(civ3_sys::Build::PcGames).unwrap();
+        let book = civ3_sys::cursor::read(&Word(s.sprites + CIVILOPEDIA * s.stride), &s);
+        assert_eq!(book, Some(GameCursor::Sprite(CIVILOPEDIA)));
+        assert_eq!(set_name(CIVILOPEDIA), "Viewer@cursors/13");
+        // Its own art, whatever the last system pointer, the arrow's art
+        // or the system's.
+        for standard in [None, Some(32512)] {
+            for system_arrow in [false, true] {
+                assert_eq!(scene_cursor(book, standard, set, system_arrow), Cursor::Sprite(113));
+            }
+        }
+        // Over the world while a command waits on the interface: kept.
+        assert_eq!(targeting(book, 0, false, false), book);
+        // Left (the game sets the arrow): the arrow again.
+        assert_eq!(scene_cursor(Some(GameCursor::System), Some(32512), set, false), Cursor::Sprite(100));
+    }
+
+    struct Word(u32);
+    impl civ3_sys::controls::Mem for Word {
+        fn u32(&self, addr: u32) -> Option<u32> {
+            (addr == 0xCA_D2D0).then_some(self.0)
+        }
+        fn u8(&self, _: u32) -> Option<u8> {
+            None
+        }
     }
 
     #[test]
