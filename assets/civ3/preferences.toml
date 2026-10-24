@@ -2768,7 +2768,7 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 image = "section"
 at = [70, 443]
-size = [420, 212]
+size = [420, 236]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
@@ -2827,13 +2827,28 @@ show_if = "tab=accessibility"
 [[panels.preferences.items]]
 text = "How often mouse motion picks the next button."
 style = "caption"
-at = [90, 628]
+at = [90, 622]
+show_if = "tab=accessibility"
+
+# Recording the Alt mode for tuning its picking (`docs/alt-mode-recording.md`).
+[[panels.preferences.items]]
+checkbox = "input.record_alt_mode"
+text = "Record Alt mode interactions (for tuning)"
+at = [90, 648]
+size = [370, 23]
+style = "label"
+normal = "check_off"
+hover = "check_hover"
+selected = "check_on"
+tooltip = "Saves mouse motion, timing and the boxes of buttons to alt-mode-*.altrec next to the game log (64 MB at most). No game text or names."
+tooltip_art = "tooltip"
+tooltip_style = "caption"
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
 image = "section"
 at = [520, 95]
-size = [432, 560]
+size = [432, 584]
 show_if = "tab=accessibility"
 
 [[panels.preferences.items]]
