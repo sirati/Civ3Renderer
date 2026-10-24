@@ -7,7 +7,12 @@
 //! [`find`] reads a standard cursor (`IDC_*`) out of the system's
 //! `user32.dll` (its `RT_GROUP_CURSOR` / `RT_CURSOR` resources): the
 //! Windows folder's (`%SystemRoot%`) on Windows, else the Wine prefix's
-//! (`$WINEPREFIX`, or the `drive_c` the game is installed in).
+//! (`$WINEPREFIX`, or the `drive_c` the game is installed in). Wine names
+//! each group by its `IDC_*` id; Windows' own `user32.dll` (Windows 10 and
+//! 11 at least) numbers them from 100 ([`windows_group`]), the classic
+//! black and white hourglass of `IDC_WAIT` being group 102. (The pointer
+//! Windows shows for `IDC_WAIT` is the user's scheme's, by default the
+//! turning ring `aero_busy.ani`; the hourglass is what the game showed.)
 
 use std::path::{Path, PathBuf};
 
@@ -74,10 +79,25 @@ pub fn find(candidates: &[PathBuf], id: u32, size: u32) -> Result<CursorImage, S
     }
 }
 
-/// Cursor `id` at `size` of a PE file's resources.
+/// The group resource Windows' own `user32.dll` keeps standard cursor `id`
+/// (`IDC_*`) in, where it is not named by its id as in Wine's. Only the
+/// groups whose pictures were checked against Windows 11's `user32.dll`
+/// (10.0.26200): 100 the arrow, 102 the hourglass.
+pub fn windows_group(id: u32) -> Option<u32> {
+    match id {
+        32512 => Some(100),
+        32514 => Some(102),
+        _ => None,
+    }
+}
+
+/// Cursor `id` at `size` of a PE file's resources: its group named `id`
+/// (Wine), else the group Windows numbers it by ([`windows_group`]).
 pub fn cursor(pe: &[u8], id: u32, size: u32) -> Result<CursorImage, String> {
     let res = Resources::of(pe)?;
-    let group = res.find(RT_GROUP_CURSOR, id).ok_or("no such group cursor")?;
+    let group = res.find(RT_GROUP_CURSOR, id)
+        .or_else(|| res.find(RT_GROUP_CURSOR, windows_group(id)?))
+        .ok_or("no such group cursor")?;
     // NEWHEADER (reserved, type 2, count), then 14-byte entries: width,
     // height (doubled), planes, bit count, bytes, id.
     let count = u16_at(group, 4)? as usize;
@@ -278,6 +298,136 @@ mod tests {
         assert_eq!(c.rgba[7], 0);
         let c = dib(&dib_of(0)).unwrap();
         assert_eq!((c.rgba[3], c.rgba[7], c.rgba[11], c.rgba[15]), (255, 255, 0, 255));
+    }
+
+    /// A PE32 file whose only section holds a resource directory of
+    /// `resources` (type, id, data), each in language 1033.
+    fn pe_with(resources: &[(u32, u32, Vec<u8>)]) -> Vec<u8> {
+        const RVA: u32 = 0x1000;
+        const RAW: usize = 0x200;
+        let mut types: Vec<u32> = resources.iter().map(|r| r.0).collect();
+        types.dedup();
+        // Directories first (root, then per type its names, then per
+        // resource its languages), then the data entries, then the data.
+        let dir = |n: usize| 16 + 8 * n;
+        let root = 0;
+        let mut at = dir(types.len());
+        let type_dirs: Vec<usize> = types.iter().map(|&t| {
+            let d = at;
+            at += dir(resources.iter().filter(|r| r.0 == t).count());
+            d
+        }).collect();
+        let lang_dirs: Vec<usize> = resources.iter().map(|_| { let d = at; at += dir(1); d }).collect();
+        let data_entries: Vec<usize> = resources.iter().map(|_| { let d = at; at += 16; d }).collect();
+        let data_at: Vec<usize> = resources.iter().map(|r| { let d = at; at += r.2.len().next_multiple_of(4); d }).collect();
+        let mut s = vec![0u8; at];
+        let put = |s: &mut Vec<u8>, at: usize, v: u32| s[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        let header = |s: &mut Vec<u8>, at: usize, ids: usize| s[at + 14..at + 16].copy_from_slice(&(ids as u16).to_le_bytes());
+        header(&mut s, root, types.len());
+        for (i, &t) in types.iter().enumerate() {
+            put(&mut s, root + 16 + 8 * i, t);
+            put(&mut s, root + 20 + 8 * i, 0x8000_0000 | type_dirs[i] as u32);
+            let mine: Vec<usize> = (0..resources.len()).filter(|&r| resources[r].0 == t).collect();
+            header(&mut s, type_dirs[i], mine.len());
+            for (k, &r) in mine.iter().enumerate() {
+                put(&mut s, type_dirs[i] + 16 + 8 * k, resources[r].1);
+                put(&mut s, type_dirs[i] + 20 + 8 * k, 0x8000_0000 | lang_dirs[r] as u32);
+            }
+        }
+        for (r, res) in resources.iter().enumerate() {
+            header(&mut s, lang_dirs[r], 1);
+            put(&mut s, lang_dirs[r] + 16, 1033);
+            put(&mut s, lang_dirs[r] + 20, data_entries[r] as u32);
+            put(&mut s, data_entries[r], RVA + data_at[r] as u32);
+            put(&mut s, data_entries[r] + 4, res.2.len() as u32);
+            s[data_at[r]..data_at[r] + res.2.len()].copy_from_slice(&res.2);
+        }
+        let mut pe = vec![0u8; RAW];
+        pe[0..2].copy_from_slice(b"MZ");
+        put(&mut pe, 0x3c, 0x40);
+        pe[0x40..0x44].copy_from_slice(b"PE\0\0");
+        let coff = 0x44;
+        pe[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes());
+        pe[coff + 16..coff + 18].copy_from_slice(&224u16.to_le_bytes());
+        let opt = coff + 20;
+        pe[opt..opt + 2].copy_from_slice(&0x10bu16.to_le_bytes());
+        put(&mut pe, opt + 96 + 16, RVA);
+        put(&mut pe, opt + 96 + 20, s.len() as u32);
+        let section = opt + 224;
+        put(&mut pe, section + 8, s.len() as u32);
+        put(&mut pe, section + 12, RVA);
+        put(&mut pe, section + 16, s.len() as u32);
+        put(&mut pe, section + 20, RAW as u32);
+        pe.extend(s);
+        pe
+    }
+
+    /// A 1-bit 32×32 cursor resource (hot spot, DIB): a black bar in rows
+    /// 4..8 with a white middle row, the rest clear.
+    fn bar_cursor(hotspot: (u16, u16)) -> Vec<u8> {
+        let mut d = Vec::new();
+        d.extend(hotspot.0.to_le_bytes());
+        d.extend(hotspot.1.to_le_bytes());
+        let mut header = [0u8; 40];
+        header[0] = 40;
+        header[4] = 32;
+        header[8] = 64;
+        header[12] = 1;
+        header[14] = 1;
+        d.extend(header);
+        d.extend([0, 0, 0, 0, 255, 255, 255, 0]);
+        // XOR rows bottom-up: index 1 (white) in row 6.
+        for y in (0..32).rev() { d.extend(if y == 6 { [0xff; 4] } else { [0; 4] }); }
+        // AND rows bottom-up: opaque in rows 4..8.
+        for y in (0..32).rev() { d.extend(if (4..8).contains(&y) { [0; 4] } else { [0xff; 4] }); }
+        d
+    }
+
+    fn group(entries: &[(u16, u16, u16)]) -> Vec<u8> {
+        let mut g = vec![0, 0, 2, 0];
+        g.extend((entries.len() as u16).to_le_bytes());
+        for &(w, bits, id) in entries {
+            g.extend(w.to_le_bytes());
+            g.extend((w * 2).to_le_bytes());
+            g.extend(1u16.to_le_bytes());
+            g.extend(bits.to_le_bytes());
+            g.extend(0u32.to_le_bytes());
+            g.extend(id.to_le_bytes());
+        }
+        g
+    }
+
+    /// Windows' own `user32.dll` has no group named 32514: the hourglass
+    /// is group 102. Without either the cursor is missing, as before.
+    #[test]
+    fn windows_numbers_its_standard_cursors_from_100() {
+        assert_eq!(windows_group(32514), Some(102));
+        assert_eq!(windows_group(32512), Some(100));
+        assert_eq!(windows_group(32650), None, "only groups checked against Windows' pictures");
+        let windows = pe_with(&[(RT_CURSOR, 7, bar_cursor((15, 15))), (RT_GROUP_CURSOR, 102, group(&[(32, 1, 7)]))]);
+        let c = cursor(&windows, 32514, 32).unwrap();
+        assert_eq!((c.width, c.height, c.hotspot), (32, 32, (15, 15)));
+        let at = |x: usize, y: usize| &c.rgba[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4];
+        assert_eq!(at(3, 5), [0, 0, 0, 255]);
+        assert_eq!(at(3, 6), [255, 255, 255, 255]);
+        assert_eq!(at(3, 9)[3], 0);
+        assert_eq!(cursor(&windows, 32515, 32).unwrap_err(), "no such group cursor");
+        // Wine's numbering wins where both are present.
+        let wine = pe_with(&[(RT_CURSOR, 7, bar_cursor((15, 15))), (RT_CURSOR, 8, bar_cursor((1, 2))),
+            (RT_GROUP_CURSOR, 102, group(&[(32, 1, 7)])), (RT_GROUP_CURSOR, 32514, group(&[(32, 1, 8)]))]);
+        assert_eq!(cursor(&wine, 32514, 32).unwrap().hotspot, (1, 2));
+    }
+
+    /// Windows 11's own `user32.dll` (`CIV3R_WINDOWS_USER32`, e.g. copied
+    /// from `C:\Windows\SysWOW64`): its hourglass, 32×32, upright.
+    #[test]
+    fn windows_wait_cursor_is_found_in_its_own_user32() {
+        let Some(dll) = std::env::var_os("CIV3R_WINDOWS_USER32") else { return eprintln!("CIV3R_WINDOWS_USER32 unset, skipped") };
+        let c = find(&[PathBuf::from(dll)], 32514, 32).unwrap();
+        assert_eq!((c.width, c.height), (32, 32));
+        let opaque = |y: usize| (0..32).filter(|x| c.rgba[(y * 32 + x) * 4 + 3] != 0).count();
+        // Wide glass ends at top and bottom, a narrow waist between.
+        assert!(opaque(0) >= 12 && opaque(21) >= 12 && opaque(10) <= 6, "{} {} {}", opaque(0), opaque(10), opaque(21));
     }
 
     /// Wine's IDC_WAIT, where a Wine prefix is at hand: a 32×32 hourglass
