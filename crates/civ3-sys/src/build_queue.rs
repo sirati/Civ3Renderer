@@ -28,6 +28,8 @@ pub const CITY_FORM: u32 = 0x74_09C0;
 const FORM_CITY: u32 = 0x19EC;
 /// `City_Form.Order_Queue_List` (the list object `G` of a `Base_List_Box`).
 const FORM_QUEUE_LIST: u32 = 0x8364;
+/// `City_Form.Order_List`, the production list.
+const FORM_ORDER_LIST: u32 = 0x7C7C;
 /// `City.Body.ID`, `City.Body.CivID` (a byte).
 const CITY_ID: u32 = 0x1C + crate::layout::CITY_BODY_ID;
 const CITY_CIV: u32 = 0x1C + crate::layout::CITY_BODY_CIVID;
@@ -132,6 +134,15 @@ pub fn player(mem: &dyn Mem) -> Option<i32> {
 /// queued order goes to).
 pub fn queue_list_form(mem: &dyn Mem) -> Option<u32> {
     let g = CITY_FORM + FORM_QUEUE_LIST;
+    let vb = mem.u32(g + 4)?;
+    Some(g.wrapping_add(4).wrapping_add(mem.u32(vb.wrapping_add(4))?))
+}
+
+/// The production list's form part (as [`queue_list_form`], of
+/// `City_Form.Order_List` +0x7C7C): its entries' text ends with the
+/// statistics of the unit.
+pub fn order_list_form(mem: &dyn Mem) -> Option<u32> {
+    let g = CITY_FORM + FORM_ORDER_LIST;
     let vb = mem.u32(g + 4)?;
     Some(g.wrapping_add(4).wrapping_add(mem.u32(vb.wrapping_add(4))?))
 }

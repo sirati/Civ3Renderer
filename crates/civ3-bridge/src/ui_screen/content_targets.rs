@@ -9,9 +9,12 @@ use crate::ui::{Frame, ScreenDraw};
 /// row), else at an icon's lower right corner or at the end of its
 /// text, and give a check box its label as the region it draws button
 /// snapping from. Only existing game controls qualify. Draws never create
-/// targets.
-pub fn content_anchors(frame: &Frame, fonts: &Fonts, controls: &[Control], targets: &mut [Interactable]) {
-    annotate(frame, controls, targets, |run| fonts.ink_bounds(run));
+/// targets. In the lists whose form parts are `stat_lists` (the city
+/// screen's production list) an entry's text ends with the unit's
+/// statistics, which are not its name: the pointer goes after the name
+/// ([`name_part`]).
+pub fn content_anchors(frame: &Frame, fonts: &Fonts, controls: &[Control], targets: &mut [Interactable], stat_lists: &[u32]) {
+    annotate_with(frame, controls, targets, stat_lists, |run| fonts.ink_bounds(run));
     label_regions(frame, controls, targets, |run| fonts.ink_bounds(run));
 }
 
@@ -95,7 +98,52 @@ fn intersection([x, y, w, h]: [i32; 4], [l, t, r, b]: [i32; 4]) -> Option<[i32; 
     (right > left && bottom > top).then_some([left, top, right - left, bottom - top])
 }
 
+/// Whether `token` is a unit's statistics, attack.defence.move: "0.0.1",
+/// "4(2).1.1" (a bombard strength in brackets).
+fn statistics(token: &str) -> bool {
+    let parts: Vec<&str> = token.split('.').collect();
+    let number = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+    let first = |p: &str| match p.split_once('(') {
+        Some((a, rest)) => number(a) && rest.strip_suffix(')').is_some_and(number),
+        None => number(p),
+    };
+    parts.len() == 3 && first(parts[0]) && number(parts[1]) && number(parts[2])
+}
+
+/// The name in a production list entry's `text`: the text before its
+/// trailing statistics token (and what follows it in the same text: turns,
+/// a cost), trailing blanks dropped. `None` where the text does not end
+/// so (a name with digits or dots stays whole).
+pub(crate) fn name_part(text: &str) -> Option<&str> {
+    let mut tokens: Vec<(usize, &str)> = Vec::new();
+    let mut start = None;
+    for (i, c) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
+        match (c.is_whitespace(), start) {
+            (false, None) => start = Some(i),
+            (true, Some(s)) => { tokens.push((s, &text[s..i])); start = None; }
+            _ => {}
+        }
+    }
+    // (Columns after the statistics: "14 turns", "1 turn", a cost.)
+    let mut end = tokens.len();
+    while end > 0 {
+        let t = tokens[end - 1].1;
+        let column = t.eq_ignore_ascii_case("turn") || t.eq_ignore_ascii_case("turns") || t.bytes().all(|b| b.is_ascii_digit());
+        if !column { break }
+        end -= 1;
+    }
+    let stats = end.checked_sub(1)?;
+    if stats == 0 || !statistics(tokens[stats].1) { return None }
+    let name = text[..tokens[stats].0].trim_end();
+    (!name.is_empty()).then_some(name)
+}
+
+#[cfg(test)]
 fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], text_bounds: impl Fn(&TextRun) -> Option<[i32; 4]>) {
+    annotate_with(frame, controls, targets, &[], text_bounds)
+}
+
+fn annotate_with(frame: &Frame, controls: &[Control], targets: &mut [Interactable], stat_lists: &[u32], text_bounds: impl Fn(&TextRun) -> Option<[i32; 4]>) {
     for control in controls.iter().filter(|c| c.content_row()) {
         let Some(target) = targets.iter_mut().find(|t| t.id == control.id) else {
             continue;
@@ -114,7 +162,7 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
         let mut icon: Option<[i32; 4]> = None;
         let mut text: Option<[i32; 4]> = None;
         // A list entry's name: its first text (leftmost, then topmost).
-        let mut name: Option<[i32; 4]> = None;
+        let mut name: Option<([i32; 4], &TextRun, [i32; 4])> = None;
         for draw in draws {
             match draw {
                 ScreenDraw::Image {
@@ -149,8 +197,8 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
                         if text.is_none_or(|old| (r[0] + r[2], r[1]) > (old[0] + old[2], old[1])) {
                             text = Some(r);
                         }
-                        if name.is_none_or(|old| (r[0], r[1]) < (old[0], old[1])) {
-                            name = Some(r);
+                        if name.is_none_or(|(old, _, _)| (r[0], r[1]) < (old[0], old[1])) {
+                            name = Some((r, run, *text_clip));
                         }
                     }
                 }
@@ -160,6 +208,14 @@ fn annotate(frame: &Frame, controls: &[Control], targets: &mut [Interactable], t
         // An advisor's speech box is all panel art: its words hold content.
         use civ3_sys::controls::advisors::{CELL_SPEECH, cell_kind};
         let icon = icon.filter(|_| cell_kind(control.id) != Some(CELL_SPEECH));
+        // In the production list the text goes on with the statistics:
+        // the name is measured alone (the same font, from the same place).
+        let name = name.map(|(r, run, text_clip)| {
+            let short = stat_lists.contains(&owner).then(|| name_part(&run.text)).flatten()
+                .and_then(|part| text_bounds(&TextRun { text: part.into(), ..run.clone() }))
+                .and_then(|n| intersection(n, text_clip)).and_then(|n| intersection(n, clip));
+            short.map_or(r, |n| [r[0], r[1], n[0] + n[2] - r[0], r[3]])
+        });
         target.anchor = if let (ControlKind::ListItem, Some([nx, _, nw, _])) = (control.kind, name) {
             // A list entry: just after the end of its name, in the middle
             // of its row (its icon, if any, before the name; other columns
@@ -321,6 +377,43 @@ mod tests {
             let [ax, ay] = t.anchor.unwrap();
             assert!(ax >= x && ax < x + w && ay >= y && ay < y + h, "inside its row");
         }
+    }
+
+    #[test]
+    fn statistics_are_stripped_only_as_the_trailing_token() {
+        assert_eq!(name_part("Settler 0.0.1"), Some("Settler"));
+        assert_eq!(name_part("Longbowman 4(2).1.1"), Some("Longbowman"));
+        assert_eq!(name_part("Medieval Infantry  4.2.1"), Some("Medieval Infantry"));
+        assert_eq!(name_part("Worker 0.0.1 1 turn"), Some("Worker"), "a turns column in the same text");
+        assert_eq!(name_part("Knight 4.3.2 34 turns"), Some("Knight"));
+        // Modded names with digits and dots keep them.
+        assert_eq!(name_part("M1.2 Abrams 12.6.2"), Some("M1.2 Abrams"));
+        assert_eq!(name_part("T-34/85 1.1.1"), Some("T-34/85"));
+        assert_eq!(name_part("Panzer 4.1.1 Ausf. B"), None, "statistics-like but not trailing");
+        assert_eq!(name_part("Panzer IV 2"), None, "no statistics");
+        assert_eq!(name_part("4.1.1"), None, "nothing but statistics");
+        assert_eq!(name_part("Temple"), None);
+    }
+
+    /// The production list draws an entry's name and statistics as one
+    /// text: the pointer goes after the name, measured with its font.
+    #[test]
+    fn production_entries_point_after_the_name_not_its_statistics() {
+        let controls = [row(0, 20, false), row(1, 100, false), row(2, 180, false)];
+        let draws = vec![
+            label("Settler 0.0.1", 70, 60), label("6 turns", 350, 60),
+            label("Longbowman 4(2).1.1", 70, 132), label("11 turns", 350, 140),
+            label("M1.2 Abrams 12.6.2", 70, 220),
+        ];
+        let frame = Frame { form_draws: vec![(FORM + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4, 0..draws.len())], draws, ..Default::default() };
+        let mut got = targets(&controls);
+        annotate_with(&frame, &controls, &mut got, &[FORM], bounds);
+        // (7 px a character: "Settler", "Longbowman", "M1.2 Abrams".)
+        assert_eq!(got.iter().map(|t| t.anchor).collect::<Vec<_>>(), [Some([70 + 7 * 7, 55]), Some([70 + 7 * 10, 135]), Some([70 + 7 * 11, 215])]);
+        // Another list keeps the end of its first text.
+        let mut other = targets(&controls);
+        annotate_with(&frame, &controls, &mut other, &[FORM + 1], bounds);
+        assert_eq!(other[0].anchor, Some([70 + 7 * 13, 55]));
     }
 
     #[test]

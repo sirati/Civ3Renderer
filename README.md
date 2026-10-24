@@ -540,7 +540,9 @@ ghost shows the next target meanwhile. While it is on, its pointer is the
 only cursor. In a list, motion goes from row to row among the rows shown
 and leaves the list past its edges; it never scrolls it: the wheel (or a
 two-finger scroll) does. A list row's pointer rests just after the end
-of the row's name, in the middle of the row. Selecting a slider starts editing without changing its value.
+of the row's name, in the middle of the row (in the production list,
+where the unit's statistics follow the name in the same text, after the
+name itself). Selecting a slider starts editing without changing its value.
 Mouse movement then adjusts that slider while the pointer stays still; the
 next left click accepts the preview and a right click discards it. Esc,
 Alt, losing focus, or closing its tab also restores its original value.
