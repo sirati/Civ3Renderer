@@ -1676,6 +1676,12 @@ mod tests {
         assert!(!p.editing().input.alt_in_menus);
         assert!(click(&mut p, 100, 496).is_empty());
         assert!(p.editing().input.alt_in_menus);
+        // Recording the Alt mode, below it: on by default, off, on again.
+        assert!(p.editing().input.record_alt_mode);
+        assert!(click(&mut p, 100, 659).is_empty());
+        assert!(!p.editing().input.record_alt_mode);
+        assert!(click(&mut p, 100, 659).is_empty());
+        assert!(p.editing().input.record_alt_mode);
         assert_eq!(p.settings(), p.editing(), "previews at once");
         assert!(!path.exists());
         // The pixel scale on the Resolution tab.
