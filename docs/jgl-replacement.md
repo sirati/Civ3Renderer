@@ -672,8 +672,8 @@ being pixel-at thunks, +0x18/+0x20 lock thunks and +0x24 unlocking bits.
 Constructor, destructor, field, error-code, GDI and file-operation details
 retain their original [V]/[G] evidence scope.
 
-The latest unmerged checkpoint is `3f6dceb` on
-`t3/finish-jgl-groups-switch-1`. Main's implementation baseline remains
+The latest unmerged checkpoint is `83caad2` on
+`t3/finish-jgl-groups-switch-2`. Main's implementation baseline remains
 `dd992e0`. The experimental implementation requires `CIV3R_JGL=own`.
 Ordinary viewer launches still load original jgl; no-viewer/no-trace launches
 keep the plain-game pass-through. The default no-jgl switch is not accepted.
@@ -715,18 +715,31 @@ removed. The load-time block-copy cost remains explicit.
 
 ### Open acceptance work
 
-Group 6 still needs the other indexed-reader families, generated-data memory
-copies, image +0x38/+0x58 and DC/C3X contracts. Each needs its required
-behaviour, implementation decision and scoped equivalence evidence recorded.
-The broader object replacement is still unaccepted for integration.
+The PCGames HUD/advisor navigator buffers now preserve their game-written
+data through safe, equal-size row copies and 16-bit clears. Original/owned
+contract checks covered 40 calls and 1,369,360 bytes. Parent review also
+confirmed eight live buffer pairs, 546,720 bytes, and exact final minimap,
+F3 and F5 crops. Ordinary canvas drawing remains records; these bytes are not
+sent to the viewer. This covers the identified static buffers. Dynamic and
+replay navigator instances remain open. The earlier diagnostic F5 text
+difference and empty trace limits remain recorded in
+[the data review](evidence/jgl-data-review/review.json).
+
+Group 6 still needs the other indexed-reader families, both frame hit masks,
+dynamic/generated-data contracts, image +0x38/+0x58 and DC/C3X behavior. The
+[contract matrix](jgl-contract-audit.md) records required behavior,
+implementation, scoped evidence and each remaining gap. The broader object
+replacement is still unaccepted for integration.
 
 Group 7 still needs call-by-call window/pump equivalence, launch lock,
 windowed mode, Alt/capture, stale input, the screen/turn/combat checks and the
 30-minute soak. Explicit owned sessions had no jgl loader entry or mapping,
 but that does not establish all these contracts or physical Neo behaviour.
 
-One GPT-6.1 Sol continuation owns the remaining group 6 contracts, followed by
-group 7 and the final switch. Its current identifiers and backup receipt
-location are in [the continuation state](jgl-continuation-state.json).
-Resume that task rather than duplicating it. Completed work has no agent
-entry.
+Two GPT-6.1 Sol continuations have separate worktrees. One owns group 6 and
+the live game session. The other owns group 7's window/pump code and isolated
+standalone tests, with no access to the shared GUI, game files or warm build
+target. Integrated group 7 gameplay checks wait for group 6 and parent
+integration. Their current identifiers and backup receipt location are in
+[the continuation state](jgl-continuation-state.json). Resume active work
+without duplicating it. Completed work has no agent entry.
