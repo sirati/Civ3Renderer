@@ -75,3 +75,11 @@ difference remains retained separately.
 The exact source/artifact binding is in `continuation-receipt.json` at that
 root. Neither this scoped comparison nor
 the prior Palace checks close group 6, group 7 or the default switch.
+
+## Independent group 7 continuation
+
+The [window/pump contract matrix](jgl-window-contracts.md) records the separate
+group-7 code and standalone original-binary comparisons. They do not reopen
+the settled source/Palace/registry/font work or close the group-6 rows above.
+Game launch lock, windowed mode, Alt/capture, stale input, the screen/turn/combat
+walk and soak remain parent-integration gates. The no-jgl default stays off.
