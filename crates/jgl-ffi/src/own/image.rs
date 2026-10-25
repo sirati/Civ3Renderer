@@ -415,8 +415,14 @@ extern "thiscall" fn reset_clip(this: u32) -> u32 {
 /// The copy group's originals: canvas drawing stays record-only. +0x40 also
 /// preserves caller-written data when both images have the host's contract.
 pub extern "thiscall" fn copy_38(this: u32, dst: u32, sx: u32, sy: u32, x: u32, y: u32, w: u32, h: u32, key: u32) -> u32 {
+    if field(this, BITS) != 8 {
+        return o::error::DEPTH;
+    }
     if dst == 0 {
         return o::error::NULL;
+    }
+    if !matches!(field(dst, BITS), 8 | 16) {
+        return o::error::DEPTH;
     }
     if !preserves_data(this) || !preserves_data(dst) {
         return 0;
@@ -462,6 +468,7 @@ pub extern "thiscall" fn copy_38(this: u32, dst: u32, sx: u32, sy: u32, x: u32, 
 }
 pub extern "thiscall" fn copy_40(this: u32, dst: u32, src: u32, dst_rect: u32) -> u32 {
     if dst == 0 || src == 0 || dst_rect == 0 { return o::error::NULL; }
+    if field(dst, DC) == 0 || field(this, DC) == 0 { return 7; }
     if !preserves_data(this) || !preserves_data(dst) { return 0; }
     // SAFETY: the copy arguments are RECTs read unchecked by jgl's original.
     let source = Rect::from(unsafe { std::ptr::read_unaligned(src as usize as *const Rect32) });
@@ -532,6 +539,7 @@ pub extern "thiscall" fn replace_color(this: u32, r: u32, from: u32, to: u32) ->
     if r == 0 {
         return o::error::NULL;
     }
+    if !matches!(field(this, BITS), 8 | 16) { return o::error::DEPTH; }
     // SAFETY: the game's RECT, read unchecked by jgl.
     let asked = Rect::from(unsafe { std::ptr::read_unaligned(r as usize as *const Rect32) });
     if preserves_data(this) && let Some(area) = o::intersect(asked, rect(this, CLIP)) {
