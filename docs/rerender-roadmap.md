@@ -364,6 +364,12 @@ Window/pump equivalence, windowed and Alt input checks, the remaining
 read-back/DC audit and broad session coverage are still missing. See the
 [Palace evidence](jgl-replacement.md#palace-semantic-read-back-partial-group-6).
 
+The subsequent registry/font correction [V] compares the circular cursor
+order against original jgl and tests owned embedded-font destruction plus
+eight GDI resource lifetimes under 32-bit Wine. It closes those specific
+implementation defects; steps 5 through 7 remain unaccepted. Evidence and
+limits are in [the lifetime audit](jgl-replacement.md#registry-and-font-lifetime-correction-partial-group-6).
+
 ## 7. Open points
 
 - The slot scan is a lower bound. Before step 5, log every slot call at

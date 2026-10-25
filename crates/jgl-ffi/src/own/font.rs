@@ -10,6 +10,9 @@
 //! is one memory DC with no surface of ours: nothing is drawn in it.
 
 use std::mem::offset_of;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use jgl::slots::Class;
 use windows_sys::Win32::Graphics::Gdi as gdi;
@@ -22,6 +25,15 @@ const METRICS: usize = offset_of!(JglFont, metrics);
 const FLAGS: usize = offset_of!(JglFont, flags);
 const HFONT: usize = offset_of!(JglFont, hfont);
 const RESOURCE: usize = offset_of!(JglFont, resource);
+
+thread_local! {
+    // Own the FOT string until RemoveFontResourceA has finished with it.
+    static RESOURCE_MEMORY: RefCell<HashMap<u32, Box<[u8]>>> = RefCell::new(HashMap::new());
+}
+
+extern "thiscall" fn base_delete(base: u32, flags: u32) -> u32 {
+    scalar_delete(base - 8, flags)
+}
 
 fn field(this: u32, at: usize) -> u32 {
     // SAFETY: `this` is a font of ours (0x24 bytes).
@@ -41,7 +53,10 @@ pub extern "thiscall" fn new(_graphics: u32, metrics: u32) -> u32 {
         return 0;
     }
     set(this, METRICS, metrics);
-    super::registry::made(this);
+    static BASE_TABLE: OnceLock<[u32; 1]> = OnceLock::new();
+    let table = BASE_TABLE.get_or_init(|| [base_delete as extern "thiscall" fn(u32, u32) -> u32 as usize as u32]);
+    set(this, 8, table.as_ptr() as usize as u32);
+    super::registry::made(this + 8);
     this
 }
 
@@ -54,7 +69,7 @@ pub extern "thiscall" fn scalar_delete(this: u32, flags: u32) -> u32 {
         unsafe { put(metrics, 0) };
     }
     release(this);
-    super::registry::gone(this);
+    super::registry::gone(this + 8);
     if flags & 1 != 0 {
         // SAFETY: a font of ours, from `alloc::<JglFont>`.
         unsafe { call::free::<JglFont>(this) };
@@ -103,8 +118,9 @@ extern "thiscall" fn load_file(this: u32, path: u32, face: u32, height: u32, fla
         windows_sys::Win32::UI::WindowsAndMessaging::PostMessageA(windows_sys::Win32::UI::WindowsAndMessaging::HWND_BROADCAST, 0x1D, 0, 0);
     }
     // Kept for its release (jgl's malloc'd copy).
-    let kept: &'static mut [u8] = Box::leak(fot.into_boxed_slice());
+    let kept = fot.into_boxed_slice();
     set(this, RESOURCE, kept.as_ptr() as usize as u32);
+    RESOURCE_MEMORY.with_borrow_mut(|m| { m.insert(this, kept); });
     set(this, FLAGS, field(this, FLAGS) | 1);
     // SAFETY: our font's +0x08, three words (through the table, as jgl).
     unsafe { call::method(this, 0x08, &[face, height, flags]) }
@@ -181,6 +197,7 @@ pub extern "thiscall" fn release(this: u32) -> u32 {
         }
         set(this, RESOURCE, 0);
     }
+    RESOURCE_MEMORY.with_borrow_mut(|m| { m.remove(&this); });
     0
 }
 

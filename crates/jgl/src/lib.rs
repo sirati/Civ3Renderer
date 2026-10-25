@@ -23,6 +23,7 @@ pub mod draw;
 pub mod hooks;
 mod machine;
 pub mod object;
+pub mod registry;
 pub mod present;
 pub mod surface;
 pub mod record;
