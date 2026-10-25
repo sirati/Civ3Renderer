@@ -268,6 +268,128 @@ pub fn button_up(down: u32) -> Option<u32> {
     }
 }
 
+/// The x86 MSG fields used by jgl. No OS pointers are dereferenced here.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Message {
+    pub window: u32,
+    pub id: u32,
+    pub wparam: u32,
+    pub lparam: i32,
+    pub time: u32,
+    pub point: [i32; 2],
+}
+
+/// OS interop and virtual calls needed by the pumps. Each peek includes the
+/// host's heartbeat and removed-input notification, including keypad drains.
+/// Dispatch performs TranslateMessage followed by DispatchMessageA.
+pub trait Queue {
+    fn peek(&mut self, message: &mut Message, window: u32, filter: Filter, remove: bool) -> bool;
+    fn dispatch(&mut self, message: &Message);
+    fn virtual_pump(&mut self, slot: u16) -> u32;
+    fn wait(&mut self) -> u32;
+    fn message_402(&mut self);
+}
+
+impl Pump {
+    /// Executes jgl's queue algorithm. OS operations stay in the adapter.
+    /// +124 preserves the nonzero virtual +128 result, rather than converting
+    /// it to a Boolean. Empty discard/drain operations return the final peek's
+    /// zero, as the binary does.
+    pub fn run(self, queue: &mut impl Queue) -> u32 {
+        let mut message = Message::default();
+        match self {
+            Self::One(filter) => {
+                if !queue.peek(&mut message, 0, filter, true) { return 0; }
+                queue.dispatch(&message);
+                1
+            }
+            Self::Wait => match queue.virtual_pump(0x128) {
+                0 => queue.wait(),
+                result => result,
+            },
+            Self::Any => {
+                if !queue.peek(&mut message, 0, f(0, 0), true) { return 0; }
+                if message.id == MESSAGE_402 { queue.message_402(); }
+                else { queue.dispatch(&message); }
+                1
+            }
+            Self::Oldest => {
+                let found = OLDEST_FILTERS.into_iter().any(|filter| queue.peek(&mut message, 0, filter, false));
+                if !found { return 0; }
+                let (window, id) = (message.window, message.id);
+                queue.peek(&mut message, window, f(id, id), true);
+                queue.dispatch(&message);
+                1
+            }
+            Self::Click => {
+                if !queue.peek(&mut message, 0, MOUSE, true) { return 0; }
+                queue.dispatch(&message);
+                if let Some(up) = button_up(message.id) {
+                    let window = message.window;
+                    if queue.peek(&mut message, window, f(up, up), true) { queue.dispatch(&message); }
+                }
+                1
+            }
+            Self::Discard(filter) => {
+                while queue.peek(&mut message, 0, filter, true) {}
+                0
+            }
+            Self::Drain(filter) => {
+                while queue.peek(&mut message, 0, filter, true) { queue.dispatch(&message); }
+                0
+            }
+        }
+    }
+}
+
+/// Window-procedure operations that require Win32 or the controller's ABI.
+pub trait Procedure: Queue {
+    fn default(&mut self) -> i32;
+    fn tell(&mut self, controller: Controller) -> u32;
+    fn paint(&mut self);
+    fn invalidate(&mut self);
+    fn realize(&mut self);
+    fn copy_data(&mut self, wparam: u32, lparam: i32) -> i32;
+    /// Retire adapter metadata after WM_NCDESTROY's procedure returns.
+    fn destroyed(&mut self) {}
+}
+
+/// The original procedure's ordering, callbacks and LRESULT. WM_QUIT is a
+/// thread-queue message; no special quit or destruction is invented here.
+pub fn handle(host: &mut impl Procedure, window: u32, msg: u32, wparam: u32, lparam: i32) -> i32 {
+    let answer = match route(window as usize, msg, wparam as usize, lparam as isize) {
+        Route::Default => host.default(),
+        Route::Answer(value) => value as i32,
+        Route::Tell(controller) => { host.tell(controller); 0 }
+        Route::Ask(controller) => host.tell(controller) as i32,
+        Route::TellThenDefault(controller) => { host.tell(controller); host.default() }
+        Route::Key { vk, down } => {
+            host.tell(Controller::Key(vk, down));
+            if down {
+                if drops_chars(vk) {
+                    let mut message = Message::default();
+                    while host.peek(&mut message, window, f(0x102, 0x102), true) {}
+                } else {
+                    while host.virtual_pump(0x138) != 0 {}
+                }
+            }
+            0
+        }
+        Route::Paint => { host.paint(); 0 }
+        Route::Activate { realize, tell } => {
+            host.invalidate();
+            if realize { host.realize(); }
+            host.tell(tell);
+            host.default();
+            0
+        }
+        Route::Realize(answer) => { host.realize(); answer as i32 }
+        Route::CopyData => host.copy_data(wparam, lparam),
+    };
+    if msg == 0x82 { host.destroyed(); }
+    answer
+}
+
 /// `"JackalClass"`, jgl's window class.
 pub const CLASS: &[u8] = b"JackalClass\0";
 /// The class style: `CS_VREDRAW | CS_HREDRAW | CS_DBLCLKS | CS_OWNDC`.
@@ -282,6 +404,60 @@ pub const SHOW: [(u16, i32); 4] = [(0x10, 1), (0x14, 0), (0x18, 6), (0x1C, 3)];
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+
+    #[derive(Default)]
+    struct Messages { pending: VecDeque<Message>, dispatched: Vec<u32>, virtual_result: u32, waits: u32, callbacks: u32 }
+    impl Queue for Messages {
+        fn peek(&mut self, out: &mut Message, window: u32, filter: Filter, remove: bool) -> bool {
+            let Some(index) = self.pending.iter().position(|m| (window == 0 || window == m.window) &&
+                ((filter.first == 0 && filter.last == 0) || (filter.first..=filter.last).contains(&m.id))) else { return false };
+            *out = self.pending[index];
+            if remove { self.pending.remove(index); }
+            true
+        }
+        fn dispatch(&mut self, message: &Message) { self.dispatched.push(message.id); }
+        fn virtual_pump(&mut self, slot: u16) -> u32 { assert_eq!(slot, 0x128); self.virtual_result }
+        fn wait(&mut self) -> u32 { self.waits += 1; 0x8123 }
+        fn message_402(&mut self) { self.callbacks += 1; }
+    }
+
+    #[test]
+    fn wait_preserves_virtual_return_and_does_not_consume_its_wakeup() {
+        let mut queue = Messages { virtual_result: 0xCAFE, ..Default::default() };
+        assert_eq!(Pump::Wait.run(&mut queue), 0xCAFE);
+        assert_eq!(queue.waits, 0);
+        queue.virtual_result = 0;
+        assert_eq!(Pump::Wait.run(&mut queue), 0x8123);
+        assert_eq!(queue.waits, 1);
+    }
+
+    #[test]
+    fn non_input_priority_and_matching_window_click_pair_are_preserved() {
+        let mut queue = Messages::default();
+        for (id, window) in [(0x401, 1), (0x201, 1), (0x202, 2), (0x202, 1), (0x0F, 1)] {
+            queue.pending.push_back(Message { id, window, ..Default::default() });
+        }
+        assert_eq!(Pump::Oldest.run(&mut queue), 1);
+        assert_eq!(queue.dispatched, [0x0F]);
+        assert_eq!(Pump::Click.run(&mut queue), 1);
+        assert_eq!(queue.dispatched, [0x0F, 0x201, 0x202]);
+        assert_eq!(queue.pending.iter().map(|m| (m.id, m.window)).collect::<Vec<_>>(), [(0x401, 1), (0x202, 2)]);
+    }
+
+    #[test]
+    fn only_any_intercepts_message_402_and_discard_does_not_dispatch() {
+        let mut queue = Messages::default();
+        for id in [0x402, 0x100, 0x102] { queue.pending.push_back(Message { id, ..Default::default() }); }
+        assert_eq!(Pump::Any.run(&mut queue), 1);
+        assert_eq!(queue.callbacks, 1);
+        assert_eq!(Pump::Discard(KEYS).run(&mut queue), 0);
+        assert!(queue.pending.is_empty() && queue.dispatched.is_empty());
+        queue.pending.push_back(Message { id: 0x402, ..Default::default() });
+        assert_eq!(Pump::Oldest.run(&mut queue), 1);
+        assert_eq!(queue.dispatched, [0x402]);
+        assert_eq!(queue.callbacks, 1);
+    }
 
     #[test]
     fn mouse_and_keys_go_to_the_controller() {

@@ -40,6 +40,90 @@ pub struct Mode {
     pub bits: i32,
 }
 
+/// One 20-byte entry of graphics +68's public mode list. The binary stores
+/// width twice; callers of +50 compare width, height, depth and frequency.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ModeInfo {
+    pub width: u32,
+    pub height: u32,
+    pub width_again: u32,
+    pub bits: u32,
+    pub frequency: u32,
+}
+
+/// The mode-list contents and allocation growth, independent of Win32. The
+/// OS adapter owns its stable ABI header and supplies EnumDisplaySettingsA.
+#[derive(Default)]
+pub struct Modes(Vec<ModeInfo>);
+
+impl Modes {
+    /// Re-enumerate every time, starting at mode zero. Keep every entry in
+    /// the OS order, including duplicates, just as graphics +68 does.
+    pub fn enumerate(mut next: impl FnMut(u32) -> Option<ModeInfo>) -> Vec<ModeInfo> {
+        (0..).map_while(&mut next).collect()
+    }
+
+    /// The original list grows by one and retains its capacity on refresh.
+    pub fn replace(&mut self, modes: impl IntoIterator<Item = ModeInfo>) {
+        self.0.clear();
+        for mode in modes {
+            if self.0.len() == self.0.capacity() { self.0.reserve_exact(1); }
+            self.0.push(mode);
+        }
+    }
+
+    pub fn entries(&self) -> &[ModeInfo] { &self.0 }
+    pub fn capacity(&self) -> usize { self.0.capacity() }
+
+    /// +64's checked index and original bad-argument status.
+    pub fn indexed(&self, index: u32) -> Result<ModeInfo, u32> {
+        self.0.get(index as usize).copied().ok_or(3)
+    }
+
+    /// +50's strict signed-frequency maximum. Equal frequencies retain the
+    /// first index. No match is passed to virtual +64 as -1 by the original.
+    pub fn fastest(&self, width: u32, height: u32, bits: u32) -> Option<usize> {
+        fastest(&self.0, width, height, bits)
+    }
+}
+
+/// +50 also accepts a list returned by an overridden virtual +68.
+pub fn fastest(modes: &[ModeInfo], width: u32, height: u32, bits: u32) -> Option<usize> {
+    let mut best = None;
+    let mut frequency = -1;
+    for (index, mode) in modes.iter().enumerate() {
+        if mode.width == width && mode.height == height && mode.bits == bits && (mode.frequency as i32) > frequency {
+            best = Some(index);
+            frequency = mode.frequency as i32;
+        }
+    }
+    best
+}
+
+/// Raw +58's scan: keep the first strict maximum, but stop at a later
+/// higher frequency above 75 once any match has been selected. This is
+/// intentionally sensitive to OS order, including a first match above 75.
+pub fn default_frequency(modes: &[ModeInfo], width: u32, height: u32, bits: u32) -> Option<usize> {
+    let mut best = None;
+    let mut frequency = -1;
+    for (index, mode) in modes.iter().enumerate() {
+        if mode.width == width && mode.height == height && mode.bits == bits && (mode.frequency as i32) > frequency {
+            if mode.frequency as i32 > 75 && best.is_some() { break; }
+            best = Some(index);
+            frequency = mode.frequency as i32;
+        }
+    }
+    best
+}
+
+/// Raw +5C with keep clear: first exact refresh match, otherwise the first
+/// strict signed maximum, without +58's early stop above 75.
+pub fn preferred_frequency(modes: &[ModeInfo], width: u32, height: u32, bits: u32, wanted: u32) -> Option<usize> {
+    modes.iter().position(|m| m.width == width && m.height == height && m.bits == bits && m.frequency == wanted)
+        .or_else(|| fastest(modes, width, height, bits))
+}
+
 /// Larger than any screen; what `GetSystemMetrics` lets the game take.
 const MOST: i32 = 0x2000;
 
@@ -114,6 +198,34 @@ pub fn answer_change(change: &Change) -> (i32, ChangeKind) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mode_list_keeps_os_order_capacity_and_first_fastest_tie() {
+        let mut queried = Vec::new();
+        let modes = Modes::enumerate(|index| {
+            queried.push(index);
+            [60, 75, 75].get(index as usize).map(|&frequency| ModeInfo {
+                width: 1024, height: 768, width_again: 1024, bits: 16, frequency,
+            })
+        });
+        assert_eq!(queried, [0, 1, 2, 3]);
+        let mut list = Modes::default();
+        list.replace(modes.clone());
+        assert_eq!(list.entries(), modes);
+        assert_eq!(list.capacity(), 3);
+        assert_eq!(list.fastest(1024, 768, 16), Some(1));
+        assert_eq!(list.fastest(1024, 768, 32), None);
+        assert_eq!(list.indexed(0), Ok(modes[0]));
+        assert_eq!(list.indexed(3), Err(3));
+        let with_frequency = |frequencies: &[u32]| frequencies.iter().map(|&frequency| ModeInfo { frequency, ..modes[0] }).collect::<Vec<_>>();
+        assert_eq!(default_frequency(&with_frequency(&[60, 85, 75]), 1024, 768, 16), Some(0));
+        assert_eq!(default_frequency(&with_frequency(&[85, 60, 75]), 1024, 768, 16), Some(0));
+        assert_eq!(preferred_frequency(&modes, 1024, 768, 16, 60), Some(0));
+        assert_eq!(preferred_frequency(&modes, 1024, 768, 16, 85), Some(1));
+        list.replace([]);
+        assert!(list.entries().is_empty());
+        assert_eq!(list.capacity(), 3);
+    }
 
     fn change(fields: u32, width: u32, height: u32, bits: u32, flags: u32) -> Change {
         Change { mode: Some(ChangeMode { fields, width, height, bits }), flags }

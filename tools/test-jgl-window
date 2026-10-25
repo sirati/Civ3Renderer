@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Standalone x86 jgl contract checks on a private Xvfb and Wine prefix.
+# Run in nix develop. All output, prefix and artifacts stay under evidence.
+# Never invokes tools/wine-run, the game, a shared prefix or shared display.
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+evidence=${CIV3R_JGL_WINDOW_EVIDENCE:?set a private evidence directory}
+mkdir -p "$evidence"
+evidence=$(cd "$evidence" && pwd)
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$evidence/target}
+export CARGO_INCREMENTAL=0
+wine_dir=${CIV3R_JGL_WINDOW_WINE:-$(readlink -f "$HOME/.cache/winvm/wine-wow64")}
+xserver=${CIV3R_JGL_WINDOW_XVFB:-$(nix build --no-link --print-out-paths --inputs-from "$repo" nixpkgs#xorg-server)}
+test_name=${1:-owned_window}
+profile_args=()
+if test "${CIV3R_JGL_WINDOW_PROFILE:-debug}" = release; then profile_args+=(--release); fi
+if test "$test_name" = owned_window_live && ! test -e "$wine_dir/lib/wine/x86_64-windows/winex11.drv"; then
+  echo 'Real-window checks require CIV3R_JGL_WINDOW_WINE pointing to an X11-capable Wine build.' >&2
+  exit 1
+fi
+cargo test --manifest-path "$repo/Cargo.toml" -p jgl-ffi --target i686-pc-windows-gnu --test "$test_name" "${profile_args[@]}" --no-run --message-format=json > "$evidence/build-$test_name.jsonl"
+binary=$(python3 - "$evidence/build-$test_name.jsonl" <<'PY'
+import json,sys
+paths=[r['executable'] for l in open(sys.argv[1]) if (r:=json.loads(l)).get('reason')=='compiler-artifact' and r.get('executable')]
+assert len(paths)==1,paths
+print(paths[0])
+PY
+)
+export WINEPREFIX=$evidence/prefix
+export WINEARCH=win64
+export WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe,winedbg.exe=d'
+export WINEDEBUG=${WINEDEBUG:--all}
+unset WAYLAND_DISPLAY
+LIBGL_ALWAYS_SOFTWARE=1 "$xserver/bin/Xvfb" -displayfd 3 -screen 0 1280x1024x24 -nolisten tcp 3> "$evidence/display" > "$evidence/xvfb.log" 2>&1 &
+display_pid=$!
+printf '%s\n' "$display_pid" > "$evidence/xvfb.pid"
+cleanup() {
+  run_result=$?
+  trap - EXIT
+  set +e
+  "$wine_dir/bin/wineserver" -k > "$evidence/cleanup-wine.log" 2>&1
+  stop_result=$?
+  timeout 15 "$wine_dir/bin/wineserver" -w >> "$evidence/cleanup-wine.log" 2>&1
+  wait_result=$?
+  kill "$display_pid" 2>/dev/null
+  wait "$display_pid" 2>/dev/null
+  display_alive=0
+  if kill -0 "$display_pid" 2>/dev/null; then display_alive=1; fi
+  printf 'test_exit=%s\nwineserver_stop=%s\nwineserver_wait=%s\nxvfb_pid=%s\nxvfb_alive=%s\nprefix=%s\n' \
+    "$run_result" "$stop_result" "$wait_result" "$display_pid" "$display_alive" "$WINEPREFIX" > "$evidence/cleanup.txt"
+  if test "$wait_result" != 0 || test "$display_alive" != 0; then run_result=1; fi
+  exit "$run_result"
+}
+trap cleanup EXIT
+for ((attempt=0; attempt<50; attempt++)); do
+  if test -s "$evidence/display"; then break; fi
+  kill -0 "$display_pid"
+  sleep 0.1
+done
+export DISPLAY=:$(cat "$evidence/display")
+export CIV3R_JGL_WINDOW_PRIVATE=1
+# X11's explorer may remain alive after initialization. It belongs to this
+# prefix and is stopped by cleanup; waiting for its exit here prevents tests.
+timeout 60 "$wine_dir/bin/wineboot" -i > "$evidence/wineboot.log" 2>&1
+export CIV3_JGL_DLL=${CIV3_JGL_DLL:-'Z:\mnt\datasets\winvm\civ3-src-c3x28\Civilization III Complete\Conquests\jgl.dll'}
+sha256sum "$binary" > "$evidence/test-binary.sha256"
+cp --reflink=auto "$binary" "$evidence/$test_name.exe"
+git -C "$repo" rev-parse HEAD > "$evidence/source-head.txt"
+git -C "$repo" diff --binary > "$evidence/source.patch"
+mkdir -p "$evidence/source"
+for file in crates/jgl/src/window.rs crates/jgl/src/display.rs crates/jgl-ffi/src/own/graphics.rs \
+  crates/inproc/src/paint.rs crates/inproc/src/message.rs "crates/jgl-ffi/tests/$test_name.rs" \
+  crates/jgl-ffi/tests/support/window_abi.rs tools/test-jgl-window; do
+  mkdir -p "$evidence/source/$(dirname "$file")"
+  cp "$repo/$file" "$evidence/source/$file"
+done
+(cd "$evidence/source" && find . -type f -print0 | sort -z | xargs -0 sha256sum) > "$evidence/source.sha256"
+printf 'prefix=%s\ndisplay=%s\nwine=%s\nbinary=%s\n' "$WINEPREFIX" "$DISPLAY" "$wine_dir" "$binary" > "$evidence/environment.txt"
+timeout 60 "$wine_dir/bin/wine" "$binary" --nocapture --test-threads=1 > "$evidence/result.log" 2>&1
