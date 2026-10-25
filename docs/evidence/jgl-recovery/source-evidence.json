@@ -1,0 +1,19 @@
+{
+  "as_of": "2026-10-25",
+  "object_semantics": {
+    "document": "../../jgl-object-semantics.md",
+    "sha256": "bab3a27c594e8a1291070776b507f04b61032a2796838ebb5310ea1a43864491",
+    "original_retained_text": "/mnt/datasets/c3r-build/jgl-recovery-20261025/object-semantics-original.md",
+    "original_sha256": "b1004144359b64213fd6cbe9f202681246c21302a05ca2cf2042b568c84bf7a7",
+    "evidence_scope": "Original V/G labels retained. Direct binary checks below cover only the specified call sites and thunks."
+  },
+  "independent_binary_checks": "checked-disassembly.json",
+  "reproduce": "cd /tmp && ./c3r-g67-tools/py.sh /mnt/datasets/c3r-build/jgl-recovery-20261025/check-disassembly.py",
+  "raw_evidence_archive": "/mnt/datasets/c3r-source-backups/20261025-jgl-recovery/recovery-evidence.tar.gz",
+  "raw_evidence_archive_sha256": "8bf31b76f08b868fc04b4e95b99ad1e2c84fca9dbff9d288a902bc84785dd046",
+  "raw_evidence_archive_bytes": 102735168,
+  "raw_evidence_manifest": "/mnt/datasets/c3r-source-backups/20261025-jgl-recovery/recovery-evidence-manifest.json",
+  "archive_members_verified": 121,
+  "interrupted_source_checkpoint": "47d1e45",
+  "code_acceptance": "Unaccepted; replacement task must audit, test, compare and remove temporary comparison code before integration."
+}

@@ -678,7 +678,7 @@ same file geometry and state the viewer uses, and a live Palace check. The
 earlier statement above that no sprite read-back exception remained did not
 cover Palace selection.
 
-Main currently ends at `dd992e0`, which also fixes labels disappearing under
+The implementation baseline at recovery is `dd992e0`, which also fixes labels disappearing under
 popups. The cancelled continuation is preserved on branch `jgl-g67` at
 `47d1e45`. That checkpoint includes own-object implementations, temporary
 comparison code and unfinished final-switch wiring. It has not passed
@@ -692,4 +692,7 @@ Keep the plain-game pass-through path. Compare old/new calls, retain failed
 attempts and before/after captures, then remove temporary comparison code.
 Also verify the label fix under rename and Quit popups and its absence under
 F1. Completed group work needs no replacement agents; these remaining groups
-have one implementation owner.
+have one GPT-6.1 Sol implementation owner in an isolated worktree. Its durable
+task identifiers, scope and backup receipt location are in
+[the continuation state](jgl-continuation-state.json). Resume that task rather
+than starting a duplicate.
