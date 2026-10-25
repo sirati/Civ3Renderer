@@ -851,3 +851,82 @@ lifetimes-wine.log,build-windows.log}`. These are scoped contract checks;
 they do not establish group 6 or group 7 acceptance. Other indexed readers,
 copy/replace contracts and DC users remain open. The default remains the
 original jgl path.
+
+### Retained selection sources and publisher anchors, partial group 6
+
+`ui_opacity::require_file` is removed. The successful exe PCX-load hook
+retains its already decoded file indices with one guarded block copy,
+including the source stride. It also retains the palette attached to the
+image. The optional palette argument can be null for both oldinterface
+and Palace art [V, live calls]. No PCX file read, decompression or per-pixel
+scan runs in a production blit or semantic-read hook. The single block
+copy runs at file loading, not at first click. Its cost still scales with
+file size; this is not a constant-time or zero-copy source capture.
+
+Sprites retain immutable source handles at slice/copy and release them at
+reset. A live selection retains those same handles after source-image clear,
+sprite reset and shared-cache eviction. `civ3_ui::selection::FilePixels`
+answers both the semantic hit query and the UI model's shared pixel query.
+The oldinterface presence read uses this retained decoded source too, and
+no longer reads or decodes the file synchronously on its first query.
+
+Anchor scans run on the publisher. NativeUi captures the fields its control
+walk already reads and retains the same selection revision as its Present.
+The publisher replays that walk against captured fields and immutable file
+data, computes the anchors and caches the resulting controls before sending
+the frame. It never reads live game memory during that replay. Replaying the
+whole walk preserves child/root order, clipping and opaque-form exclusion.
+There is no frame with guessed anchors while a worker catches up.
+
+- [V] Three bridge tests check first-query source availability, stride and
+  key indices, shared pixel answers, image/sprite lifetime, immutable prior
+  selection revisions, publisher execution, placement and opaque-root
+  exclusion. The existing geometry/overlap tests remain unchanged.
+- [V] Temporary source comparison in an explicit owned session checked 203
+  successful file loads, 102 distinct sources across all five Palace styles
+  plus oldinterface. All 23,713,540 indices and all palette entries matched
+  the previous file-decoder source. The diagnostic was then removed.
+- [V] Four 1024x768 Palace crops matched the retained original-jgl session
+  pixel-for-pixel: before, after the first upgrade, after style changes and
+  after the second upgrade. Reopening with zero credits succeeded.
+- [V] All 13 actual selection reads in that session found
+  `module_base("jgl.dll") == None`; its complete Wine loader log has no jgl
+  load. At 60 seconds original-table counters were all zero. Our pump
+  +0x128 counted 5,068,443 calls and font measurement 4,062,758, with zero
+  foreign drawing threads or re-entry. This is not pump equivalence evidence.
+- [V] Confirmed Quit ended the game normally; labels remained visible under
+  its popup. The fresh DLL/ini baseline and restoration hashes agree.
+
+Evidence root: `/mnt/datasets/c3r-build/jgl-t3-e967e7bc`. The source snapshots
+under `diagnostic/`, `diagnostic-summary.txt` and `evidence/diagnostic/`
+preserve the comparison and restoration receipts. The null optional-palette
+attempt is retained under `evidence/failed-null-palette/`; an earlier stale
+test launch was stopped and retained under `evidence/aborted-stale-build/`.
+Neither failed attempt is counted as acceptance evidence.
+
+[V] With the diagnostic removed, the production build repeated both upgrades,
+all styles, reopening with no credits and confirmed Quit. Its four Palace
+crops again matched the original-jgl reference exactly, and its loader log
+has no jgl load. Normal viewer startup with `CIV3R_JGL` unset repeated the
+same walk and four identical crops, loaded original jgl as intended, and
+quit normally. Both sessions restored the fresh DLL/ini baseline. Their
+requested map traces contain zero map draw records, so neither establishes
+map-trace equivalence.
+
+[V] `cargo test --workspace` passed 1,310 tests before stopping at the known
+`tile-render --test subpixel_coverage` failure. Relevant later packages and
+the remaining renderer text/background tests passed separately. `no_locks`
+passed 2 tests and `generic_crates` passed 3. Both the 32-bit Windows release
+build and host native release passed, in `nix develop` with
+`CARGO_INCREMENTAL=0`. Detailed counts and logs are in `test-summary.txt`
+and the named logs at the evidence root. A repeat of the Windows lifetime
+test exposed a fixture collision because Wine reused its PID and the old
+font copy was read-only. The fixture now uses a fresh directory per run;
+the corrected repeat passed. The failed fixture log is retained.
+
+The synchronous decode and game-thread anchor scans are removed. Group 6
+remains open for other indexed
+maps/direct readers, generated-data copies, +0x38/+0x58 and DC/C3X contracts.
+Group 7 still needs window/pump comparisons, launch lock, windowed and
+Alt/capture tests, stale-input and the full screen/turn/combat walk plus soak.
+The default no-jgl switch remains disabled.

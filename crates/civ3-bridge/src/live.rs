@@ -1182,7 +1182,7 @@ fn publish(
         let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
         let mut controls = match own_title {
             Some(_) => Vec::new(),
-            None => native_ui.as_ref().map(|native| native.controls.clone()).unwrap_or_else(||
+            None => native_ui.as_ref().map(|native| native.selection.as_ref().map_or_else(|| native.controls.clone(), |selection| selection.controls())).unwrap_or_else(||
                 civ3_sys::controls::sites(game.build).map(|sites| civ3_sys::controls::controls(&civ3_sys::controls::Live, &sites)).unwrap_or_default()),
         };
         prefs.retain_native_controls(&mut controls);

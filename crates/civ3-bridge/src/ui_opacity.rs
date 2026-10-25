@@ -11,6 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+pub(crate) use civ3_ui::selection::FilePixels as GameFile;
 
 /// Per file (its path as the game opened it): regions (x, y, w, h) and
 /// whether they are opaque.
@@ -20,6 +21,19 @@ static KNOWN: handoff::Latest<Known> = handoff::Latest::new();
 /// The files decoded so far, for their pixels ([`pixel`]): the last
 /// [`SHARED_FILES`] of them.
 static FILES: handoff::Latest<Vec<(String, Arc<civ3_assets::pcx::Indexed>)>> = handoff::Latest::new();
+/// File indices already decoded by the exe. Semantic readers retain an
+/// Arc independently of this bounded cache and the source image's lifetime.
+static GAME_FILES: handoff::Latest<Vec<(String, Arc<GameFile>)>> = handoff::Latest::new();
+
+pub(crate) fn cache_game_file(path: &str, image: Arc<GameFile>) {
+    GAME_FILES.update(|old| {
+        let mut shared = old.cloned().unwrap_or_default();
+        shared.retain(|(p, _)| p != path);
+        if shared.len() >= SHARED_FILES { shared.remove(0); }
+        shared.push((path.to_owned(), image.clone()));
+        Some(shared)
+    });
+}
 const SHARED_FILES: usize = 64;
 static ASK: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])>> = std::sync::OnceLock::new();
 
@@ -54,23 +68,15 @@ pub fn opaque(path: &str, rect: [i32; 4]) -> Option<bool> {
 /// is not known (asked for then). The same files and the same rule as the
 /// regions' opacity: one source for what is drawn and what is hit.
 pub fn pixel(path: &str, x: i32, y: i32, keyed: bool) -> Option<Option<[u8; 3]>> {
+    if let Some(image) = GAME_FILES.load().and_then(|f| f.iter().find(|(p, _)| p == path).map(|(_, i)| i.clone())) {
+        return Some(image.pixel(x, y, keyed));
+    }
     let files = FILES.load();
     let Some(image) = files.as_ref().and_then(|f| f.iter().find(|(p, _)| p == path).map(|(_, i)| i.clone())) else {
         let _ = opaque(path, [0, 0, 0, 0]);
         return None;
     };
     Some(file_pixel(&image, x, y, keyed))
-}
-
-/// Prepare a file needed for a synchronous semantic reader. Palace clicks
-/// cannot use the async opacity worker's temporary unknown answer. Publish
-/// the same PCX decoding to the existing opacity/pixel cache.
-pub(crate) fn require_file(path: &str) -> Result<Arc<civ3_assets::pcx::Indexed>, String> {
-    if let Some(image) = FILES.load().and_then(|f| f.iter().find(|(p, _)| p == path).map(|(_, image)| image.clone())) { return Ok(image); }
-    let bytes = civ3_assets::files::read_file(path).map_err(|e| format!("{path}: {e}"))?;
-    let image = Arc::new(civ3_assets::pcx::decode(&bytes).map_err(|e| format!("{path}: {e}"))?);
-    cache_file(path, image.clone());
-    Ok(image)
 }
 
 fn cache_file(path: &str, image: Arc<civ3_assets::pcx::Indexed>) {
@@ -83,8 +89,8 @@ fn cache_file(path: &str, image: Arc<civ3_assets::pcx::Indexed>) {
     });
 }
 
-/// Shared by the viewer's opacity answer and semantic readers. Retaining
-/// the decoded file lets a live selection survive cache eviction.
+/// Pixel lookup for the asynchronous decoded-file cache. Selection sources
+/// use FilePixels, retained independently of either shared cache.
 pub(crate) fn file_pixel(image: &civ3_assets::pcx::Indexed, x: i32, y: i32, keyed: bool) -> Option<[u8; 3]> {
     if x < 0 || y < 0 || x >= image.width as i32 || y >= image.height as i32 { return None; }
     let index = image.get(x as u32, y as u32);

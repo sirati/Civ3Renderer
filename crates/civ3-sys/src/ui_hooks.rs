@@ -363,6 +363,27 @@ pub mod obj {
         Ptr32::<u32>::new(jgl + 0x24).read().ok()
     }
 
+    /// The exe's decoded 8-bit source, copied as one guarded block while
+    /// its file-load call still owns the image. No drawing is read back.
+    pub fn image_indices(image: u32) -> Option<(u32, u32, u32, Vec<u8>)> {
+        let jgl = Ptr32::<u32>::new(image.checked_add(4)?).read().ok().filter(|&p| p != 0)?;
+        if i32_at(jgl, 0x24)? != 8 { return None; }
+        let (w, h) = image_size(image)?;
+        let row = i32_at(jgl, 0x40)?;
+        if w <= 0 || h <= 0 || row < w { return None; }
+        let len = usize::try_from(row).ok()?.checked_mul(usize::try_from(h).ok()?)?;
+        let bits = Ptr32::<u32>::new(jgl.checked_add(0x4C0)?).read().ok().filter(|&p| p != 0)?;
+        Some((w as u32, h as u32, row as u32, Ptr32::<u8>::new(bits).read_array(len).ok()?))
+    }
+
+    /// Palette attached to a decoded image. A null optional palette in
+    /// PCX_Image::read_file does not mean the image has no palette.
+    pub fn image_color_entries(image: u32) -> Option<Vec<u32>> {
+        let jgl = Ptr32::<u32>::new(image.checked_add(4)?).read().ok().filter(|&p| p != 0)?;
+        let table = Ptr32::<u32>::new(jgl.checked_add(0x7C)?).read().ok().filter(|&p| p != 0)?;
+        Ptr32::<u32>::new(table.checked_add(0x0C)?).read_array(256).ok()
+    }
+
     /// Whether `canvas` is the canvas of a form composited colour-keyed
     /// (`Status1` 0x1000000): the game reads such a canvas back to tell
     /// whether a click lands on the form or goes through it (0x608C70). A
