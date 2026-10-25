@@ -100,6 +100,12 @@ mod hooks {
 /// the process) to stamp the heartbeat (see the module docs).
 #[cfg(windows)]
 pub fn install() -> Result<(), String> {
+    if jgl_ffi::own::on() {
+        // Our jgl's pumps tell `WindowHooks` directly.
+        BEATING.store(true, SeqCst);
+        beat();
+        return Ok(());
+    }
     let base = inproc::pe::module_base("jgl.dll").ok_or("jgl.dll is not loaded")?;
     let slot = |f: &str| inproc::pe::import_slot(base, "USER32.dll", f).map_err(|e| format!("jgl.dll's {f}: {e}"))?.ok_or(format!("jgl.dll does not import {f}"));
     let (peek, wait) = (slot("PeekMessageA")?, slot("WaitMessage")?);

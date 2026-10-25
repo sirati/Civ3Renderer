@@ -440,6 +440,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     }
     // The game thread's heartbeat, for the viewer's busy indicator.
     match crate::heartbeat::install() {
+        Ok(()) if jgl_ffi::own::on() => log::info!("heartbeat: our jgl's pumps stamp it"),
         Ok(()) => log::info!("heartbeat: jgl.dll's PeekMessageA and WaitMessage stamp it"),
         Err(e) => log::warn!("no game heartbeat (the viewer judges by the connection alone): {e}"),
     }
@@ -2870,6 +2871,14 @@ fn hook_game_window(hidden_window: bool) {
         Err(e) => log::warn!("modifiers: hooking GetAsyncKeyState: {e}"),
     }
     std::thread::spawn(move || {
+        // Our jgl: its window follows the viewer's pointer itself
+        // (`inproc::pointer::overridden`); no jgl.dll to redirect.
+        if jgl_ffi::own::on() {
+            for note in crate::game_window::take_notes() {
+                log::info!("{note}");
+            }
+            return;
+        }
         let Some(jgl) = (0..600).find_map(|_| inproc::pe::module_base("jgl.dll").or_else(|| {
             std::thread::sleep(Duration::from_millis(200));
             None

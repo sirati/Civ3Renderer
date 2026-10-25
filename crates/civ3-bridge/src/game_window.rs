@@ -103,6 +103,18 @@ pub fn early() {
     if hidden {
         install("the game's window hidden: its CreateWindowExA", inproc::hidden::hook_hidden_windows(exe), "");
     }
+    if crate::jgl_hooks::own_mode() {
+        // Our jgl: jgl.dll is not loaded; the game's LoadLibraryA of it gets
+        // this module, whose `get_graphsy_object_ptr` makes our graphics
+        // object (`jgl_ffi::own`).
+        match crate::jgl_hooks::install_own(scale.clone()) {
+            Ok(_) => note("our jgl stands in for jgl.dll: the game's LoadLibraryA(\"jgl.dll\") gets this module; jgl.dll is not loaded".into()),
+            Err(e) => note(format!("our jgl: {e}")),
+        }
+        let answered = inproc::loader::hook_load_library_answering(exe, |name| (name == "jgl.dll").then(answer_jgl), |_, _| {});
+        install("jgl.dll answered with this module: the game's LoadLibraryA", answered, "");
+        return;
+    }
     let loaded_scale = scale.clone();
     let loaded = inproc::loader::hook_load_library(exe, move |name, base| {
         if name == "jgl.dll" {
@@ -118,6 +130,31 @@ pub fn early() {
     if let Some(base) = inproc::pe::module_base("jgl.dll") {
         hook_jgl(base, scale, hidden, CapturePoint::DllMain);
     }
+}
+
+/// The game's `LoadLibraryA("jgl.dll")` with our jgl: the interface
+/// capture installed first (as at jgl.dll's load, `hook_jgl`), then this
+/// module's handle with one more reference (the game frees it at its end,
+/// 0x6306B9).
+fn answer_jgl() -> u32 {
+    let handle = inproc::dll::add_reference();
+    if !inproc::loader::prepare_before_claim(handle.max(1), &JGL, || {
+        match crate::ui_trace::prepare_at(0, CapturePoint::LoadCallback) {
+            Ok(true) => note("UI capture installed before the game's first jgl use".into()),
+            Ok(false) => {}
+            Err(e) => {
+                note(format!("early UI capture: {e}"));
+                if std::env::var_os("CIV3R_VIEWER").is_some() {
+                    crate::ui_trace::replacement_failed(&format!("early UI capture failed: {e}"));
+                }
+            }
+        }
+    }) {
+        return handle;
+    }
+    // The counting stubs wrap our tables (jgl.dll's are not there).
+    crate::jgl_hooks::install_counting(0);
+    handle
 }
 
 /// `jgl.dll` just loaded (at `base`), before it runs: what it learns of the

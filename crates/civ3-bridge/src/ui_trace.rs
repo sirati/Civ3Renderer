@@ -262,6 +262,10 @@ pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
         if CAPTURE.status()? { return Ok(()) }
         let point = CapturePoint::Worker { graphics_initialized: h::graphics_initialized(game.build) };
         if point.allowed() {
+            // Our jgl: no jgl.dll to wait for.
+            if jgl_ffi::own::on() {
+                return install_configured(0, point).map(|_| ());
+            }
             if let Some(base) = inproc::pe::module_base("jgl.dll") {
                 return install_configured(base, point).map(|_| ());
             }
@@ -1241,7 +1245,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
-    hook_jgl(jgl)?;
+    // With our jgl (jgl.dll not loaded) its tables have every group already.
+    if !jgl_ffi::own::on() {
+        hook_jgl(jgl)?;
+    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1262,7 +1269,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
         }
     }
-    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") {
+    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") && !jgl_ffi::own::on() {
         trace_pixel_access(jgl);
     }
     log::info!("UI mirror: {} hooks", hooks.len());
