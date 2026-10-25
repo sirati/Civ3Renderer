@@ -1,11 +1,13 @@
 # Remaining jgl object contracts
 
-The later checkpoint `907d777` was withheld from integration. Its proposed
-data/DC/mask changes do not close the rows below. The
+The later checkpoint `339bac3` corrects the owner identity, lazy first-fill
+and Rust aliasing defects found in `907d777`. Its proposed frame and source
+answers still do not close the rows below. The
 [current handover](jgl-continuation.md) and
-[source review](evidence/jgl-group6-review/review.json) record the new
-identity, first-fill and self-copy defects, missing second frame reader,
-and unverified scratch-DC behavior. The matrix below describes the earlier
+[source review](evidence/jgl-group6-correction-review/review.json) record
+guessed frame transparency, global-history eviction and incomplete writer
+and transformed-source semantics. The GDI+ constructor test ran under Wine;
+drawing equivalence and native mill icons remain open. The matrix below describes the earlier
 `83caad2` checkpoint and its scoped evidence.
 
 Group 7's separate [window/pump matrix](jgl-window-contracts.md) is accepted

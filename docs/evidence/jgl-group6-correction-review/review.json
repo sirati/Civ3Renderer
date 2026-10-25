@@ -1,0 +1,182 @@
+{
+  "as_of": "2026-10-25",
+  "checkpoint": "339bac3a71f00206062efd18d88964c0e1b2f248",
+  "branch": "t3/finish-jgl-groups-switch-2-1",
+  "integration_accepted": false,
+  "default_no_jgl_switch_accepted": false,
+  "review_method": "Independent source review, complete completed-task command transcript, exact final artifact hash check/copy, restoration-output versus baseline manifests and screenshot pixel inspection. Parent did not rerun this round's Wine tests.",
+  "scoped_source_corrections_confirmed": [
+    "Data policy uses PCX owner identities again",
+    "Replay/form classification no longer relies solely on a late display-copy record",
+    "First 16-bit data fill calls ensure_pixels",
+    "Same-image +38 no longer creates aliasing shared/mutable Rust slices",
+    "Separate hook states for the two frame call sites"
+  ],
+  "blocking_findings": [
+    {
+      "id": "guessed_mask_answer",
+      "source": "crates/civ3-bridge/src/ui_trace.rs",
+      "finding": "frame_mask_unknown guesses initialized transparency for missing provenance. Logging an exception does not satisfy the no-guessed-answer requirement."
+    },
+    {
+      "id": "global_blit_history",
+      "source": "crates/civ3-bridge/src/ui_trace.rs",
+      "finding": "Every sprite blit is appended to a global 1024-entry Vec, evicting persistent masks during unrelated drawing and shifting the vector on subsequent blits. Clear only follows PCX clear."
+    },
+    {
+      "id": "mask_semantics",
+      "source": "crates/civ3-bridge/src/ui_trace.rs",
+      "finding": "Sprite IDs are resolved at query time instead of retaining immutable source at write time. Clip/scale/mask/transforms and fill/copy/text writers are not represented; empty history silently yields a key."
+    },
+    {
+      "id": "source_transforms",
+      "source": "crates/civ3-ui/src/ui.rs",
+      "finding": "Added basename transparency constants do not establish exact rect/lifetime-scoped +58 semantics. FilePixels::pixel and ui_opacity::file_pixel still apply only index<254 to retained pre-transform source."
+    },
+    {
+      "id": "copy_semantics",
+      "source": "crates/jgl-ffi/src/own/image.rs",
+      "finding": "Whole-source snapshot fixes Rust aliasing, but original +38 self-overlap traversal and +58 status/state comparisons remain unproved."
+    },
+    {
+      "id": "mill_icons",
+      "finding": "Native viewer mill-icon state/art implementation is absent, beyond the missing enabled-mill runtime check."
+    },
+    {
+      "id": "gdi_status",
+      "source": "crates/jgl-ffi/tests/owned_lifetimes.rs",
+      "finding": "Owned GDI+ startup/CreateFromHDC/release/delete executes, but drawing/status/clip comparison with the original C3X consumer is absent."
+    }
+  ],
+  "runtime_evidence": {
+    "data_test": "40 calls / 1369360 bytes / zero differences; log inspected, not parent rerun. This fixture uses its own data policy, not the actual bridge policy boundary.",
+    "gdiplus_test": "Wine test log passes; source covers startup/create/release/delete, without drawing.",
+    "live_load": "Not accepted. Harness reports main menu then Load Game dialog did not open. Captures inspected below are all black.",
+    "captures": [
+      {
+        "file": "owned-shot.png",
+        "size": [
+          1920,
+          1080
+        ],
+        "all_black": true,
+        "sha256": "c1161e09bb43363d2777bdb410b3e59e98b33eae3b374322b5e86079ab089a12"
+      },
+      {
+        "file": "owned-hide-shot.png",
+        "size": [
+          1920,
+          1080
+        ],
+        "all_black": true,
+        "sha256": "c1161e09bb43363d2777bdb410b3e59e98b33eae3b374322b5e86079ab089a12"
+      }
+    ],
+    "restoration_transcript_position": 362,
+    "restored_hashes": [
+      {
+        "path": "/mnt/datasets/winvm/wine-civ3-wow64/drive_c/Games/Civilization III Complete/Conquests/IFC23.dll",
+        "sha256": "079641fbec833579233df78e7a5426b38e559b4948c7e6f3bc0ebc123cb65b0e"
+      },
+      {
+        "path": "/mnt/datasets/winvm/wine-civ3-wow64/drive_c/Games/Civilization III Complete/Conquests/ifc23_orig.dll",
+        "sha256": "032c24f528881e25e24d0acf4571fd92e7976302e50474950c505a08ee490e4b"
+      },
+      {
+        "path": "/mnt/datasets/winvm/civ3r-native/i386-windows/civ3r_native.dll",
+        "sha256": "b8c638025314d1d1521008161366281ed393d9b0a25b10c54dc406b92cc31d0d"
+      },
+      {
+        "path": "/mnt/datasets/winvm/civ3r-native/x86_64-unix/civ3r_native.so",
+        "sha256": "99bf0e3c8682429d770a059d622ca09260acd146a7286ee7d797e578bbf0fbfb"
+      }
+    ],
+    "restoration_limit": "Four DLL/native hashes were checked against captured output; complete ini/log restoration proof is not supplied."
+  },
+  "test_limits": {
+    "workspace": "workspace-test.log stops at known P4 subpixel_coverage failure. No post-failure package/guard runs were found in the completed task command transcript, despite receipt wording that later packages completed.",
+    "debug_binaries": "Current executables retained before warm-target reassignment; original historical test-binary hashes were not supplied.",
+    "formatting": "cargo fmt unavailable."
+  },
+  "final_artifact_review": "artifact-review.json",
+  "final_artifacts": [
+    {
+      "artifact": "ifc23.dll",
+      "bytes": 39209806,
+      "sha256": "acbc65a48cdc0a6d0fb41b5040e1ebe7c97b7cda929aa05c20ad41ccc5ebdada",
+      "copied_to": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025/candidate/ifc23.dll"
+    },
+    {
+      "artifact": "civ3r_native.dll",
+      "bytes": 1499547,
+      "sha256": "0f58cad64a01602f30147e648dcba3f36220792f8b3e7fdd748c54120d3e4765",
+      "copied_to": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025/candidate/civ3r_native.dll"
+    },
+    {
+      "artifact": "civ3r_native.so",
+      "bytes": 22570160,
+      "sha256": "7c7da07746433f88d5339225eee95bee546c88a5f22f819c4007c9b53fb24716",
+      "copied_to": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025/candidate/civ3r_native.so"
+    },
+    {
+      "artifact": "owned_data-4107a651cdd86a6a.exe",
+      "bytes": 18074576,
+      "sha256": "0fe1cc400dadd0c0349168fbc81308b84c854ee2d28b78300f348d478e9a5866",
+      "copied_to": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025/test-binaries/owned_data-4107a651cdd86a6a.exe",
+      "limit": "No original test-binary hash was supplied; this is the current retained executable, not independently bound to the historical Wine run."
+    },
+    {
+      "artifact": "owned_lifetimes-9bea16f3edfe3602.exe",
+      "bytes": 17879593,
+      "sha256": "8d0a729a22cb088657543c1a58fcf080c7b3edb2113a83e609704e74b8dfa6fc",
+      "copied_to": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025/test-binaries/owned_lifetimes-9bea16f3edfe3602.exe",
+      "limit": "No original test-binary hash was supplied; this is the current retained executable, not independently bound to the historical Wine run."
+    }
+  ],
+  "sources": [
+    {
+      "path": "crates/civ3-bridge/src/ui_trace.rs",
+      "sha256": "289187b2b373a2b8e98785498353e8982d113212fa9f54200c5300c6180e0533"
+    },
+    {
+      "path": "crates/civ3-sys/src/ui_hooks.rs",
+      "sha256": "c1dbf3a91a6b9ceaa6f5ad147fd62803893afb574e44c558f92bd989f45fe4aa"
+    },
+    {
+      "path": "crates/civ3-ui/src/ui.rs",
+      "sha256": "fc5f20442db2f8e25b8f16bc9729f8ae1c506aa6a84c0933229e81ccb9b398d6"
+    },
+    {
+      "path": "crates/jgl-ffi/src/own/image.rs",
+      "sha256": "8446ca40712de814c396a470a7a8294cf291e704d8a4926992b4fea583790e80"
+    },
+    {
+      "path": "crates/jgl-ffi/tests/owned_lifetimes.rs",
+      "sha256": "3dfefffb5efdd15061f1932e18f69d9df52c37a91a68c8fb19482fd53476ef40"
+    },
+    {
+      "path": "crates/jgl/src/memory.rs",
+      "sha256": "3a67f353f921a574ed4f8fd8e7f084a127e3679659bc8afe7841d1decd0d27ca"
+    },
+    {
+      "path": "crates/civ3-bridge/src/ui_opacity.rs",
+      "sha256": "33994c835a89eea41b766e839bedaaba68e8db2adc84bb661153e006ea58eb8e"
+    },
+    {
+      "path": "crates/civ3-ui/src/selection.rs",
+      "sha256": "82ba52310645f4d8244baddda89c4837467263e23f02be95f0da433adea169cd"
+    },
+    {
+      "path": "crates/jgl-ffi/tests/owned_data.rs",
+      "sha256": "38d4744a3e87f6da05ec3a69a36f1bff2f198d424eab98b83e4e1596a815de27"
+    }
+  ],
+  "command_transcript": {
+    "path": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025/command-activity.json",
+    "sha256": "a85279d42d94e18dbf9c17e1ad15a4dbc53b201a5c8e5ffc688910c4f835fcc1",
+    "commands": 151
+  },
+  "original_receipt_sha256": "969060d327fa00b9d9fd49d5fa92472f4fbf9754cb21ed7c74c366c4168264b5",
+  "remaining": "Exact Group 6 read-back/image/DC contracts and native mill icons, combined candidate game qualification, default switch and Neo acceptance.",
+  "evidence_root": "/mnt/datasets/c3r-build/jgl-group6-correction-review-20261025"
+}
