@@ -74,6 +74,12 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The second frame image reader at PCGames 0x608E7E. It has its own
+    /// hook state because each call-site patch owns one trampoline.
+    pub mod frame_mask_pixel_alt(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// The same `get_pixel` at [`art_presence_site`].
     pub mod art_presence_pixel(image, edx; x, y) -> u32;
 }

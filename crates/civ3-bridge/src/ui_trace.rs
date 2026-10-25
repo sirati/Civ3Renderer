@@ -1158,7 +1158,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E0A, &[0xE8, 0x11, 0x74, 0xFF, 0xFF], |c| {
             frame_mask_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| if jgl_ffi::own::on() { frame_mask_unknown(c.image) } else { c.original() })
         })?));
-        hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E7E, &[0xE8, 0x9D, 0x73, 0xFF, 0xFF], |c| {
+        hooks.push(Box::new(h::frame_mask_pixel_alt::install_call_site(0x60_8E7E, &[0xE8, 0x9D, 0x73, 0xFF, 0xFF], |c| {
             frame_mask_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| if jgl_ffi::own::on() { frame_mask_unknown(c.image) } else { c.original() })
         })?));
     }
