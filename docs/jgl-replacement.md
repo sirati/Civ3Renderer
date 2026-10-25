@@ -672,13 +672,15 @@ being pixel-at thunks, +0x18/+0x20 lock thunks and +0x24 unlocking bits.
 Constructor, destructor, field, error-code, GDI and file-operation details
 retain their original [V]/[G] evidence scope.
 
-The latest reviewed unmerged checkpoint is `339bac3` on
-`t3/finish-jgl-groups-switch-2-1`. Owner identity, lazy first-fill and Rust
-self-copy aliasing are corrected. Full integration remains unaccepted
-because frame answers, source transforms, image contracts, native mill
-icons and live qualification remain open. The earlier scoped navigator
-results below apply to `83caad2`. See the [current handover](jgl-continuation.md)
-and [latest review](evidence/jgl-group6-correction-review/review.json).
+The latest reviewed unmerged candidate is `31da02c` on
+`t3/finish-jgl-groups-switch-5`, combining accepted Group 7 with the Group 6
+data corrections. Parent replay accepts the tested data/state/DC contracts.
+Full integration remains unaccepted because the final loaded-save run exits
+on the unresolved HUD query at `0x9fdd84`. Frame/source semantics, native
+mill icons and broader live qualification remain open. Earlier navigator
+results below apply to their bound checkpoints. See the
+[current handover](jgl-continuation.md) and
+[latest review](evidence/jgl-readback-review/review.json).
 Main's implementation baseline remains
 `dd992e0`. The experimental implementation requires `CIV3R_JGL=own`.
 Ordinary viewer launches still load original jgl; no-viewer/no-trace launches
@@ -751,9 +753,9 @@ oracle; they establish no no-jgl game-session claim. Existing owned game
 sessions had no loader entry or mapping, but do not qualify all these
 contracts or Neo behavior.
 
-The active data/mask continuation owns Group 6 image/read-back contracts and
-the shared game reservation. It may test an isolated combined candidate with
-accepted Group 7. A separate GPT-6.1 Sol task implements native mill-icon
+The active HUD/frame continuation owns exact source/read-back contracts and
+the shared game reservation. The isolated candidate already includes accepted
+Group 7. A separate GPT-6.1 Sol task implements native mill-icon
 state/art without shared GUI/files/target access. After accepted common-source
 integration, continue any remaining integrated Group 7 work using
 [its brief](jgl-group7-integration.md) and reassign the reservation. The

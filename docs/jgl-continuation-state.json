@@ -9,8 +9,8 @@
   "research_status": "Full completed object-semantics findings preserved; implementation/runtime qualification remains separate.",
   "research_evidence": "evidence/jgl-recovery/source-evidence.json",
   "backups": {
-    "directory": "20261025-jgl-group6-correction-review",
-    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-group6-correction-review/backup-receipt.json",
+    "directory": "20261025-jgl-readback-review",
+    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-readback-review/backup-receipt.json",
     "configured_origin": "/home/sirati/Projects/civ3-renderer-old",
     "origin_available": false,
     "required_hosts": [
@@ -19,12 +19,12 @@
     ],
     "scope": "All committed main-repository refs including interrupted checkpoint, readable docs and retained RE/test evidence. Consult receipt for actual transfer results.",
     "previous_verified_checkpoint": "20261025-jgl-data-review",
-    "previous_checkpoint": "20261025-jgl-window-review",
-    "previous_neo_replication": "Window-review checkpoint verified locally and on Papa laptop; Neo SSH timed out, replication pending."
+    "previous_checkpoint": "20261025-jgl-group6-correction-review",
+    "previous_neo_replication": "Correction-review checkpoint verified locally and on Papa laptop; Neo SSH timed out and replication remained pending."
   },
-  "current_unmerged_branch": "t3/finish-jgl-groups-switch-2-1",
-  "current_unmerged_checkpoint": "339bac3a71f00206062efd18d88964c0e1b2f248",
-  "current_code_acceptance": "339bac3 has reviewed owner/lazy-fill/aliasing corrections, but full Group 6 remains unaccepted. Guessed frame answers, global history semantics, transformed art, native mill icons and live game gates remain open.",
+  "current_unmerged_branch": "t3/finish-jgl-groups-switch-5",
+  "current_unmerged_checkpoint": "31da02c2f5881a97083962a8971181be671509e1",
+  "current_code_acceptance": "Scoped data/state/DC original-binary contracts accepted after independent replay. Combined candidate loads save then exits on unresolved HUD 0x9fdd84 query. Full Group 6, integrated gameplay, default switch and Neo remain unaccepted.",
   "scoped_review": "evidence/jgl-data-review/review.json",
   "reviewed_corrections": {
     "source_loads": 203,
@@ -38,18 +38,18 @@
   "contract_matrix": "jgl-contract-audit.md",
   "active_tasks": [
     {
-      "title": "Finish jgl data and frame contracts on combined candidate",
-      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group6-data-masks-20261025-6",
-      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group6-data-masks-20261025-6",
+      "title": "Finish exact HUD and frame read-back sources",
+      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-hud-frame-source-20261025-7",
+      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-hud-frame-source-20261025-7",
       "model": "gpt-6.1-sol",
       "provider": "codex",
       "task_status": "running",
       "isolation": "worktree",
       "no_child_agents": true,
       "scope": [
-        "Exact image/data/frame/keyed-hit/source-transform contracts",
-        "Isolated candidate merge with accepted Group 7",
-        "Live Group 6 and available combined-game qualification"
+        "Exact HUD/frame/caption/indexed/transformed-source queries without guessed answers or forced exit",
+        "Original predicate and visible map/HUD qualification on combined candidate",
+        "Remaining indexed/dynamic reader coverage and available integrated game gates"
       ],
       "sole_local_game_gui_input_owner": true,
       "sole_warm_build_target_owner": "/tmp/c3r-jgl-g23/target"
@@ -88,7 +88,7 @@
     ],
     "scope": "Static PCGames HUD/advisor navigator buffers only. Dynamic/replay and broader group contracts remain open."
   },
-  "latest_group6_review": "evidence/jgl-group6-correction-review/review.json",
+  "latest_group6_review": "evidence/jgl-readback-review/review.json",
   "human_readable_handover": "jgl-continuation.md",
   "in_progress_group7_recovery_snapshot": {
     "created_at_utc": "2026-10-25T11:09:51.600079+00:00",
@@ -122,5 +122,29 @@
       "current_agent": null,
       "available_work_in_active_data_task": "The active data/mask task may merge accepted Group 7 in an isolated candidate and run available combined-game checks. Do not spawn a duplicate GUI task."
     }
-  ]
+  ],
+  "group6_scoped_contracts": {
+    "review": "evidence/jgl-readback-review/review.json",
+    "accepted": true,
+    "data_calls": 201,
+    "data_bytes": 19660,
+    "state_error_pairs": 492,
+    "gdiplus_pairs": 8224,
+    "gdiplus_lifetimes": 16,
+    "navigator_calls": 40,
+    "navigator_bytes": 1369360,
+    "parent_replayed": true,
+    "full_group6_accepted": false
+  },
+  "observed_runtime_blocker": {
+    "canvas": "0x9fdd84",
+    "pointer": [
+      1642,
+      970
+    ],
+    "error": "owned keyed canvas: no exact model answer",
+    "result": "process exit 1 after loaded-save HUD entry",
+    "source": "34d7add",
+    "evidence": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/runtime/final-own"
+  }
 }
