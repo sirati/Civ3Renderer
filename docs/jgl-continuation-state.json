@@ -9,8 +9,8 @@
   "research_status": "Full completed object-semantics findings preserved; implementation/runtime qualification remains separate.",
   "research_evidence": "evidence/jgl-recovery/source-evidence.json",
   "backups": {
-    "directory": "20261025-jgl-group6-review",
-    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-group6-review/backup-receipt.json",
+    "directory": "20261025-jgl-window-review",
+    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-window-review/backup-receipt.json",
     "configured_origin": "/home/sirati/Projects/civ3-renderer-old",
     "origin_available": false,
     "required_hosts": [
@@ -19,8 +19,8 @@
     ],
     "scope": "All committed main-repository refs including interrupted checkpoint, readable docs and retained RE/test evidence. Consult receipt for actual transfer results.",
     "previous_verified_checkpoint": "20261025-jgl-data-review",
-    "previous_checkpoint": "20261025-jgl-data-review",
-    "previous_neo_replication": "Verified in the data-review checkpoint receipt."
+    "previous_checkpoint": "20261025-jgl-group6-review",
+    "previous_neo_replication": "Group 6 review checkpoint was verified locally and on Papa laptop; Neo was offline, so that replication remains pending."
   },
   "current_unmerged_branch": "t3/finish-jgl-groups-switch-3",
   "current_unmerged_checkpoint": "907d7779eaed76282a79e131b4cea1b43adbe68f",
@@ -53,28 +53,10 @@
         "Qualify GDI+ status/lifetime and implement native mill icons"
       ],
       "no_child_agents": true
-    },
-    {
-      "title": "Implement and compare jgl window and pump contracts",
-      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group7-contracts-20261025-4",
-      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group7-contracts-20261025-4",
-      "model": "gpt-6.1-sol",
-      "provider": "codex",
-      "task_status": "running",
-      "isolation": "worktree",
-      "shared_game_gui_access": false,
-      "shared_game_files_access": false,
-      "shared_build_target_access": false,
-      "scope": [
-        "Window/pump/input code and original-versus-owned standalone equivalence",
-        "Private build target, Wine prefix and isolated/headless display only"
-      ],
-      "pending_integrated_gameplay_gate": "Wait for group 6 and parent integration; no shared GUI reservation now.",
-      "no_child_agents": true
     }
   ],
-  "active_agents": 2,
-  "integrated_group7_gate": "Wait for group 6, parent integration and an explicit shared GUI reservation. The static group 7 task has no shared GUI lease.",
+  "active_agents": 1,
+  "integrated_group7_gate": "Standalone implementation accepted. Spawn the integrated qualification continuation only after accepted Group 6, parent common-source integration and release/reassignment of the sole shared-game reservation.",
   "latest_data_correction": {
     "original_owned_calls": 40,
     "contract_bytes": 1369360,
@@ -97,5 +79,29 @@
     "base": "e0ab3507c9572b268146f6b443c436c1c98d82b4",
     "worktree": "/home/sirati/.t3/worktrees/civ3-renderer/t3-12959774",
     "acceptance": "Unaccepted recovery snapshot of in-progress source, captured without changing active task branch/index. It may span concurrent edits; not a tested implementation."
-  }
+  },
+  "group7_standalone": {
+    "branch": "t3/finish-jgl-groups-switch-4",
+    "checkpoint": "5ca2cf609b18d15f24e2bcf9aca7939c8d9dd211",
+    "standalone_accepted": true,
+    "integration_accepted": false,
+    "review": "evidence/jgl-window-review/review.json",
+    "contract_matrix": "jgl-window-contracts.md",
+    "paired_observations": 3278,
+    "parent_replayed": true
+  },
+  "pending_integrated_work": [
+    {
+      "title": "Group 7 integrated game qualification and final no-jgl switch",
+      "status": "pending_group6_and_common_source",
+      "spawn_gpt_6_1_sol_continuation_when_ready": true,
+      "brief": "jgl-group7-integration.md",
+      "requires": [
+        "Accepted Group 6 corrections",
+        "Parent integration of common source and fresh coherent artifacts",
+        "Exclusive local shared-game GUI/input/test-DLL reservation released by Group 6"
+      ],
+      "current_agent": null
+    }
+  ]
 }

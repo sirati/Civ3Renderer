@@ -736,15 +736,22 @@ dynamic/generated-data contracts, image +0x38/+0x58 and DC/C3X behavior. The
 implementation, scoped evidence and each remaining gap. The broader object
 replacement is still unaccepted for integration.
 
-Group 7 still needs call-by-call window/pump equivalence, launch lock,
-windowed mode, Alt/capture, stale input, the screen/turn/combat checks and the
-30-minute soak. Explicit owned sessions had no jgl loader entry or mapping,
-but that does not establish all these contracts or physical Neo behaviour.
+Group 7's standalone window/pump implementation is accepted at `5ca2cf6`.
+Parent review verified 26 source/artifact/log/cleanup bindings and replayed
+2,840 deterministic and 438 real Win32 comparisons with zero differences.
+They include nested pump re-entry and 24 sequential hidden-window lifetimes.
+See the [window contract matrix](jgl-window-contracts.md) and
+[parent review](evidence/jgl-window-review/review.json).
 
-Two GPT-6.1 Sol continuations have separate worktrees. One owns group 6 and
-the live game session. The other owns group 7's window/pump code and isolated
-standalone tests, with no access to the shared GUI, game files or warm build
-target. Integrated group 7 gameplay checks wait for group 6 and parent
-integration. Their current identifiers and backup receipt location are in
-[the continuation state](jgl-continuation-state.json). Resume active work
-without duplicating it. Completed work has no agent entry.
+The integrated game still needs launch lock, windowed mode, Alt/capture,
+stale input, screen/turn/combat checks, confirmed Quit and the 30-minute
+soak. The standalone fixtures intentionally load original jgl as their
+oracle; they establish no no-jgl game-session claim. Existing owned game
+sessions had no loader entry or mapping, but do not qualify all these
+contracts or Neo behavior.
+
+The active GPT-6.1 Sol continuation owns Group 6 and the shared game
+reservation. After accepted common-source integration, spawn the unfinished
+integrated Group 7 work using [its brief](jgl-group7-integration.md) and
+reassign that reservation. The [continuation state](jgl-continuation-state.json)
+has the current task and backup receipt. Completed work has no agent entry.
