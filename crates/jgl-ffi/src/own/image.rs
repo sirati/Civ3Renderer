@@ -80,6 +80,11 @@ fn set_rect(this: u32, at: usize, r: Rect) {
     unsafe { std::ptr::write_unaligned((this + at as u32) as usize as *mut Rect32, r) }
 }
 
+fn rect32(at: u32) -> Rect {
+    // SAFETY: callers pass a RECT that jgl would read unchecked.
+    unsafe { std::ptr::read_unaligned(at as usize as *const Rect32) }.into()
+}
+
 thread_local! {
     /// The pixels of each image of ours (address, bytes), kept until the
     /// image is made again at another size or deleted: jgl's `clear`
@@ -113,11 +118,6 @@ fn alloc_pixels(this: u32, len: usize) -> u32 {
     p as usize as u32
 }
 
-/// Lets go of the pixels of ours of `this` (the compare mode's copies).
-pub(crate) fn forget(this: u32) {
-    free_pixels(this);
-}
-
 /// The index image `this`'s bytes, if it is one with pixels.
 fn indexed<R>(this: u32, f: impl FnOnce(Indexed<'_>) -> R) -> Option<R> {
     if field(this, BITS) != 8 {
@@ -130,6 +130,184 @@ fn indexed<R>(this: u32, f: impl FnOnce(Indexed<'_>) -> R) -> Option<R> {
     let bytes = unsafe { std::slice::from_raw_parts_mut(at as usize as *mut u8, len) };
     let used = (row * field(this, HEIGHT) as usize).min(len);
     Some(f(Indexed { bytes: &mut bytes[..used], row }))
+}
+
+/// The owned pixel allocation, without borrowing the thread-local map while
+/// the caller works on two images.  All image methods run on the game's
+/// thread, so the allocation remains alive until the corresponding object is
+/// cleared or deleted.
+fn memory(this: u32) -> Option<(u32, usize)> {
+    PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied())
+}
+
+fn clipped_copy_rect(src: u32, dst: u32, sx: i32, sy: i32, dx: i32, dy: i32, w: i32, h: i32) -> Option<(i32, i32, i32, i32, i32, i32)> {
+    let mut sx = sx;
+    let mut sy = sy;
+    let mut dx = dx;
+    let mut dy = dy;
+    let mut w = w;
+    let mut h = h;
+    if w <= 0 || h <= 0 { return None; }
+    if sx < 0 { let n = -sx; sx = 0; dx += n; w -= n; }
+    if sy < 0 { let n = -sy; sy = 0; dy += n; h -= n; }
+    if dx < 0 { let n = -dx; dx = 0; sx += n; w -= n; }
+    if dy < 0 { let n = -dy; dy = 0; sy += n; h -= n; }
+    let sw = width(src) as i32;
+    let sh = height(src) as i32;
+    let dw = width(dst) as i32;
+    let dh = height(dst) as i32;
+    if sx >= sw || sy >= sh || dx >= dw || dy >= dh { return None; }
+    w = w.min(sw - sx).min(dw - dx);
+    h = h.min(sh - sy).min(dh - dy);
+    let clip = rect(dst, CLIP);
+    if dx < clip.left { let n = clip.left - dx; dx = clip.left; sx += n; w -= n; }
+    if dy < clip.top { let n = clip.top - dy; dy = clip.top; sy += n; h -= n; }
+    w = w.min(clip.right - dx);
+    h = h.min(clip.bottom - dy);
+    (w > 0 && h > 0).then_some((sx, sy, dx, dy, w, h))
+}
+
+fn color_table_for(this: u32) -> u32 {
+    let own = field(this, TABLE);
+    if own != 0 { return own; }
+    // graphics +0xC0 stores the game's default PCX table in +0xF48; its
+    // second word is the jgl table used by 8->16 copies.
+    super::graphics::default_table()
+}
+
+/// The keyed indexed copy (+0x38), including the two formats used by the
+/// game's read-back images.  The mirror's normal interface copies are
+/// records only; this path is used only for canvases the game reads.
+pub extern "thiscall" fn copy_38(this: u32, dst: u32, sx: u32, sy: u32, dx: u32, dy: u32, w: u32, h: u32, key: u32) -> u32 {
+    if dst == 0 { return o::error::NULL; }
+    let src_bits = field(this, BITS);
+    let dst_bits = field(dst, BITS);
+    if src_bits != 8 || (dst_bits != 8 && dst_bits != 16) { return o::error::DEPTH; }
+    let Some((sx, sy, dx, dy, w, h)) = clipped_copy_rect(this, dst, sx as i32, sy as i32, dx as i32, dy as i32, w as i32, h as i32) else { return 0; };
+    let Some((sp, slen)) = memory(this) else { return 7; };
+    let Some((dp, dlen)) = memory(dst) else { return 7; };
+    let srow = field(this, ROW) as usize;
+    let drow = field(dst, ROW) as usize;
+    // SAFETY: both allocations belong to live owned images and the clipped
+    // ranges are bounded by their row widths and dimensions.
+    unsafe {
+        let src = std::slice::from_raw_parts(sp as usize as *const u8, slen);
+        let out = std::slice::from_raw_parts_mut(dp as usize as *mut u8, dlen);
+        if dst_bits == 8 {
+            let key = key as u8;
+            for y in 0..h as usize {
+                let so = (sy as usize + y) * srow + sx as usize;
+                let doff = (dy as usize + y) * drow + dx as usize;
+                for x in 0..w as usize {
+                    if out[doff + x] == key { out[doff + x] = src[so + x]; }
+                }
+            }
+        } else {
+            let table = color_table_for(this);
+            if table == 0 { return o::error::NULL; }
+            let which = match field(dst, FORMAT) { 0 => 0x40C, 1 => 0x60C, _ => return o::error::GDI };
+            let key_word = std::ptr::read_unaligned((table + which as u32 + 2 * (key & 0xFF)) as usize as *const u16);
+            for y in 0..h as usize {
+                let so = (sy as usize + y) * srow + sx as usize;
+                let doff = ((dy as usize + y) * drow + dx as usize) * 2;
+                for x in 0..w as usize {
+                    let at = doff + 2 * x;
+                    let d = std::ptr::read_unaligned(out.as_ptr().add(at) as *const u16);
+                    if d == key_word {
+                        let v = std::ptr::read_unaligned((table + which as u32 + 2 * src[so + x] as u32) as usize as *const u16);
+                        std::ptr::write_unaligned(out.as_mut_ptr().add(at) as *mut u16, v);
+                    }
+                }
+            }
+        }
+    }
+    0
+}
+
+/// The opaque copy (+0x3C), used by a few utility paths outside the normal
+/// interface wrappers.  It follows jgl's format restrictions and keeps the
+/// same row/clip semantics as the keyed copy.
+extern "thiscall" fn copy_3c(this: u32, dst: u32, sx: u32, sy: u32, x: u32, y: u32, w: u32, h: u32) -> u32 {
+    if dst == 0 { return o::error::NULL; }
+    let sb = field(this, BITS);
+    let db = field(dst, BITS);
+    if sb != db && !(sb == 8 && db == 16) { return o::error::DEPTH; }
+    let Some((sx, sy, dx, dy, w, h)) = clipped_copy_rect(this, dst, sx as i32, sy as i32, x as i32, y as i32, w as i32, h as i32) else { return 0; };
+    let Some((sp, slen)) = memory(this) else { return 7; };
+    let Some((dp, dlen)) = memory(dst) else { return 7; };
+    let srow = field(this, ROW) as usize;
+    let drow = field(dst, ROW) as usize;
+    unsafe {
+        let src = std::slice::from_raw_parts(sp as usize as *const u8, slen);
+        let out = std::slice::from_raw_parts_mut(dp as usize as *mut u8, dlen);
+        if sb == 8 && db == 8 {
+            for yy in 0..h as usize {
+                let so = (sy as usize + yy) * srow + sx as usize;
+                let doff = (dy as usize + yy) * drow + dx as usize;
+                std::ptr::copy(src.as_ptr().add(so), out.as_mut_ptr().add(doff), w as usize);
+            }
+        } else if sb == 16 {
+            for yy in 0..h as usize {
+                let so = ((sy as usize + yy) * srow + sx as usize) * 2;
+                let doff = ((dy as usize + yy) * drow + dx as usize) * 2;
+                std::ptr::copy(src.as_ptr().add(so), out.as_mut_ptr().add(doff), w as usize * 2);
+            }
+        } else {
+            let table = color_table_for(this);
+            if table == 0 { return o::error::NULL; }
+            let which = match field(dst, FORMAT) { 0 => 0x40C, 1 => 0x60C, _ => return o::error::GDI };
+            for yy in 0..h as usize {
+                let so = (sy as usize + yy) * srow + sx as usize;
+                let doff = ((dy as usize + yy) * drow + dx as usize) * 2;
+                for xx in 0..w as usize {
+                    let v = std::ptr::read_unaligned((table + which as u32 + 2 * src[so + xx] as u32) as usize as *const u16);
+                    std::ptr::write_unaligned(out.as_mut_ptr().add(doff + 2 * xx) as *mut u16, v);
+                }
+            }
+        }
+    }
+    0
+}
+
+/// A nearest-neighbour `StretchBlt` answer for owned surfaces.  The game
+/// uses this for a handful of read-back utilities; normal interface copies
+/// are consumed as records by the viewer.
+extern "thiscall" fn copy_40(this: u32, dst: u32, src_rect: u32, dst_rect: u32) -> u32 {
+    if dst == 0 || src_rect == 0 || dst_rect == 0 { return o::error::NULL; }
+    let s = rect32(src_rect);
+    let d = rect32(dst_rect);
+    let sw = (s.right - s.left).max(0);
+    let sh = (s.bottom - s.top).max(0);
+    let dw = (d.right - d.left).max(0);
+    let dh = (d.bottom - d.top).max(0);
+    if sw == 0 || sh == 0 || dw == 0 || dh == 0 { return 0; }
+    if field(this, BITS) != field(dst, BITS) { return o::error::DEPTH; }
+    let Some((sp, slen)) = memory(this) else { return 7; };
+    let Some((dp, dlen)) = memory(dst) else { return 7; };
+    let bpp = (field(this, BITS) / 8) as usize;
+    let srow = field(this, ROW) as usize;
+    let drow = field(dst, ROW) as usize;
+    let clip = rect(dst, CLIP);
+    unsafe {
+        let src = std::slice::from_raw_parts(sp as usize as *const u8, slen);
+        let out = std::slice::from_raw_parts_mut(dp as usize as *mut u8, dlen);
+        for oy in 0..dh {
+            let y = d.top + oy;
+            if y < clip.top || y >= clip.bottom || y < 0 || y >= height(dst) as i32 { continue; }
+            let sy = s.top + (oy * sh / dh);
+            if sy < 0 || sy >= height(this) as i32 { continue; }
+            for ox in 0..dw {
+                let x = d.left + ox;
+                if x < clip.left || x >= clip.right || x < 0 || x >= width(dst) as i32 { continue; }
+                let sx = s.left + (ox * sw / dw);
+                if sx < 0 || sx >= width(this) as i32 { continue; }
+                let so = (sy as usize * srow + sx as usize) * bpp;
+                let doff = (y as usize * drow + x as usize) * bpp;
+                std::ptr::copy_nonoverlapping(src.as_ptr().add(so), out.as_mut_ptr().add(doff), bpp);
+            }
+        }
+    }
+    0
 }
 
 /// graphics +0x7C `new_image(owner, a2)`'s original (0x3BFF0, constructor
@@ -145,6 +323,9 @@ pub extern "thiscall" fn new(_graphics: u32, owner: u32, _a2: u32) -> u32 {
     set16(this, INFO + 0x0C, 1);
     set16(this, INFO + 0x0E, 8);
     set(this, INFO + 0x20, 0x100);
+    // Constructor defaults read directly by the executable and C3X before
+    // the first create call.
+    set(this, 0xA4, 0x100);
     set(this, KEY, o::COLOR_KEY);
     super::registry::made(this);
     this
@@ -321,25 +502,13 @@ extern "thiscall" fn reset_clip(this: u32) -> u32 {
     set_clip(this, this + IMAGE as u32)
 }
 
-/// The copy group's originals (+0x38, +0x40, +0x84, +0x8C): no pixels;
-/// jgl's answer for a copy made.
-pub extern "thiscall" fn copy_38(_this: u32, _dst: u32, _sx: u32, _sy: u32, _x: u32, _y: u32, _w: u32, _h: u32, _key: u32) -> u32 {
-    0
-}
-pub extern "thiscall" fn copy_40(_this: u32, _dst: u32, _src: u32, _dst_rect: u32) -> u32 {
-    0
-}
+/// Keyed sprite copies onto an owned image are records only.  Their viewer
+/// representation comes from the same sprite source as the normal blit path;
+/// the explicit read-back cases are answered above by the pixel copies.
 pub extern "thiscall" fn copy_84(_this: u32, _dst: u32, _x: u32, _y: u32) -> u32 {
     0
 }
 pub extern "thiscall" fn copy_8c(_this: u32, _dst: u32, _x: u32, _y: u32, _a4: u32) -> u32 {
-    0
-}
-
-/// +0x3C, an opaque copy (0x1FA0): never called (the counting sessions);
-/// no pixels, noted.
-extern "thiscall" fn copy_3c(this: u32, dst: u32, _sx: u32, _sy: u32, _x: u32, _y: u32, _w: u32, _h: u32) -> u32 {
-    log::warn!("our jgl: image +0x3C (an opaque copy) of {this:#x} onto {dst:#x}, never seen before: no pixels");
     0
 }
 
@@ -351,7 +520,25 @@ pub extern "thiscall" fn fill(this: u32, r: u32, color: u32) -> u32 {
         Rect::from(unsafe { std::ptr::read_unaligned(r as usize as *const Rect32) })
     });
     if let Some(area) = o::clipped(asked, rect(this, CLIP)) {
-        indexed(this, |mut img| img.fill(area, color as u8));
+        if field(this, BITS) == 8 {
+            indexed(this, |mut img| img.fill(area, color as u8));
+        } else if field(this, BITS) == 16 {
+            if let Some((p, len)) = memory(this) {
+                let row = field(this, ROW) as usize;
+                let word = color as u16;
+                // SAFETY: `area` is clipped to the image and the owned
+                // allocation has one word per pixel at 16 bpp.
+                unsafe {
+                    let bytes = std::slice::from_raw_parts_mut(p as usize as *mut u8, len);
+                    for y in area.top.max(0)..area.bottom.max(0) {
+                        for x in area.left.max(0)..area.right.max(0) {
+                            let at = ((y as usize * row + x as usize) * 2) as usize;
+                            std::ptr::write_unaligned(bytes.as_mut_ptr().add(at) as *mut u16, word);
+                        }
+                    }
+                }
+            }
+        }
     }
     0
 }
@@ -363,7 +550,25 @@ pub extern "thiscall" fn replace_color(this: u32, r: u32, from: u32, to: u32) ->
     // SAFETY: the game's RECT, read unchecked by jgl.
     let asked = Rect::from(unsafe { std::ptr::read_unaligned(r as usize as *const Rect32) });
     if let Some(area) = o::intersect(asked, rect(this, CLIP)) {
-        indexed(this, |mut img| img.replace(area, from as u8, to as u8));
+        match field(this, BITS) {
+            8 => { indexed(this, |mut img| img.replace(area, from as u8, to as u8)); }
+            16 => if let Some((p, len)) = memory(this) {
+                let row = field(this, ROW) as usize;
+                // SAFETY: `area` is clipped to the image and the allocation
+                // belongs to this live image.
+                unsafe {
+                    let bytes = std::slice::from_raw_parts_mut(p as usize as *mut u8, len);
+                    for y in area.top.max(0)..area.bottom.max(0) {
+                        for x in area.left.max(0)..area.right.max(0) {
+                            let at = ((y as usize * row + x as usize) * 2) as usize;
+                            let old = std::ptr::read_unaligned(bytes.as_ptr().add(at) as *const u16);
+                            if old == from as u16 { std::ptr::write_unaligned(bytes.as_mut_ptr().add(at) as *mut u16, to as u16); }
+                        }
+                    }
+                }
+            },
+            _ => return o::error::DEPTH,
+        }
     }
     0
 }
