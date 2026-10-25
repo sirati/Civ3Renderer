@@ -11,10 +11,11 @@
 //! ([`jgl::WindowHooks`]), and the display never switched
 //! ([`jgl::display`]).
 
+use std::cell::RefCell;
 use std::mem::offset_of;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use jgl::window::{self as w, Controller, Pump, Route};
+use jgl::window::{self as w, Controller, Message, Pump};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi as gdi;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleA;
@@ -83,6 +84,9 @@ fn hwnd(this: u32) -> HWND {
 /// object zeroed, our table; it is the graphics object from now on.
 pub fn new() -> u32 {
     let g = call::alloc::<JglGraphics>(super::table_of(Class::Graphics));
+    if g != 0 {
+        COPY_DATA.store(0, Ordering::Release);
+    }
     GRAPHICS.store(g, Ordering::Release);
     g
 }
@@ -103,6 +107,19 @@ fn tell_owner(this: u32, width: u32, height: u32, bits: u32) -> u32 {
 fn screen() -> (i32, i32) {
     // SAFETY: plain queries.
     let display = unsafe { (wm::GetSystemMetrics(wm::SM_CXSCREEN), wm::GetSystemMetrics(wm::SM_CYSCREEN)) };
+    super::window_hooks().screen(display)
+}
+
+/// Window creation evaluates height before width, then samples width and
+/// height again after CreateWindowExA. Messages during creation can change
+/// the reported screen before those stored fields are initialized.
+fn creation_size() -> (i32, i32) {
+    // SAFETY: plain queries in the original order (RVA 0x3B4C0).
+    let display = unsafe {
+        let height = wm::GetSystemMetrics(wm::SM_CYSCREEN);
+        let width = wm::GetSystemMetrics(wm::SM_CXSCREEN);
+        (width, height)
+    };
     super::window_hooks().screen(display)
 }
 
@@ -145,7 +162,7 @@ extern "thiscall" fn create_window(this: u32, controller: u32, title: u32, owner
         if wm::RegisterClassA(&class) == 0 {
             return 1;
         }
-        let (width, height) = screen();
+        let (width, height) = creation_size();
         let window = wm::CreateWindowExA(
             w::EX_STYLE,
             w::CLASS.as_ptr(),
@@ -164,6 +181,7 @@ extern "thiscall" fn create_window(this: u32, controller: u32, title: u32, owner
         if window.is_null() {
             return 1;
         }
+        let (width, height) = screen();
         set_field(this, WIDTH, width as u32);
         set_field(this, HEIGHT, height as u32);
         set_field(this, DEPTH, 8);
@@ -185,7 +203,7 @@ extern "thiscall" fn destroy_window(this: u32) -> u32 {
     unsafe {
         let window = hwnd(this);
         if !window.is_null() {
-            wm::DestroyWindow(window);
+            if wm::DestroyWindow(window) != 0 { inproc::paint::destroyed(window as usize as u32); }
             set_field(this, HWND_AT, 0);
         }
         let owner = field(this, OWNER);
@@ -276,7 +294,7 @@ pub extern "thiscall" fn invalidate(this: u32, rect: u32) -> u32 {
     let window = hwnd(this);
     // SAFETY: jgl's call; `rect` is the game's (or null).
     let r = unsafe { gdi::InvalidateRect(window, rect as usize as *const RECT, 0) };
-    inproc::paint::invalidated(window as usize as u32, rect);
+    if r != 0 { inproc::paint::invalidated(window as usize as u32, rect); }
     r as u32
 }
 
@@ -304,15 +322,12 @@ extern "thiscall" fn get_dc(this: u32) -> u32 {
 constant!(zero_0, 0,);
 constant!(zero_1, 0, a);
 
-/// +0x50 `set_mode_fastest(w, h, bits)` (0x3B7B0): jgl picks the mode of
-/// its list with the highest frequency and sets it (+0x64), answering 0
-/// whatever happened. The display is never switched: the mode is the
-/// screen, as +0x60 with `keep` makes it.
+/// +0x50 (0x3B7B0): refresh the public list, choose its fastest matching
+/// mode, then call virtual +64. Return zero even if +64 reports a failure.
 extern "thiscall" fn set_mode_fastest(this: u32, width: u32, height: u32, bits: u32) -> u32 {
-    let mode = jgl::display::Mode { width: width as i32, height: height as i32, bits: bits as i32 };
-    if let Some(m) = jgl::display::screen_for(mode) {
-        set_mode_keep(this, m.width as u32, m.height as u32, m.bits as u32, 1);
-    }
+    let index = choose_mode(this, |entries| jgl::display::fastest(entries, width, height, bits)).unwrap_or(u32::MAX);
+    // SAFETY: the graphics object's one-argument mode-index slot.
+    unsafe { call::method(this, 0x64, &[index]); }
     0
 }
 
@@ -323,13 +338,38 @@ extern "thiscall" fn set_depth(this: u32, bits: u32) -> u32 {
     unsafe { call::method(this, 0x58, &[width as u32, height as u32, bits]) }
 }
 
-/// +0x58 and +0x5C's original, for a mode `jgl::display::screen_for`
-/// refuses: no mode of that kind (jgl's answer when its list has none).
-extern "thiscall" fn set_mode(_this: u32, _width: u32, _height: u32, _bits: u32) -> u32 {
-    1
+/// Reads the actual virtual +68 list, including a caller's override. No
+/// callback runs while its borrowed records are inspected by safe jgl.
+fn choose_mode(this: u32, choose: impl FnOnce(&[jgl::display::ModeInfo]) -> Option<usize>) -> Option<u32> {
+    // SAFETY: +68's ABI returns a live header and `count` readable records.
+    unsafe {
+        let list = call::method(this, 0x68, &[]);
+        let data = get(list + 4);
+        let count = get(list + 12) as usize;
+        let entries = if count == 0 { &[] } else {
+            std::slice::from_raw_parts(data as usize as *const jgl::display::ModeInfo, count)
+        };
+        choose(entries).map(|i| i as u32)
+    }
 }
-extern "thiscall" fn set_mode_refresh(_this: u32, _width: u32, _height: u32, _bits: u32, _keep: u32, _refresh: u32) -> u32 {
-    1
+
+/// Raw +58 fallback for requests the accepted display wrapper declines.
+extern "thiscall" fn set_mode(this: u32, width: u32, height: u32, bits: u32) -> u32 {
+    let Some(index) = choose_mode(this, |m| jgl::display::default_frequency(m, width, height, bits)) else { return 1; };
+    // SAFETY: the graphics object's one-argument mode-index slot.
+    unsafe { call::method(this, 0x64, &[index]) }
+}
+
+/// Raw +5C: its low-byte keep branch delegates to virtual +60, including
+/// invalid dimensions. With keep clear, use its exact/preferred refresh scan.
+extern "thiscall" fn set_mode_refresh(this: u32, width: u32, height: u32, bits: u32, keep: u32, refresh: u32) -> u32 {
+    if keep & 0xFF != 0 {
+        // SAFETY: the four-word virtual mode-keep method.
+        return unsafe { call::method(this, 0x60, &[width, height, bits, keep]) };
+    }
+    let Some(index) = choose_mode(this, |m| jgl::display::preferred_frequency(m, width, height, bits, refresh)) else { return 1; };
+    // SAFETY: the graphics object's one-argument mode-index slot.
+    unsafe { call::method(this, 0x64, &[index]) }
 }
 
 /// +0x60 `set_mode_keep(w, h, bits, keep)` (0x3B810): with `keep`, the
@@ -345,27 +385,88 @@ pub extern "thiscall" fn set_mode_keep(this: u32, width: u32, height: u32, bits:
     tell_owner(this, width, height, bits)
 }
 
-/// +0x64 `set_mode_index(i)` (0x3B9E0): no mode of jgl's list is ever
-/// set; its list is empty here (+0x68), and jgl answers an index past its
-/// end with 3.
-extern "thiscall" fn set_mode_index(_this: u32, _index: u32) -> u32 {
-    3
+/// Save the current display mode in the original graphics field. The
+/// display itself stays unchanged under the accepted display policy.
+fn save_mode(this: u32, offset: u32) {
+    // Modern DEVMODEA also has eight panning bytes, absent in jgl's 148-byte
+    // fields. Marshal through a full OS struct; never expose adjacent object
+    // fields to a modern API write. Preserve the original input dmSize.
+    // SAFETY: both object fields contain 148 readable/writable bytes. The
+    // temporary has full modern storage, and every pointer remains local.
+    unsafe {
+        let mut native: gdi::DEVMODEA = std::mem::zeroed();
+        let native_ptr = &raw mut native;
+        let bytes = native_ptr.cast::<u8>();
+        std::ptr::copy_nonoverlapping((this + offset) as usize as *const u8, bytes, 0x94);
+        gdi::EnumDisplaySettingsA(std::ptr::null(), gdi::ENUM_CURRENT_SETTINGS, native_ptr);
+        std::ptr::copy_nonoverlapping(bytes, (this + offset) as usize as *mut u8, 0x94);
+    }
 }
 
-/// jgl's list of display modes (+0x68): {vtable, data, capacity, count,
-/// growth}, empty.
-static MODES: [u32; 5] = [0, 0, 0, 0, 1];
+/// +0x64 (0x3B9E0): save the current mode even for an invalid index, then
+/// update the screen fields and tell the owner. ChangeDisplaySettingsA's
+/// accepted answer is success; no OS display change occurs here.
+extern "thiscall" fn set_mode_index(this: u32, index: u32) -> u32 {
+    save_mode(this, 4);
+    let mode = match MODES.with_borrow(|m| m.modes.indexed(index)) {
+        Ok(mode) => mode,
+        Err(status) => return status,
+    };
+    set_mode_keep(this, mode.width, mode.height, mode.bits, 1)
+}
 
-/// +0x68 `display_modes` (0x3B560): the list, empty (the display is never
-/// switched, so no mode of it is offered).
+struct ModeList {
+    modes: jgl::display::Modes,
+    header: Box<[u32; 5]>,
+}
+
+impl ModeList {
+    fn publish(&mut self) -> u32 {
+        let entries = self.modes.entries();
+        self.header[1] = if self.modes.capacity() == 0 { 0 } else { entries.as_ptr() as usize as u32 };
+        self.header[2] = self.modes.capacity() as u32;
+        self.header[3] = entries.len() as u32;
+        self.header.as_ptr() as usize as u32
+    }
+}
+
+thread_local! {
+    static MODES: RefCell<ModeList> = RefCell::new(ModeList {
+        modes: jgl::display::Modes::default(),
+        header: Box::new([MODE_LIST_TABLE.as_ptr() as usize as u32, 0, 0, 0, 1]),
+    });
+}
+
+extern "thiscall" fn delete_mode_list(this: u32, _flags: u32) -> u32 {
+    // Like jgl's global list, this header is not a caller-owned allocation.
+    MODES.with_borrow_mut(|m| { m.modes = jgl::display::Modes::default(); m.publish(); });
+    this
+}
+static MODE_LIST_TABLE: [extern "thiscall" fn(u32, u32) -> u32; 1] = [delete_mode_list];
+
+/// +0x68 (0x3B560): real OS mode entries, in OS order, in a stable ABI
+/// header. Query outside the storage borrow, so OS callbacks may re-enter.
 extern "thiscall" fn display_modes(_this: u32) -> u32 {
-    MODES.as_ptr() as usize as u32
+    // SAFETY: DEVMODEA is plain Win32 data. jgl sets dmSize and
+    // dmDriverExtra once before enumerating, then reuses the returned data.
+    let mut native: gdi::DEVMODEA = unsafe { std::mem::zeroed() };
+    native.dmSize = 0x94;
+    let modes = jgl::display::Modes::enumerate(|index| {
+        // SAFETY: the OS writes a live, correctly sized DEVMODEA.
+        let found = unsafe { gdi::EnumDisplaySettingsA(std::ptr::null(), index, &mut native) };
+        (found != 0).then_some(jgl::display::ModeInfo {
+            width: native.dmPelsWidth, height: native.dmPelsHeight, width_again: native.dmPelsWidth,
+            bits: native.dmBitsPerPel, frequency: native.dmDisplayFrequency,
+        })
+    });
+    MODES.with_borrow_mut(|m| { m.modes.replace(modes); m.publish() })
 }
 
 /// +0x6C `set_display_size(w, h)` (0x3BC40): a movie's switch to 640×480;
 /// +0x70 (0x3BCB0) back. The display is left as it is; jgl answers 0 for
 /// a switch made.
-extern "thiscall" fn set_display_size(_this: u32, width: u32, height: u32) -> u32 {
+extern "thiscall" fn set_display_size(this: u32, width: u32, height: u32) -> u32 {
+    save_mode(this, 0x98);
     log::info!("our jgl: a movie's {width}×{height} switch; the display is left as it is");
     0
 }
@@ -518,198 +619,142 @@ extern "thiscall" fn set_copy_data(_this: u32, callback: u32) -> u32 {
 }
 
 /// Tells the controller (`C->vt[slot](args)`); its answer.
-fn tell(c: Controller, rect: Option<&RECT>) -> u32 {
+fn tell(c: Controller, rect: Option<&mut RECT>) -> u32 {
     let controller = CONTROLLER.load(Ordering::Acquire);
     if controller == 0 {
         return 0;
     }
     let mut args = c.args();
     if let Some(r) = rect {
-        args = vec![r as *const RECT as usize as u32];
+        args = vec![r as *mut RECT as usize as u32];
     }
     // SAFETY: the exe's controller (vtable 0x67138C) and the arguments
     // jgl passes to that method (`jgl::window::Controller`).
     unsafe { call::method(controller, c.slot(), &args) }
 }
 
-/// jgl's window procedure (0x3C730).
-unsafe extern "system" fn window_procedure(window: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    // SAFETY: what jgl calls, with the window procedure's arguments.
-    let def = || unsafe { wm::DefWindowProcA(window, msg, wparam, lparam) };
-    match w::route(window as usize, msg, wparam, lparam) {
-        Route::Default => def(),
-        Route::Answer(a) => a,
-        Route::Tell(c) => {
-            tell(c, None);
-            0
-        }
-        Route::Ask(c) => tell(c, None) as i32 as isize,
-        Route::TellThenDefault(c) => {
-            tell(c, None);
-            def()
-        }
-        Route::Key { vk, down } => {
-            tell(Controller::Key(vk, down), None);
-            if down {
-                key_chars(window, vk);
-            }
-            0
-        }
-        Route::Paint => {
-            // SAFETY: a paint of jgl's window, as jgl makes it.
-            unsafe {
-                let mut ps: gdi::PAINTSTRUCT = std::mem::zeroed();
-                let dc = gdi::BeginPaint(window, &mut ps);
-                inproc::paint::begun(window as usize as u32, &mut ps as *mut gdi::PAINTSTRUCT as usize as u32);
-                if !dc.is_null() {
-                    let r = ps.rcPaint;
-                    tell(Controller::Paint, Some(&r));
-                    gdi::EndPaint(window, &ps);
-                }
-            }
-            0
-        }
-        Route::Activate { realize: r, tell: c } => {
-            // SAFETY: jgl's call on its own window.
-            unsafe { gdi::InvalidateRect(window, std::ptr::null(), 0) };
-            inproc::paint::invalidated(window as usize as u32, 0);
-            if r {
-                realize(window);
-            }
-            tell(c, None);
-            def();
-            0
-        }
-        Route::Realize(answer) => {
-            realize(window);
-            answer
-        }
-        Route::CopyData => match COPY_DATA.load(Ordering::Acquire) {
-            0 => 0,
-            f => {
-                type Callback = extern "C" fn(usize, isize) -> isize;
-                // SAFETY: the cdecl callback the game set through +0x154.
-                let f: Callback = unsafe { std::mem::transmute::<usize, Callback>(f as usize) };
-                f(wparam, lparam)
-            }
-        },
+/// Win32 and controller interop for the safe window/pump algorithms. No
+/// borrow of game-thread model state is held across a dispatched callback.
+struct Windows {
+    graphics: u32,
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+}
+
+impl Windows {
+    fn queue(graphics: u32) -> Self {
+        Self { graphics, window: std::ptr::null_mut(), message: 0, wparam: 0, lparam: 0 }
     }
 }
 
-/// After a key went down (0x3CD30): the characters it queued, dropped for
-/// the number pad's keys, else dispatched now through graphics +0x138.
-fn key_chars(window: HWND, vk: u32) {
-    if w::drops_chars(vk) {
-        // SAFETY: a plain peek; the messages are thrown away.
+fn native(message: &Message) -> wm::MSG {
+    wm::MSG {
+        hwnd: message.window as usize as HWND,
+        message: message.id,
+        wParam: message.wparam as usize,
+        lParam: message.lparam as isize,
+        time: message.time,
+        pt: POINT { x: message.point[0], y: message.point[1] },
+    }
+}
+
+impl w::Queue for Windows {
+    fn peek(&mut self, message: &mut Message, window: u32, filter: w::Filter, remove: bool) -> bool {
+        let hooks = super::window_hooks();
+        hooks.peeking();
+        let flags = if remove { w::PM_REMOVE } else { 0 };
+        let mut m = native(message);
+        // SAFETY: the OS writes a live MSG; pointers in it remain opaque.
+        let got = unsafe { wm::PeekMessageA(&mut m, window as usize as HWND, filter.first, filter.last, flags) } != 0;
+        if got {
+            *message = Message { window: m.hwnd as usize as u32, id: m.message,
+                wparam: m.wParam as u32, lparam: m.lParam as i32, time: m.time, point: [m.pt.x, m.pt.y] };
+            if remove { hooks.peeked(flags, m.message, m.lParam as u32); }
+        }
+        got
+    }
+
+    fn dispatch(&mut self, message: &Message) {
+        let m = native(message);
+        // SAFETY: the message came from PeekMessageA on this thread.
+        unsafe { wm::TranslateMessage(&m); wm::DispatchMessageA(&m); }
+    }
+
+    fn virtual_pump(&mut self, slot: u16) -> u32 {
+        // SAFETY: our graphics object, a no-argument pump slot. Dispatch
+        // may re-enter another pump; no mutable model borrow spans this call.
+        unsafe { call::method(self.graphics, slot, &[]) }
+    }
+
+    fn wait(&mut self) -> u32 {
+        let hooks = super::window_hooks();
+        hooks.waiting(true);
+        // SAFETY: Win32's message wait. It consumes no queued message.
+        let answer = unsafe { wm::WaitMessage() };
+        hooks.waiting(false);
+        answer as u32
+    }
+
+    fn message_402(&mut self) { tell(Controller::Message402, None); }
+}
+
+impl w::Procedure for Windows {
+    fn default(&mut self) -> i32 {
+        // SAFETY: the unchanged arguments of the window procedure.
+        unsafe { wm::DefWindowProcA(self.window, self.message, self.wparam, self.lparam) as i32 }
+    }
+
+    fn tell(&mut self, controller: Controller) -> u32 { tell(controller, None) }
+
+    fn paint(&mut self) {
+        // SAFETY: Begin/EndPaint bracket the controller's rectangle callback.
         unsafe {
-            let mut m: wm::MSG = std::mem::zeroed();
-            while wm::PeekMessageA(&mut m, window, wm::WM_CHAR, wm::WM_CHAR, wm::PM_REMOVE) != 0 {}
+            let mut ps: gdi::PAINTSTRUCT = std::mem::zeroed();
+            let dc = gdi::BeginPaint(self.window, &mut ps);
+            inproc::paint::begun(self.window as usize as u32, &mut ps as *mut gdi::PAINTSTRUCT as usize as u32);
+            if !dc.is_null() {
+                let mut rectangle = ps.rcPaint;
+                tell(Controller::Paint, Some(&mut rectangle));
+                gdi::EndPaint(self.window, &ps);
+            }
         }
-        return;
     }
-    let g = object();
-    // SAFETY: our graphics object's +0x138, no arguments (the pump of
-    // characters), called through its table as jgl does.
-    while g != 0 && unsafe { call::method(g, 0x138, &[]) } != 0 {}
-}
 
-/// `PeekMessageA` with the host told; whether one was there.
-fn peek(m: &mut wm::MSG, window: HWND, filter: w::Filter, remove: u32) -> bool {
-    let hooks = super::window_hooks();
-    hooks.peeking();
-    // SAFETY: a plain peek into `m`.
-    let got = unsafe { wm::PeekMessageA(m, window, filter.first, filter.last, remove) } != 0;
-    if got && remove & w::PM_REMOVE != 0 {
-        hooks.peeked(remove, m.message, m.lParam as u32);
+    fn invalidate(&mut self) {
+        // SAFETY: invalidate this window's whole client area without erasing.
+        let result = unsafe { gdi::InvalidateRect(self.window, std::ptr::null(), 0) };
+        if result != 0 { inproc::paint::invalidated(self.window as usize as u32, 0); }
     }
-    got
-}
 
-fn dispatch(m: &wm::MSG) {
-    // SAFETY: a message just taken off the queue.
-    unsafe {
-        wm::TranslateMessage(m);
-        wm::DispatchMessageA(m);
+    fn realize(&mut self) { realize(self.window); }
+
+    fn destroyed(&mut self) { inproc::paint::destroyed(self.window as usize as u32); }
+
+    fn copy_data(&mut self, wparam: u32, lparam: i32) -> i32 {
+        match COPY_DATA.load(Ordering::Acquire) {
+            0 => 0,
+            address => {
+                type Callback = extern "C" fn(u32, i32) -> i32;
+                // SAFETY: the cdecl callback the game set through +0x154.
+                let callback: Callback = unsafe { std::mem::transmute(address as usize) };
+                callback(wparam, lparam)
+            }
+        }
     }
 }
 
-const ALL: w::Filter = w::Filter { first: 0, last: 0 };
+/// jgl's stdcall window procedure (0x3C730). All routing, ordering and
+/// callback-result decisions are in safe jgl::window.
+unsafe extern "system" fn window_procedure(window: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let mut host = Windows { graphics: object(), window, message: msg, wparam, lparam };
+    w::handle(&mut host, window as usize as u32, msg, wparam as u32, lparam as i32) as isize
+}
 
-/// A pump's body (0x3D430..0x3D8A0).
+/// A pump's safe body, using only Win32/ABI operations from this adapter.
 fn pump(this: u32, which: Pump) -> u32 {
-    // SAFETY: an empty MSG is plain data.
-    let mut m: wm::MSG = unsafe { std::mem::zeroed() };
-    let none = std::ptr::null_mut();
-    match which {
-        Pump::One(filter) => {
-            if !peek(&mut m, none, filter, w::PM_REMOVE) {
-                return 0;
-            }
-            dispatch(&m);
-            1
-        }
-        Pump::Wait => {
-            // SAFETY: our graphics object's +0x128, called through its
-            // table as jgl does.
-            if unsafe { call::method(this, 0x128, &[]) } != 0 {
-                return 1;
-            }
-            let hooks = super::window_hooks();
-            hooks.waiting(true);
-            // SAFETY: a plain wait.
-            let r = unsafe { wm::WaitMessage() };
-            hooks.waiting(false);
-            r as u32
-        }
-        Pump::Any => {
-            if !peek(&mut m, none, ALL, w::PM_REMOVE) {
-                return 0;
-            }
-            if m.message == w::MESSAGE_402 {
-                tell(Controller::Message402, None);
-            } else {
-                dispatch(&m);
-            }
-            1
-        }
-        Pump::Oldest => {
-            let mut found = [false; 3];
-            for (i, f) in w::OLDEST_FILTERS.iter().enumerate() {
-                if peek(&mut m, none, *f, 0) {
-                    found[i] = true;
-                    break;
-                }
-            }
-            let Some(_) = w::oldest(found) else { return 0 };
-            let (window, message) = (m.hwnd, m.message);
-            peek(&mut m, window, w::Filter { first: message, last: message }, w::PM_REMOVE);
-            dispatch(&m);
-            1
-        }
-        Pump::Click => {
-            if !peek(&mut m, none, w::MOUSE, w::PM_REMOVE) {
-                return 0;
-            }
-            dispatch(&m);
-            if let Some(up) = w::button_up(m.message) {
-                let window = m.hwnd;
-                if peek(&mut m, window, w::Filter { first: up, last: up }, w::PM_REMOVE) {
-                    dispatch(&m);
-                }
-            }
-            1
-        }
-        Pump::Discard(filter) => {
-            while peek(&mut m, none, filter, w::PM_REMOVE) {}
-            0
-        }
-        Pump::Drain(filter) => {
-            while peek(&mut m, none, filter, w::PM_REMOVE) {
-                dispatch(&m);
-            }
-            0
-        }
-    }
+    which.run(&mut Windows::queue(this))
 }
 
 macro_rules! pump_slot {
