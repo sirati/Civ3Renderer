@@ -4,6 +4,28 @@
 
 use crate::ui::Source;
 
+/// Immutable file pixels, decoded by the game or an asset loader. Keeping
+/// the source stride avoids repacking a padded game allocation per sprite.
+#[derive(Debug)]
+pub struct FilePixels {
+    pub size: (u32, u32),
+    pub row: u32,
+    pub indices: Vec<u8>,
+    pub palette: [[u8; 3]; 256],
+}
+
+impl FilePixels {
+    pub fn index(&self, x: i32, y: i32) -> Option<u8> {
+        if x < 0 || y < 0 || x as u32 >= self.size.0 || y as u32 >= self.size.1 { return None; }
+        self.indices.get(y as usize * self.row as usize + x as usize).copied()
+    }
+
+    pub fn pixel(&self, x: i32, y: i32, keyed: bool) -> Option<[u8; 3]> {
+        let index = self.index(x, y)?;
+        (!keyed || index < 254).then_some(self.palette[index as usize])
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Piece {
     index: u8,

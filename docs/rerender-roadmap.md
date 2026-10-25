@@ -370,6 +370,14 @@ eight GDI resource lifetimes under 32-bit Wine. It closes those specific
 implementation defects; steps 5 through 7 remain unaccepted. Evidence and
 limits are in [the lifetime audit](jgl-replacement.md#registry-and-font-lifetime-correction-partial-group-6).
 
+Palace source retention now uses the exe's decoded file data. Blit/read
+hooks do no file I/O or decoding, and pointer-anchor scans run on the
+publisher against a captured control walk. A temporary source comparison
+matched 23,713,540 indices with zero differences; four Palace crops matched
+the retained jgl session exactly [V]. The load hook still makes one bulk
+source copy, whose cost scales with file size. See the [source ownership
+audit](jgl-replacement.md#retained-selection-sources-and-publisher-anchors-partial-group-6).
+
 ## 7. Open points
 
 - The slot scan is a lower bound. Before step 5, log every slot call at
