@@ -1,5 +1,13 @@
 # Remaining jgl object contracts
 
+The later checkpoint `907d777` was withheld from integration. Its proposed
+data/DC/mask changes do not close the rows below. The
+[current handover](jgl-continuation.md) and
+[source review](evidence/jgl-group6-review/review.json) record the new
+identity, first-fill and self-copy defects, missing second frame reader,
+and unverified scratch-DC behavior. The matrix below describes the earlier
+`83caad2` checkpoint and its scoped evidence.
+
 This is the group 6 contract audit for the continuation of `3f6dceb` on
 `t3/finish-jgl-groups-switch-2`. It describes the experimental owned path.
 Ordinary viewer launches still use original jgl. `[V]` identifies the

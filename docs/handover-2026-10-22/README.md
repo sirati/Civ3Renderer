@@ -1,5 +1,8 @@
 # Civ III renderer handover
 
+For the work resumed on 25 October, use the [current jgl continuation](../jgl-continuation.md).
+The agent and installation state below is the historical 22 October handover.
+
 The installed Neo release is **Civilization III**, protocol 52, Git commit `dfbee72`, source snapshot `57a56361…`. Its files, signature and registration were verified, and the native renderer window now opens with the renderer inside the game's Wine process (dual stack, no separate viewer): in 3 of 3 launches of the installed app the viewer attached in 9–15 s, the Wine game process owned the on-screen window, and the app stopped cleanly. On its first launch the launcher installed Microsoft DirectPlay into the prefix (eight files, native DLL overrides). Installation evidence is in [deployment.json](deployment.json).
 
 The earlier f510 install never showed its window because startup deadlocked inside Wine on Neo. Commit `fee4096` removes the trigger. The loaded map/HUD, input and the in-game Quit on Neo are still unverified, because the agent has no screen-recording or input permission there. See [the scoped verification](verification.md).
