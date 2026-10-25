@@ -76,6 +76,13 @@ pub trait SurfaceHooks {
 /// not take, compare mode). Asked synchronously by the producer, so it
 /// must be cheap.
 pub trait PixelPolicy {
+    /// Whether this image holds data written and read directly by the caller.
+    /// Owned images preserve plain memory fills and equal-size copies only
+    /// for these images. This does not request rasterisation of draw records.
+    fn preserve_image_data(&self, _image: ImageId, _owner: u32) -> bool {
+        false
+    }
+
     /// A text run (`text_out`) on `image`.
     fn original_pixels(&self, _image: ImageId, _owner: u32) -> bool {
         true
@@ -107,6 +114,32 @@ pub trait PixelPolicy {
         true
     }
 }
+
+/// The window group (graphics +0x04 window, the pumps +0x120..+0x150,
+/// +0x2C pointer) where our graphics object replaces jgl's: what the host
+/// wants of the window and of the game's waits for messages. Called on the
+/// game's thread, outside any record (a pump dispatches messages, which
+/// call the game, which calls jgl again), so `&self`.
+pub trait WindowHooks: Send + Sync {
+    /// The screen size the game is told (what jgl asks `GetSystemMetrics`
+    /// for), the display's mode being `display`.
+    fn screen(&self, display: (i32, i32)) -> (i32, i32) {
+        display
+    }
+    /// A pump is about to peek at the queue.
+    fn peeking(&self) {}
+    /// A peek took a message (`remove`: its `PM_*` flags).
+    fn peeked(&self, _remove: u32, _message: u32, _lparam: u32) {}
+    /// The game's thread waits for messages (`true`), or is back (`false`).
+    fn waiting(&self, _entering: bool) {}
+    /// The game's window was made.
+    fn window_made(&self, _hwnd: u32) {}
+}
+
+/// Window hooks that change nothing.
+pub struct NoWindowHooks;
+
+impl WindowHooks for NoWindowHooks {}
 
 /// Every hook a consumer gives [`crate::Jgl`].
 pub struct Hooks {
