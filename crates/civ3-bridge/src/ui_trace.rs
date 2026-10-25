@@ -189,9 +189,8 @@ fn policy() -> crate::game_render::StartupPolicy {
 
 /// Whether sprites' pixels are the placeholder (`jgl_ffi::blit::placeholder`)
 /// and jgl draws no blit: with a viewer, the game not drawing (no
-/// `CIV3R_GAME_RENDER=on`, no compatibility renderer) and no
-/// `CIV3R_JGL_COMPARE` (whose old path reads the sprites jgl made). Decided
-/// once: a sprite keeps the pixels it was made with.
+/// `CIV3R_GAME_RENDER=on`, no compatibility renderer). Decided once: a
+/// sprite keeps the pixels it was made with.
 pub(crate) fn placeholder_sprites() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -262,6 +261,10 @@ pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
         if CAPTURE.status()? { return Ok(()) }
         let point = CapturePoint::Worker { graphics_initialized: h::graphics_initialized(game.build) };
         if point.allowed() {
+            // Our jgl: no jgl.dll to wait for.
+            if jgl_ffi::own::on() {
+                return install_configured(0, point).map(|_| ());
+            }
             if let Some(base) = inproc::pe::module_base("jgl.dll") {
                 return install_configured(base, point).map(|_| ());
             }
@@ -531,7 +534,7 @@ impl NativeUi {
     fn read(model: &UiModel) -> Self {
         let Some(&build) = BUILD.get() else { return Self::default() };
         let Some(sites) = civ3_sys::controls::sites(build) else { return Self::default() };
-        let mem = civ3_sys::controls::Live;
+        let mem = crate::ui_selection::Memory;
         let controls = civ3_sys::controls::controls(&mem, &sites);
         Self {
             modal_stack: civ3_sys::modal::modal_stack(&mem, build).unwrap_or_default(),
@@ -1061,6 +1064,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         r
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
+        crate::ui_selection::cleared(c.image);
         forget_form_surface(c.image);
         emit(Event::Cleared { image: c.image });
         with_skipper(|s| s.cleared(c.image));
@@ -1117,6 +1121,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
         audit_semantic(SemanticClass::PixelRead);
+        if let Some(answer) = crate::ui_selection::pixel(c.image, c.x as i32, c.y as i32) {
+            return answer;
+        }
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
@@ -1241,7 +1248,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
-    hook_jgl(jgl)?;
+    // With our jgl (jgl.dll not loaded) its tables have every group already.
+    if !jgl_ffi::own::on() {
+        hook_jgl(jgl)?;
+    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1262,7 +1272,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
         }
     }
-    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") {
+    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") && !jgl_ffi::own::on() {
         trace_pixel_access(jgl);
     }
     log::info!("UI mirror: {} hooks", hooks.len());
@@ -1714,6 +1724,10 @@ fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option
 /// `b.wrapper`: the interface mirror's events, and the map tracer's record
 /// for the map's three.
 pub fn on_blit(b: &GameBlit) {
+    if b.wrapper == civ3_ui::blit::Wrapper::A4 && h::palace_mask_form(b.canvas).is_some() {
+        let source = with_model(false, |m| m.sprite_source(b.sprite).cloned()).flatten();
+        crate::ui_selection::piece(b, source);
+    }
     note_index_blit(b);
     use civ3_ui::blit::Wrapper as W;
     let (x, y) = wrapper_xy(b);

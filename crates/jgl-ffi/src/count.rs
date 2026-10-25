@@ -36,8 +36,10 @@ const STUB: usize = 32;
 struct Block {
     at: u32,
     slots: usize,
-    /// Whether the second half counts our tables.
+    /// Whether a set counts our tables (the last).
     ours: bool,
+    /// Whether a set counts jgl's tables (the first).
+    jgls: bool,
 }
 
 impl Block {
@@ -91,11 +93,15 @@ pub fn install(base: u32, thread: u32) -> Result<(), HookError> {
         return Ok(());
     }
     let per_set: usize = Class::ALL.iter().map(|c| c.slots().len()).sum();
-    let ours = crate::surface::tables();
-    let slots = per_set * if ours.is_some() { 2 } else { 1 };
+    // Our jgl (jgl.dll not loaded): our tables are the only ones, counted
+    // as "ours".
+    let own = crate::own::tables();
+    let ours = own.or(crate::surface::tables());
+    let jgls = (own.is_none() && base != 0).then(|| Class::ALL.map(|c| base + c.vtable_rva()));
+    let slots = per_set * (usize::from(ours.is_some()) + usize::from(jgls.is_some()));
     let at = inproc::hook::alloc_code(Block::len(slots))?;
-    let block = Block { at, slots, ours: ours.is_some() };
-    let mut sets = vec![Class::ALL.map(|c| base + c.vtable_rva())];
+    let block = Block { at, slots, ours: ours.is_some(), jgls: jgls.is_some() };
+    let mut sets: Vec<[u32; 5]> = jgls.into_iter().collect();
     sets.extend(ours);
     Ptr32::<u32>::new(block.first_thread()).write(&thread)?;
     let mut i = 0;
@@ -133,7 +139,7 @@ pub fn snapshot() -> Option<(Counts, Option<Counts>, u32)> {
         }
         counts
     };
-    let jgls = set();
+    let jgls = if b.jgls { set() } else { Counts::zero() };
     let ours = b.ours.then(set);
     let other = Ptr32::<u32>::new(b.other_threads()).read().ok()?;
     Some((jgls, ours, other))
@@ -145,7 +151,7 @@ mod tests {
 
     #[test]
     fn stubs_fit_and_point_at_their_cells() {
-        let b = Block { at: 0x0100_0000, slots: 201, ours: false };
+        let b = Block { at: 0x0100_0000, slots: 201, ours: false, jgls: true };
         let c = stub_code(&b, 3);
         assert_eq!(&c[0..6], &[0x64, 0xA1, 0x24, 0, 0, 0]);
         assert_eq!(&c[20..22], &[0xFF, 0x05]);
