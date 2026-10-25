@@ -693,3 +693,61 @@ attempts and before/after captures, then remove temporary comparison code.
 Also verify the label fix under rename and Quit popups and its absence under
 F1. Completed group work needs no replacement agents; these remaining groups
 have one implementation owner.
+
+### Group 6 remainder: owned surfaces [V, implementation and live session]
+
+The replacement factories now allocate the ABI-sized image, sprite, colour
+table and font records from our heap. Images keep top-down, four-byte-aligned
+plain memory (zeroed like a new DIB), with the checked constructor defaults,
+clip, colour key, palette stamp and pixel/lock thunks. Sprites use one shared
+striped placeholder allocation, so an uncaptured sprite draw is conspicuous;
+the viewer's file/model path remains the source of all shown sprite pixels.
+Fonts keep GDI for measurement and metric writes only, using the graphics
+memory DC. Colour tables keep their entries, 555/565 tables and corrected
+`(colors, first, count)` ABI.
+
+The read-back paths that can run on owned images are answered in the same
+memory model: indexed fills and colour replacement, 16-bit fills/replacement,
+keyed 8-to-8/8-to-16 copies, opaque copies and nearest-neighbour stretch
+copies. Ordinary interface copies, text and sprite blits remain records; the
+viewer consumes those records from the same file geometry/state it displays.
+No image DC is fabricated: C3X/GDI display paths already accept a null DC,
+and text measurement uses the dedicated GDI memory DC. PNG/PCX file slots and
+unseen opaque paths still return their documented not-implemented/diagnostic
+answers [G]. A future reader that consumes text rasterised into an otherwise
+unclassified image remains an explicit [G] exception: text is a record for
+the viewer, while the owned image keeps no glyph pixels.
+
+The owned session covered title, map, advisors, city, Civilopedia,
+diplomacy, combat/turn change, menu, Escape and quit, and save-load. The
+before/after screenshots differ only in the known animation/timing regions;
+no striped placeholder pixels appeared. Palace View (F9) was checked live:
+the five selectable pieces were present, and clicking one changed its
+selection colour. This confirms the Palace piece-index map is answered from
+the viewer's file geometry and current Palace state rather than an empty
+placeholder mask [V].
+
+### Group 7 and final switch [V, implementation and live session]
+
+The owned graphics object now supplies the hidden window, controller window
+procedure, all pump slots, pointer coordinates, heartbeat, screen size,
+display-mode answers, palette/DC lifecycle and quit-compatible teardown.
+The bridge exports `get_graphsy_object_ptr`; its `LoadLibraryA` import hook
+answers every spelling/path of `jgl.dll` with an extra reference to the bridge
+module. The original jgl-specific import/table hooks are bypassed in this
+mode, while the existing viewer input and hidden-window policy remain active.
+
+The live replacement log records `our jgl stands in for jgl.dll`, heartbeat
+from our pumps, zero calls from other threads, and calls only through our five
+method tables. The Wine run produced no `jgl.dll` load entry; the game's
+module lookup stayed absent. The shared game folder was restored after each
+run (IFC23.dll SHA-256
+`079641fbec833579233df78e7a5426b38e559b4948c7e6f3bc0ebc123cb65b0e`,
+civ3r_native.dll SHA-256
+`4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935`).
+
+With neither `CIV3R_VIEWER` nor `CIV3R_TRACE=on`, the bridge still writes its
+pass-through note and forwards to `ifc23_orig.dll`; that path continues to
+load the installed jgl normally. Temporary compare/controller tracing from
+the recovery checkpoint remains available only under its explicit diagnostic
+environment flags and is not part of the replacement path.
