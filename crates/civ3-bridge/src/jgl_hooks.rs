@@ -16,7 +16,7 @@
 //! by a movie nor by jgl's shutdown either (`jgl::display`).
 
 use civ3_ui::blit::{BlitCapture, GameBlit};
-use civ3_ui::draw::{CanvasDraw, CopyCapture, FillCapture};
+use civ3_ui::draw::CanvasDraw;
 use civ3_ui::text::{CanvasText, TextCapture};
 
 /// The text group goes in before jgl's first draw: from the `LoadLibraryA`
@@ -42,12 +42,39 @@ fn game_blit(b: &GameBlit, _call: &jgl::BlitCall) {
     crate::ui_trace::on_blit(b);
 }
 
+struct Fills;
+
+impl jgl::FillHooks for Fills {
+    fn fill(&mut self, call: &jgl::FillCall) {
+        crate::ui_selection::fill(call);
+        if matches!(call, jgl::FillCall::ReplaceColor { .. } | jgl::FillCall::Other { .. }) {
+            crate::ui_trace::unanswered_canvas(call.target().owner);
+        }
+        if let Some(draw) = civ3_ui::draw::fill_of(call) { canvas_draw(draw); }
+    }
+}
+
+struct Copies;
+impl jgl::CopyHooks for Copies {
+    fn copy(&mut self, call: &jgl::CopyCall) {
+        match call {
+            jgl::CopyCall::Indexed { target, .. } => crate::ui_trace::unanswered_canvas(target.owner),
+            _ => {}
+        }
+        if let Some(draw) = civ3_ui::draw::copy_of(call) { canvas_draw(draw); }
+    }
+}
+
 /// Whether jgl still draws a call's pixels: on canvases the game reads
 /// back (the mirror's keep set), and calls the interface mirror does not
 /// take.
 struct Pixels;
 
 impl jgl::PixelPolicy for Pixels {
+    fn preserve_image_data(&self, image: jgl::ImageId, owner: u32) -> bool {
+        crate::ui_trace::preserve_image_data(image, owner)
+    }
+
     fn original_pixels(&self, _image: jgl::ImageId, owner: u32) -> bool {
         !crate::ui_trace::skips_text_on(owner)
     }
@@ -95,8 +122,8 @@ impl jgl::PixelPolicy for Pixels {
 fn hooks() -> jgl::Hooks {
     jgl::Hooks {
         text: Box::new(TextCapture::new(canvas_text)),
-        fill: Box::new(FillCapture::new(canvas_draw)),
-        copy: Box::new(CopyCapture::new(canvas_draw)),
+        fill: Box::new(Fills),
+        copy: Box::new(Copies),
         blit: Box::new(BlitCapture::new(game_blit)),
         palette: Box::new(jgl::hooks::NoHooks),
         present: Box::new(jgl::hooks::NoHooks),
@@ -105,8 +132,37 @@ fn hooks() -> jgl::Hooks {
     }
 }
 
+/// Explicit diagnostic opt-in to the unfinished replacement. Keep jgl's
+/// implementation as the default until the recovered read-back and DC
+/// contracts have passed runtime acceptance (docs/jgl-replacement.md §9).
+pub(crate) fn own_mode() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        crate::pass_through::active_here()
+            && crate::ui_trace::placeholder_sprites()
+            && std::env::var("CIV3R_JGL").as_deref() == Ok("own")
+    })
+}
+
+/// Puts our jgl in place (`jgl_ffi::own::install`): every group's hooks
+/// as for jgl.dll, the window's from `crate::heartbeat`. From `DllMain`,
+/// before the game loads jgl.dll.
+pub(crate) fn install_own(screen: Option<inproc::screen::ScreenSize>) -> Result<bool, String> {
+    TEXT.run(|| {
+        jgl_ffi::own::install(Box::new(hooks), Box::new(crate::heartbeat::WindowHooks { screen })).map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+}
+
 /// Takes over jgl.dll's text group (at `base`). `Ok(true)` once in place.
 pub(crate) fn install_text(base: u32) -> Result<bool, String> {
+    // In replacement mode the bridge installed the complete set of safe
+    // hooks while it was still in DllMain.  There is no jgl image to patch;
+    // `base == 0` is deliberately passed through the capture setup so the
+    // same transaction can be used for both modes.
+    if jgl_ffi::own::on() {
+        return Ok(true);
+    }
     TEXT.run(|| {
         let group = jgl_ffi::text::install(base, Box::new(hooks)).map_err(|e| e.to_string())?;
         // For the life of the process.
