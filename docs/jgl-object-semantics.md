@@ -13,6 +13,23 @@ The following research is retained in full, including its unresolved questions.
 
 I've written a slot-by-slot spec for jgl's image, sprite, colour table and font classes below. It's tagged [V] where it comes from the disassembly (jgl.dll, the PCG exe, C3X source) and [G] where it's a guess. Nothing in the repo was changed; the only files written are helper scripts in `/tmp/c3r-g67-re2/`.
 
+## Binary comparison corrections from the later continuation
+
+[V, original jgl tests in `/mnt/datasets/c3r-build/jgl-group6-data-20261025`]
+The image constructor's RGB555 key is `0x80007C1F`. Its arithmetic at
+RVA `0x16D7..0x16F8` does not produce the earlier `0x7FFF7C1F` value.
+Image create compares geometry/depth before checking any DC: after clear,
+a same-size create succeeds as a no-op and leaves the DC null. A subsequent
+`+0x40` returns 7. `+0x38` overlap walks forwards and observes preceding
+writes, rather than snapshotting the source. PCX_Image::get_pixel at
+`0x6002C0` returns zero for absent images or out-of-bounds coordinates.
+
+[V, PCGames disassembly retained at that root] Both frame-reader sites
+select four caches: `+0x11C`, `+0x120`, `+0x124` and `+0x128`.
+`608E7E` handles the bottom and both sides. Their writers in `607170`
+include background fills/tiles, frame lines, caption text and virtual
+per-form drawing. They cannot be described as sprite-only file masks.
+
 ## Problems found first
 
 1. **The Palace screen's click test needs real sprite pixels [V].** The reads at 0x57C706/0x57C7C4/0x57C7FA are not navigator code; docs §4 #5 calls them that, which is wrong. They belong to the Palace View (F9, form vtable 0x66E0F8, art `art\PalaceView\`).
