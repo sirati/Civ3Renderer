@@ -658,9 +658,10 @@ keyed hit test answers from the model too. The same run lists the keyed
 form canvases read by 0x5FCE9F (sources of +0x38 too); those were already
 left without sprite pixels in group 4.
 
-Read-back exceptions left: none for sprites. Canvases whose fills, copies
-and text jgl still draws: the `Skipper`'s keep set (palette-index images
-of region maps, keyed form canvases, the navigator), unchanged.
+The preceding sprite check did not exercise Palace selection, which is
+covered below. Canvases whose fills, copies and text jgl still draws remain
+the `Skipper`'s keep set: palette-index images of region maps, keyed form
+canvases and the navigator.
 
 ### Remaining groups and recovered object semantics
 
@@ -668,60 +669,64 @@ The [full object semantics](jgl-object-semantics.md) preserves the image,
 sprite, colour-table, font and registry research. Its checked ABI corrections
 include palette methods taking `(colors, first, count)`, image +0x14/+0x1C
 being pixel-at thunks, +0x18/+0x20 lock thunks and +0x24 unlocking bits.
-The constructor, destructor, field, error-code, GDI and file-operation details
-are retained there with their original [V]/[G] evidence scope.
+Constructor, destructor, field, error-code, GDI and file-operation details
+retain their original [V]/[G] evidence scope.
 
-The `0x57C706/0x57C7C4/0x57C7FA` readers are Palace View selection, not
-navigator code [V]. Palace selection changes game state. Placeholder sprite
-blits alone do not answer its piece-index map. It needs an answer from the
-same file geometry and state the viewer uses, and a live Palace check. The
-earlier statement above that no sprite read-back exception remained did not
-cover Palace selection.
+The latest unmerged checkpoint is `3f6dceb` on
+`t3/finish-jgl-groups-switch-1`. Main's implementation baseline remains
+`dd992e0`. The experimental implementation requires `CIV3R_JGL=own`.
+Ordinary viewer launches still load original jgl; no-viewer/no-trace launches
+keep the plain-game pass-through. The default no-jgl switch is not accepted.
 
-The implementation baseline at recovery is `dd992e0`, which also fixes labels disappearing under
-popups. The cancelled continuation is preserved on branch `jgl-g67` at
-`47d1e45`. That checkpoint includes own-object implementations, temporary
-comparison code and unfinished final-switch wiring. It has not passed
-acceptance and is not merged into main. Review it against the recovered
-semantics before enabling the replacement by default. The palette argument
-order is already corrected in that branch, but its runtime equivalence still
-needs verification.
+### Palace selection and retained sources
 
-Resume the rest of group 6, group 7 and the final no-jgl switch in order.
-Keep the plain-game pass-through path. Compare old/new calls, retain failed
-attempts and before/after captures, then remove temporary comparison code.
-Also verify the label fix under rename and Quit popups and its absence under
-F1. Completed group work needs no replacement agents; these remaining groups
-have one GPT-6.1 Sol implementation owner in an isolated worktree. Its durable
-task identifiers, scope and backup receipt location are in
-[the continuation state](jgl-continuation-state.json). Resume that task rather
-than starting a duplicate.
+The readers at `0x57C706/0x57C7C4/0x57C7FA` belong to Palace View and change
+Palace game state. Their piece-index map is answered from the same file
+source, crop, position, clip and eligibility as the viewer. Transparent holes
+reveal earlier pieces. No second selection bitmap is rasterised.
 
-### Palace evidence and remaining acceptance
+A successful exe file-load hook retains the already decoded indices, stride
+and palette in one guarded block copy. That copy scales with file size and
+runs at loading, not at a blit or first click. Sprites and immutable selection
+revisions retain source ownership after image clear, sprite reset and cache
+eviction. Publisher-side anchor scans replay the control walk against fields
+captured by the same Present, without reading live game memory there.
 
-The unmerged continuation checkpoint is `902ea9d` on
-`t3/finish-jgl-groups-switch`. Its tested source is `b94eb47`. Parent review
-confirmed seven complete Palace selection maps, 14,515,200 cells and 15
-actual reads with zero mismatches. Ten 1024×768 Palace crop comparisons
-against the original path were byte-identical across the diagnostic and
-production runs. The retained DLL and ini restoration receipts match the
-fresh baseline. Labels remain under Rename and Quit popups and disappear
-under F1. Confirmed Quit exits normally. Evidence is recorded in
-[the scoped review](evidence/jgl-palace-review/review.json).
+Parent review confirmed the earlier seven complete Palace maps, 14,515,200
+cells and 15 actual reads with zero mismatches. Ten Palace crop comparisons
+matched the original across the earlier diagnostic and production runs.
+The latest source-capture comparison covers 203 loads and 23,713,540 indices
+with zero index or palette differences, plus four matching final Palace
+crops. Both upgrades, style changes, reopening without credits and confirmed
+Quit passed in the retained local runs. Labels remain under Rename and Quit
+and disappear under F1. DLL and ini restoration receipts match the baseline.
+See [the Palace review](evidence/jgl-palace-review/review.json) and
+[the latest source review](evidence/jgl-source-review/review.json).
 
-The partial remains unaccepted for integration. Its Palace blit path can
-read and decode a PCX synchronously on the game thread, and anchor rebuilding
-scans whole piece rectangles there. Both need correction while preserving
-exact answers from the shared file geometry. The existing functional
-comparison does not establish the required hook cost or ownership contract.
+### Registry and font lifetimes
 
-Group 6 still needs other indexed-map/direct-reader answers, +0x38/+0x58,
-C3X/DC handling, registry release order and font lifetimes. Group 7 still
-needs window/pump equivalence, launch lock, windowed mode, Alt/capture,
-stale input and the screen/turn/combat checks and soak. Experimental owned
-sessions showed no jgl load, and plain pass-through loaded the original
-libraries and quit normally. Ordinary viewer launches still load jgl.
-The default no-jgl switch is not accepted.
+Safe registry state now follows the original circular head/cursor order.
+Font registration and deletion use the embedded base at +8, and the FOT path
+remains owned until resource release. Original-jgl/GDI test logs cover ten
+cursor observations, embedded-base deletion and eight font-resource cycles.
+The source, binary and test evidence is bound in the latest review. The
+previous synchronous query-path decoding and game-thread anchor scans are
+removed. The load-time block-copy cost remains explicit.
 
-One GPT-6.1 Sol continuation now owns these corrections and remaining work.
-Its identifiers are in [the continuation state](jgl-continuation-state.json).
+### Open acceptance work
+
+Group 6 still needs the other indexed-reader families, generated-data memory
+copies, image +0x38/+0x58 and DC/C3X contracts. Each needs its required
+behaviour, implementation decision and scoped equivalence evidence recorded.
+The broader object replacement is still unaccepted for integration.
+
+Group 7 still needs call-by-call window/pump equivalence, launch lock,
+windowed mode, Alt/capture, stale input, the screen/turn/combat checks and the
+30-minute soak. Explicit owned sessions had no jgl loader entry or mapping,
+but that does not establish all these contracts or physical Neo behaviour.
+
+One GPT-6.1 Sol continuation owns the remaining group 6 contracts, followed by
+group 7 and the final switch. Its current identifiers and backup receipt
+location are in [the continuation state](jgl-continuation-state.json).
+Resume that task rather than duplicating it. Completed work has no agent
+entry.
