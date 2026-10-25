@@ -152,7 +152,12 @@ fn plane(this: u32) -> jgl::memory::Plane {
 }
 
 fn preserves_data(this: u32) -> bool {
-    crate::state::record(|p| p.preserve_image_data(jgl::ImageId(this), field(this, OWNER))).unwrap_or(false)
+    // The policy boundary is the game's PCX_Image owner. The JGL_Image
+    // allocation is ours and is deliberately not used as a source identity.
+    // Static navigator tables and dynamically-created form/replay surfaces
+    // are all named by that owner pointer.
+    let owner = field(this, OWNER);
+    crate::state::record(|p| p.preserve_image_data(jgl::ImageId(this), owner)).unwrap_or(false)
 }
 
 /// Make the small GDI surface required by C3X's direct `+0x4BC` users. It is
@@ -443,9 +448,20 @@ pub extern "thiscall" fn copy_38(this: u32, dst: u32, sx: u32, sy: u32, x: u32, 
         let ((from, source_len), (to, target_len)) = PIXEL_MEMORY.with_borrow(|m| Some((*m.get(&this)?, *m.get(&dst)?))).ok_or(7u32)?;
         // SAFETY: these are distinct owned allocations in the normal case;
         // IndexedCopy snapshots each source row, so overlap is also safe.
-        let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) };
-        let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
-        copy.copy(source, target)
+        if this == dst {
+            // A Rust `&[u8]` and `&mut [u8]` may not alias, even when the
+            // operation itself snapshots each row. Clone the source once so
+            // same-image +0x38 has the original's in-place semantics without
+            // creating overlapping references. This also handles vertical
+            // overlap in the same allocation.
+            let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) }.to_vec();
+            let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
+            copy.copy(&source, target)
+        } else {
+            let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) };
+            let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
+            copy.copy(source, target)
+        }
     })();
     result.err().unwrap_or(0)
 }
@@ -506,7 +522,8 @@ pub extern "thiscall" fn fill(this: u32, r: u32, color: u32) -> u32 {
         if field(this, BITS) == 8 && preserves_data(this) {
             indexed(this, |mut img| img.fill(area, color as u8));
         } else if preserves_data(this) {
-            let Some((at, len)) = PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied()) else { return 7 };
+            let at = ensure_pixels(this);
+            let Some((at, len)) = (at != 0).then(|| PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied())).flatten() else { return 7 };
             // SAFETY: this image exclusively owns the allocation; the safe
             // operation cannot call back into the image while it is borrowed.
             let pixels = unsafe { std::slice::from_raw_parts_mut(at as usize as *mut u8, len) };

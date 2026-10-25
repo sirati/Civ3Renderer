@@ -326,6 +326,19 @@ mod tests {
     }
 
     #[test]
+    fn indexed_copy_can_snapshot_an_in_place_source_without_aliasing_references() {
+        let plane = Plane { width: 4, height: 3, row: 4, bits: 8 };
+        let mut pixels = [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9];
+        pixels[0..4].copy_from_slice(&[1, 2, 3, 4]);
+        pixels[4..8].copy_from_slice(&[5, 6, 7, 8]);
+        pixels[8..12].copy_from_slice(&[9, 10, 11, 12]);
+        let copy = IndexedCopy::new(plane, plane, 0, 0, 0, 1, 4, 2, plane.bounds(), 9, None).unwrap();
+        let source = pixels.to_vec();
+        copy.copy(&source, &mut pixels).unwrap();
+        assert_eq!(pixels, [1, 2, 3, 4, 5, 6, 7, 8, 5, 10, 11, 12]);
+    }
+
+    #[test]
     fn replace_changes_pixels_but_not_padding_at_8_and_16_bits() {
         let p8 = Plane { width: 3, height: 2, row: 4, bits: 8 };
         let mut bytes8 = [7, 1, 7, 99, 7, 2, 3, 99];
