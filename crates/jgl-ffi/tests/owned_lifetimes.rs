@@ -17,6 +17,14 @@ unsafe fn call(object: u32, slot: u32, args: &[u32]) -> u32 {
     }
 }
 
+#[repr(C)]
+struct GdiplusStartupInput {
+    version: u32,
+    debug_event_callback: u32,
+    suppress_background_thread: u32,
+    suppress_external_codecs: u32,
+}
+
 fn address<T>(p: &mut T) -> u32 { p as *mut T as usize as u32 }
 
 #[test]
@@ -84,10 +92,35 @@ fn original_cursor_order_owned_embedded_font_and_gdi_resource_release() {
             assert_eq!(*((font + 0x20) as usize as *const u32), 0);
             assert_eq!(windows_sys::Win32::Graphics::Gdi::GetObjectType(handle as usize as _), 0);
         }
+        check_gdiplus(graphics);
         // Release must call the embedded +8 base destructor, adjust this,
         // and clear the exe's owner pointer, without touching freed memory.
         call(graphics, 0xBC, &[]);
         call(graphics, 0x0C, &[]);
         assert_eq!(font_owner[0], 0);
     }
+}
+
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn check_gdiplus(graphics: u32) {
+    let mut owner = [0u32; 8];
+    let image = call(graphics, 0x7C, &[address(&mut owner), 0]);
+    assert_eq!(call(image, 0x04, &[64, 32, 16, 1]), 0);
+    let hdc = call(image, 0x28, &[]);
+    assert_ne!(hdc, 0, "the C3X direct DC contract must be live");
+
+    let gdiplus = LoadLibraryA(c"gdiplus.dll".as_ptr().cast());
+    assert!(!gdiplus.is_null(), "Wine must provide gdiplus for the C3X path");
+    let startup: unsafe extern "system" fn(*mut usize, *const GdiplusStartupInput, *mut u32) -> i32 = std::mem::transmute(GetProcAddress(gdiplus, c"GdiplusStartup".as_ptr().cast()).unwrap());
+    let create: unsafe extern "system" fn(usize, *mut u32) -> i32 = std::mem::transmute(GetProcAddress(gdiplus, c"GdipCreateFromHDC".as_ptr().cast()).unwrap());
+    let delete: unsafe extern "system" fn(u32) -> i32 = std::mem::transmute(GetProcAddress(gdiplus, c"GdipDeleteGraphics".as_ptr().cast()).unwrap());
+    let input = GdiplusStartupInput { version: 1, debug_event_callback: 0, suppress_background_thread: 0, suppress_external_codecs: 0 };
+    let mut token = 0usize;
+    assert_eq!(startup(&mut token, &input, std::ptr::null_mut()), 0);
+    let mut retained = 0u32;
+    assert_eq!(create(hdc as usize, &mut retained), 0, "GdipCreateFromHDC must accept the owned scratch DC");
+    assert_ne!(retained, 0);
+    assert_eq!(call(image, 0x2C, &[1]), 0);
+    assert_eq!(delete(retained), 0, "retained GDI+ graphics must remain valid after image DC release");
+    call(image, 0, &[1]);
 }

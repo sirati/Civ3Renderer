@@ -731,6 +731,22 @@ dynamic/generated-data contracts, image +0x38/+0x58 and DC/C3X behavior. The
 implementation, scoped evidence and each remaining gap. The broader object
 replacement is still unaccepted for integration.
 
+The current group 6 implementation closes several root causes from the parent
+review without claiming runtime equivalence. The policy boundary now uses the
+PCX owner pointer, so owned JGL allocations cannot hide navigator or form data.
+It recognizes the four replay navigator buffers and the known scenario/replay
+form surfaces before their first operation. The three loaded sheets whose
+callers replace indices at +0x58 are tracked at file load, and the viewer uses
+the same `0,1` or `0xFD` transparency rule. +0x38 snapshots an in-place source
+before borrowing its target. A first 16-bit data fill allocates its plain
+memory. Both PCGames frame readers are hooked, with ordered per-image blits
+cleared at image clear and file opacity queried through the viewer's source.
+Unknown frame provenance answers the initialized key and logs an exception,
+never the owned dummy bytes. Owned images expose a 1x1 scratch HDC for C3X;
+the Windows-only GDI+ test is built but still needs a Wine receipt. Mill icon
+source and an enabled-mill session remain open. These changes are recorded in
+the matrix with their evidence limits.
+
 Group 7 still needs call-by-call window/pump equivalence, launch lock,
 windowed mode, Alt/capture, stale input, the screen/turn/combat checks and the
 30-minute soak. Explicit owned sessions had no jgl loader entry or mapping,

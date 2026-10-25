@@ -604,6 +604,14 @@ pub fn replay_navigator(build: Build, navigator: u32) -> bool {
     build == Build::PcGames && Ptr32::<u32>::new(navigator.wrapping_sub(L::GAME_RESULTS_FORM_NAVIGATOR_DATA)).read().ok() == Some(0x66_E838)
 }
 
+/// Whether an image belongs to one of the summary replay navigator's four
+/// caller-written buffers. The replay form owns a complete navigator just as
+/// the main HUD does, but its images are created after the static surface
+/// list is published.
+pub fn replay_data_image(build: Build, image: u32) -> bool {
+    build == Build::PcGames && [0x18, 0x2D0, 0x588, 0x858].into_iter().any(|offset| replay_navigator(build, image.wrapping_sub(offset)))
+}
+
 pub fn navigator_size(navigator: u32) -> Option<(u32, u32)> {
     let w = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_WIDTH2)).read().ok()?;
     let h = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_HEIGHT2)).read().ok()?;
@@ -665,6 +673,16 @@ fn find_form_surface(surfaces: &[FormSurface], image: u32, canvas: u32, vtable: 
 pub fn form_surface(build: Build, image: u32, canvas: u32) -> Option<FormSurface> {
     let vtable = Ptr32::<u32>::new(form_of_canvas(canvas)).read().ok()?;
     find_form_surface(form_surfaces(build), image, canvas, vtable)
+}
+
+/// Whether `image` is one of the images that a known form fills itself. This
+/// check runs from the image owner at construction time, before a later copy
+/// can register the image in the bridge's event stream.
+pub fn form_surface_image(build: Build, image: u32) -> bool {
+    form_surfaces(build).iter().any(|surface| {
+        let form = image.wrapping_sub(surface.offset);
+        form != 0 && Ptr32::<u32>::new(form).read().ok() == Some(surface.vtable)
+    })
 }
 
 #[cfg(test)]

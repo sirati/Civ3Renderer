@@ -316,11 +316,13 @@ pub fn skipping() -> bool {
 }
 
 /// Data buffers whose game-written pixels must survive owned image copies.
-pub(crate) fn preserve_image_data(image: jgl::ImageId, _owner: u32) -> bool {
-    let image = image.0;
+pub(crate) fn preserve_image_data(_image: jgl::ImageId, owner: u32) -> bool {
     BUILD.get().is_some_and(|&build| {
-        h::navigator_data_image(build, image)
-            || FORM_SURFACES.get().is_some_and(|surfaces| surfaces.iter().any(|&(surface, _)| surface == image))
+        h::navigator_data_image(build, owner)
+            || h::replay_data_image(build, owner)
+            || h::form_surface_image(build, owner)
+            || is_data_image(owner)
+            || FORM_SURFACES.get().is_some_and(|surfaces| surfaces.iter().any(|&(surface, _)| surface == owner))
     })
 }
 
@@ -929,6 +931,31 @@ fn replay_operation(navigator: u32, operation: crate::replay::Operation) -> bool
 /// Written by the game's thread (the only writer), read by the publisher.
 static FORM_SURFACES: handoff::Latest<Vec<(u32, &'static str)>> = handoff::Latest::new();
 
+/// Loaded indexed sheets whose exe-side +0x58 transform changes the bytes
+/// later read by sprite crops. This is a game-thread lifetime map, not a
+/// general canvas keep set.
+thread_local! {
+    static DATA_IMAGES: std::cell::RefCell<Vec<(u32, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn note_data_image(image: u32, path: &str) {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    if lower.ends_with("art/terrain/territory.pcx") || lower.ends_with("art/units/units_32.pcx") || lower.ends_with("art/advisors/foreigntab.pcx") {
+        DATA_IMAGES.with_borrow_mut(|images| {
+            images.retain(|(at, _)| *at != image);
+            images.push((image, lower));
+        });
+    }
+}
+
+fn forget_data_image(image: u32) {
+    DATA_IMAGES.with_borrow_mut(|images| images.retain(|(at, _)| *at != image));
+}
+
+fn is_data_image(image: u32) -> bool {
+    DATA_IMAGES.with_borrow(|images| images.iter().any(|(at, _)| *at == image))
+}
+
 /// The surfaces the game fills itself: the fixed ones and the forms' own
 /// seen so far (see `ui_screen::items`).
 pub fn generated_surfaces(build: civ3_sys::Build) -> Vec<(u32, &'static str)> {
@@ -1067,6 +1094,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         let path = read_c_string(c.path);
         let r = c.original();
         if r == 0 {
+            if let Some(path) = path.as_deref() { note_data_image(c.image, path); }
             with_skipper(|s| s.loaded(c.image));
             if let (Some(path), Some(size)) = (path, obj::image_size(c.image)) {
                 crate::ui_selection::loaded(c.image, &path, c.ct);
@@ -1078,6 +1106,8 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     hook!(pcx_clear, sites.pcx_clear, |c| {
         crate::ui_selection::cleared(c.image);
         forget_form_surface(c.image);
+        forget_data_image(c.image);
+        clear_index_blits(c.image);
         emit(Event::Cleared { image: c.image });
         with_skipper(|s| s.cleared(c.image));
         c.original()
@@ -1122,11 +1152,14 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
     }
     if placeholder_sprites() && game.build == civ3_sys::Build::PcGames {
-        // This internal frame check has no public site table. Keep the
-        // expected call bytes tied to the PCGames executable and use the
-        // original whenever its indexed source is unavailable.
+        // These internal frame checks have no public site table. Keep the
+        // expected call bytes tied to the PCGames executable. Both branches
+        // query the same composed indexed source.
         hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E0A, &[0xE8, 0x11, 0x74, 0xFF, 0xFF], |c| {
-            frame_mask_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original())
+            frame_mask_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| if jgl_ffi::own::on() { frame_mask_unknown(c.image) } else { c.original() })
+        })?));
+        hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E7E, &[0xE8, 0x9D, 0x73, 0xFF, 0xFF], |c| {
+            frame_mask_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| if jgl_ffi::own::on() { frame_mask_unknown(c.image) } else { c.original() })
         })?));
     }
     // The art presence test at start reads back an 8-bit image the game
@@ -1623,48 +1656,76 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
 }
 
 /// The frame masks at form +0x11C/+0x128 are indexed images made from the
-/// last sprite blit onto each image. Query the same source file and key rule
-/// used by the viewer. Unknown art returns `None`, which preserves the game's
-/// original read instead of manufacturing an accepted hit.
+/// ordered sprite blits onto each image. Query the same source file and key
+/// rule used by the viewer. The list is cleared when its image is cleared, so
+/// a later frame cannot inherit an earlier sprite.
 fn frame_mask_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
-    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
-    let source = with_model(false, |m| m.sprite_source(sprite).cloned()).flatten()?;
-    let crate::ui::Source::File { path, rect, .. } = source else { return None };
-    let sx = x - at.0;
-    let sy = y - at.1;
     let bits = civ3_sys::ui_hooks::obj::image_bits(image).unwrap_or(8);
-    if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
-        return if bits == 8 { Some(0xFF) } else { Some(inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF) };
+    let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
+    let entries = INDEX_BLITS.with_borrow(|v| v.iter().filter(|e| e.canvas == image).cloned().collect::<Vec<_>>());
+    let mut answer = if bits == 8 { 0xFF } else { key };
+    for entry in entries {
+        let source = with_model(false, |m| m.sprite_source(entry.sprite).cloned()).flatten()?;
+        let crate::ui::Source::File { path, rect, .. } = source else { return None };
+        let sx = x - entry.at.0;
+        let sy = y - entry.at.1;
+        if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] { continue; }
+        let Some(_) = crate::ui_opacity::pixel(&path, rect[0] + sx, rect[1] + sy, true)? else { continue };
+        answer = if bits == 8 {
+            // The frame reader compares this with the indexed key. The
+            // exact opaque palette index does not affect that predicate.
+            0
+        } else {
+            // The caller compares the value with the colour key. Keep the
+            // opaque answer on the same RGB source as the viewer.
+            let [r, g, b] = crate::ui_opacity::pixel(&path, rect[0] + sx, rect[1] + sy, false)??;
+            (u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3)
+        };
     }
-    let Some(pixel) = crate::ui_opacity::pixel(&path, rect[0] + sx, rect[1] + sy, true) else { return None };
-    match (bits, pixel) {
-        (8, None) => Some(0xFF),
-        (8, Some(_)) => Some(0),
-        (16, None) => Some(inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF),
-        (16, Some([r, g, b])) => Some((u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3)),
-        _ => None,
+    Some(answer)
+}
+
+/// An owned frame image has no historical jgl bytes to fall back to. Keep an
+/// unknown source transparent, which is the image's initialized key, and log
+/// the missing provenance instead of reading the striped/dummy allocation.
+fn frame_mask_unknown(image: u32) -> u32 {
+    log::error!("frame mask {image:#x}: source provenance unavailable; answering its initialized key");
+    if civ3_sys::ui_hooks::obj::image_bits(image) == Some(8) {
+        0xFF
+    } else {
+        inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().unwrap_or(0x7FFF_7C1F) & 0x7FFF_FFFF
     }
 }
 
 thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
 thread_local! {
-    /// The last blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
-    /// stored pixels went): what [`art_presence_pixel`] answers from.
-    static INDEX_BLITS: std::cell::RefCell<Vec<(u32, u32, (i32, i32))>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Ordered blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
+    /// stored pixels went): what the indexed readers answer from.
+    static INDEX_BLITS: std::cell::RefCell<Vec<IndexBlit>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[derive(Clone, Debug)]
+struct IndexBlit {
+    canvas: u32,
+    sprite: u32,
+    at: (i32, i32),
 }
 
 /// Notes a blit onto an 8-bit image (see [`art_presence_pixel`]).
 fn note_index_blit(b: &GameBlit) {
     if obj::image_bits(b.canvas).is_some_and(|bits| bits <= 8) {
         INDEX_BLITS.with_borrow_mut(|v| {
-            v.retain(|e| e.0 != b.canvas);
-            if v.len() >= 16 {
+            if v.len() >= 1024 {
                 v.remove(0);
             }
-            v.push((b.canvas, b.sprite, b.at));
+            v.push(IndexBlit { canvas: b.canvas, sprite: b.sprite, at: b.at });
         });
     }
+}
+
+fn clear_index_blits(image: u32) {
+    INDEX_BLITS.with_borrow_mut(|v| v.retain(|entry| entry.canvas != image));
 }
 
 /// The palette index of the 8-bit image `image` at (x, y) for the game's
@@ -1674,7 +1735,7 @@ fn note_index_blit(b: &GameBlit) {
 /// stored pixels (its crop trimmed the key away) 0xFF, the key. `None`
 /// if nothing known was drawn there.
 fn art_presence_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
-    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
+    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.canvas == image).map(|e| (e.sprite, e.at)))?;
     let rect = with_model(false, |m| match m.sprite_source(sprite) {
         Some(crate::ui::Source::File { rect, .. }) => Some(*rect),
         _ => None,
