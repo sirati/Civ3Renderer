@@ -367,3 +367,21 @@ Top 5 by value: steps 1, 2, 3, 4, then 6+7 together (no jgl).
 - Palace selection's `0x57C7xx` readers are identified (§4 #5b). Their
   model/file answer and live verification remain open.
 - Whether the frame images at form+0x11C are file data (§4 #2).
+
+### Isolated Group 6 correction candidate, 25 October 2026
+
+[V] The continuation combines checkpoints `339bac3` and standalone Group 7
+`5ca2cf6`, with no default switch. It corrects original-binary `+0x38`
+forward overlap, image key/error state and scopes C3X GDI+ drawing statuses.
+It removes the evictable frame reconstruction and guessed missing-source
+answer. All four frame caches now query the viewer's retained model, which
+refuses incomplete pixel semantics. Step 5 remains unaccepted until the
+remaining frame, transformed-art, reader-family and dynamic data gates in
+[the contract matrix](jgl-contract-audit.md) have exact live evidence.
+
+[V] The final-code session reaches a loaded save but fails on a keyed HUD
+read at canvas `0x9fdd84`. That observed missing semantic answer blocks
+step 5 and further integrated Group 7 qualification. It is preserved in
+`runtime/final-own` at the correction evidence root. The all-target workspace
+run completed with only the known subpixel coverage failure; affected
+packages, generic-crate guard and lock guard passed separately.
