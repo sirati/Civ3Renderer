@@ -1,0 +1,8 @@
+{
+  "created_at_utc": "2026-10-25T11:09:51.600079+00:00",
+  "ref": "refs/heads/checkpoints/jgl-group7-inflight-20261025-review",
+  "commit": "3ee7b36fbbe9ea7b76bae2885bc5614e39f58682",
+  "base": "e0ab3507c9572b268146f6b443c436c1c98d82b4",
+  "worktree": "/home/sirati/.t3/worktrees/civ3-renderer/t3-12959774",
+  "acceptance": "Unaccepted recovery snapshot of in-progress source, captured without changing active task branch/index. It may span concurrent edits; not a tested implementation."
+}

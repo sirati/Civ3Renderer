@@ -1,0 +1,152 @@
+{
+  "as_of": "2026-10-25",
+  "checkpoint": "907d7779eaed76282a79e131b4cea1b43adbe68f",
+  "branch": "t3/finish-jgl-groups-switch-3",
+  "previous_scoped_checkpoint": "83caad24ed9dabe1e899d29fb5ebd9ef4b466e3f",
+  "integration_accepted": false,
+  "default_no_jgl_switch_accepted": false,
+  "review_method": "Independent source review and complete completed-task command transcript inspection; parent did not rerun runtime tests.",
+  "findings": [
+    {
+      "id": "data_identity",
+      "status": "requires_correction",
+      "source": [
+        "crates/jgl-ffi/src/own/image.rs:154",
+        "crates/civ3-bridge/src/ui_trace.rs:319",
+        "crates/civ3-sys/src/ui_hooks.rs:728"
+      ],
+      "finding": "Policy compares JGL_Image this to PCX_Image owner identities and ignores owner, disabling established navigator preservation."
+    },
+    {
+      "id": "dynamic_lifetime",
+      "status": "requires_correction",
+      "source": [
+        "crates/civ3-bridge/src/ui_trace.rs:947",
+        "crates/civ3-sys/src/ui_hooks.rs:640"
+      ],
+      "finding": "Form surfaces register at a later display copy, after initialization; only replay political/scenario surfaces are listed, not all replay data buffers."
+    },
+    {
+      "id": "self_copy_alias",
+      "status": "requires_correction",
+      "source": [
+        "crates/jgl-ffi/src/own/image.rs:412",
+        "crates/jgl/src/memory.rs:155"
+      ],
+      "finding": "IndexedCopy shim constructs overlapping shared/mutable slices on self-copy. Per-row snapshots do not legalize aliases or prove vertical overlap semantics."
+    },
+    {
+      "id": "first_fill_and_art",
+      "status": "requires_correction",
+      "source": [
+        "crates/jgl-ffi/src/own/image.rs:500"
+      ],
+      "finding": "First 16-bit data fill lacks lazy allocation. Newly gated 8-bit fill/replace paths need decoded-art/cursor/crop contracts and source transformations."
+    },
+    {
+      "id": "frame_masks",
+      "status": "requires_correction",
+      "source": [
+        "crates/civ3-bridge/src/ui_trace.rs:1125",
+        "crates/civ3-bridge/src/ui_trace.rs:1629"
+      ],
+      "finding": "Only 0x608E0A is hooked, not 0x608E7E. Last <=8-bit indexed blit does not establish allocated frame-mask writers/composition/lifetime. Original fallback in owned mode reads owned dummy bytes."
+    },
+    {
+      "id": "dc_and_icons",
+      "status": "requires_runtime_and_implementation",
+      "source": [
+        "crates/jgl-ffi/src/own/image.rs:162"
+      ],
+      "finding": "Nonzero scratch HDC and 1-bpp compatible bitmap do not prove GDI+ status or retained-handle lifetime; native mill-icon art/state source is absent."
+    },
+    {
+      "id": "state_errors",
+      "status": "open",
+      "source": [
+        "docs/jgl-object-semantics.md:92",
+        "crates/jgl-ffi/tests/owned_data.rs:83"
+      ],
+      "finding": "Original same-size create after clear returns success without new DIB. New test checks only return value, not DC recreation/state. Unsupported and direct-field contracts remain open."
+    }
+  ],
+  "transcript": {
+    "file": "test-activity.json",
+    "sha256": "0eed3faca3843ff281749edbe632f31d2e311d3caf2e07bd73ca304862c0d2fa",
+    "records": 88,
+    "commands": 82
+  },
+  "checks_observed": {
+    "safe_jgl_tests": 39,
+    "selection_tests": 3,
+    "navigator_tests": 1,
+    "host_jgl_ffi_layout_tests": 9,
+    "no_locks_tests": 2,
+    "generic_crates_tests": 3,
+    "windows_release_built_at": "1c8fe20ad3f47c5be1be3f523e6622a9bebe3f25",
+    "final_windows_cargo_check_at": "907d7779eaed76282a79e131b4cea1b43adbe68f",
+    "windows_owned_data_executed_for_new_changes": false,
+    "live_game_equivalence_for_new_changes": false,
+    "formatting": "cargo fmt --check failed because cargo-fmt is unavailable for the selected toolchain."
+  },
+  "sources": [
+    {
+      "path": "crates/civ3-bridge/src/jgl_hooks.rs",
+      "sha256": "72ec5967164aa745e6b31a925699c770014f8b71cefedf31c130ce295bd92120"
+    },
+    {
+      "path": "crates/civ3-bridge/src/ui_trace.rs",
+      "sha256": "292edd69afa5a1b9d8f072ea8b5828180d14436540c495da91ce0a940b12e09a"
+    },
+    {
+      "path": "crates/civ3-sys/src/ui_hooks.rs",
+      "sha256": "ab87acbabe409013453854e2d6de8471862b1c28cf85b8990c04b4bed045a863"
+    },
+    {
+      "path": "crates/jgl-ffi/src/own/graphics.rs",
+      "sha256": "3aa0b11605d2dff5a4133e9646ec6e5e7686986bce28458b595808982433dcc4"
+    },
+    {
+      "path": "crates/jgl-ffi/src/own/image.rs",
+      "sha256": "f8d5d6f85ce7c60936702700e1cd4103daeb2d2b39364ad712a0b46907e492dc"
+    },
+    {
+      "path": "crates/jgl-ffi/tests/owned_data.rs",
+      "sha256": "38d4744a3e87f6da05ec3a69a36f1bff2f198d424eab98b83e4e1596a815de27"
+    },
+    {
+      "path": "crates/jgl/src/memory.rs",
+      "sha256": "c4e238f7b52e61e9526934ee1e982da4499a9b40e8d767abe1ba20f48bf47324"
+    },
+    {
+      "path": "docs/jgl-contract-audit.md",
+      "sha256": "e9cb4b66b0ba88caf1ac0e44011a56b38f26fdd7db593bcb9d17f38810ede692"
+    },
+    {
+      "path": "docs/jgl-replacement.md",
+      "sha256": "c68e79fe86812ab3360de39e08280c1ed3e54941536be9eb41b1819b9e087d68"
+    },
+    {
+      "path": "docs/rerender-roadmap.md",
+      "sha256": "b62ddd288b52d67bd9427b082a0b228de7960ac2f284b1eae3d6cc4b88952ed6"
+    },
+    {
+      "path": "crates/jgl/src/hooks.rs",
+      "sha256": "cc67842bee1c234e51cd428f8a52cc80fea8929dc845a927c982982b3bf82734"
+    },
+    {
+      "path": "crates/jgl/src/machine.rs",
+      "sha256": "ad360f64729a0a1d74c91b8c601de71d18cac379e87436bc65e1f753d3685fd3"
+    },
+    {
+      "path": "crates/jgl/src/lib.rs",
+      "sha256": "5f9e869f687732e236f126561159cc11500511b0b6f2d1757f6be6be385e90b0"
+    },
+    {
+      "path": "crates/jgl-ffi/src/layout.rs",
+      "sha256": "4123f4eba62dacb981c7895643427248961a87a12a70ffcd6c24b51a856121a8"
+    }
+  ],
+  "evidence_root": "/mnt/datasets/c3r-build/jgl-group6-review-20261025",
+  "continuation": "Separate GPT-6.1 Sol Group 6 correction task; existing Group 7 task preserved."
+}

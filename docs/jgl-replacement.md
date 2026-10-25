@@ -672,8 +672,13 @@ being pixel-at thunks, +0x18/+0x20 lock thunks and +0x24 unlocking bits.
 Constructor, destructor, field, error-code, GDI and file-operation details
 retain their original [V]/[G] evidence scope.
 
-The latest unmerged checkpoint is `83caad2` on
-`t3/finish-jgl-groups-switch-2`. Main's implementation baseline remains
+The latest reviewed unmerged checkpoint is `907d777` on
+`t3/finish-jgl-groups-switch-3`. It was withheld from integration after
+data-identity, allocation, copy-aliasing and frame-mask defects were found.
+The earlier scoped navigator results below apply to `83caad2`, not this
+newer checkpoint. See the [current handover](jgl-continuation.md) and
+[review findings](evidence/jgl-group6-review/review.json).
+Main's implementation baseline remains
 `dd992e0`. The experimental implementation requires `CIV3R_JGL=own`.
 Ordinary viewer launches still load original jgl; no-viewer/no-trace launches
 keep the plain-game pass-through. The default no-jgl switch is not accepted.
