@@ -67,6 +67,19 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The frame image reader at PCGames 0x608E0A. The bridge installs this
+    /// only for the owned placeholder path and falls back to the original
+    /// when its recorded source is unavailable.
+    pub mod frame_mask_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
+    /// The second frame image reader at PCGames 0x608E7E. It has its own
+    /// hook state because each call-site patch owns one trampoline.
+    pub mod frame_mask_pixel_alt(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// The same `get_pixel` at [`art_presence_site`].
     pub mod art_presence_pixel(image, edx; x, y) -> u32;
 }
@@ -214,6 +227,13 @@ pub fn art_presence_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
     }
 }
 
+/// Palace View's piece-index image at form+0x3154. Its class check keeps
+/// an unrelated 8-bit canvas out of the semantic selection path.
+pub fn palace_mask_form(image: u32) -> Option<u32> {
+    let form = image.checked_sub(0x3154)?;
+    (Ptr32::<u32>::new(form).read().ok()? == crate::controls::screens::PALACE).then_some(form)
+}
+
 /// Where the game keeps its 16-bit colour key (bit 31 a flag), which the
 /// keyed hit test compares with.
 pub const COLOR_KEY: u32 = 0x72_FEB0;
@@ -354,6 +374,27 @@ pub mod obj {
     pub fn image_bits(image: u32) -> Option<u32> {
         let jgl = Ptr32::<u32>::new(image.wrapping_add(4)).read().ok().filter(|&p| p != 0)?;
         Ptr32::<u32>::new(jgl + 0x24).read().ok()
+    }
+
+    /// The exe's decoded 8-bit source, copied as one guarded block while
+    /// its file-load call still owns the image. No drawing is read back.
+    pub fn image_indices(image: u32) -> Option<(u32, u32, u32, Vec<u8>)> {
+        let jgl = Ptr32::<u32>::new(image.checked_add(4)?).read().ok().filter(|&p| p != 0)?;
+        if i32_at(jgl, 0x24)? != 8 { return None; }
+        let (w, h) = image_size(image)?;
+        let row = i32_at(jgl, 0x40)?;
+        if w <= 0 || h <= 0 || row < w { return None; }
+        let len = usize::try_from(row).ok()?.checked_mul(usize::try_from(h).ok()?)?;
+        let bits = Ptr32::<u32>::new(jgl.checked_add(0x4C0)?).read().ok().filter(|&p| p != 0)?;
+        Some((w as u32, h as u32, row as u32, Ptr32::<u8>::new(bits).read_array(len).ok()?))
+    }
+
+    /// Palette attached to a decoded image. A null optional palette in
+    /// PCX_Image::read_file does not mean the image has no palette.
+    pub fn image_color_entries(image: u32) -> Option<Vec<u32>> {
+        let jgl = Ptr32::<u32>::new(image.checked_add(4)?).read().ok().filter(|&p| p != 0)?;
+        let table = Ptr32::<u32>::new(jgl.checked_add(0x7C)?).read().ok().filter(|&p| p != 0)?;
+        Ptr32::<u32>::new(table.checked_add(0x0C)?).read_array(256).ok()
     }
 
     /// Whether `canvas` is the canvas of a form composited colour-keyed
@@ -569,6 +610,14 @@ pub fn replay_navigator(build: Build, navigator: u32) -> bool {
     build == Build::PcGames && Ptr32::<u32>::new(navigator.wrapping_sub(L::GAME_RESULTS_FORM_NAVIGATOR_DATA)).read().ok() == Some(0x66_E838)
 }
 
+/// Whether an image belongs to one of the summary replay navigator's four
+/// caller-written buffers. The replay form owns a complete navigator just as
+/// the main HUD does, but its images are created after the static surface
+/// list is published.
+pub fn replay_data_image(build: Build, image: u32) -> bool {
+    build == Build::PcGames && [0x18, 0x2D0, 0x588, 0x858].into_iter().any(|offset| replay_navigator(build, image.wrapping_sub(offset)))
+}
+
 pub fn navigator_size(navigator: u32) -> Option<(u32, u32)> {
     let w = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_WIDTH2)).read().ok()?;
     let h = Ptr32::<u32>::new(navigator.wrapping_add(L::NAVIGATOR_DATA_MINI_MAP_HEIGHT2)).read().ok()?;
@@ -632,6 +681,16 @@ pub fn form_surface(build: Build, image: u32, canvas: u32) -> Option<FormSurface
     find_form_surface(form_surfaces(build), image, canvas, vtable)
 }
 
+/// Whether `image` is one of the images that a known form fills itself. This
+/// check runs from the image owner at construction time, before a later copy
+/// can register the image in the bridge's event stream.
+pub fn form_surface_image(build: Build, image: u32) -> bool {
+    form_surfaces(build).iter().any(|surface| {
+        let form = image.wrapping_sub(surface.offset);
+        form != 0 && Ptr32::<u32>::new(form).read().ok() == Some(surface.vtable)
+    })
+}
+
 #[cfg(test)]
 mod form_surface_tests {
     use super::*;
@@ -686,6 +745,31 @@ pub fn read_back_images(build: Build) -> Vec<u32> {
             [0x18, 0x2D0, 0x588, 0x858].map(|o| nav + o)
         })
         .collect()
+}
+
+/// Whether an image is one of the established HUD/advisor navigator data
+/// buffers. Copies among these preserve game-written data, not canvas draws.
+pub fn navigator_data_image(build: Build, image: u32) -> bool {
+    generated_surfaces(build).iter().any(|&(shown, _)| {
+        [0x18, 0x2D0, 0x588, 0x858].into_iter().any(|offset| image == shown - 0x858 + offset)
+    })
+}
+
+#[cfg(test)]
+mod navigator_data_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_known_navigators_own_data_buffers() {
+        for image in read_back_images(Build::PcGames) {
+            assert!(navigator_data_image(Build::PcGames, image));
+            assert!(!navigator_data_image(Build::PcGames, image + 4));
+            assert!(!navigator_data_image(Build::Gog, image));
+            assert!(!navigator_data_image(Build::Steam, image));
+        }
+        assert!(!navigator_data_image(Build::PcGames, 0));
+        assert!(!navigator_data_image(Build::PcGames, 0x9FDD84), "the HUD canvas is not a data buffer");
+    }
 }
 
 /// The `PCX_Image` owning a `JGL_Image` (its +0x80 back pointer).
