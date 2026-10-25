@@ -189,9 +189,8 @@ fn policy() -> crate::game_render::StartupPolicy {
 
 /// Whether sprites' pixels are the placeholder (`jgl_ffi::blit::placeholder`)
 /// and jgl draws no blit: with a viewer, the game not drawing (no
-/// `CIV3R_GAME_RENDER=on`, no compatibility renderer) and no
-/// `CIV3R_JGL_COMPARE` (whose old path reads the sprites jgl made). Decided
-/// once: a sprite keeps the pixels it was made with.
+/// `CIV3R_GAME_RENDER=on`, no compatibility renderer). Decided once: a
+/// sprite keeps the pixels it was made with.
 pub(crate) fn placeholder_sprites() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {

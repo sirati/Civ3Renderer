@@ -24,11 +24,6 @@ fn note(s: String) {
     NOTES.send(s);
 }
 
-/// Notes a failure for the log (before there is one).
-pub(crate) fn note_error(s: String) {
-    note(s);
-}
-
 /// The notes so far, for the log.
 pub fn take_notes() -> Vec<String> {
     NOTES.drain().collect()
@@ -86,7 +81,6 @@ pub fn game_screen() -> Option<(u32, u32)> {
 /// In `DllMain` (see the module docs).
 pub fn early() {
     let exe = inproc::pe::main_module();
-    crate::jgl_hooks::trace_controller();
     let (scale, hidden) = (scale(), hidden());
     inproc::hidden::set_hiding(hidden);
     let scale = scale.map(|n| {
@@ -195,7 +189,6 @@ fn hook_jgl(base: u32, scale: Option<inproc::screen::ScreenSize>, hidden: bool, 
         install("the game's window painting while hidden", inproc::paint::hook_hidden_painting(base), "the game's window paints while hidden");
     }
     install("edge scroll: jgl.dll's GetCursorPos", inproc::pointer::hook_cursor_pos(base), "edge scroll: following the viewer's pointer at its edge");
-    crate::jgl_hooks::install_compare(base);
     // Last: the counting stubs wrap whatever the other patches left.
     crate::jgl_hooks::install_counting(base);
 }

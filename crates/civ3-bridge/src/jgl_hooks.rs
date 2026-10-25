@@ -107,17 +107,16 @@ fn hooks() -> jgl::Hooks {
 
 /// Whether our jgl stands in for jgl.dll, which is then not loaded
 /// (`jgl_ffi::own`, `docs/jgl-replacement.md` §8): whenever the game does
-/// not draw itself, so with a viewer and no `CIV3R_GAME_RENDER=on`,
-/// `compare` or compatibility renderer (those draw with jgl.dll). Without a
-/// viewer the bridge does nothing (`crate::pass_through`) and the game
-/// loads jgl.dll as always. `CIV3R_JGL=dll` loads it anyway (diagnostics).
+/// not draw itself, so with a viewer and no `CIV3R_GAME_RENDER=on` or
+/// compatibility renderer (those draw with jgl.dll). Without a viewer the
+/// bridge does nothing (`crate::pass_through`) and the game loads jgl.dll as
+/// always. `CIV3R_JGL=dll` loads it anyway (diagnostics).
 pub(crate) fn own_mode() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         crate::pass_through::active_here()
             && crate::ui_trace::placeholder_sprites()
             && std::env::var("CIV3R_JGL").as_deref() != Ok("dll")
-            && std::env::var("CIV3R_JGL_COMPARE").as_deref() != Ok("1")
     })
 }
 
@@ -133,6 +132,13 @@ pub(crate) fn install_own(screen: Option<inproc::screen::ScreenSize>) -> Result<
 
 /// Takes over jgl.dll's text group (at `base`). `Ok(true)` once in place.
 pub(crate) fn install_text(base: u32) -> Result<bool, String> {
+    // In replacement mode the bridge installed the complete set of safe
+    // hooks while it was still in DllMain.  There is no jgl image to patch;
+    // `base == 0` is deliberately passed through the capture setup so the
+    // same transaction can be used for both modes.
+    if jgl_ffi::own::on() {
+        return Ok(true);
+    }
     TEXT.run(|| {
         let group = jgl_ffi::text::install(base, Box::new(hooks)).map_err(|e| e.to_string())?;
         // For the life of the process.
@@ -202,49 +208,6 @@ pub(crate) fn install_counting(base: u32) {
             }
         }
         Err(e) => log::warn!("jgl counting mode: {e}"),
-    }
-}
-
-/// TEMPORARY: `CIV3R_JGL_COMPARE=1`: our jgl's slots against jgl's on
-/// every call of the compared slots (`jgl_ffi::compare`), reported every
-/// 60 s. After the surface group, before the counting mode.
-pub(crate) fn install_compare(base: u32) {
-    if std::env::var("CIV3R_JGL_COMPARE").as_deref() != Ok("1") {
-        return;
-    }
-    match jgl_ffi::compare::install(base) {
-        Ok(()) => {
-            log::info!("jgl compare mode: our jgl's slots against jgl's");
-            let spawned = std::thread::Builder::new().name("civ3r-jgl-compare".into()).spawn(|| loop {
-                std::thread::sleep(std::time::Duration::from_secs(60));
-                if let Some(r) = jgl_ffi::compare::report() {
-                    log::info!("jgl compare, our jgl against jgl:\n{r}");
-                }
-            });
-            if let Err(e) = spawned {
-                log::warn!("jgl compare mode: no report thread: {e}");
-            }
-        }
-        Err(e) => log::warn!("jgl compare mode: {e}"),
-    }
-}
-
-/// TEMPORARY: `CIV3R_JGL_TRACE_CONTROLLER=1`: the game's controller
-/// methods the window procedure calls, counted and the input logged in
-/// order (`jgl_ffi::compare::controller`; PCGames vtable 0x67138C, C3X's
-/// too), for comparing jgl's window with ours.
-pub(crate) fn trace_controller() {
-    if std::env::var("CIV3R_JGL_TRACE_CONTROLLER").as_deref() != Ok("1") {
-        return;
-    }
-    match jgl_ffi::compare::controller::install(0x0067_138C) {
-        Ok(()) => {
-            let _ = std::thread::Builder::new().name("civ3r-controller".into()).spawn(|| loop {
-                std::thread::sleep(std::time::Duration::from_secs(60));
-                log::info!("controller calls: {}", jgl_ffi::compare::controller::counts());
-            });
-        }
-        Err(e) => crate::game_window::note_error(format!("controller trace: {e}")),
     }
 }
 

@@ -57,6 +57,13 @@ pub fn memory_dc() -> u32 {
     MEMORY_DC.load(Ordering::Acquire)
 }
 
+/// The jgl colour table selected by graphics +0xC0 (0: none).  Image
+/// copies use this when their own +0x7C table is absent.
+pub(crate) fn default_table() -> u32 {
+    let p = TABLES[0].load(Ordering::Acquire);
+    if p == 0 { 0 } else { unsafe { get(p + 4) } }
+}
+
 fn field(this: u32, offset: usize) -> u32 {
     // SAFETY: `this` is our graphics object (0x14C bytes).
     unsafe { get(this + offset as u32) }
@@ -429,16 +436,6 @@ extern "thiscall" fn create_compatible_dc(this: u32) -> u32 {
     let dc = unsafe { gdi::CreateCompatibleDC(std::ptr::null_mut()) } as usize as u32;
     MEMORY_DC.store(dc, Ordering::Release);
     if dc != 0 { 0 } else { 2 }
-}
-
-/// A memory DC for fonts if there is none (the compare mode, without our
-/// graphics object).
-pub(crate) fn ensure_memory_dc() {
-    if memory_dc() == 0 {
-        // SAFETY: a plain GDI call.
-        let dc = unsafe { gdi::CreateCompatibleDC(std::ptr::null_mut()) } as usize as u32;
-        MEMORY_DC.store(dc, Ordering::Release);
-    }
 }
 
 /// +0xBC (0x3C680): the memory DC goes.

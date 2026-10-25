@@ -24,7 +24,6 @@
 //! See `docs/jgl-replacement.md`.
 
 pub mod blit;
-pub mod compare;
 pub mod copy;
 pub mod count;
 pub mod display;

@@ -134,26 +134,6 @@ pub(crate) fn implementation(class: Class, offset: u16) -> u32 {
     }
 }
 
-/// A method table of `class` with our implementations alone (no group's
-/// entry points): for the compare mode's copies of jgl's objects.
-#[cfg(all(windows, target_arch = "x86"))]
-pub(crate) fn pure_table(class: Class) -> u32 {
-    static PURE: OnceLock<[u32; 5]> = OnceLock::new();
-    PURE.get_or_init(|| {
-        Class::ALL.map(|c| {
-            let t: Vec<u32> = c.slots().iter().map(|s| implementation(c, s.offset)).collect();
-            Box::leak(t.into_boxed_slice()).as_ptr() as usize as u32
-        })
-    })[class.index() as usize]
-}
-
-/// What the compare mode needs of ours with jgl.dll loaded: the memory DC
-/// fonts are made and measured in.
-#[cfg(all(windows, target_arch = "x86"))]
-pub(crate) fn prepare_compare() {
-    graphics::ensure_memory_dc();
-}
-
 /// `get_graphsy_object_ptr`: a new graphics object with our method table
 /// (0 if our jgl is not installed).
 pub fn new_graphics() -> u32 {
