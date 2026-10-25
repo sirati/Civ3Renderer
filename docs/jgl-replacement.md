@@ -709,14 +709,17 @@ fresh baseline. Labels remain under Rename and Quit popups and disappear
 under F1. Confirmed Quit exits normally. Evidence is recorded in
 [the scoped review](evidence/jgl-palace-review/review.json).
 
-The partial remains unaccepted for integration. Its Palace blit path can
+That partial was unaccepted for integration. Its Palace blit path could
 read and decode a PCX synchronously on the game thread, and anchor rebuilding
-scans whole piece rectangles there. Both need correction while preserving
+scanned whole piece rectangles there. Both needed correction while preserving
 exact answers from the shared file geometry. The existing functional
-comparison does not establish the required hook cost or ownership contract.
+comparison did not establish the required hook cost or ownership contract.
+The subsequent source-retention and publisher-anchor correction is documented
+below; those two implementation objections no longer describe the current path.
 
-Group 6 still needs other indexed-map/direct-reader answers, +0x38/+0x58,
-C3X/DC handling, registry release order and font lifetimes. Group 7 still
+At that review, group 6 still needed other indexed-map/direct-reader answers,
++0x38/+0x58, C3X/DC handling, registry release order and font lifetimes.
+The later lifetime correction is documented below. Group 7 still
 needs window/pump equivalence, launch lock, windowed mode, Alt/capture,
 stale input and the screen/turn/combat checks and soak. Experimental owned
 sessions showed no jgl load, and plain pass-through loaded the original
@@ -958,3 +961,73 @@ maps/direct readers, generated-data copies, +0x38/+0x58 and DC/C3X contracts.
 Group 7 still needs window/pump comparisons, launch lock, windowed and
 Alt/capture tests, stale-input and the full screen/turn/combat walk plus soak.
 The default no-jgl switch remains disabled.
+
+### Navigator data copies and remaining-contract matrix, partial group 6
+
+The continuation at `9dc2194` preserves caller-written navigator data.
+Original `+0x40` copies the terrain buffer into its grey-work buffer and
+then the grey-work buffer into the political buffer. The exe reads and
+modifies those copies directly. The owned implementation previously returned
+success without copying. Its 16-bit clear also did nothing.
+
+The host now identifies only the four data images of each known HUD/advisor
+navigator. Safe `jgl::memory` handles equal-size, same-depth row copies and
+fills, with stride and destination clipping. The shim only reads fields,
+borrows the owned allocations and returns the result. Copies to ordinary
+canvases and their fills remain records. None of the navigator's bytes go
+to the viewer; its minimap still comes from world state. No DIB, new mirror
+or per-pixel access hook was added. Other navigator instances remain outside
+this static-owner contract.
+
+- [V] `jgl-ffi/tests/owned_data.rs` compared 40 original/owned 16-bit copy
+  and clear calls under 32-bit Wine, at 3x5, 12x9, 230x108 and 300x145.
+  All return values and 1,369,360 bytes matched. The cases include padding,
+  destination clips, translated rectangles and untouched source buffers.
+  Ordinary canvases stayed unchanged. Safe tests also cover overlapping
+  moves and rejecting invalid buffer lengths before writing.
+- [V] A temporary block-read diagnostic captured all four buffers of both
+  navigators immediately after loading `000jgl.SAV`. All eight buffers,
+  546,720 bytes, matched original jgl exactly. The diagnostic was removed
+  before the production commit and final Windows release build.
+- [V] The two diagnostic sessions loaded the save, opened F3/F5, used Escape
+  and exited through confirmed Quit. The minimap crop, 36,942 pixels, and
+  F3's 1024x768 crop matched exactly. F5's crop differed in 1,731 pixels;
+  the retained difference image places those inside the advisor's text.
+  It is not a whole-screen equivalence pass. Both requested map traces have
+  zero draw records, so they do not establish map-trace equivalence.
+- [V] Original mode's loader log contains one jgl load; the explicit owned
+  session contains none. Its eight buffer observations found no mapped jgl.
+  At 120 seconds original-table counters were all zero; owned pump `+0x128`
+  counted 12,764,942 calls, with one drawing thread and no re-entry. These
+  are scoped no-load/counter observations, not pump equivalence.
+- [V] The fresh DLL, ini, prior bridge log and prior trace hashes all match
+  after restoration. Only games started by this continuation were stopped.
+- [V] With snapshot code removed, the final production build repeated save
+  load, map, F3/F5, Escape and confirmed Quit without a forced stop. The same
+  minimap and both advisor crops matched original exactly. Its complete loader
+  log has no jgl load and its 60-second original-table counters are all zero.
+  Its requested trace again has zero map draw records. This is a production
+  check of this walk, not the missing turn/combat/window/input matrix.
+- [V] The workspace passed 1,313 tests before the known P4
+  `subpixel_coverage` failure, bits 6: expected `[0,0,255,37]`, actual
+  `[0,0,251,37]`. Later packages passed 764 tests and the remaining renderer
+  tests passed 29. `no_locks` passed 2 and `generic_crates` passed 3. Workspace
+  doc checks passed with 7 ignored examples. Host native and final 32-bit
+  Windows release builds passed. No unrelated failure was waived.
+
+Evidence root: `/mnt/datasets/c3r-build/jgl-t3-d94deaaf`. The retained
+temporary source is `diagnostic/ui_trace.rs`; `buffer-comparison.json`,
+`screen-comparison.json`, the per-session logs and `restoration.sha256`
+files provide the scoped results. `continuation-receipt.json` binds the
+committed source, final DLLs, save, checks and final production run.
+
+[The contract matrix](jgl-contract-audit.md) lists all 24 direct pixel-reader
+sites, escaped-pointer families, generated copies, `+0x38`, both uses of
+`+0x58`, and each DC consumer. In particular, frame hit masks are allocated
+images, not established file data: both `0x608E0A` and `0x608E7E` need a
+shared model/source answer if their writers draw them. C3X line initialization
+reads `+0x4BC` directly and can return failure with a null DC. Mill icons
+still have no equivalent native city-list source. The matrix records these
+as open contracts, along with the remaining indexed-map provenance/runtime
+checks and unsupported slots. Group 6 is incomplete. Group 7 and the default
+switch remain unaccepted; `CIV3R_JGL=own` stays an explicit opt-in.
