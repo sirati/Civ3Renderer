@@ -9,8 +9,8 @@
   "research_status": "Full completed object-semantics findings preserved; implementation/runtime qualification remains separate.",
   "research_evidence": "evidence/jgl-recovery/source-evidence.json",
   "backups": {
-    "directory": "20261025-jgl-window-review",
-    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-window-review/backup-receipt.json",
+    "directory": "20261025-jgl-group6-correction-review",
+    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-group6-correction-review/backup-receipt.json",
     "configured_origin": "/home/sirati/Projects/civ3-renderer-old",
     "origin_available": false,
     "required_hosts": [
@@ -19,12 +19,12 @@
     ],
     "scope": "All committed main-repository refs including interrupted checkpoint, readable docs and retained RE/test evidence. Consult receipt for actual transfer results.",
     "previous_verified_checkpoint": "20261025-jgl-data-review",
-    "previous_checkpoint": "20261025-jgl-group6-review",
-    "previous_neo_replication": "Group 6 review checkpoint was verified locally and on Papa laptop; Neo was offline, so that replication remains pending."
+    "previous_checkpoint": "20261025-jgl-window-review",
+    "previous_neo_replication": "Window-review checkpoint verified locally and on Papa laptop; Neo SSH timed out, replication pending."
   },
-  "current_unmerged_branch": "t3/finish-jgl-groups-switch-3",
-  "current_unmerged_checkpoint": "907d7779eaed76282a79e131b4cea1b43adbe68f",
-  "current_code_acceptance": "907d777 withheld from integration: owner identity, lazy first-fill, self-copy aliasing, frame-reader and DC/icon gaps. Earlier scoped 83caad2 results do not qualify this checkpoint.",
+  "current_unmerged_branch": "t3/finish-jgl-groups-switch-2-1",
+  "current_unmerged_checkpoint": "339bac3a71f00206062efd18d88964c0e1b2f248",
+  "current_code_acceptance": "339bac3 has reviewed owner/lazy-fill/aliasing corrections, but full Group 6 remains unaccepted. Guessed frame answers, global history semantics, transformed art, native mill icons and live game gates remain open.",
   "scoped_review": "evidence/jgl-data-review/review.json",
   "reviewed_corrections": {
     "source_loads": 203,
@@ -38,24 +38,42 @@
   "contract_matrix": "jgl-contract-audit.md",
   "active_tasks": [
     {
-      "title": "Correct and qualify remaining jgl Group 6 contracts",
-      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group6-correct-20261025-5",
-      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group6-correct-20261025-5",
+      "title": "Finish jgl data and frame contracts on combined candidate",
+      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group6-data-masks-20261025-6",
+      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-group6-data-masks-20261025-6",
       "model": "gpt-6.1-sol",
       "provider": "codex",
       "task_status": "running",
       "isolation": "worktree",
-      "sole_local_game_gui_input_owner": true,
-      "sole_warm_build_target_owner": "/tmp/c3r-jgl-g23/target",
+      "no_child_agents": true,
       "scope": [
-        "Correct data-owner identities, dynamic buffer lifetime, lazy storage and copy aliasing",
-        "Close frame/keyed-hit/source-transform and indexed-reader contracts",
-        "Qualify GDI+ status/lifetime and implement native mill icons"
+        "Exact image/data/frame/keyed-hit/source-transform contracts",
+        "Isolated candidate merge with accepted Group 7",
+        "Live Group 6 and available combined-game qualification"
       ],
-      "no_child_agents": true
+      "sole_local_game_gui_input_owner": true,
+      "sole_warm_build_target_owner": "/tmp/c3r-jgl-g23/target"
+    },
+    {
+      "title": "Implement native C3X mill icon state and art",
+      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-native-mill-icons-20261025-6",
+      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-native-mill-icons-20261025-6",
+      "model": "gpt-6.1-sol",
+      "provider": "codex",
+      "task_status": "running",
+      "isolation": "worktree",
+      "no_child_agents": true,
+      "scope": [
+        "Native mill/resource/row-state producer and viewer file-art integration",
+        "Private build/fixtures only; enabled-mill game test follows parent integration"
+      ],
+      "sole_local_game_gui_input_owner": false,
+      "shared_game_gui_access": false,
+      "shared_game_files_mutation": false,
+      "shared_build_target_access": false
     }
   ],
-  "active_agents": 1,
+  "active_agents": 2,
   "integrated_group7_gate": "Standalone implementation accepted. Spawn the integrated qualification continuation only after accepted Group 6, parent common-source integration and release/reassignment of the sole shared-game reservation.",
   "latest_data_correction": {
     "original_owned_calls": 40,
@@ -70,7 +88,7 @@
     ],
     "scope": "Static PCGames HUD/advisor navigator buffers only. Dynamic/replay and broader group contracts remain open."
   },
-  "latest_group6_review": "evidence/jgl-group6-review/review.json",
+  "latest_group6_review": "evidence/jgl-group6-correction-review/review.json",
   "human_readable_handover": "jgl-continuation.md",
   "in_progress_group7_recovery_snapshot": {
     "created_at_utc": "2026-10-25T11:09:51.600079+00:00",
@@ -97,11 +115,12 @@
       "spawn_gpt_6_1_sol_continuation_when_ready": true,
       "brief": "jgl-group7-integration.md",
       "requires": [
-        "Accepted Group 6 corrections",
-        "Parent integration of common source and fresh coherent artifacts",
-        "Exclusive local shared-game GUI/input/test-DLL reservation released by Group 6"
+        "Accepted Group 6 data/mask corrections and native mill icons",
+        "Parent integration of common source and coherent final artifacts",
+        "Exclusive local shared-game reservation released/reassigned"
       ],
-      "current_agent": null
+      "current_agent": null,
+      "available_work_in_active_data_task": "The active data/mask task may merge accepted Group 7 in an isolated candidate and run available combined-game checks. Do not spawn a duplicate GUI task."
     }
   ]
 }
