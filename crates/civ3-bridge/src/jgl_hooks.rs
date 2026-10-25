@@ -16,7 +16,7 @@
 //! by a movie nor by jgl's shutdown either (`jgl::display`).
 
 use civ3_ui::blit::{BlitCapture, GameBlit};
-use civ3_ui::draw::{CanvasDraw, CopyCapture};
+use civ3_ui::draw::CanvasDraw;
 use civ3_ui::text::{CanvasText, TextCapture};
 
 /// The text group goes in before jgl's first draw: from the `LoadLibraryA`
@@ -47,7 +47,21 @@ struct Fills;
 impl jgl::FillHooks for Fills {
     fn fill(&mut self, call: &jgl::FillCall) {
         crate::ui_selection::fill(call);
+        if matches!(call, jgl::FillCall::ReplaceColor { .. } | jgl::FillCall::Other { .. }) {
+            crate::ui_trace::unanswered_canvas(call.target().owner);
+        }
         if let Some(draw) = civ3_ui::draw::fill_of(call) { canvas_draw(draw); }
+    }
+}
+
+struct Copies;
+impl jgl::CopyHooks for Copies {
+    fn copy(&mut self, call: &jgl::CopyCall) {
+        match call {
+            jgl::CopyCall::Indexed { target, .. } => crate::ui_trace::unanswered_canvas(target.owner),
+            _ => {}
+        }
+        if let Some(draw) = civ3_ui::draw::copy_of(call) { canvas_draw(draw); }
     }
 }
 
@@ -109,7 +123,7 @@ fn hooks() -> jgl::Hooks {
     jgl::Hooks {
         text: Box::new(TextCapture::new(canvas_text)),
         fill: Box::new(Fills),
-        copy: Box::new(CopyCapture::new(canvas_draw)),
+        copy: Box::new(Copies),
         blit: Box::new(BlitCapture::new(game_blit)),
         palette: Box::new(jgl::hooks::NoHooks),
         present: Box::new(jgl::hooks::NoHooks),

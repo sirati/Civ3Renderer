@@ -8,7 +8,7 @@
 //! (or a fill, or text) at a screen position, clipped. Canvases whose
 //! content we render ourselves (the map) are left out.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::text::TextRun;
@@ -300,6 +300,10 @@ pub struct UiModel {
     /// covered them since): text drawn on them where nothing is drawn yet
     /// has the key as its backdrop ([`TextRun::backdrop`]).
     keyed_clear: Vec<u32>,
+    /// Writers with no semantic representation. Their pixels cannot be
+    /// answered by pretending the retained display list is complete.
+    unanswered: HashSet<u32>,
+    unanswered_sprites: HashSet<u32>,
     /// Whether text gets backdrops (Windows blends text edges with what is
     /// under them; Wine's GDI draws the game's text without smoothing).
     text_backdrops: bool,
@@ -331,6 +335,14 @@ impl UiModel {
     /// canvases not mirrored.
     pub fn new(skip_vtables: Vec<u32>, skip_canvases: Vec<u32>) -> Self {
         Self { skip: skip_vtables, skip_canvases, skipping: true, ..Default::default() }
+    }
+
+    pub fn unanswered(&mut self, canvas: u32) { self.unanswered.insert(canvas); }
+
+    /// Query the same retained sources used to draw the canvas, refusing
+    /// operations whose pixel semantics are not represented yet.
+    pub fn exact_shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
+        self.shown_at_depth(canvas, x, y, file, 0, true)
     }
 
     /// Leave the skipped canvases out (or not, e.g. between games).
@@ -513,19 +525,33 @@ impl UiModel {
     /// the canvas's pixel and compares it with the key), now that sprites
     /// are no longer drawn into the canvases.
     pub fn shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
-        self.shown_at_depth(canvas, x, y, file, 0)
+        self.shown_at_depth(canvas, x, y, file, 0, false)
     }
 
-    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32) -> Shown {
+    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32, exact: bool) -> Shown {
         if depth == 0 && !self.sizes.contains_key(&canvas) {
             return Shown::NotMirrored;
         }
-        // (A canvas cleared to the colour key has no list: nothing drawn.)
-        let Some(frame) = self.canvas_frame(canvas, 0) else { return Shown::Nothing };
+        if exact && self.unanswered.contains(&canvas) { return Shown::Unknown; }
+        // A clear to the key is evidence for an empty canvas. Merely knowing
+        // its size says nothing about its initialized content.
+        let Some(frame) = self.canvas_frame(canvas, 0) else {
+            return if !exact || self.keyed_clear.contains(&canvas) { Shown::Nothing } else { Shown::Unknown };
+        };
         let inside = |[rx, ry, w, h]: [i32; 4]| x >= rx && y >= ry && x < rx + w && y < ry + h;
         let clipped = |[l, t, r, b]: [i32; 4]| x >= l && y >= t && x < r && y < b;
         for d in frame.draws.iter().rev() {
             let pixel = match d {
+                ScreenDraw::Text { clip, .. } if exact && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Fill { rect, alpha, clip, .. } if exact && *alpha != 255 && inside(*rect) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Image { rect, x: dx, y: dy, clip, mask, palette, opacity, .. }
+                    if exact && (mask.is_some() || palette.is_some() || *opacity != 255)
+                        && inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::ResizedImage { x: dx, y: dy, size, clip, mask, palette, opacity, .. }
+                    if exact && (mask.is_some() || palette.is_some() || *opacity != 255)
+                        && inside([*dx, *dy, size.0, size.1]) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Indexed { rect, x: dx, y: dy, clip, .. } if exact && inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Flc { clip, .. } if exact && clipped(*clip) => return Shown::Unknown,
                 ScreenDraw::Fill { rect, rgb, clip, .. } => (inside(*rect) && clipped(*clip)).then_some(Some(Some(*rgb))),
                 ScreenDraw::Image { path, rect, x: dx, y: dy, keyed, clip, mask, .. } => {
                     (inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)).then(|| file(path, rect[0] + x - dx, rect[1] + y - dy, *keyed || mask.is_some()))
@@ -546,7 +572,7 @@ impl UiModel {
                     if self.generated.contains(image) && !self.canvases.contains_key(image) {
                         return Shown::Unknown;
                     }
-                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1) {
+                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1, exact) {
                         Shown::Nothing => continue,
                         shown => return shown,
                     }
@@ -560,7 +586,7 @@ impl UiModel {
                 Some(Some(None)) | None => {}
             }
         }
-        Shown::Nothing
+        if exact && !self.keyed_clear.contains(&canvas) { Shown::Unknown } else { Shown::Nothing }
     }
 
     /// `layer` as it is on the back buffer now, everywhere.
@@ -681,6 +707,7 @@ impl UiModel {
     pub fn apply(&mut self, e: Event) {
         match e {
             Event::Loaded { image, path, size } => {
+                self.unanswered.remove(&image);
                 self.files.insert(image, path);
                 Arc::make_mut(&mut self.sizes).insert(image, size);
                 self.canvases.remove(&image);
@@ -688,6 +715,7 @@ impl UiModel {
                 self.keyed_clear.retain(|&c| c != image);
             }
             Event::Cleared { image } => {
+                self.unanswered.remove(&image);
                 self.files.remove(&image);
                 Arc::make_mut(&mut self.sizes).remove(&image);
                 self.canvases.remove(&image);
@@ -700,6 +728,8 @@ impl UiModel {
                 }
             }
             Event::Sliced { sprite, image, rect } => {
+                if self.unanswered.contains(&image) { self.unanswered_sprites.insert(sprite); }
+                else { self.unanswered_sprites.remove(&sprite); }
                 let source = match self.files.get(&image) {
                     Some(path) => Source::File { path: path.clone(), rect, mask: None, palette: None, opacity: 255 },
                     None => Source::Surface { image, rect },
@@ -707,6 +737,8 @@ impl UiModel {
                 Arc::make_mut(&mut self.sprites).insert(sprite, source);
             }
             Event::Copied { sprite, source } => {
+                if self.unanswered_sprites.contains(&source) { self.unanswered_sprites.insert(sprite); }
+                else { self.unanswered_sprites.remove(&sprite); }
                 if let Some(s) = self.sprites.get(&source).cloned() {
                     Arc::make_mut(&mut self.sprites).insert(sprite, s);
                 } else if self.sprites.contains_key(&sprite) {
@@ -714,11 +746,13 @@ impl UiModel {
                 }
             }
             Event::Reset { sprite } => {
+                self.unanswered_sprites.remove(&sprite);
                 if self.sprites.contains_key(&sprite) {
                     Arc::make_mut(&mut self.sprites).remove(&sprite);
                 }
             }
             Event::Blit { sprite, canvas, x, y, clip, palette } => {
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered.insert(canvas); }
                 if let Some(mut source) = self.sprites.get(&sprite).cloned() {
                     if let (Source::File { palette: p, .. }, Some(table)) = (&mut source, palette) {
                         *p = Some(table);
@@ -731,6 +765,7 @@ impl UiModel {
                 }
             }
             Event::ResizedBlit { sprite, canvas, x, y, size, sample_step, clip, palette, indices } => {
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered.insert(canvas); }
                 // Native scaled wrappers currently resize loaded file images.
                 // Generated surfaces require their own pixel resize path.
                 let Some(Source::File { path, rect, mask, palette: own_palette, opacity }) = self.sprites.get(&sprite).cloned() else { return };
@@ -747,6 +782,7 @@ impl UiModel {
                 }
             }
             Event::OpacityBlit { sprite, canvas, x, y, clip, palette, opacity } => {
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered.insert(canvas); }
                 let Some(Source::File { path, rect, mask, palette: own_palette, opacity: own_opacity }) = self.sprites.get(&sprite).cloned() else { return };
                 let opacity = (u32::from(opacity) * u32::from(own_opacity) / 255) as u8;
                 if opacity == 0 {
@@ -759,6 +795,7 @@ impl UiModel {
                 }
             }
             Event::IndexedBlit { sprite, canvas, x, y, clip, palette, indices } => {
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered.insert(canvas); }
                 let Some(Source::File { path, rect, palette: own_palette, .. }) = self.sprites.get(&sprite).cloned() else { return };
                 let op = Op::Image { source: Source::Indexed { path, rect, palette: palette.or(own_palette), indices }, x, y, keyed: true };
                 if let Some(op) = clip.map_or(Some(op.clone()), |c| crop_move(op, c, (0, 0), true)) {
@@ -766,6 +803,7 @@ impl UiModel {
                 }
             }
             Event::MaskedBlit { sprite, mask, canvas, x, y, clip } => {
+                if self.unanswered_sprites.contains(&sprite) || self.unanswered_sprites.contains(&mask) { self.unanswered.insert(canvas); }
                 let face = self.sprites.get(&sprite).cloned();
                 let alpha = match self.sprites.get(&mask) {
                     Some(Source::File { path, rect, .. }) => Some(Mask { path: path.clone(), at: (rect[0], rect[1]) }),
@@ -782,6 +820,7 @@ impl UiModel {
                 }
             }
             Event::Copy { from, src, canvas, x, y, keyed } => {
+                if self.unanswered.contains(&from) { self.unanswered.insert(canvas); }
                 // The map canvas is ours: its content (terrain, the fog tiles drawn on it)
                 // must not reach the screen through the form's own copy onto the back buffer.
                 if from != canvas && self.skipping && (self.skip_canvases.contains(&from) || self.underlays.contains(&from)) {
@@ -828,6 +867,7 @@ impl UiModel {
                     }
                     None => rect,
                 };
+                if alpha == 255 && self.covers(canvas, rect) { self.unanswered.remove(&canvas); }
                 // The colour key (255, 0, 255) clears to transparent: nothing to draw.
                 if rgb == KEY_RGB && alpha == 255 {
                     if self.covers(canvas, rect) {
@@ -1560,6 +1600,37 @@ mod tests {
 
     fn composite(canvas: u32, origin: (i32, i32), size: (i32, i32)) -> Event {
         Event::Composite { canvas, vtable: 1, origin, size, clip: [0, 0, 1024, 768], keyed: false }
+    }
+
+    #[test]
+    fn exact_queries_retain_sources_clips_and_lifetimes_without_a_global_history() {
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 40, size: (20, 20) });
+        assert_eq!(m.exact_shown_at(40, 1, 1, &|_,_,_,_| None), Shown::Unknown);
+        m.apply(Event::Fill { canvas: 40, rect: [0,0,20,20], rgb: KEY_RGB, alpha: 255, clip: None });
+        m.apply(Event::Loaded { image: 10, path: "frame source".into(), size: (3,2) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0,0,3,2] });
+        m.apply(Event::Blit { sprite: 20, canvas: 40, x: 4, y: 5, clip: Some([5,5,7,7]), palette: None });
+        m.apply(Event::Reset { sprite: 20 });
+        m.apply(Event::Cleared { image: 10 });
+        for image in 100..1300 {
+            m.apply(Event::Size { image, size: (3,3) });
+            m.apply(Event::Fill { canvas: image, rect: [0,0,3,3], rgb: [1,2,3], alpha: 255, clip: None });
+        }
+        let pixels = |path: &str, x, _, _| { assert_eq!(path,"frame source"); Some((x != 2).then_some([24,56,88])) };
+        assert_eq!(m.exact_shown_at(40,4,5,&pixels), Shown::Nothing);
+        assert_eq!(m.exact_shown_at(40,5,5,&pixels), Shown::Rgb([24,56,88]));
+        assert_eq!(m.exact_shown_at(40,6,5,&pixels), Shown::Nothing);
+        m.apply(Event::Size { image: 41, size: (20,20) });
+        m.apply(Event::Copy { from: 40, src: [0,0,20,20], canvas: 41, x: 0, y: 0, keyed: false });
+        m.apply(Event::Cleared { image: 40 });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([24,56,88]));
+        m.unanswered(41);
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
+        m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([8,16,24]));
+        m.apply(Event::TextClipped { canvas: 41, run: text(1,10,"caption"), clip: [0,0,20,20] });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown, "caption glyph source is not represented by a rectangular hit");
     }
 
     #[test]
