@@ -1,0 +1,137 @@
+{
+  "checkpoint": "5ca2cf609b18d15f24e2bcf9aca7939c8d9dd211",
+  "source_code": "96598d17c88fcbbb860938f576fefb4c4277020b",
+  "fixtures": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533",
+  "receipt_sha256": "571e00980feac779d1d33dd89695ec2f72e716dcda0122b308e88187fe04cbac",
+  "verified_file_bindings": 26,
+  "verified_changed_source_files": [
+    "crates/inproc/src/message.rs",
+    "crates/inproc/src/paint.rs",
+    "crates/jgl-ffi/src/own/graphics.rs",
+    "crates/jgl-ffi/tests/owned_window.rs",
+    "crates/jgl-ffi/tests/owned_window_live.rs",
+    "crates/jgl-ffi/tests/support/window_abi.rs",
+    "crates/jgl/src/display.rs",
+    "crates/jgl/src/window.rs",
+    "tools/test-jgl-window"
+  ],
+  "proofs": [
+    {
+      "name": "acceptance-window",
+      "pairs_checked": 2840,
+      "differences": 0,
+      "cleanup_checked": true
+    },
+    {
+      "name": "acceptance-live",
+      "pairs_checked": 438,
+      "differences": 0,
+      "cleanup_checked": true
+    }
+  ],
+  "integration_accepted": false,
+  "default_no_jgl_switch_accepted": false,
+  "pending_integration": [
+    "launch lock",
+    "confirmed game quit",
+    "windowed mode",
+    "Alt/capture/focus changes",
+    "stale-input delivery",
+    "save load",
+    "map and all requested screen families",
+    "turn change and combat",
+    "30-minute soak",
+    "integrated no-jgl module/load log and owned-vtable counting"
+  ],
+  "scope_limits": [
+    "undefined EAX and uninitialized fields are not promised original return/state values",
+    "null/invalid pointers and negative original mode-array indices excluded",
+    "original +12C FFFFFFFF-time/uninitialized-buffer tie excluded",
+    "eight concurrent hidden-paint entries retained; 24-lifetime test is sequential",
+    "multi-thread invalidator shutdown races are not established by this single-owner test",
+    "registry/font/image/C3X/DC contracts remain with group 6"
+  ],
+  "known_workspace_failure": "tile-render subpixel_coverage P4 bits=6: expected [0,0,255,37], actual [0,0,251,37]. Renderer code untouched.",
+  "additional_test_failure": {
+    "source": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/audit/handoff-tests.rs",
+      "sha256": "71be65acfb625c4c5ca3772ce7c2ca5af4aad412efa289f0d6e56c77c144d556",
+      "bytes": 7346
+    },
+    "same_blob_at_checkpoint_and_head": "e21f162ef9465f77f4c9493321e14478c2583aaf",
+    "failure": "workspace-except-tile-render.log, wake_returns_at_once_when_rung_and_collapses_rings, assertion woken >= 1",
+    "cause": "If all four ringers finish before the main thread first checks rings < 4000, the loop is skipped and woken stays zero. The final zero-duration wait result is discarded. This assertion can fail without losing any wake.",
+    "initial_workspace": "handoff library passed before the known renderer failure",
+    "isolated_rerun": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/handoff-isolated.log",
+      "sha256": "0d28d2a82b1c08bfd08935435e04b6f8bccbc964b85f6b6e6c2a90180e008910",
+      "bytes": 1286,
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0,
+      "test_groups": 1
+    },
+    "test_and_production_handoff_code_changed": false,
+    "disposition": "retained as a test scheduling failure; no full-workspace pass claimed"
+  },
+  "review_method": "Independent source and fixture review, 26 hash-bound records checked, all nine changed implementation/test files checked against the fixture source. Parent replayed both final optimized test executables in fresh private Wine prefixes and Xvfb displays.",
+  "as_of": "2026-10-25",
+  "recorded_at_utc": "2026-10-25T12:00:50.640395+00:00",
+  "standalone_accepted": true,
+  "parent_replays": [
+    {
+      "name": "deterministic",
+      "paired_observations": 2840,
+      "differences": 0,
+      "binary_sha256": "2a334aa9d742306da73856e16dde47b9833607d773dff298b218192610741032",
+      "binary_bound_to": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533",
+      "log": {
+        "path": "/mnt/datasets/c3r-build/jgl-window-review-20261025/deterministic/result.log",
+        "sha256": "ca27f0cd72679b7669c92e709699ff1f6d17dedcfe4a692b737be604384faf07"
+      },
+      "environment": {
+        "prefix": "/mnt/datasets/c3r-build/jgl-window-review-20261025/deterministic/prefix",
+        "display": ":2",
+        "wine": "/nix/store/6b2n1vpdpnn9d3x96x1vx297xrc1zwwj-wine-wow64-11.0",
+        "binary": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/owned_window.exe"
+      },
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "1750518",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-window-review-20261025/deterministic/prefix"
+      },
+      "cleanup_sha256": "6698dabc6b365507ea5bf315f2f03fd18bb37d984b8979d0b43d89101fd98581"
+    },
+    {
+      "name": "live",
+      "paired_observations": 438,
+      "differences": 0,
+      "binary_sha256": "d2b8369aeff7d42504b8f0cfd4094317a8d44753f24df5e507db113f9b5c9223",
+      "binary_bound_to": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533",
+      "log": {
+        "path": "/mnt/datasets/c3r-build/jgl-window-review-20261025/live/result.log",
+        "sha256": "def00040e39503a71aa29023d2ef3e2db8bd8ff5c4cc68d5432b57cf578305bb"
+      },
+      "environment": {
+        "prefix": "/mnt/datasets/c3r-build/jgl-window-review-20261025/live/prefix",
+        "display": ":1",
+        "wine": "/nix/store/vksbg7p1abhwhcxa67n24i7caj8hxl73-wine-wow64-staging-11.16",
+        "binary": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/owned_window_live.exe"
+      },
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "1750514",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-window-review-20261025/live/prefix"
+      },
+      "cleanup_sha256": "ad412cee1b3dfdb4b5b205ccc15565a2b55961f8691c491ce2d39ded75b99e87"
+    }
+  ],
+  "accepted_scope": "Window/pump/mode implementation and standalone original-binary equivalence at the bound source only. No shared game, Neo, default replacement or full Group 6 acceptance.",
+  "remaining": "Integrated launch lock, windowed/Alt/capture/focus/stale input, loaded game screens, turn/combat, confirmed quit, 30-minute soak and no-jgl mapping/loader/counting checks after Group 6 and common-source integration."
+}

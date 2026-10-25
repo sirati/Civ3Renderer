@@ -8,6 +8,10 @@ identity, first-fill and self-copy defects, missing second frame reader,
 and unverified scratch-DC behavior. The matrix below describes the earlier
 `83caad2` checkpoint and its scoped evidence.
 
+Group 7's separate [window/pump matrix](jgl-window-contracts.md) is accepted
+for standalone original-binary comparisons at `5ca2cf6`; its integrated
+gameplay gates still depend on completing the Group 6 rows below.
+
 This is the group 6 contract audit for the continuation of `3f6dceb` on
 `t3/finish-jgl-groups-switch-2`. It describes the experimental owned path.
 Ordinary viewer launches still use original jgl. `[V]` identifies the
