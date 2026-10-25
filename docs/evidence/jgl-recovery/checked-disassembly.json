@@ -1,0 +1,33 @@
+{
+  "Civ3Conquests-Unmodded.exe": {
+    "sha256": "f5c72aa9460cfe2dcf0970108d4fb570b535e2861f4093713232b7122e7f8c0b",
+    "direct_binary_call_checks": {
+      "0x57c706": "call 0x600220",
+      "0x57c7c4": "call 0x600220",
+      "0x57c7fa": "call 0x600220",
+      "0x57c98a": "call 0x5f84a0"
+    }
+  },
+  "Civ3Conquests.exe": {
+    "sha256": "a9bb72429328db88da8dfcab3e706437dc7bdc540e07cbfd4923695665e1671a",
+    "direct_binary_call_checks": {
+      "0x57c706": "call 0x600220",
+      "0x57c7c4": "call 0x600220",
+      "0x57c7fa": "call 0x600220",
+      "0x57c98a": "call 0x5f84a0"
+    }
+  },
+  "jgl.dll": {
+    "sha256": "0b0cd514de0d95b93d20655f4b5194173fe257325af82e558a152305ff0dbdf2",
+    "thunks": {
+      "0x2620": [
+        "mov eax, dword ptr [ecx]",
+        "jmp dword ptr [eax + 0x10]"
+      ],
+      "0x2630": [
+        "mov eax, dword ptr [ecx]",
+        "jmp dword ptr [eax + 0xc]"
+      ]
+    }
+  }
+}
