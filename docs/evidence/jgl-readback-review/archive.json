@@ -1,0 +1,7 @@
+{
+  "archive": "/mnt/datasets/c3r-source-backups/20261025-jgl-readback-review/recovery-evidence.tar.gz",
+  "archive_bytes": 156524143,
+  "archive_sha256": "23ebfe629031ea4fee6ca3e133de0c00ee54d74606ddc41d2947ef71324092cd",
+  "members_verified": 198,
+  "manifest": "/mnt/datasets/c3r-source-backups/20261025-jgl-readback-review/recovery-evidence-manifest.json"
+}

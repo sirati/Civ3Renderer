@@ -1,0 +1,179 @@
+{
+  "checkpoint": "31da02c2f5881a97083962a8971181be671509e1",
+  "production_implementation": "34d7add732358ef0a3fa378f3a84ac23e84b6f6f",
+  "verified_evidence_files": 158,
+  "production_files_compared_with_source_archive": [
+    "crates/civ3-bridge/src/jgl_hooks.rs",
+    "crates/civ3-bridge/src/ui_selection.rs",
+    "crates/civ3-bridge/src/ui_trace.rs",
+    "crates/civ3-ui/src/ui.rs",
+    "crates/jgl-ffi/src/own/image.rs",
+    "crates/jgl/src/memory.rs",
+    "crates/jgl/src/object.rs"
+  ],
+  "proofs": [
+    {
+      "name": "images",
+      "binary": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/final/tests/owned_images-a231b8122e80b97c.exe",
+      "binary_sha256": "b0295c91ca157ca731661a763229313f1ebc9df4cbd27d07e97734a8885d0b68",
+      "log": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/tests/final-owned_images-a231b8122e80b97c.log",
+      "log_sha256": "9acdb84441cd88daa78d3b8b56d403342f99c5267fc9427dce91d76e772d6a40",
+      "expected_summaries": [
+        "201 calls, 19660 bytes, 0 differences",
+        "492 pairs, zero differences"
+      ]
+    },
+    {
+      "name": "dc",
+      "binary": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/final/tests/owned_dc-f3cf7cd60f997837.exe",
+      "binary_sha256": "119c352d000fcef342e14a3262e7f650a8d1d6049be92bdfa1c92df41b1ed7e6",
+      "log": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/tests/final-owned_dc-f3cf7cd60f997837.log",
+      "log_sha256": "bdb02877606412832ba581c81592e973df366c6ca8746d6dbe48c94aa0df0847",
+      "expected_summaries": [
+        "8224 status/state pairs, 16 lifetimes, zero differences"
+      ]
+    },
+    {
+      "name": "navigator",
+      "binary": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/final/tests/owned_data-3625617.exe",
+      "binary_sha256": "3ff3811a9a869e7c161a233ac54f475f964d87c7b18d73a736e00df2677323d3",
+      "log": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/tests/data-wine-3625617.log",
+      "log_sha256": "5c2dadbf20534004499ba144950f985071732e7f7cc051d46e3244d357291d76",
+      "expected_summaries": [
+        "40 calls, 1369360 bytes, zero differences"
+      ]
+    }
+  ],
+  "source_review": "Original in-place traversal is now expressed through a single mutable borrow, image key marker/error order corrected, global blit history removed and model/source queries used. Exact model deliberately rejects multiple unresolved source families and exits on HUD read; full integration remains unaccepted.",
+  "standalone_data_dc_accepted": true,
+  "integration_accepted": false,
+  "default_no_jgl_switch_accepted": false,
+  "live_failure": {
+    "artifacts": "final-bindings.json",
+    "source": "34d7add",
+    "settings": "runtime/final-own/settings.toml",
+    "save": "runtime/final-own/save.sha256",
+    "observed": "Visible title, load dialog, saved-game summary and loaded map. Pointer moved to (1642,970).",
+    "failure": "owned keyed canvas 0x9fdd84: no exact model answer",
+    "exit": 1,
+    "game_seconds": 290.127,
+    "log": "runtime/final-own/bridge.log",
+    "before": "runtime/final-own/map.png",
+    "after": "runtime/final-own/hud-read.png",
+    "frame_predicate_equivalence": "NOT established; four popup-border pointer movements do not prove either frame-reader call was reached."
+  },
+  "restoration": {
+    "receipt": "restoration-final.json",
+    "all_initially_captured_paths_match": true,
+    "created_dll_and_save_removed": true,
+    "late_baseline_exception": "Ancillary civ3-render-errors.log initial hash was omitted. Later 248-byte zero-error content was captured/restored. Original pre-run ancillary log cannot be certified.",
+    "watchdog_log": "Empty and unchanged earlier modification timestamp."
+  },
+  "known_limits": [
+    "Observed HUD 0x9fdd84 semantic answer and all four frame caches, including exact +38 and glyph sources plus live original predicate comparison.",
+    "Loaded-art +58 instance/rectangle transforms shared by viewer, file and hit paths. Basename rules are still unaccepted.",
+    "Remaining indexed/escaped-pointer reader provenance and dynamic/replay/scenario live coverage.",
+    "Broader image error/unsupported-slot equivalence and actual C3X feature qualification.",
+    "Parent-owned mill source/integration and later explicit GUI lease; no duplicate icon implementation.",
+    "Integrated Group 7 gameplay gates and default switch are not qualified."
+  ],
+  "evidence_root": "/mnt/datasets/c3r-build/jgl-group6-data-20261025",
+  "as_of": "2026-10-25",
+  "recorded_at_utc": "2026-10-25T13:16:49.485504+00:00",
+  "parent_replays": [
+    {
+      "name": "images",
+      "binary_sha256": "b0295c91ca157ca731661a763229313f1ebc9df4cbd27d07e97734a8885d0b68",
+      "summaries": [
+        "201 calls, 19660 bytes, 0 differences",
+        "492 pairs, zero differences"
+      ],
+      "log": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/images/result.log",
+      "log_sha256": "5817021052eb23fd422e5bbb7c27529072c5a8496249e3e446267067f9942c12",
+      "environment": {
+        "prefix": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/images/prefix",
+        "display": ":1",
+        "wine": "/nix/store/vksbg7p1abhwhcxa67n24i7caj8hxl73-wine-wow64-staging-11.16",
+        "binary": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/final/tests/owned_images-a231b8122e80b97c.exe"
+      },
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "2314298",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/images/prefix"
+      },
+      "cleanup_sha256": "7ec20a032b29215c0dbb46050fbd2a9616823029f30e03bca49516826a0f8fa0"
+    },
+    {
+      "name": "dc",
+      "binary_sha256": "119c352d000fcef342e14a3262e7f650a8d1d6049be92bdfa1c92df41b1ed7e6",
+      "summaries": [
+        "8224 status/state pairs, 16 lifetimes, zero differences"
+      ],
+      "log": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/dc/result.log",
+      "log_sha256": "ebdfd910f1f4a4ada25c22a981d0d8f12d0f5d6c9320f2964f1293478a640d7d",
+      "environment": {
+        "prefix": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/dc/prefix",
+        "display": ":3",
+        "wine": "/nix/store/vksbg7p1abhwhcxa67n24i7caj8hxl73-wine-wow64-staging-11.16",
+        "binary": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/final/tests/owned_dc-f3cf7cd60f997837.exe"
+      },
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "2314292",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/dc/prefix"
+      },
+      "cleanup_sha256": "5154d1f83eec0e76a3364b06c97b7b3308368061ba5bd93f68ebb2e8bcd3f309"
+    },
+    {
+      "name": "navigator",
+      "binary_sha256": "3ff3811a9a869e7c161a233ac54f475f964d87c7b18d73a736e00df2677323d3",
+      "summaries": [
+        "40 calls, 1369360 bytes, zero differences"
+      ],
+      "log": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/navigator/result.log",
+      "log_sha256": "9dc16f79d61f5324af16d4320e42d7b8007a302e64f593bd3232f61db393bd86",
+      "environment": {
+        "prefix": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/navigator/prefix",
+        "display": ":2",
+        "wine": "/nix/store/vksbg7p1abhwhcxa67n24i7caj8hxl73-wine-wow64-staging-11.16",
+        "binary": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/final/tests/owned_data-3625617.exe"
+      },
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "2314294",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-readback-review-20261025/navigator/prefix"
+      },
+      "cleanup_sha256": "fd2c9eb084c006b692e7d45a7364b3811a0370f05e0917874e4e264736e4abb8"
+    }
+  ],
+  "accepted_scope": "Seeded 8/16-bit data +38/+58 calls, defined image state/error subset and C3X GDI+ status/logical-state/lifetime sequence, plus navigator regression. No HUD/frame predicate, visual, dynamic-data or full-game acceptance.",
+  "limitations": [
+    "Only the stated original-binary cases are accepted. Allocation failure, undefined registers/freed-pointer use and unsupported slots remain excluded.",
+    "GDI+ scratch extent/pixels differ and are not compared; enabled feature visibility remains open.",
+    "The source archive matches final source; the production implementation is 34d7add. Later ui.rs changes are inside its cfg(test) module and were inspected separately.",
+    "Both frame call sites select four caches. Border motions did not establish reached-reader or predicate equivalence.",
+    "Final owned run loaded the save, then terminated at the unknown HUD query. Earlier guessed-path F3/F5/Quit runs do not qualify final code.",
+    "Restored initial baselines match receipt. Original pre-run hash of ancillary civ3-render-errors.log is uncertified."
+  ],
+  "workspace": {
+    "passed": 2116,
+    "failed": 1,
+    "ignored": 37,
+    "only_failure": "tile-render/subpixel_coverage, P4",
+    "affected_and_guard_logs": [
+      "tests/affected-after-workspace.log",
+      "tests/generic-crates.log",
+      "tests/no-locks.log"
+    ]
+  },
+  "review_method": "Independent source/fixture review, 158 evidence hashes checked, final source archive and production code compared, all three bound test executables replayed in fresh private Wine prefixes/Xvfb displays."
+}
