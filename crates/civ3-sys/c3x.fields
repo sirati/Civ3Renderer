@@ -9,6 +9,7 @@ typedef DistrictInfos struct district_infos
 typedef WonderConfig struct wonder_district_config
 typedef NaturalWonderConfig struct natural_wonder_district_config
 typedef Table struct table
+typedef Mill struct mill
 
 value C3X_MOD_VERSION MOD_VERSION
 value MAX_DISTRICT_TYPES COUNT_DISTRICT_TYPES
@@ -117,3 +118,14 @@ DistrictInfos resource_prereq_on_tile_id
 
 WonderConfig buildable_square_types_mask
 WonderConfig buildable_on_rivers
+
+# C3X's improvement-row mill badges, independent of district switches.
+State current_config.mills
+State current_config.count_mills
+State drawing_icons_for_improv_id
+State resources_sheet
+State TransparentBlt
+Mill
+Mill improv_id
+Mill resource_id
+Mill flags
