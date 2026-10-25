@@ -1629,6 +1629,15 @@ mod tests {
         assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
         m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
         assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([8,16,24]));
+        m.apply(Event::Loaded { image: 60, path: "transformed source".into(), size: (3,2) });
+        m.unanswered(60); // A replacement whose metadata is not represented.
+        m.apply(Event::Sliced { sprite: 61, image: 60, rect: [0,0,3,2] });
+        m.apply(Event::Copied { sprite: 62, source: 61 });
+        m.apply(Event::Reset { sprite: 61 });
+        m.apply(Event::Cleared { image: 60 });
+        m.apply(Event::Blit { sprite: 62, canvas: 41, x: 4, y: 5, clip: None, palette: None });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
+        m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
         m.apply(Event::TextClipped { canvas: 41, run: text(1,10,"caption"), clip: [0,0,20,20] });
         assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown, "caption glyph source is not represented by a rectangular hit");
     }
