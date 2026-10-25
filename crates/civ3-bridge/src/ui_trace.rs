@@ -1700,8 +1700,8 @@ fn frame_mask_unknown(image: u32) -> u32 {
 thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
 thread_local! {
-    /// Ordered blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
-    /// stored pixels went): what the indexed readers answer from.
+    /// Ordered blits onto frame and indexed images (`PCX_Image`, `Sprite`,
+    /// where its stored pixels went): what the semantic readers answer from.
     static INDEX_BLITS: std::cell::RefCell<Vec<IndexBlit>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -1714,7 +1714,10 @@ struct IndexBlit {
 
 /// Notes a blit onto an 8-bit image (see [`art_presence_pixel`]).
 fn note_index_blit(b: &GameBlit) {
-    if obj::image_bits(b.canvas).is_some_and(|bits| bits <= 8) {
+    // Frame masks can be either indexed or 16-bit images. Keep every image
+    // writer for the keyed frame query; the old art-presence query still
+    // selects only the entries it needs from this history.
+    if obj::image_bits(b.canvas).is_some() {
         INDEX_BLITS.with_borrow_mut(|v| {
             if v.len() >= 1024 {
                 v.remove(0);
