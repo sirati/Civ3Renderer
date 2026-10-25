@@ -696,3 +696,32 @@ have one GPT-6.1 Sol implementation owner in an isolated worktree. Its durable
 task identifiers, scope and backup receipt location are in
 [the continuation state](jgl-continuation-state.json). Resume that task rather
 than starting a duplicate.
+
+### Palace evidence and remaining acceptance
+
+The unmerged continuation checkpoint is `902ea9d` on
+`t3/finish-jgl-groups-switch`. Its tested source is `b94eb47`. Parent review
+confirmed seven complete Palace selection maps, 14,515,200 cells and 15
+actual reads with zero mismatches. Ten 1024×768 Palace crop comparisons
+against the original path were byte-identical across the diagnostic and
+production runs. The retained DLL and ini restoration receipts match the
+fresh baseline. Labels remain under Rename and Quit popups and disappear
+under F1. Confirmed Quit exits normally. Evidence is recorded in
+[the scoped review](evidence/jgl-palace-review/review.json).
+
+The partial remains unaccepted for integration. Its Palace blit path can
+read and decode a PCX synchronously on the game thread, and anchor rebuilding
+scans whole piece rectangles there. Both need correction while preserving
+exact answers from the shared file geometry. The existing functional
+comparison does not establish the required hook cost or ownership contract.
+
+Group 6 still needs other indexed-map/direct-reader answers, +0x38/+0x58,
+C3X/DC handling, registry release order and font lifetimes. Group 7 still
+needs window/pump equivalence, launch lock, windowed mode, Alt/capture,
+stale input and the screen/turn/combat checks and soak. Experimental owned
+sessions showed no jgl load, and plain pass-through loaded the original
+libraries and quit normally. Ordinary viewer launches still load jgl.
+The default no-jgl switch is not accepted.
+
+One GPT-6.1 Sol continuation now owns these corrections and remaining work.
+Its identifiers are in [the continuation state](jgl-continuation-state.json).

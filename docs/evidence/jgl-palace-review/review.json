@@ -1,0 +1,159 @@
+{
+  "as_of": "2026-10-25",
+  "branch": "t3/finish-jgl-groups-switch",
+  "checkpoint": "902ea9d0635d087f55c65da8dd207fc20a49db66",
+  "tested_source_commit": "b94eb477f77454a700564a25eaf0184432153fbb",
+  "integration_accepted": false,
+  "default_replacement_enabled": false,
+  "independently_checked": {
+    "full_map_comparisons": 7,
+    "full_map_cells": 14515200,
+    "map_differences": 0,
+    "unavailable_map_answers": 0,
+    "actual_pixel_queries": 15,
+    "query_differences": 0,
+    "owned_module_none_reports": 15,
+    "image_comparisons": [
+      {
+        "image": "palace-before",
+        "compared_to": "compare",
+        "venue": "own",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-before",
+        "compared_to": "compare",
+        "venue": "final",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-hover",
+        "compared_to": "compare",
+        "venue": "own",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-hover",
+        "compared_to": "compare",
+        "venue": "final",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-after",
+        "compared_to": "compare",
+        "venue": "own",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-after",
+        "compared_to": "compare",
+        "venue": "final",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-styles",
+        "compared_to": "compare",
+        "venue": "own",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-styles",
+        "compared_to": "compare",
+        "venue": "final",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-two-upgrades",
+        "compared_to": "compare",
+        "venue": "own",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "image": "palace-two-upgrades",
+        "compared_to": "compare",
+        "venue": "final",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      }
+    ],
+    "runtime_artifact_hashes": 4,
+    "changed_source_hashes": 11,
+    "restoration_receipts_match_baseline": [
+      "compare",
+      "own",
+      "final",
+      "pass"
+    ],
+    "images_visually_reviewed": [
+      "own/rename.png",
+      "own/f1.png"
+    ]
+  },
+  "functional_scope": "Papa Wine PCGames, one existing save, five Palace styles, two upgrades, label behavior and confirmed Quit. No Neo result or full group acceptance follows.",
+  "review_objections": [
+    "Synchronous file read and PCX decode occur on the game-thread Palace blit path through ui_opacity::require_file.",
+    "Pointer anchor rebuilding scans piece rectangles on the game thread.",
+    "Object/DC/read-back/registry/font contracts and broader window/pump/input equivalence remain incomplete."
+  ],
+  "next_action": "A new GPT-6.1 Sol continuation owns corrections and remaining groups in an isolated worktree; keep this branch unmerged.",
+  "retained_evidence_root": "/mnt/datasets/c3r-build/jgl-t3-2884caee/evidence"
+}
