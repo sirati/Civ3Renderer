@@ -1,0 +1,189 @@
+{
+  "as_of": "2026-10-25",
+  "checkpoint": "83caad24ed9dabe1e899d29fb5ebd9ef4b466e3f",
+  "implementation_code": "9dc21943643c8965a25b8d7096189a0f900f4ed5",
+  "branch": "t3/finish-jgl-groups-switch-2",
+  "integration_accepted": false,
+  "default_no_jgl_switch_accepted": false,
+  "reviewed_behavior": "Caller-written navigator buffers alone retain equal-size, same-depth row copies and 16-bit clears through safe jgl::memory. Ordinary canvas draws stay records; no navigator bytes are sent to viewer.",
+  "independently_checked": {
+    "source_hashes": 515,
+    "artifact_and_binding_hashes": 12,
+    "test_log_hashes": 11,
+    "buffer_pairs": [
+      {
+        "name": "nav-009b3f38-0-018-300x145-300.bin",
+        "bytes": 87000,
+        "differences": 0
+      },
+      {
+        "name": "nav-009b3f38-0-2d0-300x145-300.bin",
+        "bytes": 87000,
+        "differences": 0
+      },
+      {
+        "name": "nav-009b3f38-0-588-300x145-300.bin",
+        "bytes": 87000,
+        "differences": 0
+      },
+      {
+        "name": "nav-009b3f38-0-858-300x145-300.bin",
+        "bytes": 87000,
+        "differences": 0
+      },
+      {
+        "name": "nav-00a0e230-1-018-230x108-230.bin",
+        "bytes": 49680,
+        "differences": 0
+      },
+      {
+        "name": "nav-00a0e230-1-2d0-230x108-230.bin",
+        "bytes": 49680,
+        "differences": 0
+      },
+      {
+        "name": "nav-00a0e230-1-588-230x108-230.bin",
+        "bytes": 49680,
+        "differences": 0
+      },
+      {
+        "name": "nav-00a0e230-1-858-230x108-230.bin",
+        "bytes": 49680,
+        "differences": 0
+      }
+    ],
+    "buffer_bytes": 546720,
+    "final_image_pairs": [
+      {
+        "screen": "map",
+        "crop": [
+          5,
+          949,
+          287,
+          1080
+        ],
+        "pixels": 36942,
+        "different": 0
+      },
+      {
+        "screen": "f3",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "pixels": 786432,
+        "different": 0
+      },
+      {
+        "screen": "f5",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "pixels": 786432,
+        "different": 0
+      }
+    ],
+    "restoration_and_empty_quit_receipts": [
+      "diagnostic-default",
+      "diagnostic-own",
+      "final-own"
+    ],
+    "owned_loader_logs_without_jgl": [
+      "diagnostic-own",
+      "final-own"
+    ],
+    "original_binary_test_log": "40 calls and 1,369,360 bytes with zero differences; parent reviewed log and test source, did not rerun."
+  },
+  "limits": [
+    "Static PCGames HUD/advisor navigator buffer identities only; dynamic/replay navigators remain open.",
+    "Diagnostic F5 crop had 1,731 text-pixel differences; only the final production crop matches.",
+    "Requested map traces had zero draw records, so no trace-equivalence claim.",
+    "No physical Neo or complete group 6/group 7 acceptance."
+  ],
+  "remaining": [
+    "Frame hit-mask writers and model answers at 0x608E0A and 0x608E7E; key fill-under +0x38 semantics",
+    "Indexed-map file/writer provenance and live read equivalence, plus escaped pointer families",
+    "Data contracts beyond static HUD/advisor navigator buffers",
+    "+0x58 source transparency and 16-bit glyph-canvas/read-back contracts",
+    "C3X GDI+ bind status and retained DC lifetime; native mill icons from resource/mill state",
+    "Unobserved but unsupported slot/error contracts listed in docs/jgl-contract-audit.md",
+    "Group 7 call equivalence, launch lock, windowed, Alt/capture/stale input, screen/turn/combat matrix and 30-minute soak",
+    "Default no-jgl only after all gates; original pass-through preserved"
+  ],
+  "contract_matrix": "../../jgl-contract-audit.md",
+  "evidence_root": "/mnt/datasets/c3r-build/jgl-t3-d94deaaf",
+  "tests_reported": {
+    "build-native.log": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "8984ffbb603b2c4a54e044c004b13fc8fe3aa5d3498825ba412c5e89d94aff65"
+    },
+    "build-windows-diagnostic.log": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "5a5308a01a3e5d3fd22f853f847e271478ee045f23b058d06b3cc006481e5898"
+    },
+    "build-windows-final.log": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "396c2bb53f93e0a09071024e091fc440135e7dca45ae9274c80f774c5a4b321f"
+    },
+    "build-windows-production.log": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "dd20eb28308bcde4c9c311051801f2f83cf4f6804e4b08adaabe03c29b8fcb3c"
+    },
+    "data-unit.log": {
+      "passed": 220,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "7281a9492dfb650dc642d78d24cc19ad1b8b6c02e8d8c580fca6579601b372d8"
+    },
+    "data-windows-build.log": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "cd36285d3ab91ef27c898a7550408f1c0edff000c33d48bd8e018aa1e85ea693"
+    },
+    "data-wine.log": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "f8971d761e07b22d212d6003a6359bc66c90a785f0ca234144437bab36f5a160"
+    },
+    "doc-tests.log": {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 7,
+      "sha256": "010cacea09eb18322571f6840095e5149d4f800c92c0ede94c2bb5956d2f9382"
+    },
+    "later-packages.log": {
+      "passed": 764,
+      "failed": 0,
+      "ignored": 11,
+      "sha256": "3902658ae538edeee072114be32d38adf1d61c2a977063ce9b8ee59129422af6"
+    },
+    "later-render.log": {
+      "passed": 29,
+      "failed": 0,
+      "ignored": 0,
+      "sha256": "529055cf47a3f02194ee73f53d42d749ab5dfcce7846537bc2479d8f5f888085"
+    },
+    "workspace.log": {
+      "passed": 1313,
+      "failed": 1,
+      "ignored": 20,
+      "sha256": "3ef620fb4c5c27d5394a030ee523aaceea494c48938396a304f6d895d105973c"
+    }
+  },
+  "known_failure": "tile-render --test subpixel_coverage, bits 6: actual [0,0,251,37], expected [0,0,255,37]; exit 101. No other failures."
+}
