@@ -85,8 +85,8 @@ constructor stores, the getter bodies and the factory allocation sizes.
 | graphics | 0x685F8 | 0x14C | 86 | +0x12C/+0x130 screen w/h, +0x134 depth (8), +0x138 DC, +0x140 HINSTANCE, +0x144 HWND |
 | `JGL_Image` | 0x68238 | 0x4D4 | 60 | +0x0C critical section (0x18), +0x24 bit count, +0x40 width (row), +0x44 clip RECT, +0x54 image RECT, +0x7C, +0x80 owner (`PCX_Image*`), +0x84 `BITMAPINFO` (header 0x28 + 256 RGBQUAD), +0x4AC region, +0x4B0 previous bitmap, +0x4B4 bitmap, +0x4B8 current DC, +0x4BC DC, +0x4C0 bits, +0x4C4/+0x4C8 DC and bits lock counts, +0x4CC current bits, +0x4D0 colour key |
 | `JGLSprite` | 0x68440 | 0x50 | 41 | +0x0C source, +0x10 colour table, +0x14, +0x18 flags, +0x20, +0x28 key (0xFF), +0x2C..+0x34 getters, +0x38 critical section |
-| `JGL_Color_Table` | 0x68938 | 0x820 | 9 | +0x0C entries, +0x40C/+0x60C 16-bit tables, +0x80C ctor argument, +0x810/+0x814 fade state |
-| font | 0x688AC | 0x24 | 5 | +0x04 metrics (ctor argument: +0x08 height, +0x0C ascent, +0x10..+0x18), +0x08 embedded base object, +0x14 flags (bit 0: loaded from a file), +0x18 HFONT, +0x20 resource path |
+| `JGL_Color_Table` | 0x68938 | 0x820 | 9 | +0x0C entries, +0x40C/+0x60C 16-bit tables, +0x80C ctor argument, +0x810/+0x814 change stamp |
+| font | 0x688AC | 0x24 | 5 | +0x04 metrics pointer, +0x08 embedded base object, +0x14 flags (bit 0: loaded from a file), +0x18 HFONT, +0x20 resource path; exact metric writes in [object semantics](jgl-object-semantics.md) |
 
 Calling conventions [V]: every slot is `thiscall` (`this` in ecx, callee
 pops). `inproc`'s hooks model it as `fastcall` with an unused edx; the shim
@@ -661,3 +661,35 @@ left without sprite pixels in group 4.
 Read-back exceptions left: none for sprites. Canvases whose fills, copies
 and text jgl still draws: the `Skipper`'s keep set (palette-index images
 of region maps, keyed form canvases, the navigator), unchanged.
+
+### Remaining groups and recovered object semantics
+
+The [full object semantics](jgl-object-semantics.md) preserves the image,
+sprite, colour-table, font and registry research. Its checked ABI corrections
+include palette methods taking `(colors, first, count)`, image +0x14/+0x1C
+being pixel-at thunks, +0x18/+0x20 lock thunks and +0x24 unlocking bits.
+The constructor, destructor, field, error-code, GDI and file-operation details
+are retained there with their original [V]/[G] evidence scope.
+
+The `0x57C706/0x57C7C4/0x57C7FA` readers are Palace View selection, not
+navigator code [V]. Palace selection changes game state. Placeholder sprite
+blits alone do not answer its piece-index map. It needs an answer from the
+same file geometry and state the viewer uses, and a live Palace check. The
+earlier statement above that no sprite read-back exception remained did not
+cover Palace selection.
+
+Main currently ends at `dd992e0`, which also fixes labels disappearing under
+popups. The cancelled continuation is preserved on branch `jgl-g67` at
+`47d1e45`. That checkpoint includes own-object implementations, temporary
+comparison code and unfinished final-switch wiring. It has not passed
+acceptance and is not merged into main. Review it against the recovered
+semantics before enabling the replacement by default. The palette argument
+order is already corrected in that branch, but its runtime equivalence still
+needs verification.
+
+Resume the rest of group 6, group 7 and the final no-jgl switch in order.
+Keep the plain-game pass-through path. Compare old/new calls, retain failed
+attempts and before/after captures, then remove temporary comparison code.
+Also verify the label fix under rename and Quit popups and its absence under
+F1. Completed group work needs no replacement agents; these remaining groups
+have one implementation owner.

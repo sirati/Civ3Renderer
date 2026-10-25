@@ -220,25 +220,29 @@ instead of being intercepted and copied.
 
 ## 4. Pixel read-back: what the game actually reads
 
-The user doubted that read-back happens. It does, but only one case reads
-pixels that a renderer would have drawn. Found by scanning every direct
+Pixel read-back includes keyed forms and the Palace selection map. Found by scanning every direct
 call of `PCX_Image::get_pixel` (0x600220, 24 sites) [V] and from the
 bridge's audit classes (`ui_trace.rs:62-75`, `game_render.rs:12-17`) [D].
+The [object semantics](jgl-object-semantics.md) corrects the earlier
+attribution of `0x57C7xx` to navigator code.
 
 | # | Reader | Image | Data origin | Needs our renderer? | Preferred answer (hook) |
 |---|---|---|---|---|---|
-| 1 | hit test 0x608C70, call at **0x608FE3** | the form's own 16-bit canvas (+0x274) of keyed forms (`Status1 & 0x1000000`, not `& 0x102`; `ui_hooks.rs:529-538`); e.g. the HUD over the map | **drawn by the UI** | **yes**, the only true case | **done** (group 4): the call at 0x608FE3 is answered by `UiModel::shown_at`, the canvas's display list with the files' pixels (`ui_opacity::pixel`), whenever sprites are the placeholder. Text gives no pixel [G]. |
+| 1 | hit test 0x608C70, call at **0x608FE3** | the form's own 16-bit canvas (+0x274) of keyed forms (`Status1 & 0x1000000`, not `& 0x102`; `ui_hooks.rs:529-538`); e.g. the HUD over the map | **drawn by the UI** | **yes** | **done** (group 4): the call at 0x608FE3 is answered by `UiModel::shown_at`, the canvas's display list with the files' pixels (`ui_opacity::pixel`), whenever sprites are the placeholder. Text gives no pixel [G]. |
 | 2 | hit test frame pieces, call at 0x608E0A | form+0x11C (frame images of framed forms) | [G] loaded from art files | no, if file data | plain memory. If it turns out to be drawn, answer from the frame geometry (`docs/civ3-map-rendering.md` §16.11). |
 | 3 | region maps: city screen 0x414FC9/0x4154C9/0x415719 (form+0xC54); 0x4CCBF6 (+0x662C); espionage 0x52B409/0x52B55E/0x52B629 (+0x3DC8); 0x5835BA/0x583626/0x583A23 (+0x2B60); 0x5A45DC/0x5A488F/0x5A5013 (+0x574); 0x5DEA2A/0x5DEA94 (+0x3958) | 8-bit index images | PCX files, decoded by the **exe** (0x5FC700 → 0x600100 → lock + exe decoders 0x62B5F0/0x62C0B0/0x62BD90) [V] | no | none needed: the exe writes the file pixels into our plain memory |
 | 4 | cursor hotspots 0x54AFC5/0x54AFE9 (0x54AF90 loads `Art\CURSOR.PCX`) | stack temporary | file | no | none |
-| 5 | 0x549FAD [V: the art presence test at start: pixel (0, 0) of a 32×32 sprite of `Art\oldinterface.pcx` drawn into one of the three 8-bit images at 0xB3F3E0; **answered** from that file since jgl group 6, `docs/jgl-replacement.md` §9]; 0x57C706/0x57C7C4/0x57C7FA (navigator code) | [G] navigator (minimap) images | built by the game pixel by pixel through `pixel_at`, and copied between each other (0x5784EC, 0x578625, 0x578733, 0x57886C) | no | plain memory plus a real `copy` (+0x40) for these images (`ui_hooks.rs:875` lists them) |
+| 5a | 0x549FAD | Three 8-bit images at 0xB3F3E0, 0x2B8 apart | Sprite cuts from `Art\oldinterface.pcx`, pixel (0, 0) [V] | no | **answered** from the file since group 6's first part, `docs/jgl-replacement.md` §9 |
+| 5b | Palace View reads 0x57C706/0x57C7C4/0x57C7FA | form+0x3154, screen-size 8-bit piece-index map | 0x57C8A0 clears to 0xFF and draws upgradeable pieces with sprite +0x74, solid piece index wherever source pixel is below 0xFE [V] | file geometry and Palace state | **open**: answer hover/click from the same geometry/state as the viewer; click changes Palace game state. Placeholder sprites alone leave this unanswered. See [object semantics](jgl-object-semantics.md). |
+| 5c | Navigator image copies at 0x5784EC/0x578625/0x578733/0x57886C | Navigator images | Game-written pixels | no | Plain memory plus real `copy` (+0x40) for game-written data; separate from the Palace reads |
 | 6 | sprite crop trimming (worker 0x62B170 via slots +0x18/+0x1C), FLC decoding, exe dotted-frame loops 0x62B720/0x62B9D0/0x62B860/0x62BBA0 | 8-bit sources, temporaries | game-written | no | plain memory. The frame should be captured as a command at 0x600980. |
 | 7 | C3X combat-odds HUD save/restore, city dot | canvas / navigator | game-written | no | plain memory (it saves and restores pixels nobody shows) |
 
-Conclusion: with surfaces as plain memory that the exe itself decodes and
-writes into, **only #1 needs an answer from us**. The CPU-surface fallback
-becomes an optional step for #1, and for anything new that
-`CIV3R_TRACE_PIXELS=1` turns up. It is not a gate.
+Plain memory preserves pixels the exe decodes or writes itself. Keyed forms
+and Palace selection also need model/file answers. Palace interaction must
+be verified before claiming all sprite read-back is covered. A CPU-surface
+fallback remains optional; it does not replace the required shared source
+for drawing and hit testing.
 
 ## 5. The replacement jgl
 
@@ -360,6 +364,6 @@ Top 5 by value: steps 1, 2, 3, 4, then 6+7 together (no jgl).
 - Whether the exe reads graphics-object fields directly, not only through
   slots [G: allocate the full 0x14C bytes and fill +0x12C..+0x148 as jgl
   does].
-- Who calls the `0x57C7xx` reads (0x549FAD: answered, §4 #5), and with which images (§4
-  #5).
+- Palace selection's `0x57C7xx` readers are identified (§4 #5b). Their
+  model/file answer and live verification remain open.
 - Whether the frame images at form+0x11C are file data (§4 #2).
