@@ -16,7 +16,7 @@
 //! by a movie nor by jgl's shutdown either (`jgl::display`).
 
 use civ3_ui::blit::{BlitCapture, GameBlit};
-use civ3_ui::draw::{CanvasDraw, CopyCapture, FillCapture};
+use civ3_ui::draw::{CanvasDraw, CopyCapture};
 use civ3_ui::text::{CanvasText, TextCapture};
 
 /// The text group goes in before jgl's first draw: from the `LoadLibraryA`
@@ -40,6 +40,15 @@ fn canvas_draw(d: CanvasDraw) {
 /// A blit an exe wrapper made, to the interface mirror and the map tracer.
 fn game_blit(b: &GameBlit, _call: &jgl::BlitCall) {
     crate::ui_trace::on_blit(b);
+}
+
+struct Fills;
+
+impl jgl::FillHooks for Fills {
+    fn fill(&mut self, call: &jgl::FillCall) {
+        crate::ui_selection::fill(call);
+        if let Some(draw) = civ3_ui::draw::fill_of(call) { canvas_draw(draw); }
+    }
 }
 
 /// Whether jgl still draws a call's pixels: on canvases the game reads
@@ -95,7 +104,7 @@ impl jgl::PixelPolicy for Pixels {
 fn hooks() -> jgl::Hooks {
     jgl::Hooks {
         text: Box::new(TextCapture::new(canvas_text)),
-        fill: Box::new(FillCapture::new(canvas_draw)),
+        fill: Box::new(Fills),
         copy: Box::new(CopyCapture::new(canvas_draw)),
         blit: Box::new(BlitCapture::new(game_blit)),
         palette: Box::new(jgl::hooks::NoHooks),

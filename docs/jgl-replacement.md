@@ -741,3 +741,71 @@ civ3r_native.dll
 `4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935`.
 The script used an isolated settings file. A fresh pre-run ini backup was
 not taken, so there is no settings-restoration receipt for these early runs.
+
+### Palace semantic read-back, partial group 6
+
+The continuation now records Palace eligibility from the game's +0x74 calls,
+using snapshots of the interface model's file source, crop, position and clip.
+`civ3_ui::selection::Selection` queries those file pixels with the same
+indices-below-254 rule as the viewer's opacity answer. Later pieces take
+precedence; their transparent holes reveal earlier pieces. It never draws or
+copies a piece-index bitmap. Pointer targets use this same query. The bridge
+retains the decoded files until the selection is cleared, independently of
+the opacity cache's eviction. A missing source fails an owned read explicitly.
+
+Verified on Papa, Wine WoW64, PCGames build, `000jgl.SAV`, 1920×1080:
+
+- [V] A temporary comparison returned jgl's answer while checking the model.
+  All 15 actual `get_pixel` reads matched. Seven complete maps, including
+  all five Palace styles, matched in all 14,515,200 cells, with zero
+  differences and zero unavailable answers.
+- [V] In both the jgl and explicit owned sessions, clicking piece 16 and
+  then piece 15 changed `(builds, flags, credits)` from `(6,28161,2)` to
+  `(7,93697,1)` to `(8,126465,0)`. With credits exhausted, jgl does not
+  rebuild; the model retained the previous geometry and still matched.
+- [V] Five Palace screenshot crops, each 1024×768, were pixel-identical
+  between the two sessions: before, hover, first upgrade, style changes and
+  second upgrade. World animation and camera positions outside the Palace
+  rectangle were excluded from this comparison.
+- [V] The owned diagnostic queried `module_base("jgl.dll")` at all 15
+  Palace reads and got `None`. Its entire Wine `+loaddll` capture has no
+  jgl load. At 120 seconds all original-table counters were zero; our
+  graphics +0x128 counted 21,458,220 calls and font +0x10 20,582,643.
+  No foreign drawing thread or re-entry was counted. This is evidence for
+  this session, not acceptance of all window/pump behaviour.
+- [V] Labels remained under rename and Quit popups and disappeared under
+  F1. Confirming Quit ended the owned game without a forced stop. The
+  earlier script had selected the Yes radio without pressing confirmation.
+  The viewer was told to close after 4 ms and reported gone after 6 ms.
+- [V] After removing the diagnostic, the production build repeated both
+  upgrades and the style changes, reopened Palace with no credits and quit
+  normally. Its five Palace crops again matched the jgl session exactly.
+  Its Wine log also has no jgl load. Its trace request contained zero map
+  draw records, so it is not evidence of map-trace equivalence.
+
+Evidence root: `/mnt/datasets/c3r-build/jgl-t3-2884caee`. `evidence/compare`
+and `evidence/own` contain logs, screenshots, artifact hashes and restoration
+receipts. `evidence/palace-files.sha256` and `inputs-and-sources.sha256`
+identify the art, save and diagnostic source. The temporary full-map and
+call comparison is retained there as source snapshots and removed from
+production. Failed input attempts are retained separately. DLL and ini
+restoration receipts match the fresh baseline, including ini SHA-256
+`327cd772872b1f7e82123b6f80b52d5505b0c23aa172482f59f71c9c587a5fd6`.
+
+Validation: `cargo test --workspace` reached only the known
+`tile-render --test subpixel_coverage` failure, bits 6, expected
+`[0,0,255,37]`, actual `[0,0,251,37]`. Before that, bridge 482, civ3-sys
+173, civ3-ui 69, jgl 33, jgl-ffi 9 and its binary checks 15 passed.
+The two new selection tests and the semantic-control test passed. Separate
+`no_locks` (2) and `generic_crates` (3) checks passed. Windows release builds
+of `civ3r-native` and `civ3-bridge`, and the host native release, passed in
+`nix develop` with `CARGO_INCREMENTAL=0`. Logs are under the evidence root.
+
+Group 6 remains incomplete. Image DC/C3X users, the other indexed maps and
+direct pixel readers, +0x38/+0x58, registry release order and font resource
+lifetime still need the recovered-spec audit and equivalence evidence.
+An initially credit-free save and other saves/resolutions need coverage.
+Group 7 still needs call-by-call window/pump equivalence, launch lock,
+windowed mode, Alt/capture and the full screen/turn/combat matrix and soak.
+The final switch remains experimental behind `CIV3R_JGL=own`; ordinary
+viewer launches continue to load jgl. No default switch is accepted here.

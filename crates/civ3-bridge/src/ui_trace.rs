@@ -534,7 +534,7 @@ impl NativeUi {
     fn read(model: &UiModel) -> Self {
         let Some(&build) = BUILD.get() else { return Self::default() };
         let Some(sites) = civ3_sys::controls::sites(build) else { return Self::default() };
-        let mem = civ3_sys::controls::Live;
+        let mem = crate::ui_selection::Memory;
         let controls = civ3_sys::controls::controls(&mem, &sites);
         Self {
             modal_stack: civ3_sys::modal::modal_stack(&mem, build).unwrap_or_default(),
@@ -1064,6 +1064,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         r
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
+        crate::ui_selection::cleared(c.image);
         forget_form_surface(c.image);
         emit(Event::Cleared { image: c.image });
         with_skipper(|s| s.cleared(c.image));
@@ -1120,6 +1121,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
         audit_semantic(SemanticClass::PixelRead);
+        if let Some(answer) = crate::ui_selection::pixel(c.image, c.x as i32, c.y as i32) {
+            return answer;
+        }
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
@@ -1720,6 +1724,10 @@ fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option
 /// `b.wrapper`: the interface mirror's events, and the map tracer's record
 /// for the map's three.
 pub fn on_blit(b: &GameBlit) {
+    if b.wrapper == civ3_ui::blit::Wrapper::A4 && h::palace_mask_form(b.canvas).is_some() {
+        let source = with_model(false, |m| m.sprite_source(b.sprite).cloned()).flatten();
+        crate::ui_selection::piece(b, source);
+    }
     note_index_blit(b);
     use civ3_ui::blit::Wrapper as W;
     let (x, y) = wrapper_xy(b);

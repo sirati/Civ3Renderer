@@ -59,12 +59,37 @@ pub fn pixel(path: &str, x: i32, y: i32, keyed: bool) -> Option<Option<[u8; 3]>>
         let _ = opaque(path, [0, 0, 0, 0]);
         return None;
     };
-    if x < 0 || y < 0 || x >= image.width as i32 || y >= image.height as i32 {
-        return Some(None);
-    }
+    Some(file_pixel(&image, x, y, keyed))
+}
+
+/// Prepare a file needed for a synchronous semantic reader. Palace clicks
+/// cannot use the async opacity worker's temporary unknown answer. Publish
+/// the same PCX decoding to the existing opacity/pixel cache.
+pub(crate) fn require_file(path: &str) -> Result<Arc<civ3_assets::pcx::Indexed>, String> {
+    if let Some(image) = FILES.load().and_then(|f| f.iter().find(|(p, _)| p == path).map(|(_, image)| image.clone())) { return Ok(image); }
+    let bytes = civ3_assets::files::read_file(path).map_err(|e| format!("{path}: {e}"))?;
+    let image = Arc::new(civ3_assets::pcx::decode(&bytes).map_err(|e| format!("{path}: {e}"))?);
+    cache_file(path, image.clone());
+    Ok(image)
+}
+
+fn cache_file(path: &str, image: Arc<civ3_assets::pcx::Indexed>) {
+    FILES.update(|old| {
+        let mut shared = old.cloned().unwrap_or_default();
+        shared.retain(|(p, _)| p != path);
+        if shared.len() >= SHARED_FILES { shared.remove(0); }
+        shared.push((path.to_owned(), image.clone()));
+        Some(shared)
+    });
+}
+
+/// Shared by the viewer's opacity answer and semantic readers. Retaining
+/// the decoded file lets a live selection survive cache eviction.
+pub(crate) fn file_pixel(image: &civ3_assets::pcx::Indexed, x: i32, y: i32, keyed: bool) -> Option<[u8; 3]> {
+    if x < 0 || y < 0 || x >= image.width as i32 || y >= image.height as i32 { return None; }
     let index = image.get(x as u32, y as u32);
     let civ3_assets::Rgb(r, g, b) = image.palette.get(index);
-    Some((!keyed || index < 254).then_some([r, g, b]))
+    (!keyed || index < 254).then_some([r, g, b])
 }
 
 /// The answering thread; its sender (a closed one if it cannot start).
@@ -90,12 +115,7 @@ fn start() -> tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])> {
                         }
                         files.push((path.clone(), image.clone()));
                         if let Some(image) = &image {
-                            let mut shared = FILES.get().unwrap_or_default();
-                            if shared.len() >= SHARED_FILES {
-                                shared.remove(0);
-                            }
-                            shared.push((path.clone(), image.clone()));
-                            FILES.publish(shared);
+                            cache_file(&path, image.clone());
                         }
                         image
                     }
