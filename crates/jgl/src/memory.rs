@@ -159,7 +159,7 @@ impl IndexedCopy {
         for row in 0..self.height {
             let source_at = self.source + row * self.source_stride;
             let target_at = self.target + row * self.target_stride;
-            let pixels = source[source_at..source_at + self.width].to_vec();
+            let pixels = &source[source_at..source_at + self.width];
             if self.target_bits == 8 {
                 for (i, &pixel) in pixels.iter().enumerate() {
                     let at = target_at + i;
@@ -172,6 +172,24 @@ impl IndexedCopy {
                     if old == self.palette[self.key8 as usize] {
                         target[at..at + 2].copy_from_slice(&self.palette[pixel as usize].to_le_bytes());
                     }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Original +0x38 walks left to right, then top to bottom, even when
+    /// source and target overlap (RVA 0x7599). Reads see preceding writes.
+    /// This differs from +0x3C and from a snapshot copy.
+    pub fn copy_within(self, pixels: &mut [u8]) -> Result<(), u32> {
+        self.fits(pixels.len(), pixels.len())?;
+        if self.target_bits != 8 { return Err(error::DEPTH); }
+        for row in 0..self.height {
+            let source = self.source + row * self.source_stride;
+            let target = self.target + row * self.target_stride;
+            for x in 0..self.width {
+                if pixels[target + x] == self.key8 {
+                    pixels[target + x] = pixels[source + x];
                 }
             }
         }
@@ -326,7 +344,19 @@ mod tests {
     }
 
     #[test]
-    fn indexed_copy_can_snapshot_an_in_place_source_without_aliasing_references() {
+    fn indexed_copy_overlap_reads_preceding_writes_in_original_traversal_order() {
+        let plane = Plane { width: 4, height: 3, row: 4, bits: 8 };
+        for (dx, dy) in [(1, 0), (0, 1), (1, 1)] {
+            let mut pixels = [3; 12];
+            pixels[0] = 1;
+            IndexedCopy::new(plane, plane, 0, 0, dx, dy, 3, 2, plane.bounds(), 3, None).unwrap().copy_within(&mut pixels).unwrap();
+            assert_eq!(pixels[(dy * 4 + dx) as usize], 1);
+            assert_eq!(pixels[(dy * 8 + dx * 2) as usize], 1);
+        }
+    }
+
+    #[test]
+    fn indexed_copy_with_distinct_source_preserves_its_bytes() {
         let plane = Plane { width: 4, height: 3, row: 4, bits: 8 };
         let mut pixels = [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9];
         pixels[0..4].copy_from_slice(&[1, 2, 3, 4]);
