@@ -87,11 +87,6 @@ pub extern "thiscall" fn init(this: u32, _pixels: u32, w: u32, h: u32, bits: u32
         set(this, BITS, bits);
         set(this, BYTES, w.wrapping_mul(h).wrapping_mul(bits / 8));
         set(this, PITCH, w);
-        // The replacement never lets jgl's rasteriser write sprite pixels.
-        // Keep one conspicuous shared buffer instead, so an uncaptured draw
-        // is visible in a screenshot and cannot silently become a black
-        // sprite.  The interface model supplies the real file pixels.
-        set(this, PIXELS, super::super::blit::placeholder::at_least(field(this, BYTES)));
     } else if a5 != 0 {
         return a5;
     }
@@ -103,19 +98,7 @@ pub extern "thiscall" fn init(this: u32, _pixels: u32, w: u32, h: u32, bits: u32
 /// +0x0C `duplicate(source)`'s original (0x9EB0), for a null source: the
 /// sprite cleared (jgl would read through the null pointer).
 pub extern "thiscall" fn duplicate(this: u32, _source: u32) -> u32 {
-    let source = _source;
     clear(this);
-    if source != 0 {
-        // Duplicate the observable state, while retaining the replacement's
-        // shared placeholder rather than copying the game's pixels.
-        for (dst, src) in [(TABLE, TABLE), (FLAGS, FLAGS), (BITS, BITS), (BYTES, BYTES), (KEY, KEY), (PITCH, PITCH), (WIDTH, WIDTH), (HEIGHT, HEIGHT)] {
-            set(this, dst, field(source, src));
-        }
-        let bytes = field(this, BYTES);
-        if bytes != 0 {
-            set(this, PIXELS, super::super::blit::placeholder::at_least(bytes));
-        }
-    }
     this
 }
 
