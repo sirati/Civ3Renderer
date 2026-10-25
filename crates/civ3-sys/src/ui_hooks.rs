@@ -214,6 +214,13 @@ pub fn art_presence_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
     }
 }
 
+/// Palace View's piece-index image at form+0x3154. Its class check keeps
+/// an unrelated 8-bit canvas out of the semantic selection path.
+pub fn palace_mask_form(image: u32) -> Option<u32> {
+    let form = image.checked_sub(0x3154)?;
+    (Ptr32::<u32>::new(form).read().ok()? == crate::controls::screens::PALACE).then_some(form)
+}
+
 /// Where the game keeps its 16-bit colour key (bit 31 a flag), which the
 /// keyed hit test compares with.
 pub const COLOR_KEY: u32 = 0x72_FEB0;

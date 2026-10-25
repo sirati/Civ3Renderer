@@ -696,3 +696,129 @@ have one GPT-6.1 Sol implementation owner in an isolated worktree. Its durable
 task identifiers, scope and backup receipt location are in
 [the continuation state](jgl-continuation-state.json). Resume that task rather
 than starting a duplicate.
+
+### Continuation audit, 25 October 2026
+
+The checkpoint is incorporated in the app worktree branch. It remains
+unaccepted. The own implementation now requires `CIV3R_JGL=own` as well as
+the viewer's normal replacement policy. Ordinary launches keep the previously
+accepted jgl path, and no-viewer/no-trace launches still pass through.
+
+Verified observations, not group completion:
+
+- [V] An experimental owned-window session reached the title and loaded
+  `000jgl.SAV`. Screenshots/traces are in `/tmp/c3r-own-shots/ownwalk`.
+  The title matches the retained before screenshot exactly. The script
+  captured map, advisor, city, Civilopedia, diplomacy and popup screens.
+  These captures do not establish call-by-call equivalence.
+- [V] At 240 seconds its counters recorded 14,838,308 graphics +0x128
+  calls and 648,803 font measurements through our tables, zero calls
+  through the original-table counter and zero foreign drawing threads.
+  This proves which tables were counted, not module-list absence.
+- [V] The quit script reported `QUIT: still running` and stopped its own
+  process. A successful quit and turn change have not been established.
+- [V] The separate F9 check clicked a style thumbnail. Its colour changed;
+  it did not exercise an upgradeable Palace piece or verify the piece-index
+  map. Palace selection remains open.
+- [V] No Wine `+loaddll` capture or explicit module-list check was collected.
+  The startup note that the loader answered jgl is insufficient evidence
+  for the final switch. Windowed and Alt/capture acceptance remain open.
+- [V] The inherited comparison report at 240 seconds has 2,369,297 font
+  measurements with zero differences. It also has 1,732/1,732 differing
+  image creates and 676/1,389 differing set-colour-table calls. The create
+  mismatch is biClrUsed at +0xA4; create now clears it as the recovered
+  spec requires. The table report includes undefined return registers.
+  These are not a clean equivalence pass.
+
+The continuation briefly added software copy/fill implementations in
+`jgl-ffi`. They were removed: neither independent rasterisation nor drawing
+logic in the unsafe shim satisfies the brief. The inherited placeholder
+implementation already supplies the shared striped sprite allocation.
+Image DC users, semantic read-back answers and release/registry order still
+need auditing against the recovered spec before default replacement.
+
+The tested DLLs were restored after each ended session. Fresh baseline and
+restored SHA-256 values agree: IFC23.dll
+`079641fbec833579233df78e7a5426b38e559b4948c7e6f3bc0ebc123cb65b0e`,
+civ3r_native.dll
+`4151b134ac7c2076abea13644e54519a95c8bb349cafdf3c01c1e85d35ead935`.
+The script used an isolated settings file. A fresh pre-run ini backup was
+not taken, so there is no settings-restoration receipt for these early runs.
+
+### Palace semantic read-back, partial group 6
+
+The continuation now records Palace eligibility from the game's +0x74 calls,
+using snapshots of the interface model's file source, crop, position and clip.
+`civ3_ui::selection::Selection` queries those file pixels with the same
+indices-below-254 rule as the viewer's opacity answer. Later pieces take
+precedence; their transparent holes reveal earlier pieces. It never draws or
+copies a piece-index bitmap. Pointer targets use this same query. The bridge
+retains the decoded files until the selection is cleared, independently of
+the opacity cache's eviction. A missing source fails an owned read explicitly.
+
+Verified on Papa, Wine WoW64, PCGames build, `000jgl.SAV`, 1920×1080:
+
+- [V] A temporary comparison returned jgl's answer while checking the model.
+  All 15 actual `get_pixel` reads matched. Seven complete maps, including
+  all five Palace styles, matched in all 14,515,200 cells, with zero
+  differences and zero unavailable answers.
+- [V] In both the jgl and explicit owned sessions, clicking piece 16 and
+  then piece 15 changed `(builds, flags, credits)` from `(6,28161,2)` to
+  `(7,93697,1)` to `(8,126465,0)`. With credits exhausted, jgl does not
+  rebuild; the model retained the previous geometry and still matched.
+- [V] Five Palace screenshot crops, each 1024×768, were pixel-identical
+  between the two sessions: before, hover, first upgrade, style changes and
+  second upgrade. World animation and camera positions outside the Palace
+  rectangle were excluded from this comparison.
+- [V] The owned diagnostic queried `module_base("jgl.dll")` at all 15
+  Palace reads and got `None`. Its entire Wine `+loaddll` capture has no
+  jgl load. At 120 seconds all original-table counters were zero; our
+  graphics +0x128 counted 21,458,220 calls and font +0x10 20,582,643.
+  No foreign drawing thread or re-entry was counted. This is evidence for
+  this session, not acceptance of all window/pump behaviour.
+- [V] Labels remained under rename and Quit popups and disappeared under
+  F1. Confirming Quit ended the owned game without a forced stop. The
+  earlier script had selected the Yes radio without pressing confirmation.
+  The viewer was told to close after 4 ms and reported gone after 6 ms.
+- [V] After removing the diagnostic, the production build repeated both
+  upgrades and the style changes, reopened Palace with no credits and quit
+  normally. Its five Palace crops again matched the jgl session exactly.
+  Its Wine log also has no jgl load. Its trace request contained zero map
+  draw records, so it is not evidence of map-trace equivalence.
+- [V] With both `CIV3R_VIEWER` and `CIV3R_TRACE` unset, the same production
+  DLL reported pass-through only. Wine loaded `ifc23_orig.dll` and jgl,
+  and no native renderer DLL. The ordinary game loaded `000jgl.SAV`, drew
+  its map and exited through confirmed Quit without a forced stop.
+
+Evidence root: `/mnt/datasets/c3r-build/jgl-t3-2884caee`. `evidence/compare`
+and `evidence/own` contain logs, screenshots, artifact hashes and restoration
+receipts. `evidence/palace-files.sha256` and `inputs-and-sources.sha256`
+identify the art, save and diagnostic source. The temporary full-map and
+call comparison is retained there as source snapshots and removed from
+production. Failed input attempts are retained separately. DLL and ini
+restoration receipts match the fresh baseline, including ini SHA-256
+`327cd772872b1f7e82123b6f80b52d5505b0c23aa172482f59f71c9c587a5fd6`.
+Production code is commit `b94eb47`; its source and artifacts are identified
+by `evidence/production-source.sha256` and `production-artifacts.sha256`.
+The tested `ifc23.dll` SHA-256 is
+`3da1d41d08da000edb3aee3240da5eabce195308b0d5f7ed35c3b2f8a1432fd5`.
+The `final` and `pass` evidence directories contain the production runs and
+their complete restoration receipts.
+
+Validation: `cargo test --workspace` reached only the known
+`tile-render --test subpixel_coverage` failure, bits 6, expected
+`[0,0,255,37]`, actual `[0,0,251,37]`. Before that, bridge 482, civ3-sys
+173, civ3-ui 69, jgl 33, jgl-ffi 9 and its binary checks 15 passed.
+The two new selection tests and the semantic-control test passed. Separate
+`no_locks` (2) and `generic_crates` (3) checks passed. Windows release builds
+of `civ3r-native` and `civ3-bridge`, and the host native release, passed in
+`nix develop` with `CARGO_INCREMENTAL=0`. Logs are under the evidence root.
+
+Group 6 remains incomplete. Image DC/C3X users, the other indexed maps and
+direct pixel readers, +0x38/+0x58, registry release order and font resource
+lifetime still need the recovered-spec audit and equivalence evidence.
+An initially credit-free save and other saves/resolutions need coverage.
+Group 7 still needs call-by-call window/pump equivalence, launch lock,
+windowed mode, Alt/capture and the full screen/turn/combat matrix and soak.
+The final switch remains experimental behind `CIV3R_JGL=own`; ordinary
+viewer launches continue to load jgl. No default switch is accepted here.

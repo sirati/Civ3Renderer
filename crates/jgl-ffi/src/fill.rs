@@ -19,10 +19,10 @@ use std::sync::atomic::AtomicU32;
 use crate::takeover::{Takeover, TakeoverError};
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::state::{guarded, read, record};
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use jgl::FillCall;
     use jgl::draw::MAX_ARGS;
 
@@ -104,6 +104,21 @@ mod entries {
     other!(slot_54, SLOT_54, 0x54, M4, a, b, c, d);
     other!(slot_5c, SLOT_5C, 0x5C, M2, a, b);
     other!(slot_60, SLOT_60, 0x60, M9, a, b, c, d, e, f, g, h, i);
+
+    /// The group's image slots.
+    pub fn image() -> Vec<Entry> {
+        vec![
+            Entry { offset: 0x44, function: fill as M2 as usize as u32, original: &FILL },
+            Entry { offset: 0x48, function: shade as M3 as usize as u32, original: &SHADE },
+            Entry { offset: 0x4C, function: slot_4c as M2 as usize as u32, original: &SLOT_4C },
+            Entry { offset: 0x50, function: slot_50 as M3 as usize as u32, original: &SLOT_50 },
+            Entry { offset: 0x54, function: slot_54 as M4 as usize as u32, original: &SLOT_54 },
+            Entry { offset: 0x58, function: replace_color as M3 as usize as u32, original: &REPLACE_COLOR },
+            Entry { offset: 0x5C, function: slot_5c as M2 as usize as u32, original: &SLOT_5C },
+            Entry { offset: 0x60, function: slot_60 as M9 as usize as u32, original: &SLOT_60 },
+            Entry { offset: 0x64, function: line as M6 as usize as u32, original: &LINE },
+        ]
+    }
 }
 
 /// The taken-over fill group (for the life of the process, in practice).
@@ -120,24 +135,12 @@ pub fn install(base: u32) -> Result<FillGroup, TakeoverError> {
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32) -> Result<FillGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
-    use entries::*;
+    use crate::takeover::take_over;
     use jgl::slots::Class;
     if !crate::state::has_hooks() {
         return Err(TakeoverError::NoHooks);
     }
-    let image = [
-        Entry { offset: 0x44, function: fill as M2 as usize as u32, original: &FILL },
-        Entry { offset: 0x48, function: shade as M3 as usize as u32, original: &SHADE },
-        Entry { offset: 0x4C, function: slot_4c as M2 as usize as u32, original: &SLOT_4C },
-        Entry { offset: 0x50, function: slot_50 as M3 as usize as u32, original: &SLOT_50 },
-        Entry { offset: 0x54, function: slot_54 as M4 as usize as u32, original: &SLOT_54 },
-        Entry { offset: 0x58, function: replace_color as M3 as usize as u32, original: &REPLACE_COLOR },
-        Entry { offset: 0x5C, function: slot_5c as M2 as usize as u32, original: &SLOT_5C },
-        Entry { offset: 0x60, function: slot_60 as M9 as usize as u32, original: &SLOT_60 },
-        Entry { offset: 0x64, function: line as M6 as usize as u32, original: &LINE },
-    ];
-    Ok(FillGroup { _image: take_over(base, Class::Image, &image)? })
+    Ok(FillGroup { _image: take_over(base, Class::Image, &entries::image())? })
 }
 
 #[cfg(not(all(windows, target_arch = "x86")))]
