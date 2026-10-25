@@ -782,6 +782,10 @@ Verified on Papa, Wine WoW64, PCGames build, `000jgl.SAV`, 1920×1080:
   normally. Its five Palace crops again matched the jgl session exactly.
   Its Wine log also has no jgl load. Its trace request contained zero map
   draw records, so it is not evidence of map-trace equivalence.
+- [V] With both `CIV3R_VIEWER` and `CIV3R_TRACE` unset, the same production
+  DLL reported pass-through only. Wine loaded `ifc23_orig.dll` and jgl,
+  and no native renderer DLL. The ordinary game loaded `000jgl.SAV`, drew
+  its map and exited through confirmed Quit without a forced stop.
 
 Evidence root: `/mnt/datasets/c3r-build/jgl-t3-2884caee`. `evidence/compare`
 and `evidence/own` contain logs, screenshots, artifact hashes and restoration
@@ -791,6 +795,12 @@ call comparison is retained there as source snapshots and removed from
 production. Failed input attempts are retained separately. DLL and ini
 restoration receipts match the fresh baseline, including ini SHA-256
 `327cd772872b1f7e82123b6f80b52d5505b0c23aa172482f59f71c9c587a5fd6`.
+Production code is commit `b94eb47`; its source and artifacts are identified
+by `evidence/production-source.sha256` and `production-artifacts.sha256`.
+The tested `ifc23.dll` SHA-256 is
+`3da1d41d08da000edb3aee3240da5eabce195308b0d5f7ed35c3b2f8a1432fd5`.
+The `final` and `pass` evidence directories contain the production runs and
+their complete restoration receipts.
 
 Validation: `cargo test --workspace` reached only the known
 `tile-render --test subpixel_coverage` failure, bits 6, expected
