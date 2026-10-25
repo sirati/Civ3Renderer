@@ -446,18 +446,13 @@ pub extern "thiscall" fn copy_38(this: u32, dst: u32, sx: u32, sy: u32, x: u32, 
         ensure_pixels(this);
         ensure_pixels(dst);
         let ((from, source_len), (to, target_len)) = PIXEL_MEMORY.with_borrow(|m| Some((*m.get(&this)?, *m.get(&dst)?))).ok_or(7u32)?;
-        // SAFETY: these are distinct owned allocations in the normal case;
-        // IndexedCopy snapshots each source row, so overlap is also safe.
         if this == dst {
-            // A Rust `&[u8]` and `&mut [u8]` may not alias, even when the
-            // operation itself snapshots each row. Clone the source once so
-            // same-image +0x38 has the original's in-place semantics without
-            // creating overlapping references. This also handles vertical
-            // overlap in the same allocation.
-            let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) }.to_vec();
+            // SAFETY: one exclusive borrow of this image's allocation.
+            // The safe operation owns the original's overlap traversal.
             let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
-            copy.copy(&source, target)
+            copy.copy_within(target)
         } else {
+            // SAFETY: distinct owned images have distinct allocations.
             let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) };
             let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
             copy.copy(source, target)
