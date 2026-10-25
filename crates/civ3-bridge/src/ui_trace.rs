@@ -1632,11 +1632,11 @@ fn frame_mask_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
     let crate::ui::Source::File { path, rect, .. } = source else { return None };
     let sx = x - at.0;
     let sy = y - at.1;
+    let bits = civ3_sys::ui_hooks::obj::image_bits(image).unwrap_or(8);
     if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
-        return Some(0xFF);
+        return if bits == 8 { Some(0xFF) } else { Some(inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF) };
     }
     let Some(pixel) = crate::ui_opacity::pixel(&path, rect[0] + sx, rect[1] + sy, true) else { return None };
-    let bits = civ3_sys::ui_hooks::obj::image_bits(image).unwrap_or(8);
     match (bits, pixel) {
         (8, None) => Some(0xFF),
         (8, Some(_)) => Some(0),
