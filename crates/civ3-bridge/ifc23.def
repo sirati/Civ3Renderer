@@ -2,7 +2,12 @@
 ; (Immersion force feedback), which Civ3Conquests.exe imports these seven
 ; functions from. They are forwarded unchanged to the original, renamed to
 ; ifc23_orig.dll by the installer.
+;
+; get_graphsy_object_ptr is jgl.dll's one export: with a viewer the game's
+; LoadLibraryA("jgl.dll") gets this module, and its graphics object is
+; ours (jgl-ffi's own, docs/jgl-replacement.md §8).
 EXPORTS
+    get_graphsy_object_ptr
     "?Start@CImmProject@@QAEHPBDKKPAVCImmDevice@@@Z" = ifc23_orig."?Start@CImmProject@@QAEHPBDKKPAVCImmDevice@@@Z"
     "??1CImmProject@@QAE@XZ" = ifc23_orig."??1CImmProject@@QAE@XZ"
     "?CreateEffect@CImmProject@@QAEPAVCImmCompoundEffect@@PBDPAVCImmDevice@@K@Z" = ifc23_orig."?CreateEffect@CImmProject@@QAEPAVCImmCompoundEffect@@PBDPAVCImmDevice@@K@Z"
