@@ -20,11 +20,11 @@ use std::sync::atomic::AtomicU32;
 use crate::takeover::{Takeover, TakeoverError};
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::layout::JglGraphics;
     use crate::state::{guarded, read, record};
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use jgl::PresentCall;
     use std::mem::offset_of;
 
@@ -70,6 +70,14 @@ mod entries {
         // jgl's present returns 0.
         if jgl { original::<M1>(&PRESENT)(this, r) } else { 0 }
     }
+
+    /// The group's graphics slots.
+    pub fn graphics() -> Vec<Entry> {
+        vec![
+            Entry { offset: 0x30, function: invalidate as M1 as usize as u32, original: &INVALIDATE },
+            Entry { offset: 0xA4, function: present as M1 as usize as u32, original: &PRESENT },
+        ]
+    }
 }
 
 /// The taken-over present group (for the life of the process, in
@@ -87,17 +95,12 @@ pub fn install(base: u32) -> Result<PresentGroup, TakeoverError> {
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32) -> Result<PresentGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
-    use entries::*;
+    use crate::takeover::take_over;
     use jgl::slots::Class;
     if !crate::state::has_hooks() {
         return Err(TakeoverError::NoHooks);
     }
-    let graphics = [
-        Entry { offset: 0x30, function: invalidate as M1 as usize as u32, original: &INVALIDATE },
-        Entry { offset: 0xA4, function: present as M1 as usize as u32, original: &PRESENT },
-    ];
-    Ok(PresentGroup { _graphics: take_over(base, Class::Graphics, &graphics)? })
+    Ok(PresentGroup { _graphics: take_over(base, Class::Graphics, &entries::graphics())? })
 }
 
 #[cfg(not(all(windows, target_arch = "x86")))]

@@ -313,6 +313,20 @@ fn mask_cells_lie_wholly_in_their_colour_inside_the_background() {
 
 // ---- Diplomacy ----
 
+#[test]
+fn semantic_mask_targets_work_without_native_pixels_and_obey_window_and_index_limits() {
+    struct Semantic;
+    impl Mem for Semantic {
+        fn u32(&self, _: u32) -> Option<u32> { panic!("semantic targets must not read placeholder memory") }
+        fn u8(&self, _: u32) -> Option<u8> { panic!("semantic targets must not read placeholder memory") }
+        fn index_regions(&self, pcx: u32) -> Option<Vec<(u8, [i32; 4])>> {
+            assert_eq!(pcx, 123);
+            Some(vec![(3, [8, 12, 4, 4]), (4, [20, 20, 1, 1]), (0xFF, [15, 15, 1, 1])])
+        }
+    }
+    assert_eq!(mask_cells(&Semantic, 123, [10, 10, 10, 10], 0x3F), [(3, [10, 12, 2, 4])]);
+}
+
 const DIP: u32 = 0xA3_51C0;
 const LH: i32 = 14;
 
