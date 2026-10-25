@@ -9,21 +9,20 @@
   "research_status": "Full completed object-semantics findings preserved; implementation/runtime qualification remains separate.",
   "research_evidence": "evidence/jgl-recovery/source-evidence.json",
   "active_task": {
-    "title": "Finish remaining jgl object and window contracts",
+    "title": "Close remaining jgl group 6 contracts, then group 7",
     "model": "gpt-6.1-sol",
     "provider": "codex",
-    "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-g67-sol-continuation-20261025-2",
-    "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-g67-sol-continuation-20261025-2",
+    "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-g67-sol-continuation-20261025-3",
+    "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-g67-sol-continuation-20261025-3",
     "task_status": "running",
     "isolation": "worktree",
     "sole_local_game_gui_input_owner": true,
     "sole_warm_build_target_owner": "/tmp/c3r-jgl-g23/target",
     "no_child_agents": true,
     "scope": [
-      "Remove synchronous file I/O/decode and full-image anchor scans from the game-thread Palace hook path",
-      "Finish group 6 read-back, DC/C3X, registry and font contracts",
-      "Finish group 7 window, pumps and input equivalence and runtime gates",
-      "Final no-jgl switch after acceptance; preserve plain-game pass-through"
+      "Close remaining group 6 indexed-reader, generated-data copy, image +0x38/+0x58 and DC/C3X contracts with a per-contract evidence record",
+      "Finish group 7 window/pump equivalence, launch lock, input/windowed and screen/turn/combat checks and soak",
+      "Final default no-jgl switch only after acceptance; preserve original plain-game pass-through"
     ],
     "acceptance": [
       "Call-by-call equivalence and before/after traces/screenshots",
@@ -38,12 +37,14 @@
       "Completed research",
       "Other historical backlog agents",
       "Completed Palace functional comparison exploration",
-      "Passed label/Rename/Quit/F1 checks unless new code affects them"
+      "Passed label/Rename/Quit/F1 checks unless new code affects them",
+      "Resolved hook-I/O and publisher-anchor changes unless affected",
+      "Reviewed circular registry and embedded font/FOT lifetime corrections unless affected"
     ]
   },
   "backups": {
-    "directory": "20261025-jgl-palace-review",
-    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-palace-review/backup-receipt.json",
+    "directory": "20261025-jgl-source-review",
+    "receipt": "/mnt/datasets/c3r-source-backups/20261025-jgl-source-review/backup-receipt.json",
     "configured_origin": "/home/sirati/Projects/civ3-renderer-old",
     "origin_available": false,
     "required_hosts": [
@@ -51,10 +52,20 @@
       "Mac Neo"
     ],
     "scope": "All committed main-repository refs including interrupted checkpoint, readable docs and retained RE/test evidence. Consult receipt for actual transfer results.",
-    "previous_verified_checkpoint": "20261025-jgl-recovery"
+    "previous_verified_checkpoint": "20261025-jgl-recovery",
+    "previous_checkpoint": "20261025-jgl-palace-review",
+    "previous_neo_replication": "Pending after SSH connection timeout; see previous receipt."
   },
-  "current_unmerged_branch": "t3/finish-jgl-groups-switch",
-  "current_unmerged_checkpoint": "902ea9d0635d087f55c65da8dd207fc20a49db66",
-  "current_code_acceptance": "Functional Palace evidence checked. Integration rejected pending cheap-hook/ownership correction and remaining group contracts. Default owned replacement stays disabled.",
-  "scoped_review": "evidence/jgl-palace-review/review.json"
+  "current_unmerged_branch": "t3/finish-jgl-groups-switch-1",
+  "current_unmerged_checkpoint": "3f6dceb2d956cb4c683b58bbc54bfc2bee235b97",
+  "current_code_acceptance": "Source capture/anchor and registry/font corrections reviewed. Integration and default switch still await remaining group 6/group 7 contracts.",
+  "scoped_review": "evidence/jgl-source-review/review.json",
+  "reviewed_corrections": {
+    "source_loads": 203,
+    "source_indices": 23713540,
+    "index_and_palette_differences": 0,
+    "final_palace_image_pairs": 4,
+    "restoration_receipts": 6,
+    "source_capture_limit": "One guarded block copy at file load remains O(file size)."
+  }
 }

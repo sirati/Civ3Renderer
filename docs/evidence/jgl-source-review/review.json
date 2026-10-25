@@ -1,0 +1,95 @@
+{
+  "as_of": "2026-10-25",
+  "checkpoint": "3f6dceb2d956cb4c683b58bbc54bfc2bee235b97",
+  "branch": "t3/finish-jgl-groups-switch-1",
+  "integration_accepted": false,
+  "default_no_jgl_switch_accepted": false,
+  "reviewed_corrections": {
+    "hot_hook_file_IO_and_decode": "removed; retains already decoded source at load",
+    "game_thread_anchor_scan": "moved to publisher using the same captured Present and immutable selection revision",
+    "source_capture_cost": "One guarded block copy at file load; scales with source size. No constant-time or zero-copy claim.",
+    "registry_and_font": "Safe circular head/cursor state, embedded-base deletion and owned FOT storage reviewed; original-jgl/GDI test logs retained."
+  },
+  "independently_checked": {
+    "source_hashes": 50,
+    "source_backup_hashes": 2,
+    "source_load_comparisons": 203,
+    "source_indices": 23713540,
+    "index_differences": 0,
+    "palette_differences": 0,
+    "image_comparisons": [
+      {
+        "name": "palace-before",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "name": "palace-after",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "name": "palace-styles",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      },
+      {
+        "name": "palace-two-upgrades",
+        "crop": [
+          448,
+          156,
+          1472,
+          924
+        ],
+        "different_pixels": 0
+      }
+    ],
+    "final_artifact_hashes": 3,
+    "restoration_receipts": [
+      "evidence/aborted-stale-build/restoration.sha256",
+      "evidence/default/restoration.sha256",
+      "evidence/diagnostic/restoration.sha256",
+      "evidence/failed-null-palette/restoration.sha256",
+      "evidence/final/restoration.sha256",
+      "evidence/production/restoration.sha256"
+    ],
+    "final_quit_process_receipt_empty": true,
+    "final_loader_jgl_load_lines": 0
+  },
+  "remaining": [
+    "Other indexed maps and direct pixel readers",
+    "Generated-data copies, image +0x38/+0x58 and DC/C3X contracts",
+    "Full window/pump call equivalence and launch lock",
+    "Windowed, Alt/capture, stale input, screen/turn/combat coverage and 30-minute soak",
+    "Default no-jgl switch after gates pass"
+  ],
+  "tests_reported": [
+    "workspace passed 1310 failed 1 ignored 20",
+    "later-packages passed 738 failed 0 ignored 11",
+    "remaining-packages passed 26 failed 0 ignored 0",
+    "remaining-render-tests passed 29 failed 0 ignored 0",
+    "guards passed 2 failed 0 ignored 0",
+    "source-tests-final passed 3 failed 0 ignored 0",
+    "lifetimes-wine-repeat passed 1 failed 0 ignored 0",
+    "diagnostic original table called slots 0",
+    "production original table called slots 0",
+    "default original table called slots 3"
+  ],
+  "evidence_root": "/mnt/datasets/c3r-build/jgl-t3-e967e7bc",
+  "scope": "Papa Wine PCGames only; neither complete group 6/group 7 acceptance nor a Neo runtime result. Parent inspected source/evidence and did not rerun the suites."
+}
