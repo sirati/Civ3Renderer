@@ -245,6 +245,12 @@ pub fn wonders(mem: &dyn Mem, form: u32) -> Option<(Vec<(u32, [i32; 4])>, bool)>
 /// The colour regions of an 8-bit mask image (a `PCX_Image` at `pcx`)
 /// within `window` (its pixels), each colour's largest rectangle.
 pub fn mask_cells(mem: &dyn Mem, pcx: u32, window: [i32; 4], last: u8) -> Vec<(u8, [i32; 4])> {
+    if let Some(cells) = mem.index_regions(pcx) {
+        return cells.into_iter().filter_map(|(index, r)| {
+            let r = intersect(r, window);
+            (index <= last && !empty(r)).then_some((index, r))
+        }).collect();
+    }
     let read = || -> Option<Vec<(u8, [i32; 4])>> {
         let image = mem.u32(pcx.checked_add(4)?).filter(|&i| i != 0)?;
         if mem.u32(image + 0x24)? != 8 {

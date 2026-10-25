@@ -56,9 +56,9 @@
     "previous_checkpoint": "20261025-jgl-palace-review",
     "previous_neo_replication": "Pending after SSH connection timeout; see previous receipt."
   },
-  "current_unmerged_branch": "t3/finish-jgl-groups-switch-1",
-  "current_unmerged_checkpoint": "3f6dceb2d956cb4c683b58bbc54bfc2bee235b97",
-  "current_code_acceptance": "Source capture/anchor and registry/font corrections reviewed. Integration and default switch still await remaining group 6/group 7 contracts.",
+  "current_unmerged_branch": "t3/finish-jgl-groups-switch-2",
+  "current_unmerged_checkpoint": "9dc21943643c8965a25b8d7096189a0f900f4ed5",
+  "current_code_acceptance": "Source capture/anchor and registry/font corrections independently reviewed. Known HUD/advisor navigator data copies and clears tested locally. Integration and default switch still await other group 6/group 7 contracts.",
   "scoped_review": "evidence/jgl-source-review/review.json",
   "reviewed_corrections": {
     "source_loads": 203,
@@ -67,5 +67,7 @@
     "final_palace_image_pairs": 4,
     "restoration_receipts": 6,
     "source_capture_limit": "One guarded block copy at file load remains O(file size)."
-  }
+  },
+  "implementation_contract_audit": "jgl-contract-audit.md",
+  "continuation_evidence_root": "/mnt/datasets/c3r-build/jgl-t3-d94deaaf"
 }
