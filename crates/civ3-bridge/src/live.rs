@@ -440,6 +440,7 @@ pub fn start(game: Civ3) -> Result<(), LiveError> {
     }
     // The game thread's heartbeat, for the viewer's busy indicator.
     match crate::heartbeat::install() {
+        Ok(()) if jgl_ffi::own::on() => log::info!("heartbeat: our jgl's pumps stamp it"),
         Ok(()) => log::info!("heartbeat: jgl.dll's PeekMessageA and WaitMessage stamp it"),
         Err(e) => log::warn!("no game heartbeat (the viewer judges by the connection alone): {e}"),
     }
@@ -1181,7 +1182,7 @@ fn publish(
         let own_title = menus.as_ref().and_then(|ms| ms.menu("title").map(|m| (ms, m))).filter(|_| matches!(shown, Shown::Title(_)) && ui.is_none());
         let mut controls = match own_title {
             Some(_) => Vec::new(),
-            None => native_ui.as_ref().map(|native| native.controls.clone()).unwrap_or_else(||
+            None => native_ui.as_ref().map(|native| native.selection.as_ref().map_or_else(|| native.controls.clone(), |selection| selection.controls())).unwrap_or_else(||
                 civ3_sys::controls::sites(game.build).map(|sites| civ3_sys::controls::controls(&civ3_sys::controls::Live, &sites)).unwrap_or_default()),
         };
         prefs.retain_native_controls(&mut controls);
@@ -2870,6 +2871,14 @@ fn hook_game_window(hidden_window: bool) {
         Err(e) => log::warn!("modifiers: hooking GetAsyncKeyState: {e}"),
     }
     std::thread::spawn(move || {
+        // Our jgl: its window follows the viewer's pointer itself
+        // (`inproc::pointer::overridden`); no jgl.dll to redirect.
+        if jgl_ffi::own::on() {
+            for note in crate::game_window::take_notes() {
+                log::info!("{note}");
+            }
+            return;
+        }
         let Some(jgl) = (0..600).find_map(|_| inproc::pe::module_base("jgl.dll").or_else(|| {
             std::thread::sleep(Duration::from_millis(200));
             None

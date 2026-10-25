@@ -35,6 +35,11 @@ impl Producer {
         Producer { writer: Writer::new(), images: HashSet::new(), fonts: HashSet::from([FontId::STOCK]), scale: None, compiled: HashMap::new(), policy }
     }
 
+    /// The host's plain-memory data contract for an owned image.
+    pub fn preserve_image_data(&self, image: ImageId, owner: u32) -> bool {
+        self.policy.preserve_image_data(image, owner)
+    }
+
     /// Whether `font` must be defined (from GDI, [`Producer::font_defined`])
     /// before it is selected: created before the takeover.
     pub fn needs_font(&self, font: FontId) -> bool {
