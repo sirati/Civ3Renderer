@@ -146,3 +146,14 @@ pub const WORK_AREA_OFFSETS: [(i8, i8); 193] = [
     (-9, 5), (-10, 4), (-10, -4), (-9, -5), (-8, -6), (-7, -7), (-6, -8), (-5, -9),
     (-4, -10),
 ];
+
+// C3X mill row fields, generated from the same R28 headers.
+pub const STATE_CURRENT_CONFIG_MILLS: u32 = 1760;
+pub const STATE_CURRENT_CONFIG_COUNT_MILLS: u32 = 1764;
+pub const STATE_DRAWING_ICONS_FOR_IMPROV_ID: u32 = 9608;
+pub const STATE_RESOURCES_SHEET: u32 = 9612;
+pub const STATE_TRANSPARENTBLT: u32 = 1424;
+pub const MILL_IMPROV_ID: u32 = 0;
+pub const MILL_RESOURCE_ID: u32 = 2;
+pub const MILL_FLAGS: u32 = 4;
+pub const MILL_SIZE: u32 = 6;

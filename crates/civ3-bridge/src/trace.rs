@@ -598,6 +598,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                     let transparent = indices.transparent.iter().map(u8::to_string).collect::<Vec<_>>().join(",");
                     let shade = indices.shade.iter().map(|(i, k)| format!("{i}:{k}")).collect::<Vec<_>>().join(",");
                     let _ = writeln!(out, "ui_image_indices {} {}", if transparent.is_empty() { "-" } else { &transparent }, if shade.is_empty() { "-" } else { &shade });
+                    if indices.sample_offset != [0; 2] { let _ = writeln!(out, "ui_image_sample_offset {} {}", indices.sample_offset[0], indices.sample_offset[1]); }
                     if let Some(frame) = indices.frame { let _ = writeln!(out, "ui_image_frame {frame}"); }
                     if let Some(p) = &indices.palette_alpha {
                         writeln!(out, "ui_image_palette_alpha {} {} {} {} {} {}", p.first, p.count, p.skip[0], p.skip[1], p.skip[2], p.source)
