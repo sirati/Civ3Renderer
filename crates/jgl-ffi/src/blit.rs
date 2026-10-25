@@ -100,11 +100,11 @@ fn caller() -> u32 {
 }
 
 #[cfg(all(windows, target_arch = "x86"))]
-mod entries {
+pub(crate) mod entries {
     use super::*;
     use crate::layout::{JglColorTable, JglSprite};
     use crate::state::{guarded, read, record};
-    use crate::takeover::original;
+    use crate::takeover::{Entry, original};
     use jgl::blit::{MAX_BLIT_ARGS, Shape};
     use jgl::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
     use std::mem::offset_of;
@@ -173,6 +173,10 @@ mod entries {
     /// jgl's draw scale, read from its globals (it was set before the
     /// takeover).
     fn scale_now() -> Scale {
+        if crate::own::on() {
+            let v = crate::own::graphics::SCALE.each_ref().map(|c| c.load(Ordering::Relaxed));
+            return Scale { num_x: v[0], num_y: v[1], den: v[2], set_at: 0 };
+        }
         let at = BASE.load(Ordering::Relaxed) + SCALE_RVA;
         // SAFETY: jgl.dll's .data, three words `set_scale` writes.
         let w = |i: u32| unsafe { read::u32_at(at + 4 * i) };
@@ -314,6 +318,10 @@ mod entries {
 
     /// Whether jgl's span compilation is on (its global the inits test).
     fn compile_on() -> bool {
+        // (Nothing in jgl.dll sets it: its .bss, 0. Ours is the same.)
+        if crate::own::on() {
+            return false;
+        }
         // SAFETY: jgl.dll's .data.
         unsafe { read::u32_at(BASE.load(Ordering::Relaxed) + super::COMPILE_RVA) != 0 }
     }
@@ -466,13 +474,16 @@ mod entries {
         original::<M0>(&TABLE_ANIMATE)(this)
     }
 
-    pub extern "thiscall" fn table_get_colors(this: u32, first: u32, count: u32, colors: u32) -> u32 {
-        original::<M3>(&TABLE_GET_COLORS)(this, first, count, colors)
+    /// `get_colors(rgb, first, count)` (0x3D190): the buffer first [V,
+    /// the exe's call at 0x5FC00C pushes it first].
+    pub extern "thiscall" fn table_get_colors(this: u32, colors: u32, first: u32, count: u32) -> u32 {
+        original::<M3>(&TABLE_GET_COLORS)(this, colors, first, count)
     }
 
-    pub extern "thiscall" fn table_set_colors(this: u32, first: u32, count: u32, colors: u32) -> u32 {
+    /// `set_colors(rgb, first, count)` (0x3D1D0), as `get_colors`.
+    pub extern "thiscall" fn table_set_colors(this: u32, colors: u32, first: u32, count: u32) -> u32 {
         tabled("color_table set_colors", || TableCall::SetColors { table: table(this), first, count, colors });
-        original::<M3>(&TABLE_SET_COLORS)(this, first, count, colors)
+        original::<M3>(&TABLE_SET_COLORS)(this, colors, first, count)
     }
 
     pub extern "thiscall" fn table_16a(this: u32) -> u32 {
@@ -486,6 +497,75 @@ mod entries {
     pub extern "thiscall" fn table_20(this: u32, arg: u32) -> u32 {
         tabled("color_table slot_20", || TableCall::Slot20 { table: table(this), arg });
         original::<M1>(&TABLE_20)(this, arg)
+    }
+
+    fn f(p: extern "thiscall" fn()) -> u32 {
+        p as usize as u32
+    }
+
+    fn blit(offset: u16, tramp: extern "thiscall" fn(), original: &'static AtomicU32) -> Entry {
+        Entry { offset, function: f(tramp), original }
+    }
+
+    /// The group's sprite slots.
+    pub fn sprite_slots() -> Vec<Entry> {
+        let sprite = vec![
+            Entry { offset: 0x00, function: delete as M1 as usize as u32, original: &DELETE },
+            Entry { offset: 0x04, function: init as M6 as usize as u32, original: &INIT },
+            Entry { offset: 0x08, function: clear as M0 as usize as u32, original: &CLEAR },
+            Entry { offset: 0x0C, function: duplicate as M1 as usize as u32, original: &DUPLICATE },
+            Entry { offset: 0x10, function: set_table as M1 as usize as u32, original: &SET_TABLE },
+            Entry { offset: 0x14, function: get_table as M0 as usize as u32, original: &GET_TABLE },
+            Entry { offset: 0x18, function: set_key as M1 as usize as u32, original: &SET_KEY },
+            blit(0x38, t_38, &SLOT_38),
+            blit(0x3C, t_3c, &SLOT_3C),
+            blit(0x40, t_40, &SLOT_40),
+            blit(0x44, t_44, &SLOT_44),
+            blit(0x48, t_48, &SLOT_48),
+            blit(0x4C, t_4c, &SLOT_4C),
+            blit(0x50, t_50, &SLOT_50),
+            blit(0x54, t_54, &SLOT_54),
+            blit(0x58, t_58, &SLOT_58),
+            blit(0x5C, t_5c, &SLOT_5C),
+            blit(0x60, t_60, &SLOT_60),
+            blit(0x64, t_64, &SLOT_64),
+            blit(0x68, t_68, &SLOT_68),
+            blit(0x6C, t_6c, &SLOT_6C),
+            blit(0x70, t_70, &SLOT_70),
+            blit(0x74, t_74, &SLOT_74),
+            blit(0x78, t_78, &SLOT_78),
+            blit(0x7C, t_7c, &SLOT_7C),
+            blit(0x80, t_80, &SLOT_80),
+            blit(0x84, t_84, &SLOT_84),
+            blit(0x88, t_88, &SLOT_88),
+            blit(0x8C, t_8c, &SLOT_8C),
+            blit(0x90, t_90, &SLOT_90),
+            blit(0x94, t_94, &SLOT_94),
+            blit(0x98, t_98, &SLOT_98),
+            blit(0x9C, t_9c, &SLOT_9C),
+            blit(0xA0, t_a0, &SLOT_A0),
+        ];
+        debug_assert!(sprite.iter().map(|e| e.offset).eq(SPRITE_SLOTS));
+        sprite
+    }
+
+    /// The group's colour table slots.
+    pub fn table_slots() -> Vec<Entry> {
+        vec![
+            Entry { offset: 0x04, function: table_init as M0 as usize as u32, original: &TABLE_INIT },
+            Entry { offset: 0x08, function: table_reset_fade as M0 as usize as u32, original: &TABLE_RESET_FADE },
+            Entry { offset: 0x0C, function: table_animate as M0 as usize as u32, original: &TABLE_ANIMATE },
+            Entry { offset: 0x10, function: table_get_colors as M3 as usize as u32, original: &TABLE_GET_COLORS },
+            Entry { offset: 0x14, function: table_set_colors as M3 as usize as u32, original: &TABLE_SET_COLORS },
+            Entry { offset: 0x18, function: table_16a as M0 as usize as u32, original: &TABLE_16A },
+            Entry { offset: 0x1C, function: table_16b as M0 as usize as u32, original: &TABLE_16B },
+            Entry { offset: 0x20, function: table_20 as M1 as usize as u32, original: &TABLE_20 },
+        ]
+    }
+
+    /// The group's graphics slot (`set_scale`).
+    pub fn graphics_slots() -> Vec<Entry> {
+        vec![Entry { offset: 0x9C, function: f(t_set_scale), original: &SET_SCALE }]
     }
 }
 
@@ -516,63 +596,13 @@ pub fn install(base: u32) -> Result<BlitGroup, TakeoverError> {
 
 #[cfg(all(windows, target_arch = "x86"))]
 fn install_impl(base: u32) -> Result<BlitGroup, TakeoverError> {
-    use crate::takeover::{Entry, take_over};
-    use entries::*;
+    use crate::takeover::take_over;
     use jgl::slots::Class;
     if !crate::state::has_hooks() {
         return Err(TakeoverError::NoHooks);
     }
     BASE.store(base, Ordering::Relaxed);
-    let f = |p: extern "thiscall" fn()| p as usize as u32;
-    let blit = |offset: u16, tramp: extern "thiscall" fn(), original: &'static AtomicU32| Entry { offset, function: f(tramp), original };
-    let sprite = [
-        Entry { offset: 0x00, function: delete as M1 as usize as u32, original: &DELETE },
-        Entry { offset: 0x04, function: init as M6 as usize as u32, original: &INIT },
-        Entry { offset: 0x08, function: clear as M0 as usize as u32, original: &CLEAR },
-        Entry { offset: 0x0C, function: duplicate as M1 as usize as u32, original: &DUPLICATE },
-        Entry { offset: 0x10, function: set_table as M1 as usize as u32, original: &SET_TABLE },
-        Entry { offset: 0x14, function: get_table as M0 as usize as u32, original: &GET_TABLE },
-        Entry { offset: 0x18, function: set_key as M1 as usize as u32, original: &SET_KEY },
-        blit(0x38, t_38, &SLOT_38),
-        blit(0x3C, t_3c, &SLOT_3C),
-        blit(0x40, t_40, &SLOT_40),
-        blit(0x44, t_44, &SLOT_44),
-        blit(0x48, t_48, &SLOT_48),
-        blit(0x4C, t_4c, &SLOT_4C),
-        blit(0x50, t_50, &SLOT_50),
-        blit(0x54, t_54, &SLOT_54),
-        blit(0x58, t_58, &SLOT_58),
-        blit(0x5C, t_5c, &SLOT_5C),
-        blit(0x60, t_60, &SLOT_60),
-        blit(0x64, t_64, &SLOT_64),
-        blit(0x68, t_68, &SLOT_68),
-        blit(0x6C, t_6c, &SLOT_6C),
-        blit(0x70, t_70, &SLOT_70),
-        blit(0x74, t_74, &SLOT_74),
-        blit(0x78, t_78, &SLOT_78),
-        blit(0x7C, t_7c, &SLOT_7C),
-        blit(0x80, t_80, &SLOT_80),
-        blit(0x84, t_84, &SLOT_84),
-        blit(0x88, t_88, &SLOT_88),
-        blit(0x8C, t_8c, &SLOT_8C),
-        blit(0x90, t_90, &SLOT_90),
-        blit(0x94, t_94, &SLOT_94),
-        blit(0x98, t_98, &SLOT_98),
-        blit(0x9C, t_9c, &SLOT_9C),
-        blit(0xA0, t_a0, &SLOT_A0),
-    ];
-    debug_assert!(sprite.iter().map(|e| e.offset).eq(SPRITE_SLOTS));
-    let table = [
-        Entry { offset: 0x04, function: table_init as M0 as usize as u32, original: &TABLE_INIT },
-        Entry { offset: 0x08, function: table_reset_fade as M0 as usize as u32, original: &TABLE_RESET_FADE },
-        Entry { offset: 0x0C, function: table_animate as M0 as usize as u32, original: &TABLE_ANIMATE },
-        Entry { offset: 0x10, function: table_get_colors as M3 as usize as u32, original: &TABLE_GET_COLORS },
-        Entry { offset: 0x14, function: table_set_colors as M3 as usize as u32, original: &TABLE_SET_COLORS },
-        Entry { offset: 0x18, function: table_16a as M0 as usize as u32, original: &TABLE_16A },
-        Entry { offset: 0x1C, function: table_16b as M0 as usize as u32, original: &TABLE_16B },
-        Entry { offset: 0x20, function: table_20 as M1 as usize as u32, original: &TABLE_20 },
-    ];
-    let graphics = [Entry { offset: 0x9C, function: f(t_set_scale), original: &SET_SCALE }];
+    let (sprite, table, graphics) = (entries::sprite_slots(), entries::table_slots(), entries::graphics_slots());
     // All three or none: the tables are checked first, together.
     crate::takeover::check(base, Class::Sprite, &sprite)?;
     crate::takeover::check(base, Class::ColorTable, &table)?;
