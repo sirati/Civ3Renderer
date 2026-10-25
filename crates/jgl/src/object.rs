@@ -53,7 +53,7 @@ pub const FORMAT_555: [u16; 6] = [10, 5, 0, 0x7C00, 0x3E0, 0x1F];
 
 /// The colour key a new image gets (constructor, RVA 0x15F0): graphics
 /// +0xB4 answers 0, so 555's magenta with the high word's marker.
-pub const COLOR_KEY: u32 = 0x7FFF_7C1F;
+pub const COLOR_KEY: u32 = 0x8000_7C1F;
 
 /// jgl's error answers.
 pub mod error {

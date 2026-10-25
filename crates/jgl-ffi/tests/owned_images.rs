@@ -56,6 +56,46 @@ unsafe fn seed(image: u32, salt: usize) {
     }
 }
 
+unsafe fn state_and_errors(original:u32, owned:u32) {
+    unsafe {
+        let fields=[0x24,0x28,0x2C,0x30,0x34,0x38,0x3C,0x40,0x44,0x48,0x4C,0x50,0x54,0x58,0x5C,0x60,0x84,0x88,0x8C,0x90,0x94,0x98,0x9C,0xA0,0xA4,0xA8,0x4C4,0x4C8,0x4D0];
+        let mut comparisons=0;
+        for bits in [8,16] {
+            let a=call(original,0x7C,&[0,0]); let b=call(owned,0x7C,&[0,0]);
+            for args in [[7,5,bits,1],[7,5,bits,1],[7,5,0,1],[9,3,bits,1]] {
+                assert_eq!(call(a,4,&args),call(b,4,&args)); comparisons+=1;
+                for at in fields { assert_eq!(field(a,at),field(b,at),"state depth {bits} field {at:#x}, create {args:?}"); comparisons+=1; }
+                for clip in [rect(-3,-2,5,3),rect(90,90,100,100),rect(0,0,args[0] as i32,args[1] as i32)] {
+                    assert_eq!(call(a,0x34,&[addr(&clip)]),call(b,0x34,&[addr(&clip)])); comparisons+=1;
+                    for at in [0x44,0x48,0x4C,0x50] { assert_eq!(field(a,at),field(b,at)); comparisons+=1; }
+                }
+                for slot in [0x10,0x18,0x20] {
+                    assert_ne!(call(a,slot,&[]),0); assert_ne!(call(b,slot,&[]),0);
+                    assert_eq!(field(a,0x4C8),field(b,0x4C8)); comparisons+=1;
+                }
+                for n in [1,0,5] { assert_eq!(call(a,0x24,&[n]),call(b,0x24,&[n])); assert_eq!(field(a,0x4C8),field(b,0x4C8)); comparisons+=2; }
+                for slot in [0xD8,0xDC,0xE0,0xC0] { assert_eq!(call(a,slot,&[]),call(b,slot,&[])); comparisons+=1; }
+                assert_eq!(call(a,0x34,&[0]),call(b,0x34,&[0])); comparisons+=1;
+                assert_eq!(call(a,0x58,&[0,0,1]),call(b,0x58,&[0,0,1])); comparisons+=1;
+            }
+            // Unsupported-depth errors precede data policy, even on ordinary
+            // canvases. Restore the ABI field before destruction.
+            let whole=rect(0,0,9,3);
+            *((a+0x24) as *mut u32)=24; *((b+0x24) as *mut u32)=24;
+            assert_eq!(call(a,0x58,&[addr(&whole),0,1]),call(b,0x58,&[addr(&whole),0,1])); comparisons+=1;
+            assert_eq!(call(a,0x38,&[a,0,0,0,0,1,1,0]),call(b,0x38,&[b,0,0,0,0,1,1,0])); comparisons+=1;
+            *((a+0x24) as *mut u32)=bits; *((b+0x24) as *mut u32)=bits;
+            call(a,8,&[]); call(b,8,&[]);
+            assert_eq!(field(a,0x4BC),field(b,0x4BC)); comparisons+=1;
+            assert_eq!(call(a,0x40,&[a,addr(&whole),addr(&whole)]),call(b,0x40,&[b,addr(&whole),addr(&whole)])); comparisons+=1;
+            assert_eq!(call(a,4,&[9,3,bits,1]),call(b,4,&[9,3,bits,1])); comparisons+=1;
+            assert_eq!(field(a,0x4BC),field(b,0x4BC)); comparisons+=1;
+            call(a,0,&[1]); call(b,0,&[1]);
+        }
+        println!("image defined state/error comparisons: {comparisons} pairs, zero differences; handles and freed-pointer values excluded");
+    }
+}
+
 #[test]
 fn image_indexed_copies_replacements_and_state_match_original_binary() {
     let path = std::env::var("CIV3_JGL_DLL").expect("original jgl oracle is required");
@@ -127,6 +167,7 @@ fn image_indexed_copies_replacements_and_state_match_original_binary() {
                 call(table_orig,0,&[1]); call(table_own,0,&[1]);
             }
         }
+        state_and_errors(original,owned);
         call(original,0x0C,&[]); call(owned,0x0C,&[]);
         println!("image comparisons: {calls} calls, {checked_bytes} bytes, {} differences",differences.len());
         for d in &differences { println!("DIFFERENCE {d}"); }
