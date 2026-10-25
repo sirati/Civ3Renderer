@@ -89,6 +89,15 @@ fn generated_data_copies_and_clears_match_original_jgl() {
                 assert_eq!(field(images[2], 0x4C0), 0, "clear releases lazy canvas pixels");
                 assert_eq!(field(images[2], 0x4BC), 0, "clear releases the scratch DC");
                 assert_eq!(call(images[2], 4, &[w, h, 16, 1]), 0);
+                assert_eq!(field(images[2], 0x4BC), 0, "same-size create after clear is the original's no-op");
+                // This fixture needs live copy sources. Original create
+                // short-circuits on unchanged geometry even after clear;
+                // changing size is required to construct another DC. Apply
+                // the same resize sequence to both oracle and owned source.
+                for &image in &[images[0], images[2]] {
+                    assert_eq!(call(image, 4, &[w + 1, h, 16, 1]), 0);
+                    assert_eq!(call(image, 4, &[w, h, 16, 1]), 0);
+                }
             }
             let whole = rect(0, 0, w as i32, h as i32);
             for clip in [whole, rect(1, 1, w as i32 - 1, h as i32 - 1)] {
