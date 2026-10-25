@@ -1037,3 +1037,55 @@ still have no equivalent native city-list source. The matrix records these
 as open contracts, along with the remaining indexed-map provenance/runtime
 checks and unsupported slots. Group 6 is incomplete. Group 7 and the default
 switch remain unaccepted; `CIV3R_JGL=own` stays an explicit opt-in.
+
+### Group 7 code and standalone contracts, 25 October 2026
+
+The independent window/pump continuation merged `83caad2` into the app-owned
+branch `t3/finish-jgl-groups-switch-4`, preserving the parent's documentation.
+Its [per-contract matrix](jgl-window-contracts.md) separates standalone proof
+from the remaining game integration gates.
+
+Safe `jgl::window` now executes the procedure and pump algorithms. The shim
+only supplies Win32 operations, ABI calls and fields. Corrections preserve
+the nonzero virtual result of +124, all keypad-drain heartbeat/handled-input
+notifications, the constructor's COPYDATA reset, creation's screen-query
+order/resampling, and a writable paint-rectangle copy independent of
+PAINTSTRUCT. The empty +68 mode list, constant +64 error and constant-error
+raw +58/+5C fallbacks are removed. Safe `jgl::display` preserves OS list order,
+duplicates, retained capacity and the original frequency-selection quirks.
+The accepted no-display-switch wrappers remain in place. DEVMODE marshalling
+keeps jgl's 148-byte fields separate from the modern structure's panning bytes.
+
+The real standalone test exposed a lifetime defect in the hidden-paint adapter:
+destroyed windows consumed its eight entries permanently, so the ninth window
+painted an empty rectangle. WM_NCDESTROY and successful DestroyWindow now retire
+the state. Failed invalidations no longer create synthetic paints. This uses
+actual lifetime notifications, without a production watchdog or recovery scan.
+
+- [V] Optimized original/owned comparisons match all 2,840 deterministic
+  observations, including complete API/controller effects, defined returns,
+  queue contents, fields/out arguments and explicit x86 stack/register probes.
+- [V] The real Win32 comparison matches 438 paired observations through 24
+  sequential hidden-window lifetimes, including both destruction paths,
+  timer-wait wakeup, valid COPYDATA and nested pump re-entry. It runs on a
+  private Xvfb and owned Wine prefix, without the shared game or viewer.
+- [V] Windows release builds of `civ3r-native` and `civ3-bridge` pass. Affected
+  package tests, `no_locks` and `generic_crates` pass. The workspace retains
+  the known P4 `subpixel_coverage` failure. A separate broad run exposed the
+  existing handoff wake test's scheduling race; the isolated 11-test library
+  rerun passed. The failed logs and the race's exact source are retained.
+
+Production code is `96598d1`; standalone fixtures are `019d24d`. Evidence is
+under `/mnt/datasets/c3r-build/jgl-t3-12959774`; the
+[receipt](evidence/jgl-window-contracts/receipt.json) binds source, candidate
+DLLs, comparisons, tests, failed attempts and process cleanup. No installed
+game DLL, prefix or setting was changed, so no game restoration was required.
+
+The independent group-7 code/standalone task is complete. Group 7 still needs
+parent integration with group 6 and the actual launch-lock, quit, windowed,
+Alt/capture/focus, stale-input, save/screen/turn/combat and 30-minute soak gates.
+No game screenshots were inspected as a substitute. No new game counting or
+no-jgl module-list claim is made here: standalone comparisons intentionally
+load original jgl as their oracle. Ordinary viewer launches still load jgl;
+the experimental owned loader and original no-viewer/no-trace pass-through
+policy remain unchanged. The default no-jgl switch is disabled.

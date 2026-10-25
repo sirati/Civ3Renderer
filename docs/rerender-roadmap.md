@@ -389,6 +389,15 @@ at both 0x608E0A and 0x608E7E, indexed-map provenance checks, `+0x38/+0x58`
 and C3X/DC consumers remain open. This does not complete step 5 or accept
 steps 6/7; ordinary viewer launches still load original jgl.
 
+The independent group-7 continuation completes step 6's window/pump code and
+standalone contracts, with 2,840 deterministic and 438 real Win32 paired
+observations matching original jgl [V], including 24 hidden-window lifetimes
+and timer callback re-entry. The [window matrix](jgl-window-contracts.md)
+records returns, callbacks, x86 ABI, queues, modes, paint retirement and exact
+limits. This is not step 6's integrated game acceptance. Launch lock, quit,
+windowed mode, Alt/capture/focus, stale input, save/screen/turn/combat and the
+soak await parent integration with group 6. Step 7's default switch stays off.
+
 ## 7. Open points
 
 - The slot scan is a lower bound. Before step 5, log every slot call at
