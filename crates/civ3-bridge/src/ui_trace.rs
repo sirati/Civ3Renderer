@@ -316,8 +316,12 @@ pub fn skipping() -> bool {
 }
 
 /// Data buffers whose game-written pixels must survive owned image copies.
-pub(crate) fn preserve_image_data(owner: u32) -> bool {
-    BUILD.get().is_some_and(|&build| h::navigator_data_image(build, owner))
+pub(crate) fn preserve_image_data(image: jgl::ImageId, _owner: u32) -> bool {
+    let image = image.0;
+    BUILD.get().is_some_and(|&build| {
+        h::navigator_data_image(build, image)
+            || FORM_SURFACES.get().is_some_and(|surfaces| surfaces.iter().any(|&(surface, _)| surface == image))
+    })
 }
 
 /// Whether an image or sprite has pixels (its `JGL_Image*` / `JGLSprite*`
@@ -1117,6 +1121,14 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
         hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
     }
+    if placeholder_sprites() && game.build == civ3_sys::Build::PcGames {
+        // This internal frame check has no public site table. Keep the
+        // expected call bytes tied to the PCGames executable and use the
+        // original whenever its indexed source is unavailable.
+        hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E0A, &[0xE8, 0x11, 0x74, 0xFF, 0xFF], |c| {
+            frame_mask_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original())
+        })?));
+    }
     // The art presence test at start reads back an 8-bit image the game
     // drew a sprite into: with placeholder sprites jgl drew nothing there;
     // the sprite's file answers.
@@ -1597,17 +1609,41 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
     let answer = match shown {
         crate::ui::Shown::Rgb(rgb) if rgb == crate::ui::KEY_RGB => key,
         crate::ui::Shown::Rgb([r, g, b]) => (u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3),
-        // Nothing drawn: cleared to the key (the model drops what a fill
-        // of the key clears); a file not read yet: the form, as a drawn
-        // pixel would be.
+        // Nothing drawn: cleared to the key. If the source file is not
+        // available, return None so the call site uses the game's original
+        // pixel rather than inventing a hit result.
         crate::ui::Shown::Nothing => key,
-        crate::ui::Shown::Unknown => key ^ 1,
+        crate::ui::Shown::Unknown => return None,
         crate::ui::Shown::NotMirrored => return None,
     };
     if HIT_LOG.with(|n| { let k = n.get(); n.set(k + 1); k < 40 }) {
         log::debug!("keyed hit test: canvas {canvas:#x} ({x}, {y}): {shown:?} -> {answer:#x}");
     }
     Some(answer)
+}
+
+/// The frame masks at form +0x11C/+0x128 are indexed images made from the
+/// last sprite blit onto each image. Query the same source file and key rule
+/// used by the viewer. Unknown art returns `None`, which preserves the game's
+/// original read instead of manufacturing an accepted hit.
+fn frame_mask_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
+    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
+    let source = with_model(false, |m| m.sprite_source(sprite).cloned()).flatten()?;
+    let crate::ui::Source::File { path, rect, .. } = source else { return None };
+    let sx = x - at.0;
+    let sy = y - at.1;
+    if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
+        return Some(0xFF);
+    }
+    let Some(pixel) = crate::ui_opacity::pixel(&path, rect[0] + sx, rect[1] + sy, true) else { return None };
+    let bits = civ3_sys::ui_hooks::obj::image_bits(image).unwrap_or(8);
+    match (bits, pixel) {
+        (8, None) => Some(0xFF),
+        (8, Some(_)) => Some(0),
+        (16, None) => Some(inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF),
+        (16, Some([r, g, b])) => Some((u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3)),
+        _ => None,
+    }
 }
 
 thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }

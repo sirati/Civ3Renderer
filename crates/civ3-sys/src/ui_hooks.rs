@@ -67,6 +67,13 @@ inproc::fastcall_hook! {
 }
 
 inproc::fastcall_hook! {
+    /// The frame image reader at PCGames 0x608E0A. The bridge installs this
+    /// only for the owned placeholder path and falls back to the original
+    /// when its recorded source is unavailable.
+    pub mod frame_mask_pixel(image, edx; x, y) -> u32;
+}
+
+inproc::fastcall_hook! {
     /// The same `get_pixel` at [`art_presence_site`].
     pub mod art_presence_pixel(image, edx; x, y) -> u32;
 }

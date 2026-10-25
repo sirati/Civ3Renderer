@@ -29,6 +29,10 @@ unsafe fn call(object: u32, slot: u32, args: &[u32]) -> u32 {
 fn addr<T>(value: &T) -> u32 { value as *const T as usize as u32 }
 fn rect(l: i32, t: i32, r: i32, b: i32) -> Rect32 { Rect32 { left: l, top: t, right: r, bottom: b } }
 
+unsafe fn field(object: u32, offset: u32) -> u32 {
+    unsafe { *((object.wrapping_add(offset)) as usize as *const u32) }
+}
+
 unsafe fn bytes(image: u32, height: u32) -> Vec<u8> {
     unsafe {
         let stride = call(image, 0xE0, &[]) * 2;
@@ -76,6 +80,16 @@ fn generated_data_copies_and_clears_match_original_jgl() {
                 assert_eq!(call(image, 4, &[w, h, 16, 1]), 0);
                 image
             }).collect();
+            if w == 3 && h == 5 {
+                assert_ne!(field(images[2], 0x4BC), 0, "owned image keeps the direct C3X DC contract");
+                assert_eq!(field(images[2], 0x4C0), 0, "ordinary owned canvas pixels are lazy");
+                assert_ne!(call(images[2], 0x10, &[]), 0, "first lock allocates plain pixels");
+                call(images[2], 0x24, &[1]);
+                call(images[2], 0x08, &[]);
+                assert_eq!(field(images[2], 0x4C0), 0, "clear releases lazy canvas pixels");
+                assert_eq!(field(images[2], 0x4BC), 0, "clear releases the scratch DC");
+                assert_eq!(call(images[2], 4, &[w, h, 16, 1]), 0);
+            }
             let whole = rect(0, 0, w as i32, h as i32);
             for clip in [whole, rect(1, 1, w as i32 - 1, h as i32 - 1)] {
                 for (src, dst) in [(whole, whole), (rect(0,0,w as i32 - 1,h as i32 - 1), rect(1,1,w as i32,h as i32))] {

@@ -18,8 +18,9 @@
 //!   fills and equal-size copies among their buffers. The safe operations in
 //!   `jgl::memory` preserve the navigator's generated data without copying any
 //!   of it into the viewer, which renders its map from world state;
-//! - `acquire_dc` currently answers no DC (0). C3X's direct GDI+ DC read and
-//!   mill icons remain open contracts (`docs/jgl-contract-audit.md`). Font
+//! - the image keeps a 1×1 scratch HDC for C3X's direct GDI+ and mill-icon
+//!   calls. It is only a valid handle/lifetime surface; the bridge records
+//!   those operations and does not copy scratch pixels into the model. Font
 //!   measurement uses its separate real GDI DC; canvas text is a record.
 
 use std::cell::RefCell;
@@ -29,6 +30,7 @@ use std::mem::offset_of;
 use jgl::object::{self as o, Indexed};
 use jgl::slots::Class;
 use jgl::Rect;
+use windows_sys::Win32::Graphics::Gdi as gdi;
 
 use super::call::{self, get, put};
 use super::constant;
@@ -83,11 +85,9 @@ fn set_rect(this: u32, at: usize, r: Rect) {
 }
 
 thread_local! {
-    /// The pixels of each image of ours (address, bytes), kept until the
-    /// image is made again at another size or deleted: jgl's `clear`
-    /// leaves +0x4C0 pointing at the pixels (and a `create` of the same
-    /// size after it keeps them), so ours stay valid where jgl's would
-    /// be unmapped.
+    /// The lazy plain-memory allocation of each owned image. Normal canvases
+    /// get bytes on first lock; identified data images may allocate on their
+    /// first copy/fill/replace. The game thread is the only owner.
     static PIXEL_MEMORY: RefCell<HashMap<u32, (u32, usize)>> = RefCell::new(HashMap::new());
 }
 
@@ -98,6 +98,17 @@ fn free_pixels(this: u32) {
             unsafe { std::alloc::dealloc(at as usize as *mut u8, std::alloc::Layout::from_size_align_unchecked(len, 4)) };
         }
     }
+}
+
+fn ensure_pixels(this: u32) -> u32 {
+    let current = field(this, PIXELS);
+    if current != 0 {
+        return current;
+    }
+    let len = o::image_bytes(field(this, ROW) as i32, field(this, HEIGHT) as i32, field(this, BITS) as i32);
+    let p = alloc_pixels(this, len);
+    set(this, PIXELS, p);
+    p
 }
 
 /// Zeroed pixels of `len` bytes for `this` (the old ones freed); 0 if
@@ -125,7 +136,9 @@ fn indexed<R>(this: u32, f: impl FnOnce(Indexed<'_>) -> R) -> Option<R> {
     if field(this, BITS) != 8 {
         return None;
     }
-    let (at, len) = PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied())?;
+    let at = ensure_pixels(this);
+    if at == 0 { return None; }
+    let len = PIXEL_MEMORY.with_borrow(|m| m.get(&this).map(|(_, len)| *len))?;
     let row = field(this, ROW) as usize;
     // SAFETY: the pixels of ours of this image, `len` bytes, alive while
     // the image is (only the game's thread touches them).
@@ -140,6 +153,58 @@ fn plane(this: u32) -> jgl::memory::Plane {
 
 fn preserves_data(this: u32) -> bool {
     crate::state::record(|p| p.preserve_image_data(jgl::ImageId(this), field(this, OWNER))).unwrap_or(false)
+}
+
+/// Make the small GDI surface required by C3X's direct `+0x4BC` users. It is
+/// separate from the authoritative plain-memory pixels: GDI+ line and mill
+/// icon calls need a valid HDC and handle lifetime, while their visible result
+/// is supplied by the bridge's command/model path rather than copied back.
+fn make_scratch_dc() -> Option<(u32, u32, u32)> {
+    // SAFETY: the handles are created and owned by this image. A 1×1 bitmap
+    // keeps zero-sized images valid without making a game-visible surface.
+    unsafe {
+        let dc = gdi::CreateCompatibleDC(std::ptr::null_mut());
+        if dc.is_null() {
+            return None;
+        }
+        // A 1×1 bitmap supplies a valid HDC without allocating a second full
+        // canvas. The bridge records the GDI+ operations and renders them;
+        // this scratch surface is never read back as game pixels.
+        let bitmap = gdi::CreateCompatibleBitmap(dc, 1, 1);
+        if bitmap.is_null() {
+            gdi::DeleteDC(dc);
+            return None;
+        }
+        let previous = gdi::SelectObject(dc, bitmap as gdi::HGDIOBJ);
+        if previous.is_null() {
+            gdi::DeleteObject(bitmap as gdi::HGDIOBJ);
+            gdi::DeleteDC(dc);
+            return None;
+        }
+        Some((dc as usize as u32, bitmap as usize as u32, previous as usize as u32))
+    }
+}
+
+fn destroy_scratch_dc(this: u32) {
+    let dc = field(this, DC);
+    let bitmap = field(this, 0x4B4);
+    let previous = field(this, 0x4B0);
+    if dc == 0 {
+        return;
+    }
+    // SAFETY: these handles were made by `make_scratch_dc` for this image.
+    unsafe {
+        if previous != 0 {
+            gdi::SelectObject(dc as usize as gdi::HDC, previous as usize as gdi::HGDIOBJ);
+        }
+        if bitmap != 0 {
+            gdi::DeleteObject(bitmap as usize as gdi::HGDIOBJ);
+        }
+        gdi::DeleteDC(dc as usize as gdi::HDC);
+    }
+    for at in [0x4B0, 0x4B4, CURRENT_DC, DC] {
+        set(this, at, 0);
+    }
 }
 
 /// graphics +0x7C `new_image(owner, a2)`'s original (0x3BFF0, constructor
@@ -170,7 +235,6 @@ extern "thiscall" fn scalar_delete(this: u32, flags: u32) -> u32 {
         unsafe { put(owner + 4, 0) };
     }
     clear(this);
-    free_pixels(this);
     super::registry::gone(this);
     if flags & 1 != 0 {
         // SAFETY: an image of ours, from `alloc::<JglImage>`.
@@ -185,7 +249,11 @@ extern "thiscall" fn create(this: u32, width: u32, height: u32, bits: u32, _a4: 
     if w < 0 || h < 0 {
         return o::error::ARGUMENT;
     }
-    if w == field(this, WIDTH) as i32 && h == field(this, HEIGHT) as i32 && (b == field(this, BITS) as i32 || b == 0) {
+    if (field(this, ROW) != 0 || field(this, DC) != 0 || field(this, BITS) != 0)
+        && w == field(this, WIDTH) as i32
+        && h == field(this, HEIGHT) as i32
+        && (b == field(this, BITS) as i32 || b == 0)
+    {
         return 0;
     }
     // Through the table, as jgl (the text group records it).
@@ -211,12 +279,6 @@ extern "thiscall" fn create(this: u32, width: u32, height: u32, bits: u32, _a4: 
     let Some(row) = o::row_width(w, depth) else {
         return o::error::DEPTH;
     };
-    let pixels = alloc_pixels(this, o::image_bytes(row, h, depth));
-    if pixels == 0 {
-        log::error!("our jgl: no memory for a {w}×{h} image at {depth} bits");
-        return o::error::GDI;
-    }
-    set(this, PIXELS, pixels);
     set(this, ROW, row as u32);
     set(this, WIDTH, w as u32);
     set(this, HEIGHT, h as u32);
@@ -226,6 +288,14 @@ extern "thiscall" fn create(this: u32, width: u32, height: u32, bits: u32, _a4: 
     }
     let whole = Rect::new(0, 0, w, h);
     set_rect(this, IMAGE, whole);
+    // The image's pixels are plain memory, allocated by +0x10 on first use.
+    // C3X still reads +0x4BC directly, so create its separate scratch DC now.
+    let Some((dc, bitmap, previous)) = make_scratch_dc() else {
+        return o::error::GDI;
+    };
+    set(this, DC, dc);
+    set(this, 0x4B4, bitmap);
+    set(this, 0x4B0, previous);
     // jgl sets the clip to the whole image through its table.
     let at = this + IMAGE as u32;
     // SAFETY: our image's +0x34 with a pointer to its own rectangle.
@@ -233,12 +303,16 @@ extern "thiscall" fn create(this: u32, width: u32, height: u32, bits: u32, _a4: 
     0
 }
 
-/// +0x08 `clear` (0x1780): the DC and bitmap go (ours have none); the
-/// pixels stay (see `PIXEL_MEMORY`), as do the sizes.
+/// +0x08 `clear` (0x1780): release the scratch GDI surface and lazy plain
+/// pixels, while retaining the geometry fields as jgl does.
 pub extern "thiscall" fn clear(this: u32) -> u32 {
+    destroy_scratch_dc(this);
+    free_pixels(this);
     for at in [DC_LOCKS, LOCKS, CURRENT_DC, DC, 0x4B0, 0x4B4, 0x4AC] {
         set(this, at, 0);
     }
+    set(this, PIXELS, 0);
+    set(this, CURRENT, 0);
     0
 }
 
@@ -257,7 +331,7 @@ extern "thiscall" fn pixel_at(this: u32, x: u32, y: u32) -> u32 {
 
 /// +0x10 `lock` (0x1B70): the pixels, counted.
 extern "thiscall" fn lock(this: u32) -> u32 {
-    let p = field(this, PIXELS);
+    let p = ensure_pixels(this);
     set(this, CURRENT, p);
     if p != 0 {
         set(this, LOCKS, field(this, LOCKS).wrapping_add(1));
@@ -288,7 +362,7 @@ extern "thiscall" fn unlock(this: u32, n: u32) -> u32 {
     left as u32
 }
 
-/// +0x28 `acquire_dc` (0x1B20): counted; images currently have no DC (0).
+/// +0x28 `acquire_dc` (0x1B20): counted; returns the image's 1×1 scratch DC.
 extern "thiscall" fn acquire_dc(this: u32) -> u32 {
     set(this, DC_LOCKS, field(this, DC_LOCKS).wrapping_add(1));
     set(this, CURRENT_DC, field(this, DC));
@@ -335,8 +409,45 @@ extern "thiscall" fn reset_clip(this: u32) -> u32 {
 
 /// The copy group's originals: canvas drawing stays record-only. +0x40 also
 /// preserves caller-written data when both images have the host's contract.
-pub extern "thiscall" fn copy_38(_this: u32, _dst: u32, _sx: u32, _sy: u32, _x: u32, _y: u32, _w: u32, _h: u32, _key: u32) -> u32 {
-    0
+pub extern "thiscall" fn copy_38(this: u32, dst: u32, sx: u32, sy: u32, x: u32, y: u32, w: u32, h: u32, key: u32) -> u32 {
+    if dst == 0 {
+        return o::error::NULL;
+    }
+    if !preserves_data(this) || !preserves_data(dst) {
+        return 0;
+    }
+    let source_table = {
+        let explicit = field(this, TABLE);
+        if explicit != 0 { explicit } else { super::graphics::default_color_table() }
+    };
+    let palette = if field(dst, BITS) == 16 {
+        if source_table == 0 { return o::error::NULL; }
+        let format = field(dst, FORMAT);
+        let offset = match format {
+            0 => 0x40C,
+            1 => 0x60C,
+            _ => return o::error::GDI,
+        };
+        // SAFETY: an owned colour table's two 256-entry u16 arrays.
+        Some(unsafe { std::slice::from_raw_parts((source_table + offset) as usize as *const u16, 256) })
+    } else {
+        None
+    };
+    let result = (|| {
+        let copy = jgl::memory::IndexedCopy::new(
+            plane(this), plane(dst), sx as i32, sy as i32, x as i32, y as i32, w as i32, h as i32,
+            rect(dst, CLIP), key, palette.and_then(|p| <&[u16; 256]>::try_from(p).ok()),
+        )?;
+        ensure_pixels(this);
+        ensure_pixels(dst);
+        let ((from, source_len), (to, target_len)) = PIXEL_MEMORY.with_borrow(|m| Some((*m.get(&this)?, *m.get(&dst)?))).ok_or(7u32)?;
+        // SAFETY: these are distinct owned allocations in the normal case;
+        // IndexedCopy snapshots each source row, so overlap is also safe.
+        let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) };
+        let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
+        copy.copy(source, target)
+    })();
+    result.err().unwrap_or(0)
 }
 pub extern "thiscall" fn copy_40(this: u32, dst: u32, src: u32, dst_rect: u32) -> u32 {
     if dst == 0 || src == 0 || dst_rect == 0 { return o::error::NULL; }
@@ -346,6 +457,8 @@ pub extern "thiscall" fn copy_40(this: u32, dst: u32, src: u32, dst_rect: u32) -
     let target = Rect::from(unsafe { std::ptr::read_unaligned(dst_rect as usize as *const Rect32) });
     let result = (|| {
         let copy = jgl::memory::RowCopy::new(plane(this), plane(dst), source, target, rect(dst, CLIP))?;
+        ensure_pixels(this);
+        ensure_pixels(dst);
         let ((from, source_len), (to, target_len)) = PIXEL_MEMORY.with_borrow(|m| Some((*m.get(&this)?, *m.get(&dst)?))).ok_or(7u32)?;
         if this == dst {
             // SAFETY: this image exclusively owns this allocation. No image
@@ -390,7 +503,7 @@ pub extern "thiscall" fn fill(this: u32, r: u32, color: u32) -> u32 {
         Rect::from(unsafe { std::ptr::read_unaligned(r as usize as *const Rect32) })
     });
     if let Some(area) = o::clipped(asked, rect(this, CLIP)) {
-        if field(this, BITS) == 8 {
+        if field(this, BITS) == 8 && preserves_data(this) {
             indexed(this, |mut img| img.fill(area, color as u8));
         } else if preserves_data(this) {
             let Some((at, len)) = PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied()) else { return 7 };
@@ -409,7 +522,14 @@ pub extern "thiscall" fn replace_color(this: u32, r: u32, from: u32, to: u32) ->
     }
     // SAFETY: the game's RECT, read unchecked by jgl.
     let asked = Rect::from(unsafe { std::ptr::read_unaligned(r as usize as *const Rect32) });
-    if let Some(area) = o::intersect(asked, rect(this, CLIP)) {
+    if preserves_data(this) && let Some(area) = o::intersect(asked, rect(this, CLIP)) {
+        if field(this, BITS) == 16 {
+            let p = ensure_pixels(this);
+            let Some((at, len)) = (p != 0).then(|| PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied())).flatten() else { return 7; };
+            let pixels = unsafe { std::slice::from_raw_parts_mut(at as usize as *mut u8, len) };
+            let result = jgl::memory::replace(pixels, plane(this), area, from, to);
+            return result.err().unwrap_or(0);
+        }
         indexed(this, |mut img| img.replace(area, from as u8, to as u8));
     }
     0

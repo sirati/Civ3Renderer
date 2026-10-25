@@ -1037,3 +1037,29 @@ still have no equivalent native city-list source. The matrix records these
 as open contracts, along with the remaining indexed-map provenance/runtime
 checks and unsupported slots. Group 6 is incomplete. Group 7 and the default
 switch remain unaccepted; `CIV3R_JGL=own` stays an explicit opt-in.
+
+### Lazy canvas storage and direct DCs, continuation step
+
+The owned image keeps geometry and ABI fields in the object at creation, but
+allocates plain pixel bytes only when +0x10 lock or an identified
+caller-written data operation needs them. +0x08 clear releases those bytes
+and the current pointer, then retains the size fields as jgl does. This
+removes the full zeroed 16-bit allocation from every ordinary canvas while
+keeping data-buffer copies, fills and reads on the same owned bytes. The
+standalone owned-data test checks the before-lock zero pointer, first-lock
+allocation and clear release alongside owner clearing.
+
+C3X reads image +0x4BC directly for GDI+ lines and mill icons. Each owned
+image therefore keeps a 1×1 compatible bitmap and DC as a handle and lifetime
+surface. The bridge records GDI+ lines and the viewer draws the command; no
+scratch pixels enter the viewer. This is a small DC answer, not a second
+canvas. The mill icon's visible viewer source remains open until its
+resource-state path is identified.
+
+The owned +0x38 path performs keyed 8-bit copies and palette-mapped 8→16
+copies only for identified caller-written data images. Ordinary canvases stay
+record-only. +0x58 uses the same safe byte/word replacement for data images;
+text canvases remain command-only. Keyed-form `Unknown` answers and
+unavailable frame source files return to the game's original pixel read
+instead of using a guessed value. A frame-reader call-site hook uses the last
+indexed sprite's retained source for the model and hit path.
