@@ -22,15 +22,17 @@ pub mod display;
 pub mod draw;
 pub mod hooks;
 mod machine;
+pub mod object;
 pub mod present;
 pub mod surface;
 pub mod record;
 pub mod slots;
 pub mod text;
+pub mod window;
 
 pub use blit::{BlitCall, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 pub use draw::{CopyCall, FillCall, Surface};
-pub use hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, PresentHooks, SurfaceHooks, TextDraw, TextHooks};
+pub use hooks::{BlitHooks, CopyHooks, FillHooks, Hooks, PaletteHooks, PixelPolicy, PresentHooks, SurfaceHooks, TextDraw, TextHooks, WindowHooks};
 pub use surface::SurfaceCall;
 pub use present::PresentCall;
 pub use machine::{Consumer, Jgl, Producer};
