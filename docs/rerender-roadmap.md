@@ -273,7 +273,7 @@ for drawing and hit testing.
 | Class | Trivial (constant or no-op) | Plain-memory implementation | Command into the ring | Real work |
 |---|---|---|---|---|
 | graphics | +0xB4 (0), +0x98, jgl's 24 stub slots (0x18), show/position/rect slots, display-mode slots (keep the mode), +0xB8/+0xBC/+0xC0/+0xC4 (GDI objects: dummies) | +0x20/+0x24 handles, +0xA8/+0xAC/+0xB0 size from `game_size` (replaces the `GetSystemMetrics` hook), +0x9C/+0xA0 scale state | +0x30 invalidate (dirty rect), +0xA4 present | +0x04 window: create a hidden window whose window procedure maps WM_* to controller slots (`docs/modal-input.md` table: key +0x0C, char +0x10, move +0x14, wheel +0x18, buttons +0x1C/+0x24, timers +0x30), paint = controller vt[1]. +0x120..+0x150 pumps (Peek/Wait/Dispatch, stamping the heartbeat directly). +0x2C pointer position (the viewer's pointer directly). |
-| image | +0x30, stubs (0x18), getters (+0xCC..+0xE8 return fields) | +0x04 allocate (zeroed, lazily for 16-bit canvases), +0x08 free, +0x0C/+0x10 and thunks (pointers into our buffer), +0x24 read, +0x34/+0xC4 clip fields, +0xEC palette field; +0x40 copy as a real `memcpy` only for images in §4 #5 | +0x40/+0x84/+0x8C copies, +0x44 fill, +0x48 shade, +0x4C..+0x64 lines and frames, +0xB8 text (string, font, colour) | +0x28 `acquire_dc`: C3X's mill icons and GDI+ need an HDC. Return NULL (C3X checks and skips) and draw the icons natively, or give a memory DC on our buffer as a command source. Fonts selected (+0xA8) feed the text command. |
+| image | +0x30, stubs (0x18), getters (+0xCC..+0xE8 return fields) | +0x04 geometry and lazy allocation, +0x08 release, +0x0C/+0x10 and thunks (pointers into our buffer), +0x24 read, +0x34/+0xC4 clip fields, +0xEC palette field; +0x40 keyed/data copy as a real row operation only for identified data images | +0x40/+0x84/+0x8C copies, +0x44 fill, +0x48 shade, +0x4C..+0x64 lines and frames, +0xB8 text (string, font, colour) | +0x28 `acquire_dc`: owned images expose a 1×1 scratch HDC for C3X's mill icons and GDI+ initialization. Its pixels are discarded; visible commands are rendered natively. Fonts selected (+0xA8) feed the text command. |
 | sprite | getters, colour key, set/get colour table (fields) | +0x04 init (copy 8-bit pixels from the source image, once per slice), +0x0C duplicate | all blit slots +0x38..+0xA0 (sprite id, dest image id, x, y, mode args, colour table id) | none |
 | colour table | +0x08 | entries at +0x0C, get/set, the 16-bit tables at +0x40C/+0x60C | +0x0C `AnimatePalette`: a palette command if the UI uses it [G] | none |
 | font | | +0x18 HFONT | | +0x04/+0x08/+0x10: keep GDI for **measuring** (`CreateFontIndirectA`, `GetTextMetricsA`, `GetTextExtentPoint32A`; gdi32 is not jgl), or answer from `gdi-text` metrics |
@@ -343,13 +343,53 @@ performance wins come first. "Verify" lists the evidence a step must show.
 | 2 | **Command ring plus slot capture, jgl still loaded.** Patch the used slots of the five jgl vtables in place (the technique of `ui_hooks.rs:819-870`). Each slot appends a ring record and, in this step, still calls the original where §4 needs pixels. Move the exe-side detours (`ui_hooks.rs:299-370`) to slot level one family at a time; keep `read_file`/`slice` hooks for file names (cheap, once per load). Also catches C3X and other unaudited writers that bypass the exe wrappers (README "outside that audit"). | M | medium (record format, colour-table and crop semantics per blit slot) | a record-for-record equivalence test against today's `Event` stream on tracer dumps (`civ3-tool`); no jgl slot used with an unhandled opcode (counter); screenshots of every screen family |
 | 3 | **Native consumer.** Move the UI model to the native side, reading the ring in place; the 32-bit publisher shrinks to world snapshots. The largest gain under FEX. | L | medium-high (big move; keep the in-process Windows viewer working) | Mac frame-time and game-thread hook-time logs (`inproc::hook_time`); an unchanged acceptance matrix (`docs/handover-2026-10-22/evidence/handover/creative-qa/acceptance-matrix.json`) |
 | 4 | **Answer the keyed hit test.** **Partly done (group 4, `docs/jgl-replacement.md` §9): the hit test is answered from the interface model, and every blit is a record only (placeholder sprites). Fills, copies and text still keep jgl's pixels on read-back canvases.** Hook the call at 0x608FE3. Answer from the per-keyed-canvas opacity model (§4 #1). Then make every 16-bit drawing slot unconditionally a no-op plus record; the `Skipper` and read-back keep-sets (`game_render.rs:101-160`, `ui_trace.rs:343-372`) go away. | M | medium (clicks through the HUD to the map) | scripted clicks on transparent and opaque HUD pixels with the answer compared to the original pixel (run with `CIV3R_GAME_RENDER=compare`); `CIV3R_TRACE_PIXELS=1` shows no reads of skipped canvases |
-| 5 | **Partly done (jgl group 6, first part, `docs/jgl-replacement.md` §9): the factories and deletes are taken over and every object gets our method tables; the objects, their memory and DCs are still jgl's.** Own pixel objects: factories +0x74/+0x78/+0x7C/+0x80 return our objects with ABI-compatible layouts (§1.2 field list), plain memory, 16-bit canvases allocated lazily on first lock. Real `copy` for the navigator images. Fonts measure through GDI. jgl remains only for the window. | M-L | medium (layout mismatches crash; C3X reads fields) | the game reaches the map, opens every screen, saves and loads; no access to a jgl image from code (assert on our vtables); the minimap stays pixel-exact against `minimap.rs` |
+| 5 | **Partly done (jgl group 6 continuation, `docs/jgl-replacement.md` §9): factories, deletes, object tables, lazy plain pixels, data copies/fills, keyed read answers and direct DC handles are ours.** Own pixel objects: factories +0x74/+0x78/+0x7C/+0x80 return ABI-compatible objects (§1.2 field list); ordinary 16-bit canvases allocate on first lock and release on clear. Identified navigator, replay and form-owned data images use safe copies and fills. A 1×1 scratch DC satisfies C3X's direct +0x4BC users while visible lines stay commands. Fonts measure through GDI. jgl remains only for the window. | M-L | medium (layout mismatches crash; C3X reads fields) | the game reaches the map, opens every screen, saves and loads; lazy/DC and original-data ABI tests; frame readers use ordered file opacity or an explicit initialized-key exception when source data is unknown; no access to a jgl image from code (assert on our vtables); the minimap stays pixel-exact against `minimap.rs` |
 | 6 | **Own graphics object and window.** Our `get_graphsy_object_ptr`: hidden window, window procedure mapped to the controller, pump slots with heartbeat, idle paint synthesis, screen size from `game_size`, display modes as no-ops, pointer position from the viewer. Remove the import hooks on jgl (`inproc::hidden`, `inproc::paint`, `inproc::screen`, `inproc::pointer::hook_cursor_pos`, `heartbeat`). Not loading jgl yet: the factory just stops being jgl's. | M-L | high (input, modal loops, timers, focus) | `docs/modal-input.md` scenarios; wheel, keys, edge scroll, Alt mode; the stale-input tests; a 30-minute autoplay soak; heartbeat in the viewer |
 | 7 | **Do not load jgl.dll.** The `LoadLibraryA` hook returns the bridge's module for `jgl.dll`, adding a reference; the bridge exports the factory. Delete the jgl-base code (`ui_hooks.rs:819-870`, `live.rs:2675-2745`, `game_window.rs:117-146`). | S | low after step 6 | `inproc::pe::module_base("jgl.dll")` is `None` all game long; the Wine `+loaddll` log shows no jgl; a Mac run |
 | 8 | **Optional: CPU-surface fallback.** The viewer renders a requested canvas offscreen into a CPU buffer for any reader found later (§4 #1 if the model proves insufficient). On demand or at a low rate, only for read canvases. | M | low | the readback audit rows match |
 | 9 | **Optional compatibility.** Native mill icons on the city screen (instead of C3X's `TransparentBlt`); GDI+ lines; Bink movies shown in the viewer (`BinkCopyToBuffer` into our buffer); [G] skip the game's own map pass (`Map_Renderer` draw) when the world is ours, if nothing needs its side effects (unit animation ticks must stay: `unit_views.rs`). | M | medium | per item |
 
 Top 5 by value: steps 1, 2, 3, 4, then 6+7 together (no jgl).
+
+The 25 October continuation is experimental, selected with
+`CIV3R_JGL=own`. Steps 5, 6 and 7 remain unaccepted. The corrected audit
+in [jgl-replacement.md §9](jgl-replacement.md#continuation-audit-25-october-2026)
+distinguishes captured screens from group acceptance. Palace selection now
+has a file-geometry answer shared with the viewer: 15 live reads and seven
+full maps across all five styles matched jgl, 14,515,200 cells with no
+differences. Two upgrades changed game state identically with jgl and with
+owned objects. The owned session also verified labels under rename/Quit,
+their absence under F1, confirmed quit, and no jgl load in its Wine log.
+Window/pump equivalence, windowed and Alt input checks, the remaining
+read-back/DC audit and broad session coverage are still missing. See the
+[Palace evidence](jgl-replacement.md#palace-semantic-read-back-partial-group-6).
+
+The subsequent registry/font correction [V] compares the circular cursor
+order against original jgl and tests owned embedded-font destruction plus
+eight GDI resource lifetimes under 32-bit Wine. It closes those specific
+implementation defects; steps 5 through 7 remain unaccepted. Evidence and
+limits are in [the lifetime audit](jgl-replacement.md#registry-and-font-lifetime-correction-partial-group-6).
+
+Palace source retention now uses the exe's decoded file data. Blit/read
+hooks do no file I/O or decoding, and pointer-anchor scans run on the
+publisher against a captured control walk. A temporary source comparison
+matched 23,713,540 indices with zero differences; four Palace crops matched
+the retained jgl session exactly [V]. The load hook still makes one bulk
+source copy, whose cost scales with file size. See the [source ownership
+audit](jgl-replacement.md#retained-selection-sources-and-publisher-anchors-partial-group-6).
+
+The next tested group-6 partial (`9dc2194`) preserves copies and 16-bit clears
+among the known HUD/advisor navigator data buffers, using safe row operations
+on owned memory. Forty original/owned calls matched 1,369,360 bytes; all eight
+live initialized buffers matched in 546,720 bytes [V]. The current source also
+uses the PCX owner identity, recognizes replay/form data before initialization,
+tracks transformed art sheets, snapshots same-image +0x38 sources, and hooks
+both frame readers. Normal canvases stay record-only and the viewer still
+generates its minimap from world state. The [per-contract matrix](jgl-contract-audit.md)
+records actual readers, required answers, implementation and scoped evidence.
+Fresh original-binary/runtime receipts for these corrections, the mill source,
+and the GDI+ constructor remain open. This does not complete step 5 or accept
+steps 6/7; ordinary viewer launches still load original jgl.
 
 ## 7. Open points
 
