@@ -378,6 +378,17 @@ the retained jgl session exactly [V]. The load hook still makes one bulk
 source copy, whose cost scales with file size. See the [source ownership
 audit](jgl-replacement.md#retained-selection-sources-and-publisher-anchors-partial-group-6).
 
+The next tested group-6 partial (`9dc2194`) preserves copies and 16-bit clears
+among the known HUD/advisor navigator data buffers, using safe row operations
+on owned memory. Forty original/owned calls matched 1,369,360 bytes; all eight
+live initialized buffers matched in 546,720 bytes [V]. Normal canvases stay
+record-only and the viewer still generates its minimap from world state.
+The [per-contract matrix](jgl-contract-audit.md) records actual readers,
+required answers, implementation and scoped evidence. The frame hit masks
+at both 0x608E0A and 0x608E7E, indexed-map provenance checks, `+0x38/+0x58`
+and C3X/DC consumers remain open. This does not complete step 5 or accept
+steps 6/7; ordinary viewer launches still load original jgl.
+
 ## 7. Open points
 
 - The slot scan is a lower bound. Before step 5, log every slot call at
