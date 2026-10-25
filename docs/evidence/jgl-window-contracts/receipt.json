@@ -1,0 +1,345 @@
+{
+  "schema": 1,
+  "recorded_utc": "2026-10-25T11:44:31.046552+00:00",
+  "objective": "Complete independent group 7 code and standalone contract equivalence; integrated game gates remain pending.",
+  "branch": "t3/finish-jgl-groups-switch-4",
+  "worktree": "/home/sirati/.t3/worktrees/civ3-renderer/t3-12959774",
+  "host": "papa-nixos-desktop2026",
+  "commits": {
+    "merge": "e0ab3507c9572b268146f6b443c436c1c98d82b4",
+    "merged_checkpoint": "83caad24ed9dabe1e899d29fb5ebd9ef4b466e3f",
+    "code": "96598d17c88fcbbb860938f576fefb4c4277020b",
+    "fixtures": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533"
+  },
+  "oracle": {
+    "dll_sha256": "0b0cd514de0d95b93d20655f4b5194173fe257325af82e558a152305ff0dbdf2",
+    "inputs": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/audit/inputs.sha256",
+      "sha256": "129a226e10359643cb76d1846ab9ee14793b8ddf5b8d277938c9ac9ef33e375b",
+      "bytes": 145
+    },
+    "disassembly": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/audit/graphics.asm",
+      "sha256": "226dac46b487eaece84f2e0a8c2dd050d0b965ed7b5a0969bb2d5081d8f76bc7",
+      "bytes": 186580
+    }
+  },
+  "closed_standalone_contracts": [
+    "window create/shutdown, handles, dimensions and position",
+    "window-procedure routes, callbacks, defined returns and x86 ABI",
+    "all 13 pumps, filters, queue effects, virtual delegation, wait wakeups and re-entry",
+    "keypad heartbeat and handled-input notifications",
+    "COPYDATA registration, payload, unset and constructor reset",
+    "real ordered display-mode lists and original fallback frequency selection",
+    "hidden-paint unions and lifetime retirement, including 24 sequential window lifetimes"
+  ],
+  "proofs": [
+    {
+      "name": "acceptance-window",
+      "kind": "deterministic Win32-import and controller oracle",
+      "profile": "release",
+      "paired_observations": 2840,
+      "differences": 0,
+      "source_commit": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533",
+      "source_tree": "1a87546a8974ce309a9b545e75d75430066ef308",
+      "source_files": [
+        {
+          "file": "crates/inproc/src/message.rs",
+          "sha256": "66c9271073fc615c21a65bb7502cb760c5de74cec3621223377453a52ed769bd"
+        },
+        {
+          "file": "crates/inproc/src/paint.rs",
+          "sha256": "eadb0484905971e9f5447758a18f46dfd168602a11fb25a548fb206f789b6620"
+        },
+        {
+          "file": "crates/jgl/src/display.rs",
+          "sha256": "3b2f18b366b6f125943351e89a47c055789ea9141048413659c453ce09f9371b"
+        },
+        {
+          "file": "crates/jgl/src/window.rs",
+          "sha256": "0070c93c2aed692cfcbab999419c2178a72f1684c736691b780b875015a8073d"
+        },
+        {
+          "file": "crates/jgl-ffi/src/own/graphics.rs",
+          "sha256": "7360f0a229afef5e5f7fe6c1db55d454c4a5ab91ae8b46ee06c3a9682336e0c5"
+        },
+        {
+          "file": "crates/jgl-ffi/tests/owned_window.rs",
+          "sha256": "8bd226c3328709b0ef19f1b44d850d454dbdc28810de231694889c2773d64b13"
+        },
+        {
+          "file": "crates/jgl-ffi/tests/support/window_abi.rs",
+          "sha256": "4304a35784fb47709901d069616f01a9269375a99a731171fe19f22f0095966b"
+        },
+        {
+          "file": "tools/test-jgl-window",
+          "sha256": "7e91595b25c0b02caacc3ae3db8b7a4a1c25d75a34cf5191b81d5a5546d624ce"
+        }
+      ],
+      "source_manifest": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/source.sha256",
+        "sha256": "e4a56d926354a4e6e6d103620bf84ffd9a1e139cac3517ae7a553e765b8955cb",
+        "bytes": 788
+      },
+      "binary": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/owned_window.exe",
+        "sha256": "2a334aa9d742306da73856e16dde47b9833607d773dff298b218192610741032",
+        "bytes": 2902468
+      },
+      "log": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/result.log",
+        "sha256": "ca27f0cd72679b7669c92e709699ff1f6d17dedcfe4a692b737be604384faf07",
+        "bytes": 547787
+      },
+      "environment": [
+        "prefix=/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/prefix",
+        "display=:1",
+        "wine=/nix/store/6b2n1vpdpnn9d3x96x1vx297xrc1zwwj-wine-wow64-11.0",
+        "binary=/mnt/datasets/c3r-build/jgl-t3-12959774/target/i686-pc-windows-gnu/release/deps/owned_window-770cb1ff4e48a0c4.exe"
+      ],
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "1531804",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/prefix"
+      },
+      "cleanup_receipt": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-window/cleanup.txt",
+        "sha256": "1649037c277ff59a5fea85dcd26808d8415e2f79b08ecf4b3da43ba5a0fba86b",
+        "bytes": 161
+      }
+    },
+    {
+      "name": "acceptance-live",
+      "kind": "actual Win32 queues/windows on private Xvfb",
+      "profile": "release",
+      "paired_observations": 438,
+      "differences": 0,
+      "source_commit": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533",
+      "source_tree": "1a87546a8974ce309a9b545e75d75430066ef308",
+      "source_files": [
+        {
+          "file": "crates/inproc/src/message.rs",
+          "sha256": "66c9271073fc615c21a65bb7502cb760c5de74cec3621223377453a52ed769bd"
+        },
+        {
+          "file": "crates/inproc/src/paint.rs",
+          "sha256": "eadb0484905971e9f5447758a18f46dfd168602a11fb25a548fb206f789b6620"
+        },
+        {
+          "file": "crates/jgl/src/display.rs",
+          "sha256": "3b2f18b366b6f125943351e89a47c055789ea9141048413659c453ce09f9371b"
+        },
+        {
+          "file": "crates/jgl/src/window.rs",
+          "sha256": "0070c93c2aed692cfcbab999419c2178a72f1684c736691b780b875015a8073d"
+        },
+        {
+          "file": "crates/jgl-ffi/src/own/graphics.rs",
+          "sha256": "7360f0a229afef5e5f7fe6c1db55d454c4a5ab91ae8b46ee06c3a9682336e0c5"
+        },
+        {
+          "file": "crates/jgl-ffi/tests/owned_window_live.rs",
+          "sha256": "d6e8fa91f78f02b4189da5d2d05353002d3e6bb1b76ae1bfcf7bd3526a5d0fb4"
+        },
+        {
+          "file": "crates/jgl-ffi/tests/support/window_abi.rs",
+          "sha256": "4304a35784fb47709901d069616f01a9269375a99a731171fe19f22f0095966b"
+        },
+        {
+          "file": "tools/test-jgl-window",
+          "sha256": "7e91595b25c0b02caacc3ae3db8b7a4a1c25d75a34cf5191b81d5a5546d624ce"
+        }
+      ],
+      "source_manifest": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/source.sha256",
+        "sha256": "c900dfdc94994bd2cc26b481c3cac6623aa2a96e3d55c9e457063243281a0359",
+        "bytes": 793
+      },
+      "binary": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/owned_window_live.exe",
+        "sha256": "d2b8369aeff7d42504b8f0cfd4094317a8d44753f24df5e507db113f9b5c9223",
+        "bytes": 2793119
+      },
+      "log": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/result.log",
+        "sha256": "ab422467f0fdf6f5a05730ca5148d6cc9b64087cadb24817fc7f3bc6055acefd",
+        "bytes": 45609
+      },
+      "environment": [
+        "prefix=/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/prefix",
+        "display=:1",
+        "wine=/nix/store/vksbg7p1abhwhcxa67n24i7caj8hxl73-wine-wow64-staging-11.16",
+        "binary=/mnt/datasets/c3r-build/jgl-t3-12959774/target/i686-pc-windows-gnu/release/deps/owned_window_live-a3d00c502e220839.exe"
+      ],
+      "cleanup": {
+        "test_exit": "0",
+        "wineserver_stop": "0",
+        "wineserver_wait": "0",
+        "xvfb_pid": "1532176",
+        "xvfb_alive": "0",
+        "prefix": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/prefix"
+      },
+      "cleanup_receipt": {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/standalone/acceptance-live/cleanup.txt",
+        "sha256": "26e8cfe6e9da0981f8e46bfbcf36689d330ac9042289df272d0457d00c4eacd8",
+        "bytes": 159
+      }
+    }
+  ],
+  "candidate_artifacts": {
+    "source_commit": "019d24de89e0a6b0bc9d9f6257e4b8f5ced8c533",
+    "target": "i686-pc-windows-gnu",
+    "profile": "release",
+    "CARGO_INCREMENTAL": "0",
+    "dlls": [
+      {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/candidate/ifc23.dll",
+        "sha256": "de67c935f9159f8299288e25f7dbeb4a132bddcfd2175ab7306c49456e274cfb",
+        "bytes": 39147229
+      },
+      {
+        "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/candidate/civ3r_native.dll",
+        "sha256": "395aa7295035b2ac027f7f2eb41d34789adb27f7e500b0e01bef274d49095912",
+        "bytes": 1499547
+      }
+    ],
+    "build_log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/windows-release-final.log",
+      "sha256": "13f983005b7cd30a29c209835205a934c38675820fb937d477773b2ef44edde7",
+      "bytes": 7829
+    },
+    "toolchain": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/toolchain.txt",
+      "sha256": "6b6b9f08c47742ff4e8054d677524609f597d278c47663e1f4b2ef9ae7e91513",
+      "bytes": 596
+    },
+    "installed": false
+  },
+  "tests": {
+    "workspace.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/workspace.log",
+      "sha256": "d60d38d26b245cf39097a0e094820aa9ca524816f17f73a29115b288ebc60a62",
+      "bytes": 154536,
+      "passed": 1316,
+      "failed": 1,
+      "ignored": 20,
+      "test_groups": 76
+    },
+    "workspace-except-tile-render.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/workspace-except-tile-render.log",
+      "sha256": "48f5a09cfb4c2b05a6877084575c2e20076c16c367048ae8960b3ea030f475a2",
+      "bytes": 99132,
+      "passed": 893,
+      "failed": 1,
+      "ignored": 19,
+      "test_groups": 30
+    },
+    "workspace-remaining.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/workspace-remaining.log",
+      "sha256": "82e0b0c4c40468b48b04497f3327815ec9aef5d43618acbc4fb4b3dabd832863",
+      "bytes": 203022,
+      "passed": 1923,
+      "failed": 0,
+      "ignored": 36,
+      "test_groups": 106
+    },
+    "affected-final-2.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/affected-final-2.log",
+      "sha256": "a8198a5f5e13e57be47462a45eab5c8a1cad1a60becb878846388ccf736b83bf",
+      "bytes": 64903,
+      "passed": 562,
+      "failed": 0,
+      "ignored": 15,
+      "test_groups": 16
+    },
+    "jgl-final.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/jgl-final.log",
+      "sha256": "b596c45be60ebed1f0f785bd3ca58e487d9a21c9ae310ad91ba1635f8f27a1a3",
+      "bytes": 3306,
+      "passed": 41,
+      "failed": 0,
+      "ignored": 0,
+      "test_groups": 2
+    },
+    "handoff-isolated.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/handoff-isolated.log",
+      "sha256": "0d28d2a82b1c08bfd08935435e04b6f8bccbc964b85f6b6e6c2a90180e008910",
+      "bytes": 1286,
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0,
+      "test_groups": 1
+    },
+    "no_locks-final.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/no_locks-final.log",
+      "sha256": "678243a8fd91da9480434955d1264e1fd33ea08d3341510bf7a7e567e36853e8",
+      "bytes": 462,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "test_groups": 1
+    },
+    "generic_crates-final.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/tests/generic_crates-final.log",
+      "sha256": "868ae1c70fca93f39a6cb12f641aeb0e11c90b0cff9350838e532c16d2be0c12",
+      "bytes": 7321,
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "test_groups": 1
+    }
+  },
+  "known_workspace_failure": "tile-render subpixel_coverage P4 bits=6: expected [0,0,255,37], actual [0,0,251,37]. Renderer code untouched.",
+  "additional_test_failure": {
+    "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/audit/handoff-wake-race.json",
+    "sha256": "b768f6eb7a347c706f334051ee26b42a32761e62376f240d81b71c98b3bef06f",
+    "bytes": 1147
+  },
+  "failed_and_superseded_attempts": {
+    "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/attempts-index.json",
+    "sha256": "0f0e50211ff9ab989f908600de002746c8d1bbed1cf366cd9de78206def827f3",
+    "bytes": 48811
+  },
+  "pending_integration": [
+    "launch lock",
+    "confirmed game quit",
+    "windowed mode",
+    "Alt/capture/focus changes",
+    "stale-input delivery",
+    "save load",
+    "map and all requested screen families",
+    "turn change and combat",
+    "30-minute soak",
+    "integrated no-jgl module/load log and owned-vtable counting"
+  ],
+  "scope_limits": [
+    "undefined EAX and uninitialized fields are not promised original return/state values",
+    "null/invalid pointers and negative original mode-array indices excluded",
+    "original +12C FFFFFFFF-time/uninitialized-buffer tie excluded",
+    "eight concurrent hidden-paint entries retained; 24-lifetime test is sequential",
+    "multi-thread invalidator shutdown races are not established by this single-owner test",
+    "registry/font/image/C3X/DC contracts remain with group 6"
+  ],
+  "no_jgl": "Standalone tests load jgl intentionally as their oracle. No new game module/counting claim. Default viewer still uses original jgl; CIV3R_JGL=own remains explicit opt-in.",
+  "shared_game": {
+    "driven": false,
+    "installed_dlls_modified": false,
+    "prefix_or_settings_modified": false,
+    "restoration_required": false,
+    "other_games_stopped": false
+  },
+  "process_cleanup": {
+    "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/process-cleanup.json",
+    "sha256": "5bafb61a642ab1ad235c8e8758c3565054973f1d8818479bb0a84c6972f167d5",
+    "bytes": 268
+  },
+  "cleanup_policy": "Owned processes stopped. Evidence, prefixes and targets retained. No file deletion, GC, other worktree cleanup, push, main merge or deployment.",
+  "untouched_contracts": {
+    "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/audit/untouched-contracts.json",
+    "sha256": "ef514da58e5f961c6b729986bd4cf6d2c8c3817037353f262f0001fffe0de774",
+    "bytes": 1940
+  }
+}
