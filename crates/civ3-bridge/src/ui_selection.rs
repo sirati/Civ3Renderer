@@ -67,6 +67,43 @@ pub(crate) fn sprite_index(sprite: u32, x: i32, y: i32) -> Option<u8> {
     SOURCES.with_borrow(|s| Some(s.sprites.get(&sprite)?.index(x, y).unwrap_or(0xFF)))
 }
 
+/// Only the startup oldinterface probe retains a sprite-derived indexed
+/// answer. Keep the immutable source and placement, never a sprite pointer
+/// or an evictable global drawing history.
+#[derive(Clone)]
+struct Presence {
+    file: Arc<crate::ui_opacity::GameFile>,
+    rect: [i32; 4],
+    at: (i32, i32),
+    clip: Option<[i32; 4]>,
+}
+
+thread_local! {
+    static PRESENCE: RefCell<HashMap<u32, Presence>> = RefCell::new(HashMap::new());
+}
+
+pub(crate) fn note_presence(b: &civ3_ui::blit::GameBlit, source: impl FnOnce() -> Option<Source>) {
+    let Some(file) = SOURCES.with_borrow(|s| s.sprites.get(&b.sprite).cloned()) else { return };
+    let Some(Source::File { path, rect, mask: None, opacity: 255, .. }) = source() else { return };
+    if !path.replace('\\', "/").to_ascii_lowercase().ends_with("art/oldinterface.pcx") { return; }
+    if b.wrapper != civ3_ui::blit::Wrapper::Draw { return; }
+    PRESENCE.with_borrow_mut(|p| { p.insert(b.canvas, Presence { file, rect, at: b.at, clip: b.clip }); });
+}
+
+pub(crate) fn clear_presence(image: u32) {
+    PRESENCE.with_borrow_mut(|p| { p.remove(&image); });
+}
+
+pub(crate) fn presence_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
+    PRESENCE.with_borrow(|p| {
+        let p = p.get(&image)?;
+        let (sx, sy) = (x - p.at.0, y - p.at.1);
+        if p.clip.is_some_and(|[l,t,r,b]| x < l || y < t || x >= r || y >= b)
+            || sx < 0 || sy < 0 || sx >= p.rect[2] || sy >= p.rect[3] { return None; }
+        p.file.index(p.rect[0] + sx, p.rect[1] + sy).map(u32::from)
+    })
+}
+
 /// 0x57C8A0 starts each rebuild with the full 0xFF fill. With no upgrade
 /// credit it does not clear, so the previous selection must survive.
 pub(crate) fn fill(call: &jgl::FillCall) {
@@ -217,6 +254,18 @@ mod tests {
     fn file() -> Arc<crate::ui_opacity::GameFile> {
         Arc::new(crate::ui_opacity::GameFile { size: (3, 2), row: 4,
             indices: vec![255, 7, 254, 91, 8, 9, 255, 92], palette: [[12, 34, 56]; 256] })
+    }
+
+    #[test]
+    fn art_presence_owns_its_source_after_sprite_reset_and_image_clear() {
+        let f = file();
+        PRESENCE.with_borrow_mut(|p| { p.insert(99, Presence { file: f.clone(), rect: [0,0,3,2], at: (4,5), clip: Some([4,5,7,7]) }); });
+        SOURCES.with_borrow_mut(|s| { s.images.insert(1,f.clone()); s.sprites.insert(2,f); });
+        reset(2); cleared(1);
+        assert_eq!(presence_pixel(99,5,5),Some(7));
+        assert_eq!(presence_pixel(99,3,5),None);
+        clear_presence(99);
+        assert_eq!(presence_pixel(99,5,5),None);
     }
 
     #[test]
