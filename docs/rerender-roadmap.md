@@ -351,6 +351,33 @@ performance wins come first. "Verify" lists the evidence a step must show.
 
 Top 5 by value: steps 1, 2, 3, 4, then 6+7 together (no jgl).
 
+The 25 October continuation is experimental, selected with
+`CIV3R_JGL=own`. Steps 5, 6 and 7 remain unaccepted. The corrected audit
+in [jgl-replacement.md §9](jgl-replacement.md#continuation-audit-25-october-2026)
+distinguishes captured screens from group acceptance. Palace selection now
+has a file-geometry answer shared with the viewer: 15 live reads and seven
+full maps across all five styles matched jgl, 14,515,200 cells with no
+differences. Two upgrades changed game state identically with jgl and with
+owned objects. The owned session also verified labels under rename/Quit,
+their absence under F1, confirmed quit, and no jgl load in its Wine log.
+Window/pump equivalence, windowed and Alt input checks, the remaining
+read-back/DC audit and broad session coverage are still missing. See the
+[Palace evidence](jgl-replacement.md#palace-semantic-read-back-partial-group-6).
+
+The subsequent registry/font correction [V] compares the circular cursor
+order against original jgl and tests owned embedded-font destruction plus
+eight GDI resource lifetimes under 32-bit Wine. It closes those specific
+implementation defects; steps 5 through 7 remain unaccepted. Evidence and
+limits are in [the lifetime audit](jgl-replacement.md#registry-and-font-lifetime-correction-partial-group-6).
+
+Palace source retention now uses the exe's decoded file data. Blit/read
+hooks do no file I/O or decoding, and pointer-anchor scans run on the
+publisher against a captured control walk. A temporary source comparison
+matched 23,713,540 indices with zero differences; four Palace crops matched
+the retained jgl session exactly [V]. The load hook still makes one bulk
+source copy, whose cost scales with file size. See the [source ownership
+audit](jgl-replacement.md#retained-selection-sources-and-publisher-anchors-partial-group-6).
+
 ## 7. Open points
 
 - The slot scan is a lower bound. Before step 5, log every slot call at

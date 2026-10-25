@@ -189,9 +189,8 @@ fn policy() -> crate::game_render::StartupPolicy {
 
 /// Whether sprites' pixels are the placeholder (`jgl_ffi::blit::placeholder`)
 /// and jgl draws no blit: with a viewer, the game not drawing (no
-/// `CIV3R_GAME_RENDER=on`, no compatibility renderer) and no
-/// `CIV3R_JGL_COMPARE` (whose old path reads the sprites jgl made). Decided
-/// once: a sprite keeps the pixels it was made with.
+/// `CIV3R_GAME_RENDER=on`, no compatibility renderer). Decided once: a
+/// sprite keeps the pixels it was made with.
 pub(crate) fn placeholder_sprites() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -262,6 +261,10 @@ pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
         if CAPTURE.status()? { return Ok(()) }
         let point = CapturePoint::Worker { graphics_initialized: h::graphics_initialized(game.build) };
         if point.allowed() {
+            // Our jgl: no jgl.dll to wait for.
+            if jgl_ffi::own::on() {
+                return install_configured(0, point).map(|_| ());
+            }
             if let Some(base) = inproc::pe::module_base("jgl.dll") {
                 return install_configured(base, point).map(|_| ());
             }
@@ -525,13 +528,14 @@ pub(crate) struct NativeUi {
     pub military: Vec<civ3_sys::controls::screens::UnitStrip>,
     pub status_row: Option<(u32, [i32; 4])>,
     pub arts: Vec<crate::looks::ControlArt>,
+    pub selection: Option<std::sync::Arc<crate::ui_selection::DeferredControls>>,
 }
 
 impl NativeUi {
     fn read(model: &UiModel) -> Self {
         let Some(&build) = BUILD.get() else { return Self::default() };
         let Some(sites) = civ3_sys::controls::sites(build) else { return Self::default() };
-        let mem = civ3_sys::controls::Live;
+        let mem = crate::ui_selection::Memory::new();
         let controls = civ3_sys::controls::controls(&mem, &sites);
         Self {
             modal_stack: civ3_sys::modal::modal_stack(&mem, build).unwrap_or_default(),
@@ -539,6 +543,7 @@ impl NativeUi {
             military: civ3_sys::controls::screens::military_unit_strips(&mem, &controls),
             status_row: civ3_sys::controls::status_unit_row(&mem, &sites, &controls),
             arts: controls.iter().filter_map(|control| control_art(model, &sites, control)).collect(),
+            selection: mem.finish(sites),
             controls,
         }
     }
@@ -1055,12 +1060,14 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if r == 0 {
             with_skipper(|s| s.loaded(c.image));
             if let (Some(path), Some(size)) = (path, obj::image_size(c.image)) {
+                crate::ui_selection::loaded(c.image, &path, c.ct);
                 emit(Event::Loaded { image: c.image, path, size });
             }
         }
         r
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
+        crate::ui_selection::cleared(c.image);
         forget_form_surface(c.image);
         emit(Event::Cleared { image: c.image });
         with_skipper(|s| s.cleared(c.image));
@@ -1082,6 +1089,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if obj::sprite_has_pixels(c.sprite) {
             if let Some((cx, cy, w, hh)) = obj::sprite_crop(c.sprite) {
                 let rect = [c.x as i32 + cx, c.y as i32 + cy, w, hh];
+                crate::ui_selection::sliced(c.sprite, c.image);
                 emit(Event::Sliced { sprite: c.sprite, image: c.image, rect });
             }
         }
@@ -1089,10 +1097,12 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     });
     hook!(sprite_copy, sites.sprite_copy, |c| {
         let r = c.original();
+        crate::ui_selection::copied(c.sprite, c.source);
         emit(Event::Copied { sprite: c.sprite, source: c.source });
         r
     });
     hook!(sprite_reset, sites.sprite_reset, |c| {
+        crate::ui_selection::reset(c.sprite);
         emit(Event::Reset { sprite: c.sprite });
         c.original()
     });
@@ -1117,6 +1127,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
         audit_semantic(SemanticClass::PixelRead);
+        if let Some(answer) = crate::ui_selection::pixel(c.image, c.x as i32, c.y as i32) {
+            return answer;
+        }
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
@@ -1241,7 +1254,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
-    hook_jgl(jgl)?;
+    // With our jgl (jgl.dll not loaded) its tables have every group already.
+    if !jgl_ffi::own::on() {
+        hook_jgl(jgl)?;
+    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1262,7 +1278,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
         }
     }
-    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") {
+    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") && !jgl_ffi::own::on() {
         trace_pixel_access(jgl);
     }
     log::info!("UI mirror: {} hooks", hooks.len());
@@ -1595,8 +1611,6 @@ thread_local! {
     /// The last blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
     /// stored pixels went): what [`art_presence_pixel`] answers from.
     static INDEX_BLITS: std::cell::RefCell<Vec<(u32, u32, (i32, i32))>> = const { std::cell::RefCell::new(Vec::new()) };
-    /// The last file decoded for it.
-    static INDEX_FILE: std::cell::RefCell<Option<(String, Option<std::sync::Arc<civ3_assets::pcx::Indexed>>)>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Notes a blit onto an 8-bit image (see [`art_presence_pixel`]).
@@ -1620,26 +1634,16 @@ fn note_index_blit(b: &GameBlit) {
 /// if nothing known was drawn there.
 fn art_presence_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
     let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
-    let (path, rect) = with_model(false, |m| match m.sprite_source(sprite) {
-        Some(crate::ui::Source::File { path, rect, .. }) => Some((path.clone(), *rect)),
+    let rect = with_model(false, |m| match m.sprite_source(sprite) {
+        Some(crate::ui::Source::File { rect, .. }) => Some(*rect),
         _ => None,
     })??;
     let (sx, sy) = (x - at.0, y - at.1);
     if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
         return Some(0xFF);
     }
-    let file = INDEX_FILE.with_borrow_mut(|f| {
-        if f.as_ref().is_none_or(|(p, _)| *p != path) {
-            let decoded = civ3_assets::files::read_file(&path).ok().and_then(|b| civ3_assets::pcx::decode(&b).ok()).map(std::sync::Arc::new);
-            *f = Some((path.clone(), decoded));
-        }
-        f.as_ref().and_then(|(_, i)| i.clone())
-    })?;
     let (fx, fy) = (rect[0] + sx, rect[1] + sy);
-    if fx < 0 || fy < 0 || fx >= file.width as i32 || fy >= file.height as i32 {
-        return Some(0xFF);
-    }
-    Some(u32::from(file.get(fx as u32, fy as u32)))
+    crate::ui_selection::sprite_index(sprite, fx, fy).map(u32::from)
 }
 
 /// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
@@ -1714,6 +1718,10 @@ fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option
 /// `b.wrapper`: the interface mirror's events, and the map tracer's record
 /// for the map's three.
 pub fn on_blit(b: &GameBlit) {
+    if b.wrapper == civ3_ui::blit::Wrapper::A4 && h::palace_mask_form(b.canvas).is_some() {
+        let source = with_model(false, |m| m.sprite_source(b.sprite).cloned()).flatten();
+        crate::ui_selection::piece(b, source);
+    }
     note_index_blit(b);
     use civ3_ui::blit::Wrapper as W;
     let (x, y) = wrapper_xy(b);
@@ -1807,6 +1815,7 @@ mod present_snapshot_tests {
             status_row: Some((88, [x, 100, 120, 20])),
             arts: vec![crate::looks::ControlArt { id: 77, select: scene::Select::None, canvas: 999, part: crate::looks::Part::Whole, state,
                 pieces: vec![vec![(state, model.sprite_source(11).unwrap().clone())]], text_offsets: vec![(state, (x, 0))], colors: vec![], selected_by_fields: false }],
+            selection: None,
         }
     }
 

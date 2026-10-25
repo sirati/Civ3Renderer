@@ -23,6 +23,9 @@ pub mod wheel;
 pub trait Mem {
     fn u32(&self, addr: u32) -> Option<u32>;
     fn u8(&self, addr: u32) -> Option<u8>;
+    /// Semantic regions from the interface's file geometry, when the native
+    /// pixel map is intentionally absent. None uses the game's bytes.
+    fn index_regions(&self, _pcx: u32) -> Option<Vec<(u8, [i32; 4])>> { None }
     /// One guarded block read, used for the native setup screens' indexed
     /// hit maps. The live implementation avoids one protection check per pixel.
     fn read_bytes(&self, addr: u32, len: usize) -> Option<Vec<u8>> {
