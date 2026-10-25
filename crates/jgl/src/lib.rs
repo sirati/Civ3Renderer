@@ -22,6 +22,7 @@ pub mod display;
 pub mod draw;
 pub mod hooks;
 mod machine;
+pub mod memory;
 pub mod object;
 pub mod registry;
 pub mod present;

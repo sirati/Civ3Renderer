@@ -8,17 +8,19 @@
 //!   aligned), zeroed as a new DIB section is; `pixel_at` and `lock` point
 //!   into it, and the exe writes and reads it with its own code (the file
 //!   decoders, the minimap, C3X);
-//! - no pixel drawing: fills, copies, text and blits are records
-//!   (`docs/jgl-replacement.md` §9). On index (8-bit) images, which are
-//!   the game's data and never shown, a fill and `replace_color` change
-//!   the bytes as jgl's would (the exe reads them back with its own code:
+//! - no canvas rasterisation: fills, copies, text and blits are records
+//!   (`docs/jgl-replacement.md` §9). On index (8-bit) data images a fill and
+//!   `replace_color` change the bytes as jgl's would (the exe reads them back:
 //!   crop trimming, the cursor's hot spots); a sprite drawn onto one has no
 //!   pixels, and the game's reads of such images are answered from the
 //!   interface model (the bridge);
-//! - `acquire_dc` answers no DC (0): nothing the game reads back comes
-//!   from drawing on an image's DC (jgl's text and copies, the exe's GL
-//!   lines, C3X's GDI+ lines and mill icons are all display, and they test
-//!   for a null DC).
+//! - caller-written data images identified by the host also retain 16-bit
+//!   fills and equal-size copies among their buffers. The safe operations in
+//!   `jgl::memory` preserve the navigator's generated data without copying any
+//!   of it into the viewer, which renders its map from world state;
+//! - `acquire_dc` currently answers no DC (0). C3X's direct GDI+ DC read and
+//!   mill icons remain open contracts (`docs/jgl-contract-audit.md`). Font
+//!   measurement uses its separate real GDI DC; canvas text is a record.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -130,6 +132,14 @@ fn indexed<R>(this: u32, f: impl FnOnce(Indexed<'_>) -> R) -> Option<R> {
     let bytes = unsafe { std::slice::from_raw_parts_mut(at as usize as *mut u8, len) };
     let used = (row * field(this, HEIGHT) as usize).min(len);
     Some(f(Indexed { bytes: &mut bytes[..used], row }))
+}
+
+fn plane(this: u32) -> jgl::memory::Plane {
+    jgl::memory::Plane { width: width(this) as i32, height: height(this) as i32, row: field(this, ROW) as i32, bits: field(this, BITS) as i32 }
+}
+
+fn preserves_data(this: u32) -> bool {
+    crate::state::record(|p| p.preserve_image_data(jgl::ImageId(this), field(this, OWNER))).unwrap_or(false)
 }
 
 /// graphics +0x7C `new_image(owner, a2)`'s original (0x3BFF0, constructor
@@ -278,7 +288,7 @@ extern "thiscall" fn unlock(this: u32, n: u32) -> u32 {
     left as u32
 }
 
-/// +0x28 `acquire_dc` (0x1B20): counted; our images have no DC (0).
+/// +0x28 `acquire_dc` (0x1B20): counted; images currently have no DC (0).
 extern "thiscall" fn acquire_dc(this: u32) -> u32 {
     set(this, DC_LOCKS, field(this, DC_LOCKS).wrapping_add(1));
     set(this, CURRENT_DC, field(this, DC));
@@ -323,13 +333,40 @@ extern "thiscall" fn reset_clip(this: u32) -> u32 {
     set_clip(this, this + IMAGE as u32)
 }
 
-/// The copy group's originals (+0x38, +0x40, +0x84, +0x8C): no pixels;
-/// jgl's answer for a copy made.
+/// The copy group's originals: canvas drawing stays record-only. +0x40 also
+/// preserves caller-written data when both images have the host's contract.
 pub extern "thiscall" fn copy_38(_this: u32, _dst: u32, _sx: u32, _sy: u32, _x: u32, _y: u32, _w: u32, _h: u32, _key: u32) -> u32 {
     0
 }
-pub extern "thiscall" fn copy_40(_this: u32, _dst: u32, _src: u32, _dst_rect: u32) -> u32 {
-    0
+pub extern "thiscall" fn copy_40(this: u32, dst: u32, src: u32, dst_rect: u32) -> u32 {
+    if dst == 0 || src == 0 || dst_rect == 0 { return o::error::NULL; }
+    if !preserves_data(this) || !preserves_data(dst) { return 0; }
+    // SAFETY: the copy arguments are RECTs read unchecked by jgl's original.
+    let source = Rect::from(unsafe { std::ptr::read_unaligned(src as usize as *const Rect32) });
+    let target = Rect::from(unsafe { std::ptr::read_unaligned(dst_rect as usize as *const Rect32) });
+    let result = (|| {
+        let copy = jgl::memory::RowCopy::new(plane(this), plane(dst), source, target, rect(dst, CLIP))?;
+        let ((from, source_len), (to, target_len)) = PIXEL_MEMORY.with_borrow(|m| Some((*m.get(&this)?, *m.get(&dst)?))).ok_or(7u32)?;
+        if this == dst {
+            // SAFETY: this image exclusively owns this allocation. No image
+            // method or hook runs while the safe operation borrows its bytes.
+            let pixels = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
+            copy.copy_within(pixels)
+        } else {
+            // SAFETY: different owned images have distinct allocations; both
+            // remain alive throughout this non-reentrant memory operation.
+            let source = unsafe { std::slice::from_raw_parts(from as usize as *const u8, source_len) };
+            let target = unsafe { std::slice::from_raw_parts_mut(to as usize as *mut u8, target_len) };
+            copy.copy(source, target)
+        }
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            log::error!("our jgl: unsupported data copy {this:#x} -> {dst:#x}, {source:?} -> {target:?}: {error:#x}");
+            error
+        }
+    }
 }
 pub extern "thiscall" fn copy_84(_this: u32, _dst: u32, _x: u32, _y: u32) -> u32 {
     0
@@ -345,15 +382,23 @@ extern "thiscall" fn copy_3c(this: u32, dst: u32, _sx: u32, _sy: u32, _x: u32, _
     0
 }
 
-/// The fill group's originals: no pixels, but on an index image a fill
-/// (+0x44) and `replace_color` (+0x58) change its bytes as jgl's do.
+/// The fill group's originals: an index image's bytes, and identified 16-bit
+/// data buffers, preserve fills. Canvas fills remain records.
 pub extern "thiscall" fn fill(this: u32, r: u32, color: u32) -> u32 {
     let asked = (r != 0).then(|| {
         // SAFETY: the game's RECT, read unchecked by jgl.
         Rect::from(unsafe { std::ptr::read_unaligned(r as usize as *const Rect32) })
     });
     if let Some(area) = o::clipped(asked, rect(this, CLIP)) {
-        indexed(this, |mut img| img.fill(area, color as u8));
+        if field(this, BITS) == 8 {
+            indexed(this, |mut img| img.fill(area, color as u8));
+        } else if preserves_data(this) {
+            let Some((at, len)) = PIXEL_MEMORY.with_borrow(|m| m.get(&this).copied()) else { return 7 };
+            // SAFETY: this image exclusively owns the allocation; the safe
+            // operation cannot call back into the image while it is borrowed.
+            let pixels = unsafe { std::slice::from_raw_parts_mut(at as usize as *mut u8, len) };
+            return jgl::memory::fill(pixels, plane(this), area, color).err().unwrap_or(0);
+        }
     }
     0
 }

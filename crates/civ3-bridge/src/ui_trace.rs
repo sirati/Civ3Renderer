@@ -315,6 +315,11 @@ pub fn skipping() -> bool {
     DRAWING.skipping()
 }
 
+/// Data buffers whose game-written pixels must survive owned image copies.
+pub(crate) fn preserve_image_data(owner: u32) -> bool {
+    BUILD.get().is_some_and(|&build| h::navigator_data_image(build, owner))
+}
+
 /// Whether an image or sprite has pixels (its `JGL_Image*` / `JGLSprite*`
 /// at +4): drawings without them do nothing (and return an error code).
 fn has_pixels(object: u32) -> bool {

@@ -57,6 +57,10 @@ impl jgl::FillHooks for Fills {
 struct Pixels;
 
 impl jgl::PixelPolicy for Pixels {
+    fn preserve_image_data(&self, _image: jgl::ImageId, owner: u32) -> bool {
+        crate::ui_trace::preserve_image_data(owner)
+    }
+
     fn original_pixels(&self, _image: jgl::ImageId, owner: u32) -> bool {
         !crate::ui_trace::skips_text_on(owner)
     }

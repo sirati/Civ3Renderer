@@ -716,6 +716,31 @@ pub fn read_back_images(build: Build) -> Vec<u32> {
         .collect()
 }
 
+/// Whether an image is one of the established HUD/advisor navigator data
+/// buffers. Copies among these preserve game-written data, not canvas draws.
+pub fn navigator_data_image(build: Build, image: u32) -> bool {
+    generated_surfaces(build).iter().any(|&(shown, _)| {
+        [0x18, 0x2D0, 0x588, 0x858].into_iter().any(|offset| image == shown - 0x858 + offset)
+    })
+}
+
+#[cfg(test)]
+mod navigator_data_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_known_navigators_own_data_buffers() {
+        for image in read_back_images(Build::PcGames) {
+            assert!(navigator_data_image(Build::PcGames, image));
+            assert!(!navigator_data_image(Build::PcGames, image + 4));
+            assert!(!navigator_data_image(Build::Gog, image));
+            assert!(!navigator_data_image(Build::Steam, image));
+        }
+        assert!(!navigator_data_image(Build::PcGames, 0));
+        assert!(!navigator_data_image(Build::PcGames, 0x9FDD84), "the HUD canvas is not a data buffer");
+    }
+}
+
 /// The `PCX_Image` owning a `JGL_Image` (its +0x80 back pointer).
 pub fn jgl_owner(jgl_image: u32) -> Option<u32> {
     Ptr32::<u32>::new(jgl_image.wrapping_add(0x80)).read().ok().filter(|&p| p != 0)

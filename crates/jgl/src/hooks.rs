@@ -76,6 +76,13 @@ pub trait SurfaceHooks {
 /// not take, compare mode). Asked synchronously by the producer, so it
 /// must be cheap.
 pub trait PixelPolicy {
+    /// Whether this image holds data written and read directly by the caller.
+    /// Owned images preserve plain memory fills and equal-size copies only
+    /// for these images. This does not request rasterisation of draw records.
+    fn preserve_image_data(&self, _image: ImageId, _owner: u32) -> bool {
+        false
+    }
+
     /// A text run (`text_out`) on `image`.
     fn original_pixels(&self, _image: ImageId, _owner: u32) -> bool {
         true
