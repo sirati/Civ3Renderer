@@ -105,6 +105,32 @@ fn hooks() -> jgl::Hooks {
     }
 }
 
+/// Whether our jgl stands in for jgl.dll, which is then not loaded
+/// (`jgl_ffi::own`, `docs/jgl-replacement.md` §8): whenever the game does
+/// not draw itself, so with a viewer and no `CIV3R_GAME_RENDER=on`,
+/// `compare` or compatibility renderer (those draw with jgl.dll). Without a
+/// viewer the bridge does nothing (`crate::pass_through`) and the game
+/// loads jgl.dll as always. `CIV3R_JGL=dll` loads it anyway (diagnostics).
+pub(crate) fn own_mode() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        crate::pass_through::active_here()
+            && crate::ui_trace::placeholder_sprites()
+            && std::env::var("CIV3R_JGL").as_deref() != Ok("dll")
+            && std::env::var("CIV3R_JGL_COMPARE").as_deref() != Ok("1")
+    })
+}
+
+/// Puts our jgl in place (`jgl_ffi::own::install`): every group's hooks
+/// as for jgl.dll, the window's from `crate::heartbeat`. From `DllMain`,
+/// before the game loads jgl.dll.
+pub(crate) fn install_own(screen: Option<inproc::screen::ScreenSize>) -> Result<bool, String> {
+    TEXT.run(|| {
+        jgl_ffi::own::install(Box::new(hooks), Box::new(crate::heartbeat::WindowHooks { screen })).map_err(|e| e.to_string())?;
+        Ok(true)
+    })
+}
+
 /// Takes over jgl.dll's text group (at `base`). `Ok(true)` once in place.
 pub(crate) fn install_text(base: u32) -> Result<bool, String> {
     TEXT.run(|| {

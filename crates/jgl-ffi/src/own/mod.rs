@@ -165,6 +165,15 @@ pub fn new_graphics() -> u32 {
     0
 }
 
+/// jgl.dll's one export, which the game asks for by name (`GetProcAddress`
+/// on the module its `LoadLibraryA("jgl.dll")` got: ours, the bridge,
+/// lists it): our graphics object.
+#[cfg(all(windows, target_arch = "x86"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn get_graphsy_object_ptr() -> u32 {
+    new_graphics()
+}
+
 /// The method table of ours for `class` (0 before [`install`]).
 pub(crate) fn table_of(class: Class) -> u32 {
     tables().map_or(0, |t| t[class.index() as usize])
