@@ -57,6 +57,19 @@ pub fn memory_dc() -> u32 {
     MEMORY_DC.load(Ordering::Acquire)
 }
 
+/// The default jgl colour table's image-facing table pointer. The graphics
+/// object stores the game's `PCX_Color_Table*`; its +4 is the jgl table used
+/// when an indexed image has no explicit table.
+pub(crate) fn default_color_table() -> u32 {
+    let owner = TABLES[0].load(Ordering::Acquire);
+    if owner == 0 {
+        return 0;
+    }
+    // SAFETY: the game table was passed to +0xC0 and remains live while the
+    // graphics object is live, as in jgl's global.
+    unsafe { get(owner + 4) }
+}
+
 fn field(this: u32, offset: usize) -> u32 {
     // SAFETY: `this` is our graphics object (0x14C bytes).
     unsafe { get(this + offset as u32) }
