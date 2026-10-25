@@ -822,3 +822,32 @@ Group 7 still needs call-by-call window/pump equivalence, launch lock,
 windowed mode, Alt/capture and the full screen/turn/combat matrix and soak.
 The final switch remains experimental behind `CIV3R_JGL=own`; ordinary
 viewer launches continue to load jgl. No default switch is accepted here.
+
+### Registry and font lifetime correction, partial group 6
+
+The continuation's Vec registry released the newest surviving object first.
+The recovered circular registry instead inserts after its head, sets the
+cursor to the insertion, and moves both head and cursor to the removed
+object's successor on every removal. Safe `jgl::registry::Registry` now owns
+that ordering; the unsafe shim only forwards registration and deletion.
+Graphics release relies on each destructor to unregister, as the original
+does. Fonts register their embedded base at +8, whose own destructor thunk
+adjusts `this` before deleting the font. The FOT path now has an owner and is
+freed after `RemoveFontResourceA`, instead of leaking its Box.
+
+- [V] Two safe registry tests cover removal away from the head, insertion
+  after removal, temporary-object registration and the resulting release order.
+- [V] `jgl-ffi/tests/owned_lifetimes.rs`, run as 32-bit Windows code under
+  Wine WoW64, compared ten cursor observations with original jgl: five
+  insertions, a non-head removal, and the four remaining deletions. All
+  matched. It also released an owned font through its embedded base and
+  checked that its exe owner pointer was cleared.
+- [V] Eight owned GDI font resource load/measure/release cycles succeeded;
+  every released HFONT ceased to be a GDI object and its FOT field cleared.
+  This test uses its own copied font and no game process or installed DLLs.
+
+Evidence: `/mnt/datasets/c3r-build/jgl-t3-e967e7bc/{registry-tests.log,
+lifetimes-wine.log,build-windows.log}`. These are scoped contract checks;
+they do not establish group 6 or group 7 acceptance. Other indexed readers,
+copy/replace contracts and DC users remain open. The default remains the
+original jgl path.

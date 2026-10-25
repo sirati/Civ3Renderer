@@ -200,14 +200,13 @@ extern "thiscall" fn destroy_window(this: u32) -> u32 {
     }
 }
 
-/// +0x0C `release` (0x3B2C0): every object deletes itself (the last made
-/// first), then the graphics object.
+/// +0x0C `release` (0x3B2C0): every object deletes itself, starting at the
+/// registry cursor and following its successors, then the graphics object.
 extern "thiscall" fn release(_this: u32) -> u32 {
-    while let Some(o) = super::registry::last() {
+    while let Some(o) = super::registry::current() {
         // SAFETY: an object of ours alive; its slot 0 (scalar_delete) takes
         // one word and takes it out of the registry.
         unsafe { call::method(o, 0x00, &[1]) };
-        super::registry::gone(o);
     }
     let g = object();
     if g != 0 {
