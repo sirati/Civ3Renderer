@@ -105,18 +105,15 @@ fn hooks() -> jgl::Hooks {
     }
 }
 
-/// Whether our jgl stands in for jgl.dll, which is then not loaded
-/// (`jgl_ffi::own`, `docs/jgl-replacement.md` §8): whenever the game does
-/// not draw itself, so with a viewer and no `CIV3R_GAME_RENDER=on` or
-/// compatibility renderer (those draw with jgl.dll). Without a viewer the
-/// bridge does nothing (`crate::pass_through`) and the game loads jgl.dll as
-/// always. `CIV3R_JGL=dll` loads it anyway (diagnostics).
+/// Explicit diagnostic opt-in to the unfinished replacement. Keep jgl's
+/// implementation as the default until the recovered read-back and DC
+/// contracts have passed runtime acceptance (docs/jgl-replacement.md §9).
 pub(crate) fn own_mode() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         crate::pass_through::active_here()
             && crate::ui_trace::placeholder_sprites()
-            && std::env::var("CIV3R_JGL").as_deref() != Ok("dll")
+            && std::env::var("CIV3R_JGL").as_deref() == Ok("own")
     })
 }
 
