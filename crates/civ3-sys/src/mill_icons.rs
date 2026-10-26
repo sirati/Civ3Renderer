@@ -1,10 +1,12 @@
 //! C3X R28 improvement-row producer in the supported PCGames binary.
 //! The hook wraps its Sprite::draw call at 0x421315. It retains the native
-//! return value and all row drawing. Predicate call-site hooks retain the
+//! return value and sprite command. Predicate call-site hooks retain the
 //! actual answers, including extended/free improvements and chains.
 
 use crate::{Build, c3x::C3xState, c3x_layout as X, controls::Mem, layout as L};
 use inproc::{Ptr32, hook::HookError};
+
+pub mod drawing;
 
 pub const SITE: u32 = 0x421315;
 pub const SITE_BYTES: [u8; 5] = [0xe8, 0xfe, 0xd8, 0x9c, 0x00];
@@ -63,7 +65,9 @@ pub fn read(mem: &dyn Mem, state: u32) -> Option<Row> {
     let mut row = Row { city, city_id: mem.i32(city + 0x1c + L::CITY_BODY_ID)?,
         civ: i32::from(mem.u8(city + 0x1c + L::CITY_BODY_CIVID)? as i8),
         improvement, sheet: mem.u32(state + X::STATE_RESOURCES_SHEET)?, mills: Vec::new() };
-    if count == 0 || improvement < 0 || row.sheet == 0 { return Some(row); }
+    // Selection and its query side effects precede the sheet-availability
+    // check in C3X. An absent sheet must not hide those query identities.
+    if count == 0 || improvement < 0 { return Some(row); }
     let mills = mem.u32(state + X::STATE_CURRENT_CONFIG_MILLS).filter(|&p| p != 0)?;
     let packed = mem.read_bytes(mills, count as usize * X::MILL_SIZE as usize)?;
     let resources = mem.u32(RESOURCES).filter(|&p| p != 0)?;
@@ -93,12 +97,17 @@ impl Producer {
             let found = Ptr32::<u8>::new(at).read_array(expected.len())?;
             if found == expected { Ok(()) } else { Err(HookError::UnexpectedCode { addr: at, found, expected: expected.to_vec() }) }
         };
+        // Entire selector, availability gates and draw/return body, extracted
+        // from the supported binary recorded in docs/jgl-mill-icons.md.
+        // Do this before any call-site patch changes its bytes.
+        check(0xdeec18, include_bytes!("mill_icons/pcg_r28_producer.bin"))?;
         check(SITE, &SITE_BYTES)?;
         check(0xdeec18, &[0x55, 0x89, 0xe5, 0x81, 0xec, 0x88, 0, 0, 0])?;
         // Bind each helper to the call inside this producer, as well as its prologue.
         check(GENERATE_SITE, &GENERATE_BYTES)?;
         check(ACTIVE_SITE, &ACTIVE_BYTES)?;
         check(INPUTS_SITE, &INPUTS_BYTES)?;
+        drawing::check()?;
         let state = Ptr32::<u32>::new(STATE_POINTER).read()?;
         let section = crate::c3x::section(0x400000, b".c3xdat\0").map_err(|_| HookError::Unsupported)?;
         if section.map(|s| s.0) != Some(state) { return Err(HookError::Unsupported); }
@@ -145,6 +154,8 @@ mod tests {
         let row = read(&m, state).unwrap();
         assert_eq!((row.city, row.city_id, row.civ, row.improvement, row.sheet), (city, 23, 5, 71, sheet));
         assert_eq!(row.mills.iter().map(|m| (m.resource, m.icon, m.class, m.flags)).collect::<Vec<_>>(), [(82, 7, 0, 8), (2, 19, 2, 1)]);
+        m.put(state + X::STATE_RESOURCES_SHEET, 0);
+        assert_eq!(read(&m, state).unwrap().mills, row.mills, "query sources precede the original sheet gate");
         m.put(state + X::STATE_CURRENT_CONFIG_COUNT_MILLS, 0);
         assert!(read(&m, state).unwrap().mills.is_empty(), "disabled/no-mill configuration");
         m.put(state + X::STATE_CURRENT_CONFIG_COUNT_MILLS, 3);
