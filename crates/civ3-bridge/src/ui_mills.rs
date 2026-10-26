@@ -14,8 +14,17 @@ thread_local! { static SHEETS: RefCell<HashMap<u32, Sheet>> = RefCell::new(HashM
 
 #[derive(Clone, Copy)]
 struct Answer { mill: u32, generate: bool, active: Option<bool>, inputs: Option<bool> }
-struct Capture { row: civ3_sys::mill_icons::Row, answers: Vec<Answer>, error: Option<&'static str> }
+struct Capture { row: civ3_sys::mill_icons::Row, answers: Vec<Answer>, ready: bool, error: Option<&'static str> }
 thread_local! { static ROWS: RefCell<Vec<Option<Capture>>> = const { RefCell::new(Vec::new()) }; }
+
+fn drawing_ready() {
+    ROWS.with_borrow_mut(|rows| {
+        if let Some(Some(c)) = rows.last_mut() {
+            if c.ready { c.error = Some("duplicate mill draw boundary"); }
+            c.ready = true;
+        }
+    });
+}
 
 fn generation(civ: u32, mill: u32, value: bool) {
     ROWS.with_borrow_mut(|rows| {
@@ -49,7 +58,9 @@ impl Capture {
             candidates.push(Candidate { improvement: m.improvement, resource: m.resource, icon: m.icon,
                 flags: m.flags, bonus: m.class == 0, can_generate: a.generate, active: a.active == Some(true), has_inputs: a.inputs == Some(true) });
         }
-        Ok(mill_icons::selected(self.row.improvement, candidates))
+        // The original availability gates ran after all native queries.
+        // No DC is needed to establish whether C3X enabled this draw.
+        Ok(if self.ready { mill_icons::selected(self.row.improvement, candidates) } else { Vec::new() })
     }
 }
 
@@ -58,7 +69,7 @@ impl Capture {
 struct RowScope { active: bool }
 impl RowScope {
     fn new(row: Option<civ3_sys::mill_icons::Row>) -> Self {
-        ROWS.with_borrow_mut(|rows| rows.push(row.map(|row| Capture { row, answers: Vec::new(), error: None })));
+        ROWS.with_borrow_mut(|rows| rows.push(row.map(|row| Capture { row, answers: Vec::new(), ready: false, error: None })));
         Self { active: true }
     }
     fn finish(mut self) -> Option<Capture> {
@@ -92,12 +103,14 @@ pub(crate) struct Installed {
     _generate: civ3_sys::mill_icons::can_generate::Installed,
     _active: civ3_sys::mill_icons::active_building::Installed,
     _inputs: civ3_sys::mill_icons::has_inputs::Installed,
+    _drawing: civ3_sys::mill_icons::drawing::Installed,
 }
 
 #[cfg(windows)]
 pub(crate) fn install(build: civ3_sys::Build) -> Result<Option<Installed>, inproc::hook::HookError> {
     use civ3_sys::mill_icons as native;
     let Some(producer) = native::Producer::find(build)? else { return Ok(None) };
+    let drawing = producer.intercept_drawing(crate::jgl_hooks::own_mode(), drawing_ready)?;
     let generate = native::can_generate::install_call_site(native::GENERATE_SITE, &native::GENERATE_BYTES, |c| {
         let result = c.original(); generation(c.civ, c.mill, result != 0); result
     })?;
@@ -109,7 +122,9 @@ pub(crate) fn install(build: civ3_sys::Build) -> Result<Option<Installed>, inpro
     })?;
     let hook = native::draw::install_call_site(native::SITE, &native::SITE_BYTES, move |c| {
         let scope = RowScope::new(producer.row());
-        // The original records the building first. Our icons must precede
+        // C3X records the building and runs its actual queries. The checked
+        // draw boundary skips all mill DC/GDI work in owned mode.
+        // Our icons must precede
         // the tourism/yield and maintenance decorations that follow this call.
         let result = c.original();
         let Some(capture) = scope.finish() else { log::error!("C3X mill icons: unreadable producer state"); return result };
@@ -137,7 +152,7 @@ pub(crate) fn install(build: civ3_sys::Build) -> Result<Option<Installed>, inpro
         result
     })?;
     log::info!("C3X mill icons: native resource state and file art at PCG {:#x}", native::SITE);
-    Ok(Some(Installed { _draw: hook, _generate: generate, _active: active, _inputs: inputs }))
+    Ok(Some(Installed { _draw: hook, _generate: generate, _active: active, _inputs: inputs, _drawing: drawing }))
 }
 
 #[cfg(test)]
@@ -158,11 +173,21 @@ mod tests {
         { let inner = RowScope::new(Some(row())); generation(5, 10, true); building_query(100, 2, false, false);
           assert!(inner.finish().unwrap().selected().unwrap().is_empty()); }
         generation(5, 30, true); building_query(100, 2, true, false); building_query(100, 2, true, true);
+        drawing_ready();
         assert_eq!(scope.finish().unwrap().selected().unwrap(), [(3, 7)]);
         let incomplete = RowScope::new(Some(row())); generation(5, 10, true);
         assert_eq!(incomplete.finish().unwrap().selected(), Err("native query result missing"));
         let wrong = RowScope::new(Some(row())); generation(5, 10, true); building_query(101, 2, true, false);
         assert!(wrong.finish().unwrap().selected().is_err());
+        let unavailable = RowScope::new(Some(row()));
+        generation(5, 10, true); building_query(100, 2, true, false); building_query(100, 2, true, true);
+        assert!(unavailable.finish().unwrap().selected().unwrap().is_empty(), "original source-availability gate did not enable drawing");
+        let outer = RowScope::new(Some(row()));
+        generation(5, 10, true); building_query(100, 2, true, false); building_query(100, 2, true, true);
+        { let inner = RowScope::new(Some(row()));
+          generation(5, 20, true); building_query(100, 2, true, false); building_query(100, 2, true, true);
+          drawing_ready(); assert_eq!(inner.finish().unwrap().selected().unwrap(), [(2, 6)]); }
+        assert!(outer.finish().unwrap().selected().unwrap().is_empty(), "nested draw readiness cannot enable its outer row");
         assert!(ROWS.with_borrow(|rows| rows.is_empty()));
     }
 
