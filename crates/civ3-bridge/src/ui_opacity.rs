@@ -65,6 +65,8 @@ pub(crate) fn named_palette(path:&str,palette:[[u8;3];256]) {
     PALETTES.update(|old|{let mut map=old.cloned().unwrap_or_default();map.insert(path.into(),palette);Some(map)});
 }
 thread_local! {
+    /// Per font and text colour, [`jgl::text::FontGeometry::key_levels`].
+    static KEY_LEVELS:std::cell::RefCell<HashMap<(jgl::FontDesc,[u8;3]),Option<[Option<u16>;17]>>>=std::cell::RefCell::new(HashMap::new());
     static FONT_GEOMETRY:std::cell::RefCell<HashMap<jgl::FontDesc,Option<jgl::text::FontGeometry>>>=std::cell::RefCell::new(HashMap::new());
 }
 
@@ -108,7 +110,19 @@ impl crate::ui::KeySources for KeyFiles {
         with_font(run,|font|font.ink(&run.text,x-run.x,y-run.y,run.underline))
     }
     fn text_on_key(&self,run:&civ3_ui::text::TextRun,level:u8)->Option<u16> {
-        with_font(run,|font|font.black_on_key(level))
+        if run.color==[0;3] {return with_font(run,|font|font.black_on_key(level));}
+        // Another colour: its own calibration, once per font and colour.
+        let desc=jgl::FontDesc {face:run.face.clone(),height:run.height,weight:run.weight,italic:run.italic,underline:run.underline};
+        let levels=KEY_LEVELS.with_borrow(|l|l.get(&(desc.clone(),run.color)).copied());
+        let levels=match levels {
+            Some(levels)=>levels,
+            None=>{
+                let levels=with_font(run,|font|jgl_ffi::geometry::key_levels(&desc,font,run.color));
+                KEY_LEVELS.with_borrow_mut(|l|{l.insert((desc,run.color),levels);});
+                levels
+            }
+        };
+        levels?[level as usize]
     }
     fn palette(&self,palette:&menu::screen::PaletteFrom,index:u8)->Option<[u8;3]> {
         // A civ's table: the game's own copy of `ntpNN.pcx`, which the draw

@@ -14,8 +14,8 @@ pub trait KeySources {
     fn file(&self, path: &str, x: i32, y: i32, palette: Option<&menu::screen::PaletteFrom>) -> Option<FileSample>;
     /// The font engine's ink of `run` at (x, y); None: not known.
     fn text_ink(&self, _run:&TextRun, _x:i32, _y:i32)->Option<jgl::text::Ink> { None }
-    /// The RGB555 pixel black `run` text of grey `level` makes over the
-    /// colour key, if the font engine's calibration fixed it.
+    /// The RGB555 pixel `run`'s text of grey `level` makes over the colour
+    /// key, if the font engine's calibration in its colour fixed it.
     fn text_on_key(&self, _run:&TextRun, _level:u8)->Option<u16> { None }
     fn palette(&self,_palette:&menu::screen::PaletteFrom,_index:u8)->Option<[u8;3]> {None}
     fn surface(&self,_image:u32,_x:i32,_y:i32)->Option<[u8;3]> {None}
@@ -109,7 +109,7 @@ pub(super) fn query(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl K
                 match files.text_ink(run,x,y) {
                     Some(jgl::text::Ink::None)=>{}
                     Some(jgl::text::Ink::Solid)=>colors=Colors::rgb(run.color),
-                    Some(jgl::text::Ink::Partial(Some(level))) if colors==Colors::KEY && run.color==[0;3] && files.text_on_key(run,level).is_some()=>{
+                    Some(jgl::text::Ink::Partial(Some(level))) if colors==Colors::KEY && files.text_on_key(run,level).is_some()=>{
                         colors=Colors::rgb555(files.text_on_key(run,level).unwrap_or_default());
                     }
                     Some(jgl::text::Ink::Partial(_)) | None=>colors=colors.union(Colors::rgb(run.color)),

@@ -17,6 +17,7 @@ fn glyph_ink_matches_text_out() {
         let desc=jgl::FontDesc {face:"Lucida Sans".into(),height,weight,italic,underline};
         let geometry=jgl_ffi::geometry::font(&desc).expect("geometry");
         assert!(geometry.calibrated(),"{desc:?} is not reproduced");
+        let colored=jgl_ffi::geometry::key_levels(&desc,&geometry,[0x90,0x60,0x30]);
         fonts+=1;
         for (text,black) in texts.iter().flat_map(|&t|[(t,false),(t,true)]) {
             let bytes:Vec<u8>=text.chars().map(|c|u8::try_from(u32::from(c)).unwrap_or(b'?')).collect();
@@ -47,9 +48,11 @@ fn glyph_ink_matches_text_out() {
                         Some(Ink::None) if p==0x7C1F => decided+=1,
                         Some(Ink::Solid) if p==color => decided+=1,
                         // Over the key, black text's level fixes the pixel.
-                        Some(Ink::Partial(Some(level))) if black && geometry.black_on_key(level).is_some() => {
-                            if geometry.black_on_key(level)==Some(p) {decided+=1; by_level+=1;}
-                            else { contradictions+=1; if contradictions<=10 {println!("{desc:?} {text:?} level {level}: {:?} vs {p:#x}",geometry.black_on_key(level));} }
+                        // Over the key, the text colour's level fixes the pixel.
+                        Some(Ink::Partial(Some(level))) if (if black {geometry.black_on_key(level)} else {colored.and_then(|l|l[level as usize])}).is_some() => {
+                            let expected=if black {geometry.black_on_key(level)} else {colored.and_then(|l|l[level as usize])};
+                            if expected==Some(p) {decided+=1; by_level+=1;}
+                            else { contradictions+=1; if contradictions<=10 {println!("{desc:?} {text:?} level {level}: {expected:?} vs {p:#x}");} }
                         }
                         Some(Ink::Partial(_)) | None => partial+=1,
                         other => { contradictions+=1; if contradictions<=10 {println!("{desc:?} {text:?} ({},{}) {other:?} pixel {p:#x}",x-x0,y-y0);} }
@@ -59,6 +62,6 @@ fn glyph_ink_matches_text_out() {
             }
         }
     }}}}
-    println!("glyph ink: {fonts} fonts, {decided} decided pixels ({by_level} smoothed black-on-key by level), {partial} undecided, {contradictions} contradictions");
+    println!("glyph ink: {fonts} fonts, {decided} decided pixels ({by_level} smoothed over the key by level), {partial} undecided, {contradictions} contradictions");
     assert_eq!(contradictions,0);
 }
