@@ -44,9 +44,11 @@ pub struct Raster {
     pub levels: Vec<u8>,
 }
 
-/// A calibration line: `text` drawn with `TextOutA` in black over the colour
-/// key, its pen at `pen`; `pixels` the RGB555 result, `width` per row.
+/// A calibration line: `text` drawn with `TextOutA` in `color` (RGB555)
+/// over the colour key, its pen at `pen`; `pixels` the RGB555 result,
+/// `width` per row.
 pub struct Calibration {
+    pub color: u16,
     pub text: Vec<u8>,
     pub pen: (i32, i32),
     pub width: i32,
@@ -80,46 +82,54 @@ impl FontGeometry {
     /// `underline`: `OUTLINETEXTMETRIC`'s underscore position and size.
     pub fn new(glyphs: Vec<Option<Glyph>>, calibration: &[Calibration], underline: Option<(i32, i32)>) -> Self {
         let mut font = Self { glyphs, underline: underline.map(|(position, size)| (-position - size.max(1) / 2, size.max(1))), mode: None, on_key: [None; 17] };
-        // Each line's ink painted once per mode, glyph by glyph.
-        let painted = |mode: Mode| -> Option<Vec<Vec<Ink>>> {
-            calibration.iter().map(|line| {
-                let mut ink = vec![Ink::None; line.pixels.len()];
-                let height = line.pixels.len() as i32 / line.width;
-                let mut pen = line.pen.0;
-                for &b in &line.text {
-                    let glyph = font.glyphs.get(b as usize)?.as_ref()?;
-                    let raster = match mode { Mode::Mono => &glyph.mono, Mode::Gray => &glyph.gray };
-                    for gy in 0..raster.size.1 { for gx in 0..raster.size.0 {
-                        let (x, y) = (pen + raster.origin.0 + gx, line.pen.1 - raster.origin.1 + gy);
-                        if x < 0 || y < 0 || x >= line.width || y >= height { return None; }
-                        let at = (y * line.width + x) as usize;
-                        ink[at] = combine(ink[at], level_ink(mode, raster.levels[(gy * raster.size.0 + gx) as usize]));
-                    }}
-                    pen += raster.advance;
-                }
-                Some(ink)
-            }).collect()
-        };
-        let fits = |ink: &[Vec<Ink>]| calibration.iter().zip(ink).all(|(line, ink)| line.pixels.iter().zip(ink).all(|(&px, &ink)| match ink {
-            Ink::None => px == KEY,
-            Ink::Solid => px == 0,
-            Ink::Partial(_) => true,
-        }));
-        let found = [Mode::Mono, Mode::Gray].into_iter().find_map(|m| painted(m).filter(|ink| !calibration.is_empty() && fits(ink)).map(|ink| (m, ink)));
-        if let Some((mode, ink)) = found {
-            font.mode = Some(mode);
-            let mut seen: [Option<Option<u16>>; 17] = [None; 17];
-            for (line, ink) in calibration.iter().zip(&ink) {
-                for (&px, &ink) in line.pixels.iter().zip(ink) {
-                    if let Ink::Partial(Some(level)) = ink {
+        font.mode = [Mode::Mono, Mode::Gray].into_iter().find(|&m| font.levels_on_key(m, calibration).is_some());
+        if let Some(mode) = font.mode {
+            font.on_key = font.levels_on_key(mode, calibration).unwrap_or([None; 17]);
+        }
+        font
+    }
+
+    /// For text in the calibration's colour: per grey level, the pixel it
+    /// made over the colour key everywhere (`None` if the calibration does
+    /// not show this font so).
+    pub fn key_levels(&self, calibration: &[Calibration]) -> Option<[Option<u16>; 17]> {
+        self.levels_on_key(self.mode?, calibration)
+    }
+
+    /// Whether `mode`'s rasters reproduce the calibration, and if so the
+    /// pixel each grey level made, where it was always the same.
+    fn levels_on_key(&self, mode: Mode, calibration: &[Calibration]) -> Option<[Option<u16>; 17]> {
+        if calibration.is_empty() { return None; }
+        let mut seen: [Option<Option<u16>>; 17] = [None; 17];
+        for line in calibration {
+            // The line's ink painted once, glyph by glyph.
+            let mut ink = vec![Ink::None; line.pixels.len()];
+            let height = line.pixels.len() as i32 / line.width;
+            let mut pen = line.pen.0;
+            for &b in &line.text {
+                let glyph = self.glyphs.get(b as usize)?.as_ref()?;
+                let raster = match mode { Mode::Mono => &glyph.mono, Mode::Gray => &glyph.gray };
+                for gy in 0..raster.size.1 { for gx in 0..raster.size.0 {
+                    let (x, y) = (pen + raster.origin.0 + gx, line.pen.1 - raster.origin.1 + gy);
+                    if x < 0 || y < 0 || x >= line.width || y >= height { return None; }
+                    let at = (y * line.width + x) as usize;
+                    ink[at] = combine(ink[at], level_ink(mode, raster.levels[(gy * raster.size.0 + gx) as usize]));
+                }}
+                pen += raster.advance;
+            }
+            for (&px, &ink) in line.pixels.iter().zip(&ink) {
+                match ink {
+                    Ink::None if px != KEY => return None,
+                    Ink::Solid if px != line.color => return None,
+                    Ink::Partial(Some(level)) => {
                         let s = &mut seen[level as usize];
                         *s = Some(match *s { None => Some(px), Some(v) => v.filter(|&v| v == px) });
                     }
+                    _ => {}
                 }
             }
-            font.on_key = seen.map(Option::flatten);
         }
-        font
+        Some(seen.map(Option::flatten))
     }
 
     /// The pixel black text of grey `level` makes over the colour key, as
@@ -198,7 +208,7 @@ mod glyph_tests {
         let (width, pen) = (12, (2, 4));
         let mut pixels = vec![KEY; (width * 8) as usize];
         for &(x, y, v) in ink { pixels[((y + pen.1) * width + x + pen.0) as usize] = v; }
-        Calibration { text: text.to_vec(), pen, width, pixels }
+        Calibration { color: 0, text: text.to_vec(), pen, width, pixels }
     }
 
     #[test]
@@ -221,6 +231,14 @@ mod glyph_tests {
         assert_eq!(gray.ink("AA", 2, -1, false), Some(Ink::Partial(Some(7))));
         assert_eq!(gray.black_on_key(7), Some(0x4986));
         assert_eq!(gray.black_on_key(8), None, "no pixel of that level was seen");
+        // Another text colour: its own calibration, solid pixels in it.
+        let red = |partial: u16| {
+            let ink: Vec<_> = smoothed.iter().map(|&(x, y, v)| (x, y, if v == 0 { 0x7C00 } else { partial })).collect();
+            Calibration { color: 0x7C00, ..line(b"AA", &ink) }
+        };
+        assert_eq!(gray.key_levels(&[red(0x6C1F)]).map(|l| l[7]), Some(Some(0x6C1F)));
+        let black_solids = Calibration { color: 0x7C00, ..line(b"AA", &smoothed) };
+        assert_eq!(gray.key_levels(&[black_solids]), None, "solid pixels must be the text colour");
         assert_eq!(gray.ink("AA", 1, -2, false), Some(Ink::Solid));
         // Ink no bitmap explains: no answers at all.
         let mut stray = solid.to_vec();
