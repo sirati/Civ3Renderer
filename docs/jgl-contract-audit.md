@@ -223,3 +223,8 @@ save presence. Those entries are restored and checked in the receipt.
 Its original pre-run hash cannot be certified. The unchanged empty watchdog
 log retains its earlier timestamp. This limitation prevents an unqualified
 claim that every ancillary log was restored to a freshly hashed baseline.
+
+
+### Owned keyed reads
+
+Keyed reads use the retained UI model and the same decoded PCX, FLC, and text sources as the viewer. The model records the HUD frame canvas (box-right mask plus WorkerDefault frame) and the domestic-advisor canvas (advisor panel and the first city row caption). These records are the contract fixtures for the two live read sites. In owned mode an absent source is an immediate contract failure: the bridge panics instead of forwarding to the game's image memory, which contains no real pixels. Plain and pass-through modes retain the original call.

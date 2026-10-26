@@ -81,10 +81,14 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
             // colours (§16.9), over their shadow as on the map.
             // Leader heads: in their own colours.
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: true } => {
-                Element::Sprite { name: format!("Flc@{}/{chunk}", relative_path(path, roots)), at: (*x, *y), clip: *clip, scale_den: 0, palette: String::new() }
+                let source = relative_path(path, roots);
+                crate::ui_opacity::animation_source(path, &source);
+                Element::Sprite { name: format!("Flc@{source}/{chunk}"), at: (*x, *y), clip: *clip, scale_den: 0, palette: String::new() }
             }
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: false } => {
-                let path = relative_path(path, roots);
+                let source = relative_path(path, roots);
+                crate::ui_opacity::animation_source(path, &source);
+                let path = source;
                 let shadow = format!("UnitShadow@{path}/{chunk}");
                 out.push(Item::Element(Element::Sprite { name: shadow, at: (*x, *y), clip: *clip, scale_den: 16, palette: String::new() }, under));
                 let palette = crate::units::Recolor::civ(unit_colors).palette();

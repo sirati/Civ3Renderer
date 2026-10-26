@@ -55,7 +55,10 @@ static HIT_REVISION: AtomicU64 = AtomicU64::new(u64::MAX);
 /// result; `None` means this run has no supported retained source yet.
 pub(crate) fn keyed_pixel(run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
     let runs = HIT_RUNS.load()?;
-    runs.iter().rev().find(|hit| hit.run == *run).and_then(|hit| hit.pixel(x, y))
+    let mut local = run.clone();
+    local.x = 0;
+    local.y = 0;
+    runs.iter().rev().find(|hit| hit.run == local).and_then(|hit| hit.pixel(x - run.x, y - run.y))
 }
 
 fn keyed_mix(color: [u8; 3], coverage: [u8; 3], key: [u8; 3]) -> Option<[u8; 3]> {
@@ -231,6 +234,12 @@ impl Fonts {
         if HIT_REVISION.swap(self.revision, Ordering::AcqRel) != self.revision {
             HIT_ATLASES.update(|_| Some(BTreeMap::new()));
         }
+        // Form placement and clipped canvas copies translate the baseline.
+        // Retain the renderer source in baseline-relative coordinates.
+        let mut local = run.clone();
+        local.x = 0;
+        local.y = 0;
+        let run = &local;
         let Some(source) = self.hit_source(run, compiled) else { return };
         HIT_RUNS.update(|old| {
             let mut runs = old.cloned().unwrap_or_default();
