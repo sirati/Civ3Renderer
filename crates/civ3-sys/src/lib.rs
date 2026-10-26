@@ -29,6 +29,7 @@ pub mod hooks;
 pub mod layout;
 pub mod lit_orders;
 pub mod menus;
+pub mod mill_icons;
 pub mod map_messages;
 pub mod modal;
 pub mod native_camera;

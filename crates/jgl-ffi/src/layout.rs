@@ -56,7 +56,8 @@ pub struct JglGraphics {
     /// +0x140, +0x144: slots +0x24 and +0x20.
     pub hinstance: u32,
     pub hwnd: u32,
-    /// +0x148: the window's owner (`create_window`'s first argument); its
+    /// +0x148: the window's owner, the back buffer (`create_window`'s third
+    /// argument; the first, the controller, goes to a global); its
     /// method 0 is told each new mode (width, height, bits, 1).
     pub owner: u32,
 }

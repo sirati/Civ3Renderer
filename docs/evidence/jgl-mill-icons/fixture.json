@@ -1,0 +1,14 @@
+{
+  "scope": "Offline fixture. This is not a live enabled-mill save or a live hook receipt.",
+  "rules_sha256": "1bd610ab1420217f7d64a9214b60c0bc7686e4781a0d6e66590171535495609c",
+  "art_sha256": "5dafd5f681768e2db13e9e08f783e409905a99f35cf56f3065b0ac240d19cd11",
+  "rules_source": "Conquests/conquests.biq",
+  "art_source": "Conquests/Art/resources.pcx",
+  "improvement": { "name": "Granary", "id": 2 },
+  "mill": { "improvement": 2, "resource": 1, "flags": 0 },
+  "resource": { "name": "Iron", "id": 1, "class": 2, "icon_id": 1 },
+  "producer_queries": { "can_generate_resource": true, "has_active_building": true, "has_resources_required_by_building": true },
+  "row_sprite_at": [30, 40],
+  "expected": { "source_rect": [59, 9, 33, 33], "destination_rect": [45, 40, 24, 24], "transparent_palette_indices": [255] },
+  "off_cases": ["empty mill list", "can_generate_resource=false", "has_active_building=false", "has_resources_required_by_building=false"]
+}
