@@ -1717,7 +1717,10 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
 
 fn query_comparing() -> bool {
     static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||std::env::var("CIV3R_JGL_QUERY_COMPARE").as_deref()==Ok("1"));
-    *ON
+    // The oracle comparison reads real legacy pixels and is only meaningful
+    // with original jgl. Owned mode must never call that oracle, including
+    // when the diagnostic environment flag is present.
+    *ON && !jgl_ffi::own::on()
 }
 fn compare_query(image:u32,x:i32,y:i32,family:&str,original:impl FnOnce()->u32)->u32 {
     let answer=keyed_hit_pixel(image,x,y);
