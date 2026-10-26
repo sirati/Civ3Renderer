@@ -13,7 +13,7 @@ pub struct FileSample {
 pub trait KeySources {
     fn file(&self, path: &str, x: i32, y: i32, palette: Option<&menu::screen::PaletteFrom>) -> Option<FileSample>;
     /// The renderer's exact keyed text pixel at (x, y). `Some(None)` is the
-    /// colour key; `None` means this run has no retained renderer source.
+    /// colour key; `None` means a native-equivalent renderer source is unavailable.
     fn text_keyed(&self, _run:&TextRun, _x:i32, _y:i32)->Option<Option<[u8;3]>> { None }
     fn palette(&self,_palette:&menu::screen::PaletteFrom,_index:u8)->Option<[u8;3]> {None}
     fn surface(&self,_image:u32,_x:i32,_y:i32)->Option<[u8;3]> {None}

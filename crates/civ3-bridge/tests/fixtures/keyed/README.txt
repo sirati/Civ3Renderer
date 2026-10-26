@@ -30,3 +30,21 @@ Original atlas SHA256:
 56dab0755b0290d3bf62b91d9779fc633c82a1168f417bf4a9d0c97c1e1893d0 dark
 f7217f493ac1ba9ff4fae004dc8aad8721b1ef484a6d44c0481bb0e38b75d41b light
 f79dd2994376abfff205bd736329fc5dffe1694ca21b19aca76aa364a27d849f metrics
+
+Keyed sweep fixtures, 26 October 2026
+
+science-outlines.toml retains the renderer's packed LSANS.TTF crossing curves
+and measured pens for "-21: Science", Lucida Sans -12, black, baseline
+(385,100) on F1 canvas 0xa38e4c. It was captured while publishing that run
+in /tmp/c3r-sweep-fix. Its first character is at pen 0; later characters
+have distinct pens. The regression checks the query against the emitted
+viewer glyph placements, including translation onto the screen. It does
+not assert equivalence between these outlines and Wine's native raster.
+
+The console button fixture records size 15x15, storage stride 16, a null
++44 key fill, and consoleButtons.pcx slice [1,1,14,15]. The fill writes
+225 contiguous pixels, so the last visible row only receives its first
+pixel. The slice overwrites columns 0..13. A previous unknown at (14,14)
+therefore stays unknown. The original observed value was 0x4210. The test
+also checks that an explicit-rectangle fill uses the complete rectangle
+and that a later known writer resolves the corner.

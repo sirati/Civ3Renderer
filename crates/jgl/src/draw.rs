@@ -19,7 +19,7 @@ pub struct Surface {
     pub clip: Rect,
     /// The whole image (+0x54).
     pub bounds: Rect,
-    /// Pixels between stored rows (+0x40), including padding. Zero in older callers.
+    /// Pixels between stored rows (+0x40), including padding.
     pub row: i32,
 }
 

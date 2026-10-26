@@ -151,15 +151,24 @@ fn recorded_science_outline_read_uses_each_characters_measured_pen() {
 }
 
 #[test]
-fn unretained_native_text_coverage_is_unknown_only_where_either_source_may_draw() {
+fn unretained_native_text_never_claims_exact_coverage_inside_its_clip() {
     let (mut run, fonts, compiled) = science();
     run.x=0; run.y=0;
     let source=fonts.hit_source(&run,&compiled).unwrap();
-    // A recorded original key at (388,96), local (3,-4), differs from
-    // the outline predicate. A native black box cannot establish its ink.
-    let hit=HitRun {run,source,accuracy:KeyAccuracy::Native(vec![[0,-12,80,0]])};
+    let hit=HitRun {run:run.clone(),source,accuracy:KeyAccuracy::Unavailable};
     assert_eq!(hit.pixel(3,-4),None);
-    assert_eq!(hit.pixel(100,20),Some(None),"outside both native boxes and renderer ink is the key");
+    assert_eq!(hit.pixel(100,20),None,"outline emptiness does not prove Wine emptiness");
+    struct Missing;
+    impl KeySources for Missing {
+        fn file(&self,_:&str,_:i32,_:i32,_:Option<&menu::screen::PaletteFrom>)->Option<FileSample> {None}
+    }
+    let mut model=cleared(1,(120,40));
+    run.x=10;run.y=20;
+    model.apply(Event::TextClipped {canvas:1,run,clip:[10,8,90,24]});
+    assert_eq!(model.keyed_at(1,13,16,&Missing),None);
+    assert_eq!(model.keyed_at(1,100,30,&Missing),Some(false),"outside the recorded clip remains known");
+    model.apply(Event::Fill {canvas:1,rect:[12,15,2,2],rgb:[0;3],alpha:255,clip:None});
+    assert_eq!(model.keyed_at(1,13,16,&Missing),Some(true),"a later opaque record establishes its own pixels");
 }
 
 #[test]
