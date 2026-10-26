@@ -64,27 +64,6 @@ pub(crate) fn generated(name:&str,size:(u32,u32),rgba:&[u8]) {
 pub(crate) fn named_palette(path:&str,palette:[[u8;3];256]) {
     PALETTES.update(|old|{let mut map=old.cloned().unwrap_or_default();map.insert(path.into(),palette);Some(map)});
 }
-thread_local! {
-    /// Per font and text colour, [`jgl::text::FontGeometry::key_levels`].
-    static KEY_LEVELS:std::cell::RefCell<HashMap<(jgl::FontDesc,[u8;3]),Option<[Option<u16>;17]>>>=std::cell::RefCell::new(HashMap::new());
-    static FONT_GEOMETRY:std::cell::RefCell<HashMap<jgl::FontDesc,Option<jgl::text::FontGeometry>>>=std::cell::RefCell::new(HashMap::new());
-}
-
-/// The font engine's glyphs of `run`'s font, made at the first hit query
-/// that meets its text (the game creates hundreds of fonts; few are read).
-fn with_font<T>(run:&civ3_ui::text::TextRun,f:impl FnOnce(&jgl::text::FontGeometry)->Option<T>)->Option<T> {
-    let desc=jgl::FontDesc {face:run.face.clone(),height:run.height,weight:run.weight,italic:run.italic,underline:run.underline};
-    FONT_GEOMETRY.with_borrow_mut(|fonts| {
-        fonts.entry(desc).or_insert_with_key(|desc| {
-            let started=std::time::Instant::now();
-            let geometry=jgl_ffi::geometry::font(desc);
-            log::debug!("font {desc:?}: glyph geometry in {} ms",started.elapsed().as_millis());
-            if geometry.as_ref().is_some_and(|g|!g.calibrated()) {log::warn!("font {desc:?}: its glyph bitmaps do not reproduce TextOutA; its text has no exact hit answer");}
-            geometry
-        }).as_ref().and_then(f)
-    })
-}
-
 impl crate::ui::KeySources for KeyFiles {
     #[cfg(windows)]
     fn surface(&self,image:u32,x:i32,y:i32)->Option<[u8;3]> {
@@ -106,23 +85,8 @@ impl crate::ui::KeySources for KeyFiles {
             _=>None,
         }
     }
-    fn text_ink(&self,run:&civ3_ui::text::TextRun,x:i32,y:i32)->Option<jgl::text::Ink> {
-        with_font(run,|font|font.ink(&run.text,x-run.x,y-run.y,run.underline))
-    }
-    fn text_on_key(&self,run:&civ3_ui::text::TextRun,level:u8)->Option<u16> {
-        if run.color==[0;3] {return with_font(run,|font|font.black_on_key(level));}
-        // Another colour: its own calibration, once per font and colour.
-        let desc=jgl::FontDesc {face:run.face.clone(),height:run.height,weight:run.weight,italic:run.italic,underline:run.underline};
-        let levels=KEY_LEVELS.with_borrow(|l|l.get(&(desc.clone(),run.color)).copied());
-        let levels=match levels {
-            Some(levels)=>levels,
-            None=>{
-                let levels=with_font(run,|font|jgl_ffi::geometry::key_levels(&desc,font,run.color));
-                KEY_LEVELS.with_borrow_mut(|l|{l.insert((desc,run.color),levels);});
-                levels
-            }
-        };
-        levels?[level as usize]
+    fn text_keyed(&self,run:&civ3_ui::text::TextRun,x:i32,y:i32)->Option<Option<[u8;3]>> {
+        crate::text::keyed_pixel(run, x, y)
     }
     fn palette(&self,palette:&menu::screen::PaletteFrom,index:u8)->Option<[u8;3]> {
         // A civ's table: the game's own copy of `ntpNN.pcx`, which the draw

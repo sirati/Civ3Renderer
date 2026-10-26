@@ -385,3 +385,14 @@ step 5 and further integrated Group 7 qualification. It is preserved in
 `runtime/final-own` at the correction evidence root. The all-target workspace
 run completed with only the known subpixel coverage failure; affected
 packages, generic-crate guard and lock guard passed separately.
+
+### HUD source correction, 26 October 2026
+
+[V] The rejected scratch-DIB font calibration and duplicate glyph generator
+are removed. Owned semantic text reads now use the renderer's retained atlas
+pixels or packed outline words and its shared integer coverage routine,
+including measured placement, underline and keyed blending. Owned C3X line
+hooks no longer invoke the legacy GDI+ bind, state setters or draw after
+emitting renderer model fills; pass-through keeps those calls. Focused tests
+and the Windows-target check pass; fresh combined live qualification remains
+open.
