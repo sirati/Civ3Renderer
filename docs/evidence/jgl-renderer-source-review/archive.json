@@ -1,0 +1,7 @@
+{
+  "archive": "/mnt/datasets/c3r-source-backups/20261026-jgl-renderer-sources/recovery-evidence.tar.gz",
+  "archive_bytes": 921581332,
+  "archive_sha256": "f14cb869d59576fe7c4e15c52da8aacb8675340de89979c0501bd502c072b1e4",
+  "members_verified": 1233,
+  "manifest": "/mnt/datasets/c3r-source-backups/20261026-jgl-renderer-sources/recovery-evidence-manifest.json"
+}
