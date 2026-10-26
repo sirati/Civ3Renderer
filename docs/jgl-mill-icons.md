@@ -12,8 +12,10 @@ checkpoint `5ca2cf6`. Main's documentation was preserved at both merges.
 improvement row. `patch_draw_improv_icons_on_city_screen` supplies the actual
 improvement ID. Its nested sprite draw supplies the canvas and row position.
 The new hook wraps that specific call at PCGames `0x421315`, whose target is
-the C3X producer `0xDEEC18`. It calls the original first, preserves its return
-value, and emits `Event::MillIcons` before the row's subsequent decorations.
+the C3X producer `0xDEEC18`. It retains the original sprite command and C3X
+selection queries, preserves the sprite return value, and emits `Event::MillIcons` before the row's
+subsequent decorations. In owned mode a checked branch skips the producer's
+legacy mill drawing block after its original availability gates.
 No pointer/input, window/pump, owned-image or frame-mask behavior changes.
 
 | Field | Original producer | Native source |
@@ -36,13 +38,15 @@ producer, file lifetime and event. Three checked call-site hooks retain the
 answers from C3X's existing query calls. They return the original bytes and
 add no engine queries or game-state changes. Recursive resource queries do
 not pass these three producer call sites. A game-thread scope keeps nested
-row draws separate. It does not infer active buildings or input availability
-from names or from a later publisher snapshot. The count-zero configuration
+row draws and draw-readiness notifications separate. It does not infer
+active buildings or input availability from names or from a later publisher snapshot. The count-zero configuration
 emits no icons.
 
-[V] `Producer::find` checks the R28 state version/size, the row call, the
-producer prologue, all three helper call displacements and helper prologues,
-and the state-pointer binding. This audited binary has SHA-256
+[V] `Producer::find` checks the R28 state version/size, the row call, all
+1,031 bytes of the producer, all three helper call displacements and helper
+prologues, and the state-pointer binding. The retained producer body has
+SHA-256 `8950949b63dca04860a25044e41c0feeb953250d27a21fbad56d5230317e1e6e`.
+This audited binary has SHA-256
 `a9bb72429328db88da8dfcab3e706437dc7bdc540e07cbfd4923695665e1671a`.
 Another R28 rebuild needs its own checked addresses. Other versions and
 vanilla builds get no mill hook. Missing source data or unreadable state
@@ -80,15 +84,53 @@ now accepts an initial offset. Mill icons use step `[90112,90112]` and offset
 serialization and UI traces retain the offset. This is a generic sampler
 parameter; no game state entered a generic crate.
 
-Scratch HDC pixels are never renderer input. This work neither intercepts
-TransparentBlt output nor builds a canvas rasterizer. C3X's original DC
-calls remain for its original return/handle behavior; native badges come
-from mill state and the resource file even though the scratch bitmap is
-only 1x1. The separate GDI+ line contract is outside this subset.
+## Avoiding legacy mill drawing
+
+[V] The original selector and native queries still execute once. C3X's own
+checks for a positive selected count, a resource sheet, its JGL image and a
+non-null `TransparentBlt` pointer remain at `0xDEEDDE..0xDEEE33`. The new
+boundary at `0xDEEE34` notifies the current row that these gates passed.
+Owned mode then jumps to `0xDEF018`, the existing `mov eax,[ebp-12]; leave;
+ret 16` epilogue. It avoids both image DC acquisitions, every mill
+`TransparentBlt`, both DC releases and the intervening draw-coordinate loop.
+The original saved sprite result, query order, short circuits and native
+query side effects remain intact. No arbitrary GDI result is invented.
+
+The boundary saves registers and flags, aligns the callback stack, and
+restores them before continuing. In original-jgl/viewer mode it executes
+the stolen six bytes and resumes the original draw block. Dropping the
+boundary restores the original bytes. It is installed only with UI capture
+on the checked PCGames R28 producer. Plain no-viewer/no-trace pass-through
+never installs it. The bridge uses the existing immutable `own_mode()`
+selection; the default remains original jgl.
+
+The safe bridge capture emits icons only when the native availability gates
+actually reached that boundary. A missing sheet no longer erases the mill
+identities needed to retain earlier query answers. Reentrant rows have their
+own capture/readiness scope, and no borrow spans a foreign call. Missing
+file provenance still produces an error, without resuming legacy drawing.
+
+[V] The retained sprite command calls C3X's original trampoline at
+`0xCD4040`, which resumes `Sprite::draw` at `0x5F8215`. The normal loaded
+sprite path uses graphics scale `+0xA0` and sprite `+0x44`. Owned sprite
+blits record file/model commands and perform no GDI drawing. The deferred
+file-backed path retains loading/decoding, an image-copy command and clear;
+owned canvas copies remain commands. Existing owned image/font/DC resource
+creation and state work is outside this bypass and is not claimed removed.
+The three retained query helpers inspect technology, active/free/extended
+buildings, government/obsolescence and recursive resource/radius state;
+they do not draw. GDI+ lines are a separate contract and this path does not
+call them.
+
+Scratch HDC pixels are never renderer input. No DC is acquired for a mill
+badge in owned mode. The native path uses the existing resource-file art
+pipeline, without a canvas rasterizer or a captured GDI result.
 
 ## Evidence and reproduction
 
-Evidence root: `/mnt/datasets/c3r-build/jgl-mills-t3-269e6006`.
+Retained evidence root: `/mnt/datasets/c3r-build/jgl-mills-t3-269e6006`.
+The drawing correction and fresh comparisons use
+`/mnt/datasets/c3r-build/jgl-mills-t3-630df663`.
 `audit/inputs.sha256` binds the original exe, R28 source/headers/config,
 rules and art. `audit/supported-binary.json` records the checked code bytes.
 `audit/layout.txt` records offsets generated by the 32-bit compiler.
@@ -106,6 +148,17 @@ rules and art. `audit/supported-binary.json` records the checked code bytes.
   The final source-depth receipt is `gdi8-oracle/` and `tests/art8.log`.
   The earlier 16-bit-source diagnostic remains under `gdi-oracle/`; it
   independently found the sampling phase but is not the source-depth proof.
+- [V] The correction's `tools/test-mill-icons` executes the actual supported
+  producer machine code in a private, headless Wine process. Twelve paired
+  cases retain identical sprite/query/readiness order and return values,
+  including nested draws, empty and rejected selections, absent sheet/JGL/
+  function pointers, DC failures and the 16-icon cap. Owned mode calls zero
+  legacy raster dependencies and avoids 41 recorded acquire/blit/release
+  calls. Original mode and removal of the patch retain the original block.
+  The non-nested cases also check stack cleanup and all callee-saved registers.
+  Query answers and Sprite/GDI dependencies are controlled recorders in this
+  fixture. This does not test a running city's helper answers or live hook
+  installation. See `boundary-final/receipt.json` and the retained `test.exe`.
 - [V] Source/state tests cover packed runtime IDs, count-zero and invalid
   resource IDs. Model tests cover overlapping badge order, list clipping,
   later decorations and copied-canvas sample phase. Preload and trace
@@ -115,6 +168,7 @@ rules and art. `audit/supported-binary.json` records the checked code bytes.
 Run inside `nix develop`, with `CARGO_INCREMENTAL=0` and a private target:
 
 ```sh
+python3 tools/test-mill-icons "$CONQUESTS/Civ3Conquests.exe" "$EVIDENCE/boundary"
 python3 tools/mill-icon-oracle /mnt/datasets/winvm/c3x-src "$EVIDENCE/source-oracle"
 python3 tools/mill-icon-gdi "$ART/resources.pcx" "$EVIDENCE/gdi-oracle"
 C3R_MILL_ART="$ART/resources.pcx" C3R_MILL_GDI="$EVIDENCE/gdi-oracle" \
@@ -134,6 +188,41 @@ resource art SHA-256 is
 The checked default config has `buildings_generating_resources = []` and
 SHA-256 `09d1da8ab1cf0fbb7a72e422179fa95fbaa92fe271a4b7b9b9e819bb4f98c3b3`.
 
+## Correction validation
+
+[V] Signed production commit `4020c1c` contains the draw bypass and its
+fixtures. The [continuation receipt](evidence/jgl-mill-icons/continuation-receipt.json)
+binds the source, supported binary, private test executable, art oracle,
+release artifacts, test results and cleanup record. All final boundary
+source hashes match that commit exactly.
+
+Fresh source and art comparisons repeat the 65,537-case selector result and
+all 20,736 RGB555 icon pixels with zero differences, plus five palette-key
+boundary cases. The affected packages `civ3-ui`, `civ3-sys`, `civ3-bridge`,
+`menu` and `render-desc` pass 834 tests with 13 ignored. The two manual
+art/config tests also pass when explicitly enabled. `no_locks` passes both
+tests and `generic_crates` passes all three. Native `civ3r-native` release and
+i686 Windows `civ3-bridge`/`civ3r-native` release builds pass. The full
+workspace was not rerun for this scoped correction; its known
+`tile-render/subpixel_coverage` failure is not waived.
+
+Earlier failed private fixture attempts remain recorded. Attempt 1 failed
+to compile because a hook closure needed `move`. Attempts 2/3 could not
+reserve the binary's low address range after Wine had allocated heaps.
+The final fixture links its own text/data above `0x02000000`, checks that
+the low image gap belongs to itself, and runs the original producer there.
+Its temporary PE header is restored on drop. Attempt 4 and final binaries
+are retained; the earlier attempt 2/3 executable hashes remain, but Cargo
+had overwritten those executables before retention was added.
+
+The task changed only its isolated checkout and private evidence/target/
+Wine prefixes. All five private prefixes are quiescent. No shared game,
+DLL, configuration, save, input or warm target was used or changed, so no
+shared-file restoration was needed. Targets and diagnostics remain retained
+for parent review. The private fixture does not establish live installation
+or real-city query answers, and the atlas pixel test does not establish final
+live composition.
+
 ## Remaining live gate
 
 [G] The injected row hook has not yet been exercised in an enabled-mill
@@ -151,6 +240,10 @@ including a scrolled/clipped row, a second resource on the same improvement,
 closing/reopening the city and reloading the save. Repeat with the empty
 config, a missing Granary and unavailable technology/input resources.
 Capture `CIV3R_UI_WATCH` for the actual row canvas to bind `MillIcons` IDs,
-coordinates and clip to each screenshot; compare only the corresponding
-row crops. Run counting/loader checks afterwards. Restore changed DLLs and
+coordinates and clip to each screenshot. Bind a scoped caller count to
+`0xDEEE6A`, `0xDEEE90`, `0xDEEFC9`, `0xDEEFF2` and `0xDEF016`: the original
+session must reach its mill acquire/blit/release calls, while owned mode must
+reach the boundary and none of those five sites. Check that native badges
+still appear and that queries and subsequent row decorations remain ordered.
+Compare only the corresponding row crops. Run counting/loader checks afterwards. Restore changed DLLs and
 config files and retain matching hashes. This live receipt remains open.
