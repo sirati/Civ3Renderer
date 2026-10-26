@@ -387,8 +387,12 @@ tracks transformed art sheets, snapshots same-image +0x38 sources, and hooks
 both frame readers. Normal canvases stay record-only and the viewer still
 generates its minimap from world state. The [per-contract matrix](jgl-contract-audit.md)
 records actual readers, required answers, implementation and scoped evidence.
-Fresh original-binary/runtime receipts for these corrections, the mill source,
-and the GDI+ constructor remain open. This does not complete step 5 or accept
+Fresh original-binary/runtime receipts for these corrections and the GDI+
+constructor remain open. The mill source is now implemented as the checked
+C3X row state plus native resource-file art: 65,537 original-source cases
+and 20,736 original Wine GDI/native file-art pixels match [V]. Its live
+enabled-mill row comparison remains open [G]; see [the mill contract](jgl-mill-icons.md).
+This does not complete step 5 or accept
 steps 6/7; ordinary viewer launches still load original jgl.
 
 The independent group-7 continuation completes step 6's window/pump code and
