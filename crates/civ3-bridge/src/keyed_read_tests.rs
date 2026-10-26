@@ -102,3 +102,87 @@ fn recorded_blank_hud_reads_the_viewers_resolved_animation() {
     civ3_assets::source_cache::animation(source, "keyed-hud-recorded-extent.flc", &bytes).unwrap();
     assert_eq!(model.keyed_at(CANVAS, 1850, 1010, &Samples), Some(true));
 }
+
+fn science() -> (TextRun, Fonts, Compiled) {
+    let fixture: toml::Table = include_str!("../tests/fixtures/keyed/science-outlines.toml").parse().unwrap();
+    let int = |t: &toml::Table, k: &str| t[k].as_integer().unwrap() as i32;
+    let glyphs = fixture["glyphs"].as_array().unwrap();
+    let curves: Vec<_> = glyphs.iter().map(|g| {
+        let g = g.as_table().unwrap();
+        let curves = g["curves"].as_array().unwrap().iter().map(|q| {
+            std::array::from_fn(|i| {
+                let p = q.as_array().unwrap()[i].as_array().unwrap();
+                (p[0].as_integer().unwrap() as f64, p[1].as_integer().unwrap() as f64)
+            })
+        }).collect();
+        (char::from_u32(int(g, "code") as u32).unwrap(), curves, int(g, "font_advance"))
+    }).collect();
+    let face = tile_render::gpu_text::Face::from_curves(int(&fixture,"units_per_em") as u32, &curves);
+    let run = TextRun { x: 385, y: 100, color: [0;3], face: "Recorded science".into(), height: -12, weight: 0, italic: false, underline: false, text: fixture["text"].as_str().unwrap().into(), backdrop: None };
+    let fonts = Fonts::default();
+    fonts.set_game_layout(&run, gdi_text::TextLayout { advances: glyphs.iter().map(|g|int(g.as_table().unwrap(),"advance")).collect(), ascent: 12, descent: 3, underline: (1,1) });
+    let mut compiled = readiness_tests::fixture_art(&[], "");
+    compiled.fonts.push((run.face.clone(), Arc::new(face)));
+    (run,fonts,compiled)
+}
+
+#[test]
+fn recorded_science_outline_read_uses_each_characters_measured_pen() {
+    let (run, fonts, compiled) = science();
+    let mut sprites = Vec::new();
+    fonts.run_sprites(&run, None, &compiled, 0, &mut sprites);
+    assert_eq!(sprites.len(), run.text.chars().count());
+    let ink: Vec<_> = (88..104).flat_map(|y| (385..470).map(move |x|(x,y))).filter(|&(x,y)| keyed_pixel(&run,x,y).is_some_and(|p|p.is_some())).collect();
+    assert!(ink.iter().any(|&(x,_)|x>430), "later glyphs must not be overlaid at the first pen");
+    for (x,y) in ink {
+        let covering = sprites.iter().filter(|s| {
+            let g = s.glyph.unwrap();
+            let face = &compiled.fonts[g.font as usize].1;
+            let text = tile_render_shared::text::TextGlyph { glyph: face.record(face.glyph(g.ch).unwrap()), em: g.em64, advance: g.advance, ..Default::default() };
+            let place = tile_render_shared::text::place(&face.words,&text,s.x,s.y,1,1).unwrap();
+            tile_render_shared::text::keyed(tile_render_shared::text::coverage_all_channels(&face.words,&place,x,y,0),0,0xff00ff).is_some()
+        }).count();
+        assert!(covering>0, "query ink ({x},{y}) must belong to a viewer glyph at its emitted pen");
+    }
+    let moved = TextRun { x: run.x+448, y:run.y+156, ..run.clone() };
+    for y in 88..104 { for x in 380..475 {
+        assert_eq!(keyed_pixel(&run,x,y),keyed_pixel(&moved,x+448,y+156));
+    }}
+}
+
+#[test]
+fn unretained_native_text_coverage_is_unknown_only_where_either_source_may_draw() {
+    let (mut run, fonts, compiled) = science();
+    run.x=0; run.y=0;
+    let source=fonts.hit_source(&run,&compiled).unwrap();
+    // A recorded original key at (388,96), local (3,-4), differs from
+    // the outline predicate. A native black box cannot establish its ink.
+    let hit=HitRun {run,source,accuracy:KeyAccuracy::Native(vec![[0,-12,80,0]])};
+    assert_eq!(hit.pixel(3,-4),None);
+    assert_eq!(hit.pixel(100,20),Some(None),"outside both native boxes and renderer ink is the key");
+}
+
+#[test]
+fn recorded_padded_console_button_retains_unknown_corner_after_contiguous_clear() {
+    use jgl::{FillCall, ImageId, Rect, Surface};
+    let target=Surface {image:ImageId(1),owner:0xa0b3d0,row:16,clip:Rect::new(0,0,15,15),bounds:Rect::new(0,0,15,15)};
+    let call=FillCall::Fill {target,rect:None,color:0x80007c1f};
+    let civ3_ui::draw::CanvasDraw::Fill {canvas,size,rects,rgb,alpha,clip}=civ3_ui::draw::fill_of(&call).unwrap() else {panic!()};
+    assert_eq!(rects,[[0,0,15,14],[0,14,1,1]]);
+    assert_eq!(target.fill_regions(Some(target.bounds)), [target.bounds], "the explicit rectangle path visits each row");
+    let mut model=UiModel::new(vec![],vec![]);
+    model.apply(Event::Size {image:canvas,size:size.unwrap()});
+    for rect in rects { model.apply(Event::Fill {canvas,rect,rgb,alpha,clip}); }
+    // The recorded consoleButtons.pcx slice is [1,1,14,15]. Its opaque
+    // file pixels overwrite columns 0..13, including the incomplete row.
+    let pixels=Arc::new(civ3_ui::selection::FilePixels {size:(49,49),row:49,indices:vec![0;49*49],palette:[[16,32,48];256]});
+    model.apply(Event::Loaded {image:2,path:"consoleButtons.pcx".into(),size:(49,49)});
+    model.loaded_pixels(2,pixels);
+    model.apply(Event::Sliced {sprite:3,image:2,rect:[1,1,14,15]});
+    model.apply(Event::Blit {sprite:3,canvas,x:0,y:0,clip:None,palette:None});
+    assert_eq!(model.keyed_at(canvas,13,14,&crate::ui_opacity::KeyFiles),Some(true));
+    assert_eq!(model.keyed_at(canvas,14,13,&crate::ui_opacity::KeyFiles),Some(false));
+    assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),None,"the legacy 0x4210 is uninitialized content");
+    model.apply(Event::Fill {canvas,rect:[14,14,1,1],rgb:KEY_RGB,alpha:255,clip:None});
+    assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),Some(false),"a later known writer resolves that pixel");
+}

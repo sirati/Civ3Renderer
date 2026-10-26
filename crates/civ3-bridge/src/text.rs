@@ -41,7 +41,16 @@ struct HitGlyph {
 }
 
 #[derive(Clone)]
+enum KeyAccuracy {
+    Renderer,
+    /// Native glyph black boxes. Their raster coverage is not retained.
+    Native(Vec<[i32; 4]>),
+    Unavailable,
+}
+
+#[derive(Clone)]
 struct HitRun {
+    accuracy: KeyAccuracy,
     run: TextRun,
     source: HitSource,
 }
@@ -49,6 +58,33 @@ struct HitRun {
 static HIT_RUNS: handoff::Latest<Vec<HitRun>> = handoff::Latest::new();
 static HIT_ATLASES: handoff::Latest<BTreeMap<FontKey, Arc<GlyphFont>>> = handoff::Latest::new();
 static HIT_REVISION: AtomicU64 = AtomicU64::new(u64::MAX);
+
+static NATIVE_GEOMETRY: handoff::Latest<std::collections::HashMap<TextRun, Option<Vec<[i32;4]>>>> = handoff::Latest::new();
+
+/// Retain geometry while the selected native image DC is still alive.
+/// A monochrome measuring DC does not establish the pens of a 16-bit draw.
+/// Owned placeholder DCs therefore remain explicitly unsupported here.
+pub(crate) fn record_native_geometry(draw: &jgl::TextDraw<'_>) {
+    if !gdi_text::under_wine() { return; }
+    let mut run = civ3_ui::text::run_of(draw);
+    run.x = 0; run.y = 0;
+    if NATIVE_GEOMETRY.load().is_some_and(|g|g.contains_key(&run)) { return; }
+    let measured = jgl_ffi::text::ink_metrics(draw.image, draw.bytes);
+    let boxes = measured.filter(|(bits,_)|*bits==16 && !run.underline).map(|(_,metrics)| {
+        let mut pen = 0;
+        let mut boxes = Vec::new();
+        for (left,top,width,height,advance) in metrics {
+            if width>0 && height>0 { boxes.push([pen+left,-top,pen+left+width as i32,height as i32-top]); }
+            pen += advance;
+        }
+        boxes
+    });
+    NATIVE_GEOMETRY.update(|old| {
+        let mut map=old.cloned().unwrap_or_default();
+        map.insert(run.clone(),boxes.clone());
+        Some(map)
+    });
+}
 
 /// Query a pixel from the renderer's retained text source. The return value
 /// is `Some(None)` for the colour key and `Some(Some(rgb))` for the exact RGB
@@ -74,6 +110,20 @@ fn keyed_mix(color: [u8; 3], coverage: [u8; 3], key: [u8; 3]) -> Option<[u8; 3]>
 
 impl HitRun {
     fn pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
+        let rendered = self.renderer_pixel(x, y)?;
+        match &self.accuracy {
+            KeyAccuracy::Renderer => Some(rendered),
+            KeyAccuracy::Unavailable => None,
+            KeyAccuracy::Native(boxes) => {
+                // Neither opaque nor transparent is established inside a native
+                // black box. A renderer-only pixel also lacks equivalence.
+                if rendered.is_some() || boxes.iter().any(|&[l,t,r,b]| x>=l && y>=t && x<r && y<b) { None }
+                else { Some(None) }
+            }
+        }
+    }
+
+    fn renderer_pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
         match &self.source {
             HitSource::Atlas { font, advances } => {
                 let mut pen = self.run.x;
@@ -119,11 +169,13 @@ impl HitRun {
                         advance: glyph.advance,
                         ..Default::default()
                     };
-                    let place = tile_render_shared::text::place(words, &text, 0, 0, 1, 1)?;
+                    let place = tile_render_shared::text::place(words, &text, glyph.x, glyph.y, 1, 1)?;
+                    let (l,t,r,b) = tile_render_shared::text::bounds(words, &place);
+                    if x < l || y < t || x >= r || y >= b { continue; }
                     let color = u32::from(self.run.color[0]) << 16 | u32::from(self.run.color[1]) << 8 | u32::from(self.run.color[2]);
                     let coverage = tile_render_shared::text::coverage_all_channels(words, &place, x, y, color);
-                    if coverage.into_iter().any(|c| c != 0) {
-                        result = keyed_mix(self.run.color, coverage.map(|c| c as u8), self.run.backdrop.unwrap_or(crate::ui::KEY_RGB));
+                    if let Some(rgb) = keyed_mix(self.run.color, coverage.map(|c| c as u8), self.run.backdrop.unwrap_or(crate::ui::KEY_RGB)) {
+                        result = Some(rgb);
                     }
                 }
                 Some(result)
@@ -241,12 +293,19 @@ impl Fonts {
         local.y = 0;
         let run = &local;
         let Some(source) = self.hit_source(run, compiled) else { return };
+        let accuracy = self.key_accuracy(run);
         HIT_RUNS.update(|old| {
             let mut runs = old.cloned().unwrap_or_default();
             runs.retain(|hit| hit.run != *run);
-            runs.push(HitRun { run: run.clone(), source: source.clone() });
+            runs.push(HitRun { run: run.clone(), source: source.clone(), accuracy: accuracy.clone() });
             Some(runs)
         });
+    }
+
+    fn key_accuracy(&self, run: &TextRun) -> KeyAccuracy {
+        if !gdi_text::under_wine() { return KeyAccuracy::Renderer; }
+        NATIVE_GEOMETRY.load().and_then(|g|g.get(run).cloned()).flatten()
+            .map_or(KeyAccuracy::Unavailable, KeyAccuracy::Native)
     }
 
     /// Fonts loaded on a thread of their own: [`Fonts::add`] asks for them,

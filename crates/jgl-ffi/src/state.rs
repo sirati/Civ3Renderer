@@ -140,6 +140,7 @@ pub(crate) mod read {
             Surface {
                 image: ImageId(image),
                 owner: image_field(image, offset_of!(JglImage, owner)),
+                row: image_field(image, 0x40) as i32,
                 clip: rect_at(image + offset_of!(JglImage, clip) as u32),
                 bounds: rect_at(image + offset_of!(JglImage, image_rect) as u32),
             }
