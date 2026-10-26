@@ -1735,10 +1735,12 @@ fn compare_query(image:u32,x:i32,y:i32,family:&str,original:impl FnOnce()->u32)-
 
 /// Temporary comparison (CIV3R_JGL_QUERY_COMPARE=1, original jgl only):
 /// the model's key predicate against the original canvas at every point
-/// of the queried image (every 4th on large ones).
+/// of the queried image (every 4th on large ones), once per image.
+/// Per-query comparisons continue throughout the session. Repeating a full
+/// synchronous sweep on ordinary hover events starves the game's input pump.
 fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
-    thread_local! { static LAST: std::cell::RefCell<std::collections::HashMap<u32,std::time::Instant>> = std::cell::RefCell::new(std::collections::HashMap::new()); }
-    if LAST.with_borrow_mut(|l| l.get(&image).is_some_and(|t|t.elapsed().as_secs()<2) || { l.insert(image,std::time::Instant::now()); false }) {return;}
+    thread_local! { static SWEPT: std::cell::RefCell<std::collections::HashSet<u32>> = std::cell::RefCell::new(std::collections::HashSet::new()); }
+    if !SWEPT.with_borrow_mut(|images| images.insert(image)) {return;}
     let Some(jgl)=inproc::Ptr32::<u32>::new(image+4).read().ok().filter(|&p|p!=0) else {return};
     let read=|at:u32|inproc::Ptr32::<u32>::new(jgl+at).read().ok();
     let (Some((w,h)),Some(16),Some(row),Some(bits))=(obj::image_size(image),obj::image_bits(image),read(0x40),read(0x4C0)) else {return};
