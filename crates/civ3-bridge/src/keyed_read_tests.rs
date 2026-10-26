@@ -45,6 +45,15 @@ fn recorded_first_city_caption_is_queried_in_canvas_coordinates() {
     let mut model = cleared(0xa38e4c, (1024, 768));
     model.apply(Event::TextClipped { canvas: 0xa38e4c, run: run.clone(), clip: [0, 0, 1024, 768] });
     assert_eq!(model.keyed_at(0xa38e4c, 132, 324, &crate::ui_opacity::KeyFiles), local.map(|p| p.is_some()));
+    // A native hit can ask for a new string before the publisher emits it.
+    // The loaded font is already a renderer source for this run too.
+    let fresh=TextRun {text:"....".into(),..run.clone()};
+    assert!(HIT_RUNS.load().unwrap().iter().all(|hit|hit.run.text!=fresh.text));
+    let source=fonts.hit_source(&TextRun {x:0,y:0,..fresh.clone()},&compiled.fonts).unwrap();
+    let expected=HitRun {run:TextRun {x:0,y:0,..fresh.clone()},source};
+    for y in 313..333 { for x in 100..150 {
+        assert_eq!(keyed_pixel(&fresh,x,y),expected.pixel(x-fresh.x,y-fresh.y));
+    }}
     // Check ink and empty space around the actual read, with the same
     // retained source used after a form move or a clipped canvas copy.
     for y in 313..333 { for x in 100..200 {
@@ -132,18 +141,24 @@ fn recorded_science_outline_read_uses_each_characters_measured_pen() {
     let mut sprites = Vec::new();
     fonts.run_sprites(&run, None, &compiled, 0, &mut sprites);
     assert_eq!(sprites.len(), run.text.chars().count());
-    let ink: Vec<_> = (88..104).flat_map(|y| (385..470).map(move |x|(x,y))).filter(|&(x,y)| keyed_pixel(&run,x,y).is_some_and(|p|p.is_some())).collect();
-    assert!(ink.iter().any(|&(x,_)|x>430), "later glyphs must not be overlaid at the first pen");
-    for (x,y) in ink {
-        let covering = sprites.iter().filter(|s| {
+    let mut ink = 0;
+    for y in 80..110 { for x in 380..485 {
+        let rendered = sprites.iter().filter_map(|s| {
             let g = s.glyph.unwrap();
             let face = &compiled.fonts[g.font as usize].1;
-            let text = tile_render_shared::text::TextGlyph { glyph: face.record(face.glyph(g.ch).unwrap()), em: g.em64, advance: g.advance, ..Default::default() };
+            let flags=tile_render_shared::text::TEXT_BOLD*u32::from(g.bold)
+                |tile_render_shared::text::TEXT_ITALIC*u32::from(g.italic);
+            let text = tile_render_shared::text::TextGlyph { glyph: face.record(face.glyph(g.ch).unwrap()), em: g.em64, advance: g.advance, flags, ..Default::default() };
             let place = tile_render_shared::text::place(&face.words,&text,s.x,s.y,1,1).unwrap();
-            tile_render_shared::text::keyed(tile_render_shared::text::coverage_all_channels(&face.words,&place,x,y,0),0,0xff00ff).is_some()
-        }).count();
-        assert!(covering>0, "query ink ({x},{y}) must belong to a viewer glyph at its emitted pen");
-    }
+            // These are the viewer's coverage and key-mix functions, applied
+            // to its emitted instances. Check empty pixels as well as ink.
+            tile_render_shared::text::keyed(tile_render_shared::text::coverage_all_channels(&face.words,&place,x,y,0),0,0xff00ff)
+                .map(|rgb|rgb.map(|c|c as u8))
+        }).last();
+        assert_eq!(keyed_pixel(&run,x,y),Some(rendered),"viewer pixel ({x},{y})");
+        if rendered.is_some() && x>430 {ink+=1;}
+    }}
+    assert!(ink>0,"later glyphs must not be overlaid at the first pen");
     let moved = TextRun { x: run.x+448, y:run.y+156, ..run.clone() };
     for y in 88..104 { for x in 380..475 {
         assert_eq!(keyed_pixel(&run,x,y),keyed_pixel(&moved,x+448,y+156));
@@ -151,28 +166,17 @@ fn recorded_science_outline_read_uses_each_characters_measured_pen() {
 }
 
 #[test]
-fn unretained_native_text_never_claims_exact_coverage_inside_its_clip() {
-    let (mut run, fonts, compiled) = science();
-    run.x=0; run.y=0;
-    let source=fonts.hit_source(&run,&compiled).unwrap();
-    let hit=HitRun {run:run.clone(),source,accuracy:KeyAccuracy::Unavailable};
-    assert_eq!(hit.pixel(3,-4),None);
-    assert_eq!(hit.pixel(100,20),None,"outline emptiness does not prove Wine emptiness");
-    struct Missing;
-    impl KeySources for Missing {
-        fn file(&self,_:&str,_:i32,_:i32,_:Option<&menu::screen::PaletteFrom>)->Option<FileSample> {None}
-    }
-    let mut model=cleared(1,(120,40));
-    run.x=10;run.y=20;
-    model.apply(Event::TextClipped {canvas:1,run,clip:[10,8,90,24]});
-    assert_eq!(model.keyed_at(1,13,16,&Missing),None);
-    assert_eq!(model.keyed_at(1,100,30,&Missing),Some(false),"outside the recorded clip remains known");
-    model.apply(Event::Fill {canvas:1,rect:[12,15,2,2],rgb:[0;3],alpha:255,clip:None});
-    assert_eq!(model.keyed_at(1,13,16,&Missing),Some(true),"a later opaque record establishes its own pixels");
+fn retained_text_answers_from_the_renderer_without_native_certification() {
+    let (run, fonts, compiled) = science();
+    fonts.publish_hit(&run, &compiled);
+    for y in 80..110 { for x in 380..480 {
+        assert!(keyed_pixel(&run,x,y).is_some());
+    }}
+    assert_eq!(keyed_pixel(&TextRun {face:"missing source".into(),..run}, 0, 0),None);
 }
 
 #[test]
-fn recorded_padded_console_button_retains_unknown_corner_after_contiguous_clear() {
+fn recorded_padded_console_button_leaves_unwritten_corner_transparent() {
     use jgl::{FillCall, ImageId, Rect, Surface};
     let target=Surface {image:ImageId(1),owner:0xa0b3d0,row:16,clip:Rect::new(0,0,15,15),bounds:Rect::new(0,0,15,15)};
     let call=FillCall::Fill {target,rect:None,color:0x80007c1f};
@@ -191,7 +195,12 @@ fn recorded_padded_console_button_retains_unknown_corner_after_contiguous_clear(
     model.apply(Event::Blit {sprite:3,canvas,x:0,y:0,clip:None,palette:None});
     assert_eq!(model.keyed_at(canvas,13,14,&crate::ui_opacity::KeyFiles),Some(true));
     assert_eq!(model.keyed_at(canvas,14,13,&crate::ui_opacity::KeyFiles),Some(false));
-    assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),None,"the legacy 0x4210 is uninitialized content");
+    assert_eq!(model.shown_at(canvas,14,14,&|_,_,_,_|None),civ3_ui::ui::Shown::Nothing);
+    assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),Some(false),"the viewer draws nothing at the unwritten corner");
+    // A subsequent frame texture operation must use the same transparent
+    // base, rather than adding Unknown solely for the padded tail.
+    assert_eq!(model.tile_under(2,[1,1,15,1],canvas,[0,14,15,1],0xfd,None),Ok(()));
+    assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),Some(false));
     model.apply(Event::Fill {canvas,rect:[14,14,1,1],rgb:KEY_RGB,alpha:255,clip:None});
     assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),Some(false),"a later known writer resolves that pixel");
 }

@@ -20,8 +20,7 @@ type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 
 /// The renderer's retained text source. The outline variant uses the same
 /// packed face words and integer coverage routine as the GPU; the atlas
-/// variant uses its loaded 1:1 glyph images. Native queries also require a
-/// supported equivalence to that source. No GDI surface is calibrated.
+/// variant uses its loaded 1:1 glyph images. No GDI surface is calibrated.
 #[derive(Clone)]
 enum HitSource {
     Atlas { font: Arc<GlyphFont>, advances: Vec<(char, i32)> },
@@ -41,50 +40,60 @@ struct HitGlyph {
 }
 
 #[derive(Clone)]
-enum KeyAccuracy {
-    Renderer,
-    Unavailable,
-}
-
-#[derive(Clone)]
 struct HitRun {
-    accuracy: KeyAccuracy,
     run: TextRun,
     source: HitSource,
 }
 
 static HIT_RUNS: handoff::Latest<Vec<HitRun>> = handoff::Latest::new();
 static HIT_ATLASES: handoff::Latest<BTreeMap<FontKey, Arc<GlyphFont>>> = handoff::Latest::new();
+#[derive(Clone)]
+struct HitResources {
+    faces: Vec<(String, Arc<tile_render::gpu_text::Face>)>,
+    measures: bool,
+}
+static HIT_RESOURCES: handoff::Latest<HitResources> = handoff::Latest::new();
 static HIT_REVISION: AtomicU64 = AtomicU64::new(u64::MAX);
 
 /// Query a pixel from the renderer's retained text source. The return value
 /// is `Some(None)` for the colour key and `Some(Some(rgb))` for the exact RGB
-/// result; `None` means this pixel has no supported native-equivalent source.
+/// result; `None` means this run has no retained renderer source.
 pub(crate) fn keyed_pixel(run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
-    let runs = HIT_RUNS.load()?;
     let mut local = run.clone();
     local.x = 0;
     local.y = 0;
-    runs.iter().rev().find(|hit| hit.run == local).and_then(|hit| hit.pixel(x - run.x, y - run.y))
+    let hit = HIT_RUNS.load().and_then(|runs| runs.iter().rev().find(|hit| hit.run == local).cloned());
+    let hit = match hit {
+        Some(hit) => hit,
+        None => {
+            // A game-thread hit can precede the publisher's first emission
+            // of a new label or hover colour. The source is the retained
+            // font, not the fact that this exact string was emitted already.
+            let resources = HIT_RESOURCES.load()?;
+            let fonts = Fonts { measures: resources.measures, ..Fonts::default() };
+            let source = fonts.hit_source(&local, &resources.faces)?;
+            let hit = HitRun { run: local, source };
+            HIT_RUNS.update(|old| {
+                let mut runs=old.cloned().unwrap_or_default();
+                runs.retain(|old|old.run!=hit.run);
+                runs.push(hit.clone());
+                Some(runs)
+            });
+            hit
+        }
+    };
+    hit.pixel(x-run.x,y-run.y)
 }
 
 fn keyed_mix(color: [u8; 3], coverage: [u8; 3], key: [u8; 3]) -> Option<[u8; 3]> {
-    let mut out = [0; 3];
-    let mut differs = false;
-    for i in 0..3 {
-        let five = ((u32::from(key[i]) * (255 - u32::from(coverage[i])) + u32::from(color[i]) * u32::from(coverage[i])) / 255 >> 3) as u8;
-        out[i] = (five << 3) | (five >> 2);
-        differs |= five != key[i] >> 3;
-    }
-    differs.then_some(out)
+    let packed = |c: [u8; 3]| (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2]);
+    tile_render_shared::text::keyed(coverage.map(u32::from), packed(color), packed(key))
+        .map(|rgb| rgb.map(|c| c as u8))
 }
 
 impl HitRun {
     fn pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
-        match self.accuracy {
-            KeyAccuracy::Renderer => self.renderer_pixel(x, y),
-            KeyAccuracy::Unavailable => None,
-        }
+        self.renderer_pixel(x, y)
     }
 
     fn renderer_pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
@@ -222,8 +231,8 @@ impl Fonts {
         result.expect("atlas source published")
     }
 
-    fn hit_source(&self, run: &TextRun, compiled: &Compiled) -> Option<HitSource> {
-        if let (Some((_, face)), Some(layout)) = (compiled.font(&run.face), self.game_layout(run)) {
+    fn hit_source(&self, run: &TextRun, faces: &[(String, Arc<tile_render::gpu_text::Face>)]) -> Option<HitSource> {
+        if let (Some((_, face)), Some(layout)) = (faces.iter().find(|(name,_)|name==&run.face), self.game_layout(run)) {
             let chars: Vec<char> = run.text.chars().collect();
             if chars.len() == layout.advances.len() {
                 let em64 = Self::fitting_em(run, face, chars.iter().copied(), layout.advances.iter().sum());
@@ -233,22 +242,26 @@ impl Fonts {
                     let bar = run.underline.then_some(HitGlyph { bar: Some(layout.underline), ..glyph.clone() });
                     std::iter::once(glyph).chain(bar)
                 }).collect();
-                let face = compiled.fonts.iter().find(|(name, _)| name == &run.face)?.1.clone();
+                let face = face.clone();
                 return Some(HitSource::Outline { face, glyphs });
             }
         }
         let want = key(run);
-        let font = self.fonts.get(&want).and_then(Option::as_ref)?.clone();
+        let font = self.fonts.get(&want).and_then(Option::as_ref).map(|font|self.atlas_source(&want,font))
+            .or_else(||HIT_ATLASES.load().and_then(|fonts|fonts.get(&want).cloned()))?;
         if legacy_run(run, &font) { return None; }
         let mut advances: Vec<i32> = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|glyph| glyph.advance).collect();
         self.fit(run, &mut advances);
         let advances = run.text.chars().filter(|c| font.glyphs.contains_key(c)).zip(advances).collect();
-        Some(HitSource::Atlas { font: self.atlas_source(&want, &font), advances })
+        Some(HitSource::Atlas { font, advances })
     }
 
     fn publish_hit(&self, run: &TextRun, compiled: &Compiled) {
+        let changed=HIT_RESOURCES.load().is_none_or(|old| old.measures!=self.measures || old.faces.len()!=compiled.fonts.len()
+            || old.faces.iter().zip(&compiled.fonts).any(|((a,af),(b,bf))|a!=b || !Arc::ptr_eq(af,bf)));
+        if changed { HIT_RESOURCES.update(|_|Some(HitResources {faces:compiled.fonts.clone(),measures:self.measures})); }
         if HIT_REVISION.swap(self.revision, Ordering::AcqRel) != self.revision {
-            HIT_ATLASES.update(|_| Some(BTreeMap::new()));
+            HIT_ATLASES.update(|_| Some(self.fonts.iter().filter_map(|(key,font)|font.as_ref().map(|font|(key.clone(),Arc::new(font.clone())))).collect()));
         }
         // Form placement and clipped canvas copies translate the baseline.
         // Retain the renderer source in baseline-relative coordinates.
@@ -256,15 +269,11 @@ impl Fonts {
         local.x = 0;
         local.y = 0;
         let run = &local;
-        let Some(source) = self.hit_source(run, compiled) else { return };
-        // The fitted outlines and Windows atlases are viewer sources, but
-        // they do not establish Wine's native hinted text pixels. GDI black
-        // boxes also missed reached ink, so no exact footprint is certified.
-        let accuracy = if gdi_text::under_wine() { KeyAccuracy::Unavailable } else { KeyAccuracy::Renderer };
+        let Some(source) = self.hit_source(run, &compiled.fonts) else { return };
         HIT_RUNS.update(|old| {
             let mut runs = old.cloned().unwrap_or_default();
             runs.retain(|hit| hit.run != *run);
-            runs.push(HitRun { run: run.clone(), source: source.clone(), accuracy: accuracy.clone() });
+            runs.push(HitRun { run: run.clone(), source: source.clone() });
             Some(runs)
         });
     }
