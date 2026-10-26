@@ -612,7 +612,7 @@ impl Trace {
                 Some("ui_image") if f.len() >= 12 => {
                     let v = (1..12).map(|k| n(k).map(|v| v as i32)).collect::<Result<Vec<_>, _>>()?;
                     let path = f[12..].join(" ");
-                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Image {
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::Image { retained:None,
                         path,
                         rect: [v[7], v[8], v[9], v[10]],
                         x: v[0],
@@ -626,7 +626,7 @@ impl Trace {
                 }
                 Some("ui_resized_image") if f.len() >= 17 => {
                     let v=(1..16).map(|k|n(k).map(|v|v as i32)).collect::<Result<Vec<_>,_>>()?;
-                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::ResizedImage {
+                    t.ui.get_or_insert_with(Default::default).draws.push(crate::ui::ScreenDraw::ResizedImage { retained:None,
                         path:f[16..].join(" "),rect:[v[7],v[8],v[9],v[10]],x:v[0],y:v[1],size:(v[11],v[12]),
                         sample_step:[v[13] as u32,v[14] as u32],keyed:v[2]!=0,clip:[v[3],v[4],v[5],v[6]],mask:None,palette:None,opacity:255,
                     });
@@ -673,11 +673,11 @@ impl Trace {
                         let indices = menu::screen::Indices { transparent, shade, ..Default::default() };
                         match draw {
                             crate::ui::ScreenDraw::Image { path, rect, x, y, clip, palette, .. } => {
-                                *draw = crate::ui::ScreenDraw::Indexed { path: path.clone(), rect: *rect, x: *x, y: *y, clip: *clip, palette: palette.clone(), indices };
+                                *draw = crate::ui::ScreenDraw::Indexed { retained:None,path: path.clone(), rect: *rect, x: *x, y: *y, clip: *clip, palette: palette.clone(), indices };
                             }
                             crate::ui::ScreenDraw::ResizedImage { path, rect, x, y, clip, palette, size, sample_step, .. } => {
                                 let indices = menu::screen::Indices { resize: Some(menu::screen::IndexedResize { size: (size.0 as u32, size.1 as u32), sample_step: *sample_step }), ..indices };
-                                *draw = crate::ui::ScreenDraw::Indexed { path: path.clone(), rect: *rect, x: *x, y: *y, clip: *clip, palette: palette.clone(), indices };
+                                *draw = crate::ui::ScreenDraw::Indexed { retained:None,path: path.clone(), rect: *rect, x: *x, y: *y, clip: *clip, palette: palette.clone(), indices };
                             }
                             _ => {}
                         }
@@ -709,7 +709,7 @@ impl Trace {
                 Some("ui_image_mask") if f.len() >= 4 => {
                     let at = (n(1)? as i32, n(2)? as i32);
                     if let Some(crate::ui::ScreenDraw::Image { mask, .. } | crate::ui::ScreenDraw::ResizedImage { mask, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) {
-                        *mask = Some(crate::ui::Mask { path: f[3..].join(" "), at });
+                        *mask = Some(crate::ui::Mask { retained:None,premultiplied:false,path: f[3..].join(" "), at });
                     }
                 }
                 Some("ui_fill") if f.len() >= 12 => {

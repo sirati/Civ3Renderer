@@ -148,7 +148,7 @@ mod tests {
     const BAND: [i32; 4] = [448, 306, 1024, 320];
 
     fn icon(x: i32, y: i32) -> ScreenDraw {
-        ScreenDraw::Image { path: "Art/City Screen/CityIcons.pcx".into(), rect: [0, 0, 16, 16], x, y, keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 }
+        ScreenDraw::Image { retained:None,path: "Art/City Screen/CityIcons.pcx".into(), rect: [0, 0, 16, 16], x, y, keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 }
     }
 
     /// Where the game's tile → screen conversion (0x4E3BD0, plus half a
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn only_the_maps_overlay_moves_and_stays_within_the_band() {
         let a = Anchor { camera: (0, 0), band: BAND, shift: (64, -32) };
-        let background = ScreenDraw::Image { path: "Art/City Screen/background.pcx".into(), rect: [0, 0, 1024, 768], x: 448, y: 156, keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 };
+        let background = ScreenDraw::Image { retained:None,path: "Art/City Screen/background.pcx".into(), rect: [0, 0, 1024, 768], x: 448, y: 156, keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 };
         let button = icon(1353, 672);
         let edge = icon(1460, 400);
         let label = icon(10, 10);
@@ -297,7 +297,7 @@ mod worked_targets_tests {
             tiles: vec![Civ3Tile { city_area: -1, ..Default::default() }; 600], ..Default::default() };
         let i = world.index(12, 10);
         world.tiles[i].city_area = 7;
-        let frame = Frame { draws: vec![ScreenDraw::Image { path: "Art/City Screen/background.pcx".into(), rect: [0, 0, 1024, 768], x: 448, y: 156,
+        let frame = Frame { draws: vec![ScreenDraw::Image { retained:None,path: "Art/City Screen/background.pcx".into(), rect: [0, 0, 1024, 768], x: 448, y: 156,
             keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 }], form_draws: vec![(0x740C34, 0..1)], ..Default::default() };
         let anchor = Anchor::new((10, 10), (1920, 1080), [448, 306, 1024, 320], (0, 0), (0, 0));
         (world, frame, anchor)
@@ -451,7 +451,7 @@ mod eligible_targets_tests {
         let mut world = Civ3World { width: 40, height: 30, player: 1, focus_city: Some(7),
             cities: vec![Civ3City { id: 7, x: 10, y: 10, civ: 1, ..Default::default() }],
             tiles: vec![Civ3Tile { city_area: -1, ..Default::default() }; 600], ..Default::default() };
-        let frame = Frame { draws: vec![ScreenDraw::Image { path: "Art/City Screen/background.pcx".into(), rect: [0, 0, 1024, 768], x: 448, y: 156,
+        let frame = Frame { draws: vec![ScreenDraw::Image { retained:None,path: "Art/City Screen/background.pcx".into(), rect: [0, 0, 1024, 768], x: 448, y: 156,
             keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 }], form_draws: vec![(0x740C34, 0..1)], ..Default::default() };
         let anchor = Anchor::new((10, 10), (1920, 1080), [448, 306, 1024, 320], (0, 0), (0, 0));
         let mut eligible = vec![false; 21];

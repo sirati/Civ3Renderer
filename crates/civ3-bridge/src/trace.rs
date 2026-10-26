@@ -573,7 +573,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
         }
         for d in &frame.draws {
             let _ = match d {
-                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette, opacity } => {
+                crate::ui::ScreenDraw::Image { path, rect: [rx, ry, rw, rh], x, y, keyed, clip: [c0, c1, c2, c3] , mask, palette, opacity, .. } => {
                     let _ = writeln!(out, "ui_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {path}", *keyed as u8);
                     if *opacity != 255 {
                         let _ = writeln!(out, "ui_image_opacity {opacity}");
@@ -586,7 +586,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         None => Ok(()),
                     }
                 }
-                crate::ui::ScreenDraw::Indexed { path, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3], palette, indices } => {
+                crate::ui::ScreenDraw::Indexed { path, rect: [rx, ry, rw, rh], x, y, clip: [c0, c1, c2, c3], palette, indices, .. } => {
                     if let Some(resize) = indices.resize {
                         let (w, h) = resize.size;
                         let [sx, sy] = resize.sample_step;
@@ -603,7 +603,7 @@ fn format_trace(game: &Civ3, map_renderer: u32, draws: &[Draw]) -> String {
                         writeln!(out, "ui_image_palette_alpha {} {} {} {} {} {}", p.first, p.count, p.skip[0], p.skip[1], p.skip[2], p.source)
                     } else { Ok(()) }
                 }
-                crate::ui::ScreenDraw::ResizedImage { path, rect: [rx, ry, rw, rh], x, y, size: (w,h), sample_step:[sx,sy], keyed, clip:[c0,c1,c2,c3], mask,palette,opacity } => {
+                crate::ui::ScreenDraw::ResizedImage { path, rect: [rx, ry, rw, rh], x, y, size: (w,h), sample_step:[sx,sy], keyed, clip:[c0,c1,c2,c3], mask,palette,opacity, .. } => {
                     let _ = writeln!(out,"ui_resized_image {x} {y} {} {c0} {c1} {c2} {c3} {rx} {ry} {rw} {rh} {w} {h} {sx} {sy} {path}",*keyed as u8);
                     if *opacity !=255 { let _=writeln!(out,"ui_image_opacity {opacity}"); }
                     if let Some(p)=palette { let _=writeln!(out,"ui_image_palette {} {} {}",p.first,p.count,p.image); }

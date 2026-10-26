@@ -79,6 +79,71 @@ pure-commit provenance is not certified. Final production artifacts were
 rebuilt after `34d7add`. Failed launch attempts, artifacts and restoration
 records are retained separately.
 
+## Group 6 correction checkpoint, 25 October 2026
+
+This isolated continuation merges `339bac3` and accepted standalone Group 7
+`5ca2cf6` while retaining the parent's acceptance record. Group 6 remains
+unaccepted and `CIV3R_JGL=own` remains an explicit opt-in. Evidence for this
+round is `/mnt/datasets/c3r-build/jgl-group6-data-20261025`.
+
+[V] New binary comparisons found and corrected two concrete defects. Image
+`+0x38` traverses overlapping bytes forwards, observing preceding writes;
+a snapshot differs on nine adversarial cases. The constructor key is
+`0x80007C1F`, not `0x7FFF7C1F`. Defined depth/no-DC errors now precede the
+data policy. The corrected test passes 201 data operations, 19,660 bytes,
+and 492 defined state/error pairs. It covers padded rows, destination clips,
+negative source/destination origins, overlap, initial `+0x58`, byte/word
+replacement, repeated creates, lock thunks and over-unlock. It excludes
+undefined register values, handle identities, allocation failure and use of
+the original's dangling pointer after clear. This closes these scoped
+subcontracts, not the entire image state/error row.
+
+[V] The C3X GDI+ sequence now has a drawing test against original jgl,
+8,224 status/state pairs and 16 image lifetimes with zero differences. It
+covers direct-DC binding, smoothing, clips, pen width/alpha/dashing, four
+line placements, release before drawing and deletion. The 1x1 scratch DC
+has no authoritative canvas pixels. C3X's checked sequence consumes the
+status and retained graphics handle, never the scratch pixels. Logical image
+clip state matches; effective bitmap extents and resulting pixels are not
+claimed equal. Mill source/rendering and actual enabled-feature qualification
+remain outside this test.
+
+[V] Both frame-reader sites cover **four** caches. The branch into
+`608E7E` also selects `+0x124` and `+0x120`, alongside bottom `+0x128`;
+`608E0A` reads top `+0x11C`. `606F30` allocates and initializes them;
+`607170` paints backgrounds, tiled images, frame lines, caption text and
+virtual per-form content. The retained disassembly records these writers.
+The global capped sprite history and its O(n) eviction are removed. Frame
+queries now use the viewer's retained canvas model. The oldinterface probe
+alone retains per-image immutable source/crop/placement/clip, independent of
+sprite and source-image destruction. Tests include 1,200 unrelated canvases
+without evicting a retained frame source.
+
+The shared model now explicitly refuses unrepresented writers, unknown
+initial content, text glyphs, masked/paletted/translucent samples and indexed
+samples without an exact query. Such provenance follows slices/copies and
+ends with the appropriate clear/reset/full overwrite. Owned hit queries
+terminate with a contract error instead of guessing transparency or reading
+dummy bytes. **This is an explicit unsupported-contract boundary, not frame
+acceptance.** `+0x38` frame tiling and caption pixels still need exact shared
+semantic answers and original live predicate comparisons. The loaded-art
+`+0x58` basename rules have not been accepted as instance/rectangle transforms;
+those sources are now refused by exact hit queries rather than silently
+certified. Other reader families and dynamic/replay/scenario qualification
+remain open as described in the matrix below.
+
+[V] The installed baseline failed before a usable viewer because its bridge
+sent wire version 43 to a native library expecting 11. Fresh, paired builds
+using the initial merged Windows candidate `b81e7ce` reached a visible original title and save summary,
+then an owned title, loaded map, F3/F5 and the quit dialog. Those images are
+scoped startup diagnosis on the **initial merged code**, which still had the
+rejected frame reconstruction. They establish neither final-code frame
+comparison nor wider screen/turn/combat acceptance. The initial host build
+has retained hashes but no contemporaneous dirty-source snapshot, so its
+pure-commit provenance is not certified. Final production artifacts were
+rebuilt after `34d7add`. Failed launch attempts, artifacts and restoration
+records are retained separately.
+
 ## Per-contract matrix
 
 | Contract | Required behaviour and source | Current owned implementation or change | Scoped evidence and outstanding gate |

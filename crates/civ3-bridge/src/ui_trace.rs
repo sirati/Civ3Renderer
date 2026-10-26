@@ -125,6 +125,7 @@ static ORIGINAL_PRESENT_ALL: AtomicBool = AtomicBool::new(false);
 thread_local! { static ORIGINAL_REFRESHING: Cell<bool> = const { Cell::new(false) }; }
 /// The game's build, once the hooks are installed.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
+pub(crate) fn build() -> Option<&'static civ3_sys::Build> { BUILD.get() }
 
 /// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
 static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
@@ -189,9 +190,8 @@ fn policy() -> crate::game_render::StartupPolicy {
 
 /// Whether sprites' pixels are the placeholder (`jgl_ffi::blit::placeholder`)
 /// and jgl draws no blit: with a viewer, the game not drawing (no
-/// `CIV3R_GAME_RENDER=on`, no compatibility renderer) and no
-/// `CIV3R_JGL_COMPARE` (whose old path reads the sprites jgl made). Decided
-/// once: a sprite keeps the pixels it was made with.
+/// `CIV3R_GAME_RENDER=on`, no compatibility renderer). Decided once: a
+/// sprite keeps the pixels it was made with.
 pub(crate) fn placeholder_sprites() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -262,6 +262,10 @@ pub fn prepare_worker(game: &Civ3) -> Result<(), String> {
         if CAPTURE.status()? { return Ok(()) }
         let point = CapturePoint::Worker { graphics_initialized: h::graphics_initialized(game.build) };
         if point.allowed() {
+            // Our jgl: no jgl.dll to wait for.
+            if jgl_ffi::own::on() {
+                return install_configured(0, point).map(|_| ());
+            }
             if let Some(base) = inproc::pe::module_base("jgl.dll") {
                 return install_configured(base, point).map(|_| ());
             }
@@ -310,6 +314,17 @@ fn install_configured(base: u32, point: CapturePoint) -> Result<bool, String> {
 /// Whether drawing is being skipped.
 pub fn skipping() -> bool {
     DRAWING.skipping()
+}
+
+/// Data buffers whose game-written pixels must survive owned image copies.
+pub(crate) fn preserve_image_data(_image: jgl::ImageId, owner: u32) -> bool {
+    BUILD.get().is_some_and(|&build| {
+        h::navigator_data_image(build, owner)
+            || h::replay_data_image(build, owner)
+            || h::form_surface_image(build, owner)
+            || is_data_image(owner)
+            || FORM_SURFACES.get().is_some_and(|surfaces| surfaces.iter().any(|&(surface, _)| surface == owner))
+    })
 }
 
 /// Whether an image or sprite has pixels (its `JGL_Image*` / `JGLSprite*`
@@ -525,13 +540,14 @@ pub(crate) struct NativeUi {
     pub military: Vec<civ3_sys::controls::screens::UnitStrip>,
     pub status_row: Option<(u32, [i32; 4])>,
     pub arts: Vec<crate::looks::ControlArt>,
+    pub selection: Option<std::sync::Arc<crate::ui_selection::DeferredControls>>,
 }
 
 impl NativeUi {
     fn read(model: &UiModel) -> Self {
         let Some(&build) = BUILD.get() else { return Self::default() };
         let Some(sites) = civ3_sys::controls::sites(build) else { return Self::default() };
-        let mem = civ3_sys::controls::Live;
+        let mem = crate::ui_selection::Memory::new();
         let controls = civ3_sys::controls::controls(&mem, &sites);
         Self {
             modal_stack: civ3_sys::modal::modal_stack(&mem, build).unwrap_or_default(),
@@ -539,6 +555,7 @@ impl NativeUi {
             military: civ3_sys::controls::screens::military_unit_strips(&mem, &controls),
             status_row: civ3_sys::controls::status_unit_row(&mem, &sites, &controls),
             arts: controls.iter().filter_map(|control| control_art(model, &sites, control)).collect(),
+            selection: mem.finish(sites),
             controls,
         }
     }
@@ -915,12 +932,41 @@ fn replay_operation(navigator: u32, operation: crate::replay::Operation) -> bool
 /// Written by the game's thread (the only writer), read by the publisher.
 static FORM_SURFACES: handoff::Latest<Vec<(u32, &'static str)>> = handoff::Latest::new();
 
+/// Loaded indexed sheets whose exe-side +0x58 transform changes the bytes
+/// later read by sprite crops. This is a game-thread lifetime map, not a
+/// general canvas keep set.
+thread_local! {
+    static DATA_IMAGES: std::cell::RefCell<Vec<(u32, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn note_data_image(image: u32, path: &str) {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    if lower.ends_with("art/terrain/territory.pcx") || lower.ends_with("art/units/units_32.pcx") || lower.ends_with("art/advisors/foreigntab.pcx") {
+        DATA_IMAGES.with_borrow_mut(|images| {
+            images.retain(|(at, _)| *at != image);
+            images.push((image, lower));
+        });
+    }
+}
+
+fn forget_data_image(image: u32) {
+    DATA_IMAGES.with_borrow_mut(|images| images.retain(|(at, _)| *at != image));
+}
+
+fn is_data_image(image: u32) -> bool {
+    DATA_IMAGES.with_borrow(|images| images.iter().any(|(at, _)| *at == image))
+}
+
 /// The surfaces the game fills itself: the fixed ones and the forms' own
 /// seen so far (see `ui_screen::items`).
 pub fn generated_surfaces(build: civ3_sys::Build) -> Vec<(u32, &'static str)> {
     let mut out = h::generated_surfaces(build).to_vec();
     out.extend(form_surfaces());
     out
+}
+
+pub(crate) fn generated_name(image:u32)->Option<&'static str> {
+    generated_surfaces(*BUILD.get()?).into_iter().find(|&(at,_)|at==image).map(|(_,name)|name)
 }
 
 /// The forms' own surfaces seen so far: image and name.
@@ -980,6 +1026,43 @@ fn copy(from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool, clip
 fn clip_from(canvas: u32, clip: Option<[i32; 4]>) -> Option<[i32; 4]> {
     let dirty = if BACK_BUFFER.get() == Some(&canvas) { DIRTY.with(Cell::get) } else { None };
     crate::ui::content_clip(clip, dirty)
+}
+
+/// A writer not represented by the shared UI sources must remain unknown
+/// to owned pixel readers until an explicit full overwrite or clear.
+pub(crate) fn unanswered_canvas(canvas: u32) {
+    with_model(false, |m| m.unanswered(canvas));
+}
+
+pub(crate) fn replace_indices(target:jgl::Surface,rect:jgl::Rect,from:u32,to:u32) {
+    let clip=target.clip;
+    let rect=[rect.left.max(clip.left),rect.top.max(clip.top),rect.right.min(clip.right),rect.bottom.min(clip.bottom)];
+    if rect[2]<=rect[0] || rect[3]<=rect[1] {return;}
+    with_model(false,|m| {
+        if !m.replace_indices(target.owner,rect,from as u8,to as u8) {
+            m.unanswered_in(target.owner,[rect[0],rect[1],rect[2]-rect[0],rect[3]-rect[1]]);
+        }
+    });
+}
+
+pub(crate) fn tile_under(source:jgl::Surface,target:jgl::Surface,src:(i32,i32),at:(i32,i32),size:(i32,i32),mode:u32) {
+    let (Some((sw,sh)),Some((tw,th)))=(obj::image_size(source.owner),obj::image_size(target.owner)) else {return};
+    let plane=|w,h,bits|jgl::memory::Plane {width:w,height:h,row:w,bits};
+    let Some(bits)=obj::image_bits(target.owner) else {return};
+    let table=obj::image_color_entries(source.owner).map(|c|std::array::from_fn(|i|[c[i] as u8,(c[i]>>8) as u8,(c[i]>>16) as u8]));
+    // Geometry only: the copy's own clipping, and its error (no pixels
+    // change) for a missing table or an unsupported depth.
+    let palette=[0u16;256];
+    let plan=jgl::memory::IndexedCopy::new(plane(sw,sh,8),plane(tw,th,bits as i32),src.0,src.1,at.0,at.1,size.0,size.1,target.clip,mode,table.is_some().then_some(&palette));
+    let Ok(plan)=plan else {return};
+    let (src,dst)=plan.regions();
+    with_model(false,|m| {
+        let tiled=if bits==16 {m.tile_under(source.owner,src,target.owner,dst,mode as u8,table.as_ref())} else {Err("8-bit target")};
+        if let Err(why)=tiled {
+            m.unanswered_in(target.owner,dst);
+            log::debug!("tile-under unresolved ({why}) from={:#x} target={:#x} src={src:?} dst={dst:?} mode={mode:#x}",source.owner,target.owner);
+        }
+    });
 }
 
 /// A fill, line or translucent rectangle from jgl's fill group
@@ -1053,15 +1136,23 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         let path = read_c_string(c.path);
         let r = c.original();
         if r == 0 {
+            if let Some(path) = path.as_deref() { note_data_image(c.image, path); }
             with_skipper(|s| s.loaded(c.image));
             if let (Some(path), Some(size)) = (path, obj::image_size(c.image)) {
+                let pixels=crate::ui_opacity::decoded(c.image,c.ct);
+                crate::ui_selection::loaded(c.image, &path, c.ct);
+                if let Some(pixels)=&pixels {crate::ui_opacity::named_palette(&path,pixels.palette);}
                 emit(Event::Loaded { image: c.image, path, size });
+                if let Some(pixels)=pixels { with_model(false,|m|m.loaded_pixels(c.image,pixels)); }
             }
         }
         r
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
+        crate::ui_selection::cleared(c.image);
         forget_form_surface(c.image);
+        forget_data_image(c.image);
+        crate::ui_selection::clear_presence(c.image);
         emit(Event::Cleared { image: c.image });
         with_skipper(|s| s.cleared(c.image));
         c.original()
@@ -1082,6 +1173,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         if obj::sprite_has_pixels(c.sprite) {
             if let Some((cx, cy, w, hh)) = obj::sprite_crop(c.sprite) {
                 let rect = [c.x as i32 + cx, c.y as i32 + cy, w, hh];
+                crate::ui_selection::sliced(c.sprite, c.image);
                 emit(Event::Sliced { sprite: c.sprite, image: c.image, rect });
             }
         }
@@ -1089,34 +1181,48 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     });
     hook!(sprite_copy, sites.sprite_copy, |c| {
         let r = c.original();
+        crate::ui_selection::copied(c.sprite, c.source);
         emit(Event::Copied { sprite: c.sprite, source: c.source });
         r
     });
     hook!(sprite_reset, sites.sprite_reset, |c| {
+        crate::ui_selection::reset(c.sprite);
         emit(Event::Reset { sprite: c.sprite });
         c.original()
     });
     // The keyed forms' hit test reads the pixel under the mouse from the
     // form's canvas. With placeholder sprites jgl draws no sprite there:
     // the interface model answers it, from what the viewer shows.
-    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
-        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| c.original()))?));
+    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites() || query_comparing()) {
+        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| compare_query(c.image,c.x as i32,c.y as i32,"keyed",||c.original()))?));
+    }
+    if (placeholder_sprites() || query_comparing()) && game.build == civ3_sys::Build::PcGames {
+        // These internal frame checks have no public site table. Keep the
+        // expected call bytes tied to the PCGames executable. The second
+        // site handles bottom, left and right caches as well as +0x128.
+        // All four caches query the viewer's retained canvas model.
+        hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E0A, &[0xE8, 0x11, 0x74, 0xFF, 0xFF], |c| {
+            compare_query(c.image,c.x as i32,c.y as i32,"frame",||c.original())
+        })?));
+        hooks.push(Box::new(h::frame_mask_pixel_alt::install_call_site(0x60_8E7E, &[0xE8, 0x9D, 0x73, 0xFF, 0xFF], |c| {
+            compare_query(c.image,c.x as i32,c.y as i32,"frame",||c.original())
+        })?));
     }
     // The art presence test at start reads back an 8-bit image the game
     // drew a sprite into: with placeholder sprites jgl drew nothing there;
     // the sprite's file answers.
     if let Some((site, expected)) = h::art_presence_site(game.build).filter(|_| placeholder_sprites()) {
         hooks.push(Box::new(h::art_presence_pixel::install_call_site(site, expected, |c| {
-            art_presence_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| {
-                log::warn!("art presence: image {:#x} ({}, {}): no sprite known drawn there; jgl's pixel", c.image, c.x, c.y);
-                c.original()
-            })
+            crate::ui_selection::presence_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| semantic_pixel_unavailable(c.image, "art presence", || c.original()))
         })?));
     }
     // The game reads a pixel (what is under the mouse): drawing onto that
     // image goes on from now on (see `skips` for the ones known before).
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
         audit_semantic(SemanticClass::PixelRead);
+        if let Some(answer) = crate::ui_selection::pixel(c.image, c.x as i32, c.y as i32) {
+            return answer;
+        }
         if with_skipper(|s| s.reads(c.image)) == Some(true) {
             log::warn!("game rendering: the game read a pixel of image {:#x}, drawn onto with drawing skipped; drawing onto it from now on", c.image);
         }
@@ -1241,7 +1347,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
-    hook_jgl(jgl)?;
+    // With our jgl (jgl.dll not loaded) its tables have every group already.
+    if !jgl_ffi::own::on() {
+        hook_jgl(jgl)?;
+    }
     // Start one lazy worker after fallible hook setup succeeds. Its world
     // reader runs only on a replay Init command, never during installation.
     if h::replay_sites(game.build).is_some() && REPLAY.get().is_none() {
@@ -1262,7 +1371,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             Err(e) => log::error!("UI mirror: cannot start replay worker: {e}"),
         }
     }
-    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") {
+    if std::env::var("CIV3R_TRACE_PIXELS").as_deref() == Ok("1") && !jgl_ffi::own::on() {
         trace_pixel_access(jgl);
     }
     log::info!("UI mirror: {} hooks", hooks.len());
@@ -1564,23 +1673,32 @@ fn placeholder_read(image: u32, how: &str) {
 /// test, from what the interface model shows there
 /// (`UiModel::shown_at`, the files' pixels from `ui_opacity::pixel`):
 /// the colour key where it is see-through, else its colour as the
-/// canvas's 16-bit value. `None` (jgl's pixel then) outside the canvas
-/// or when the model has no answer.
+/// canvas's 16-bit value. Owned mode refuses an incomplete model answer.
+/// Out-of-bounds follows PCX_Image::get_pixel's defined zero result.
 fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
     let (w, hh) = obj::image_size(canvas)?;
     if x < 0 || y < 0 || x >= w || y >= hh {
-        return None;
+        return Some(0); // PCX_Image::get_pixel, 0x6002C0.
     }
+    if obj::image_bits(canvas) != Some(16) { return None; }
     let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
-    let shown = with_model(false, |m| m.shown_at(canvas, x, y, &crate::ui_opacity::pixel))?;
+    if jgl_ffi::own::on() || query_comparing() {
+        let result=with_model(false, |m|m.keyed_at(canvas,x,y,&crate::ui_opacity::KeyFiles)).flatten();
+        if result.is_none() {log::error!("semantic query {}",with_model(false,|m|m.query_detail(canvas,x,y)).unwrap_or_default());}
+        return result.map(|shown|if shown {key^1} else {key});
+    }
+    let shown = with_model(false, |m| if jgl_ffi::own::on() { m.exact_shown_at(canvas, x, y, &crate::ui_opacity::pixel) } else { m.shown_at(canvas, x, y, &crate::ui_opacity::pixel) })?;
     let answer = match shown {
         crate::ui::Shown::Rgb(rgb) if rgb == crate::ui::KEY_RGB => key,
         crate::ui::Shown::Rgb([r, g, b]) => (u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3),
-        // Nothing drawn: cleared to the key (the model drops what a fill
-        // of the key clears); a file not read yet: the form, as a drawn
-        // pixel would be.
+        // Nothing drawn: cleared to the key. If the source file is not
+        // available, return None so the call site uses the game's original
+        // pixel rather than inventing a hit result.
         crate::ui::Shown::Nothing => key,
-        crate::ui::Shown::Unknown => key ^ 1,
+        crate::ui::Shown::Unknown => {
+            log::error!("semantic query {}", with_model(false, |m| m.query_detail(canvas, x, y)).unwrap_or_default());
+            return None;
+        }
         crate::ui::Shown::NotMirrored => return None,
     };
     if HIT_LOG.with(|n| { let k = n.get(); n.set(k + 1); k < 40 }) {
@@ -1589,58 +1707,59 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
     Some(answer)
 }
 
-thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
-
-thread_local! {
-    /// The last blits onto 8-bit images (`PCX_Image`, `Sprite`, where its
-    /// stored pixels went): what [`art_presence_pixel`] answers from.
-    static INDEX_BLITS: std::cell::RefCell<Vec<(u32, u32, (i32, i32))>> = const { std::cell::RefCell::new(Vec::new()) };
-    /// The last file decoded for it.
-    static INDEX_FILE: std::cell::RefCell<Option<(String, Option<std::sync::Arc<civ3_assets::pcx::Indexed>>)>> = const { std::cell::RefCell::new(None) };
+fn query_comparing() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||std::env::var("CIV3R_JGL_QUERY_COMPARE").as_deref()==Ok("1"));
+    *ON
+}
+fn compare_query(image:u32,x:i32,y:i32,family:&str,original:impl FnOnce()->u32)->u32 {
+    let answer=keyed_hit_pixel(image,x,y);
+    if query_comparing() {
+        let old=original();
+        let key=inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().unwrap() & 0x7fff_ffff;
+        log::info!("query-pair family={family} image={image:#x} x={x} y={y} original={old:#x} answer={answer:?} match={}",answer.map(|a|(a==key)==(old==key)).map_or("unknown",|b|if b {"yes"} else {"NO"}));
+        compare_sweep(image,family,key,(x,y,old));
+        old
+    } else { answer.unwrap_or_else(||semantic_pixel_unavailable(image,family,original)) }
 }
 
-/// Notes a blit onto an 8-bit image (see [`art_presence_pixel`]).
-fn note_index_blit(b: &GameBlit) {
-    if obj::image_bits(b.canvas).is_some_and(|bits| bits <= 8) {
-        INDEX_BLITS.with_borrow_mut(|v| {
-            v.retain(|e| e.0 != b.canvas);
-            if v.len() >= 16 {
-                v.remove(0);
+/// Temporary comparison (CIV3R_JGL_QUERY_COMPARE=1, original jgl only):
+/// the model's key predicate against the original canvas at every point
+/// of the queried image (every 4th on large ones).
+fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
+    thread_local! { static LAST: std::cell::RefCell<std::collections::HashMap<u32,std::time::Instant>> = std::cell::RefCell::new(std::collections::HashMap::new()); }
+    if LAST.with_borrow_mut(|l| l.get(&image).is_some_and(|t|t.elapsed().as_secs()<2) || { l.insert(image,std::time::Instant::now()); false }) {return;}
+    let Some(jgl)=inproc::Ptr32::<u32>::new(image+4).read().ok().filter(|&p|p!=0) else {return};
+    let read=|at:u32|inproc::Ptr32::<u32>::new(jgl+at).read().ok();
+    let (Some((w,h)),Some(16),Some(row),Some(bits))=(obj::image_size(image),obj::image_bits(image),read(0x40),read(0x4C0)) else {return};
+    let pixel=|x:i32,y:i32|inproc::Ptr32::<u16>::new(bits+(y as u32*row+x as u32)*2).read().ok().map(u32::from);
+    let step=if w*h>200_000 {4} else {1};
+    let (mut same,mut differ,mut unknown)=(0u32,0u32,0u32);
+    let mut shown=[0u32;2];
+    with_model(false,|m| {
+        for y in (0..h).step_by(step) { for x in (0..w).step_by(step) {
+            let Some(p)=pixel(x,y) else {continue};
+            shown[usize::from(p!=key)]+=1;
+            match m.keyed_at(image,x,y,&crate::ui_opacity::KeyFiles) {
+                None=>{ unknown+=1; if unknown%97==1 && unknown<400 {log::info!("sweep-unknown family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
+                Some(s) if s==(p!=key)=>same+=1,
+                Some(_)=>{ differ+=1; if differ<=8 {log::info!("sweep-diff family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
             }
-            v.push((b.canvas, b.sprite, b.at));
-        });
-    }
+        }}
+    });
+    log::info!("sweep family={family} image={image:#x} size={w}x{h} step={step} self_check={} key_px={} drawn_px={} same={same} differ={differ} unknown={unknown}",pixel(qx,qy)==Some(old),shown[0],shown[1]);
 }
 
-/// The palette index of the 8-bit image `image` at (x, y) for the game's
-/// art presence test at start (`h::art_presence_site`): the last sprite
-/// drawn onto it, whose pixels are a region of a file (the interface
-/// model's `sprite_source`), read from that file. Outside the sprite's
-/// stored pixels (its crop trimmed the key away) 0xFF, the key. `None`
-/// if nothing known was drawn there.
-fn art_presence_pixel(image: u32, x: i32, y: i32) -> Option<u32> {
-    let (sprite, at) = INDEX_BLITS.with_borrow(|v| v.iter().rev().find(|e| e.0 == image).map(|e| (e.1, e.2)))?;
-    let (path, rect) = with_model(false, |m| match m.sprite_source(sprite) {
-        Some(crate::ui::Source::File { path, rect, .. }) => Some((path.clone(), *rect)),
-        _ => None,
-    })??;
-    let (sx, sy) = (x - at.0, y - at.1);
-    if sx < 0 || sy < 0 || sx >= rect[2] || sy >= rect[3] {
-        return Some(0xFF);
+/// An owned image has no original raster to consult. Missing semantic
+/// provenance is an unsupported contract, never transparency or dummy data.
+fn semantic_pixel_unavailable(image: u32, family: &str, original: impl FnOnce() -> u32) -> u32 {
+    if jgl_ffi::own::on() {
+        log::error!("owned {family} {image:#x}: no exact model answer");
+        end_process(1);
     }
-    let file = INDEX_FILE.with_borrow_mut(|f| {
-        if f.as_ref().is_none_or(|(p, _)| *p != path) {
-            let decoded = civ3_assets::files::read_file(&path).ok().and_then(|b| civ3_assets::pcx::decode(&b).ok()).map(std::sync::Arc::new);
-            *f = Some((path.clone(), decoded));
-        }
-        f.as_ref().and_then(|(_, i)| i.clone())
-    })?;
-    let (fx, fy) = (rect[0] + sx, rect[1] + sy);
-    if fx < 0 || fy < 0 || fx >= file.width as i32 || fy >= file.height as i32 {
-        return Some(0xFF);
-    }
-    Some(u32::from(file.get(fx as u32, fy as u32)))
+    original()
 }
+
+thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
 /// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
 /// it draws onto the screen last (docs §16.5, §16.11): not mirrored, the
@@ -1706,15 +1825,19 @@ fn opacity_blit(sprite: u32, canvas: u32, x: u32, y: u32, opacity: u32, ct: u32,
 }
 
 /// A sprite through an alpha mask, at (x, y) (no crop offset).
-fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option<[i32; 4]>) {
-    if !rerendered(canvas) { emit(Event::MaskedBlit { sprite, mask, canvas, x: x as i32, y: y as i32, clip }); }
+fn masked_blit(sprite: u32, mask: u32, background:u32, canvas: u32, x: u32, y: u32, clip: Option<[i32; 4]>) {
+    if !rerendered(canvas) { emit(Event::MaskedBlit { sprite, mask, background, canvas, x: x as i32, y: y as i32, clip }); }
 }
 
 /// A blit of jgl's sprite group (`civ3_ui::blit`), from the exe function
 /// `b.wrapper`: the interface mirror's events, and the map tracer's record
 /// for the map's three.
 pub fn on_blit(b: &GameBlit) {
-    note_index_blit(b);
+    if b.wrapper == civ3_ui::blit::Wrapper::A4 && h::palace_mask_form(b.canvas).is_some() {
+        let source = with_model(false, |m| m.sprite_source(b.sprite).cloned()).flatten();
+        crate::ui_selection::piece(b, source);
+    }
+    crate::ui_selection::note_presence(b, || with_model(false, |m| m.sprite_source(b.sprite).cloned()).flatten());
     use civ3_ui::blit::Wrapper as W;
     let (x, y) = wrapper_xy(b);
     let clip = clip_from(b.canvas, b.clip);
@@ -1728,7 +1851,7 @@ pub fn on_blit(b: &GameBlit) {
         W::ScaledColored => scaled_colored(sprite, canvas, x, y, placed(b), b.scale, b.extra, ct, clip),
         W::Blend => map_blend_events(sprite, canvas, x, y, placed(b), b.extra, [1, 1, 1], ct, clip),
         W::Opacity => opacity_blit(sprite, canvas, x, y, b.extra, ct, clip),
-        W::Alpha | W::Masked => masked_blit(sprite, b.mask, canvas, x, y, clip),
+        W::Alpha | W::Masked => masked_blit(sprite, b.mask, b.other, canvas, x, y, clip),
         W::DrawOnMap => {
             let [nx, ny, den] = b.scale;
             if !crate::trace::record_map(canvas, sprite, x, y, vec![nx, ny, den, ct], "map") {
@@ -1807,6 +1930,7 @@ mod present_snapshot_tests {
             status_row: Some((88, [x, 100, 120, 20])),
             arts: vec![crate::looks::ControlArt { id: 77, select: scene::Select::None, canvas: 999, part: crate::looks::Part::Whole, state,
                 pieces: vec![vec![(state, model.sprite_source(11).unwrap().clone())]], text_offsets: vec![(state, (x, 0))], colors: vec![], selected_by_fields: false }],
+            selection: None,
         }
     }
 

@@ -14,7 +14,9 @@
 //! - [`surface`]: the factories and deletes, and our method tables;
 //! - [`display`]: the display-mode group's entry points (the display is
 //!   never switched);
-//! - [`count`]: the counting mode's generated stubs.
+//! - [`count`]: the counting mode's generated stubs;
+//! - [`own`]: our jgl, every class's objects and slots ours, for when
+//!   jgl.dll is not loaded.
 //!
 //! No policy lives here: what to record, what the state means and whether
 //! jgl's pixels are still needed is decided by `jgl` and its hooks.
@@ -26,7 +28,9 @@ pub mod copy;
 pub mod count;
 pub mod display;
 pub mod fill;
+pub mod geometry;
 pub mod layout;
+pub mod own;
 pub mod present;
 pub mod surface;
 mod state;
