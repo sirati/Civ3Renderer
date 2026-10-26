@@ -1,0 +1,86 @@
+{
+  "as_of": "2026-10-26",
+  "main_at_review": "a891c1b0d82b79cc9daf99f390a8b84fca08a395",
+  "decision": "Reject duplicate text rasterization and continued original mill raster work. Source correction continues; no experimental implementation accepted or merged.",
+  "parent_inspected": [
+    "Task terminal results and stopped worktree diffs",
+    "3ca7e11 text engine and ac6bde9 per-colour calibration",
+    "2ac04ae row hook and original C3X producer lines 34682-34729",
+    "Mill source/state/art fixtures and retained test logs"
+  ],
+  "findings": [
+    {
+      "path": "crates/civ3-bridge/src/ui_opacity.rs; crates/jgl-ffi/src/geometry.rs; crates/jgl/src/text.rs",
+      "finding": "Hit queries built a second glyph raster source and calibrated scratch TextOutA output, separate from viewer glyph data.",
+      "acceptance": false
+    },
+    {
+      "path": "crates/civ3-bridge/src/ui_mills.rs",
+      "finding": "Row hook calls c.original(), running original mill DC acquire/TransparentBlt/release before emitting native icons.",
+      "acceptance": false
+    },
+    {
+      "path": "crates/civ3-bridge/src/ui_trace.rs::hook_lines",
+      "finding": "After emitting model lines, line_draw still calls the original when skips is false, including keyed canvases. C3X original invokes GdipDrawLineI. Reached owned paths require an audit and removal of unnecessary legacy raster work.",
+      "acceptance": false
+    }
+  ],
+  "required_behavior": [
+    "Use viewer glyph data and placement for text hits",
+    "Avoid legacy mill raster work in owned mode",
+    "Preserve required game-state behavior and original pass-through",
+    "No canvas rasterizer, guessed answers or discarded-draw substitute"
+  ],
+  "preserved_checkpoints": {
+    "hud_frame_independent_fixes": "05f567c",
+    "mixed_palette_and_rejected_text": "3ca7e11",
+    "rejected_per_colour_recovery": "ac6bde9c30399fea0a88a367b410a64adf3992c3",
+    "mill_implementation": "2ac04ae",
+    "mill_sampling": "538d23c",
+    "mill_docs_recovery": "b753a5f6e61bd66462006818573c1a60eb6a2977"
+  },
+  "historical_test_limits": "42-million-pixel font comparison and 65,537 source cases/20,736 icon pixels do not accept the rejected production architecture. Parent has read retained logs but has not independently replayed or accepted later HUD/mill changes.",
+  "continuations": [
+    {
+      "title": "Share renderer glyph source for HUD/frame text hits",
+      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-shared-glyph-source-20261026-8",
+      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-shared-glyph-source-20261026-8",
+      "model": "gpt-6.1-sol",
+      "provider": "codex",
+      "task_status": "running",
+      "isolation": "worktree",
+      "no_child_agents": true,
+      "scope": [
+        "Remove rejected duplicate glyph and TextOutA calibration path while preserving independent fixes",
+        "Use renderer glyph data and placement for drawing and semantic hit answers",
+        "Qualify available loaded-map/HUD/frame/F1/quit interactions"
+      ],
+      "sole_local_game_gui_input_owner": true,
+      "shared_game_gui_access": true,
+      "shared_game_files_mutation": true,
+      "shared_build_target_access": true,
+      "sole_warm_build_target_owner": "/tmp/c3r-jgl-g23/target"
+    },
+    {
+      "title": "Avoid legacy raster work in native C3X mill icons",
+      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-mill-no-raster-20261026-8",
+      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-mill-no-raster-20261026-8",
+      "model": "gpt-6.1-sol",
+      "provider": "codex",
+      "task_status": "running",
+      "isolation": "worktree",
+      "no_child_agents": true,
+      "scope": [
+        "Review and correct state/file-art mill source integration",
+        "Avoid original mill DC/TransparentBlt drawing in owned mode",
+        "Private source/state/art/build validation; later live enabled-mill qualification remains open"
+      ],
+      "sole_local_game_gui_input_owner": false,
+      "shared_game_gui_access": false,
+      "shared_game_files_mutation": false,
+      "shared_build_target_access": false
+    }
+  ],
+  "main_implementation_merged": false,
+  "neo_deployed": false
+}
