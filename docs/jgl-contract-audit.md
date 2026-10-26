@@ -260,7 +260,9 @@ Owned canvases hold no authoritative legacy raster. An unanswered owned
 semantic query now panics immediately with `no exact model answer`; it
 cannot forward into placeholder image memory. The ownership opt-in makes
 this an explicit unsupported-contract failure. Plain and pass-through
-modes retain their original calls. The diagnostic includes `records_at`.
+modes retain their original calls. Oracle comparison is disabled under
+ownership even if its diagnostic flag is set. The diagnostic includes
+`records_at`.
 
 The two `text::keyed_read_tests` fixtures replay these coordinates, draw
 records, sampled PCX values, animation extent/identity and measured caption
