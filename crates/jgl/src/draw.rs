@@ -44,7 +44,7 @@ pub enum FillCall {
     Shade { target: Surface, rect: Option<Rect>, color: u32, percent: u32 },
     /// +0x58 `replace_color(rect, from, to)` [V, jgl RVA 0x2740]: within
     /// the rectangle and the clip, every pixel of value `from` becomes
-    /// `to`; 16-bit images only. It reads the pixels.
+    /// `to`; 8-bit or 16-bit images. It reads the pixels.
     ReplaceColor { target: Surface, rect: Rect, from: u32, to: u32 },
     /// +0x64 `line(x1, y1, x2, y2, color, flag)` [V]: the exe's line,
     /// horizontal and vertical line functions pass `flag` 1.
@@ -79,11 +79,11 @@ pub enum CopyCall {
     /// `PCX_Image::draw_onto`]: the whole source onto the target at (x, y),
     /// its colour key left out.
     Keyed { source: Surface, target: Surface, x: i32, y: i32 },
-    /// +0x38 `(target, sx, sy, x, y, w, h, mode)` [V, jgl RVA 0x6A90]:
+    /// +0x38 `(target, sx, sy, x, y, w, h, key)` [V, jgl RVA 0x6A90]:
     /// `w`×`h` of an 8-bit source at (sx, sy) onto the target (8 or 16
     /// bits) at (x, y), within the target's clip, through the source's
-    /// colour table (+0x7C, else jgl's default). What `mode` selects is
-    /// not known [G].
+    /// colour table (+0x7C, else jgl's default), replacing only target
+    /// pixels equal to the key. The historical `mode` field carries that key.
     Indexed { source: Surface, target: Surface, src: (i32, i32), at: (i32, i32), size: (i32, i32), mode: u32 },
     /// +0x8C: not seen called. `this` and the raw arguments (the first is
     /// presumably the target image [G]).

@@ -563,6 +563,9 @@ impl Native {
         self.arriving.get_or_insert_with(|| {
             let mut limits = civ3r_native::Limits::default();
             let known = lib.call(civ3r_native::CALL_LIMITS, &mut limits) == 0;
+            if known && limits._pad & civ3r_native::LIMIT_SOURCE_SAMPLE != 0 {
+                crate::ui_opacity::native_sources(lib);
+            }
             if known && limits._pad & civ3r_native::LIMIT_PUSH != 0 {
                 let _ = PUSH.set(Push::Native(lib));
             }

@@ -18,7 +18,7 @@ fn run(x: i32, y: i32, color: [u8; 3], text: &str) -> TextRun {
 /// The three corner buttons (menu, Civilopedia, advisors), where the game
 /// draws them.
 fn buttons() -> Frame {
-    let image = |src: [i32; 4], x, y| ScreenDraw::Image { path: BUTTONS.into(), rect: src, x, y, keyed: false, clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
+    let image = |src: [i32; 4], x, y| ScreenDraw::Image { retained:None,path: BUTTONS.into(), rect: src, x, y, keyed: false, clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
     Frame { draws: vec![image([1, 1, 36, 30], 21, 12), image([37, 1, 36, 30], 57, 12), image([74, 1, 33, 30], 94, 12)], ..Default::default() }
 }
 

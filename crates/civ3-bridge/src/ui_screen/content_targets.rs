@@ -273,7 +273,7 @@ mod tests {
     fn civilopedia_icons_and_scenario_text_snap_to_their_content() {
         let controls = [row(0, 20, false), row(1, 100, false), row(2, 180, true)];
         let draws = vec![
-            ScreenDraw::Image {
+            ScreenDraw::Image { retained:None,
                 path: "Art/Civilopedia/Terrain.pcx".into(),
                 rect: [0, 0, 64, 64],
                 x: 22,
@@ -310,7 +310,7 @@ mod tests {
     fn clip_to_visible_content_and_ignore_other_forms_and_decorations() {
         let control = row(0, 20, false);
         let draws = vec![
-            ScreenDraw::Image {
+            ScreenDraw::Image { retained:None,
                 path: "Art/Civilopedia/Terrain.pcx".into(),
                 rect: [0, 0, 64, 64],
                 x: 22,
@@ -347,7 +347,7 @@ mod tests {
     fn a_unit_list_entry_with_a_scaled_icon_anchors_after_its_name() {
         let controls = [row(0, 20, false)];
         let frame = Frame { draws: vec![
-            ScreenDraw::ResizedImage { path: "Art/units32.pcx".into(), rect: [0,0,240,240], x:22, y:22,
+            ScreenDraw::ResizedImage { retained:None,path: "Art/units32.pcx".into(), rect: [0,0,240,240], x:22, y:22,
                 size:(31,31), sample_step:[500000,500000], keyed:true, clip:[0,0,1024,768], mask:None,palette:None,opacity:255 },
             label("Unit",100,60),
         ], form_draws: vec![(FORM+4+civ3_sys::layout::BASE_FORM_DATA_CANVAS,0..2)], ..Default::default() };
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn production_entries_point_just_after_their_name_in_the_middle_of_the_row() {
         let controls = [row(0, 20, false), row(1, 100, false)];
-        let icon = |y| ScreenDraw::Image { path: "Art/units/units_32.pcx".into(), rect: [0, 0, 32, 32], x: 24, y, keyed: true,
+        let icon = |y| ScreenDraw::Image { retained:None,path: "Art/units/units_32.pcx".into(), rect: [0, 0, 32, 32], x: 24, y, keyed: true,
             clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
         let draws = vec![
             icon(40), label("Settler", 70, 60), label("0.0.1", 140, 60), label("14 turns", 350, 60),
@@ -421,7 +421,7 @@ mod tests {
         use civ3_sys::controls::advisors::{CELL_CITY, CELL_PRODUCTION, CELL_SPEECH, cell_id};
         let cell = |kind, rect| Control { rect, kind: ControlKind::Button, id: cell_id(FORM, kind, 0) };
         let controls = [cell(CELL_CITY, [96, 305, 145, 37]), cell(CELL_PRODUCTION, [811, 306, 114, 34]), cell(CELL_SPEECH, [812, 117, 191, 123])];
-        let image = |path: &str, x, y, w, h| ScreenDraw::Image { path: path.into(), rect: [0, 0, w, h], x, y, keyed: true,
+        let image = |path: &str, x, y, w, h| ScreenDraw::Image { retained:None,path: path.into(), rect: [0, 0, w, h], x, y, keyed: true,
             clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 };
         let draws = vec![
             label("Rome", 111, 341),
@@ -441,7 +441,7 @@ mod tests {
         use civ3_sys::controls::screens::UnitStrip;
         let canvas = FORM + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
         let strip = UnitStrip { form: FORM, canvas, side: 0, row: 2, rect: [631, 600, 346, 45], left: 631 };
-        let image = |path: &str, x| ScreenDraw::Image { path: path.into(), rect: [0, 0, 32, 32], x, y: 606, keyed: true,
+        let image = |path: &str, x| ScreenDraw::Image { retained:None,path: path.into(), rect: [0, 0, 32, 32], x, y: 606, keyed: true,
             clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 };
         let draws = vec![image("Art/units_32.pcx", 633), image("Art\\Units_32.PCX", 633 + 64), image("Art/other.pcx", 633 + 32)];
         let frame = Frame { form_draws: vec![(canvas, 0..draws.len())], draws, ..Default::default() };

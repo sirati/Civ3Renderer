@@ -761,3 +761,31 @@ integration, continue any remaining integrated Group 7 work using
 [its brief](jgl-group7-integration.md) and reassign the reservation. The
 [continuation state](jgl-continuation-state.json) has current tasks and the
 backup receipt. Completed work has no agent entry.
+
+### Group 6 correction candidate, 25 October 2026
+
+The isolated candidate combines `339bac3` with accepted standalone Group 7
+`5ca2cf6`; it changes no default or main implementation. [V] Original-binary
+checks corrected forward-overlap `+0x38` semantics, the constructor key
+`0x80007C1F` and precondition error ordering. The new scope is 201 operations,
+19,660 bytes and 492 defined state/error pairs, zero differences. C3X's GDI+
+bind/pen/draw/release sequence passes 8,224 status/state pairs over 16
+lifetimes. These counts exclude canvas pixel equality and unsupported paths.
+
+[V] Both frame reader sites select four caches, including side caches at
+`+0x120/+0x124`. Their writers include fills, tiling, lines, captions and
+virtual form drawing. The capped global sprite history and initialized-key
+guess are removed. Queries share the retained UI model; incomplete semantic
+sources are refused in owned mode. This is a contract error boundary, not an
+equivalence claim. The [matrix](jgl-contract-audit.md) records the remaining
+source/transform and live gates, along with the paired-build startup diagnosis.
+Evidence and source/artifact/restoration bindings are at
+`/mnt/datasets/c3r-build/jgl-group6-data-20261025`.
+
+[V] The final-code live check reached the loaded map, then stopped on HUD
+entry with `owned keyed canvas 0x9fdd84: no exact model answer`.
+Group 6 therefore remains incomplete. All workspace targets ran with
+`--no-fail-fast`; only the known subpixel coverage target failed. Affected
+packages and both architecture/lock guards passed separately. The evidence
+receipt distinguishes restored fresh baselines from one ancillary error log
+whose initial hash was not captured.

@@ -8,12 +8,17 @@
 //! (or a fill, or text) at a screen position, clipped. Canvases whose
 //! content we render ourselves (the map) are left out.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::text::TextRun;
 
 mod display_list;
+mod keyed;
+mod file_state;
+pub use file_state::FileState;
+pub use keyed::{KeySources, FileSample};
+pub use menu::screen::PaletteFrom as PaletteInput;
 use display_list::DisplayList;
 
 /// Where a sprite's pixels come from.
@@ -23,19 +28,21 @@ pub enum Source {
     /// through `mask` if it has one.
     /// `palette`: an image file whose palette replaces the image's own (a
     /// colour table the game drew it through).
-    File { path: String, rect: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom>, opacity: u8 },
+    File { retained: Option<FileState>, path: String, rect: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom>, opacity: u8 },
     /// A region of another surface (a canvas or temporary image).
     Surface { image: u32, rect: [i32; 4] },
     /// A region of an image file whose palette indices the blit that drew
     /// it treats as `indices` says (a shadow darkening what is below it,
     /// the colours of a colour-table blit).
-    Indexed { path: String, rect: [i32; 4], palette: Option<menu::screen::PaletteFrom>, indices: menu::screen::Indices },
+    Indexed { retained: Option<FileState>, path: String, rect: [i32; 4], palette: Option<menu::screen::PaletteFrom>, indices: menu::screen::Indices },
 }
 
 /// An alpha mask: a file whose palette indices are inverted weights, and
 /// the pixel of it that goes with the image region's top-left.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Mask {
+    pub retained: Option<FileState>,
+    pub premultiplied: bool,
     pub path: String,
     pub at: (i32, i32),
 }
@@ -58,7 +65,7 @@ pub enum Event {
     Reset { sprite: u32 },
     /// `sprite` blended onto `canvas` at (x, y) through the alpha sprite
     /// `mask` (button faces, the HUD frame).
-    MaskedBlit { sprite: u32, mask: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
+    MaskedBlit { sprite: u32, mask: u32, background: u32, canvas: u32, x: i32, y: i32, clip: Option<[i32; 4]> },
     /// `sprite`'s pixels drawn with their top-left at (x, y) of `canvas`,
     /// colour 255 transparent.
     /// `palette`: see [`Source::File`].
@@ -118,6 +125,8 @@ pub enum Event {
 /// What a canvas shows: drawing operations, oldest first.
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
+    Unknown { rect: [i32; 4] },
+    KeyClear { rect: [i32; 4] },
     /// An image region at (x, y); `keyed`: colour 255 transparent.
     Image { source: Source, x: i32, y: i32, keyed: bool },
     /// Keep the whole resized image and restrict its destination clip.
@@ -133,12 +142,12 @@ enum Op {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScreenDraw {
     /// Region `rect` (x, y, w, h) of an image file at (x, y).
-    Image { path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom>, opacity: u8 },
+    Image { retained: Option<FileState>, path: String, rect: [i32; 4], x: i32, y: i32, keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom>, opacity: u8 },
     /// Region `rect` (x, y, w, h) of an image file at (x, y), its palette
     /// indices drawn as `indices` says (see [`Source::Indexed`]).
-    Indexed { path: String, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4], palette: Option<menu::screen::PaletteFrom>, indices: menu::screen::Indices },
+    Indexed { retained: Option<FileState>, path: String, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4], palette: Option<menu::screen::PaletteFrom>, indices: menu::screen::Indices },
     /// Region `rect` of a file resized to `size`, then clipped on screen.
-    ResizedImage { path: String, rect: [i32; 4], x: i32, y: i32, size: (i32, i32), sample_step: [u32; 2], keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom>, opacity: u8 },
+    ResizedImage { retained: Option<FileState>, path: String, rect: [i32; 4], x: i32, y: i32, size: (i32, i32), sample_step: [u32; 2], keyed: bool, clip: [i32; 4], mask: Option<Mask>, palette: Option<menu::screen::PaletteFrom>, opacity: u8 },
     Fill { rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: [i32; 4] },
     Text { run: TextRun, clip: [i32; 4] },
     /// Frame `chunk` of the FLC animation at `path`, its top-left at (x, y).
@@ -244,6 +253,7 @@ impl Piece {
 pub struct UiModel {
     /// Files of loaded images.
     files: HashMap<u32, String>,
+    file_states: HashMap<u32, FileState>,
     /// Files of loaded FLC animations.
     flcs: HashMap<u32, String>,
     /// Sizes of images and canvases (shared with snapshots, copied on write).
@@ -300,6 +310,10 @@ pub struct UiModel {
     /// covered them since): text drawn on them where nothing is drawn yet
     /// has the key as its backdrop ([`TextRun::backdrop`]).
     keyed_clear: Vec<u32>,
+    /// Writers with no semantic representation. Their pixels cannot be
+    /// answered by pretending the retained display list is complete.
+    unanswered: HashSet<u32>,
+    unanswered_sprites: HashSet<u32>,
     /// Whether text gets backdrops (Windows blends text edges with what is
     /// under them; Wine's GDI draws the game's text without smoothing).
     text_backdrops: bool,
@@ -325,12 +339,129 @@ const COMPACT_MIN: usize = 64;
 /// into before it counts as shown.
 const MAX_COVER: usize = 512;
 const MAX_FRAGMENTS: usize = 64;
+/// Most rectangles the tile under one image is cut into (see
+/// [`UiModel::tile_under`]); past it the copy is refused.
+const MAX_TILE_RUNS: usize = 256;
 
 impl UiModel {
     /// `skip_vtables`: forms not mirrored (e.g. the map); `skip_canvases`:
     /// canvases not mirrored.
     pub fn new(skip_vtables: Vec<u32>, skip_canvases: Vec<u32>) -> Self {
         Self { skip: skip_vtables, skip_canvases, skipping: true, ..Default::default() }
+    }
+
+    pub fn loaded_pixels(&mut self,image:u32,pixels:Arc<crate::selection::FilePixels>) {
+        self.file_states.insert(image,FileState::new(pixels));
+    }
+    pub fn replace_indices(&mut self,image:u32,rect:[i32;4],from:u8,to:u8)->bool {
+        let Some(state)=self.file_states.get_mut(&image) else {return false};
+        *state=state.replaced(menu::screen::IndexChange {rect,from,to});
+        true
+    }
+
+    /// Image +38 onto a 16-bit canvas: the pixels of the window whose colour
+    /// is the source table's entry `key` become the source's (the frame
+    /// painter's texture under its pieces, 0x5FCD40). Rewritten once, here,
+    /// as plain records the viewer draws and the hit query reads: each
+    /// opaque record of exactly that colour becomes the tile over its area.
+    /// Records whose colours may or may not equal it are refused.
+    /// `palette`: the source image's own colour table, which the copy uses.
+    pub fn tile_under(&mut self,from:u32,src:[i32;4],canvas:u32,dst:[i32;4],key:u8,palette:Option<&[[u8;3];256]>)->Result<(),&'static str> {
+        let (path,state,src)=match (self.files.get(&from),self.file_states.get(&from)) {
+            (Some(path),Some(state))=>(path.clone(),state.clone(),src),
+            (Some(_),None)=>return Err("file source without retained pixels"),
+            (None,_)=>self.surface_file(from,src)?,
+        };
+        // The copy maps indices through the source image's table; a file
+        // region answers only while that table is the file's own.
+        if palette.is_some_and(|p|(0..256).any(|i|state.palette_color(i as u8)!=p[i])) {return Err("source table differs from its file");}
+        let [x,y,w,h]=dst;
+        if w<=0 || h<=0 {return Ok(());}
+        let replaced=state.palette_color(key).map(|c|c>>3);
+        let window=[x,y,x+w,y+h];
+        let inside=self.canvases.get(&canvas).into_iter().flat_map(|ops|ops.iter()).flat_map(|op|self.resolve(op,0)).filter_map(|op|crop_move(op,window,(0,0),false)).collect::<Vec<_>>();
+        let initialized=self.keyed_clear.contains(&canvas) || inside.iter().any(|op|matches!(op,Op::Fill {rect:[l,t,rw,rh],alpha:255,..} if *l<=x && *t<=y && l+rw>=x+w && t+rh>=y+h));
+        if !initialized {return Err("target content under the tile is unknown");}
+        // The tile over `rect` (x, y, w, h), inside the window.
+        let tile=|[l,t,rw,rh]:[i32;4]| Op::Image {source:Source::File {retained:Some(state.clone()),path:path.clone(),rect:[src[0]+l-x,src[1]+t-y,rw,rh],mask:None,palette:None,opacity:255},x:l,y:t,keyed:false};
+        let mut out=Vec::new();
+        if self.keyed_clear.contains(&canvas) && replaced==KEY_RGB.map(|c|c>>3) {
+            // The canvas's whole key clear is its base, not a record.
+            out.push(tile(dst));
+        }
+        for op in inside {
+            out.push(match op {
+                Op::KeyClear {rect} | Op::Fill {rect,alpha:255,..} if op_colour(&op).map(|c|c.map(|c|c>>3))==Some(replaced) => tile(rect),
+                Op::KeyClear {..} | Op::Fill {alpha:255,..}=>op,
+                Op::Image {source:Source::File {retained:Some(ref s),mask:None,opacity:255,palette:None,rect,..},keyed,x:ox,y:oy} => {
+                    // Its pixels of the tiled colour show the tile: the
+                    // tile over exactly those, right above it.
+                    let runs=s.runs(replaced.map(|c|c<<3),keyed,rect,MAX_TILE_RUNS).ok_or("target holds a file image too fragmented in the tiled colour")?;
+                    out.push(op.clone());
+                    out.extend(runs.into_iter().map(|[sx,sy,rw,rh]|tile([ox+sx-rect[0],oy+sy-rect[1],rw,rh])));
+                    continue;
+                }
+                Op::Image {source:Source::File {retained:None,..},..}=>return Err("target holds a file image without retained pixels"),
+                Op::Image {..} | Op::ResizedImage {..}=>return Err("target holds a masked, paletted, translucent or indexed image"),
+                Op::Fill {..}=>return Err("target holds a translucent fill"),
+                Op::Text(..)=>return Err("target holds text"),
+                Op::Flc {..}=>return Err("target holds an animation frame"),
+                Op::Unknown {..}=>return Err("target holds unanswered content"),
+            });
+        }
+        self.erase(canvas,dst);
+        for op in out {self.push(canvas,op);}
+        Ok(())
+    }
+
+    /// The file region an image the game composed holds at `src`: its
+    /// topmost record over the window is one retained, unmasked file
+    /// region covering all of it, with no transparent index there.
+    fn surface_file(&self,image:u32,[x,y,w,h]:[i32;4])->Result<(String,FileState,[i32;4]),&'static str> {
+        let ops=self.canvases.get(&image).ok_or("source has no records")?;
+        let window=[x,y,x+w,y+h];
+        let top=ops.iter().flat_map(|op|self.resolve(op,0))
+            .filter(|op|{let [l,t,r,b]=intersect(op_bounds(op),window);r>l && b>t})
+            .last().ok_or("source has no record over the tile")?;
+        let Op::Image {source:Source::File {retained:Some(state),path,rect:[rx,ry,rw,rh],mask:None,palette:None,opacity:255},x:ox,y:oy,keyed}=top
+            else {return Err("source's top record is not a plain file region")};
+        if x<ox || y<oy || x+w>ox+rw || y+h>oy+rh {return Err("source's top record does not cover the tile");}
+        let at=[rx+x-ox,ry+y-oy,w,h];
+        if keyed && !(0..h).all(|j|(0..w).all(|i|state.sample(at[0]+i,at[1]+j).is_some_and(|s|s.index<254))) {
+            return Err("source's top record is transparent inside the tile");
+        }
+        Ok((path,state,at))
+    }
+
+    pub fn unanswered(&mut self, canvas: u32) {
+        let (w,h)=self.sizes.get(&canvas).copied().unwrap_or((i32::MAX,i32::MAX));
+        self.unanswered_in(canvas,[0,0,w,h]);
+    }
+
+    pub fn unanswered_in(&mut self, canvas:u32, rect:[i32;4]) {
+        if self.files.contains_key(&canvas) { self.unanswered.insert(canvas); }
+        else { self.push(canvas,Op::Unknown { rect }); }
+    }
+
+    /// Query the same retained sources used to draw the canvas, refusing
+    /// operations whose pixel semantics are not represented yet.
+    pub fn exact_shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
+        self.shown_at_depth(canvas, x, y, file, 0, true)
+    }
+
+    /// Exact colour-key predicate, using the retained display commands and
+    /// their file indices. A range represents possible glyph coverage, never
+    /// an opaque glyph rectangle. It answers only when every possible colour
+    /// has the same key predicate.
+    pub fn keyed_at(&self, canvas: u32, x: i32, y: i32, sources: &impl KeySources) -> Option<bool> {
+        keyed::query(self, canvas, x, y, sources)
+    }
+
+    pub fn records_at(&self, canvas: u32, x: i32, y: i32) -> String { keyed::records_at(self, canvas, x, y) }
+
+    pub fn query_detail(&self, canvas: u32, x: i32, y: i32) -> String {
+        let frame = self.canvas_frame(canvas, 0);
+        format!("canvas={canvas:#x} at=({x},{y}) unanswered={} keyed_clear={} size={:?} draws={:#?}", self.unanswered.contains(&canvas), self.keyed_clear.contains(&canvas), self.sizes.get(&canvas), frame)
     }
 
     /// Leave the skipped canvases out (or not, e.g. between games).
@@ -415,7 +546,7 @@ impl UiModel {
         let mut heavy: Vec<(u32, [usize; 4])> = self.canvases.iter().map(|(&c, ops)| {
             let mut kinds = [0; 4];
             for op in ops {
-                kinds[match op { Op::Image { .. } | Op::ResizedImage { .. } => 0, Op::Fill { .. } => 1, Op::Text(_, _) => 2, Op::Flc { .. } => 3 }] += 1;
+                kinds[match op { Op::Image { .. } | Op::ResizedImage { .. } => 0, Op::Fill { .. } => 1, Op::Text(_, _) => 2, Op::Flc { .. } => 3, Op::Unknown { .. } | Op::KeyClear {..} => 1 }] += 1;
             }
             (c, kinds)
         }).collect();
@@ -513,19 +644,33 @@ impl UiModel {
     /// the canvas's pixel and compares it with the key), now that sprites
     /// are no longer drawn into the canvases.
     pub fn shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
-        self.shown_at_depth(canvas, x, y, file, 0)
+        self.shown_at_depth(canvas, x, y, file, 0, false)
     }
 
-    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32) -> Shown {
+    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32, exact: bool) -> Shown {
         if depth == 0 && !self.sizes.contains_key(&canvas) {
             return Shown::NotMirrored;
         }
-        // (A canvas cleared to the colour key has no list: nothing drawn.)
-        let Some(frame) = self.canvas_frame(canvas, 0) else { return Shown::Nothing };
+        if exact && (self.unanswered.contains(&canvas) || self.canvases.get(&canvas).is_some_and(|ops|ops.iter().any(|op|matches!(op,Op::Unknown {..})))) { return Shown::Unknown; }
+        // A clear to the key is evidence for an empty canvas. Merely knowing
+        // its size says nothing about its initialized content.
+        let Some(frame) = self.canvas_frame(canvas, 0) else {
+            return if !exact || self.keyed_clear.contains(&canvas) { Shown::Nothing } else { Shown::Unknown };
+        };
         let inside = |[rx, ry, w, h]: [i32; 4]| x >= rx && y >= ry && x < rx + w && y < ry + h;
         let clipped = |[l, t, r, b]: [i32; 4]| x >= l && y >= t && x < r && y < b;
         for d in frame.draws.iter().rev() {
             let pixel = match d {
+                ScreenDraw::Text { clip, .. } if exact && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Fill { rect, alpha, clip, .. } if exact && *alpha != 255 && inside(*rect) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Image { rect, x: dx, y: dy, clip, mask, palette, opacity, .. }
+                    if exact && (mask.is_some() || palette.is_some() || *opacity != 255)
+                        && inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::ResizedImage { x: dx, y: dy, size, clip, mask, palette, opacity, .. }
+                    if exact && (mask.is_some() || palette.is_some() || *opacity != 255)
+                        && inside([*dx, *dy, size.0, size.1]) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Indexed { rect, x: dx, y: dy, clip, .. } if exact && inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip) => return Shown::Unknown,
+                ScreenDraw::Flc { clip, .. } if exact && clipped(*clip) => return Shown::Unknown,
                 ScreenDraw::Fill { rect, rgb, clip, .. } => (inside(*rect) && clipped(*clip)).then_some(Some(Some(*rgb))),
                 ScreenDraw::Image { path, rect, x: dx, y: dy, keyed, clip, mask, .. } => {
                     (inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)).then(|| file(path, rect[0] + x - dx, rect[1] + y - dy, *keyed || mask.is_some()))
@@ -546,7 +691,7 @@ impl UiModel {
                     if self.generated.contains(image) && !self.canvases.contains_key(image) {
                         return Shown::Unknown;
                     }
-                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1) {
+                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1, exact) {
                         Shown::Nothing => continue,
                         shown => return shown,
                     }
@@ -560,7 +705,7 @@ impl UiModel {
                 Some(Some(None)) | None => {}
             }
         }
-        Shown::Nothing
+        if exact && !self.keyed_clear.contains(&canvas) { Shown::Unknown } else { Shown::Nothing }
     }
 
     /// `layer` as it is on the back buffer now, everywhere.
@@ -681,6 +826,8 @@ impl UiModel {
     pub fn apply(&mut self, e: Event) {
         match e {
             Event::Loaded { image, path, size } => {
+                self.unanswered.remove(&image);
+                self.file_states.remove(&image);
                 self.files.insert(image, path);
                 Arc::make_mut(&mut self.sizes).insert(image, size);
                 self.canvases.remove(&image);
@@ -688,6 +835,8 @@ impl UiModel {
                 self.keyed_clear.retain(|&c| c != image);
             }
             Event::Cleared { image } => {
+                self.unanswered.remove(&image);
+                self.file_states.remove(&image);
                 self.files.remove(&image);
                 Arc::make_mut(&mut self.sizes).remove(&image);
                 self.canvases.remove(&image);
@@ -700,13 +849,17 @@ impl UiModel {
                 }
             }
             Event::Sliced { sprite, image, rect } => {
+                if self.unanswered.contains(&image) { self.unanswered_sprites.insert(sprite); }
+                else { self.unanswered_sprites.remove(&sprite); }
                 let source = match self.files.get(&image) {
-                    Some(path) => Source::File { path: path.clone(), rect, mask: None, palette: None, opacity: 255 },
+                    Some(path) => Source::File { retained: self.file_states.get(&image).cloned(), path: path.clone(), rect, mask: None, palette: None, opacity: 255 },
                     None => Source::Surface { image, rect },
                 };
                 Arc::make_mut(&mut self.sprites).insert(sprite, source);
             }
             Event::Copied { sprite, source } => {
+                if self.unanswered_sprites.contains(&source) { self.unanswered_sprites.insert(sprite); }
+                else { self.unanswered_sprites.remove(&sprite); }
                 if let Some(s) = self.sprites.get(&source).cloned() {
                     Arc::make_mut(&mut self.sprites).insert(sprite, s);
                 } else if self.sprites.contains_key(&sprite) {
@@ -714,11 +867,13 @@ impl UiModel {
                 }
             }
             Event::Reset { sprite } => {
+                self.unanswered_sprites.remove(&sprite);
                 if self.sprites.contains_key(&sprite) {
                     Arc::make_mut(&mut self.sprites).remove(&sprite);
                 }
             }
             Event::Blit { sprite, canvas, x, y, clip, palette } => {
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered(canvas); return; }
                 if let Some(mut source) = self.sprites.get(&sprite).cloned() {
                     if let (Source::File { palette: p, .. }, Some(table)) = (&mut source, palette) {
                         *p = Some(table);
@@ -731,15 +886,16 @@ impl UiModel {
                 }
             }
             Event::ResizedBlit { sprite, canvas, x, y, size, sample_step, clip, palette, indices } => {
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered(canvas); return; }
                 // Native scaled wrappers currently resize loaded file images.
                 // Generated surfaces require their own pixel resize path.
-                let Some(Source::File { path, rect, mask, palette: own_palette, opacity }) = self.sprites.get(&sprite).cloned() else { return };
+                let Some(Source::File { retained, path, rect, mask, palette: own_palette, opacity }) = self.sprites.get(&sprite).cloned() else { return };
                 if size.0 <= 0 || size.1 <= 0 || rect[2] <= 0 || rect[3] <= 0 || opacity == 0 {
                     return;
                 }
                 let source = match indices {
-                    Some(indices) => Source::Indexed { path, rect, palette: palette.or(own_palette), indices },
-                    None => Source::File { path, rect, mask, palette: palette.or(own_palette), opacity },
+                    Some(indices) => Source::Indexed { retained, path, rect, palette: palette.or(own_palette), indices },
+                    None => Source::File { retained, path, rect, mask, palette: palette.or(own_palette), opacity },
                 };
                 let op = Op::ResizedImage { source, x, y, size, sample_step, keyed: true, clip: ALL };
                 if let Some(op) = crop_move(op, clip.unwrap_or(ALL), (0, 0), true) {
@@ -747,32 +903,35 @@ impl UiModel {
                 }
             }
             Event::OpacityBlit { sprite, canvas, x, y, clip, palette, opacity } => {
-                let Some(Source::File { path, rect, mask, palette: own_palette, opacity: own_opacity }) = self.sprites.get(&sprite).cloned() else { return };
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered(canvas); return; }
+                let Some(Source::File { retained, path, rect, mask, palette: own_palette, opacity: own_opacity }) = self.sprites.get(&sprite).cloned() else { return };
                 let opacity = (u32::from(opacity) * u32::from(own_opacity) / 255) as u8;
                 if opacity == 0 {
                     return;
                 }
-                let source = Source::File { path, rect, mask, palette: palette.or(own_palette), opacity };
+                let source = Source::File { retained, path, rect, mask, palette: palette.or(own_palette), opacity };
                 let op = Op::Image { source, x, y, keyed: true };
                 if let Some(op) = clip.map_or(Some(op.clone()), |c| crop_move(op, c, (0, 0), true)) {
                     self.push(canvas, op);
                 }
             }
             Event::IndexedBlit { sprite, canvas, x, y, clip, palette, indices } => {
-                let Some(Source::File { path, rect, palette: own_palette, .. }) = self.sprites.get(&sprite).cloned() else { return };
-                let op = Op::Image { source: Source::Indexed { path, rect, palette: palette.or(own_palette), indices }, x, y, keyed: true };
+                if self.unanswered_sprites.contains(&sprite) { self.unanswered(canvas); return; }
+                let Some(Source::File { retained, path, rect, palette: own_palette, .. }) = self.sprites.get(&sprite).cloned() else { return };
+                let op = Op::Image { source: Source::Indexed { retained, path, rect, palette: palette.or(own_palette), indices }, x, y, keyed: true };
                 if let Some(op) = clip.map_or(Some(op.clone()), |c| crop_move(op, c, (0, 0), true)) {
                     self.push(canvas, op);
                 }
             }
-            Event::MaskedBlit { sprite, mask, canvas, x, y, clip } => {
+            Event::MaskedBlit { sprite, mask, background, canvas, x, y, clip } => {
+                if self.unanswered_sprites.contains(&sprite) || self.unanswered_sprites.contains(&mask) { self.unanswered(canvas); return; }
                 let face = self.sprites.get(&sprite).cloned();
                 let alpha = match self.sprites.get(&mask) {
-                    Some(Source::File { path, rect, .. }) => Some(Mask { path: path.clone(), at: (rect[0], rect[1]) }),
+                    Some(Source::File { retained, path, rect, .. }) => Some(Mask { retained:retained.clone(), premultiplied:background!=0, path: path.clone(), at: (rect[0], rect[1]) }),
                     _ => None,
                 };
                 let source = match face {
-                    Some(Source::File { path, rect, palette, opacity, .. }) => Source::File { path, rect, mask: alpha, palette, opacity },
+                    Some(Source::File { retained,path, rect, palette, opacity, .. }) => Source::File { retained,path, rect, mask: alpha, palette, opacity },
                     Some(other) => other,
                     None => return,
                 };
@@ -782,6 +941,7 @@ impl UiModel {
                 }
             }
             Event::Copy { from, src, canvas, x, y, keyed } => {
+                if self.unanswered.contains(&from) { self.unanswered_in(canvas,[x,y,src[2],src[3]]); return; }
                 // The map canvas is ours: its content (terrain, the fog tiles drawn on it)
                 // must not reach the screen through the form's own copy onto the back buffer.
                 if from != canvas && self.skipping && (self.skip_canvases.contains(&from) || self.underlays.contains(&from)) {
@@ -803,7 +963,7 @@ impl UiModel {
                     return;
                 }
                 let source = match self.files.get(&from) {
-                    Some(path) => Source::File { path: path.clone(), rect: src, mask: None, palette: None, opacity: 255 },
+                    Some(path) => Source::File { retained: self.file_states.get(&from).cloned(), path: path.clone(), rect: src, mask: None, palette: None, opacity: 255 },
                     None => Source::Surface { image: from, rect: src },
                 };
                 // An opaque copy hides what it covers.
@@ -828,6 +988,7 @@ impl UiModel {
                     }
                     None => rect,
                 };
+                if alpha == 255 && self.covers(canvas, rect) { self.unanswered.remove(&canvas); }
                 // The colour key (255, 0, 255) clears to transparent: nothing to draw.
                 if rgb == KEY_RGB && alpha == 255 {
                     if self.covers(canvas, rect) {
@@ -835,19 +996,10 @@ impl UiModel {
                         if !self.keyed_clear.contains(&canvas) {
                             self.keyed_clear.push(canvas);
                         }
-                    } else if let Some(ops) = self.canvases.get_mut(&canvas) {
-                        // Clearing part of an overlay (the game redraws e.g. the unit
-                        // selection every frame): drop what lies inside.
-                        let [x, y, w, h] = rect;
-                        let inside = |l: i32, t: i32, r: i32, b: i32| l >= x && t >= y && r <= x + w && b <= y + h;
-                        // What lies inside starts inside.
-                        ops.remove_where([x, y, x + w, y + h], |op| match op {
-                            Op::Fill { rect: [fx, fy, fw, fh], .. } => inside(*fx, *fy, fx + fw, fy + fh),
-                            Op::Text(run, _) => inside(run.x, run.y, run.x + 1, run.y + 1),
-                            Op::Flc { x, y, .. } => inside(*x, *y, x + 1, y + 1),
-                            Op::Image { .. } | Op::ResizedImage { .. } => false,
-                        });
+                    } else {
+                        self.erase(canvas,rect);
                     }
+                    self.push(canvas,Op::KeyClear {rect});
                     return;
                 }
                 if alpha == 255 {
@@ -873,7 +1025,7 @@ impl UiModel {
                 let Some(path) = self.flcs.get(&flic).cloned() else { return };
                 if source_size.0 <= 0 || source_size.1 <= 0 || size.0 <= 0 || size.1 <= 0 { return; }
                 indices.frame = Some(chunk);
-                let source = Source::Indexed { path, rect: [0, 0, source_size.0, source_size.1], palette, indices };
+                let source = Source::Indexed { retained:None,path, rect: [0, 0, source_size.0, source_size.1], palette, indices };
                 let op = Op::ResizedImage { source, x, y, size, sample_step, keyed: true, clip: ALL };
                 if let Some(op) = crop_move(op, clip.unwrap_or(ALL), (0, 0), true) { self.push(canvas, op); }
             }
@@ -951,6 +1103,14 @@ impl UiModel {
         }
     }
 
+    fn erase(&mut self,canvas:u32,[x,y,w,h]:[i32;4]) {
+        let Some(ops)=self.canvases.remove(&canvas) else {return};
+        let size=self.sizes.get(&canvas).copied().unwrap_or((i32::MAX,i32::MAX));
+        let regions=subtract([0,0,size.0,size.1],[x,y,x+w,y+h]);
+        let outside=ops.iter().flat_map(|op|regions.iter().filter_map(|r|crop_move(op.clone(),*r,(0,0),false))).collect::<Vec<_>>();
+        self.canvases.insert(canvas,outside.into());
+    }
+
     /// Drops what an opaque `rect` (x, y, w, h) on `canvas` hides: all of it
     /// when it covers the canvas, else the operations entirely inside.
     fn occlude(&mut self, canvas: u32, rect: [i32; 4]) {
@@ -973,7 +1133,7 @@ impl UiModel {
         let w = h * 2 / 3 * run.text.chars().count() as i32;
         let [l, t, r, b] = [run.x, run.y - h, run.x + w, run.y + h / 3 + 1];
         self.canvases.get(&canvas).is_some_and(|ops| {
-            ops.iter().filter(|op| !matches!(op, Op::Text(_, _))).any(|op| {
+            ops.iter().filter(|op| !matches!(op, Op::Text(_, _) | Op::KeyClear {..})).any(|op| {
                 let [ol, ot, or, ob] = op_bounds(op);
                 ol < r && ot < b && or > l && ob > t
             })
@@ -1089,12 +1249,13 @@ impl UiModel {
     fn opaque(&self, op: &Op) -> bool {
         match op {
             Op::Fill { alpha, .. } => *alpha == 255,
+            Op::KeyClear {..} => true,
             Op::Image { source: Source::File { mask: None, opacity: 255, .. }, keyed: false, .. }
             | Op::Image { source: Source::Surface { .. }, keyed: false, .. } => true,
             Op::Image { source: Source::File { path, rect, mask: None, opacity: 255, .. }, keyed: true, .. } => {
                 self.opaque_files.as_ref().is_some_and(|f| f(path, *rect) == Some(true))
             }
-            Op::Image { .. } | Op::ResizedImage { .. } | Op::Text(_, _) | Op::Flc { .. } => false,
+            Op::Image { .. } | Op::ResizedImage { .. } | Op::Text(_, _) | Op::Flc { .. } | Op::Unknown {..} => false,
         }
     }
 
@@ -1148,7 +1309,7 @@ fn overdraws_itself(op: &Op) -> bool {
         Op::Fill { alpha, .. } => *alpha == 255,
         // A shade darkens what is below it again; colours cover it.
         Op::Image { source: Source::Indexed { indices, .. }, .. } => indices.shade.is_empty(),
-        Op::Image { source: Source::Surface { .. }, .. }
+        Op::Unknown { .. } | Op::KeyClear {..} | Op::Image { source: Source::Surface { .. }, .. }
         | Op::ResizedImage { source: Source::Surface { .. } | Source::Indexed { .. }, .. } | Op::Text(_, _) | Op::Flc { .. } => false,
     }
 }
@@ -1235,6 +1396,15 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
         if r <= l || b <= t { return None; }
     }
     match op {
+        Op::KeyClear {rect:[x,y,w,h]} if !keyed => {
+            let [l,t,r,b]=intersect(window,[x,y,x+w,y+h]);
+            (r>l && b>t).then_some(Op::KeyClear {rect:[l+dx,t+dy,r-l,b-t]})
+        }
+        Op::KeyClear {..} => None,
+        Op::Unknown {rect:[x,y,w,h]} => {
+            let [l,t,r,b]=intersect(window,[x,y,x+w,y+h]);
+            (r>l && b>t).then_some(Op::Unknown {rect:[l+dx,t+dy,r-l,b-t]})
+        }
         Op::Image { source, x, y, keyed: k } => {
             let (path_or_image, [rx, ry, rw, rh]) = match &source {
                 Source::File { rect, .. } | Source::Surface { rect, .. } | Source::Indexed { rect, .. } => (source.clone(), *rect),
@@ -1245,13 +1415,13 @@ fn crop_move(op: Op, window: [i32; 4], (dx, dy): (i32, i32), keyed: bool) -> Opt
             }
             let rect = [rx + (l - x), ry + (t - y), r - l, b - t];
             let source = match path_or_image {
-                Source::File { path, mask, palette, opacity, .. } => {
+                Source::File { retained,path, mask, palette, opacity, .. } => {
                     // The mask moves along with the cut.
                     let mask = mask.map(|m| Mask { at: (m.at.0 + (l - x), m.at.1 + (t - y)), ..m });
-                    Source::File { path, rect, mask, palette, opacity }
+                    Source::File { retained,path, rect, mask, palette, opacity }
                 }
                 Source::Surface { image, .. } => Source::Surface { image, rect },
-                Source::Indexed { path, palette, indices, .. } => Source::Indexed { path, rect, palette, indices },
+                Source::Indexed { retained,path, palette, indices, .. } => Source::Indexed { retained,path, rect, palette, indices },
             };
             // Through a keyed copy, transparent pixels stay transparent.
             Some(Op::Image { source, x: l + dx, y: t + dy, keyed: k || keyed })
@@ -1359,11 +1529,20 @@ pub fn covered_alpha(alpha: u8, coverage: u32) -> u8 {
 
 /// Where an operation draws (left, top, right, bottom); text by its start
 /// point only.
+/// The single colour an opaque fill or key clear draws.
+fn op_colour(op: &Op) -> Option<[u8; 3]> {
+    match op {
+        Op::Fill { rgb, .. } => Some(*rgb),
+        Op::KeyClear { .. } => Some(KEY_RGB),
+        _ => None,
+    }
+}
+
 fn op_bounds(op: &Op) -> [i32; 4] {
     match op {
         Op::Image { source: Source::File { rect, .. } | Source::Surface { rect, .. } | Source::Indexed { rect, .. }, x, y, .. } => [*x, *y, x + rect[2], y + rect[3]],
         Op::ResizedImage { x, y, size: (w, h), clip, .. } => intersect([*x, *y, x + w, y + h], *clip),
-        Op::Fill { rect: [x, y, w, h], .. } => [*x, *y, x + w, y + h],
+        Op::Fill { rect: [x, y, w, h], .. } | Op::Unknown {rect:[x,y,w,h]} | Op::KeyClear {rect:[x,y,w,h]} => [*x, *y, x + w, y + h],
         Op::Text(run, _) => [run.x, run.y, run.x + 1, run.y + 1],
         Op::Flc { x, y, .. } => [*x, *y, x + 1, y + 1],
     }
@@ -1430,23 +1609,24 @@ fn intersect(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
 /// A resolved canvas operation on the screen.
 fn screen_draw(op: Op, (ox, oy): (i32, i32), clip: [i32; 4]) -> Option<ScreenDraw> {
     match op {
-        Op::Image { source: Source::File { path, rect, mask, palette, opacity }, x, y, keyed } => {
-            Some(ScreenDraw::Image { path, rect, x: x + ox, y: y + oy, keyed, clip, mask, palette, opacity })
+        Op::Unknown {..} | Op::KeyClear {..} => None,
+        Op::Image { source: Source::File { retained,path, rect, mask, palette, opacity }, x, y, keyed } => {
+            Some(ScreenDraw::Image { retained,path, rect, x: x + ox, y: y + oy, keyed, clip, mask, palette, opacity })
         }
         Op::Image { source: Source::Surface { image, rect }, x, y, .. } => {
             Some(ScreenDraw::Surface { image, rect, x: x + ox, y: y + oy, clip, size: (rect[0] + rect[2], rect[1] + rect[3]) })
         }
-        Op::ResizedImage { source: Source::File { path, rect, mask, palette, opacity }, x, y, size, sample_step, keyed, clip: own } => {
+        Op::ResizedImage { source: Source::File { retained,path, rect, mask, palette, opacity }, x, y, size, sample_step, keyed, clip: own } => {
             let clip = intersect(clip, [own[0] + ox, own[1] + oy, own[2] + ox, own[3] + oy]);
-            Some(ScreenDraw::ResizedImage { path, rect, x: x + ox, y: y + oy, size, sample_step, keyed, clip, mask, palette, opacity })
+            Some(ScreenDraw::ResizedImage { retained,path, rect, x: x + ox, y: y + oy, size, sample_step, keyed, clip, mask, palette, opacity })
         }
-        Op::Image { source: Source::Indexed { path, rect, palette, indices }, x, y, .. } => {
-            Some(ScreenDraw::Indexed { path, rect, x: x + ox, y: y + oy, clip, palette, indices })
+        Op::Image { source: Source::Indexed { retained,path, rect, palette, indices }, x, y, .. } => {
+            Some(ScreenDraw::Indexed { retained,path, rect, x: x + ox, y: y + oy, clip, palette, indices })
         }
-        Op::ResizedImage { source: Source::Indexed { path, rect, palette, mut indices }, x, y, size, sample_step, clip: own, .. } => {
+        Op::ResizedImage { source: Source::Indexed { retained,path, rect, palette, mut indices }, x, y, size, sample_step, clip: own, .. } => {
             let clip = intersect(clip, [own[0] + ox, own[1] + oy, own[2] + ox, own[3] + oy]);
             indices.resize = Some(menu::screen::IndexedResize { size: (size.0 as u32, size.1 as u32), sample_step });
-            Some(ScreenDraw::Indexed { path, rect, x: x + ox, y: y + oy, clip, palette, indices })
+            Some(ScreenDraw::Indexed { retained,path, rect, x: x + ox, y: y + oy, clip, palette, indices })
         }
         Op::ResizedImage { source: Source::Surface { .. }, .. } => None,
         Op::Fill { rect: [x, y, w, h], rgb, alpha } => Some(ScreenDraw::Fill { rect: [x + ox, y + oy, w, h], rgb, alpha, clip }),
@@ -1537,10 +1717,7 @@ pub mod indices {
     /// The indices the game turns into 255 in `path` before it cuts its
     /// sprites: 0 and 1 of `Territory.pcx` (its loader, 0x4C6A9A..0x4C6B0C,
     /// docs §3.1), the filler of the border diamonds.
-    pub fn blank(path: &str) -> &'static [u8] {
-        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-        if name.eq_ignore_ascii_case("territory.pcx") { &[0, 1] } else { &[] }
-    }
+    pub fn blank(_path: &str) -> &'static [u8] { &[] }
 }
 
 #[cfg(test)]
@@ -1552,6 +1729,46 @@ mod tests {
 
     fn composite(canvas: u32, origin: (i32, i32), size: (i32, i32)) -> Event {
         Event::Composite { canvas, vtable: 1, origin, size, clip: [0, 0, 1024, 768], keyed: false }
+    }
+
+    #[test]
+    fn exact_queries_retain_sources_clips_and_lifetimes_without_a_global_history() {
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Size { image: 40, size: (20, 20) });
+        assert_eq!(m.exact_shown_at(40, 1, 1, &|_,_,_,_| None), Shown::Unknown);
+        m.apply(Event::Fill { canvas: 40, rect: [0,0,20,20], rgb: KEY_RGB, alpha: 255, clip: None });
+        m.apply(Event::Loaded { image: 10, path: "frame source".into(), size: (3,2) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0,0,3,2] });
+        m.apply(Event::Blit { sprite: 20, canvas: 40, x: 4, y: 5, clip: Some([5,5,7,7]), palette: None });
+        m.apply(Event::Reset { sprite: 20 });
+        m.apply(Event::Cleared { image: 10 });
+        for image in 100..1300 {
+            m.apply(Event::Size { image, size: (3,3) });
+            m.apply(Event::Fill { canvas: image, rect: [0,0,3,3], rgb: [1,2,3], alpha: 255, clip: None });
+        }
+        let pixels = |path: &str, x, _, _| { assert_eq!(path,"frame source"); Some((x != 2).then_some([24,56,88])) };
+        assert_eq!(m.exact_shown_at(40,4,5,&pixels), Shown::Nothing);
+        assert_eq!(m.exact_shown_at(40,5,5,&pixels), Shown::Rgb([24,56,88]));
+        assert_eq!(m.exact_shown_at(40,6,5,&pixels), Shown::Nothing);
+        m.apply(Event::Size { image: 41, size: (20,20) });
+        m.apply(Event::Copy { from: 40, src: [0,0,20,20], canvas: 41, x: 0, y: 0, keyed: false });
+        m.apply(Event::Cleared { image: 40 });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([24,56,88]));
+        m.unanswered(41);
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
+        m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([8,16,24]));
+        m.apply(Event::Loaded { image: 60, path: "transformed source".into(), size: (3,2) });
+        m.unanswered(60); // A replacement whose metadata is not represented.
+        m.apply(Event::Sliced { sprite: 61, image: 60, rect: [0,0,3,2] });
+        m.apply(Event::Copied { sprite: 62, source: 61 });
+        m.apply(Event::Reset { sprite: 61 });
+        m.apply(Event::Cleared { image: 60 });
+        m.apply(Event::Blit { sprite: 62, canvas: 41, x: 4, y: 5, clip: None, palette: None });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
+        m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
+        m.apply(Event::TextClipped { canvas: 41, run: text(1,10,"caption"), clip: [0,0,20,20] });
+        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown, "caption glyph source is not represented by a rectangular hit");
     }
 
     #[test]
@@ -1645,7 +1862,7 @@ mod tests {
         m.apply(Event::PaintEnd);
         assert_eq!(
             m.frame().draws,
-            vec![ScreenDraw::Image { path: "Art/a.pcx".into(), rect: [5, 6, 30, 20], x: 107, y: 208, keyed: true, clip: [100, 200, 140, 240], mask: None, palette: None, opacity: 255 }]
+            vec![ScreenDraw::Image { retained:None,path: "Art/a.pcx".into(), rect: [5, 6, 30, 20], x: 107, y: 208, keyed: true, clip: [100, 200, 140, 240], mask: None, palette: None, opacity: 255 }]
         );
     }
 
@@ -1653,9 +1870,9 @@ mod tests {
     fn resized_sprites_keep_source_pixels_and_blending_through_clipped_copies() {
         let mut m = UiModel::new(vec![], vec![]);
         let palette = menu::screen::PaletteFrom { image: "Art/colors.pcx".into(), first: 16, count: 32 };
-        let source = Source::File {
+        let source = Source::File { retained:None,
             path: "Art/resource.pcx".into(), rect: [5, 6, 30, 20],
-            mask: Some(Mask { path: "Art/mask.pcx".into(), at: (8, 10) }),
+            mask: Some(Mask { retained:None,premultiplied:false,path: "Art/mask.pcx".into(), at: (8, 10) }),
             palette: Some(menu::screen::PaletteFrom { image: "old.pcx".into(), first: 0, count: 16 }), opacity: 128,
         };
         Arc::make_mut(&mut m.sprites).insert(20, source.clone());
@@ -1667,10 +1884,10 @@ mod tests {
         m.apply(Event::PaintBegin);
         m.apply(composite(300, (200, 100), (200, 100)));
         m.apply(Event::PaintEnd);
-        assert_eq!(m.frame().draws, vec![ScreenDraw::ResizedImage {
+        assert_eq!(m.frame().draws, vec![ScreenDraw::ResizedImage { retained:None,
             path: "Art/resource.pcx".into(), rect: [5, 6, 30, 20], x: 297, y: 148, size: (13, 7), sample_step: [151236, 187245],
             keyed: true, clip: [302, 151, 309, 154],
-            mask: Some(Mask { path: "Art/mask.pcx".into(), at: (8, 10) }), palette: Some(palette), opacity: 128,
+            mask: Some(Mask { retained:None,premultiplied:false,path: "Art/mask.pcx".into(), at: (8, 10) }), palette: Some(palette), opacity: 128,
         }]);
         assert_eq!(m.sprite_source(20), Some(&source), "per-draw palette must not change the retained sprite");
     }
@@ -1755,8 +1972,10 @@ mod tests {
         let shadow = indices::blend(&indices::SHADOW_LEVELS);
         assert_eq!(shadow.shade, vec![(248, 8), (249, 10), (250, 12), (251, 14)]);
         let colors = indices::colored(indices::blank("Art\\Terrain\\Territory.pcx"));
-        assert_eq!(colors.transparent[..3], [0, 1, 224]);
-        assert_eq!(colors.transparent.len(), 2 + 32);
+        assert_eq!(colors.transparent[..3], [224, 225, 226]);
+        assert_eq!(colors.transparent.len(), 32);
+        assert!(indices::blank("Art/Units/units_32.pcx").is_empty());
+        assert!(indices::blank("art/Advisors/foreignTAB.PCX").is_empty());
         assert_eq!(indices::colored_shades().shade[9], (249, 10));
         assert!(indices::blank("Art/Terrain/xtgc.pcx").is_empty());
         let owner = menu::screen::PaletteFrom { image: "Art/Units/Palettes/ntp03.pcx".into(), first: 64, count: 2 };
@@ -1770,9 +1989,9 @@ mod tests {
         m.apply(Event::PaintEnd);
         let clip = [768, 517, 1024, 690];
         assert_eq!(m.frame().draws, vec![
-            ScreenDraw::Indexed { path: "Art/resources_shadows.pcx".into(), rect: [51, 151, 48, 49], x: 872, y: 548, clip, palette: None, indices: shadow.clone() },
-            ScreenDraw::Indexed { path: "Art\\Terrain\\Territory.pcx".into(), rect: [61, 87, 67, 28], x: 893, y: 517, clip, palette: Some(owner), indices: colors },
-            ScreenDraw::Indexed { path: "Art/resources_shadows.pcx".into(), rect: [51, 151, 48, 49], x: 872, y: 548, clip, palette: None, indices: shadow },
+            ScreenDraw::Indexed { retained:None,path: "Art/resources_shadows.pcx".into(), rect: [51, 151, 48, 49], x: 872, y: 548, clip, palette: None, indices: shadow.clone() },
+            ScreenDraw::Indexed { retained:None,path: "Art\\Terrain\\Territory.pcx".into(), rect: [61, 87, 67, 28], x: 893, y: 517, clip, palette: Some(owner), indices: colors },
+            ScreenDraw::Indexed { retained:None,path: "Art/resources_shadows.pcx".into(), rect: [51, 151, 48, 49], x: 872, y: 548, clip, palette: None, indices: shadow },
         ]);
     }
 
@@ -1781,7 +2000,7 @@ mod tests {
         let mut m = UiModel::new(vec![], vec![]);
         let owner = menu::screen::PaletteFrom { image: "ntp03.pcx".into(), first: 64, count: 2 };
         let override_palette = menu::screen::PaletteFrom { image: "ntp04.pcx".into(), first: 64, count: 2 };
-        std::sync::Arc::make_mut(&mut m.sprites).insert(20, Source::File { path: "Territory.pcx".into(), rect: [0, 0, 20, 20], mask: None, palette: Some(owner.clone()), opacity: 255 });
+        std::sync::Arc::make_mut(&mut m.sprites).insert(20, Source::File { retained:None, path: "Territory.pcx".into(), rect: [0, 0, 20, 20], mask: None, palette: Some(owner.clone()), opacity: 255 });
         for (x, palette) in [(0, None), (30, Some(override_palette.clone()))] {
             m.apply(Event::IndexedBlit { sprite: 20, canvas: 300, x, y: 0, clip: None, palette, indices: indices::colored(&[0, 1]) });
         }
@@ -1900,7 +2119,7 @@ mod tests {
         assert_eq!(
             m.frame().draws,
             vec![
-                ScreenDraw::Image { path: "Art/bg.pcx".into(), rect: [18, 18, 10, 10], x: 2, y: 3, keyed: false, clip, mask: None, palette: None, opacity: 255 },
+                ScreenDraw::Image { retained:None,path: "Art/bg.pcx".into(), rect: [18, 18, 10, 10], x: 2, y: 3, keyed: false, clip, mask: None, palette: None, opacity: 255 },
                 ScreenDraw::Fill { rect: [4, 5, 4, 4], rgb: [1, 2, 3], alpha: 255, clip },
             ]
         );
@@ -1959,7 +2178,7 @@ mod tests {
             m.frame().draws,
             vec![
                 ScreenDraw::Fill { rect: [5, 5, 20, 10], rgb: [0, 0, 0], alpha: 128, clip },
-                ScreenDraw::Image { path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip, mask: None, palette: None, opacity: 255 },
+                ScreenDraw::Image { retained:None,path: "Art\\Cities\\barracks.pcx".into(), rect: [1, 1, 23, 15], x: 1, y: 2, keyed: true, clip, mask: None, palette: None, opacity: 255 },
             ]
         );
     }
@@ -2516,7 +2735,7 @@ mod tests {
     #[test]
     fn compaction_drops_only_what_later_opaque_draws_cover_together() {
         let file = |path: &str, rect: [i32; 4], x: i32, y: i32, keyed: bool| Op::Image {
-            source: Source::File { path: path.into(), rect, mask: None, palette: None, opacity: 255 }, x, y, keyed,
+            source: Source::File { retained:None, path: path.into(), rect, mask: None, palette: None, opacity: 255 }, x, y, keyed,
         };
         let mut m = UiModel::new(vec![], vec![]).with_opaque_files(opaque_files(&["tile.pcx"]));
         m.apply(Event::Size { image: 300, size: (100, 30) });
