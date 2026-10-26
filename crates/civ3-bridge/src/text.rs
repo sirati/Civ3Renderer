@@ -18,10 +18,10 @@ pub use civ3_ui::text::TextRun;
 
 type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 
-/// The exact text source retained by the renderer for semantic keyed reads.
-/// The outline variant uses the same packed face words and integer coverage
-/// routine as the GPU renderer; the atlas variant uses the same loaded glyph
-/// images as its 1:1 sprite path. No GDI surface is allocated or calibrated.
+/// The renderer's retained text source. The outline variant uses the same
+/// packed face words and integer coverage routine as the GPU; the atlas
+/// variant uses its loaded 1:1 glyph images. Native queries also require a
+/// supported equivalence to that source. No GDI surface is calibrated.
 #[derive(Clone)]
 enum HitSource {
     Atlas { font: Arc<GlyphFont>, advances: Vec<(char, i32)> },
@@ -43,8 +43,6 @@ struct HitGlyph {
 #[derive(Clone)]
 enum KeyAccuracy {
     Renderer,
-    /// Native glyph black boxes. Their raster coverage is not retained.
-    Native(Vec<[i32; 4]>),
     Unavailable,
 }
 
@@ -59,36 +57,9 @@ static HIT_RUNS: handoff::Latest<Vec<HitRun>> = handoff::Latest::new();
 static HIT_ATLASES: handoff::Latest<BTreeMap<FontKey, Arc<GlyphFont>>> = handoff::Latest::new();
 static HIT_REVISION: AtomicU64 = AtomicU64::new(u64::MAX);
 
-static NATIVE_GEOMETRY: handoff::Latest<std::collections::HashMap<TextRun, Option<Vec<[i32;4]>>>> = handoff::Latest::new();
-
-/// Retain geometry while the selected native image DC is still alive.
-/// A monochrome measuring DC does not establish the pens of a 16-bit draw.
-/// Owned placeholder DCs therefore remain explicitly unsupported here.
-pub(crate) fn record_native_geometry(draw: &jgl::TextDraw<'_>) {
-    if !gdi_text::under_wine() { return; }
-    let mut run = civ3_ui::text::run_of(draw);
-    run.x = 0; run.y = 0;
-    if NATIVE_GEOMETRY.load().is_some_and(|g|g.contains_key(&run)) { return; }
-    let measured = jgl_ffi::text::ink_metrics(draw.image, draw.bytes);
-    let boxes = measured.filter(|(bits,_)|*bits==16 && !run.underline).map(|(_,metrics)| {
-        let mut pen = 0;
-        let mut boxes = Vec::new();
-        for (left,top,width,height,advance) in metrics {
-            if width>0 && height>0 { boxes.push([pen+left,-top,pen+left+width as i32,height as i32-top]); }
-            pen += advance;
-        }
-        boxes
-    });
-    NATIVE_GEOMETRY.update(|old| {
-        let mut map=old.cloned().unwrap_or_default();
-        map.insert(run.clone(),boxes.clone());
-        Some(map)
-    });
-}
-
 /// Query a pixel from the renderer's retained text source. The return value
 /// is `Some(None)` for the colour key and `Some(Some(rgb))` for the exact RGB
-/// result; `None` means this run has no supported retained source yet.
+/// result; `None` means this pixel has no supported native-equivalent source.
 pub(crate) fn keyed_pixel(run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
     let runs = HIT_RUNS.load()?;
     let mut local = run.clone();
@@ -110,16 +81,9 @@ fn keyed_mix(color: [u8; 3], coverage: [u8; 3], key: [u8; 3]) -> Option<[u8; 3]>
 
 impl HitRun {
     fn pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
-        let rendered = self.renderer_pixel(x, y)?;
-        match &self.accuracy {
-            KeyAccuracy::Renderer => Some(rendered),
+        match self.accuracy {
+            KeyAccuracy::Renderer => self.renderer_pixel(x, y),
             KeyAccuracy::Unavailable => None,
-            KeyAccuracy::Native(boxes) => {
-                // Neither opaque nor transparent is established inside a native
-                // black box. A renderer-only pixel also lacks equivalence.
-                if rendered.is_some() || boxes.iter().any(|&[l,t,r,b]| x>=l && y>=t && x<r && y<b) { None }
-                else { Some(None) }
-            }
         }
     }
 
@@ -293,19 +257,16 @@ impl Fonts {
         local.y = 0;
         let run = &local;
         let Some(source) = self.hit_source(run, compiled) else { return };
-        let accuracy = self.key_accuracy(run);
+        // The fitted outlines and Windows atlases are viewer sources, but
+        // they do not establish Wine's native hinted text pixels. GDI black
+        // boxes also missed reached ink, so no exact footprint is certified.
+        let accuracy = if gdi_text::under_wine() { KeyAccuracy::Unavailable } else { KeyAccuracy::Renderer };
         HIT_RUNS.update(|old| {
             let mut runs = old.cloned().unwrap_or_default();
             runs.retain(|hit| hit.run != *run);
             runs.push(HitRun { run: run.clone(), source: source.clone(), accuracy: accuracy.clone() });
             Some(runs)
         });
-    }
-
-    fn key_accuracy(&self, run: &TextRun) -> KeyAccuracy {
-        if !gdi_text::under_wine() { return KeyAccuracy::Renderer; }
-        NATIVE_GEOMETRY.load().and_then(|g|g.get(run).cloned()).flatten()
-            .map_or(KeyAccuracy::Unavailable, KeyAccuracy::Native)
     }
 
     /// Fonts loaded on a thread of their own: [`Fonts::add`] asks for them,

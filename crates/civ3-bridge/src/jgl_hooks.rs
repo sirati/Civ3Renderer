@@ -24,15 +24,6 @@ use civ3_ui::text::{CanvasText, TextCapture};
 /// loads at once both return with it in place.
 static TEXT: inproc::loader::InstallOnce = inproc::loader::InstallOnce::new();
 
-struct Texts(TextCapture<fn(CanvasText)>);
-impl jgl::TextHooks for Texts {
-    fn text(&mut self, draw: &jgl::TextDraw<'_>) {
-        crate::text::record_native_geometry(draw);
-        self.0.text(draw);
-    }
-    fn font(&mut self, desc: &jgl::FontDesc) { self.0.font(desc); }
-}
-
 fn canvas_text(t: CanvasText) {
     crate::ui_trace::audit_semantic(crate::ui_trace::SemanticClass::TextRun);
     crate::ui_trace::on_text(t.canvas, t.clip, &t.run);
@@ -132,7 +123,7 @@ impl jgl::PixelPolicy for Pixels {
 
 fn hooks() -> jgl::Hooks {
     jgl::Hooks {
-        text: Box::new(Texts(TextCapture::new(canvas_text))),
+        text: Box::new(TextCapture::new(canvas_text)),
         fill: Box::new(Fills),
         copy: Box::new(Copies),
         blit: Box::new(BlitCapture::new(game_blit)),
