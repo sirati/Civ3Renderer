@@ -79,6 +79,9 @@ pub enum Event {
     /// Region `src` (x, y, w, h) of image `from` copied to (x, y) of
     /// `canvas`; `keyed`: colour 255 transparent.
     Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool },
+    /// C3X's selected mill resources, on the improvement row's canvas,
+    /// after its building sprite and before subsequent row decorations.
+    MillIcons { canvas: u32, path: String, resources: Vec<(i32, i32)>, at: (i32, i32), clip: [i32; 4], transparent: Vec<u8> },
     /// `rect` (x, y, w, h) of `canvas` filled (`rgb`).
     /// `alpha`: 255 opaque, else a translucent shade (50 % = 128).
     Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: Option<[i32; 4]> },
@@ -817,6 +820,15 @@ impl UiModel {
                     self.push(canvas, op);
                 }
             }
+            Event::MillIcons { canvas, path, resources, at, clip, transparent } => {
+                for icon in crate::mill_icons::layout(&resources, at) {
+                    let op = Op::ResizedImage { source: Source::Indexed {
+                        path: path.clone(), rect: icon.rect, palette: None,
+                        indices: crate::mill_icons::indices(transparent.clone()),
+                    }, x: icon.at.0, y: icon.at.1, keyed: true, size: (24, 24), sample_step: [90112; 2], clip };
+                    if let Some(op) = crop_move(op, clip, (0, 0), true) { self.push(canvas, op); }
+                }
+            }
             Event::Fill { canvas, rect, rgb, alpha, clip } => {
                 let rect = match clip {
                     Some(c) => {
@@ -1539,7 +1551,15 @@ pub mod indices {
     /// docs §3.1), the filler of the border diamonds.
     pub fn blank(path: &str) -> &'static [u8] {
         let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-        if name.eq_ignore_ascii_case("territory.pcx") { &[0, 1] } else { &[] }
+        if name.eq_ignore_ascii_case("territory.pcx") {
+            &[0, 1]
+        } else if name.eq_ignore_ascii_case("units_32.pcx") || name.eq_ignore_ascii_case("foreigntab.pcx") {
+            // The game calls Image +0x58 on these loaded sheets, replacing
+            // index 0xFD with its key 0xFF before it cuts sprites.
+            &[0xFD]
+        } else {
+            &[]
+        }
     }
 }
 
@@ -1757,6 +1777,8 @@ mod tests {
         let colors = indices::colored(indices::blank("Art\\Terrain\\Territory.pcx"));
         assert_eq!(colors.transparent[..3], [0, 1, 224]);
         assert_eq!(colors.transparent.len(), 2 + 32);
+        assert_eq!(indices::blank("Art/Units/units_32.pcx"), [0xFD]);
+        assert_eq!(indices::blank("art/Advisors/foreignTAB.PCX"), [0xFD]);
         assert_eq!(indices::colored_shades().shade[9], (249, 10));
         assert!(indices::blank("Art/Terrain/xtgc.pcx").is_empty());
         let owner = menu::screen::PaletteFrom { image: "Art/Units/Palettes/ntp03.pcx".into(), first: 64, count: 2 };

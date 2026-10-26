@@ -16,5 +16,7 @@ pub mod text;
 pub mod production_queue;
 pub mod viewer;
 pub mod screens;
+pub mod selection;
+pub mod mill_icons;
 pub mod ui_screen;
 pub mod ui;

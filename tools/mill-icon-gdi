@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""File-only TransparentBlt oracle. Run in nix develop with ART_PCX OUTPUT_DIR.
+Uses its own Wine prefix, opens no game/window, retains all inputs and output.
+"""
+import hashlib
+import json
+import os
+import pathlib
+import struct
+import subprocess
+import sys
+
+art = pathlib.Path(sys.argv[1]).resolve()
+out = pathlib.Path(sys.argv[2]).resolve()
+out.mkdir(parents=True, exist_ok=True)
+pcx = art.read_bytes()
+assert pcx[0:4] == bytes([10, 5, 1, 8]) and pcx[65] == 1 and pcx[-769] == 12
+x0, y0, x1, y1 = struct.unpack_from('<4H', pcx, 4)
+w, h = x1 - x0 + 1, y1 - y0 + 1
+stride = struct.unpack_from('<H', pcx, 66)[0]
+decoded = bytearray()
+p = 128
+while len(decoded) < stride * h:
+    b = pcx[p]
+    p += 1
+    if b & 192 == 192:
+        decoded.extend([pcx[p]] * (b & 63))
+        p += 1
+    else:
+        decoded.append(b)
+palette = [tuple(pcx[-768 + 3*i: -768 + 3*i + 3]) if i != 255 else tuple(pcx[-3:]) for i in range(256)]
+rgb555 = lambda c: (c[0] >> 3) << 10 | (c[1] >> 3) << 5 | c[2] >> 3
+(out/'sheet.indexed').write_bytes(struct.pack('<II', w, h) + b''.join(bytes((c[2],c[1],c[0],0)) for c in palette) + b''.join(decoded[y*stride:y*stride+w] for y in range(h)))
+(out/'art.json').write_text(json.dumps({'source': str(art), 'sha256': hashlib.sha256(pcx).hexdigest(), 'size': [w,h], 'transparent': [i for i,c in enumerate(palette) if rgb555(c) == 0x7c1f]}, indent=2)+'\n')
+source = r'''
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+int main(int argc,char **argv){
+ FILE *f=fopen(argv[1],"rb");unsigned w,h;fread(&w,4,1,f);fread(&h,4,1,f);
+ struct { BITMAPINFOHEADER header; RGBQUAD colors[256]; } si={0};
+ si.header.biSize=40;si.header.biPlanes=1;si.header.biBitCount=8;
+ si.header.biWidth=w;si.header.biHeight=-(int)h;si.header.biClrUsed=256;fread(si.colors,4,256,f);
+ unsigned char *s;unsigned short *d;HDC src=CreateCompatibleDC(0),dst=CreateCompatibleDC(0);
+ HBITMAP sb=CreateDIBSection(src,(BITMAPINFO*)&si,DIB_RGB_COLORS,(void**)&s,0,0);
+ BITMAPINFO bi={0};bi.bmiHeader.biSize=40;bi.bmiHeader.biPlanes=1;bi.bmiHeader.biBitCount=16;
+ bi.bmiHeader.biWidth=24;bi.bmiHeader.biHeight=-24;
+ HBITMAP db=CreateDIBSection(dst,&bi,DIB_RGB_COLORS,(void**)&d,0,0);
+ HGDIOBJ so=SelectObject(src,sb),dold=SelectObject(dst,db);
+ unsigned pitch=(w+3)&~3;for(unsigned y=0;y<h;y++)fread(s+y*pitch,1,w,f);fclose(f);
+ for(int i=0;i<36;i++){
+  for(int p=0;p<576;p++)d[p]=0x1234;
+  if(!TransparentBlt(dst,0,0,24,24,src,9+50*(i%6),9+50*(i/6),33,33,0xff00ff))return 3;
+  GdiFlush();char path[1024];snprintf(path,sizeof path,"%s/icon%02d.555",argv[2],i);
+  f=fopen(path,"wb");if(!f)return 4;fwrite(d,2,576,f);fclose(f);
+ }
+ SelectObject(src,so);SelectObject(dst,dold);DeleteObject(sb);DeleteObject(db);DeleteDC(src);DeleteDC(dst);
+ printf("36 icons, 20736 RGB555 pixels, background 0x1234\n");return 0;
+}
+'''
+(out/'oracle.c').write_text(source)
+subprocess.run(['i686-w64-mingw32-gcc', str(out/'oracle.c'), '-o', str(out/'oracle.exe'), '-lmsimg32', '-lgdi32'], check=True)
+env = os.environ.copy()
+env.update(WINEPREFIX=str(out/'prefix'), WINEDEBUG='-all', WINEDLLOVERRIDES='mscoree,mshtml=')
+env.pop('DISPLAY', None)
+env.pop('WAYLAND_DISPLAY', None)
+wine = pathlib.Path(os.environ.get('CIV3R_WINE', pathlib.Path.home()/'.cache/winvm/wine'))/'bin/wine'
+result = subprocess.run([str(wine), str(out/'oracle.exe'), str(out/'sheet.indexed'), str(out)], env=env, text=True, capture_output=True)
+(out/'stdout.txt').write_text(result.stdout)
+(out/'stderr.txt').write_text(result.stderr)
+result.check_returncode()
+print(result.stdout, end='')
+
+# Boundary palettes distinguish RGB555-key behavior from exact RGB8 equality
+# and from a blanket special-index rule. Keep each input and GDI output.
+packet = bytearray((out/'sheet.indexed').read_bytes())
+colors = {7: (248,7,250), 8: (255,0,255), 9: (247,0,255), 254: (0,0,255), 255: (255,0,255)}
+for index, color in colors.items():
+    packet[8+4*index:12+4*index] = bytes((color[2],color[1],color[0],0))
+cases = []
+for index, color in colors.items():
+    case = out/f'palette-{index}'
+    case.mkdir(exist_ok=True)
+    src = case/'source.indexed'
+    src.write_bytes(packet[:1032] + bytes([index])*(w*h))
+    run = subprocess.run([str(wine), str(out/'oracle.exe'), str(src), str(case)], env=env, text=True, capture_output=True)
+    (case/'stdout.txt').write_text(run.stdout)
+    (case/'stderr.txt').write_text(run.stderr)
+    run.check_returncode()
+    pixels = struct.unpack('<576H', (case/'icon00.555').read_bytes())
+    expected = 0x1234 if rgb555(color) == 0x7c1f else rgb555(color)
+    assert set(pixels) == {expected}, (index, sorted(set(pixels)), expected)
+    cases.append({'index': index, 'rgb': color, 'output': expected, 'transparent': expected == 0x1234})
+(out/'palette-key-cases.json').write_text(json.dumps(cases, indent=2)+'\n')
+print('5 palette boundary cases match RGB555 destination key behavior')

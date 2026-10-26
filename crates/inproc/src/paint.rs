@@ -26,6 +26,11 @@ crate::stdcall_hook! {
     mod begin_paint(hwnd, paint) -> u32;
 }
 
+crate::stdcall_hook! {
+    /// `BOOL DestroyWindow(HWND)`.
+    mod destroy_window(hwnd) -> i32;
+}
+
 /// A hidden window's area to paint, handed from whichever thread
 /// invalidates it to the window's thread painting it, without a lock.
 struct Hidden {
@@ -87,12 +92,54 @@ pub fn repaint(window: Window) {
     }
 }
 
+/// After `InvalidateRect(hwnd, rect, ..)` (`rect` a `RECT*`, 0 for all
+/// of the window): for a hidden window, keeps the area and posts a paint.
+/// For a program that calls Windows itself, as the hooks below do it.
+pub fn invalidated(hwnd: u32, rect: u32) {
+    let window = Window::from_handle(hwnd);
+    if hwnd != 0 && !window.is_visible() {
+        let rect = match rect {
+            0 => client(window),
+            at => Ptr32::<[i32; 4]>::new(at).read().ok(),
+        };
+        if let Some(rect) = rect {
+            invalidate(window, rect);
+        }
+    }
+}
+
+/// After `BeginPaint(hwnd, paint)` (`paint` a `PAINTSTRUCT*`): for a
+/// hidden window, the area kept since becomes the paint's `rcPaint`.
+pub fn begun(hwnd: u32, paint: u32) {
+    let pending = take_pending(hwnd);
+    if let (Some(rect), false) = (pending, Window::from_handle(hwnd).is_visible()) {
+        // PAINTSTRUCT: hdc, fErase, then rcPaint.
+        let _ = Ptr32::<[i32; 4]>::new(paint).offset::<[i32; 4]>(8).and_then(|p| p.write(&rect));
+    }
+}
+
+/// Retires a window's paint state at the end of its lifetime, on its owning
+/// thread, after the final procedure/invalidations have returned. A later
+/// window must not inherit its pending area or consume another table entry.
+/// Called from WM_NCDESTROY and after a successful hooked DestroyWindow.
+pub fn destroyed(hwnd: u32) {
+    if hwnd == 0 { return; }
+    let Some(entry) = hidden(hwnd, false) else { return; };
+    entry.waiting.store(false, Ordering::Release);
+    for _ in entry.rects.drain() {}
+    entry.window.store(0, Ordering::Release);
+}
+
 /// The redirected imports; restored when dropped.
-pub struct Hooks(#[allow(dead_code)] invalidate_rect::Installed, #[allow(dead_code)] begin_paint::Installed);
+pub struct Hooks(
+    #[allow(dead_code)] invalidate_rect::Installed,
+    #[allow(dead_code)] begin_paint::Installed,
+    #[allow(dead_code)] Option<destroy_window::Installed>,
+);
 
 impl std::fmt::Debug for Hooks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Hooks(InvalidateRect, BeginPaint)")
+        f.write_str("Hooks(InvalidateRect, BeginPaint, DestroyWindow)")
     }
 }
 
@@ -104,26 +151,21 @@ pub fn hook_hidden_painting(module: u32) -> Result<Option<Hooks>, HookError> {
     let (Some(invalidate_slot), Some(begin_slot)) = (slot("InvalidateRect")?, slot("BeginPaint")?) else { return Ok(None) };
     let invalidated = invalidate_rect::install_slot(invalidate_slot, |call| {
         let r = call.original();
-        let window = Window::from_handle(call.hwnd);
-        if call.hwnd != 0 && !window.is_visible() {
-            let rect = match call.rect {
-                0 => client(window),
-                at => Ptr32::<[i32; 4]>::new(at).read().ok(),
-            };
-            if let Some(rect) = rect {
-                invalidate(window, rect);
-            }
-        }
+        if r != 0 { invalidated(call.hwnd, call.rect); }
         r
     })?;
     let begun = begin_paint::install_slot(begin_slot, |call| {
         let dc = call.original();
-        let pending = take_pending(call.hwnd);
-        if let (Some(rect), false) = (pending, Window::from_handle(call.hwnd).is_visible()) {
-            // PAINTSTRUCT: hdc, fErase, then rcPaint.
-            let _ = Ptr32::<[i32; 4]>::new(call.paint).offset::<[i32; 4]>(8).and_then(|p| p.write(&rect));
-        }
+        begun(call.hwnd, call.paint);
         dc
     })?;
-    Ok(Some(Hooks(invalidated, begun)))
+    let destroyed = match slot("DestroyWindow")? {
+        Some(at) => Some(destroy_window::install_slot(at, |call| {
+            let result = call.original();
+            if result != 0 { destroyed(call.hwnd); }
+            result
+        })?),
+        None => None,
+    };
+    Ok(Some(Hooks(invalidated, begun, destroyed)))
 }

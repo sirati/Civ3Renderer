@@ -578,3 +578,6 @@ pub const MAP_RENDERER_FIELDS: &[(&str, u32, u32)] = &[
     ("PCX_Rivers", 13420, 260),
     ("PCX_Std_Terrain_Images", 13680, 2340),
 ];
+
+// C3X mill row fields, generated from the same R28 headers.
+pub const RESOURCE_TYPE_CLASS: u32 = 60;
