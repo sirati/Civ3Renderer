@@ -1646,3 +1646,7 @@ mod fit_tests {
         assert_eq!(wider.iter().sum::<i32>(), 30);
     }
 }
+
+#[cfg(test)]
+#[path = "keyed_read_tests.rs"]
+mod keyed_read_tests;
