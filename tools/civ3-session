@@ -44,12 +44,23 @@ wait_for_log() { # pattern timeout
 
 case ${1:-} in
 start)
+  # Native unixlibs resolve Vulkan/Wayland at runtime. Without the dev
+  # shell's libraries, build detection succeeds but the viewer then exits.
+  if [[ ${CIV3R_VIEWER:-} == native* ]] && [ -z "${LD_LIBRARY_PATH:-}" ]; then
+    echo "native viewer requires the runtime libraries from nix develop" >&2
+    exit 1
+  fi
   "$WLH" start >/dev/null
   "$CIV3_WINE" kill 2>/dev/null || true
   rm -f "$GAME/civ3-bridge.log" "$GAME/civ3-trace.request" "$GAME/civ3-trace.txt"
   "$WLH" run "$CIV3_WINE" fullscreen >/dev/null
   wait_for_log "detected build" 60
   sleep 8   # main menu up
+  if grep -Eq "ending the game's process|no exact model answer|panicked" "$GAME/civ3-bridge.log"; then
+    tail -n 25 "$GAME/civ3-bridge.log" >&2
+    echo "game exited during startup" >&2
+    exit 1
+  fi
   echo "game at main menu"
   ;;
 newgame)
