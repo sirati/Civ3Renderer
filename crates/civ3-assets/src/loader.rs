@@ -130,6 +130,27 @@ fn signed(v: &toml::Value) -> Result<i64, String> {
     v.as_integer().ok_or_else(|| format!("expected an integer, got {v}"))
 }
 
+/// Apply the recorded source-image edits before any crop or palette rule.
+/// This edits decoded art inputs, never a game drawing or a UI canvas.
+fn index_changes(pixels:&mut [u8],width:u32,height:u32,options:&toml::Table)->Result<(),String> {
+    let Some(changes)=options.get("index_changes") else {return Ok(())};
+    let changes=changes.as_array().ok_or("index_changes must be an array")?;
+    for change in changes {
+        let c=change.as_table().ok_or("index change must be a table")?;
+        let rect=c.get("rect").and_then(|r|r.as_array()).filter(|r|r.len()==4).ok_or("index change rect must have four coordinates")?;
+        let rect=rect.iter().map(signed).collect::<Result<Vec<_>,_>>()?;
+        let byte=|name:&str|c.get(name).ok_or_else(||format!("missing {name}")).and_then(|v|u8::try_from(int(v)?).map_err(|_|format!("invalid {name}")));
+        let (from,to)=(byte("from")?,byte("to")?);
+        for y in rect[1].max(0)..rect[3].min(i64::from(height)) {
+            for x in rect[0].max(0)..rect[2].min(i64::from(width)) {
+                let p=&mut pixels[(y*i64::from(width)+x) as usize];
+                if *p==from {*p=to;}
+            }
+        }
+    }
+    Ok(())
+}
+
 fn int(v: &toml::Value) -> Result<usize, String> {
     v.as_integer().and_then(|i| usize::try_from(i).ok()).ok_or_else(|| format!("expected an index, got {v}"))
 }
@@ -431,7 +452,8 @@ impl ImageLoader for Civ3Loader {
             })
         };
         if flc {
-            let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            let identity=self.files.resolve(source).map_err(|e|e.to_string())?;
+            let anim = crate::source_cache::animation(source,&identity.to_string_lossy(),&bytes).map_err(|e| format!("{source}: {e}"))?;
             let only = only_frames(options)?;
             // (A frame not made: one transparent pixel.)
             let none = || render_desc::IndexedFrame { pixels: tile_render::IndexImage { width: 1, height: 1, pixels: vec![0] }, palette: vec![[0; 4]; 256] };
@@ -442,7 +464,8 @@ impl ImageLoader for Civ3Loader {
                 .collect::<Result<_, _>>()
                 .map(Some)
         } else {
-            let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            let mut img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            index_changes(&mut img.pixels,img.width,img.height,options)?;
             Ok(Some(vec![frame(img.width, img.height, &img.pixels, &img.palette)?]))
         }
     }
@@ -458,6 +481,7 @@ impl ImageLoader for Civ3Loader {
         } else {
             return Err(format!("{source}: unknown palette format"));
         };
+        crate::source_cache::palette(source,palette.clone());
         Ok(palette.0.iter().map(|c| [q(c.0), q(c.1), q(c.2), 255]).collect())
     }
 
@@ -479,7 +503,8 @@ impl ImageLoader for Civ3Loader {
         let q = quantizer(options)?;
         let lower = source.to_lowercase();
         if lower.ends_with(".pcx") {
-            let img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            let mut img = pcx::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            index_changes(&mut img.pixels,img.width,img.height,options)?;
             let palette = self.options_palette(options, &img.palette)?;
             let mut out = to_rgba_with(img.width, img.height, &img.pixels, &palette, &alpha, &explicit, q);
             if let Some(mask) = options.get("alpha_image").and_then(|v| v.as_str()) {
@@ -501,7 +526,8 @@ impl ImageLoader for Civ3Loader {
             }
             Ok(vec![out])
         } else if lower.ends_with(".flc") || lower.ends_with(".fli") {
-            let anim = flc::decode(&bytes).map_err(|e| format!("{source}: {e}"))?;
+            let identity=self.files.resolve(source).map_err(|e|e.to_string())?;
+            let anim = crate::source_cache::animation(source,&identity.to_string_lossy(),&bytes).map_err(|e| format!("{source}: {e}"))?;
             let only = only_frames(options)?;
             anim.frames
                 .iter()

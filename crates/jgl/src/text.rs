@@ -10,6 +10,49 @@ use std::rc::Rc;
 
 use crate::{FontId, ImageId};
 
+/// Font-engine ink boxes and pen advances, captured once when a face is
+/// selected. Boxes describe possible ink, never opaque glyph pixels.
+#[derive(Clone, Debug)]
+pub struct FontGeometry {
+    pub glyphs: Vec<Option<GlyphGeometry>>,
+    pub underline: Option<(i32, i32)>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct GlyphGeometry {
+    pub bounds: [i32; 4],
+    pub advance: i32,
+}
+
+impl GlyphGeometry {
+    pub fn from_metrics(x:i32,y:i32,w:u32,h:u32,advance:i32)->Self {
+        Self {bounds:[x,-y,x+w as i32,-y+h as i32],advance}
+    }
+}
+
+pub fn underline_geometry(position:i32,size:i32)->(i32,i32) {
+    let size=size.max(1);
+    (-position-size/2,size)
+}
+
+impl FontGeometry {
+    pub fn may_cover(&self, text: &str, x: i32, y: i32, underline: bool) -> Option<bool> {
+        let mut pen=0;
+        let mut ink=false;
+        for ch in text.chars() {
+            let glyph=self.glyphs.get(usize::try_from(u32::from(ch)).ok()?)?.as_ref()?;
+            let [l,t,r,b]=glyph.bounds;
+            ink |= x>=pen+l && x<pen+r && y>=t && y<b;
+            pen+=glyph.advance;
+        }
+        if underline {
+            let (t,h)=self.underline?;
+            ink |= x>=0 && x<pen && y>=t && y<t+h;
+        }
+        Some(ink)
+    }
+}
+
 /// A font as GDI creates it (the `LOGFONTA` fields text drawing depends on).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FontDesc {

@@ -278,7 +278,7 @@ mod tests {
         reset(20);
         assert_eq!(sprite_index(21, 1, 0), Some(7));
         assert_eq!(sprite_index(21, -1, 0), Some(0xFF));
-        let source = Source::File { path: "not on disk".into(), rect: [0, 0, 3, 2], mask: None, palette: None, opacity: 255 };
+        let source = Source::File { retained:None,path: "not on disk".into(), rect: [0, 0, 3, 2], mask: None, palette: None, opacity: 255 };
         let mut map = Arc::new(Map { selection: Selection::new((20, 20)), error: None, anchors: OnceLock::new(), files: HashMap::from([("not on disk".into(), file)]) });
         Arc::make_mut(&mut map).selection.piece(&source, 3, (2, 3), None).unwrap();
         reset(21);
@@ -320,7 +320,7 @@ mod tests {
         let sites = Sites { roots: 0x100, root_count: 0x200, modal: 0x300, companion: 0x304, main_gui: 0x900000, advisor: 0xA00000 };
         let form = 0x10000;
         let mut map = Map { selection: Selection::new((20, 20)), error: None, anchors: OnceLock::new(), files: HashMap::from([("art".into(), file())]) };
-        let source = Source::File { path: "art".into(), rect: [0, 0, 3, 2], mask: None, palette: None, opacity: 255 };
+        let source = Source::File { retained:None,path: "art".into(), rect: [0, 0, 3, 2], mask: None, palette: None, opacity: 255 };
         map.selection.piece(&source, 3, (2, 3), None).unwrap();
         let mut capture = DeferredControls { sites, words: HashMap::new(), bytes: HashMap::new(), blocks: HashMap::new(), maps: HashMap::from([(form + 0x3154, Arc::new(map))]), controls: OnceLock::new() };
         let put = |words: &mut HashMap<_, _>, at, value| { words.insert(at, Some(value)); };

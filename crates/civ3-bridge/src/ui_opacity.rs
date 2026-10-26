@@ -29,10 +29,88 @@ pub(crate) fn cache_game_file(path: &str, image: Arc<GameFile>) {
     GAME_FILES.update(|old| {
         let mut shared = old.cloned().unwrap_or_default();
         shared.retain(|(p, _)| p != path);
-        if shared.len() >= SHARED_FILES { shared.remove(0); }
         shared.push((path.to_owned(), image.clone()));
         Some(shared)
     });
+}
+
+/// Retain decoded input at file load, before the game releases its image.
+/// Queries do no file I/O and never consult placeholder sprite storage.
+pub(crate) fn decoded(image: u32, ct: u32)->Option<Arc<GameFile>> {
+    let (w,h,row,indices)=civ3_sys::ui_hooks::obj::image_indices(image)?;
+    let colors=civ3_sys::ui_hooks::obj::image_color_entries(image).or_else(|| civ3_sys::ui_hooks::color_table_entries(ct,0,256))?;
+    let palette=std::array::from_fn(|i| { let c=colors[i]; [c as u8,(c>>8) as u8,(c>>16) as u8] });
+    Some(Arc::new(GameFile { size:(w,h),row,indices,palette }))
+}
+
+pub(crate) struct KeyFiles;
+static UNIT_COLORS:std::sync::atomic::AtomicI32=std::sync::atomic::AtomicI32::new(0);
+pub(crate) fn unit_colors(colors:i32) {UNIT_COLORS.store(colors,std::sync::atomic::Ordering::Relaxed);}
+#[cfg(all(windows,target_arch="x86"))]
+static NATIVE:std::sync::OnceLock<wine_unixlib::pe::UnixLib>=std::sync::OnceLock::new();
+#[cfg(all(windows,target_arch="x86"))]
+pub(crate) fn native_sources(lib:wine_unixlib::pe::UnixLib) {let _=NATIVE.set(lib);}
+type NativePixels=HashMap<String,((u32,u32),Arc<[u8]>)>;
+static NATIVE_PIXELS:handoff::Latest<NativePixels>=handoff::Latest::new();
+static PALETTES:handoff::Latest<HashMap<String,[[u8;3];256]>>=handoff::Latest::new();
+
+pub(crate) fn generated(name:&str,size:(u32,u32),rgba:&[u8]) {
+    NATIVE_PIXELS.update(|old| {
+        let mut map=old.cloned().unwrap_or_default();
+        map.insert(name.into(),(size,Arc::from(rgba)));
+        Some(map)
+    });
+}
+pub(crate) fn named_palette(path:&str,palette:[[u8;3];256]) {
+    PALETTES.update(|old|{let mut map=old.cloned().unwrap_or_default();map.insert(path.into(),palette);Some(map)});
+}
+thread_local! {
+    static FONT_GEOMETRY:std::cell::RefCell<HashMap<jgl::FontDesc,Option<jgl::text::FontGeometry>>>=std::cell::RefCell::new(HashMap::new());
+}
+
+pub(crate) fn font_geometry(desc:&jgl::FontDesc) {
+    FONT_GEOMETRY.with_borrow_mut(|fonts| {
+        fonts.entry(desc.clone()).or_insert_with(||jgl_ffi::geometry::font(desc));
+    });
+}
+
+impl crate::ui::KeySources for KeyFiles {
+    #[cfg(windows)]
+    fn surface(&self,image:u32,x:i32,y:i32)->Option<[u8;3]> {
+        let name=crate::ui_trace::generated_name(image)?;
+        let sources=NATIVE_PIXELS.load()?;
+        let ((w,h),pixels)=sources.get(name)?;
+        if x<0 || y<0 || x as u32>=*w || y as u32>=*h {return None;}
+        let at=(y as usize * *w as usize+x as usize)*4;
+        (pixels[at+3]==255).then_some([pixels[at],pixels[at+1],pixels[at+2]])
+    }
+    #[cfg(all(windows,target_arch="x86"))]
+    fn flc(&self,path:&str,frame:u32,x:i32,y:i32,plain:bool)->Option<Option<crate::ui::FileSample>> {
+        let recolor=if plain {String::new()} else {format!("Art/Units/Palettes/ntp{:02}.pcx",UNIT_COLORS.load(std::sync::atomic::Ordering::Relaxed))};
+        let mut args=civ3r_native::SourceSample {path:wine_unixlib::pe::buffer(path.as_bytes()),recolor:wine_unixlib::pe::buffer(recolor.as_bytes()),frame,x,y,..Default::default()};
+        if NATIVE.get()?.call(civ3r_native::CALL_SOURCE_SAMPLE,&mut args)!=0 {return None;}
+        match args.available {
+            1=>Some(Some(crate::ui::FileSample {index:(args.sample>>24) as u8,rgb:[args.sample as u8,(args.sample>>8) as u8,(args.sample>>16) as u8]})),
+            2=>Some(None),
+            _=>None,
+        }
+    }
+    fn text_may_cover(&self,run:&civ3_ui::text::TextRun,x:i32,y:i32)->Option<bool> {
+        let desc=jgl::FontDesc {face:run.face.clone(),height:run.height,weight:run.weight,italic:run.italic,underline:run.underline};
+        FONT_GEOMETRY.with_borrow(|fonts|fonts.get(&desc)?.as_ref()?.may_cover(&run.text,x-run.x,y-run.y,run.underline))
+    }
+    fn palette(&self,palette:&menu::screen::PaletteFrom,index:u8)->Option<[u8;3]> {
+        Some(PALETTES.load()?.get(&palette.image)?[index as usize])
+    }
+    fn file(&self,path:&str,x:i32,y:i32,palette:Option<&menu::screen::PaletteFrom>)->Option<crate::ui::FileSample> {
+        let files=GAME_FILES.load()?;
+        let image=&files.iter().find(|(p,_)|p==path)?.1;
+        let index=image.index(x,y)?;
+        let rgb=if let Some(p)=palette.filter(|p|u32::from(index)>=p.first && u32::from(index)<p.first+p.count) {
+            files.iter().find(|(path,_)|path==&p.image)?.1.palette[index as usize]
+        } else { image.palette[index as usize] };
+        Some(crate::ui::FileSample {index,rgb})
+    }
 }
 const SHARED_FILES: usize = 64;
 static ASK: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])>> = std::sync::OnceLock::new();

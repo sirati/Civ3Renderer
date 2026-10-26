@@ -66,6 +66,13 @@ pub struct IndexedCopy {
 }
 
 impl IndexedCopy {
+    /// The clipped source/destination geometry, without touching pixels.
+    pub fn regions(&self)->([i32;4],[i32;4]) {
+        if self.width==0 || self.height==0 {return ([0;4],[0;4]);}
+        let source=[(self.source%self.source_stride) as i32,(self.source/self.source_stride) as i32,self.width as i32,self.height as i32];
+        let target=[(self.target%self.target_stride/(self.target_bits as usize/8)) as i32,(self.target/self.target_stride) as i32,self.width as i32,self.height as i32];
+        (source,target)
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn new(source: Plane, target: Plane, src_x: i32, src_y: i32, dst_x: i32, dst_y: i32, width: i32, height: i32, clip: Rect, key: u32, palette: Option<&[u16; 256]>) -> Result<Self, u32> {
         if source.bits != 8 || !matches!(target.bits, 8 | 16) {

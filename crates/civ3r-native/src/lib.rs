@@ -103,6 +103,23 @@ pub const CALL_PUSH: u32 = 7;
 /// [`Limits::_pad`] advertises that [`CALL_PUSH`] exists.
 pub const LIMIT_PUSH: u32 = 4;
 
+/// Lookup in the immutable source data the native asset loader decoded.
+pub const CALL_SOURCE_SAMPLE:u32=8;
+pub const LIMIT_SOURCE_SAMPLE:u32=8;
+#[repr(C)]
+#[derive(Copy,Clone,Debug,Default,bytemuck::Pod,bytemuck::Zeroable)]
+pub struct SourceSample {
+    pub path:Buffer32,
+    pub recolor:Buffer32,
+    pub frame:u32,
+    pub x:i32,
+    pub y:i32,
+    /// 0 unavailable, 1 sample, 2 outside the decoded source.
+    pub available:u32,
+    /// Index in the high byte, RGB in the low three bytes.
+    pub sample:u32,
+}
+
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod unix_side {
@@ -325,7 +342,7 @@ mod unix_side {
 
     pub fn limits(args: &mut Limits) -> Status {
         log_init();
-        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT | LIMIT_PUSH };
+        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT | LIMIT_PUSH | LIMIT_SOURCE_SAMPLE };
         STATUS_SUCCESS
     }
 
@@ -696,10 +713,24 @@ mod unix_side {
         }
         STATUS_SUCCESS
     }
+
+    pub fn source_sample(args:&mut SourceSample)->Status {
+        args.available=0;
+        let Ok(path)=wine_unixlib::unix::read(args.path) else {return STATUS_INVALID_PARAMETER};
+        let Ok(path)=std::str::from_utf8(&path) else {return STATUS_INVALID_PARAMETER};
+        let Ok(recolor)=wine_unixlib::unix::read(args.recolor) else {return STATUS_INVALID_PARAMETER};
+        let Ok(recolor)=std::str::from_utf8(&recolor) else {return STATUS_INVALID_PARAMETER};
+        match civ3_assets::source_cache::sample(path,args.frame,args.x,args.y,(!recolor.is_empty()).then_some(recolor)) {
+            None=>{},
+            Some(None)=>args.available=2,
+            Some(Some((index,[r,g,b])))=>{args.available=1;args.sample=u32::from(index)<<24|u32::from(r)|u32::from(g)<<8|u32::from(b)<<16;},
+        }
+        STATUS_SUCCESS
+    }
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use unix_side::{assets, input, limits, publish, push, status, take_log, uploaded};
+use unix_side::{assets, input, limits, publish, push, status, take_log, uploaded,source_sample};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded, push];
+wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded, push,source_sample];

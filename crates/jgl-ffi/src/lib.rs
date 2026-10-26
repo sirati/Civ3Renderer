@@ -28,6 +28,7 @@ pub mod copy;
 pub mod count;
 pub mod display;
 pub mod fill;
+pub mod geometry;
 pub mod layout;
 pub mod own;
 pub mod present;
