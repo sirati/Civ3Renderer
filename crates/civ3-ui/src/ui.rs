@@ -981,9 +981,11 @@ impl UiModel {
                 }
             }
             Event::MillIcons { canvas, path, resources, at, clip, transparent } => {
+                // The resource sheet's pixels as loaded, for hit queries.
+                let retained = self.files.iter().find(|(_, p)| **p == path).and_then(|(image, _)| self.file_states.get(image).cloned());
                 for icon in crate::mill_icons::layout(&resources, at) {
                     let op = Op::ResizedImage { source: Source::Indexed {
-                        path: path.clone(), rect: icon.rect, palette: None,
+                        retained: retained.clone(), path: path.clone(), rect: icon.rect, palette: None,
                         indices: crate::mill_icons::indices(transparent.clone()),
                     }, x: icon.at.0, y: icon.at.1, keyed: true, size: (24, 24), sample_step: [90112; 2], clip };
                     if let Some(op) = crop_move(op, clip, (0, 0), true) { self.push(canvas, op); }
