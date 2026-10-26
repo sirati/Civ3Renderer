@@ -87,18 +87,12 @@ impl crate::ui::KeySources for KeyFiles {
         let at=(y as usize * *w as usize+x as usize)*4;
         (pixels[at+3]==255).then_some([pixels[at],pixels[at+1],pixels[at+2]])
     }
-    #[cfg(all(windows,target_arch="x86"))]
+    #[cfg(any(test, all(windows, target_arch="x86")))]
     fn flc(&self,path:&str,frame:u32,x:i32,y:i32,plain:bool)->Option<Option<crate::ui::FileSample>> {
         let sources = ANIMATION_SOURCES.load()?;
         let path = sources.get(path)?.as_str();
         let recolor=if plain {String::new()} else {format!("Art/Units/Palettes/ntp{:02}.pcx",UNIT_COLORS.load(std::sync::atomic::Ordering::Relaxed))};
-        let mut args=civ3r_native::SourceSample {path:wine_unixlib::pe::buffer(path.as_bytes()),recolor:wine_unixlib::pe::buffer(recolor.as_bytes()),frame,x,y,..Default::default()};
-        if NATIVE.get()?.call(civ3r_native::CALL_SOURCE_SAMPLE,&mut args)!=0 {return None;}
-        match args.available {
-            1=>Some(Some(crate::ui::FileSample {index:(args.sample>>24) as u8,rgb:[args.sample as u8,(args.sample>>8) as u8,(args.sample>>16) as u8]})),
-            2=>Some(None),
-            _=>None,
-        }
+        animation_sample(path, frame, x, y, &recolor)
     }
     fn text_keyed(&self,run:&civ3_ui::text::TextRun,x:i32,y:i32)->Option<Option<[u8;3]>> {
         crate::text::keyed_pixel(run, x, y)
@@ -124,6 +118,23 @@ impl crate::ui::KeySources for KeyFiles {
         Some(crate::ui::FileSample {index,rgb})
     }
 }
+#[cfg(all(windows, target_arch="x86"))]
+fn animation_sample(path: &str, frame: u32, x: i32, y: i32, recolor: &str) -> Option<Option<crate::ui::FileSample>> {
+    let mut args=civ3r_native::SourceSample {path:wine_unixlib::pe::buffer(path.as_bytes()),recolor:wine_unixlib::pe::buffer(recolor.as_bytes()),frame,x,y,..Default::default()};
+    if NATIVE.get()?.call(civ3r_native::CALL_SOURCE_SAMPLE,&mut args)!=0 {return None;}
+    match args.available {
+        1=>Some(Some(crate::ui::FileSample {index:(args.sample>>24) as u8,rgb:[args.sample as u8,(args.sample>>8) as u8,(args.sample>>16) as u8]})),
+        2=>Some(None),
+        _=>None,
+    }
+}
+
+#[cfg(all(test, not(all(windows, target_arch="x86"))))]
+fn animation_sample(path: &str, frame: u32, x: i32, y: i32, recolor: &str) -> Option<Option<crate::ui::FileSample>> {
+    civ3_assets::source_cache::sample(path, frame, x, y, (!recolor.is_empty()).then_some(recolor))
+        .map(|s| s.map(|(index, rgb)| crate::ui::FileSample { index, rgb }))
+}
+
 const SHARED_FILES: usize = 64;
 static ASK: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<(String, [i32; 4])>> = std::sync::OnceLock::new();
 

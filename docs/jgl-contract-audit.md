@@ -225,6 +225,64 @@ log retains its earlier timestamp. This limitation prevents an unqualified
 claim that every ancillary log was restored to a freshly hashed baseline.
 
 
-### Owned keyed reads
+### Reached keyed canvas reads, 26 October 2026
 
-Keyed reads use the retained UI model and the same decoded PCX, FLC, and text sources as the viewer. The model records the HUD frame canvas (box-right mask plus WorkerDefault frame) and the domestic-advisor canvas (advisor panel and the first city row caption). These records are the contract fixtures for the two live read sites. In owned mode an absent source is an immediate contract failure: the bridge panics instead of forwarding to the game's image memory, which contains no real pixels. Plain and pass-through modes retain the original call.
+The four failures in `/tmp/c3r-live-integrate/owned/civ3-bridge.log` were two
+reads each of the form's content canvas at `+0x274`, through `608FE3`.
+They were not reads of the four frame caches. The executable's writer and
+reader disassembly is retained in `/tmp/c3r-keyed-fix/`. The reader compares
+`PCX_Image::get_pixel` with `COLOR_KEY & 0x7fffffff`. Base form setup creates
+and clears `+0x274` at `602947..602960`, then calls virtual drawing methods.
+Main_GUI's `+0x58` writer is `5583B0`; the domestic advisor's is `51F7E0`.
+These dispatch the form-specific content, which the model already retained.
+No missing fill, `+0x38` tile, frame line or virtual drawing hook needed to
+be invented for either reported point.
+
+- HUD `0x9fdd84`, `(1850,1010)`: `records_at` resolves a local key clear,
+  box-right colour/mask region `[0,24,294,64]` at `(1621,966)`, and
+  WorkerDefault FLC frame 33 at `(1729,969)`. The file sample `(229,68)` is
+  colour index 230, RGB `[255,255,232]`, mask index 0. The animation sample
+  `(121,41)` is outside its decoded `50x51` extent. Its absolute game-opened
+  Windows path did not identify the viewer's cached relative art source.
+  Read-back now retains the exact path resolution made by `ui_screen::items`
+  with the active art roots, then queries that same decoded animation.
+  The mask establishes a hit and the out-of-source animation leaves it so.
+- F1 `0xa38e4c`, `(132,324)`: the relevant retained writer is the first
+  city's italic black Lucida Sans -12 caption, `Alcácer do...`, at baseline
+  `(111,329)`. The renderer places this run at `(559,485)` in the centered
+  advisor, while the reader uses canvas coordinates. Exact run matching
+  incorrectly treated those as different text sources. Text retention and
+  lookup now use coordinates relative to the baseline. Both use the same
+  loaded atlas or packed outline source and the renderer's coverage code.
+  The reported sample stays the key, matching the original reader.
+
+Owned canvases hold no authoritative legacy raster. An unanswered owned
+semantic query now panics immediately with `no exact model answer`; it
+cannot forward into placeholder image memory. The ownership opt-in makes
+this an explicit unsupported-contract failure. Plain and pass-through
+modes retain their original calls. The diagnostic includes `records_at`.
+
+The two `text::keyed_read_tests` fixtures replay these coordinates, draw
+records, sampled PCX values, animation extent/identity and measured caption
+atlas cells. They test the same model and source adapters used in production,
+without drawing a replacement canvas or reading a placeholder. The fixture
+README records source hashes and its deliberately omitted unqueried data.
+
+Live evidence in `/tmp/c3r-keyed-fix/index.txt` uses the shared WoW64 game,
+R28 executable, the Roman 130 AD save and `input.alt_in_menus=false`.
+The owned pass repeats the blank-HUD hover/click and F1 first-city hover/
+double-click, city screens, HUD/minimap/diplomacy controls, F1-F8,
+Civilopedia, menu and enabled Granary Iron badge. It has zero unanswered
+owned reads. Original-jgl comparison answers both reported points with the
+same key predicate. The HUD sweep has 129,600 matches, zero differences and
+zero unknowns. The F1 sweep has 48,472 matches, 680 differences and zero
+unknowns over its 49,152 samples. Its reported differences concern text
+rasterization away from the requested point. This closes the two missing
+source connections, not all F1 text raster equivalence or full Group 6.
+
+The workspace test run passes except the known `tile-render` test target
+`subpixel_coverage`; the generic-crate and no-lock guards pass. Host native
+and i686 Windows release builds pass. Shared-file backup/restoration hashes,
+activation, original-jgl mappings, logs and screenshots are kept with the
+live evidence. No default switch, merge, push or deployment is part of this
+correction.

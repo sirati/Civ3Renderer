@@ -82,11 +82,13 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
             // Leader heads: in their own colours.
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: true } => {
                 let source = relative_path(path, roots);
+                #[cfg(any(windows, test))]
                 crate::ui_opacity::animation_source(path, &source);
                 Element::Sprite { name: format!("Flc@{source}/{chunk}"), at: (*x, *y), clip: *clip, scale_den: 0, palette: String::new() }
             }
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: false } => {
                 let source = relative_path(path, roots);
+                #[cfg(any(windows, test))]
                 crate::ui_opacity::animation_source(path, &source);
                 let path = source;
                 let shadow = format!("UnitShadow@{path}/{chunk}");
