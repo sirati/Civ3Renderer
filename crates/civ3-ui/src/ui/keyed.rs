@@ -13,7 +13,7 @@ pub struct FileSample {
 pub trait KeySources {
     fn file(&self, path: &str, x: i32, y: i32, palette: Option<&menu::screen::PaletteFrom>) -> Option<FileSample>;
     /// The renderer's exact keyed text pixel at (x, y). `Some(None)` is the
-    /// colour key; `None` means a native-equivalent renderer source is unavailable.
+    /// colour key; `None` means a retained renderer source is unavailable.
     fn text_keyed(&self, _run:&TextRun, _x:i32, _y:i32)->Option<Option<[u8;3]>> { None }
     fn palette(&self,_palette:&menu::screen::PaletteFrom,_index:u8)->Option<[u8;3]> {None}
     fn surface(&self,_image:u32,_x:i32,_y:i32)->Option<[u8;3]> {None}
@@ -81,9 +81,34 @@ pub(super) fn records_at(model:&UiModel,canvas:u32,x:i32,y:i32)->String {
 }
 
 pub(super) fn query(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl KeySources) -> Option<bool> {
-    let Some(ops)=model.canvases.get(&canvas) else {return model.keyed_clear.contains(&canvas).then_some(false);};
+    query_coverage(model, canvas, x, y, files, false)
+}
+
+/// Vary only Text records' coverage. Later opaque non-text records still
+/// replace the interval, so a fill/file/tile error cannot become text merely
+/// because the canvas also contains labels.
+pub(super) fn text_raster_at(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl KeySources) -> bool {
+    query(model,canvas,x,y,files).is_some() && query_coverage(model,canvas,x,y,files,true).is_none()
+}
+
+pub(super) fn unwritten_at(model: &UiModel, canvas: u32, x: i32, y: i32) -> bool {
+    let Some(&size)=model.sizes.get(&canvas) else {return false};
+    !model.unanswered.contains(&canvas) && !model.files.contains_key(&canvas) && !model.generated.contains(&canvas) && !model.keyed_clear.contains(&canvas) &&
+        !model.canvases.get(&canvas).into_iter().flat_map(|ops|ops.iter()).flat_map(|op|model.resolve(op,0))
+            .any(|op| {let [l,t,r,b]=visible_bounds(&op,Some(size)); x>=l && y>=t && x<r && y<b})
+}
+
+fn query_coverage(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl KeySources, vary_text: bool) -> Option<bool> {
+    let Some(ops)=model.canvases.get(&canvas) else {
+        // Files and generated surfaces have an independent source; absence
+        // of canvas commands does not make those sources transparent.
+        if model.unanswered.contains(&canvas) || model.files.contains_key(&canvas) || model.generated.contains(&canvas) {return None;}
+        return model.sizes.contains_key(&canvas).then_some(false);
+    };
     let size=model.sizes.get(&canvas)?;
-    let mut colors = if model.keyed_clear.contains(&canvas) { Colors::KEY } else { Colors::UNKNOWN };
+    // Retained canvases start transparent in the viewer. Unwritten legacy
+    // storage (including padded corners) contributes no draw command.
+    let mut colors = Colors::KEY;
     if model.unanswered.contains(&canvas) { colors = Colors::UNKNOWN; }
     for op in ops.iter().flat_map(|op|model.resolve(op,0)) {
         if let Op::KeyClear {rect:[l,t,w,h]}=op {
@@ -102,6 +127,11 @@ pub(super) fn query(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl K
                 colors=if *alpha==255 { Colors::rgb(*rgb) } else { colors.union(Colors::rgb(*rgb)) };
             }
             ScreenDraw::Text { run, clip } if contains(*clip) => {
+                if vary_text {
+                    let bounds=visible_bounds(&Op::Text(run.clone(),*clip),Some(*size));
+                    if contains(bounds) { colors=colors.union(Colors::rgb(run.color)); }
+                    continue;
+                }
                 if colors == Colors::KEY {
                     match files.text_keyed(run, x, y) {
                         Some(None) => {}
@@ -189,6 +219,42 @@ mod tests {
         m.apply(Event::Sliced {sprite:21,image:11,rect:[0,0,2,2]});
     }
 
+    #[test]
+    fn empty_retained_canvas_is_transparent_but_missing_external_sources_are_unknown() {
+        let mut m=UiModel::new(vec![],vec![]);
+        m.apply(Event::Size {image:1,size:(15,15)});
+        assert_eq!(m.keyed_at(1,14,14,&Retained),Some(false));
+        assert!(m.unwritten_at(1,14,14));
+        m.apply(Event::Loaded {image:2,path:"missing.pcx".into(),size:(15,15)});
+        assert_eq!(m.keyed_at(2,14,14,&Retained),None);
+        assert!(!m.unwritten_at(2,14,14));
+        m.add_generated(1);
+        assert_eq!(m.keyed_at(1,14,14,&Retained),None);
+        assert!(!m.unwritten_at(1,14,14));
+    }
+
+    #[test]
+    fn text_raster_diagnostic_follows_record_types_and_later_occlusion() {
+        struct Text;
+        impl KeySources for Text {
+            fn file(&self,_:&str,_:i32,_:i32,_:Option<&menu::screen::PaletteFrom>)->Option<FileSample> {None}
+            fn text_keyed(&self,_:&TextRun,_:i32,_:i32)->Option<Option<[u8;3]>> {Some(None)}
+        }
+        let mut m=UiModel::new(vec![],vec![]);
+        m.apply(Event::Size {image:1,size:(30,30)});
+        let run=TextRun {x:2,y:15,color:[0;3],face:"fixture".into(),height:-12,weight:400,italic:false,underline:false,text:"A".into(),backdrop:None};
+        m.apply(Event::TextClipped {canvas:1,run,clip:[0,0,30,30]});
+        assert_eq!(m.keyed_at(1,4,10,&Text),Some(false));
+        assert!(m.text_raster_at(1,4,10,&Text));
+        assert!(!m.text_raster_at(1,25,25,&Text),"outside the run, even inside its clip");
+        m.apply(Event::Fill {canvas:1,rect:[3,9,3,3],rgb:[0;3],alpha:255,clip:None});
+        assert_eq!(m.keyed_at(1,4,10,&Text),Some(true));
+        assert!(!m.text_raster_at(1,4,10,&Text),"a later fill is a fill mismatch");
+        m.unanswered_in(1,[3,9,3,3]);
+        assert_eq!(m.keyed_at(1,4,10,&Text),None);
+        assert!(!m.text_raster_at(1,4,10,&Text),"an unsupported source remains unknown");
+    }
+
     /// The exe's frame textures: a fresh 8-bit image holding one file
     /// region (0x549E03), tiled by +38 where the frame canvas shows the
     /// table's colour at the tile's key (0x5FCD40), after the file image,
@@ -202,7 +268,7 @@ mod tests {
         let mut m=UiModel::new(vec![],vec![]);
         sources(&mut m,palette);
         m.apply(Event::Size {image:40,size:(8,8)});
-        assert!(m.tile_under(30,[0,0,4,4],40,[0,0,4,4],0xFD,Some(&palette)).is_err(),"the window's first content is not known");
+        assert_eq!(m.tile_under(30,[0,0,4,4],40,[0,0,4,4],0xFD,Some(&palette)),Ok(()),"unwritten viewer pixels are transparent");
         m.apply(Event::Fill {canvas:40,rect:[0,0,8,8],rgb:KEY_RGB,alpha:255,clip:None});
         assert_eq!(m.tile_under(30,[0,0,4,4],40,[0,0,4,4],0xFD,Some(&palette)),Ok(()),"no pixel of the tiled colour: unchanged");
         assert_eq!(m.keyed_at(40,1,1,&Retained),Some(false));
@@ -213,8 +279,9 @@ mod tests {
         assert_eq!(m.keyed_at(40,1,1,&Retained),Some(true));
         assert_eq!(m.keyed_at(40,0,0,&Retained),Some(true));
         assert_eq!(m.keyed_at(40,1,6,&Retained),Some(false),"below the fill: the key");
-        // The texture's transparent half holds the image's unknown first content.
-        assert!(m.tile_under(30,[2,0,4,4],40,[4,0,4,4],0xFD,Some(&palette)).is_err());
+        // This source region itself contains transparent pixels and cannot
+        // provide an opaque file tile, regardless of the target's base.
+        assert_eq!(m.tile_under(30,[2,0,4,4],40,[4,0,4,4],0xFD,Some(&palette)),Err("source's top record is transparent inside the tile"));
         let mut other=palette;other[1]=[0,0,0];
         assert!(m.tile_under(30,[0,0,4,4],40,[0,0,4,4],0xFD,Some(&other)).is_err());
         // A piece's own pixels of the tiled colour show the tile (here a

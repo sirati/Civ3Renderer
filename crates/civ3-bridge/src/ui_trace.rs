@@ -1744,7 +1744,7 @@ fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
     let (Some((w,h)),Some(16),Some(row),Some(bits))=(obj::image_size(image),obj::image_bits(image),read(0x40),read(0x4C0)) else {return};
     let pixel=|x:i32,y:i32|inproc::Ptr32::<u16>::new(bits+(y as u32*row+x as u32)*2).read().ok().map(u32::from);
     let step=if w*h>200_000 {4} else {1};
-    let (mut same,mut differ,mut unknown)=(0u32,0u32,0u32);
+    let (mut same,mut differ,mut text_raster,mut unwritten,mut unknown)=(0u32,0u32,0u32,0u32,0u32);
     let mut shown=[0u32;2];
     with_model(false,|m| {
         for y in (0..h).step_by(step) { for x in (0..w).step_by(step) {
@@ -1753,11 +1753,13 @@ fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
             match m.keyed_at(image,x,y,&crate::ui_opacity::KeyFiles) {
                 None=>{ unknown+=1; if unknown%97==1 && unknown<400 {log::info!("sweep-unknown family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
                 Some(s) if s==(p!=key)=>same+=1,
+                Some(_) if m.text_raster_at(image,x,y,&crate::ui_opacity::KeyFiles)=>text_raster+=1,
+                Some(_) if m.unwritten_at(image,x,y)=>unwritten+=1,
                 Some(_)=>{ differ+=1; if differ<=8 {log::info!("sweep-diff family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
             }
         }}
     });
-    log::info!("sweep family={family} image={image:#x} size={w}x{h} step={step} self_check={} key_px={} drawn_px={} same={same} differ={differ} unknown={unknown}",pixel(qx,qy)==Some(old),shown[0],shown[1]);
+    log::info!("sweep family={family} image={image:#x} size={w}x{h} step={step} self_check={} key_px={} drawn_px={} same={same} differ={differ} text_raster={text_raster} unwritten={unwritten} unknown={unknown}",pixel(qx,qy)==Some(old),shown[0],shown[1]);
 }
 
 /// An owned image has no original raster to consult. Missing semantic

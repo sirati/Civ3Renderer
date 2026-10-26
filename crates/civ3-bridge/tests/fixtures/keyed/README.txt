@@ -44,7 +44,33 @@ not assert equivalence between these outlines and Wine's native raster.
 The console button fixture records size 15x15, storage stride 16, a null
 +44 key fill, and consoleButtons.pcx slice [1,1,14,15]. The fill writes
 225 contiguous pixels, so the last visible row only receives its first
-pixel. The slice overwrites columns 0..13. A previous unknown at (14,14)
-therefore stays unknown. The original observed value was 0x4210. The test
-also checks that an explicit-rectangle fill uses the complete rectangle
-and that a later known writer resolves the corner.
+pixel. The slice overwrites columns 0..13. The viewer has no draw at (14,14), so that pixel is transparent and the
+keyed answer is the colour key. The observed legacy value 0x4210 is
+uninitialised storage, not a viewer source. The comparison sweep reports
+this as unwritten rather than a model error. The padded-fill records are
+preserved; no fictitious fill is added. The test checks the viewer's
+shown_at and keyed_at against each other, and explicit-rectangle fills.
+
+Text keyed queries use the renderer source under Wine too. Wine's native
+hinting is not a certification condition. Both outline coverage and RGB555
+key mixing call tile_render_shared::text, shared with the viewer shader.
+The science fixture compares every pixel, including emptiness, against
+those functions applied to the viewer's emitted glyph instances.
+
+The plain-mode sweep varies only Text records' coverage within their run
+bounds to classify text_raster. Later opaque records replace that range,
+so an opaque fill or file over a label remains a non-text comparison.
+This is a comparison diagnostic only; hit routing always uses the actual
+renderer source. Unknown still means a missing or unsupported source.
+
+A keyed read may arrive for a new string or hover colour before that exact
+run has been emitted by the publisher. Font resources are retained apart
+from the run cache. Such a query derives its run from those resources with
+the same measured layout and hit-source builder; it does not ask Wine to
+rasterise text. The first-city fixture also queries a fresh string before
+its first emission. A genuinely absent font source still returns None.
+
+Frame texture replacement uses that same transparent initial canvas. A
+padded tail alone cannot make a later tile operation unsupported. Explicit
+Unknown records and unsupported external sources remain refusals. The
+console-button fixture covers a tile across the incomplete last row too.

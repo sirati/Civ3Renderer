@@ -383,13 +383,16 @@ impl UiModel {
         let replaced=state.palette_color(key).map(|c|c>>3);
         let window=[x,y,x+w,y+h];
         let inside=self.canvases.get(&canvas).into_iter().flat_map(|ops|ops.iter()).flat_map(|op|self.resolve(op,0)).filter_map(|op|crop_move(op,window,(0,0),false)).collect::<Vec<_>>();
-        let initialized=self.keyed_clear.contains(&canvas) || inside.iter().any(|op|matches!(op,Op::Fill {rect:[l,t,rw,rh],alpha:255,..} if *l<=x && *t<=y && l+rw>=x+w && t+rh>=y+h));
-        if !initialized {return Err("target content under the tile is unknown");}
+        // The viewer's unwritten canvas is transparent. Native allocation
+        // contents are not a source, including a padded fill's unwritten tail.
+        if self.unanswered.contains(&canvas) || self.files.contains_key(&canvas) || self.generated.contains(&canvas) {
+            return Err("target has an unsupported external source");
+        }
         // The tile over `rect` (x, y, w, h), inside the window.
         let tile=|[l,t,rw,rh]:[i32;4]| Op::Image {source:Source::File {retained:Some(state.clone()),path:path.clone(),rect:[src[0]+l-x,src[1]+t-y,rw,rh],mask:None,palette:None,opacity:255},x:l,y:t,keyed:false};
         let mut out=Vec::new();
-        if self.keyed_clear.contains(&canvas) && replaced==KEY_RGB.map(|c|c>>3) {
-            // The canvas's whole key clear is its base, not a record.
+        if replaced==KEY_RGB.map(|c|c>>3) {
+            // The transparent base is implicit, not a record.
             out.push(tile(dst));
         }
         for op in inside {
@@ -458,6 +461,17 @@ impl UiModel {
     /// has the same key predicate.
     pub fn keyed_at(&self, canvas: u32, x: i32, y: i32, sources: &impl KeySources) -> Option<bool> {
         keyed::query(self, canvas, x, y, sources)
+    }
+
+    /// Diagnostic only: varying Text record coverage alone can change this
+    /// known hit predicate. Non-text writers retain their normal semantics.
+    pub fn text_raster_at(&self, canvas:u32, x:i32, y:i32, sources:&impl KeySources)->bool {
+        keyed::text_raster_at(self,canvas,x,y,sources)
+    }
+
+    /// No retained writer covers this pixel; the viewer leaves it transparent.
+    pub fn unwritten_at(&self, canvas:u32, x:i32, y:i32)->bool {
+        keyed::unwritten_at(self,canvas,x,y)
     }
 
     pub fn records_at(&self, canvas: u32, x: i32, y: i32) -> String { keyed::records_at(self, canvas, x, y) }
