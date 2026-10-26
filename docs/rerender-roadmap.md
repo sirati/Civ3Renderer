@@ -351,6 +351,14 @@ performance wins come first. "Verify" lists the evidence a step must show.
 
 Top 5 by value: steps 1, 2, 3, 4, then 6+7 together (no jgl).
 
+The isolated native mill-icon correction retains C3X's actual row queries
+and file-art commands while bypassing its legacy mill drawing block in
+owned mode. Twelve supported-binary pairs match query/order/return
+observations and avoid 41 DC/blit/release calls, with zero owned raster
+calls [V]. Original-jgl/viewer drawing and plain-game pass-through remain.
+Enabled-mill live game and Neo qualification are still open [G]. See the
+[mill contract](jgl-mill-icons.md) for source, art and fixture bindings.
+
 ## 7. Open points
 
 - The slot scan is a lower bound. Before step 5, log every slot call at

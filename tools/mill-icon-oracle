@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Compile C3X's original mill-row selector/placement with controlled query answers.
+Run in nix develop: tools/mill-icon-oracle C3X_DIR OUTPUT_DIR
+Retains the extracted source, executable and result. No game or Wine prefix.
+"""
+import pathlib
+import subprocess
+import sys
+
+source = pathlib.Path(sys.argv[1]) / "injected_code.c"
+out = pathlib.Path(sys.argv[2])
+out.mkdir(parents=True, exist_ok=True)
+text = source.read_text()
+name = "patch_Sprite_draw_improv_img_on_city_form"
+start = text.index("int __fastcall\n" + name)
+end = text.index("\n}\n", start) + 3
+function = text[start:end]
+prefix = r'''
+#include <stdint.h>
+#include <stdio.h>
+#include <stdbool.h>
+#define __fastcall
+#define __ 0
+#define ARRAY_LEN(a) (sizeof(a)/sizeof((a)[0]))
+#define MF_SHOW_BONUS 8
+#define MF_HIDE_NON_BONUS 16
+#define RC_Bonus 0
+typedef int HDC;
+typedef struct JGL_Image JGL_Image;
+struct vtable { HDC (*acquire_dc)(JGL_Image *); int (*release_dc)(JGL_Image *,int,int); };
+struct JGL_Image { struct vtable *vtable; };
+typedef struct { struct { JGL_Image *Image; } JGL; } PCX_Image;
+typedef struct {} Sprite;
+typedef struct {} PCX_Color_Table;
+struct mill { short improv_id, resource_id, flags; };
+struct resource { int Class, IconID; };
+struct { struct resource ResourceTypes[24]; } bic, *p_bic_data=&bic;
+struct city { struct { int CivID; } Body; } city;
+struct { struct city *CurrentCity; } city_form={&city}, *p_city_form=&city_form;
+struct state { struct { int count_mills; struct mill *mills; } current_config;
+ int drawing_icons_for_improv_id; PCX_Image *resources_sheet; } state, *is=&state;
+static bool known[24], active[24], inputs[24];
+static int current, count;
+static uint64_t hash=UINT64_C(0xcbf29ce484222325);
+static void put(int v) { for(int n=0;n<4;n++) { hash ^= ((unsigned)v>>(8*n))&255; hash *= UINT64_C(0x100000001b3); } }
+static int not_below(int a,int b) { return a>b?a:b; }
+static int Sprite_draw(Sprite*a,int b,PCX_Image*c,int x,int y,PCX_Color_Table*d){return 42;}
+static bool can_generate_resource(int civ,struct mill*m){current=m->resource_id;return known[current];}
+static bool has_active_building(struct city*c,int id){return active[current];}
+static bool has_resources_required_by_building(struct city*c,int id){return inputs[current];}
+static HDC acquire(JGL_Image*i){return 1;}
+static int release(JGL_Image*i,int edx,int n){return 0;}
+static int blt(HDC d,int x,int y,int w,int h,HDC s,int sx,int sy,int sw,int sh,unsigned key) {
+ if(w!=24||h!=24||sw!=33||sh!=33||key!=0xff00ff)return 0;
+ for(int i=0;i<6;i++)put((int[]){sx,sy,sw,sh,x,y}[i]); count++;return 1;
+}
+static int (*TransparentBlt)(HDC,int,int,int,int,HDC,int,int,int,int,unsigned)=blt;
+'''
+suffix = r'''
+int main(void) {
+ struct mill mills[24]; struct vtable vt={acquire,release};JGL_Image image={&vt};PCX_Image canvas={{&image}};
+ is->current_config.mills=mills;is->drawing_icons_for_improv_id=7;is->resources_sheet=&canvas;
+ for(unsigned c=0;c<=65536;c++) {
+  unsigned seed=c;
+  for(int n=0;n<24;n++) {
+   seed=seed*1664525u+1013904223u;
+   mills[n]=(struct mill){(seed&1)?7:9,n,(seed>>10)&31};
+   bic.ResourceTypes[n]=(struct resource){((seed>>15)&3)==0?0:2,(seed>>5)%36};
+   known[n]=((seed>>17)&3)!=0;active[n]=((seed>>19)&3)!=0;inputs[n]=((seed>>21)&3)!=0;
+   if(c==65536){mills[n].improv_id=7;mills[n].flags=0;bic.ResourceTypes[n].Class=2;known[n]=active[n]=inputs[n]=true;}
+  }
+  is->current_config.count_mills=24;
+  // Original records count only implicitly. Reserve its hash position by
+  // running once to count, then once to append the observable commands.
+  uint64_t before=hash;count=0;
+  if(patch_Sprite_draw_improv_img_on_city_form(0,0,&canvas,-3,19,0)!=42)return 2;
+  int expected=count;hash=before;put(expected);count=0;
+  patch_Sprite_draw_improv_img_on_city_form(0,0,&canvas,-3,19,0);
+  if(c==65536 && count!=16)return 3;
+ }
+ printf("cases 65537 hash 0x%016llx\n",(unsigned long long)hash);
+ return 0;
+}
+'''
+c = out / "original.c"
+c.write_text(prefix + function + suffix)
+exe = out / "original"
+subprocess.run(["gcc", "-std=gnu11", "-O2", str(c), "-o", str(exe)], check=True)
+result = subprocess.check_output([str(exe)], text=True)
+(out / "result.txt").write_text(result)
+print(result, end="")

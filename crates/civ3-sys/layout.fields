@@ -171,6 +171,7 @@ Tile_Body Visibile_Overlays
 Tile_Body field_D0_Visibility
 
 Resource_Type RequireID
+Resource_Type Class
 
 Leader
 Leader Era

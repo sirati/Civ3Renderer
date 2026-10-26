@@ -712,6 +712,8 @@ fn emit(e: Event) {
     with_model(present, |m| m.apply(e));
 }
 
+pub(crate) fn mill_icons(event: Event) { emit(event); }
+
 /// Logs the events onto or from the canvases in `CIV3R_UI_WATCH` (hex
 /// addresses, comma-separated; for finding out how a canvas is drawn).
 fn watch(e: &Event) {
@@ -722,7 +724,7 @@ fn watch(e: &Event) {
     if WATCHED.is_empty() { return; }
     let touched = match e {
         Event::Loaded { image, .. } | Event::Cleared { image } | Event::Sliced { image, .. } => *image,
-        Event::Blit { canvas, .. } | Event::IndexedBlit { canvas, .. } | Event::ResizedBlit { canvas, .. } | Event::OpacityBlit { canvas, .. } | Event::MaskedBlit { canvas, .. }
+        Event::Blit { canvas, .. } | Event::IndexedBlit { canvas, .. } | Event::ResizedBlit { canvas, .. } | Event::OpacityBlit { canvas, .. } | Event::MaskedBlit { canvas, .. } | Event::MillIcons { canvas, .. }
         | Event::Fill { canvas, .. } | Event::Text { canvas, .. } | Event::TextClipped { canvas, .. } | Event::FlcBlit { canvas, .. } | Event::ResizedFlcBlit { canvas, .. } | Event::Composite { canvas, .. } => *canvas,
         Event::Copy { from, canvas, .. } => if WATCHED.contains(from) { *from } else { *canvas },
         _ => 0,
@@ -1142,6 +1144,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
                 let pixels=crate::ui_opacity::decoded(c.image,c.ct);
                 crate::ui_selection::loaded(c.image, &path, c.ct);
                 if let Some(pixels)=&pixels {crate::ui_opacity::named_palette(&path,pixels.palette);}
+                crate::ui_mills::loaded(c.image, &path);
                 emit(Event::Loaded { image: c.image, path, size });
                 if let Some(pixels)=pixels { with_model(false,|m|m.loaded_pixels(c.image,pixels)); }
             }
@@ -1150,6 +1153,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
         crate::ui_selection::cleared(c.image);
+        crate::ui_mills::cleared(c.image);
         forget_form_surface(c.image);
         forget_data_image(c.image);
         crate::ui_selection::clear_presence(c.image);
@@ -1347,6 +1351,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         });
     }
     hook_lines(game, &mut hooks);
+    if let Some(hook) = crate::ui_mills::install(game.build)? { hooks.push(Box::new(hook)); }
     // With our jgl (jgl.dll not loaded) its tables have every group already.
     if !jgl_ffi::own::on() {
         hook_jgl(jgl)?;

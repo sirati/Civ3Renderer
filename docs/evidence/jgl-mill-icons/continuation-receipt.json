@@ -1,0 +1,129 @@
+{
+  "production_commit": "4020c1c78dacf92fbbcfeb295e14856283d33665",
+  "merge_commit": "57ed71524357b14db3b90deea2f86a6c6f11a032",
+  "evidence_root": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663",
+  "retained_implementation": [
+    "538d23cd6abe2bd8ebe638fb152e28785199516f",
+    "2ac04ae49cbe3cc7df1db59987c7376fb6db7dd4",
+    "b753a5f6e61bd66462006818573c1a60eb6a2977"
+  ],
+  "implemented": [
+    "Checked PCGames C3X R28 mill row/state/file-art source and native commands.",
+    "Owned mode skips both mill DC acquisitions, all TransparentBlt calls and both releases after the actual selector/availability gates.",
+    "Native query calls/side effects, sprite command and return, order, source art/clip/sampling metadata retained.",
+    "Original-jgl/viewer resumes its original drawing block; patch removal restores bytes; plain pass-through/default selection unchanged."
+  ],
+  "comparisons": {
+    "bound_binary_pairs": 12,
+    "legacy_raster_calls_avoided": 41,
+    "owned_raster_calls": 0,
+    "selector_cases": 65537,
+    "selector_fnv1a": "0x5217c163df8b908c",
+    "art_icons": 36,
+    "art_rgb555_pixels": 20736,
+    "art_pixel_differences": 0,
+    "palette_boundary_cases": 5
+  },
+  "tests": {
+    "affected_packages": [
+      "civ3-ui",
+      "civ3-sys",
+      "civ3-bridge",
+      "menu",
+      "render-desc"
+    ],
+    "affected_passed": 834,
+    "affected_ignored": 13,
+    "explicit_art_config_tests_passed": 2,
+    "no_locks_passed": 2,
+    "generic_crates_passed": 3,
+    "native_release": "passed",
+    "i686_bridge_native_release": "passed",
+    "full_workspace": "Not rerun in this scoped correction; the known tile-render/subpixel_coverage failure is not waived."
+  },
+  "open": [
+    "Live enabled-mill original/owned game hook, state and row-crop qualification.",
+    "Integrated no-jgl loader/counting, broader Group 6 acceptance and Neo qualification.",
+    "Other R28 rebuilds/mod art and other GDI implementations require their own qualification."
+  ],
+  "limits": [
+    "Bound binary fixture substitutes Sprite/query/GDI dependencies with controlled command recorders. Production still calls the real native query helpers.",
+    "Pixel comparison covers file-art atlas generation in RGB555 over background 0x1234; live final composition is not claimed.",
+    "Attempts 1-3 retain failure logs/hashes; attempt 2/3 binaries were overwritten by Cargo before binary retention was added. Attempt 4 and final binaries are retained."
+  ],
+  "receipts": {
+    "audit/inputs.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/audit/inputs.json",
+      "sha256": "d4033b429126e18651af8a4530b52cd5e2fb9404d0d937979a7739b966029b63"
+    },
+    "audit/boundary.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/audit/boundary.json",
+      "sha256": "0d5bb47cfc6bc606d68c6a0d5370b21ae267978e9ed51d7da9ecad7f35b62e81"
+    },
+    "audit/direct-calls.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/audit/direct-calls.json",
+      "sha256": "a6e9a8f31fbf701c2ada20312766aaf0160967e48d8caf342928970a3fe5bbfc"
+    },
+    "audit/production-source-binding.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/audit/production-source-binding.json",
+      "sha256": "a060bf96152f02115b3d24051dcd2d36214b0151d76e2138b4ca1e3e3479d48e"
+    },
+    "audit/toolchain.txt": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/audit/toolchain.txt",
+      "sha256": "6dd450fdc7a18dc63e57c2c46909275446e218c3a455b2530b25240cb8ed5b44"
+    },
+    "boundary-final/receipt.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/boundary-final/receipt.json",
+      "sha256": "860baaff8c898513deaaa54a895efa3b245da3072a66ab87f9ac543d5951cd4f"
+    },
+    "boundary-final/test.exe": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/boundary-final/test.exe",
+      "sha256": "735689b9e701eb791262791269043122085c5ac97da2eca8be8c54799723870c"
+    },
+    "boundary-final/run.stdout": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/boundary-final/run.stdout",
+      "sha256": "35cac59c68c9f331f381f6b5a9a053981c1165301622866a952cdda5d6206099"
+    },
+    "source-oracle/result.txt": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/source-oracle/result.txt",
+      "sha256": "6fc961e8cf7c41d70d4135a2a2a345c0bf957cba24777d08de6b0ed443465ffb"
+    },
+    "gdi8-oracle/art.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/gdi8-oracle/art.json",
+      "sha256": "84d04ad8f8c58374fd24b72ffc065d5f4406b088a44353a6878214069f947b40"
+    },
+    "gdi8-oracle/palette-key-cases.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/gdi8-oracle/palette-key-cases.json",
+      "sha256": "5831ab2222382eeb263f27571e08fc551cd1771ad39a350a3a187791420a8c2c"
+    },
+    "tests/results.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/tests/results.json",
+      "sha256": "415bc435bd41d3fc11893984a8ad71d4aeb87f2eeed687817256d3d8caf4984e"
+    },
+    "tests/counts.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/tests/counts.json",
+      "sha256": "e53f2d5c704d2e84e6fce04a0db15e7dac0ffa371512f4e791beee0ab624aae8"
+    },
+    "tests/art-results.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/tests/art-results.json",
+      "sha256": "9f13a959c9d991d5c08859d9b9a71c8fa11df7621f0065d3491c125f1f559a3a"
+    },
+    "tests/art8.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/tests/art8.log",
+      "sha256": "996c8d91d47c39a3fcb0c2716236766fd6fa4a83a40ce8923974443568546ea2"
+    },
+    "tests/config.log": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/tests/config.log",
+      "sha256": "36e805b2bf5bef11cf7b2636cef89b5daa38ddb395fb1e3e04cce3d6507243fe"
+    },
+    "artifacts/manifest.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/artifacts/manifest.json",
+      "sha256": "51b795eb0533758e251ce8d8f870048ad75a803fecb6f0b66a1707badff328c8"
+    },
+    "cleanup-receipt.json": {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/cleanup-receipt.json",
+      "sha256": "906161c5236bc63d5f24213c5d5d7f182a6e1b32abf1108358993bec08f107c2"
+    }
+  },
+  "cleanup": "No shared GUI/input, game files/DLLs/prefix, warm target, other-machine or deployment actions; all five private Wine prefixes quiescent; diagnostics/targets retained."
+}
