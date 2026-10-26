@@ -723,6 +723,22 @@ removed. The load-time block-copy cost remains explicit.
 
 ### Open acceptance work
 
+The native C3X mill-icon source integration is implemented in the isolated
+candidate. The checked PCGames row producer supplies actual mill/resource
+state and C3X's native queries. Safe UI logic emits file-art commands with
+the original 33x33 source, 24x24 destination, order, RGB555 magenta key and
+clip. All 65,537 original-source selector/layout cases and 20,736 original
+Wine GDI/native file-art pixels match [V]. This replaces the previously
+missing native icon implementation. The checked owned boundary now skips
+both mill DC acquisitions, every TransparentBlt and both releases after the
+original state queries and availability gates. Twelve original/owned binary
+pairs match query/order/return observations and avoid 41 legacy raster calls
+with zero owned raster calls [V]. Scratch DC pixels are never renderer input.
+The enabled-mill injected game comparison remains open [G], with its exact
+sources, offline fixture, evidence and later GUI procedure in
+[the mill contract](jgl-mill-icons.md). No Group 7 work or default switch
+was restarted by this subset.
+
 The PCGames HUD/advisor navigator buffers now preserve their game-written
 data through safe, equal-size row copies and 16-bit clears. Original/owned
 contract checks covered 40 calls and 1,369,360 bytes. Parent review also

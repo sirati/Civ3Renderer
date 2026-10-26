@@ -683,6 +683,10 @@ impl Trace {
                         }
                     }
                 }
+                Some("ui_image_sample_offset") if f.len() == 3 => {
+                    let offset = [n(1)? as u32, n(2)? as u32];
+                    if let Some(crate::ui::ScreenDraw::Indexed { indices, .. }) = t.ui.as_mut().and_then(|u| u.draws.last_mut()) { indices.sample_offset = offset; }
+                }
                 Some("ui_image_frame") if f.len() == 2 => {
                     if let (Ok(frame), Some(crate::ui::ScreenDraw::Indexed { indices, .. })) = (f[1].parse::<u32>(), t.ui.as_mut().and_then(|u| u.draws.last_mut())) { indices.frame = Some(frame); }
                 }
@@ -1053,12 +1057,13 @@ mod navigator_trace_tests {
 
     #[test]
     fn resized_indexed_and_smoke_trace_metadata_preserve_native_rules_and_old_defaults() {
-        let text = "ui_resized_image 20 30 1 21 31 25 33 8 4 9 5 5 3 117964 109226 Art/smoke with spaces.pcx\nui_image_palette 64 2 Art/ntp03.pcx\nui_image_indices 0,1,255 -\nui_image_frame 17\nui_image_palette_alpha 224 16 0 0 255 Art/Explosion Palette.pcx\n";
+        let text = "ui_resized_image 20 30 1 21 31 25 33 8 4 9 5 5 3 117964 109226 Art/smoke with spaces.pcx\nui_image_palette 64 2 Art/ntp03.pcx\nui_image_indices 0,1,255 -\nui_image_sample_offset 65535 32768\nui_image_frame 17\nui_image_palette_alpha 224 16 0 0 255 Art/Explosion Palette.pcx\n";
         let trace = Trace::parse(text).unwrap();
         let crate::ui::ScreenDraw::Indexed { indices, palette, rect, .. } = &trace.ui.unwrap().draws[0] else { panic!("indexed resized trace") };
         assert_eq!(*rect, [8, 4, 9, 5]);
         assert_eq!(indices.resize, Some(menu::screen::IndexedResize { size: (5, 3), sample_step: [117964, 109226] }));
         assert_eq!(indices.frame, Some(17));
+        assert_eq!(indices.sample_offset, [65535, 32768]);
         assert_eq!(indices.palette_alpha.as_ref().unwrap(), &menu::screen::PaletteAlpha { source: "Art/Explosion Palette.pcx".into(), first: 224, count: 16, skip: [0, 0, 255] });
         assert_eq!(palette.as_ref().unwrap().first, 64);
         let old = Trace::parse("ui_image 0 0 1 0 0 8 8 0 0 8 8 old.pcx\nui_image_indices - 248:8\n").unwrap();

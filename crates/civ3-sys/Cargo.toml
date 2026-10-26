@@ -12,3 +12,6 @@ gdi-text = { path = "../gdi-text" }
 bytemuck.workspace = true
 thiserror.workspace = true
 log.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Memory"] }

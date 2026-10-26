@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Bound R28 mill producer test, private target/prefix and no display/game.
+Run in nix develop with CARGO_INCREMENTAL=0:
+  tools/test-mill-icons SUPPORTED_EXE EVIDENCE_DIR
+"""
+import hashlib
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+
+exe = pathlib.Path(sys.argv[1]).resolve()
+out = pathlib.Path(sys.argv[2]).resolve()
+out.mkdir(parents=True, exist_ok=True)
+digest = hashlib.sha256(exe.read_bytes()).hexdigest()
+assert digest == 'a9bb72429328db88da8dfcab3e706437dc7bdc540e07cbfd4923695665e1671a', digest
+assert os.environ.get('CARGO_INCREMENTAL') == '0'
+env = os.environ.copy()
+env.setdefault('CARGO_TARGET_DIR', str(out/'target'))
+assert str(pathlib.Path(env['CARGO_TARGET_DIR']).resolve()).startswith('/mnt/datasets/c3r-build/')
+build = ['cargo', 'rustc', '-p', 'civ3-sys', '--test', 'mill_drawing',
+         '--target', 'i686-pc-windows-gnu', '--message-format=json-render-diagnostics',
+         '--', '-C', 'link-arg=-Wl,--image-base,0x400000', '-C', 'link-arg=-Wl,--section-start,.text=0x2001000']
+with (out/'build.stderr').open('w') as log:
+    result = subprocess.run(build, env=env, text=True, stdout=subprocess.PIPE, stderr=log)
+(out/'build.jsonl').write_text(result.stdout)
+result.check_returncode()
+artifacts = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+artifact = next(x['executable'] for x in artifacts if x.get('target', {}).get('name') == 'mill_drawing' and x.get('executable'))
+retained = out/'test.exe'
+shutil.copy2(artifact, retained)
+# Keep the exact test source and production boundary with every run, including
+# failed attempts. Cargo may reuse an artifact path for later builds.
+sources = ['crates/civ3-sys/tests/mill_drawing.rs', 'crates/civ3-sys/tests/support/mill_abi.rs',
+           'crates/civ3-sys/src/mill_icons.rs', 'crates/civ3-sys/src/mill_icons/drawing.rs',
+           'crates/civ3-sys/src/mill_icons/pcg_r28_producer.bin', 'crates/civ3-bridge/src/ui_mills.rs',
+           'tools/test-mill-icons']
+for source in sources:
+    dest = out/'source'/source
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dest)
+env.update(WINEPREFIX=str(out/'prefix'), WINEDEBUG='-all', WINEDLLOVERRIDES='mscoree,mshtml=', C3R_MILL_EXE=str(exe))
+env.pop('DISPLAY', None)
+env.pop('WAYLAND_DISPLAY', None)
+wine = pathlib.Path(os.environ.get('CIV3R_WINE', pathlib.Path.home()/'.cache/winvm/wine'))/'bin/wine'
+with (out/'run.stdout').open('w') as stdout, (out/'run.stderr').open('w') as stderr:
+    run = subprocess.run([str(wine), str(retained), '--ignored', '--exact',
+        'bound_r28_draw_block_preserves_queries_and_skips_raster', '--nocapture'], env=env, stdout=stdout, stderr=stderr)
+receipt = {'source_exe': str(exe), 'source_sha256': digest, 'test_exe': artifact,
+           'test_sha256': hashlib.sha256(retained.read_bytes()).hexdigest(), 'retained_test_exe': str(retained),
+           'sources': {source: hashlib.sha256(pathlib.Path(source).read_bytes()).hexdigest() for source in sources},
+           'checkout': str(pathlib.Path.cwd()), 'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+           'build': build, 'target': env['CARGO_TARGET_DIR'], 'prefix': env['WINEPREFIX'], 'exit_code': run.returncode,
+           'scope': 'Controlled Sprite/query/GDI dependencies. Actual R28 selector, gates and draw/return machine code. No live game.'}
+(out/'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n')
+subprocess.run([str(wine.parent/'wineserver'), '-w'], env=env, check=True)
+print((out/'run.stdout').read_text(), end='')
+run.check_returncode()

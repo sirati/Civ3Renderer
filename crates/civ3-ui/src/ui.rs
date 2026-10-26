@@ -86,6 +86,9 @@ pub enum Event {
     /// Region `src` (x, y, w, h) of image `from` copied to (x, y) of
     /// `canvas`; `keyed`: colour 255 transparent.
     Copy { from: u32, src: [i32; 4], canvas: u32, x: i32, y: i32, keyed: bool },
+    /// C3X's selected mill resources, on the improvement row's canvas,
+    /// after its building sprite and before subsequent row decorations.
+    MillIcons { canvas: u32, path: String, resources: Vec<(i32, i32)>, at: (i32, i32), clip: [i32; 4], transparent: Vec<u8> },
     /// `rect` (x, y, w, h) of `canvas` filled (`rgb`).
     /// `alpha`: 255 opaque, else a translucent shade (50 % = 128).
     Fill { canvas: u32, rect: [i32; 4], rgb: [u8; 3], alpha: u8, clip: Option<[i32; 4]> },
@@ -975,6 +978,15 @@ impl UiModel {
                 let ops = self.resolve(&op, 0);
                 for op in ops {
                     self.push(canvas, op);
+                }
+            }
+            Event::MillIcons { canvas, path, resources, at, clip, transparent } => {
+                for icon in crate::mill_icons::layout(&resources, at) {
+                    let op = Op::ResizedImage { source: Source::Indexed {
+                        path: path.clone(), rect: icon.rect, palette: None,
+                        indices: crate::mill_icons::indices(transparent.clone()),
+                    }, x: icon.at.0, y: icon.at.1, keyed: true, size: (24, 24), sample_step: [90112; 2], clip };
+                    if let Some(op) = crop_move(op, clip, (0, 0), true) { self.push(canvas, op); }
                 }
             }
             Event::Fill { canvas, rect, rgb, alpha, clip } => {
