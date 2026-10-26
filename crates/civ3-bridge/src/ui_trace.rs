@@ -1692,7 +1692,7 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
     let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
     if jgl_ffi::own::on() || query_comparing() {
         let result=with_model(false, |m|m.keyed_at(canvas,x,y,&crate::ui_opacity::KeyFiles)).flatten();
-        if result.is_none() {log::error!("semantic query {}",with_model(false,|m|m.query_detail(canvas,x,y)).unwrap_or_default());}
+        if result.is_none() {log::error!("semantic query {} records={}",with_model(false,|m|m.query_detail(canvas,x,y)).unwrap_or_default(),with_model(false,|m|m.records_at(canvas,x,y)).unwrap_or_default());}
         return result.map(|shown|if shown {key^1} else {key});
     }
     let shown = with_model(false, |m| if jgl_ffi::own::on() { m.exact_shown_at(canvas, x, y, &crate::ui_opacity::pixel) } else { m.shown_at(canvas, x, y, &crate::ui_opacity::pixel) })?;
@@ -1761,11 +1761,10 @@ fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
 /// provenance is an unsupported contract, never transparency or dummy data.
 fn semantic_pixel_unavailable(image: u32, family: &str, original: impl FnOnce() -> u32) -> u32 {
     if jgl_ffi::own::on() {
-        // Keep the unsupported contract visible while allowing the process
-        // to reach its normal quit path. Supported owned readers never take
-        // this branch; there is no dummy key, guessed transparency, or
-        // recovery draw here.
-        log::error!("owned {family} {image:#x}: no exact model answer; forwarding the call");
+        // An owned read has no legacy raster. Continuing would return
+        // uninitialized placeholder memory and make hit testing diverge from
+        // the retained renderer model.
+        panic!("owned {family} {image:#x}: no exact model answer");
     }
     original()
 }

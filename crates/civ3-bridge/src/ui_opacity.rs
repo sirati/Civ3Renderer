@@ -64,6 +64,19 @@ pub(crate) fn generated(name:&str,size:(u32,u32),rgba:&[u8]) {
 pub(crate) fn named_palette(path:&str,palette:[[u8;3];256]) {
     PALETTES.update(|old|{let mut map=old.cloned().unwrap_or_default();map.insert(path.into(),palette);Some(map)});
 }
+// The viewer resolves game-opened paths against the active scenario roots.
+// Retain that exact identity for native source queries as well.
+static ANIMATION_SOURCES: handoff::Latest<HashMap<String, String>> = handoff::Latest::new();
+
+pub(crate) fn animation_source(opened: &str, source: &str) {
+    if ANIMATION_SOURCES.load().is_some_and(|m| m.get(opened).is_some_and(|p| p == source)) { return; }
+    ANIMATION_SOURCES.update(|old| {
+        let mut sources = old.cloned().unwrap_or_default();
+        sources.insert(opened.into(), source.into());
+        Some(sources)
+    });
+}
+
 impl crate::ui::KeySources for KeyFiles {
     #[cfg(windows)]
     fn surface(&self,image:u32,x:i32,y:i32)->Option<[u8;3]> {
@@ -76,6 +89,8 @@ impl crate::ui::KeySources for KeyFiles {
     }
     #[cfg(all(windows,target_arch="x86"))]
     fn flc(&self,path:&str,frame:u32,x:i32,y:i32,plain:bool)->Option<Option<crate::ui::FileSample>> {
+        let sources = ANIMATION_SOURCES.load()?;
+        let path = sources.get(path)?.as_str();
         let recolor=if plain {String::new()} else {format!("Art/Units/Palettes/ntp{:02}.pcx",UNIT_COLORS.load(std::sync::atomic::Ordering::Relaxed))};
         let mut args=civ3r_native::SourceSample {path:wine_unixlib::pe::buffer(path.as_bytes()),recolor:wine_unixlib::pe::buffer(recolor.as_bytes()),frame,x,y,..Default::default()};
         if NATIVE.get()?.call(civ3r_native::CALL_SOURCE_SAMPLE,&mut args)!=0 {return None;}
