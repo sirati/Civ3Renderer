@@ -11,7 +11,9 @@
 //! ```
 //!
 //! The format is the same in memory and in a dump file (`jgl::record`
-//! streams can be written out and replayed offline).
+//! streams can be written out and replayed offline). Bit 15 of `op` marks
+//! the layout with a stored row stride after each surface. Older streams
+//! drawing records are rejected because they cannot prove padded fills.
 
 use crate::blit::{BlitCall, MAX_BLIT_ARGS, Scale, SpriteCall, SpriteId, SpriteRef, TableCall, TableId, TableRef};
 use crate::draw::{CopyCall, FillCall, MAX_ARGS, Surface};
@@ -181,7 +183,7 @@ impl Writer {
         let tail = &tail[..tail.len().min(MAX_TAIL)];
         let words = 1 + fields.len() + tail.len().div_ceil(4);
         self.bytes.reserve(words * 4);
-        self.bytes.extend_from_slice(&(op as u16).to_le_bytes());
+        self.bytes.extend_from_slice(&((op as u16) | 0x8000).to_le_bytes());
         self.bytes.extend_from_slice(&(words as u16).to_le_bytes());
         for f in fields {
             self.bytes.extend_from_slice(&f.to_le_bytes());
@@ -388,7 +390,7 @@ impl Fields {
     }
 
     fn surface(&mut self, s: Surface) -> &mut Fields {
-        self.push(s.image.0).push(s.owner).rect(s.clip).rect(s.bounds)
+        self.push(s.image.0).push(s.owner).rect(s.clip).rect(s.bounds).push(s.row as u32)
     }
 
     fn opt_surface(&mut self, s: Option<Surface>) -> &mut Fields {
@@ -453,13 +455,18 @@ impl<'a> Iterator for Records<'a> {
                 return bad();
             };
             self.at = at + words * 4;
-            let Some(op) = Op::from_u16(op) else { continue };
-            return Some(decode(op, body).ok_or(DecodeError { at }));
+            let rows = op & 0x8000 != 0;
+            let Some(op) = Op::from_u16(op & 0x7fff) else { continue };
+            return Some(decode(op, body, rows).ok_or(DecodeError { at }));
         }
     }
 }
 
-fn decode(op: Op, body: &[u8]) -> Option<Record<'_>> {
+fn decode(op: Op, body: &[u8], rows: bool) -> Option<Record<'_>> {
+    if !rows && matches!(op, Op::Fill | Op::Shade | Op::ReplaceColor | Op::Line | Op::FillOther
+        | Op::CopyStretch | Op::CopyKeyed | Op::CopyIndexed | Op::CopyOther | Op::Blit
+        | Op::SpriteInit | Op::SpriteDuplicate | Op::SpriteSetTable | Op::SpriteSetKey | Op::SpriteClear
+        | Op::Invalidate | Op::Present) { return None; }
     let n = |k: usize| -> Option<u32> { body.get(k * 4..k * 4 + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])) };
     let tail = |fields: usize| -> Option<&[u8]> {
         let len = n(fields - 1)? as usize;
@@ -532,7 +539,7 @@ impl Cursor<'_> {
     }
 
     fn surface(&mut self) -> Option<Surface> {
-        Some(Surface { image: ImageId(self.word()?), owner: self.word()?, clip: self.rect()?, bounds: self.rect()? })
+        Some(Surface { image: ImageId(self.word()?), owner: self.word()?, clip: self.rect()?, bounds: self.rect()?, row: self.word()? as i32 })
     }
 
     fn opt_surface(&mut self) -> Option<Option<Surface>> {
@@ -729,7 +736,20 @@ mod tests {
     }
 
     fn surface(image: u32) -> Surface {
-        Surface { image: ImageId(image), owner: image + 0x10, clip: Rect::new(0, 0, 640, 480), bounds: Rect::new(0, 0, 800, 600) }
+        Surface { row: 800, image: ImageId(image), owner: image + 0x10, clip: Rect::new(0, 0, 640, 480), bounds: Rect::new(0, 0, 800, 600) }
+    }
+
+    #[test]
+    fn surface_records_without_stride_are_rejected_for_exact_replay() {
+        let mut writer = Writer::new();
+        writer.push(&Record::Fill(FillCall::Fill { target: surface(1), rect: None, color: 0x80007c1f }));
+        let mut bytes = writer.bytes().to_vec();
+        // Previous layout: unversioned op and ten surface fields, no row.
+        bytes[1] &= 0x7f;
+        bytes.drain(44..48);
+        let words = u16::from_le_bytes([bytes[2],bytes[3]])-1;
+        bytes[2..4].copy_from_slice(&words.to_le_bytes());
+        assert!(Records::new(&bytes).next().unwrap().is_err());
     }
 
     #[test]

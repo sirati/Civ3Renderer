@@ -167,7 +167,7 @@ pub fn fill_of(call: &FillCall) -> Option<CanvasDraw> {
     let canvas = mirrored_fill(call)?;
     let target = call.target();
     let (size, rects, color, alpha) = match *call {
-        FillCall::Fill { rect, color, .. } => (Some(target.size()), vec![area(target, rect)], color, 255),
+        FillCall::Fill { rect, color, .. } => (Some(target.size()), target.fill_regions(rect).into_iter().map(xywh).collect(), color, 255),
         FillCall::Line { from, to, color, .. } => (Some(target.size()), line_rects(from, to), color, 255),
         FillCall::Shade { rect, color, percent, .. } => {
             let alpha = shade_alpha((percent as i32).clamp(0, 100) as u32);
@@ -248,7 +248,7 @@ mod tests {
     use std::rc::Rc;
 
     fn canvas(owner: u32, clip: Rect) -> Surface {
-        Surface { image: ImageId(owner + 0x100), owner, clip, bounds: Rect::new(0, 0, 200, 100) }
+        Surface { row: 200, image: ImageId(owner + 0x100), owner, clip, bounds: Rect::new(0, 0, 200, 100) }
     }
 
     const FULL: Rect = Rect::new(0, 0, 200, 100);

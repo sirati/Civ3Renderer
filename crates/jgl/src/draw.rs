@@ -19,9 +19,26 @@ pub struct Surface {
     pub clip: Rect,
     /// The whole image (+0x54).
     pub bounds: Rect,
+    /// Pixels between stored rows (+0x40), including padding. Zero in older callers.
+    pub row: i32,
 }
 
 impl Surface {
+    /// Visible rectangles written by +44. Its null/full-clip fast path
+    /// fills width*height contiguous pixels, including any row padding.
+    pub fn fill_regions(&self, rect: Option<Rect>) -> Vec<Rect> {
+        let (w,h) = self.size();
+        if rect.is_none() && self.clip == self.bounds && self.row > w && w > 0 && h > 0 {
+            let count = i64::from(w)*i64::from(h);
+            let rows = (count/i64::from(self.row)) as i32;
+            let tail = (count%i64::from(self.row)).min(i64::from(w)) as i32;
+            let mut result = Vec::new();
+            if rows > 0 { result.push(Rect::new(0,0,w,rows)); }
+            if tail > 0 { result.push(Rect::new(0,rows,tail,rows+1)); }
+            result
+        } else { vec![rect.unwrap_or(self.bounds)] }
+    }
+
     /// Width and height.
     pub fn size(&self) -> (i32, i32) {
         (self.bounds.right - self.bounds.left, self.bounds.bottom - self.bounds.top)

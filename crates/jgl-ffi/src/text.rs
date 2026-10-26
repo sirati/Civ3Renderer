@@ -270,3 +270,41 @@ pub(crate) fn set_stock_font() {
 fn install_impl(_base: u32, _hooks: HooksFactory) -> Result<TextGroup, TakeoverError> {
     Err(inproc::hook::HookError::Unsupported.into())
 }
+
+/// Glyph geometry from the image's selected DC. No bitmap data is requested.
+/// Returns the selected bitmap's depth and (left, top, width, height, advance)
+/// for each ANSI byte. The caller decides whether that DC is a valid source.
+#[cfg(windows)]
+pub fn ink_metrics(image: jgl::ImageId, bytes: &[u8]) -> Option<(u16, Vec<(i32, i32, u32, u32, i32)>)> {
+    use windows_sys::Win32::Graphics::Gdi::*;
+    let dc = inproc::Ptr32::<u32>::new(image.0.checked_add(0x4bc)?).read().ok()?;
+    if dc == 0 { return None; }
+    let dc = dc as usize as HDC;
+    // SAFETY: handles are validated by GDI. Every output is a local struct
+    // or an owned buffer of the declared length. GGO_METRICS has no pixels.
+    unsafe {
+        let bitmap = GetCurrentObject(dc, OBJ_BITMAP as u32);
+        let mut info: BITMAP = std::mem::zeroed();
+        if GetObjectW(bitmap, size_of::<BITMAP>() as i32, (&mut info as *mut BITMAP).cast()) == 0 { return None; }
+        let mut dx = vec![0; bytes.len()];
+        let mut placement: GCP_RESULTSA = std::mem::zeroed();
+        placement.lStructSize = size_of::<GCP_RESULTSA>() as u32;
+        placement.lpDx = dx.as_mut_ptr();
+        placement.nGlyphs = bytes.len() as u32;
+        if !bytes.is_empty() && GetCharacterPlacementA(dc, bytes.as_ptr(), bytes.len() as i32, 0, &mut placement, 0) == 0 { return None; }
+        let mut transform: MAT2 = std::mem::zeroed();
+        transform.eM11.value = 1;
+        transform.eM22.value = 1;
+        let metrics: Option<Vec<_>> = bytes.iter().zip(dx).map(|(&byte, advance)| {
+            let mut metrics: GLYPHMETRICS = std::mem::zeroed();
+            (GetGlyphOutlineA(dc, u32::from(byte), GGO_METRICS, &mut metrics, 0,
+                std::ptr::null_mut(), &transform) != GDI_ERROR as u32).then_some((
+                    metrics.gmptGlyphOrigin.x, metrics.gmptGlyphOrigin.y,
+                    metrics.gmBlackBoxX, metrics.gmBlackBoxY, advance))
+        }).collect();
+        Some((info.bmBitsPixel, metrics?))
+    }
+}
+
+#[cfg(not(windows))]
+pub fn ink_metrics(_image: jgl::ImageId, _bytes: &[u8]) -> Option<(u16, Vec<(i32, i32, u32, u32, i32)>)> { None }

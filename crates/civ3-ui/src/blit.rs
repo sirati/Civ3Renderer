@@ -193,7 +193,7 @@ mod tests {
     use jgl::{ImageId, Rect, Scale, SpriteId, SpriteRef, Surface, TableId, TableRef};
 
     fn call(slot: u16, caller: u32, set_at: u32) -> BlitCall {
-        let target = Surface { image: ImageId(0x9100), owner: 0x9000, clip: Rect::new(0, 0, 50, 50), bounds: Rect::new(0, 0, 100, 100) };
+        let target = Surface { row: 100, image: ImageId(0x9100), owner: 0x9000, clip: Rect::new(0, 0, 50, 50), bounds: Rect::new(0, 0, 100, 100) };
         BlitCall {
             slot,
             caller,

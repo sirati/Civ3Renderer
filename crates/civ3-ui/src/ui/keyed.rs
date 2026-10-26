@@ -108,7 +108,7 @@ pub(super) fn query(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl K
                         Some(Some(rgb)) => colors = Colors::rgb(rgb),
                         None => colors = colors.union(Colors::rgb(run.color)),
                     }
-                } else if files.text_keyed(run, x, y).is_some_and(|p| p.is_some()) {
+                } else if !matches!(files.text_keyed(run, x, y), Some(None)) {
                     colors = colors.union(Colors::rgb(run.color));
                 }
             }
