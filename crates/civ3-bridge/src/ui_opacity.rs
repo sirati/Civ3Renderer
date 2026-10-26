@@ -68,10 +68,19 @@ thread_local! {
     static FONT_GEOMETRY:std::cell::RefCell<HashMap<jgl::FontDesc,Option<jgl::text::FontGeometry>>>=std::cell::RefCell::new(HashMap::new());
 }
 
-pub(crate) fn font_geometry(desc:&jgl::FontDesc) {
+/// The font engine's glyphs of `run`'s font, made at the first hit query
+/// that meets its text (the game creates hundreds of fonts; few are read).
+fn with_font<T>(run:&civ3_ui::text::TextRun,f:impl FnOnce(&jgl::text::FontGeometry)->Option<T>)->Option<T> {
+    let desc=jgl::FontDesc {face:run.face.clone(),height:run.height,weight:run.weight,italic:run.italic,underline:run.underline};
     FONT_GEOMETRY.with_borrow_mut(|fonts| {
-        fonts.entry(desc.clone()).or_insert_with(||jgl_ffi::geometry::font(desc));
-    });
+        fonts.entry(desc).or_insert_with_key(|desc| {
+            let started=std::time::Instant::now();
+            let geometry=jgl_ffi::geometry::font(desc);
+            log::debug!("font {desc:?}: glyph geometry in {} ms",started.elapsed().as_millis());
+            if geometry.as_ref().is_some_and(|g|!g.calibrated()) {log::warn!("font {desc:?}: its glyph bitmaps do not reproduce TextOutA; its text has no exact hit answer");}
+            geometry
+        }).as_ref().and_then(f)
+    })
 }
 
 impl crate::ui::KeySources for KeyFiles {
@@ -95,11 +104,21 @@ impl crate::ui::KeySources for KeyFiles {
             _=>None,
         }
     }
-    fn text_may_cover(&self,run:&civ3_ui::text::TextRun,x:i32,y:i32)->Option<bool> {
-        let desc=jgl::FontDesc {face:run.face.clone(),height:run.height,weight:run.weight,italic:run.italic,underline:run.underline};
-        FONT_GEOMETRY.with_borrow(|fonts|fonts.get(&desc)?.as_ref()?.may_cover(&run.text,x-run.x,y-run.y,run.underline))
+    fn text_ink(&self,run:&civ3_ui::text::TextRun,x:i32,y:i32)->Option<jgl::text::Ink> {
+        with_font(run,|font|font.ink(&run.text,x-run.x,y-run.y,run.underline))
+    }
+    fn text_on_key(&self,run:&civ3_ui::text::TextRun,level:u8)->Option<u16> {
+        with_font(run,|font|font.black_on_key(level))
     }
     fn palette(&self,palette:&menu::screen::PaletteFrom,index:u8)->Option<[u8;3]> {
+        // A civ's table: the game's own copy of `ntpNN.pcx`, which the draw
+        // used (the viewer reads the same file).
+        #[cfg(windows)]
+        if let Some(n)=palette.image.strip_prefix("Art/Units/Palettes/ntp").and_then(|r|r.strip_suffix(".pcx")).and_then(|n|n.parse::<u32>().ok()) {
+            let table=civ3_sys::ui_hooks::civ_table(*crate::ui_trace::build()?,n)?;
+            let c=civ3_sys::ui_hooks::color_table_entries(table,u32::from(index),1)?[0];
+            return Some([c as u8,(c>>8) as u8,(c>>16) as u8]);
+        }
         Some(PALETTES.load()?.get(&palette.image)?[index as usize])
     }
     fn file(&self,path:&str,x:i32,y:i32,palette:Option<&menu::screen::PaletteFrom>)->Option<crate::ui::FileSample> {

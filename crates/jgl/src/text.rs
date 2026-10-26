@@ -10,46 +10,231 @@ use std::rc::Rc;
 
 use crate::{FontId, ImageId};
 
-/// Font-engine ink boxes and pen advances, captured once when a face is
-/// selected. Boxes describe possible ink, never opaque glyph pixels.
+/// A font's glyphs as the font engine renders them for `TextOutA`, and
+/// which of its bitmaps reproduce that text, decided once per font by a
+/// calibration `TextOutA` of the whole set ([`FontGeometry::new`]). No text
+/// or canvas is drawn or read to answer a query.
 #[derive(Clone, Debug)]
 pub struct FontGeometry {
-    pub glyphs: Vec<Option<GlyphGeometry>>,
-    pub underline: Option<(i32, i32)>,
+    glyphs: Vec<Option<Glyph>>,
+    /// Underline rows relative to the baseline (top, height), if any.
+    underline: Option<(i32, i32)>,
+    mode: Option<Mode>,
+    /// Per grey level, the one RGB555 pixel black text of that level made
+    /// over the colour key throughout the calibration, if it was one.
+    on_key: [Option<u16>; 17],
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct GlyphGeometry {
-    pub bounds: [i32; 4],
+/// One glyph as the font engine rasterises it for each mode: `GGO_BITMAP`
+/// (levels 0 or 1) and `GGO_GRAY4_BITMAP` (0..=16). Each format is hinted
+/// on its own, with its own box, origin and advance.
+#[derive(Clone, Debug)]
+pub struct Glyph {
+    pub mono: Raster,
+    pub gray: Raster,
+}
+
+/// A rasterised glyph: `levels` over its black box of `size`, its origin
+/// (left, top above the baseline) and pen advance.
+#[derive(Clone, Debug)]
+pub struct Raster {
+    pub origin: (i32, i32),
+    pub size: (i32, i32),
     pub advance: i32,
+    pub levels: Vec<u8>,
 }
 
-impl GlyphGeometry {
-    pub fn from_metrics(x:i32,y:i32,w:u32,h:u32,advance:i32)->Self {
-        Self {bounds:[x,-y,x+w as i32,-y+h as i32],advance}
+/// A calibration line: `text` drawn with `TextOutA` in black over the colour
+/// key, its pen at `pen`; `pixels` the RGB555 result, `width` per row.
+pub struct Calibration {
+    pub text: Vec<u8>,
+    pub pen: (i32, i32),
+    pub width: i32,
+    pub pixels: Vec<u16>,
+}
+
+/// How `TextOutA` draws this font, as the calibration showed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// Exactly the mono bitmaps, in the text colour.
+    Mono,
+    /// Smoothed: no ink where the grey level is 0, the text colour where it
+    /// is 16, a blend (not reproduced) between.
+    Gray,
+}
+
+/// What a text run draws at a pixel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ink {
+    None,
+    /// The text colour.
+    Solid,
+    /// Something between what is below and the text colour: one glyph's
+    /// grey level (1..=15), or none where glyphs or the underline meet.
+    Partial(Option<u8>),
+}
+
+const KEY: u16 = 0x7C1F;
+
+impl FontGeometry {
+    /// `underline`: `OUTLINETEXTMETRIC`'s underscore position and size.
+    pub fn new(glyphs: Vec<Option<Glyph>>, calibration: &[Calibration], underline: Option<(i32, i32)>) -> Self {
+        let mut font = Self { glyphs, underline: underline.map(|(position, size)| (-position - size.max(1) / 2, size.max(1))), mode: None, on_key: [None; 17] };
+        // Each line's ink painted once per mode, glyph by glyph.
+        let painted = |mode: Mode| -> Option<Vec<Vec<Ink>>> {
+            calibration.iter().map(|line| {
+                let mut ink = vec![Ink::None; line.pixels.len()];
+                let height = line.pixels.len() as i32 / line.width;
+                let mut pen = line.pen.0;
+                for &b in &line.text {
+                    let glyph = font.glyphs.get(b as usize)?.as_ref()?;
+                    let raster = match mode { Mode::Mono => &glyph.mono, Mode::Gray => &glyph.gray };
+                    for gy in 0..raster.size.1 { for gx in 0..raster.size.0 {
+                        let (x, y) = (pen + raster.origin.0 + gx, line.pen.1 - raster.origin.1 + gy);
+                        if x < 0 || y < 0 || x >= line.width || y >= height { return None; }
+                        let at = (y * line.width + x) as usize;
+                        ink[at] = combine(ink[at], level_ink(mode, raster.levels[(gy * raster.size.0 + gx) as usize]));
+                    }}
+                    pen += raster.advance;
+                }
+                Some(ink)
+            }).collect()
+        };
+        let fits = |ink: &[Vec<Ink>]| calibration.iter().zip(ink).all(|(line, ink)| line.pixels.iter().zip(ink).all(|(&px, &ink)| match ink {
+            Ink::None => px == KEY,
+            Ink::Solid => px == 0,
+            Ink::Partial(_) => true,
+        }));
+        let found = [Mode::Mono, Mode::Gray].into_iter().find_map(|m| painted(m).filter(|ink| !calibration.is_empty() && fits(ink)).map(|ink| (m, ink)));
+        if let Some((mode, ink)) = found {
+            font.mode = Some(mode);
+            let mut seen: [Option<Option<u16>>; 17] = [None; 17];
+            for (line, ink) in calibration.iter().zip(&ink) {
+                for (&px, &ink) in line.pixels.iter().zip(ink) {
+                    if let Ink::Partial(Some(level)) = ink {
+                        let s = &mut seen[level as usize];
+                        *s = Some(match *s { None => Some(px), Some(v) => v.filter(|&v| v == px) });
+                    }
+                }
+            }
+            font.on_key = seen.map(Option::flatten);
+        }
+        font
+    }
+
+    /// The pixel black text of grey `level` makes over the colour key, as
+    /// the calibration showed it for every pixel of that level.
+    pub fn black_on_key(&self, level: u8) -> Option<u16> { *self.on_key.get(level as usize)? }
+
+    /// Whether `TextOutA` of this font is reproduced (else every query is
+    /// unanswered).
+    pub fn calibrated(&self) -> bool { self.mode.is_some() }
+
+    /// The ink of `text` at (x, y) relative to its pen on the baseline.
+    pub fn ink(&self, text: &str, x: i32, y: i32, underline: bool) -> Option<Ink> {
+        let bytes = text.chars().map(|c| u8::try_from(u32::from(c)).ok()).collect::<Option<Vec<u8>>>()?;
+        let ink = self.glyph_ink(&bytes, x, y)?;
+        if underline && ink != Ink::Solid {
+            // The underline's own rows are not calibrated.
+            let (top, height) = self.underline?;
+            // Drawn over the text's extent, which follows the grey advances
+            // even where the glyphs are mono.
+            let pen: i32 = bytes.iter().map(|&b| self.glyphs[b as usize].as_ref().map_or(0, |g| g.mono.advance.max(g.gray.advance))).sum();
+            if x >= 0 && x < pen && y >= top && y < top + height { return Some(Ink::Partial(None)); }
+        }
+        Some(ink)
+    }
+
+    fn glyph_ink(&self, text: &[u8], x: i32, y: i32) -> Option<Ink> {
+        let mode = self.mode?;
+        let mut pen = 0;
+        let mut ink = Ink::None;
+        for &b in text {
+            let glyph = self.glyphs.get(b as usize)?.as_ref()?;
+            let raster = match mode { Mode::Mono => &glyph.mono, Mode::Gray => &glyph.gray };
+            let (gx, gy) = (x - pen - raster.origin.0, y + raster.origin.1);
+            if gx >= 0 && gy >= 0 && gx < raster.size.0 && gy < raster.size.1 {
+                ink = combine(ink, level_ink(mode, raster.levels[(gy * raster.size.0 + gx) as usize]));
+            }
+            pen += raster.advance;
+        }
+        Some(ink)
     }
 }
 
-pub fn underline_geometry(position:i32,size:i32)->(i32,i32) {
-    let size=size.max(1);
-    (-position-size/2,size)
+fn level_ink(mode: Mode, level: u8) -> Ink {
+    match (mode, level) {
+        (_, 0) => Ink::None,
+        (Mode::Mono, _) | (Mode::Gray, 16) => Ink::Solid,
+        (Mode::Gray, level) => Ink::Partial(Some(level)),
+    }
 }
 
-impl FontGeometry {
-    pub fn may_cover(&self, text: &str, x: i32, y: i32, underline: bool) -> Option<bool> {
-        let mut pen=0;
-        let mut ink=false;
-        for ch in text.chars() {
-            let glyph=self.glyphs.get(usize::try_from(u32::from(ch)).ok()?)?.as_ref()?;
-            let [l,t,r,b]=glyph.bounds;
-            ink |= x>=pen+l && x<pen+r && y>=t && y<b;
-            pen+=glyph.advance;
-        }
-        if underline {
-            let (t,h)=self.underline?;
-            ink |= x>=0 && x<pen && y>=t && y<t+h;
-        }
-        Some(ink)
+/// Glyphs meeting at a pixel: any solid one wins; two smoothed ones are a
+/// blend of blends.
+fn combine(a: Ink, b: Ink) -> Ink {
+    match (a, b) {
+        (Ink::Solid, _) | (_, Ink::Solid) => Ink::Solid,
+        (Ink::Partial(_), Ink::Partial(_)) => Ink::Partial(None),
+        (Ink::Partial(level), _) | (_, Ink::Partial(level)) => Ink::Partial(level),
+        _ => Ink::None,
+    }
+}
+
+#[cfg(test)]
+mod glyph_tests {
+    use super::*;
+
+    /// 'A' (65): a 2x2 block one pixel right of its pen, top 2 above the
+    /// baseline, advance 3; its grey raster has one partial pixel.
+    fn glyphs() -> Vec<Option<Glyph>> {
+        let raster = |levels: Vec<u8>| Raster { origin: (1, 2), size: (2, 2), advance: 3, levels };
+        let mut glyphs = vec![None; 256];
+        glyphs[65] = Some(Glyph { mono: raster(vec![1, 1, 1, 0]), gray: raster(vec![16, 16, 16, 7]) });
+        glyphs
+    }
+
+    fn line(text: &[u8], ink: &[(i32, i32, u16)]) -> Calibration {
+        let (width, pen) = (12, (2, 4));
+        let mut pixels = vec![KEY; (width * 8) as usize];
+        for &(x, y, v) in ink { pixels[((y + pen.1) * width + x + pen.0) as usize] = v; }
+        Calibration { text: text.to_vec(), pen, width, pixels }
+    }
+
+    #[test]
+    fn calibration_picks_the_bitmaps_text_out_reproduces_or_none() {
+        let solid = [(1, -2, 0), (2, -2, 0), (1, -1, 0), (4, -2, 0), (5, -2, 0), (4, -1, 0)];
+        let mono = FontGeometry::new(glyphs(), &[line(b"AA", &solid)], None);
+        assert!(mono.calibrated());
+        assert_eq!(mono.ink("AA", 4, -2, false), Some(Ink::Solid));
+        assert_eq!(mono.ink("AA", 2, -1, false), Some(Ink::None));
+        assert_eq!(mono.ink("AA", 3, -2, false), Some(Ink::None), "between the glyphs");
+        // A smoothed pixel where the mono bitmap has none: only grey fits.
+        let mut smoothed = solid.to_vec();
+        smoothed.push((2, -1, 0x4986));
+        let uneven = FontGeometry::new(glyphs(), &[line(b"AA", &smoothed)], None);
+        assert!(uneven.calibrated());
+        assert_eq!(uneven.black_on_key(7), None, "level 7 also left the key unchanged");
+        smoothed.push((5, -1, 0x4986));
+        let gray = FontGeometry::new(glyphs(), &[line(b"AA", &smoothed)], None);
+        assert!(gray.calibrated());
+        assert_eq!(gray.ink("AA", 2, -1, false), Some(Ink::Partial(Some(7))));
+        assert_eq!(gray.black_on_key(7), Some(0x4986));
+        assert_eq!(gray.black_on_key(8), None, "no pixel of that level was seen");
+        assert_eq!(gray.ink("AA", 1, -2, false), Some(Ink::Solid));
+        // Ink no bitmap explains: no answers at all.
+        let mut stray = solid.to_vec();
+        stray.push((7, 1, 0));
+        let none = FontGeometry::new(glyphs(), &[line(b"AA", &stray)], None);
+        assert!(!none.calibrated());
+        assert_eq!(none.ink("AA", 1, -2, false), None);
+        // A character without a glyph, or outside Latin-1, is not known.
+        assert_eq!(mono.ink("AB", 1, -2, false), None);
+        assert_eq!(mono.ink("A\u{2014}", 1, -2, false), None);
+        // The underline's own rows are possible ink only.
+        let lined = FontGeometry::new(glyphs(), &[line(b"AA", &solid)], Some((-1, 1)));
+        assert_eq!(lined.ink("AA", 3, 1, true), Some(Ink::Partial(None)));
+        assert_eq!(lined.ink("AA", 1, -2, true), Some(Ink::Solid));
     }
 }
 

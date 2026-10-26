@@ -42,15 +42,6 @@ fn game_blit(b: &GameBlit, _call: &jgl::BlitCall) {
     crate::ui_trace::on_blit(b);
 }
 
-struct Texts(TextCapture<fn(CanvasText)>);
-impl jgl::TextHooks for Texts {
-    fn text(&mut self,draw:&jgl::TextDraw<'_>) { jgl::TextHooks::text(&mut self.0,draw); }
-    fn font(&mut self,desc:&jgl::FontDesc) {
-        crate::ui_opacity::font_geometry(desc);
-        jgl::TextHooks::font(&mut self.0,desc);
-    }
-}
-
 struct Fills;
 
 impl jgl::FillHooks for Fills {
@@ -132,7 +123,7 @@ impl jgl::PixelPolicy for Pixels {
 
 fn hooks() -> jgl::Hooks {
     jgl::Hooks {
-        text: Box::new(Texts(TextCapture::new(canvas_text as fn(CanvasText)))),
+        text: Box::new(TextCapture::new(canvas_text)),
         fill: Box::new(Fills),
         copy: Box::new(Copies),
         blit: Box::new(BlitCapture::new(game_blit)),
