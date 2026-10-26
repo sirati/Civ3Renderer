@@ -31,6 +31,7 @@ jgl-ffi = { path = "../jgl-ffi" }
 wine-unixlib = { path = "../wine-unixlib" }
 civ3r-native = { package = "civ3r-native", path = "../civ3r-native" }
 tile-render.workspace = true
+tile-render-shared.workspace = true
 wgpu.workspace = true
 tile-viewer = { path = "../tile-viewer" }
 thiserror.workspace = true

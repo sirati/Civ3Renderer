@@ -7,6 +7,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::cell::RefCell;
 use std::fmt::Write as _;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use civ3_assets::GameFiles;
 use civ3_assets::fonts::{FontStyle, Glyph, GlyphFont, charset, outline_char};
@@ -15,6 +17,117 @@ use render_desc::Compiled;
 pub use civ3_ui::text::TextRun;
 
 type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
+
+/// The exact text source retained by the renderer for semantic keyed reads.
+/// The outline variant uses the same packed face words and integer coverage
+/// routine as the GPU renderer; the atlas variant uses the same loaded glyph
+/// images as its 1:1 sprite path. No GDI surface is allocated or calibrated.
+#[derive(Clone)]
+enum HitSource {
+    Atlas { font: Arc<GlyphFont>, advances: Vec<(char, i32)> },
+    Outline { face: Arc<tile_render::gpu_text::Face>, glyphs: Vec<HitGlyph> },
+}
+
+#[derive(Clone)]
+struct HitGlyph {
+    x: i32,
+    y: i32,
+    advance: i32,
+    em64: u32,
+    bold: bool,
+    italic: bool,
+    glyph: Option<u32>,
+    bar: Option<(i32, i32)>,
+}
+
+#[derive(Clone)]
+struct HitRun {
+    run: TextRun,
+    source: HitSource,
+}
+
+static HIT_RUNS: handoff::Latest<Vec<HitRun>> = handoff::Latest::new();
+static HIT_ATLASES: handoff::Latest<BTreeMap<FontKey, Arc<GlyphFont>>> = handoff::Latest::new();
+static HIT_REVISION: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Query a pixel from the renderer's retained text source. The return value
+/// is `Some(None)` for the colour key and `Some(Some(rgb))` for the exact RGB
+/// result; `None` means this run has no supported retained source yet.
+pub(crate) fn keyed_pixel(run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
+    let runs = HIT_RUNS.load()?;
+    runs.iter().rev().find(|hit| hit.run == *run).and_then(|hit| hit.pixel(x, y))
+}
+
+fn keyed_mix(color: [u8; 3], coverage: [u8; 3], key: [u8; 3]) -> Option<[u8; 3]> {
+    let mut out = [0; 3];
+    let mut differs = false;
+    for i in 0..3 {
+        let five = ((u32::from(key[i]) * (255 - u32::from(coverage[i])) + u32::from(color[i]) * u32::from(coverage[i])) / 255 >> 3) as u8;
+        out[i] = (five << 3) | (five >> 2);
+        differs |= five != key[i] >> 3;
+    }
+    differs.then_some(out)
+}
+
+impl HitRun {
+    fn pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
+        match &self.source {
+            HitSource::Atlas { font, advances } => {
+                let mut pen = self.run.x;
+                let mut result = None;
+                for (c, advance) in advances {
+                    let Some(glyph) = font.glyphs.get(&c) else { continue };
+                    let gx = x - pen - glyph.left;
+                    let gy = y - self.run.y + font.ascent;
+                    if gx >= 0 && gy >= 0 {
+                        if gx < glyph.image.width as i32 && gy < glyph.image.height as i32 {
+                            let p = glyph.image.get(gx as u32, gy as u32);
+                            if self.run.backdrop.is_some() {
+                                if p[3] != 0 { result = Some(Some([p[0], p[1], p[2]])); }
+                            } else if let Some(rgb) = keyed_mix(self.run.color, [p[0], p[1], p[2]], self.run.backdrop.unwrap_or(crate::ui::KEY_RGB)) {
+                                result = Some(Some(rgb));
+                            }
+                        }
+                    }
+                    pen += *advance;
+                }
+                Some(result.flatten())
+            }
+            HitSource::Outline { face, glyphs } => {
+                let words = &face.words;
+                let mut result = None;
+                for glyph in glyphs {
+                    if let Some((top, height)) = glyph.bar {
+                        if x >= glyph.x && x < glyph.x + glyph.advance && y >= glyph.y + top && y < glyph.y + top + height {
+                            result = Some(self.run.color);
+                        }
+                        continue;
+                    }
+                    let Some(id) = glyph.glyph else { continue };
+                    let flags = tile_render_shared::text::TEXT_BOLD * u32::from(glyph.bold)
+                        | tile_render_shared::text::TEXT_ITALIC * u32::from(glyph.italic);
+                    let text = tile_render_shared::text::TextGlyph {
+                        glyph: tile_render_shared::text::FACE_HEADER_WORDS + id * tile_render_shared::text::GLYPH_WORDS,
+                        face: 0,
+                        flags,
+                        x: glyph.x,
+                        y: glyph.y,
+                        em: glyph.em64,
+                        advance: glyph.advance,
+                        ..Default::default()
+                    };
+                    let place = tile_render_shared::text::place(words, &text, 0, 0, 1, 1)?;
+                    let color = u32::from(self.run.color[0]) << 16 | u32::from(self.run.color[1]) << 8 | u32::from(self.run.color[2]);
+                    let coverage = tile_render_shared::text::coverage_all_channels(words, &place, x, y, color);
+                    if coverage.into_iter().any(|c| c != 0) {
+                        result = keyed_mix(self.run.color, coverage.map(|c| c as u8), self.run.backdrop.unwrap_or(crate::ui::KEY_RGB));
+                    }
+                }
+                Some(result)
+            }
+        }
+    }
+}
 
 /// The font `r` is drawn with at 1:1: its style at the nearest size there
 /// are glyphs for (see `civ3_assets::fonts::available_height`).
@@ -79,6 +192,54 @@ struct Loader {
 }
 
 impl Fonts {
+    fn atlas_source(&self, key: &FontKey, font: &GlyphFont) -> Arc<GlyphFont> {
+        let mut result = None;
+        HIT_ATLASES.update(|old| {
+            let mut atlases = old.cloned().unwrap_or_default();
+            let atlas = atlases.entry(key.clone()).or_insert_with(|| Arc::new(font.clone())).clone();
+            result = Some(atlas);
+            Some(atlases)
+        });
+        result.expect("atlas source published")
+    }
+
+    fn hit_source(&self, run: &TextRun, compiled: &Compiled) -> Option<HitSource> {
+        if let (Some((_, face)), Some(layout)) = (compiled.font(&run.face), self.game_layout(run)) {
+            let chars: Vec<char> = run.text.chars().collect();
+            if chars.len() == layout.advances.len() {
+                let em64 = Self::fitting_em(run, face, chars.iter().copied(), layout.advances.iter().sum());
+                let cells = self.cells(run, face, em64, &chars, &layout.advances);
+                let glyphs = chars.into_iter().zip(cells).zip(layout.advances).flat_map(|((c, (x, advance)), _)| {
+                    let glyph = HitGlyph { x, y: run.y, advance, em64, bold: run.weight >= 600, italic: run.italic, glyph: face.glyph(outline_char(c)), bar: None };
+                    let bar = run.underline.then_some(HitGlyph { bar: Some(layout.underline), ..glyph.clone() });
+                    std::iter::once(glyph).chain(bar)
+                }).collect();
+                let face = compiled.fonts.iter().find(|(name, _)| name == &run.face)?.1.clone();
+                return Some(HitSource::Outline { face, glyphs });
+            }
+        }
+        let want = key(run);
+        let font = self.fonts.get(&want).and_then(Option::as_ref)?.clone();
+        if legacy_run(run, &font) { return None; }
+        let mut advances: Vec<i32> = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|glyph| glyph.advance).collect();
+        self.fit(run, &mut advances);
+        let advances = run.text.chars().filter(|c| font.glyphs.contains_key(c)).zip(advances).collect();
+        Some(HitSource::Atlas { font: self.atlas_source(&want, &font), advances })
+    }
+
+    fn publish_hit(&self, run: &TextRun, compiled: &Compiled) {
+        if HIT_REVISION.swap(self.revision, Ordering::AcqRel) != self.revision {
+            HIT_ATLASES.update(|_| Some(BTreeMap::new()));
+        }
+        let Some(source) = self.hit_source(run, compiled) else { return };
+        HIT_RUNS.update(|old| {
+            let mut runs = old.cloned().unwrap_or_default();
+            runs.retain(|hit| hit.run != *run);
+            runs.push(HitRun { run: run.clone(), source: source.clone() });
+            Some(runs)
+        });
+    }
+
     /// Fonts loaded on a thread of their own: [`Fonts::add`] asks for them,
     /// [`Fonts::take_loaded`] takes them in; text whose font is not there
     /// yet is drawn from its face's outlines meanwhile (see
@@ -575,6 +736,7 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) {
+        self.publish_hit(r, compiled);
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
         if self.sized_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
         let key = key(r);
@@ -698,6 +860,7 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) -> bool {
+        self.publish_hit(r, compiled);
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         if self.sized_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         let want = key(r);

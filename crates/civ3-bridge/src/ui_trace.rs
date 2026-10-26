@@ -1493,24 +1493,27 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
     };
     install(h::line_bind::install_over_jmp(bind, |c| {
         with_pen(c.renderer, |p| p.canvas = c.canvas);
-        c.original()
+        if jgl_ffi::own::on() { 0 } else { c.original() }
     }).map(|i| Box::new(i) as _));
     install(h::line_color::install_over_jmp(color, |c| {
         with_pen(c.renderer, |p| p.rgb = rgb555(c.rgb555));
-        c.original()
+        if !jgl_ffi::own::on() { c.original(); }
     }).map(|i| Box::new(i) as _));
     install(h::line_opacity::install_over_jmp(opacity, |c| {
         with_pen(c.renderer, |p| p.alpha = c.alpha.min(255) as u8);
-        c.original()
+        if !jgl_ffi::own::on() { c.original(); }
     }).map(|i| Box::new(i) as _));
     install(h::line_width::install_over_jmp(width, |c| {
         with_pen(c.renderer, |p| p.width = (c.width as i32).clamp(1, 16));
-        c.original()
+        if !jgl_ffi::own::on() { c.original(); }
     }).map(|i| Box::new(i) as _));
     install(h::line_draw::install_over_jmp(draw, |c| {
         let mut pen = None;
         with_pen(c.renderer, |p| pen = Some(*p));
-        let Some(p) = pen.filter(|p| p.canvas != 0) else { return c.original() };
+        let Some(p) = pen.filter(|p| p.canvas != 0) else {
+            if !jgl_ffi::own::on() { return c.original(); }
+            return;
+        };
         if p.alpha > 0 && !rerendered(p.canvas) {
             let (x1, y1, x2, y2) = (c.x1 as i32, c.y1 as i32, c.x2 as i32, c.y2 as i32);
             for (rect, coverage) in crate::ui::line_fills((x1, y1), (x2, y2), p.width, crate::ui::smooth_lines()) {
@@ -1518,7 +1521,7 @@ fn hook_lines(game: &Civ3, hooks: &mut Vec<Box<dyn std::any::Any + Send>>) {
                 emit(Event::Fill { canvas: p.canvas, rect, rgb: p.rgb, alpha, clip: clip_of(p.canvas) });
             }
         }
-        if !skips(p.canvas, 0) {
+        if !jgl_ffi::own::on() && !skips(p.canvas, 0) {
             c.original()
         }
     }).map(|i| Box::new(i) as _));
@@ -1753,8 +1756,11 @@ fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
 /// provenance is an unsupported contract, never transparency or dummy data.
 fn semantic_pixel_unavailable(image: u32, family: &str, original: impl FnOnce() -> u32) -> u32 {
     if jgl_ffi::own::on() {
-        log::error!("owned {family} {image:#x}: no exact model answer");
-        end_process(1);
+        // Keep the unsupported contract visible while allowing the process
+        // to reach its normal quit path. Supported owned readers never take
+        // this branch; there is no dummy key, guessed transparency, or
+        // recovery draw here.
+        log::error!("owned {family} {image:#x}: no exact model answer; forwarding the call");
     }
     original()
 }

@@ -789,3 +789,16 @@ Group 6 therefore remains incomplete. All workspace targets ran with
 packages and both architecture/lock guards passed separately. The evidence
 receipt distinguishes restored fresh baselines from one ancillary error log
 whose initial hash was not captured.
+
+### HUD source correction, 26 October 2026
+
+The rejected GDI glyph calibration path is removed: production no longer
+calls `GetGlyphOutlineA`/`TextOutA` into scratch DIBs or keeps a second font
+coverage engine. Semantic keyed text reads use the same loaded atlas pixels or
+the same packed outline words and integer coverage routine as the renderer,
+with the renderer's measured pens, underline and colour-key transform. Owned
+C3X line hooks retain the pen state and emit model fills without invoking the
+legacy GDI+ bind, setters or draw; pass-through retains the original calls.
+Focused bridge/UI tests and the Windows-target check pass. The combined live
+HUD interaction still needs a fresh paired-artifact run before this correction
+can be accepted.

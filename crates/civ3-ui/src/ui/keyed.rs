@@ -12,11 +12,9 @@ pub struct FileSample {
 
 pub trait KeySources {
     fn file(&self, path: &str, x: i32, y: i32, palette: Option<&menu::screen::PaletteFrom>) -> Option<FileSample>;
-    /// The font engine's ink of `run` at (x, y); None: not known.
-    fn text_ink(&self, _run:&TextRun, _x:i32, _y:i32)->Option<jgl::text::Ink> { None }
-    /// The RGB555 pixel `run`'s text of grey `level` makes over the colour
-    /// key, if the font engine's calibration in its colour fixed it.
-    fn text_on_key(&self, _run:&TextRun, _level:u8)->Option<u16> { None }
+    /// The renderer's exact keyed text pixel at (x, y). `Some(None)` is the
+    /// colour key; `None` means this run has no retained renderer source.
+    fn text_keyed(&self, _run:&TextRun, _x:i32, _y:i32)->Option<Option<[u8;3]>> { None }
     fn palette(&self,_palette:&menu::screen::PaletteFrom,_index:u8)->Option<[u8;3]> {None}
     fn surface(&self,_image:u32,_x:i32,_y:i32)->Option<[u8;3]> {None}
     fn flc(&self,_path:&str,_frame:u32,_x:i32,_y:i32,_plain:bool)->Option<Option<FileSample>> {None}
@@ -31,7 +29,6 @@ impl Colors {
     const UNKNOWN: Self = Self { lo: [0; 3], hi: [31; 3] };
     const KEY: Self = Self { lo: [31, 0, 31], hi: [31, 0, 31] };
     fn rgb(rgb: [u8; 3]) -> Self { let c=rgb.map(|c| c >> 3); Self { lo: c, hi: c } }
-    fn rgb555(px: u16) -> Self { let c=[(px>>10) as u8&31,(px>>5) as u8&31,px as u8&31]; Self { lo: c, hi: c } }
     fn union(self, other: Self) -> Self {
         Self { lo: std::array::from_fn(|i| self.lo[i].min(other.lo[i])), hi: std::array::from_fn(|i| self.hi[i].max(other.hi[i])) }
     }
@@ -105,14 +102,14 @@ pub(super) fn query(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl K
                 colors=if *alpha==255 { Colors::rgb(*rgb) } else { colors.union(Colors::rgb(*rgb)) };
             }
             ScreenDraw::Text { run, clip } if contains(*clip) => {
-                // Smoothing stays between what is below and the text colour.
-                match files.text_ink(run,x,y) {
-                    Some(jgl::text::Ink::None)=>{}
-                    Some(jgl::text::Ink::Solid)=>colors=Colors::rgb(run.color),
-                    Some(jgl::text::Ink::Partial(Some(level))) if colors==Colors::KEY && files.text_on_key(run,level).is_some()=>{
-                        colors=Colors::rgb555(files.text_on_key(run,level).unwrap_or_default());
+                if colors == Colors::KEY {
+                    match files.text_keyed(run, x, y) {
+                        Some(None) => {}
+                        Some(Some(rgb)) => colors = Colors::rgb(rgb),
+                        None => colors = colors.union(Colors::rgb(run.color)),
                     }
-                    Some(jgl::text::Ink::Partial(_)) | None=>colors=colors.union(Colors::rgb(run.color)),
+                } else if files.text_keyed(run, x, y).is_some_and(|p| p.is_some()) {
+                    colors = colors.union(Colors::rgb(run.color));
                 }
             }
             ScreenDraw::Image { retained,path, rect, x:dx, y:dy, keyed, clip, mask, palette, opacity }
