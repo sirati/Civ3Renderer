@@ -275,6 +275,13 @@ pub fn civ_color_table(build: Build, ct: u32) -> Option<u32> {
     (0..32).find(|&i| read(base + 4 * i).is_some_and(|t| t == ct || read(t + 4) == Some(ct)))
 }
 
+/// Civ colour table `n` (`ntpNN.pcx`, as the game loaded it): its
+/// `PCX_Color_Table`, for [`color_table_entries`].
+pub fn civ_table(build: Build, n: u32) -> Option<u32> {
+    let base = color_tables(build).filter(|_| n < 32)?;
+    Ptr32::<u32>::new(base + 4 * n).read().ok().filter(|&p| p != 0)
+}
+
 /// The first 64 colours (RGB, `0xBBGGRR`) of the `JGL_Color_Table` `jgl`
 /// (entry i a dword at +0x0C + 4i, a flag byte on top).
 fn first_colors(jgl: u32) -> Option<Vec<u32>> {

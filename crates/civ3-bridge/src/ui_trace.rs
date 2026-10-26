@@ -125,6 +125,7 @@ static ORIGINAL_PRESENT_ALL: AtomicBool = AtomicBool::new(false);
 thread_local! { static ORIGINAL_REFRESHING: Cell<bool> = const { Cell::new(false) }; }
 /// The game's build, once the hooks are installed.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
+pub(crate) fn build() -> Option<&'static civ3_sys::Build> { BUILD.get() }
 
 /// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
 static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
@@ -1725,6 +1726,8 @@ fn compare_query(image:u32,x:i32,y:i32,family:&str,original:impl FnOnce()->u32)-
 /// the model's key predicate against the original canvas at every point
 /// of the queried image (every 4th on large ones).
 fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
+    thread_local! { static LAST: std::cell::RefCell<std::collections::HashMap<u32,std::time::Instant>> = std::cell::RefCell::new(std::collections::HashMap::new()); }
+    if LAST.with_borrow_mut(|l| l.get(&image).is_some_and(|t|t.elapsed().as_secs()<2) || { l.insert(image,std::time::Instant::now()); false }) {return;}
     let Some(jgl)=inproc::Ptr32::<u32>::new(image+4).read().ok().filter(|&p|p!=0) else {return};
     let read=|at:u32|inproc::Ptr32::<u32>::new(jgl+at).read().ok();
     let (Some((w,h)),Some(16),Some(row),Some(bits))=(obj::image_size(image),obj::image_bits(image),read(0x40),read(0x4C0)) else {return};
@@ -1737,7 +1740,7 @@ fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
             let Some(p)=pixel(x,y) else {continue};
             shown[usize::from(p!=key)]+=1;
             match m.keyed_at(image,x,y,&crate::ui_opacity::KeyFiles) {
-                None=>unknown+=1,
+                None=>{ unknown+=1; if unknown%97==1 && unknown<400 {log::info!("sweep-unknown family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
                 Some(s) if s==(p!=key)=>same+=1,
                 Some(_)=>{ differ+=1; if differ<=8 {log::info!("sweep-diff family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
             }
