@@ -964,6 +964,10 @@ pub fn generated_surfaces(build: civ3_sys::Build) -> Vec<(u32, &'static str)> {
     out
 }
 
+pub(crate) fn generated_name(image:u32)->Option<&'static str> {
+    generated_surfaces(*BUILD.get()?).into_iter().find(|&(at,_)|at==image).map(|(_,name)|name)
+}
+
 /// The forms' own surfaces seen so far: image and name.
 pub fn form_surfaces() -> Vec<(u32, &'static str)> {
     FORM_SURFACES.get().unwrap_or_default()
@@ -1027,6 +1031,37 @@ fn clip_from(canvas: u32, clip: Option<[i32; 4]>) -> Option<[i32; 4]> {
 /// to owned pixel readers until an explicit full overwrite or clear.
 pub(crate) fn unanswered_canvas(canvas: u32) {
     with_model(false, |m| m.unanswered(canvas));
+}
+
+pub(crate) fn replace_indices(target:jgl::Surface,rect:jgl::Rect,from:u32,to:u32) {
+    let clip=target.clip;
+    let rect=[rect.left.max(clip.left),rect.top.max(clip.top),rect.right.min(clip.right),rect.bottom.min(clip.bottom)];
+    if rect[2]<=rect[0] || rect[3]<=rect[1] {return;}
+    with_model(false,|m| {
+        if !m.replace_indices(target.owner,rect,from as u8,to as u8) {
+            m.unanswered_in(target.owner,[rect[0],rect[1],rect[2]-rect[0],rect[3]-rect[1]]);
+        }
+    });
+}
+
+pub(crate) fn tile_under(source:jgl::Surface,target:jgl::Surface,src:(i32,i32),at:(i32,i32),size:(i32,i32),mode:u32) {
+    let (Some((sw,sh)),Some((tw,th)))=(obj::image_size(source.owner),obj::image_size(target.owner)) else {return};
+    let plane=|w,h,bits|jgl::memory::Plane {width:w,height:h,row:w,bits};
+    let Some(bits)=obj::image_bits(target.owner) else {return};
+    let table=obj::image_color_entries(source.owner).map(|c|std::array::from_fn(|i|[c[i] as u8,(c[i]>>8) as u8,(c[i]>>16) as u8]));
+    // Geometry only: the copy's own clipping, and its error (no pixels
+    // change) for a missing table or an unsupported depth.
+    let palette=[0u16;256];
+    let plan=jgl::memory::IndexedCopy::new(plane(sw,sh,8),plane(tw,th,bits as i32),src.0,src.1,at.0,at.1,size.0,size.1,target.clip,mode,table.is_some().then_some(&palette));
+    let Ok(plan)=plan else {return};
+    let (src,dst)=plan.regions();
+    with_model(false,|m| {
+        let tiled=if bits==16 {m.tile_under(source.owner,src,target.owner,dst,mode as u8,table.as_ref())} else {Err("8-bit target")};
+        if let Err(why)=tiled {
+            m.unanswered_in(target.owner,dst);
+            log::debug!("tile-under unresolved ({why}) from={:#x} target={:#x} src={src:?} dst={dst:?} mode={mode:#x}",source.owner,target.owner);
+        }
+    });
 }
 
 /// A fill, line or translucent rectangle from jgl's fill group
@@ -1103,8 +1138,11 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             if let Some(path) = path.as_deref() { note_data_image(c.image, path); }
             with_skipper(|s| s.loaded(c.image));
             if let (Some(path), Some(size)) = (path, obj::image_size(c.image)) {
+                let pixels=crate::ui_opacity::decoded(c.image,c.ct);
                 crate::ui_selection::loaded(c.image, &path, c.ct);
+                if let Some(pixels)=&pixels {crate::ui_opacity::named_palette(&path,pixels.palette);}
                 emit(Event::Loaded { image: c.image, path, size });
+                if let Some(pixels)=pixels { with_model(false,|m|m.loaded_pixels(c.image,pixels)); }
             }
         }
         r
@@ -1154,19 +1192,19 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     // The keyed forms' hit test reads the pixel under the mouse from the
     // form's canvas. With placeholder sprites jgl draws no sprite there:
     // the interface model answers it, from what the viewer shows.
-    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites()) {
-        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| semantic_pixel_unavailable(c.image, "keyed canvas", || c.original())))?));
+    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites() || query_comparing()) {
+        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| compare_query(c.image,c.x as i32,c.y as i32,"keyed",||c.original()))?));
     }
-    if placeholder_sprites() && game.build == civ3_sys::Build::PcGames {
+    if (placeholder_sprites() || query_comparing()) && game.build == civ3_sys::Build::PcGames {
         // These internal frame checks have no public site table. Keep the
         // expected call bytes tied to the PCGames executable. The second
         // site handles bottom, left and right caches as well as +0x128.
         // All four caches query the viewer's retained canvas model.
         hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E0A, &[0xE8, 0x11, 0x74, 0xFF, 0xFF], |c| {
-            keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| semantic_pixel_unavailable(c.image, "frame cache", || c.original()))
+            compare_query(c.image,c.x as i32,c.y as i32,"frame",||c.original())
         })?));
         hooks.push(Box::new(h::frame_mask_pixel_alt::install_call_site(0x60_8E7E, &[0xE8, 0x9D, 0x73, 0xFF, 0xFF], |c| {
-            keyed_hit_pixel(c.image, c.x as i32, c.y as i32).unwrap_or_else(|| semantic_pixel_unavailable(c.image, "frame cache", || c.original()))
+            compare_query(c.image,c.x as i32,c.y as i32,"frame",||c.original())
         })?));
     }
     // The art presence test at start reads back an 8-bit image the game
@@ -1643,6 +1681,11 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
     }
     if obj::image_bits(canvas) != Some(16) { return None; }
     let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
+    if jgl_ffi::own::on() || query_comparing() {
+        let result=with_model(false, |m|m.keyed_at(canvas,x,y,&crate::ui_opacity::KeyFiles)).flatten();
+        if result.is_none() {log::error!("semantic query {}",with_model(false,|m|m.query_detail(canvas,x,y)).unwrap_or_default());}
+        return result.map(|shown|if shown {key^1} else {key});
+    }
     let shown = with_model(false, |m| if jgl_ffi::own::on() { m.exact_shown_at(canvas, x, y, &crate::ui_opacity::pixel) } else { m.shown_at(canvas, x, y, &crate::ui_opacity::pixel) })?;
     let answer = match shown {
         crate::ui::Shown::Rgb(rgb) if rgb == crate::ui::KEY_RGB => key,
@@ -1651,13 +1694,56 @@ fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
         // available, return None so the call site uses the game's original
         // pixel rather than inventing a hit result.
         crate::ui::Shown::Nothing => key,
-        crate::ui::Shown::Unknown => return None,
+        crate::ui::Shown::Unknown => {
+            log::error!("semantic query {}", with_model(false, |m| m.query_detail(canvas, x, y)).unwrap_or_default());
+            return None;
+        }
         crate::ui::Shown::NotMirrored => return None,
     };
     if HIT_LOG.with(|n| { let k = n.get(); n.set(k + 1); k < 40 }) {
         log::debug!("keyed hit test: canvas {canvas:#x} ({x}, {y}): {shown:?} -> {answer:#x}");
     }
     Some(answer)
+}
+
+fn query_comparing() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||std::env::var("CIV3R_JGL_QUERY_COMPARE").as_deref()==Ok("1"));
+    *ON
+}
+fn compare_query(image:u32,x:i32,y:i32,family:&str,original:impl FnOnce()->u32)->u32 {
+    let answer=keyed_hit_pixel(image,x,y);
+    if query_comparing() {
+        let old=original();
+        let key=inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().unwrap() & 0x7fff_ffff;
+        log::info!("query-pair family={family} image={image:#x} x={x} y={y} original={old:#x} answer={answer:?} match={}",answer.map(|a|(a==key)==(old==key)).map_or("unknown",|b|if b {"yes"} else {"NO"}));
+        compare_sweep(image,family,key,(x,y,old));
+        old
+    } else { answer.unwrap_or_else(||semantic_pixel_unavailable(image,family,original)) }
+}
+
+/// Temporary comparison (CIV3R_JGL_QUERY_COMPARE=1, original jgl only):
+/// the model's key predicate against the original canvas at every point
+/// of the queried image (every 4th on large ones).
+fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
+    let Some(jgl)=inproc::Ptr32::<u32>::new(image+4).read().ok().filter(|&p|p!=0) else {return};
+    let read=|at:u32|inproc::Ptr32::<u32>::new(jgl+at).read().ok();
+    let (Some((w,h)),Some(16),Some(row),Some(bits))=(obj::image_size(image),obj::image_bits(image),read(0x40),read(0x4C0)) else {return};
+    let pixel=|x:i32,y:i32|inproc::Ptr32::<u16>::new(bits+(y as u32*row+x as u32)*2).read().ok().map(u32::from);
+    let step=if w*h>200_000 {4} else {1};
+    let (mut same,mut differ,mut unknown)=(0u32,0u32,0u32);
+    let mut shown=[0u32;2];
+    with_model(false,|m| {
+        for y in (0..h).step_by(step) { for x in (0..w).step_by(step) {
+            let Some(p)=pixel(x,y) else {continue};
+            shown[usize::from(p!=key)]+=1;
+            match m.keyed_at(image,x,y,&crate::ui_opacity::KeyFiles) {
+                None=>unknown+=1,
+                Some(s) if s==(p!=key)=>same+=1,
+                Some(_)=>{ differ+=1; if differ<=8 {log::info!("sweep-diff family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
+            }
+        }}
+    });
+    log::info!("sweep family={family} image={image:#x} size={w}x{h} step={step} self_check={} key_px={} drawn_px={} same={same} differ={differ} unknown={unknown}",pixel(qx,qy)==Some(old),shown[0],shown[1]);
 }
 
 /// An owned image has no original raster to consult. Missing semantic
@@ -1736,8 +1822,8 @@ fn opacity_blit(sprite: u32, canvas: u32, x: u32, y: u32, opacity: u32, ct: u32,
 }
 
 /// A sprite through an alpha mask, at (x, y) (no crop offset).
-fn masked_blit(sprite: u32, mask: u32, canvas: u32, x: u32, y: u32, clip: Option<[i32; 4]>) {
-    if !rerendered(canvas) { emit(Event::MaskedBlit { sprite, mask, canvas, x: x as i32, y: y as i32, clip }); }
+fn masked_blit(sprite: u32, mask: u32, background:u32, canvas: u32, x: u32, y: u32, clip: Option<[i32; 4]>) {
+    if !rerendered(canvas) { emit(Event::MaskedBlit { sprite, mask, background, canvas, x: x as i32, y: y as i32, clip }); }
 }
 
 /// A blit of jgl's sprite group (`civ3_ui::blit`), from the exe function
@@ -1762,7 +1848,7 @@ pub fn on_blit(b: &GameBlit) {
         W::ScaledColored => scaled_colored(sprite, canvas, x, y, placed(b), b.scale, b.extra, ct, clip),
         W::Blend => map_blend_events(sprite, canvas, x, y, placed(b), b.extra, [1, 1, 1], ct, clip),
         W::Opacity => opacity_blit(sprite, canvas, x, y, b.extra, ct, clip),
-        W::Alpha | W::Masked => masked_blit(sprite, b.mask, canvas, x, y, clip),
+        W::Alpha | W::Masked => masked_blit(sprite, b.mask, b.other, canvas, x, y, clip),
         W::DrawOnMap => {
             let [nx, ny, den] = b.scale;
             if !crate::trace::record_map(canvas, sprite, x, y, vec![nx, ny, den, ct], "map") {

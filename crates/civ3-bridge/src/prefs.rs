@@ -1205,7 +1205,7 @@ mod tests {
         f.forms.push((0x1234, 1, (0, 0), (1920, 1080)));
         f.forms.push((FORM.vtable, 2, origin, size));
         if let Some((x, y)) = background_at {
-            f.draws.push(ScreenDraw::Image {
+            f.draws.push(ScreenDraw::Image { retained:None,
                 path: "C:\\Games\\Civ3\\civ3PTW\\Art\\interface\\x_pref background.pcx".into(),
                 rect: [0, 0, 1024, 768],
                 x,

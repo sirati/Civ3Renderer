@@ -45,7 +45,7 @@ fn main() {
         fonts.add(&files, &[run(&style, "")]);
     }
     let measure = |style: &panel::TextStyle, text: &str| fonts.metrics(&run(style, text)).map_or_else(|| panel::estimate(style, text), |(width, ascent, descent)| panel::TextMetrics { width, ascent, descent });
-    let bg = Frame { draws: vec![ScreenDraw::Image { path: "Art/interface/x_pref background.pcx".into(), rect: [0,0,1024,768],
+    let bg = Frame { draws: vec![ScreenDraw::Image { retained:None,path: "Art/interface/x_pref background.pcx".into(), rect: [0,0,1024,768],
         x: 0, y: 0, keyed: false, clip: [0,0,1024,768], mask: None, palette: None, opacity: 255 }], ..Default::default() };
     let mut changed = settings.clone();
     changed.accessibility.hud_size = 3;
@@ -72,9 +72,9 @@ fn main() {
     let mut screen = ScreenArt::default();
     for (_, items) in &panel_shots { ui_screen::add_art(items, &mut screen, &mut fonts, &files); }
     let comparison_items = ui_screen::items(&Frame { draws: vec![
-        ScreenDraw::Image { path: "Art/Cursor.pcx".into(), rect: [2,2,17,28], x: 232, y: 68, keyed: true,
+        ScreenDraw::Image { retained:None,path: "Art/Cursor.pcx".into(), rect: [2,2,17,28], x: 232, y: 68, keyed: true,
             clip: [0,0,384,224], mask: None, palette: None, opacity: 255 },
-        ScreenDraw::Image { path: "Art/Civilopedia/civilo_Up_Next_Back_ARROWS.pcx".into(), rect: [1,26,63,16], x: 282, y: 72, keyed: true,
+        ScreenDraw::Image { retained:None,path: "Art/Civilopedia/civilo_Up_Next_Back_ARROWS.pcx".into(), rect: [1,26,63,16], x: 282, y: 72, keyed: true,
             clip: [0,0,384,224], mask: None, palette: None, opacity: 255 },
         ScreenDraw::Text { run: TextRun { x: 84, y: 43, color: [248;3], ..run(&panel::TextStyle {
             face: "Lucida Sans".into(), height: 11, weight: 400, italic: false, color: [248;3] }, "Active marker") }, clip: [0,0,384,224] },

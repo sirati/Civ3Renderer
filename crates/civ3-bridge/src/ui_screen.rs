@@ -26,6 +26,8 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
 /// [`items`] with `extra` (index, items) among them: over the draws before
 /// that index, under the others.
 pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32, extra: Option<(usize, Vec<Item>)>) -> Vec<Item> {
+    #[cfg(any(windows,test))]
+    crate::ui_opacity::unit_colors(unit_colors);
     let mut out = Vec::new();
     let (at, mut extra) = extra.map_or((usize::MAX, None), |(at, items)| (at, Some(items)));
     for (i, d) in frame.draws.iter().enumerate() {
@@ -37,7 +39,7 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
         }
         let under = frame.underlay_draws.iter().any(|r| r.contains(&i));
         let element = match d {
-            ScreenDraw::Image { path, rect, x, y, keyed, clip, mask, palette, opacity } => {
+            ScreenDraw::Image { retained,path, rect, x, y, keyed, clip, mask, palette, opacity } => {
                 let region = Region {
                     source: relative_path(path, roots),
                     rect: *rect,
@@ -45,13 +47,16 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
                     mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
                     palette: palette.clone(),
                 };
-                if *opacity == 255 {
+                if let Some(state)=retained.as_ref().filter(|s|!s.changes().is_empty()) {
+                    assert!(mask.is_none() && *opacity==255,"unsupported transformed masked/opacity source");
+                    Element::Indexed {region,indices:menu::screen::Indices {index_changes:state.changes().to_vec(),transparent:if *keyed {vec![254,255]} else {vec![]},..Default::default()},at:(*x,*y),clip:*clip}
+                } else if *opacity == 255 {
                     Element::Image { region, at: (*x, *y), clip: *clip }
                 } else {
                     Element::OpacityImage { region, at: (*x, *y), clip: *clip, opacity: *opacity }
                 }
             },
-            ScreenDraw::ResizedImage { path, rect, x, y, size, sample_step, keyed, clip, mask, palette, opacity } => {
+            ScreenDraw::ResizedImage { retained,path, rect, x, y, size, sample_step, keyed, clip, mask, palette, opacity } => {
                 let region = Region {
                     source: relative_path(path, roots),
                     rect: *rect,
@@ -62,9 +67,11 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
                 Element::ResizedImage { region, at: (*x, *y), size: *size, sample_step: *sample_step, clip: *clip, opacity: *opacity }
             }
             ScreenDraw::Fill { rect, rgb, alpha, clip } => Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip },
-            ScreenDraw::Indexed { path, rect, x, y, clip, palette, indices } => {
+            ScreenDraw::Indexed { retained,path, rect, x, y, clip, palette, indices } => {
                 let region = Region { source: relative_path(path, roots), rect: *rect, keyed: true, mask: None, palette: palette.clone() };
-                Element::Indexed { region, indices: indices.clone(), at: (*x, *y), clip: *clip }
+                let mut indices=indices.clone();
+                if let Some(state)=retained {indices.index_changes=state.changes().to_vec();}
+                Element::Indexed { region, indices, at: (*x, *y), clip: *clip }
             }
             ScreenDraw::Text { run, clip } => {
                 out.push(Item::Text(run.clone(), *clip, under));
@@ -442,6 +449,8 @@ pub fn minimap_patches(
             .map(|civ| crate::minimap::from_rgb(table_color(world.color_tables.get(civ).copied().unwrap_or(0))))
             .collect();
         let rgba = crate::minimap::image_mode(world, *size, world.navigator_modes.for_surface(name), |civ| colors.get(civ as usize).copied().unwrap_or(0));
+        #[cfg(any(windows,test))]
+        crate::ui_opacity::generated(name,*size,&rgba);
         out.extend(menu::screen::patch(compiled, name, *size, rgba));
     }
     out
@@ -1045,10 +1054,10 @@ mod tests {
     fn resized_screen_art_keeps_native_sampling_mask_palette_and_underlay_order() {
         let palette = menu::screen::PaletteFrom { image: "Art/colors.pcx".into(), first: 16, count: 32 };
         let frame = Frame {
-            draws: vec![ScreenDraw::ResizedImage {
+            draws: vec![ScreenDraw::ResizedImage { retained:None,
                 path: "C:/Civ3/Art/resource.pcx".into(), rect: [8, 4, 9, 5], x: 100, y: 50,
                 size: (5, 3), sample_step: [117964, 109226], keyed: true, clip: [102, 51, 105, 53],
-                mask: Some(crate::ui::Mask { path: "C:/Civ3/Art/mask.pcx".into(), at: (11, 8) }),
+                mask: Some(crate::ui::Mask { retained:None,premultiplied:false,path: "C:/Civ3/Art/mask.pcx".into(), at: (11, 8) }),
                 palette: Some(palette.clone()), opacity: 128,
             }],
             underlay_draws: vec![0..1],
@@ -1450,7 +1459,7 @@ mod interactable_tests {
     #[test]
     fn the_city_screen_s_citizens_and_units_are_targets() {
         use crate::ui::{Frame, ScreenDraw};
-        let image = |path: &str, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4]| ScreenDraw::Image { path: path.into(), rect, x, y, keyed: true, clip, mask: None, palette: None, opacity: 255 };
+        let image = |path: &str, rect: [i32; 4], x: i32, y: i32, clip: [i32; 4]| ScreenDraw::Image { retained:None,path: path.into(), rect, x, y, keyed: true, clip, mask: None, palette: None, opacity: 255 };
         let all = [i32::MIN, i32::MIN, i32::MAX, i32::MAX];
         let frame = Frame {
             draws: vec![
@@ -1476,7 +1485,7 @@ mod interactable_tests {
         assert!(super::city_drawn_targets(&frame, Some(0x9B7784)).is_empty());
         assert_eq!(super::city_drawn_targets(&frame, None).len(), 3);
         let mut scaled = frame.clone();
-        scaled.draws.push(ScreenDraw::ResizedImage {
+        scaled.draws.push(ScreenDraw::ResizedImage { retained:None,
             path: "Art/Units/units_32.pcx".into(), rect: [1, 1, 49, 32], x: 800, y: 885,
             size: (31, 20), sample_step: [100352, 100352], keyed: true, clip: [805, 880, 820, 900],
             mask: None, palette: None, opacity: 255,
@@ -1838,7 +1847,7 @@ mod status_target_tests {
 
     #[test]
     fn the_status_selection_icons_are_targets_at_the_native_hit_columns() {
-        let image = |x, y, path: &str| ScreenDraw::Image {
+        let image = |x, y, path: &str| ScreenDraw::Image { retained:None,
             path: path.into(), rect: [1, 1, 32, 32], x, y, keyed: true,
             clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
         };
@@ -1863,7 +1872,7 @@ mod status_target_tests {
             ([743, 514, 16, 22], scene::InteractableKind::Button, (canvas as u64) << 32 | 0x0E00_0001),
         ]);
         let mut scaled = frame.clone();
-        scaled.draws[1] = ScreenDraw::ResizedImage {
+        scaled.draws[1] = ScreenDraw::ResizedImage { retained:None,
             path: "Art/units/units_32.pcx".into(), rect: [1, 1, 49, 32], x: 742, y: 514,
             size: (31, 20), sample_step: [100352, 100352], keyed: true, clip: [0, 0, 1920, 1080],
             mask: None, palette: None, opacity: 255,

@@ -151,15 +151,11 @@ impl Plain {
                     if self.covers(rect) {
                         self.ops.clear();
                     } else {
-                        let [x, y, w, h] = rect;
-                        let inside = |l: i32, t: i32, r: i32, b: i32| l >= x && t >= y && r <= x + w && b <= y + h;
-                        self.ops.retain(|op| match op {
-                            Op::Fill { rect: [fx, fy, fw, fh], .. } => !inside(*fx, *fy, fx + fw, fy + fh),
-                            Op::Text(run, _) => !inside(run.x, run.y, run.x + 1, run.y + 1),
-                            Op::Flc { x, y, .. } => !inside(*x, *y, x + 1, y + 1),
-                            Op::Image { .. } | Op::ResizedImage { .. } => true,
-                        });
+                        let [x,y,w,h]=rect;
+                        let regions=subtract([0,0,self.size.0,self.size.1],[x,y,x+w,y+h]);
+                        self.ops=self.ops.iter().flat_map(|op|regions.iter().filter_map(|r|crop_move(op.clone(),*r,(0,0),false))).collect();
                     }
+                    self.push(model,Op::KeyClear {rect});
                     return;
                 }
                 if alpha == 255 {
@@ -176,7 +172,7 @@ impl Plain {
                 if !keyed {
                     self.occlude([x, y, src[2], src[3]]);
                 }
-                let source = Source::File { path: model.files[&from].clone(), rect: src, mask: None, palette: None, opacity: 255 };
+                let source = Source::File { retained:None,path: model.files[&from].clone(), rect: src, mask: None, palette: None, opacity: 255 };
                 self.push(model, Op::Image { source, x, y, keyed });
             }
             Event::FlcBlit { flic, chunk, x, y, clip, plain, .. } => {

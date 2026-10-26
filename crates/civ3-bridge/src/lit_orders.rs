@@ -51,12 +51,12 @@ mod tests {
     const CANVAS: u32 = BUTTON + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
 
     fn image(y: i32) -> ScreenDraw {
-        ScreenDraw::Image { path: "Art/interface.pcx".into(), rect: [0, y, 32, 32], x: 500, y: 900, keyed: true, clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 }
+        ScreenDraw::Image { retained:None,path: "Art/interface.pcx".into(), rect: [0, y, 32, 32], x: 500, y: 900, keyed: true, clip: [0, 0, 1024, 768], mask: None, palette: None, opacity: 255 }
     }
 
     /// Sprites 1, 2, 3: rows 0, 32, 64 of the file; 9 is unknown.
     fn sources(sprites: &[u32]) -> Vec<Option<Source>> {
-        sprites.iter().map(|&s| (1..=3).contains(&s).then(|| Source::File { path: "Art/interface.pcx".into(), rect: [0, 32 * (s as i32 - 1), 32, 32], mask: None, palette: None, opacity: 255 })).collect()
+        sprites.iter().map(|&s| (1..=3).contains(&s).then(|| Source::File { retained:None,path: "Art/interface.pcx".into(), rect: [0, 32 * (s as i32 - 1), 32, 32], mask: None, palette: None, opacity: 255 })).collect()
     }
 
     fn frame(draws: Vec<ScreenDraw>) -> Frame {

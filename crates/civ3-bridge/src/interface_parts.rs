@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn a_full_canvas_diplomacy_popup_uses_its_dialog_leader_and_advisor_bounds() {
         let full = [0, 0, 1920, 1080];
-        let image = |path: &str, x, y, w, h| ScreenDraw::Image {
+        let image = |path: &str, x, y, w, h| ScreenDraw::Image { retained:None,
             path: path.into(), rect: [0, 0, w, h], x, y, keyed: true,
             clip: full, mask: None, palette: None, opacity: 255,
         };
@@ -404,7 +404,7 @@ mod tests {
                 fill(448, 156, 1024, 768),
                 fill(778, 407, 364, 266),
                 fill(0, 0, 1920, 1080),
-                ScreenDraw::Image {
+                ScreenDraw::Image { retained:None,
                     path: preferences.background.into(), rect: [0, 0, 1024, 768], x: 448, y: 156,
                     keyed: false, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
                 },
@@ -464,7 +464,7 @@ mod tests {
         let preferences = civ3_sys::ui_hooks::preferences_form(build).unwrap();
         let f = Frame {
             overlay_draws: 0..0,
-            draws: vec![fill(0, 0, 1920, 1080), ScreenDraw::Image {
+            draws: vec![fill(0, 0, 1920, 1080), ScreenDraw::Image { retained:None,
                 path: preferences.background.into(), rect: [100, 50, 924, 718], x: 548, y: 206,
                 keyed: false, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
             }],
@@ -503,7 +503,7 @@ mod tests {
         // The frame the game draws around it on no canvas, just before it
         // (a title band above it), goes with it; draws further off do not.
         let mut f = frame();
-        let band = ScreenDraw::Image { path: "popupborders.pcx".into(), rect: [251, 1, 60, 35], x: 690, y: 365, keyed: true, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX], mask: None, palette: None, opacity: 255 };
+        let band = ScreenDraw::Image { retained:None,path: "popupborders.pcx".into(), rect: [251, 1, 60, 35], x: 690, y: 365, keyed: true, clip: [i32::MIN, i32::MIN, i32::MAX, i32::MAX], mask: None, palette: None, opacity: 255 };
         f.draws.insert(4, fill(10, 10, 20, 20));
         f.draws.insert(5, band);
         f.form_draws = vec![(0x9F_8934, 0..2), (0xA0_68B4, 2..3), (0xA1_4A68, 3..4), (0x50_0000, 6..7), (0x50_1000, 7..8)];
@@ -550,7 +550,7 @@ mod tests {
         let (x, y) = (1125, 640);
         let title = vec![big(0, 0, 3274, 2048), big(x, y, 1024, 768), big(1, 2010, 60, 20), big(1600, 2010, 80, 20)];
         let n = title.len();
-        let board = ScreenDraw::Image {
+        let board = ScreenDraw::Image { retained:None,
             path: "Art/Advisors/hall_o_fame_background.pcx".into(), rect: [0, 0, 1024, 768], x, y,
             keyed: false, clip, mask: None, palette: None, opacity: 255,
         };
@@ -574,7 +574,7 @@ mod tests {
         assert_eq!(popup(&hall(vec![shade, board.clone()]), 2, None, size), Some((n, [x, y, 1024, 768])));
         // A full-window picture is content; a canvas showing nothing but
         // its clear keeps the whole window.
-        let picture = ScreenDraw::Image { path: "Art/wide.pcx".into(), rect: [0, 0, 3274, 2048], x: 0, y: 0, keyed: false, clip, mask: None, palette: None, opacity: 255 };
+        let picture = ScreenDraw::Image { retained:None,path: "Art/wide.pcx".into(), rect: [0, 0, 3274, 2048], x: 0, y: 0, keyed: false, clip, mask: None, palette: None, opacity: 255 };
         assert_eq!(popup(&hall(vec![black.clone(), picture, board]), 2, None, size), Some((n, [0, 0, 3274, 2048])));
         assert_eq!(popup(&hall(vec![black]), 2, None, size), Some((n, [0, 0, 3274, 2048])));
     }
@@ -583,7 +583,7 @@ mod tests {
         let mut f = frame();
         // The advisor portrait is drawn into the map canvas, before the
         // popup form. It must not remain a world overlay after moving it.
-        f.draws.insert(1, ScreenDraw::Image {
+        f.draws.insert(1, ScreenDraw::Image { retained:None,
             path: "C:\\Games\\Art\\SmallHeads\\popupSCIENCE.pcx".into(), rect: [0, 0, 180, 180], x: 840, y: 220,
             keyed: true, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255,
         });
@@ -633,7 +633,7 @@ mod tests {
         f.forms.truncate(6);
         f.form_draws.truncate(3);
         f.forms.push((0x67_1218, HEAD, (850, 0), (148, 109)));
-        f.draws.push(ScreenDraw::Image {
+        f.draws.push(ScreenDraw::Image { retained:None,
             path: "Conquests\\WWII in the Pacific\\art\\SmallHeads\\popupScience.pcx".into(), rect: [9, 494, 135, 106], x: 858, y: 3,
             keyed: true, clip: [850, 0, 998, 109], mask: None, palette: None, opacity: 255,
         });

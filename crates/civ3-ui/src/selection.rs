@@ -99,7 +99,7 @@ mod tests {
     use super::*;
 
     fn source(name: &str) -> Source {
-        Source::File { path: name.into(), rect: [10, 20, 4, 3], mask: None, palette: None, opacity: 255 }
+        Source::File { retained:None,path: name.into(), rect: [10, 20, 4, 3], mask: None, palette: None, opacity: 255 }
     }
 
     #[test]

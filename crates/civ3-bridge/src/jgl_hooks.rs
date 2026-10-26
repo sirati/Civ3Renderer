@@ -42,12 +42,23 @@ fn game_blit(b: &GameBlit, _call: &jgl::BlitCall) {
     crate::ui_trace::on_blit(b);
 }
 
+struct Texts(TextCapture<fn(CanvasText)>);
+impl jgl::TextHooks for Texts {
+    fn text(&mut self,draw:&jgl::TextDraw<'_>) { jgl::TextHooks::text(&mut self.0,draw); }
+    fn font(&mut self,desc:&jgl::FontDesc) {
+        crate::ui_opacity::font_geometry(desc);
+        jgl::TextHooks::font(&mut self.0,desc);
+    }
+}
+
 struct Fills;
 
 impl jgl::FillHooks for Fills {
     fn fill(&mut self, call: &jgl::FillCall) {
         crate::ui_selection::fill(call);
-        if matches!(call, jgl::FillCall::ReplaceColor { .. } | jgl::FillCall::Other { .. }) {
+        if let jgl::FillCall::ReplaceColor {target,rect,from,to}=*call {
+            crate::ui_trace::replace_indices(target,rect,from,to);
+        } else if matches!(call,jgl::FillCall::Other {..}) {
             crate::ui_trace::unanswered_canvas(call.target().owner);
         }
         if let Some(draw) = civ3_ui::draw::fill_of(call) { canvas_draw(draw); }
@@ -58,7 +69,7 @@ struct Copies;
 impl jgl::CopyHooks for Copies {
     fn copy(&mut self, call: &jgl::CopyCall) {
         match call {
-            jgl::CopyCall::Indexed { target, .. } => crate::ui_trace::unanswered_canvas(target.owner),
+            jgl::CopyCall::Indexed { source,target,src,at,size,mode } => crate::ui_trace::tile_under(*source,*target,*src,*at,*size,*mode),
             _ => {}
         }
         if let Some(draw) = civ3_ui::draw::copy_of(call) { canvas_draw(draw); }
@@ -121,7 +132,7 @@ impl jgl::PixelPolicy for Pixels {
 
 fn hooks() -> jgl::Hooks {
     jgl::Hooks {
-        text: Box::new(TextCapture::new(canvas_text)),
+        text: Box::new(Texts(TextCapture::new(canvas_text as fn(CanvasText)))),
         fill: Box::new(Fills),
         copy: Box::new(Copies),
         blit: Box::new(BlitCapture::new(game_blit)),
