@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Builds the unixlib fixture pair (crates/wine-unixlib-echo) into OUT, laid
+# out as a WINEDLLPATH directory: i386-windows/wine_unixlib_echo.dll (marked
+# builtin) with x86_64-unix/wine_unixlib_echo.so for Linux Wine, and in
+# OUT/windows the same with x86_64-native/wine_unixlib_echo.dll (an x64
+# Windows DLL) for the Windows WoW64 port; the 32-bit caller
+# wine-unixlib-echo-app.exe sits at the top of both.
+#
+#   tools/wine-unixlib-echo OUT     (inside nix develop)
+#
+# Run: WINEDLLPATH=OUT WINEDLLOVERRIDES=wine_unixlib_echo=b wine OUT/wine-unixlib-echo-app.exe
+# It prints ECHO_OK calls=20 and exits 0, or ECHO_FAILED ... and nonzero.
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+out=${1:?usage: tools/wine-unixlib-echo OUT}
+target=${CARGO_TARGET_DIR:-$repo/target}
+cd "$repo"
+cargo build -q --release -p wine-unixlib-echo
+cargo build -q --release -p wine-unixlib-echo --target i686-pc-windows-gnu
+cargo build -q --release -p wine-unixlib-echo --target x86_64-pc-windows-gnu
+for root in "$out" "$out/windows"; do
+  mkdir -p "$root/i386-windows"
+  cp -f "$target/i686-pc-windows-gnu/release/wine_unixlib_echo.dll" "$root/i386-windows/"
+  tools/mark-wine-builtin "$root/i386-windows/wine_unixlib_echo.dll"
+  cp -f "$target/i686-pc-windows-gnu/release/wine-unixlib-echo-app.exe" "$root/"
+done
+mkdir -p "$out/x86_64-unix" "$out/windows/x86_64-native"
+cp -f "$target/release/libwine_unixlib_echo.so" "$out/x86_64-unix/wine_unixlib_echo.so"
+cp -f "$target/x86_64-pc-windows-gnu/release/wine_unixlib_echo.dll" "$out/windows/x86_64-native/wine_unixlib_echo.dll"
