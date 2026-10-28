@@ -47,20 +47,28 @@ adopts Wine's existing code for each one.
 - **C.** Builtins are found through `WINEDLLPATH/i386-windows`.
 - **D.** Native threads run beside the guest's, and calls may block (input
   waits).
-- **E.** Civ3's DLLs, and user32/gdi32 syscalls through Wine's wow64win
-  thunks onto the host's win32u. The game's windows must work, though the
-  renderer shows the picture.
+- **E.** Civ3's DLLs, plus Wine's own win32u (windows, message loop,
+  timers, cursor) with Wine's null display driver. The game believes it has
+  a window, but nothing is shown. Our renderer's native window shows the
+  picture, and it has nothing to do with Wine.
 - **F.** The process exits cleanly while a native window thread is live.
 
-## Fixture
+## Fixtures
 
-`tools/wine-unixlib-echo OUT` builds `crates/wine-unixlib-echo`:
+`tools/wine-unixlib-fixtures OUT` builds two pairs, each a builtin DLL,
+its unixlib and a 32-bit caller. `OUT` is the Linux layout and
+`OUT/windows` the port's. Both pass on Linux Wine 11 new-WoW64.
 
-- a builtin DLL whose unixlib has 20 calls;
-- its 32-bit caller, which prints `ECHO_OK calls=20` when the load, every
+- **`crates/wine-unixlib-echo`** covers the unixlib lookup and 20 calls.
+  `wine-unixlib-echo-app.exe` prints `ECHO_OK calls=20` when the load, every
   call and a bad-address call all behave.
-
-`OUT` is the Linux layout and `OUT/windows` the port's. Linux Wine 11
-new-WoW64 passes.
+- **`crates/wine-unixlib-window`** covers our native threads beside the
+  guest's. A winit/wgpu window draws frames on a native thread.
+  `wine-unixlib-window-app.exe` runs in one of three modes:
+  - `wait`: four guest threads block in calls until 120 more frames are
+    drawn, then the window closes. Prints `WINDOW_OK ...`, exit 0.
+  - `exit-live`: `ExitProcess(37)` while the window still draws.
+  - `worker-exit-live`: a guest worker calls `ExitProcess(38)` while the
+    main thread is blocked in a call.
 
 [sirati/WineWoW64onWindows]: https://github.com/sirati/WineWoW64onWindows
