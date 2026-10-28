@@ -3,6 +3,11 @@
 //! renderer's stack, on a native thread of its own, presenting frames
 //! continuously while 32-bit callers block in calls waiting for them. The
 //! caller is `wine-unixlib-window-app`.
+//!
+//! wgpu reads `WGPU_BACKEND` (`dx12`, `vulkan`, `gl`), `WGPU_DEBUG` and
+//! `WGPU_VALIDATION`; `WGPU_FORCE_FALLBACK_ADAPTER=1` asks for the software
+//! adapter (WARP on Windows). Any error, a panic on the window thread
+//! included, is reported by the info call.
 
 pub mod args;
 
@@ -58,7 +63,7 @@ mod native {
             };
             let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
-                force_fallback_adapter: false,
+                force_fallback_adapter: std::env::var_os("WGPU_FORCE_FALLBACK_ADAPTER").is_some_and(|v| v == "1"),
                 compatible_surface: Some(&surface),
                 apply_limit_buckets: false,
             })) {
@@ -125,7 +130,16 @@ mod native {
         }
     }
 
+    /// [`run_window`], with a panic reported as the window's error.
     fn run() {
+        if let Err(panic) = std::panic::catch_unwind(run_window) {
+            let message = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
+            let _ = INFO.set(format!("error: panic: {message}"));
+        }
+        ENDED.store(true, Ordering::Release);
+    }
+
+    fn run_window() {
         let mut builder = EventLoop::builder();
         #[cfg(windows)]
         winit::platform::windows::EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
@@ -142,7 +156,6 @@ mod native {
                 let _ = INFO.set(format!("error: event loop: {e}"));
             }
         }
-        ENDED.store(true, Ordering::Release);
     }
 
     pub fn open(_: &mut Frames) -> Status {
