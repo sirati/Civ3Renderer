@@ -1,0 +1,23 @@
+[package]
+name = "wine-unixlib-window"
+description = "Fixture for a Wine port's native threads: a unixlib drawing a winit/wgpu window on a thread of its own, waited on by 32-bit callers"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[lib]
+name = "wine_unixlib_window"
+# cdylib: the builtin DLL (i686 PE, marked with tools/mark-wine-builtin)
+# and its unixlib (native: x86_64-unix/wine_unixlib_window.so on Linux,
+# x86_64-native/wine_unixlib_window.dll on Windows under the WoW64 port).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wine-unixlib = { path = "../wine-unixlib" }
+bytemuck.workspace = true
+
+[target.'cfg(not(target_arch = "x86"))'.dependencies]
+wgpu.workspace = true
+winit.workspace = true
+pollster.workspace = true
