@@ -1,0 +1,18 @@
+[package]
+name = "wine-unixlib-echo"
+description = "Fixture for a Wine port's unixlib calls: a builtin DLL with a 20-call unixlib, and its 32-bit caller"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[lib]
+name = "wine_unixlib_echo"
+# cdylib: the builtin DLL (i686 PE, marked with tools/mark-wine-builtin)
+# and its unixlib (native: x86_64-unix/wine_unixlib_echo.so on Linux,
+# x86_64-native/wine_unixlib_echo.dll on Windows under the WoW64 port).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wine-unixlib = { path = "../wine-unixlib" }
+bytemuck.workspace = true

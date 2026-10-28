@@ -1,11 +1,13 @@
-//! The native Linux side of the renderer inside a Wine program: the unixlib
-//! of the builtin DLL `civ3r_native.dll`. The game-side driver (a 32-bit
+//! The native side of the renderer inside a Wine program: the unixlib of
+//! the builtin DLL `civ3r_native.dll` (on Windows under the WoW64 port an
+//! x64 Windows DLL, see docs/wow64-windows.md). The game-side driver (a 32-bit
 //! Windows DLL in the same process) sends render assets and scenes and
 //! collects input through `__wine_unix_call`; this side runs the tile
 //! viewer natively: on Linux (Wayland, Vulkan) on a thread of its own, on
 //! macOS (AppKit, Metal) on the process's main thread, in the
 //! `NSApplication` Wine's Mac driver runs there (the game's threads are
-//! Wine's, never the main one). Everything else is the same on both.
+//! Wine's, never the main one), on Windows on a thread of its own with its
+//! own window. Everything else is the same on all.
 //!
 //! Calls (argument structs are plain data, see [`Assets`], [`Publish`],
 //! [`TakeInput`]):
@@ -23,7 +25,7 @@ use wine_unixlib::Buffer32;
 
 pub mod log_lines;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(not(target_arch = "x86"))]
 mod art_queue;
 
 /// Call 0. `data`: `scene::wire::encode_assets`; `flags` bit 0: fullscreen.
@@ -121,7 +123,7 @@ pub struct SourceSample {
 }
 
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(not(target_arch = "x86"))]
 mod unix_side {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, LazyLock, OnceLock};
@@ -230,6 +232,7 @@ mod unix_side {
 
     /// A Windows path of the Wine prefix as a Unix path (`C:\x` →
     /// `$WINEPREFIX/dosdevices/c:/x`).
+    #[cfg(unix)]
     fn unix_path(windows: &str) -> PathBuf {
         let prefix = std::env::var_os("WINEPREFIX")
             .map(PathBuf::from)
@@ -243,6 +246,12 @@ mod unix_side {
             }
             _ => PathBuf::from(w),
         }
+    }
+
+    /// On a Windows host the game's paths are the host's.
+    #[cfg(windows)]
+    fn unix_path(windows: &str) -> PathBuf {
+        PathBuf::from(windows)
     }
 
     /// The art compiled so far, to be grown (`render_desc::Growing`): its
@@ -552,8 +561,9 @@ mod unix_side {
     }
 
     /// The viewer on a native thread of its own (Wayland and Vulkan take
-    /// any thread).
-    #[cfg(target_os = "linux")]
+    /// any thread; on Windows its window and message loop are that
+    /// thread's).
+    #[cfg(any(target_os = "linux", windows))]
     fn start_viewer(config: tile_viewer::ViewerConfig, assets: tile_viewer::Assets, display: scene::Display, quit: QuitWhenStopped) -> std::io::Result<()> {
         wine_unixlib::unix::spawn_native("civ3r-native-viewer", move || {
             let _quit = quit;
@@ -729,8 +739,8 @@ mod unix_side {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(not(target_arch = "x86"))]
 use unix_side::{assets, input, limits, publish, push, status, take_log, uploaded,source_sample};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(not(target_arch = "x86"))]
 wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded, push,source_sample];

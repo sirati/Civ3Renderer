@@ -1,4 +1,7 @@
-//! The Unix side: the unixlib `.so` of a builtin DLL.
+//! The Unix side: the unixlib `.so` of a builtin DLL. On a Windows host
+//! (Wine's WoW64 ported to x64 Windows) the same unixlib is a native x64
+//! Windows DLL, `x86_64-native/NAME.dll`; Wine loads and calls it the same
+//! way.
 
 use crate::{Buffer32, STATUS_INVALID_PARAMETER, Status};
 
@@ -52,13 +55,18 @@ macro_rules! unix_call_table {
 /// the unwind passes through the entry point (`extern "C-unwind"`) into
 /// Wine's frames. A thread that never returns from `handler` ends with
 /// the process.
+///
+/// On Windows a thread ends without unwinding (`TerminateThread`,
+/// `ExitProcess`): nothing to hold back.
 #[doc(hidden)]
 pub fn dispatch<T: bytemuck::Pod>(
     args: *mut core::ffi::c_void,
     handler: fn(&mut T) -> Status,
 ) -> Status {
+    #[cfg(unix)]
     let held = ThreadEnd::hold();
     let status = dispatch_caught(args, handler);
+    #[cfg(unix)]
     held.release();
     status
 }
@@ -67,6 +75,7 @@ pub fn dispatch<T: bytemuck::Pod>(
 /// call: Wine's `SIGQUIT` (blocked) and, on Linux, `pthread_cancel`
 /// (disabled). [`ThreadEnd::release`] puts both back as they were; one
 /// pending acts then.
+#[cfg(unix)]
 struct ThreadEnd {
     mask: libc::sigset_t,
     #[cfg(target_os = "linux")]
@@ -76,6 +85,7 @@ struct ThreadEnd {
 /// The calls where the thread may end, declared as unwinding: a forced
 /// unwind starts in them (in the `SIGQUIT` handler run on return from
 /// `pthread_sigmask`, or at the cancellation point).
+#[cfg(unix)]
 mod thread_end {
     unsafe extern "C-unwind" {
         pub fn pthread_sigmask(
@@ -95,6 +105,7 @@ mod thread_end {
     }
 }
 
+#[cfg(unix)]
 impl ThreadEnd {
     fn hold() -> ThreadEnd {
         // SAFETY: calls on this thread's own signal mask and cancellation
@@ -228,6 +239,62 @@ pub fn write(b: Buffer32, bytes: &[u8]) -> Result<(), AccessError> {
     Ok(())
 }
 
+/// The current process's memory through `ReadProcessMemory` and
+/// `WriteProcessMemory`, which fail on a bad address rather than fault.
+#[cfg(windows)]
+mod process_memory {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub fn ReadProcessMemory(process: isize, base: *const c_void, buffer: *mut c_void, size: usize, read: *mut usize) -> i32;
+        pub fn WriteProcessMemory(process: isize, base: *mut c_void, buffer: *const c_void, size: usize, written: *mut usize) -> i32;
+    }
+    /// `GetCurrentProcess()`.
+    pub const CURRENT: isize = -1;
+}
+
+/// Copies a buffer out of the (32-bit) caller's memory. A bad address is an
+/// error, not a crash.
+#[cfg(windows)]
+pub fn read(b: Buffer32) -> Result<Vec<u8>, AccessError> {
+    let mut out = vec![0u8; b.len as usize];
+    if out.is_empty() {
+        return Ok(out);
+    }
+    let mut n = 0;
+    // SAFETY: the destination covers `out`; the source is checked by the
+    // system.
+    let ok = unsafe {
+        process_memory::ReadProcessMemory(process_memory::CURRENT, b.addr as usize as *const _, out.as_mut_ptr().cast(), out.len(), &mut n)
+    };
+    if ok == 0 || n != out.len() {
+        return Err(AccessError { addr: b.addr, len: b.len, source: std::io::Error::last_os_error() });
+    }
+    Ok(out)
+}
+
+/// Copies `bytes` into the caller's memory at `b` (at most `b.len` bytes;
+/// fails if `bytes` is longer).
+#[cfg(windows)]
+pub fn write(b: Buffer32, bytes: &[u8]) -> Result<(), AccessError> {
+    if bytes.len() > b.len as usize {
+        return Err(AccessError { addr: b.addr, len: b.len, source: std::io::Error::from(std::io::ErrorKind::InvalidInput) });
+    }
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let mut n = 0;
+    // SAFETY: the source covers `bytes` (only read); the destination is
+    // checked by the system.
+    let ok = unsafe {
+        process_memory::WriteProcessMemory(process_memory::CURRENT, b.addr as usize as *mut _, bytes.as_ptr().cast(), bytes.len(), &mut n)
+    };
+    if ok == 0 || n != bytes.len() {
+        return Err(AccessError { addr: b.addr, len: b.len, source: std::io::Error::last_os_error() });
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 mod mach {
     pub type Task = libc::mach_port_t;
@@ -339,6 +406,8 @@ pub fn spawn_native<F: FnOnce() + Send + 'static>(
 /// inherit the mask. Never call on Wine's Windows or AppKit event-loop thread;
 /// this thread must not call back into Windows code afterward.
 pub fn block_native_signals() {
+    // (Windows has no signals to keep away from Wine.)
+    #[cfg(unix)]
     // SAFETY: changes only the calling thread's signal mask using a valid set.
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
@@ -347,7 +416,7 @@ pub fn block_native_signals() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod signal_policy_tests {
     use super::*;
 

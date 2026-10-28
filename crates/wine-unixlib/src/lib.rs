@@ -18,7 +18,10 @@
 //! `$WINEDLLPATH/x86_64-unix/NAME.so`. On Apple silicon (ARM64 Wine, the
 //! 32-bit PE translated by FEX through new WoW64) the unixlib is an ARM64
 //! Mach-O dylib named `$WINEDLLPATH/aarch64-unix/NAME.so`; the calls and
-//! the shared low 4 GiB are the same.
+//! the shared low 4 GiB are the same. On x64 Windows (Wine's WoW64 ported
+//! there, sirati/WineWoW64onWindows) the host's own libraries are Windows
+//! DLLs: the unixlib is the x64 DLL `$WINEDLLPATH/x86_64-native/NAME.dll`,
+//! and the PE side is unchanged.
 //!
 //! All `unsafe` needed for this lives here.
 
@@ -43,5 +46,5 @@ pub struct Buffer32 {
 
 #[cfg(all(windows, target_arch = "x86"))]
 pub mod pe;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", all(windows, target_arch = "x86_64")))]
 pub mod unix;

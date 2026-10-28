@@ -1,13 +1,14 @@
 [package]
 name = "civ3r-native"
-description = "Native Linux side of the renderer inside a Wine program: unixlib of civ3r_native.dll, runs the tile viewer natively"
+description = "Native side of the renderer inside a Wine program: unixlib of civ3r_native.dll (Linux, macOS, x64 Windows under the WoW64 port), runs the tile viewer natively"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
 
 [lib]
 name = "civ3r_native"
-# cdylib: the unixlib (x86_64 Linux, ARM64 macOS); rlib: the argument structs for the
+# cdylib: the unixlib (x86_64 Linux, ARM64 macOS, x86_64 Windows under the
+# WoW64 port); rlib: the argument structs for the
 # Windows-side driver.
 crate-type = ["cdylib", "rlib"]
 
@@ -18,7 +19,7 @@ bytemuck.workspace = true
 scene = { path = "../scene" }
 log.workspace = true
 
-[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+[target.'cfg(not(target_arch = "x86"))'.dependencies]
 civ3-assets = { path = "../civ3-assets" }
 handoff = { path = "../handoff" }
 render-desc = { path = "../render-desc" }
