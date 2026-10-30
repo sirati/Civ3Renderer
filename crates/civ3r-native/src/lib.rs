@@ -125,7 +125,9 @@ pub struct SourceSample {
 
 #[cfg(not(target_arch = "x86"))]
 mod unix_side {
-    use std::path::{Path, PathBuf};
+    #[cfg(unix)]
+    use std::path::Path;
+    use std::path::PathBuf;
     use std::sync::{Arc, LazyLock, OnceLock};
 
     use civ3_assets::GameFiles;
