@@ -202,6 +202,25 @@ impl MonitorHandle {
             .unwrap_or(PhysicalPosition { x: 0, y: 0 })
     }
 
+    /// The monitor without the taskbar and docked app bars (`rcWork`); the
+    /// whole monitor if the query fails.
+    #[inline]
+    pub fn work_area(&self) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
+        match get_monitor_info(self.0) {
+            Ok(info) => {
+                let rc_work = info.monitorInfo.rcWork;
+                (
+                    PhysicalPosition { x: rc_work.left, y: rc_work.top },
+                    PhysicalSize {
+                        width: (rc_work.right - rc_work.left).max(0) as u32,
+                        height: (rc_work.bottom - rc_work.top).max(0) as u32,
+                    },
+                )
+            },
+            Err(_) => (self.position(), self.size()),
+        }
+    }
+
     #[inline]
     pub fn scale_factor(&self) -> f64 {
         dpi_to_scale_factor(get_monitor_dpi(self.0).unwrap_or(96))
