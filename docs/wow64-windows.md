@@ -53,6 +53,23 @@ adopts Wine's existing code for each one.
   picture, and it has nothing to do with Wine.
 - **F.** The process exits cleanly while a native window thread is live.
 
+## Status
+
+On 2026-10-29 the port (candidate fa562da) ran Civ III with civ3-renderer
+7ec7322 in a Windows 11 VM with only WARP ("Microsoft Basic Render
+Driver"). The renderer's native window showed the title and main menu.
+Closing it ended the game with exit code 0.
+
+Set up as for Linux:
+- `CIV3R_VIEWER=native` and `CIV3R_GAME_RENDER=off`;
+- `CIV3R_FONT_CACHE` pointing at the font sheets;
+- `WGPU_BACKEND=dx12` and `TILE_RENDER_ADAPTER=basic render` for WARP;
+- the run inside the interactive desktop session.
+
+Windows binds an import to any loaded module with the same base name. So
+the port also accepts Wine's `<module>.so` name for native unixlibs, which
+keeps Wine's x64 companions from shadowing system DLLs.
+
 ## Fixtures
 
 `tools/wine-unixlib-fixtures OUT` builds two pairs, each a builtin DLL,
