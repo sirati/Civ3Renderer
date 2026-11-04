@@ -9,6 +9,39 @@ fn cleared(canvas: u32, size: (i32, i32)) -> UiModel {
     model
 }
 
+/// Compile the renderer's own atlas description from supplied glyph sources.
+/// The loader returns those source images, so these fixtures need no host fonts.
+fn glyph_art(fonts: &Fonts) -> Compiled { glyph_art_filtered(fonts, &|_| true, 256) }
+
+fn glyph_art_filtered(fonts: &Fonts, keep: &dyn Fn(&str) -> bool, page_size: u32) -> Compiled {
+    glyph_art_growing(fonts, keep, page_size).0
+}
+
+fn glyph_art_growing(fonts: &Fonts, keep: &dyn Fn(&str) -> bool, page_size: u32) -> (Compiled, render_desc::Growing) {
+    struct Loaded<'a>(&'a Fonts);
+    impl render_desc::ImageLoader for Loaded<'_> {
+        fn load(&self, source: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+            for ((style, [r, g, b], backdrop), font) in &self.0.fonts {
+                let Some(font) = font else { continue };
+                let on = backdrop.map_or(String::new(), |[r, g, b]| format!("/on={r},{g},{b}"));
+                let name = format!("font:{}/{}/{r},{g},{b}/{}/{}{on}", style.face, style.height, style.weight, u8::from(style.italic));
+                if source == name {
+                    return Ok(charset().map(|c| font.glyphs.get(&c).map(|g| g.image.clone()).unwrap_or_else(|| tile_render::RgbaImage::new(1, 1))).collect());
+                }
+            }
+            Err(format!("unknown synthetic glyph source {source}"))
+        }
+    }
+    let description = format!("grid = {{ layout = \"orthogonal\", step = [1, 1] }}\n{}", Fonts::entries(&fonts.fonts, false));
+    let mut description: toml::Table = description.parse().unwrap();
+    description.get_mut("sheets").unwrap().as_table_mut().unwrap().retain(|_, value| {
+        let sheet = value.as_table().unwrap();
+        let name = format!("{}/{}", sheet["group"].as_str().unwrap(), sheet["first_index"].as_integer().unwrap());
+        keep(&name)
+    });
+    render_desc::Description::parse(&toml::to_string(&description).unwrap()).unwrap().compile_growing(&Loaded(fonts), page_size, true).unwrap()
+}
+
 #[test]
 fn recorded_first_city_caption_is_queried_in_canvas_coordinates() {
     // Exact run from the failure dump. The viewer places the 1024x768
@@ -36,7 +69,7 @@ fn recorded_first_city_caption_is_queried_in_canvas_coordinates() {
     }
     let mut fonts = Fonts::default();
     fonts.fonts.insert(key(&run), Some(font));
-    let compiled = readiness_tests::fixture_art(&[], "");
+    let compiled = glyph_art(&fonts);
     let screen = TextRun { x: run.x + 448, y: run.y + 156, ..run.clone() };
     fonts.publish_hit_resources(&compiled);
     let local = keyed_pixel(&run, 132, 324);
@@ -48,7 +81,7 @@ fn recorded_first_city_caption_is_queried_in_canvas_coordinates() {
     // A native hit can ask for a new string before the publisher emits it.
     // The loaded font is already a renderer source for this run too.
     let fresh=TextRun {text:"....".into(),..run.clone()};
-    let source=fonts.hit_source(&TextRun {x:0,y:0,..fresh.clone()},&compiled.fonts,&HIT_RESOURCES.load().unwrap().atlases).unwrap();
+    let source=fonts.hit_source(&TextRun {x:0,y:0,..fresh.clone()},&HIT_RESOURCES.load().unwrap()).unwrap();
     let expected=HitRun {run:TextRun {x:0,y:0,..fresh.clone()},source};
     for y in 313..333 { for x in 100..150 {
         assert_eq!(keyed_pixel(&fresh,x,y),expected.pixel(x-fresh.x,y-fresh.y));
@@ -215,7 +248,8 @@ fn hit_atlas_fixture() -> (TextRun, Fonts, Compiled) {
     };
     let mut fonts = Fonts::default();
     fonts.insert(key(&run), Ok(font));
-    (run, fonts, readiness_tests::fixture_art(&[], ""))
+    let compiled = glyph_art(&fonts);
+    (run, fonts, compiled)
 }
 
 #[test]
@@ -328,4 +362,200 @@ fn outline_replacement_invalidates_existing_label_placement() {
     assert_eq!(HIT_RESOURCES.load().unwrap().faces.iter().find(|(name, _)| name == &run.face).unwrap().1.glyph_count(), 0);
     assert_eq!(HitCache::new(HIT_RESOURCES.load().unwrap()).pixel(&run, ink.0, ink.1), Some(None));
     assert_eq!(keyed_pixel(&run, ink.0, ink.1), Some(None), "a face replacement must not retain old outlines");
+}
+
+
+fn fallback_fixture(text: &str) -> (TextRun, Fonts, Arc<tile_render::gpu_text::Face>) {
+    let run = TextRun { x: 31, y: 27, color: [0; 3], face: "Synthetic fallback".into(), height: -12,
+        weight: 700, italic: true, underline: true, text: text.into(), backdrop: None };
+    let glyphs = text.chars().map(|c| (c, Glyph { left: -1, advance: 4, extent: 3,
+        image: tile_render::RgbaImage::from_fn(3, 4, |x, y| if (x + y) % 3 == 0 { [0; 4] } else { [255; 4] }),
+    })).collect();
+    let mut fonts = Fonts::default();
+    fonts.insert(key(&run), Ok(GlyphFont { ascent: 4, underline: (1, 1), glyphs }));
+    let curves = vec![[(0., 0.), (1.5, 0.), (3., 0.)], [(3., 0.), (3., 2.), (3., 4.)],
+        [(3., 4.), (1.5, 4.), (0., 4.)], [(0., 4.), (0., 2.), (0., 0.)]];
+    let glyphs: Vec<_> = text.chars().map(|c| (outline_char(c), curves.clone(), 4)).collect();
+    let face = Arc::new(tile_render::gpu_text::Face::from_curves(12, &glyphs));
+    (run, fonts, face)
+}
+
+/// Evaluate the actual emitted renderer instances using their atlas texels
+/// or the renderer's shared outline coverage. No alternative layout is used.
+fn assert_hit_instances(run: &TextRun, fonts: &Fonts, compiled: &Compiled) -> (Vec<scene::FreeSprite>, usize) {
+    let mut sprites = Vec::new();
+    fonts.run_sprites(run, None, compiled, 0, &mut sprites);
+    let mut ink = 0;
+    for y in run.y - 25..run.y + 10 {
+        for x in run.x - 5..run.x + 70 {
+            let rendered = sprites.iter().filter_map(|s| {
+                if let Some(g) = s.glyph {
+                    let face = &compiled.fonts[g.font as usize].1;
+                    if let Some((top, height)) = g.bar {
+                        return (x >= s.x && x < s.x + g.advance && y >= s.y + top && y < s.y + top + height).then_some(run.color);
+                    }
+                    if face.glyph_count() == 0 { return None; }
+                    let flags = tile_render_shared::text::TEXT_BOLD * u32::from(g.bold)
+                        | tile_render_shared::text::TEXT_ITALIC * u32::from(g.italic);
+                    let text = tile_render_shared::text::TextGlyph {
+                        glyph: face.record(face.glyph(g.ch).unwrap_or(0)), em: g.em64, advance: g.advance, flags, ..Default::default()
+                    };
+                    let place = tile_render_shared::text::place(&face.words, &text, s.x, s.y, 1, 1).unwrap();
+                    let (l, t, r, b) = tile_render_shared::text::bounds(&face.words, &place);
+                    if x < l || y < t || x >= r || y >= b { return None; }
+                    let color = s.tint;
+                    let key = g.key.unwrap_or(KEY_RGB);
+                    let key = u32::from(key[0]) << 16 | u32::from(key[1]) << 8 | u32::from(key[2]);
+                    tile_render_shared::text::keyed(tile_render_shared::text::coverage_all_channels(&face.words, &place, x, y, color), color, key)
+                        .map(|rgb| rgb.map(|c| c as u8))
+                } else {
+                    let id = compiled.sets.frame(tile_render::SpriteSetId::from_raw(s.set), 0)?;
+                    if !compiled.sprite_available(id) { return None; }
+                    let source = &compiled.atlas.sprites[id.0 as usize];
+                    let (gx, gy) = (x - s.x - source.anchor_x, y - s.y - source.anchor_y);
+                    if gx < 0 || gy < 0 || gx >= source.width as i32 || gy >= source.height as i32 { return None; }
+                    let p = compiled.atlas.pages[source.page as usize].get(source.atlas_x + gx as u32, source.atlas_y + gy as u32);
+                    match tile_render::Blend::from_scale_den(s.scale_den, s.tint) {
+                        tile_render::Blend::Subpixel { color } => keyed_mix(color, [p[0], p[1], p[2]], KEY_RGB),
+                        tile_render::Blend::Alpha => (p[3] != 0).then_some([p[0], p[1], p[2]]),
+                        other => panic!("unexpected text blend {other:?}"),
+                    }
+                }
+            }).last();
+            assert_eq!(keyed_pixel(run, x, y), Some(rendered), "emitted pixel ({x},{y}) for {:?}", run.text);
+            ink += usize::from(rendered.is_some());
+        }
+    }
+    (sprites, ink)
+}
+
+#[test]
+fn atlas_upload_and_partial_set_changes_select_the_same_hit_instances() {
+    let (run, fonts, face) = fallback_fixture("AB");
+    let mut waiting = readiness_tests::fixture_art(&[], "");
+    waiting.fonts.push((run.face.clone(), face.clone()));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &waiting);
+    assert!(ink > 0);
+    assert!(sprites.iter().all(|s| s.glyph.is_some()), "not uploaded yet uses outline fallback");
+    let atlases = HIT_RESOURCES.load().unwrap().atlases.clone();
+    let mut uploaded = glyph_art(&fonts);
+    uploaded.fonts.push((run.face.clone(), face.clone()));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &uploaded);
+    assert!(ink > 0);
+    assert!(sprites.iter().all(|s| s.glyph.is_none()), "uploaded glyphs use the atlas");
+    assert!(Arc::ptr_eq(&atlases, &HIT_RESOURCES.load().unwrap().atlases), "art changes must reuse loaded glyph images");
+    let mut partial = glyph_art_filtered(&fonts, &|name| name.ends_with("/65"), 256);
+    partial.fonts.push((run.face.clone(), face));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &partial);
+    assert!(ink > 0);
+    assert_eq!(sprites.len(), 1, "later missing glyphs and absent underline sheets emit nothing");
+    assert!(sprites[0].glyph.is_none());
+}
+
+#[test]
+fn unavailable_atlas_placeholders_do_not_answer_from_loaded_glyph_pixels() {
+    let (run, fonts, _) = fallback_fixture("A");
+    let compiled = glyph_art_filtered(&fonts, &|name| name.starts_with("Text@"), 2);
+    let tag = Fonts::tag(&key(&run));
+    assert!(compiled.set(&format!("Text@{tag}/65")).is_some());
+    assert!(!compiled.set_available(&format!("Text@{tag}/65")));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert_eq!(sprites.len(), 1);
+    assert_eq!(ink, 0, "the actual unavailable placeholder has no texels");
+}
+
+#[test]
+fn legacy_c1_and_nearest_metrics_hits_follow_outline_fallback() {
+    let (run, mut fonts, face) = fallback_fixture("A\u{92}B");
+    let font = fonts.fonts.get_mut(&key(&run)).unwrap().as_mut().unwrap();
+    let old = font.glyphs.get_mut(&'\u{92}').unwrap();
+    old.advance = 0;
+    old.image.pixels.fill([0; 4]);
+    let mut compiled = glyph_art(&fonts);
+    compiled.fonts.push((run.face.clone(), face));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert!(ink > 0);
+    assert!(sprites.iter().all(|s| s.glyph.is_some()));
+    assert!(sprites.iter().any(|s| s.glyph.is_some_and(|g| g.ch == '’' && g.advance > 0)), "the source face supplies the legacy advance");
+    let enlarged = TextRun { height: -18, color: [32, 48, 64], ..run.clone() };
+    assert!(!fonts.has(&enlarged));
+    let (sprites, ink) = assert_hit_instances(&enlarged, &fonts, &compiled);
+    assert!(ink > 0);
+    assert!(sprites.iter().all(|s| s.glyph.is_some()));
+    assert!(sprites.iter().any(|s| s.glyph.is_some_and(|g| g.bar == Some((1, 1)))));
+}
+
+#[test]
+fn measured_layout_hits_ignore_atlas_upload_and_keep_missing_glyph_underlines() {
+    let (run, fonts, face) = fallback_fixture("AB");
+    fonts.set_game_layout(&run, gdi_text::TextLayout { advances: vec![5, 7], ascent: 4, descent: 1, underline: (2, 2) });
+    let mut compiled = glyph_art(&fonts);
+    compiled.fonts.push((run.face.clone(), face));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert!(ink > 0);
+    assert_eq!(sprites.len(), 4);
+    assert!(sprites.iter().all(|s| s.glyph.is_some()));
+    let chars = vec![('A', Vec::new(), 4)];
+    compiled.fonts.iter_mut().find(|(name, _)| name == &run.face).unwrap().1 = Arc::new(tile_render::gpu_text::Face::from_curves(12, &chars));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert!(ink > 0, "measured underline segments survive missing cmap entries");
+    assert_eq!(sprites.len(), 3, "missing B emits its underline but no glyph-zero substitute");
+}
+
+#[test]
+fn alternate_size_hits_scale_native_outline_instances_without_host_assets() {
+    const CHILD: &str = "CIV3R_TEXT_SIZE_FIXTURE";
+    if std::env::var_os(CHILD).is_none() {
+        let directory = std::env::temp_dir().join(format!("c3r-text-size-fixture-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let style = FontStyle { face: "Synthetic fallback".into(), height: 12, weight: 700, italic: true };
+        std::fs::write(directory.join(format!("{}.toml", civ3_assets::fonts::cache_stem(&style))), "").unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "text::keyed_read_tests::alternate_size_hits_scale_native_outline_instances_without_host_assets"])
+            .env(CHILD, "1").env("CIV3R_FONT_CACHE", &directory).output().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+        assert!(result.status.success(), "{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        return;
+    }
+    let (native, fonts, face) = fallback_fixture("AB");
+    let run = TextRun { height: -19, ..native.clone() };
+    assert_eq!(key(&run).0.height, 12, "the synthetic sheet catalogue supplies only the native size");
+    let mut compiled = glyph_art(&fonts);
+    compiled.fonts.push((run.face.clone(), face));
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert!(ink > 0);
+    assert!(sprites.iter().all(|s| s.glyph.is_some()));
+    assert!(sprites.iter().any(|s| s.glyph.is_some_and(|g| g.bar == Some((2, 2)))));
+    fonts.set_game_layout(&native, gdi_text::TextLayout { advances: vec![5, 7], ascent: 4, descent: 1, underline: (2, 1) });
+    let (sprites, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert!(ink > 0);
+    assert!(sprites.iter().any(|s| s.glyph.is_some_and(|g| g.bar == Some((3, 2)))));
+}
+
+
+#[test]
+fn same_size_set_replacement_invalidates_the_hit_availability_snapshot() {
+    let (mut run, fonts, _) = fallback_fixture("A");
+    run.underline = false;
+    let (mut compiled, mut growing) = glyph_art_growing(&fonts, &|_| true, 256);
+    let (_, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert!(ink > 0);
+    let old = HIT_RESOURCES.load().unwrap();
+    let sprite_count = compiled.atlas.sprites.len();
+    struct Unused;
+    impl render_desc::ImageLoader for Unused {
+        fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> { Err("growth has no images".into()) }
+    }
+    let tag = Fonts::tag(&key(&run));
+    let growth = growing.grow(&compiled, &format!("[sets.\"Text@{tag}/65\"]\nframes = []\n"), &Unused).unwrap();
+    compiled.apply(&growth);
+    assert_eq!(compiled.atlas.sprites.len(), sprite_count);
+    let (_, ink) = assert_hit_instances(&run, &fonts, &compiled);
+    assert_eq!(ink, 0, "the replacement emits an empty set");
+    assert!(!Arc::ptr_eq(&old, &HIT_RESOURCES.load().unwrap()), "availability follows resource versions, not sprite counts");
+    let snapshot = compiled.without_pixels();
+    fonts.publish_hit_resources(&snapshot);
+    let current = HIT_RESOURCES.load().unwrap();
+    fonts.publish_hit_resources(&compiled);
+    assert!(Arc::ptr_eq(&current, &HIT_RESOURCES.load().unwrap()), "metadata copies preserve the published resource snapshot");
 }

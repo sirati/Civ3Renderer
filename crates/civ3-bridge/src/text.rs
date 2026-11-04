@@ -21,9 +21,28 @@ type FontKey = (FontStyle, [u8; 3], Option<[u8; 3]>);
 /// packed face words and integer coverage routine as the GPU; the atlas
 /// variant uses its loaded 1:1 glyph images. No GDI surface is calibrated.
 #[derive(Clone)]
-enum HitSource {
-    Atlas { font: Arc<GlyphFont>, advances: Vec<(char, i32)> },
-    Outline { face: Arc<tile_render::gpu_text::Face>, glyphs: Vec<HitGlyph> },
+enum HitDraw {
+    Atlas { part: AtlasPart, x: i32, y: i32 },
+    Outline { face: Arc<tile_render::gpu_text::Face>, glyph: HitGlyph },
+}
+type HitSource = Vec<HitDraw>;
+
+#[derive(Clone)]
+struct AtlasPart {
+    font: Arc<GlyphFont>,
+    glyph: Option<char>,
+    width: i32,
+}
+
+/// The emitter needs only font faces and text-set identities. A hit reader
+/// uses the same emitter with a retained view of precisely those resources.
+trait TextArt {
+    fn text_set(&self, name: &str) -> Option<u32>;
+    fn text_font(&self, name: &str) -> Option<(u32, &tile_render::gpu_text::Face)>;
+}
+impl TextArt for Compiled {
+    fn text_set(&self, name: &str) -> Option<u32> { self.set(name).map(|(id, _)| id.raw()) }
+    fn text_font(&self, name: &str) -> Option<(u32, &tile_render::gpu_text::Face)> { self.font(name) }
 }
 
 #[derive(Clone)]
@@ -49,8 +68,11 @@ struct HitRun {
 struct HitResources {
     owner: Arc<()>,
     revision: u64,
+    art_version: render_desc::ResourceVersion,
     faces: Vec<(String, Arc<tile_render::gpu_text::Face>)>,
-    atlases: BTreeMap<FontKey, Arc<GlyphFont>>,
+    atlases: Arc<BTreeMap<FontKey, Arc<GlyphFont>>>,
+    sets: BTreeMap<String, (u32, bool)>,
+    parts: BTreeMap<u32, AtlasPart>,
     measures: bool,
     // Offline fixtures supply the metric provider that Windows supplies in
     // production. These are measurement inputs, not published draw history.
@@ -59,6 +81,13 @@ struct HitResources {
     #[cfg(test)]
     widths: std::collections::HashMap<(FontStyle, String), Option<i32>>,
 }
+impl TextArt for HitResources {
+    fn text_set(&self, name: &str) -> Option<u32> { self.sets.get(name).map(|&(id, _)| id) }
+    fn text_font(&self, name: &str) -> Option<(u32, &tile_render::gpu_text::Face)> {
+        self.faces.iter().enumerate().find(|(_, (n, _))| n == name).map(|(i, (_, face))| (i as u32, &**face))
+    }
+}
+
 #[cfg(not(test))]
 static HIT_RESOURCES: handoff::Latest<HitResources> = handoff::Latest::new();
 
@@ -98,12 +127,12 @@ impl HitCache {
         if let Some(hit) = &self.run {
             if hit.run == local { return hit.pixel(x-run.x, y-run.y); }
         }
-        let fonts = Fonts { measures: self.resources.measures, ..Fonts::default() };
+        let fonts = Fonts { measures: self.resources.measures, hit_fonts: Some(self.resources.atlases.clone()), ..Fonts::default() };
         #[cfg(test)] {
             *fonts.layouts.borrow_mut() = self.resources.layouts.clone();
             *fonts.widths.borrow_mut() = self.resources.widths.clone();
         }
-        let source = fonts.hit_source(&local, &self.resources.faces, &self.resources.atlases)?;
+        let source = fonts.hit_source(&local, &self.resources)?;
         let hit = HitRun { run: local, source };
         let pixel = hit.pixel(x-run.x, y-run.y);
         self.run = (hit.run.text.len() + hit.run.face.len() <= HIT_LABEL_BYTES).then_some(hit);
@@ -140,39 +169,32 @@ impl HitRun {
     }
 
     fn renderer_pixel(&self, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
-        match &self.source {
-            HitSource::Atlas { font, advances } => {
-                let mut pen = self.run.x;
-                let mut result = None;
-                for (c, advance) in advances {
-                    let Some(glyph) = font.glyphs.get(&c) else { continue };
-                    let gx = x - pen - glyph.left;
-                    let gy = y - self.run.y + font.ascent;
-                    if gx >= 0 && gy >= 0 {
-                        if gx < glyph.image.width as i32 && gy < glyph.image.height as i32 {
+        let mut result = None;
+        for draw in &self.source {
+            match draw {
+                HitDraw::Atlas { part, x: pen, y: baseline } => {
+                    let font = &part.font;
+                    if let Some(c) = part.glyph {
+                        let glyph = font.glyphs.get(&c)?;
+                        let gx = x - pen - glyph.left;
+                        let gy = y - baseline + font.ascent;
+                        if gx >= 0 && gy >= 0 && gx < glyph.image.width as i32 && gy < glyph.image.height as i32 {
                             let p = glyph.image.get(gx as u32, gy as u32);
                             if self.run.backdrop.is_some() {
-                                if p[3] != 0 { result = Some(Some([p[0], p[1], p[2]])); }
-                            } else if let Some(rgb) = keyed_mix(self.run.color, [p[0], p[1], p[2]], self.run.backdrop.unwrap_or(crate::ui::KEY_RGB)) {
-                                result = Some(Some(rgb));
+                                if p[3] != 0 { result = Some([p[0], p[1], p[2]]); }
+                            } else if let Some(rgb) = keyed_mix(self.run.color, [p[0], p[1], p[2]], crate::ui::KEY_RGB) {
+                                result = Some(rgb);
                             }
                         }
+                    } else {
+                        let (top, thickness) = font.underline;
+                        if x >= *pen && x < pen + part.width && y >= baseline + top && y < baseline + top + thickness {
+                            result = Some(self.run.color);
+                        }
                     }
-                    // run_sprites emits a solid TextLine segment after
-                    // each glyph, using its unadjusted sheet advance.
-                    let (top, thickness) = font.underline;
-                    if self.run.underline && x >= pen && x < pen + glyph.advance
-                        && y >= self.run.y + top && y < self.run.y + top + thickness {
-                        result = Some(Some(self.run.color));
-                    }
-                    pen += *advance;
                 }
-                Some(result.flatten())
-            }
-            HitSource::Outline { face, glyphs } => {
-                let words = &face.words;
-                let mut result = None;
-                for glyph in glyphs {
+                HitDraw::Outline { face, glyph } => {
+                    let words = &face.words;
                     if let Some((top, height)) = glyph.bar {
                         if x >= glyph.x && x < glyph.x + glyph.advance && y >= glyph.y + top && y < glyph.y + top + height {
                             result = Some(self.run.color);
@@ -201,9 +223,9 @@ impl HitRun {
                         result = Some(rgb);
                     }
                 }
-                Some(result)
             }
         }
+        Some(result)
     }
 }
 
@@ -240,6 +262,8 @@ pub struct Fonts {
     fonts: BTreeMap<FontKey, Option<GlyphFont>>,
     /// Identifies this publisher even when another Fonts has the same revision.
     hit_owner: Arc<()>,
+    /// Shared loaded fonts used by a transient hit-side emitter.
+    hit_fonts: Option<Arc<BTreeMap<FontKey, Arc<GlyphFont>>>>,
     /// Changes whenever loaded font metrics change, including a reload
     /// whose glyphs are already in the atlas.
     revision: u64,
@@ -272,35 +296,48 @@ struct Loader {
 }
 
 impl Fonts {
-    fn hit_source(&self, run: &TextRun, faces: &[(String, Arc<tile_render::gpu_text::Face>)], atlases: &BTreeMap<FontKey, Arc<GlyphFont>>) -> Option<HitSource> {
-        if let (Some((_, face)), Some(layout)) = (faces.iter().find(|(name,_)|name==&run.face), self.game_layout(run)) {
-            let chars: Vec<char> = run.text.chars().collect();
-            if chars.len() == layout.advances.len() {
-                let em64 = Self::fitting_em(run, face, chars.iter().copied(), layout.advances.iter().sum());
-                let cells = self.cells(run, face, em64, &chars, &layout.advances);
-                let glyphs = chars.into_iter().zip(cells).zip(layout.advances).flat_map(|((c, (x, advance)), _)| {
-                    let glyph = HitGlyph { x, y: run.y, advance, em64, bold: run.weight >= 600, italic: run.italic, glyph: face.glyph(outline_char(c)), bar: None };
-                    let bar = run.underline.then_some(HitGlyph { bar: Some(layout.underline), ..glyph.clone() });
-                    std::iter::once(glyph).chain(bar)
-                }).collect();
-                let face = face.clone();
-                return Some(HitSource::Outline { face, glyphs });
+    fn drawing_font(&self, want: &FontKey) -> Option<&GlyphFont> {
+        self.fonts.get(want).and_then(Option::as_ref)
+            .or_else(|| self.hit_fonts.as_ref().and_then(|fonts| fonts.get(want)).map(Arc::as_ref))
+    }
+
+    fn drawing_metrics(&self, run: &TextRun, want: &FontKey) -> Option<(&GlyphFont, i32)> {
+        self.drawing_font(want).map(|font| (font, want.0.height)).or_else(|| {
+            self.fonts.iter().filter_map(|((style, _, _), font)| font.as_ref().map(|font| (style, font)))
+                .chain(self.hit_fonts.iter().flat_map(|fonts| fonts.iter().map(|((style, _, _), font)| (style, &**font))))
+                .filter(|(style, _)| style.face == run.face)
+                .min_by_key(|(style, _)| (style.height - want.0.height).abs())
+                .map(|(style, font)| (font, style.height))
+        })
+    }
+
+    fn hit_source(&self, run: &TextRun, resources: &HitResources) -> Option<HitSource> {
+        let mut sprites = Vec::new();
+        if !self.draw_run_sprites(run, None, resources, 0, &mut sprites) { return None; }
+        let mut draws = Vec::with_capacity(sprites.len());
+        for sprite in sprites {
+            if let Some(glyph) = sprite.glyph {
+                let face = resources.faces.get(glyph.font as usize)?.1.clone();
+                // The viewer resolves a missing cmap entry to glyph zero
+                // on unmeasured paths. Measured emission omits it itself.
+                let id = (face.glyph_count() > 0).then(|| face.glyph(glyph.ch).unwrap_or(0));
+                draws.push(HitDraw::Outline { face, glyph: HitGlyph {
+                    x: sprite.x, y: sprite.y, advance: glyph.advance, em64: glyph.em64,
+                    bold: glyph.bold, italic: glyph.italic, glyph: id, bar: glyph.bar,
+                } });
+            } else if let Some(part) = resources.parts.get(&sprite.set) {
+                draws.push(HitDraw::Atlas { part: part.clone(), x: sprite.x, y: sprite.y });
             }
         }
-        let want = key(run);
-        let font = atlases.get(&want).cloned()?;
-        if legacy_run(run, &font) { return None; }
-        let mut advances: Vec<i32> = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|glyph| glyph.advance).collect();
-        self.fit(run, &mut advances);
-        let advances = run.text.chars().filter(|c| font.glyphs.contains_key(c)).zip(advances).collect();
-        Some(HitSource::Atlas { font, advances })
+        Some(draws)
     }
 
     fn publish_hit_resources(&self, compiled: &Compiled) {
+        let art_version = compiled.resource_version();
         let current = HIT_RESOURCES.load();
         let changed = current.as_ref().is_none_or(|old| {
             !Arc::ptr_eq(&old.owner, &self.hit_owner) || old.revision != self.revision
-                || old.measures != self.measures || old.faces.len() != compiled.fonts.len()
+                || old.measures != self.measures || old.art_version != art_version || old.faces.len() != compiled.fonts.len()
                 || old.faces.iter().zip(&compiled.fonts).any(|((a, af), (b, bf))| a != b || !Arc::ptr_eq(af, bf))
         });
         #[cfg(test)]
@@ -308,16 +345,34 @@ impl Fonts {
             old.layouts != *self.layouts.borrow() || old.widths != *self.widths.borrow()
         });
         if changed {
+            let sets: BTreeMap<_, _> = ["Text@", "TextLine@"].into_iter().flat_map(|prefix| {
+                compiled.sets_with_prefix(prefix).map(|(name, id)| (name.to_owned(), (id.raw(), compiled.set_available(name))))
+            }).collect();
             let atlases = current.as_ref().filter(|old| {
                 Arc::ptr_eq(&old.owner, &self.hit_owner) && old.revision == self.revision
             }).map(|old| old.atlases.clone()).unwrap_or_else(|| {
-                self.fonts.iter().filter_map(|(key, font)| font.as_ref().map(|font| (key.clone(), Arc::new(font.clone())))).collect()
+                Arc::new(self.fonts.iter().filter_map(|(key, font)| font.as_ref().map(|font| (key.clone(), Arc::new(font.clone())))).collect())
             });
+            let mut parts = BTreeMap::new();
+            for (key, font) in &*atlases {
+                let tag = Self::tag(key);
+                for (&c, glyph) in &font.glyphs {
+                    if let Some(&(id, true)) = sets.get(&format!("Text@{tag}/{}", c as u32)) {
+                        parts.insert(id, AtlasPart { font: font.clone(), glyph: Some(c), width: 0 });
+                    }
+                    if let Some(&(id, true)) = sets.get(&format!("TextLine@{tag}/{}", glyph.advance)) {
+                        parts.insert(id, AtlasPart { font: font.clone(), glyph: None, width: glyph.advance });
+                    }
+                }
+            }
             HIT_RESOURCES.publish(HitResources {
                 owner: self.hit_owner.clone(),
                 revision: self.revision,
+                art_version,
                 faces: compiled.fonts.clone(),
                 atlases,
+                sets,
+                parts,
                 measures: self.measures,
                 #[cfg(test)]
                 layouts: self.layouts.borrow().clone(),
@@ -824,24 +879,26 @@ impl Fonts {
         out: &mut Vec<scene::FreeSprite>,
     ) {
         self.publish_hit_resources(compiled);
-        if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
-        if self.sized_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
+        self.draw_run_sprites(r, clip, compiled, after_pass, out);
+    }
+
+    fn draw_run_sprites(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &dyn TextArt,
+        after_pass: u32, out: &mut Vec<scene::FreeSprite>) -> bool {
+        if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return true; }
+        if self.sized_glyphs(r, clip, compiled, after_pass, out, 0) { return true; }
         let key = key(r);
-        let Some(Some(font)) = self.fonts.get(&key) else {
+        let Some(font) = self.drawing_font(&key) else {
             // Not loaded yet: from the outlines meanwhile.
-            self.outline_fallback(r, clip, compiled, after_pass, out);
-            return;
+            return self.outline_fallback(r, clip, compiled, after_pass, out);
         };
         if legacy_run(r, font) {
-            self.outline_fallback(r, clip, compiled, after_pass, out);
-            return;
+            return self.outline_fallback(r, clip, compiled, after_pass, out);
         }
         let tag = Self::tag(&key);
         // Its glyphs not in the art yet: from the outlines meanwhile.
         let first = r.text.chars().find(|c| font.glyphs.contains_key(c));
-        if first.is_some_and(|c| compiled.set(&format!("Text@{tag}/{}", c as u32)).is_none()) {
-            self.outline_fallback(r, clip, compiled, after_pass, out);
-            return;
+        if first.is_some_and(|c| compiled.text_set(&format!("Text@{tag}/{}", c as u32)).is_none()) {
+            return self.outline_fallback(r, clip, compiled, after_pass, out);
         }
         // (At the game's pens: the run ends where the game measured it.)
         let mut advances: Vec<i32> = r.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|g| g.advance).collect();
@@ -855,9 +912,9 @@ impl Fonts {
             let glyph_blend = if r.backdrop.is_some() { tile_render::Blend::Alpha } else { tile_render::Blend::Subpixel { color: r.color } };
             let line = r.underline.then(|| (format!("TextLine@{tag}/{}", glyph.advance), tile_render::Blend::Alpha));
             for (name, blend) in [Some((format!("Text@{tag}/{}", c as u32), glyph_blend)), line].into_iter().flatten() {
-                let Some((set, _)) = compiled.set(&name) else { continue };
+                let Some(set) = compiled.text_set(&name) else { continue };
                 out.push(scene::FreeSprite {
-                    set: set.raw(),
+                    set,
                     x: pen,
                     y: r.y,
                     screen: true,
@@ -871,12 +928,13 @@ impl Fonts {
             }
             pen += advance;
         }
+        true
     }
 
     /// Emits outline commands using final measured pens even before any
     /// glyph sheet or alternate-size metrics exist. No pixels are rendered here.
-    fn measured_glyphs(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled, after_pass: u32, out: &mut Vec<scene::FreeSprite>, zoom_art: u8) -> bool {
-        let (Some((face, outline)), Some(layout)) = (compiled.font(&r.face), self.game_layout(r)) else { return false };
+    fn measured_glyphs(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &dyn TextArt, after_pass: u32, out: &mut Vec<scene::FreeSprite>, zoom_art: u8) -> bool {
+        let (Some((face, outline)), Some(layout)) = (compiled.text_font(&r.face), self.game_layout(r)) else { return false };
         let chars: Vec<char> = r.text.chars().collect();
         if chars.len() != layout.advances.len() { return false; }
         let em64 = Self::fitting_em(r, outline, chars.iter().copied(), layout.advances.iter().sum());
@@ -899,18 +957,11 @@ impl Fonts {
         true
     }
 
-    fn outline_fallback(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled, after_pass: u32, out: &mut Vec<scene::FreeSprite>) {
-        if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
-        let Some((face, outline)) = compiled.font(&r.face) else { return };
+    fn outline_fallback(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &dyn TextArt, after_pass: u32, out: &mut Vec<scene::FreeSprite>) -> bool {
+        if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return true; }
+        let Some((face, outline)) = compiled.text_font(&r.face) else { return false };
         let want = key(r);
-        let metrics = self.fonts.get(&want).and_then(Option::as_ref).map(|f| (f, want.0.height)).or_else(|| {
-            self.fonts
-                .iter()
-                .filter(|((s, _, _), f)| s.face == r.face && f.is_some())
-                .min_by_key(|((s, _, _), _)| (s.height - want.0.height).abs())
-                .and_then(|((s, _, _), f)| f.as_ref().map(|f| (f, s.height)))
-        });
-        let Some((font, height)) = metrics else { return };
+        let Some((font, height)) = self.drawing_metrics(r, &want) else { return false };
         let scale = |v: i32| v * want.0.height / height.max(1);
         let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
         let glyphs: Vec<(char, &Glyph)> = r.text.chars().filter_map(|c| font.glyphs.get(&c).map(|g| (c, g))).collect();
@@ -937,6 +988,7 @@ impl Fonts {
                 out.push(scene::FreeSprite { x: pen, y: r.y, screen: true, after_pass, ticks_per_frame: 1, tint: rgb(r.color), clip, glyph: Some(bar), ..Default::default() });
             }
         }
+        true
     }
 
     pub fn run_glyphs(
@@ -948,10 +1000,15 @@ impl Fonts {
         out: &mut Vec<scene::FreeSprite>,
     ) -> bool {
         self.publish_hit_resources(compiled);
+        self.draw_run_glyphs(r, clip, compiled, after_pass, out)
+    }
+
+    fn draw_run_glyphs(&self, r: &TextRun, clip: Option<[i32; 4]>, compiled: &dyn TextArt,
+        after_pass: u32, out: &mut Vec<scene::FreeSprite>) -> bool {
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         if self.sized_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         let want = key(r);
-        let (Some(Some(font)), Some((face, outline))) = (self.fonts.get(&want), compiled.font(&r.face)) else { return false };
+        let (Some(font), Some((face, outline))) = (self.drawing_font(&want), compiled.text_font(&r.face)) else { return false };
         let rgb = |[r, g, b]: [u8; 3]| (r as u32) << 16 | (g as u32) << 8 | b as u32;
         // Windows makes bold of a regular face from weight 600 on.
         let glyphs: Vec<(char, &Glyph)> = r.text.chars().filter_map(|c| font.glyphs.get(&c).map(|g| (c, g))).collect();
@@ -994,13 +1051,13 @@ impl Fonts {
     /// Linux and Wine may have only the game's native font sizes cached.
     /// Lay out that sheet, then scale its outline glyphs to the requested
     /// size. This also keeps the 1:1 path in step with enlarged HUD plates.
-    fn sized_glyphs(&self, run: &TextRun, clip: Option<[i32; 4]>, compiled: &Compiled,
+    fn sized_glyphs(&self, run: &TextRun, clip: Option<[i32; 4]>, compiled: &dyn TextArt,
         after_pass: u32, out: &mut Vec<scene::FreeSprite>, zoom_art: u8) -> bool {
         let height = key(run).0.height;
         if height == run.height.abs() { return false; }
         let native = TextRun { height: -height, ..run.clone() };
         let mut glyphs = Vec::new();
-        if !self.run_glyphs(&native, clip, compiled, after_pass, &mut glyphs) { return false; }
+        if !self.draw_run_glyphs(&native, clip, compiled, after_pass, &mut glyphs) { return false; }
         let scale = |v: i32| (v as f64 * run.height.abs() as f64 / height.max(1) as f64).round() as i32;
         for mut sprite in glyphs {
             sprite.x = run.x + scale(sprite.x-run.x);
