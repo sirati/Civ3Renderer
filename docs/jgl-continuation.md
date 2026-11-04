@@ -1,15 +1,16 @@
 # JGL continuation handover
 
-The recovered implementation baseline is `c1a8d1e`. The shared-glyph HUD fix,
-owned line bypass, owned mill raster bypass, and the WoW64 window/launcher fixes are already in
-the ancestry of `main`. Owned mode still needs an explicit `CIV3R_JGL=own`.
+Implementation source is back at baseline `c1a8d1e`. The shared-glyph HUD
+source, owned line/mill bypasses, and WoW64 window fixes predate this session. Owned mode still needs an explicit `CIV3R_JGL=own`.
 Normal launches remain on the original jgl path until the final switch is
 qualified.
 
 The hard requirement is unchanged: owned mode must avoid legacy drawing work.
-The renderer is the only drawing path. Text hit answers use the same glyph
-data and layout as the viewer. No scratch GDI surface, `TextOutA` calibration,
-duplicate text rasterizer, or original mill `TransparentBlt` is acceptable.
+The renderer must be the only drawing path. Reconstructing a queried canvas
+pixel on the CPU still repeats graphics work, even if it shares the
+renderer's glyph emitter or coverage math. No scratch GDI surface,
+`TextOutA` calibration, canvas-command pixel emulator, duplicate text
+rasterizer, or original mill `TransparentBlt` is acceptable.
 
 ## Closed work
 
@@ -20,7 +21,6 @@ duplicate text rasterizer, or original mill `TransparentBlt` is acceptable.
 | Standalone Group 7 window and pump contracts | All of this task has been done. |
 | Shared renderer glyph source and owned line bypass | All of this task has been done. |
 | Owned mill raster bypass and private selector/art proofs | All of this task has been done. |
-| Indexed hit sampling phases, text-cache lifetime, and atlas underline queries | All of this task has been done. |
 | WoW64 native-window build, taskbar fit, and launcher fixes | All of this task has been done. |
 
 The source-review record remains in
@@ -29,9 +29,13 @@ reviews do not prove complete gameplay or a no-jgl shipping session.
 
 ## Open work
 
-1. Align unmeasured outline and alternate-size fallback selection with the
-   renderer before accepting all text hits. The cache fix does not close
-   these pre-existing source-selection cases.
+1. Remove the game's dependency on rendered canvas pixels for interaction
+   decisions. Trace the keyed-form and frame-hit consumers, then replace
+   those consumers using actual control/form state or the renderer's own
+   interaction result. Do not expand the CPU pixel-query emulator. Actual
+   simulation/data buffers must keep real required data and state, rather
+   than simulated success returns. The existing baseline query path is
+   still present and is an unresolved architectural problem.
 2. Run the combined owned game through the loaded map and HUD. Exercise keyed
    reads, frame readers, line paths, F1/F5/F3, quit, and both mill visibility
    cases. The old HUD and F1 missing-source failures have corrections and
@@ -40,7 +44,7 @@ reviews do not prove complete gameplay or a no-jgl shipping session.
    F1 sweep still had 680 text differences, so it does not close full Group 6.
    See `jgl-contract-audit.md` for the source-bound evidence and exclusions.
 3. Repeat the enabled-mill live check on the final combined source after
-   the current sampling-phase and text-cache corrections.
+   correction of the interaction/readback architecture.
    Confirm the native queries, retained resource art, ordering, clipping, and
    zero legacy DC/blit/release calls in owned mode.
 4. Integrate and qualify Group 7 gameplay: launch lock, windowed mode,
@@ -52,9 +56,12 @@ reviews do not prove complete gameplay or a no-jgl shipping session.
 The recovery backup at `2501e49` was recreated and verified on both hosts.
 Its receipt is `evidence/jgl-source-backup-20261104/backup-receipt.json`.
 The final source checkpoint and its receipt are retained separately at
-`~/civ3r-source-backups/20261104-renderer-source-final` on Papa, Papa's laptop,
-and Neo. Consult its external `backup-receipt.json` for the final commit
-and hashes. The configured origin is the unavailable local path
+`~/civ3r-source-backups/20261104-renderer-source-final` preserves the
+verified `7875de3` checkpoint on all three hosts. A successor incremental
+bundle and receipt at `~/civ3r-source-backups/20261104-architecture-review`
+preserve the rejected experiment and the corrective main commit. Restore
+the base bundle first, then fetch the successor bundle. Consult the external
+receipts for exact commits, hashes and verified hosts. The configured origin is the unavailable local path
 `/home/sirati/Projects/civ3-renderer-old`; no origin push is claimed.
 
 Only unfinished Codex tasks belong in the continuation state. Read their
@@ -65,11 +72,15 @@ P4.
 
 ## Current validation and limits
 
-The 4 November source fixes passed 497 bridge tests and 78 UI tests,
-plus the no-lock and generic-crate guards. Native Linux, i686 Windows and
-x86_64 Windows release builds passed with incremental compilation disabled.
-Source and artifact hashes, regression counterexamples and validation limits
-are in [the verification record](evidence/jgl-owned-source-20261104/verification.json).
+The 4 November CPU pixel-query experiment is rejected for architecture,
+although its tests and release builds passed. It extended source sampling,
+text layout/coverage replay, and query caching instead of removing the
+need for that work. Its source is preserved on
+`checkpoints/cpu-keyed-readbacks-20261104` at `9f0f07a`. All five new
+implementation commits were reverted from main, including the supporting
+resource-version API. The four affected source files match `c1a8d1e` byte
+for byte. The earlier verification record is historical experiment evidence,
+not acceptance of that architecture. No experimental artifacts were deployed.
 
 The datasets drive is unmounted in the current session. The game assets,
 VM images, old runtime evidence, and previous backup directory under
