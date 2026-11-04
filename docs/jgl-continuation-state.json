@@ -9,22 +9,24 @@
   "research_status": "Full completed object-semantics findings preserved; implementation/runtime qualification remains separate.",
   "research_evidence": "evidence/jgl-recovery/source-evidence.json",
   "backups": {
-    "directory": "20261026-jgl-renderer-sources",
-    "receipt": null,
+    "directory": "20261104-jgl-renderer-sources",
+    "receipt": "docs/evidence/jgl-source-backup-20261104/backup-receipt.json",
     "configured_origin": "/home/sirati/Projects/civ3-renderer-old",
     "origin_available": false,
     "required_hosts": [
       "Papa laptop",
       "Mac Neo"
     ],
-    "scope": "A successor backup must be recreated after the T3 restart. The previous resumable Neo transfer was cancelled and its receipt is absent from the current filesystem.",
-    "previous_verified_checkpoint": "20261025-jgl-data-review",
+    "scope": "All committed main-repository refs and current main reading copy. Consult the external final receipt for its source commit, SHA-256 and per-host clone/fsck verification.",
+    "previous_verified_checkpoint": "20261104-jgl-renderer-sources",
     "previous_checkpoint": "20261025-jgl-readback-review",
-    "previous_neo_replication": "The prior Neo transfer was interrupted; no current receipt or verification is available."
+    "previous_neo_replication": "Current successor backup verified on Neo at ~/civ3-source-backups/20261104-jgl-renderer-sources.",
+    "final_directory": "~/civ3r-source-backups/20261104-renderer-source-final",
+    "final_receipt": "~/civ3r-source-backups/20261104-renderer-source-final/backup-receipt.json"
   },
-  "current_unmerged_branch": "t3/finish-jgl-groups-switch-5",
-  "current_unmerged_checkpoint": "31da02c2f5881a97083962a8971181be671509e1",
-  "current_code_acceptance": "Source corrections for shared glyph hits, owned line bypass, and owned mill raster bypass are in main and have private focused proofs. Full live Group 6 gameplay, integrated Group 7, default no-jgl switching, Neo deployment, and successor backup verification remain open.",
+  "current_unmerged_branch": null,
+  "current_unmerged_checkpoint": null,
+  "current_code_acceptance": "Shared glyph/owned line/mill source changes are in main. Added sampling-phase, bounded text-cache and atlas-underline corrections have focused regressions. Unmeasured fallback text selection, full live Group 6/Group 7, the default switch and final Neo deployment remain open.",
   "scoped_review": "evidence/jgl-data-review/review.json",
   "reviewed_corrections": {
     "source_loads": 203,
@@ -107,7 +109,7 @@
       970
     ],
     "error": "owned keyed canvas: no exact model answer",
-    "result": "process exit 1 after loaded-save HUD entry",
+    "result": "Historical failure, corrected in main. Reached-source regressions and later live checks are documented in jgl-contract-audit.md.",
     "source": "34d7add",
     "evidence": "/mnt/datasets/c3r-build/jgl-group6-data-20261025/runtime/final-own"
   },
@@ -120,5 +122,13 @@
     "mill_implementation": "2ac04ae",
     "mill_sampling": "538d23c",
     "mill_docs_recovery": "b753a5f6e61bd66462006818573c1a60eb6a2977"
-  }
+  },
+  "current_runtime_blocker": {
+    "kind": "datasets_unmounted",
+    "path": "/mnt/datasets",
+    "scope": "Local game/VM assets and historical runtime evidence unavailable; noninteractive mounting denied by OS. Host source/tests remain available."
+  },
+  "remaining_source_gaps": [
+    "Unmeasured outline and alternate-size fallback selection can differ from run_sprites; cache correction and atlas underline support do not close those paths."
+  ]
 }

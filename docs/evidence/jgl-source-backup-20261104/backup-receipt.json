@@ -1,0 +1,32 @@
+{
+  "created_utc": "2026-11-04",
+  "commit": "2501e49d2f09167fec0ae5d32d9c25142f983879",
+  "bundle": {
+    "file": "civ3-renderer.gitbundle",
+    "sha256": "0425321c4ad11049bd1c65b14ff1d7593a7c0ae7ab3358b70e6dc113976fd74a"
+  },
+  "source_tar": {
+    "file": "civ3-renderer-main.tar",
+    "sha256": "8621f67dad893ba59ce74d0be1a5566914b2a1694dfa2d6a5b667502ede6a5e1"
+  },
+  "copies": {
+    "papa_laptop": {
+      "host": "tspapalaptop",
+      "path": "~/civ3-source-backups/20261104-jgl-renderer-sources",
+      "sha256_verified": true,
+      "bundle_clone_and_fsck": true,
+      "main": "2501e49d2f09167fec0ae5d32d9c25142f983879"
+    },
+    "neo": {
+      "host": "tsneo",
+      "path": "~/civ3-source-backups/20261104-jgl-renderer-sources",
+      "sha256_verified": true,
+      "bundle_clone_and_fsck": true,
+      "main": "2501e49d2f09167fec0ae5d32d9c25142f983879"
+    }
+  },
+  "origin": {
+    "configured_path": "/home/sirati/Projects/civ3-renderer-old",
+    "available": false
+  }
+}
