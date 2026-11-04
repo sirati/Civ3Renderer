@@ -22,11 +22,12 @@
     "previous_checkpoint": "20261025-jgl-readback-review",
     "previous_neo_replication": "Current successor backup verified on Neo at ~/civ3-source-backups/20261104-jgl-renderer-sources.",
     "final_directory": "~/civ3r-source-backups/20261104-renderer-source-final",
-    "final_receipt": "~/civ3r-source-backups/20261104-renderer-source-final/backup-receipt.json"
+    "final_receipt": "~/civ3r-source-backups/20261104-renderer-source-final/backup-receipt.json",
+    "review_directory": "~/civ3r-source-backups/20261104-architecture-review"
   },
   "current_unmerged_branch": null,
   "current_unmerged_checkpoint": null,
-  "current_code_acceptance": "Shared glyph/owned line/mill source changes are in main. Added sampling-phase, bounded text-cache and atlas-underline corrections have focused regressions. Unmeasured fallback text selection, full live Group 6/Group 7, the default switch and final Neo deployment remain open.",
+  "current_code_acceptance": "The 4 November CPU pixel-reconstruction extensions are architecturally rejected and reverted. Affected implementation files match c1a8d1e. Existing baseline CPU query reconstruction remains an unresolved problem; do not expand it or treat shared renderer coverage math as removing duplicated work.",
   "scoped_review": "evidence/jgl-data-review/review.json",
   "reviewed_corrections": {
     "source_loads": 203,
@@ -129,6 +130,20 @@
     "scope": "Local game/VM assets and historical runtime evidence unavailable; noninteractive mounting denied by OS. Host source/tests remain available."
   },
   "remaining_source_gaps": [
-    "Unmeasured outline and alternate-size fallback selection can differ from run_sprites; cache correction and atlas underline support do not close those paths."
-  ]
+    "Replace keyed-form and frame-hit consumers with real interaction/control/form state or results from the renderer itself, avoiding CPU reconstruction of canvas pixels.",
+    "Audit remaining readbacks to distinguish actual simulation/data buffers from obsolete display-only work; do not simulate successful graphics operations."
+  ],
+  "rejected_experiment": {
+    "branch": "checkpoints/cpu-keyed-readbacks-20261104",
+    "commit": "9f0f07a7b1e78fbca263c94ba6a18ca9dc36b6e7",
+    "reason": "Single-pixel CPU reconstruction is still duplicated graphics work. Sharing glyph/layout code does not satisfy the stub-and-replace objective.",
+    "implementation_commits_reverted": [
+      "9f0f07a",
+      "f0ecad2",
+      "b13e209",
+      "aff7f70",
+      "d2446d0"
+    ],
+    "deployed": false
+  }
 }
