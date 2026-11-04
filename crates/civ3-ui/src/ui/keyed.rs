@@ -165,8 +165,8 @@ fn query_coverage(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl Key
                 let (w,h)=indices.size(*rect);
                 if !contains([*dx,*dy,dx+w,dy+h]) {continue;}
                 let step=indices.resize.map_or([65536;2],|r|r.sample_step);
-                let sx=rect[0]+((i64::from(x-dx)*i64::from(step[0]))>>16) as i32;
-                let sy=rect[1]+((i64::from(y-dy)*i64::from(step[1]))>>16) as i32;
+                let sx=rect[0]+((i64::from(x-dx)*i64::from(step[0])+i64::from(indices.sample_offset[0]))>>16) as i32;
+                let sy=rect[1]+((i64::from(y-dy)*i64::from(step[1])+i64::from(indices.sample_offset[1]))>>16) as i32;
                 let s=sample(files,path,retained.as_ref(),sx,sy,palette.as_ref());
                 colors=match s {
                     None=>Colors::UNKNOWN,
@@ -231,6 +231,47 @@ mod tests {
         m.add_generated(1);
         assert_eq!(m.keyed_at(1,14,14,&Retained),None);
         assert!(!m.unwritten_at(1,14,14));
+    }
+
+    #[test]
+    fn mill_hits_keep_both_sampling_phases_after_clipped_copy_and_source_release() {
+        // The 33-to-24 renderer samples, including C3X's different x/y
+        // phases. Alternating ink/key source pixels expose a phase reset.
+        const X: [usize; 24] = [0,2,3,5,6,7,9,10,11,13,14,16,17,18,20,21,22,24,25,27,28,29,31,32];
+        const Y: [usize; 24] = [0,1,3,4,6,7,8,10,11,12,14,15,17,18,19,21,22,23,25,26,28,29,30,32];
+        let ink = |x: usize, y: usize| (x * 3 + y * 5) % 7 < 3;
+        let mut palette = [[0; 3]; 256];
+        palette[7] = KEY_RGB;
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Loaded { image: 10, path: "Art/resources.pcx".into(), size: (50, 50) });
+        m.loaded_pixels(10, Arc::new(crate::selection::FilePixels {
+            size: (50, 50), row: 50, palette,
+            indices: (0..2500).map(|i| if ink(i % 50, i / 50) { 1 } else { 7 }).collect(),
+        }));
+        m.apply(Event::Size { image: 30, size: (80, 80) });
+        m.apply(Event::MillIcons { canvas: 30, path: "Art/resources.pcx".into(),
+            resources: vec![(0, 0)], at: (5, 7), clip: [22, 9, 42, 28], transparent: vec![7] });
+        m.apply(Event::Size { image: 40, size: (160, 160) });
+        m.apply(Event::Copy { from: 30, src: [21, 8, 23, 23], canvas: 40, x: 100, y: 100, keyed: true });
+        m.apply(Event::Cleared { image: 10 });
+        // Queries must retain the old sheet, even if its address is reused.
+        m.apply(Event::Loaded { image: 10, path: "other.pcx".into(), size: (50, 50) });
+        m.loaded_pixels(10, Arc::new(crate::selection::FilePixels {
+            size: (50, 50), row: 50, palette, indices: vec![7; 2500],
+        }));
+        let mut hits = 0;
+        let mut holes = 0;
+        for dy in 0..24 {
+            for dx in 0..24 {
+                let visible = dx >= 2 && dx < 22 && dy >= 2 && dy < 21;
+                let expected = visible && ink(9 + X[dx], 9 + Y[dy]);
+                assert_eq!(m.keyed_at(30, 20 + dx as i32, 7 + dy as i32, &Retained), Some(expected), "icon ({dx},{dy})");
+                assert_eq!(m.keyed_at(40, 99 + dx as i32, 99 + dy as i32, &Retained), Some(expected), "copied icon ({dx},{dy})");
+                hits += usize::from(expected);
+                holes += usize::from(visible && !expected);
+            }
+        }
+        assert!(hits > 0 && holes > 0);
     }
 
     #[test]
