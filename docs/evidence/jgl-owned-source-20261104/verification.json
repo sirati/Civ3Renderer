@@ -1,0 +1,68 @@
+{
+  "as_of": "2026-11-04T07:17:24.409658+00:00",
+  "source_head": "b13e20969c232c0261f0cfef90bd57e19be293db",
+  "source_sha256": {
+    "crates/civ3-ui/src/ui/keyed.rs": "34a8d44fb8e8826b0e4ec98d6da618c4a9130b1600fa534bb515f46e84476f24",
+    "crates/civ3-bridge/src/text.rs": "a33bf43df75b1d52664ddfc34a1564e3f2f27a7fb5ddfb52771069b120db7a08",
+    "crates/civ3-bridge/src/keyed_read_tests.rs": "c79eb093c4398556d47e221aabd81992c81ed4e2c11f3bb03ae424dcd804180f"
+  },
+  "commits": [
+    "d2446d0",
+    "aff7f70",
+    "b13e209"
+  ],
+  "changes": [
+    "Indexed hit queries preserve both fixed-point source offsets, including clipped copies and retained resource sheets.",
+    "Text hit resources publish coherently; per-reader derived label retention is bounded and invalidates after font/face/publisher changes.",
+    "Atlas underline queries use actual sheet width at fitted character pens. Independent test sessions have isolated Latest publications."
+  ],
+  "validation": {
+    "bridge_lib": {
+      "passed": 497,
+      "ignored": 9
+    },
+    "civ3_ui_lib": {
+      "passed": 78,
+      "ignored": 2
+    },
+    "civ3_sys_lib": {
+      "passed": 175
+    },
+    "jgl_ffi_lib": {
+      "passed": 9
+    },
+    "no_locks": {
+      "passed": 2
+    },
+    "generic_crates": {
+      "passed": 3
+    },
+    "regression_controls": {
+      "mill_without_offsets": "Fails at icon (4,2): false hit instead of true.",
+      "atlas_without_underline": "Fails at (31,28): transparent instead of black underline.",
+      "corrected_suites": "Pass."
+    },
+    "release_builds": {
+      "incremental": 0,
+      "profiles": [
+        "native civ3r-native",
+        "i686 Windows civ3-bridge and civ3r-native",
+        "x86_64 Windows civ3r-native"
+      ],
+      "artifact_sha256": {
+        "target/release/libciv3r_native.so": "9e6b87b5b248e2784b2a403608abce104ed70fdd41d62bcdf78f5015b339a0a3",
+        "target/i686-pc-windows-gnu/release/ifc23.dll": "c885ca79937581b0c6c7ccfc6051adc9968f1985f8ad74ff756439938ecb75ff",
+        "target/i686-pc-windows-gnu/release/civ3r_native.dll": "395aa7295035b2ac027f7f2eb41d34789adb27f7e500b0e01bef274d49095912",
+        "target/x86_64-pc-windows-gnu/release/civ3r_native.dll": "27a101228bfccb347dc61ed225b23001b68c63f29ae9f71a078205de9cc9132d"
+      }
+    },
+    "environment": "nix develop, CARGO_INCREMENTAL=0 for final corrected suites, guards and release builds. Earlier unchanged sys/jgl host suites passed in nix develop.",
+    "limits": [
+      "No fresh full-workspace run.",
+      "The Windows-only mill binary test has zero host tests; no new binary-pair proof is claimed.",
+      "Some existing real-asset tests return early because /mnt/datasets is unavailable. Counts do not establish those asset-dependent checks.",
+      "No new live game, Windows VM, macOS VM, ARM64/Metal, no-jgl default switch, or Neo deployment.",
+      "Unmeasured outline and alternate-size fallback selection remains open."
+    ]
+  }
+}

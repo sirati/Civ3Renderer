@@ -1,7 +1,7 @@
 # JGL continuation handover
 
-`main` is clean at `c1a8d1e`. The shared-glyph HUD fix, owned line bypass,
-owned mill raster bypass, and the WoW64 window/launcher fixes are already in
+The recovered implementation baseline is `c1a8d1e`. The shared-glyph HUD fix,
+owned line bypass, owned mill raster bypass, and the WoW64 window/launcher fixes are already in
 the ancestry of `main`. Owned mode still needs an explicit `CIV3R_JGL=own`.
 Normal launches remain on the original jgl path until the final switch is
 qualified.
@@ -20,6 +20,7 @@ duplicate text rasterizer, or original mill `TransparentBlt` is acceptable.
 | Standalone Group 7 window and pump contracts | All of this task has been done. |
 | Shared renderer glyph source and owned line bypass | All of this task has been done. |
 | Owned mill raster bypass and private selector/art proofs | All of this task has been done. |
+| Indexed hit sampling phases, text-cache lifetime, and atlas underline queries | All of this task has been done. |
 | WoW64 native-window build, taskbar fit, and launcher fixes | All of this task has been done. |
 
 The source-review record remains in
@@ -28,33 +29,58 @@ reviews do not prove complete gameplay or a no-jgl shipping session.
 
 ## Open work
 
-1. Run the combined owned game through the loaded map and HUD. Exercise keyed
+1. Align unmeasured outline and alternate-size fallback selection with the
+   renderer before accepting all text hits. The cache fix does not close
+   these pre-existing source-selection cases.
+2. Run the combined owned game through the loaded map and HUD. Exercise keyed
    reads, frame readers, line paths, F1/F5/F3, quit, and both mill visibility
-   cases. The earlier run stopped at
-   `owned keyed canvas 0x9fdd84: no exact model answer`; that is an
-   incomplete-path diagnostic, not acceptance.
-2. Qualify an enabled mill in the live game after the private mill proofs.
+   cases. The old HUD and F1 missing-source failures have corrections and
+   recorded regressions in `main`. The 26 October live check recorded zero
+   unanswered owned reads, including an enabled Granary Iron badge. Its
+   F1 sweep still had 680 text differences, so it does not close full Group 6.
+   See `jgl-contract-audit.md` for the source-bound evidence and exclusions.
+3. Repeat the enabled-mill live check on the final combined source after
+   the current sampling-phase and text-cache corrections.
    Confirm the native queries, retained resource art, ordering, clipping, and
    zero legacy DC/blit/release calls in owned mode.
-3. Integrate and qualify Group 7 gameplay: launch lock, windowed mode,
+4. Integrate and qualify Group 7 gameplay: launch lock, windowed mode,
    Alt/capture, stale input, screen/turn/combat checks, and the soak run.
-4. Only after those gates pass, make the no-jgl default switch and produce a
+5. Only after those gates pass, make the no-jgl default switch and produce a
    coherent release build. Deploy that build to Neo and verify the native
    renderer window, map, input, and clean exit on ARM64.
-5. Recreate the successor source backup after the T3 restart. The prior
-   resumable Neo transfer was cancelled and its receipt is not present in the
-   current filesystem. The configured `origin` path is
-   `/home/sirati/Projects/civ3-renderer-old`, which is unavailable here, so a
-   verified origin push cannot be claimed.
 
-No subagent is currently unfinished. If a later gate needs delegation, start
-one Codex GPT-6.1 Sol agent with an isolated scope and record its task here
-only while it remains unfinished. Completed agents must not be listed.
+The recovery backup at `2501e49` was recreated and verified on both hosts.
+Its receipt is `evidence/jgl-source-backup-20261104/backup-receipt.json`.
+The final source checkpoint and its receipt are retained separately at
+`~/civ3r-source-backups/20261104-renderer-source-final` on Papa, Papa's laptop,
+and Neo. Consult its external `backup-receipt.json` for the final commit
+and hashes. The configured origin is the unavailable local path
+`/home/sirati/Projects/civ3-renderer-old`; no origin push is claimed.
+
+Only unfinished Codex tasks belong in the continuation state. Read their
+status before starting a replacement. Completed agents must not be listed.
 
 Sound and the 240 FPS target are P3. Six-bit/seven-bit pixel attribution is
 P4.
 
-## Evidence and safety
+## Current validation and limits
+
+The 4 November source fixes passed 497 bridge tests and 78 UI tests,
+plus the no-lock and generic-crate guards. Native Linux, i686 Windows and
+x86_64 Windows release builds passed with incremental compilation disabled.
+Source and artifact hashes, regression counterexamples and validation limits
+are in [the verification record](evidence/jgl-owned-source-20261104/verification.json).
+
+The datasets drive is unmounted in the current session. The game assets,
+VM images, old runtime evidence, and previous backup directory under
+`/mnt/datasets` are therefore unavailable. A noninteractive mount was denied
+by the OS. Live game validation cannot resume locally until the drive is
+available; source work and host tests can continue.
+
+The latest retained WoW64 Windows play result reached the map, founded Rome,
+advanced to 3900 BC and saved `wow64test.SAV`. The runner still needed to
+parse the latest HUD date and click OK after selecting the quit radio
+choice. These are test-runner findings, not acceptance of ordinary Quit.
 
 The accepted source changes preserve the renderer's file, glyph, line, and
 mill state rather than copying scratch pixels into the viewer. Original-jgl
