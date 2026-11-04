@@ -143,14 +143,23 @@ fn query_coverage(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl Key
                 }
             }
             ScreenDraw::Image { retained,path, rect, x:dx, y:dy, keyed, clip, mask, palette, opacity }
-                if contains([*dx,*dy,dx+rect[2],dy+rect[3]]) && contains(*clip) => {
-                let at=(rect[0]+x-dx,rect[1]+y-dy);
+            | ScreenDraw::ResizedImage { retained,path, rect, x:dx, y:dy, keyed, clip, mask, palette, opacity, .. }
+                if contains(*clip) => {
+                let (w,h)=match draw {ScreenDraw::ResizedImage {size,..}=>*size,_=>(rect[2],rect[3])};
+                if !contains([*dx,*dy,dx+w,dy+h]) {continue;}
+                let (sx,sy)=match draw {
+                    ScreenDraw::ResizedImage {sample_step,..}=>(
+                        ((i64::from(x-dx)*i64::from(sample_step[0]))>>16) as i32,
+                        ((i64::from(y-dy)*i64::from(sample_step[1]))>>16) as i32),
+                    _=>(x-dx,y-dy),
+                };
+                let at=(rect[0]+sx,rect[1]+sy);
                 colors=match sample(files,path,retained.as_ref(),at.0,at.1,palette.as_ref()) {
                     None=>Colors::UNKNOWN,
                     Some(s) if *keyed && s.index>=if mask.is_some() {255} else {254}=>colors,
                     Some(s)=>{
                         let next=if let Some(mask)=mask {
-                            match sample(files,&mask.path,mask.retained.as_ref(),mask.at.0+x-dx,mask.at.1+y-dy,None) {
+                            match sample(files,&mask.path,mask.retained.as_ref(),mask.at.0+sx,mask.at.1+sy,None) {
                                 Some(m) if m.index==255=>colors,
                                 Some(m) if mask.premultiplied=>Colors::premultiplied(s.rgb,m.index),
                                 Some(m)=>colors.masked(s.rgb,m.index), None=>Colors::UNKNOWN,
@@ -160,7 +169,6 @@ fn query_coverage(model: &UiModel, canvas: u32, x: i32, y: i32, files: &impl Key
                     }
                 };
             }
-            ScreenDraw::ResizedImage { x:dx,y:dy,size,clip,.. } if contains([*dx,*dy,dx+size.0,dy+size.1]) && contains(*clip) => colors=Colors::UNKNOWN,
             ScreenDraw::Indexed { retained,path,rect,x:dx,y:dy,clip,palette,indices } if contains(*clip) => {
                 let (w,h)=indices.size(*rect);
                 if !contains([*dx,*dy,dx+w,dy+h]) {continue;}
@@ -272,6 +280,41 @@ mod tests {
             }
         }
         assert!(hits > 0 && holes > 0);
+    }
+
+    #[test]
+    fn resized_file_hits_keep_fractional_source_steps_through_copies() {
+        let mut m = UiModel::new(vec![], vec![]);
+        let mut palette = [[0; 3]; 256];
+        palette[255] = KEY_RGB;
+        let ink = |x: usize, y: usize| (x + y) % 3 == 1;
+        m.apply(Event::Loaded { image: 10, path: "scaled.pcx".into(), size: (16, 12) });
+        m.loaded_pixels(10, Arc::new(crate::selection::FilePixels {
+            size: (16, 12), row: 16, palette,
+            indices: (0..192).map(|i| if ink(i % 16, i / 16) { 1 } else { 255 }).collect(),
+        }));
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [4, 3, 9, 5] });
+        m.apply(Event::Size { image: 30, size: (20, 20) });
+        m.apply(Event::ResizedBlit { sprite: 20, canvas: 30, x: 2, y: 3, size: (5, 3),
+            sample_step: [117964, 109226], clip: Some([3, 3, 7, 6]), palette: None, indices: None });
+        m.apply(Event::Size { image: 40, size: (30, 30) });
+        m.apply(Event::Copy { from: 30, src: [3, 3, 4, 3], canvas: 40, x: 10, y: 11, keyed: true });
+        m.apply(Event::Reset { sprite: 20 });
+        m.apply(Event::Cleared { image: 10 });
+        // Native 16.16 sampling truncates to these source positions, not
+        // the positions obtained by recomputing a ratio from the clip.
+        let xs = [0, 1, 3, 5, 7];
+        let ys = [0, 1, 3];
+        for dy in 0..3 { for dx in 0..5 {
+            let expected = dx > 0 && ink(4 + xs[dx], 3 + ys[dy]);
+            assert_eq!(m.keyed_at(30, 2 + dx as i32, 3 + dy as i32, &Retained), Some(expected));
+            assert_eq!(m.keyed_at(40, 9 + dx as i32, 11 + dy as i32, &Retained), Some(expected));
+        }}
+        m.apply(Event::Loaded { image: 11, path: "unavailable.pcx".into(), size: (16, 12) });
+        m.apply(Event::Sliced { sprite: 21, image: 11, rect: [4, 3, 9, 5] });
+        m.apply(Event::ResizedBlit { sprite: 21, canvas: 30, x: 2, y: 3, size: (5, 3),
+            sample_step: [117964, 109226], clip: None, palette: None, indices: None });
+        assert_eq!(m.keyed_at(30, 4, 4, &Retained), None, "an unavailable source must remain unknown");
     }
 
     #[test]
