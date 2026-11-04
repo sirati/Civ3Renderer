@@ -1,7 +1,7 @@
 {
-  "as_of": "2026-10-26",
+  "as_of": "2026-11-04",
   "scope": "Only the unfinished jgl group 6 remainder, group 7 and final switch; completed work has no agent entry.",
-  "implementation_main_at_recovery": "dd992e0",
+  "implementation_main_at_recovery": "c1a8d1e",
   "recovered_branch": "jgl-g67",
   "recovered_checkpoint": "47d1e45",
   "recovered_code_acceptance": "Unaccepted. Includes a temporary comparison mode and unfinished final-switch wiring.",
@@ -10,21 +10,21 @@
   "research_evidence": "evidence/jgl-recovery/source-evidence.json",
   "backups": {
     "directory": "20261026-jgl-renderer-sources",
-    "receipt": "/mnt/datasets/c3r-source-backups/20261026-jgl-renderer-sources/backup-receipt.json",
+    "receipt": null,
     "configured_origin": "/home/sirati/Projects/civ3-renderer-old",
     "origin_available": false,
     "required_hosts": [
       "Papa laptop",
       "Mac Neo"
     ],
-    "scope": "All committed main-repository refs including interrupted checkpoint, readable docs and retained RE/test evidence. Consult receipt for actual transfer results.",
+    "scope": "A successor backup must be recreated after the T3 restart. The previous resumable Neo transfer was cancelled and its receipt is absent from the current filesystem.",
     "previous_verified_checkpoint": "20261025-jgl-data-review",
     "previous_checkpoint": "20261025-jgl-readback-review",
-    "previous_neo_replication": "Readback-review checkpoint verified locally and on Papa laptop; Neo SSH timed out and replication remained pending."
+    "previous_neo_replication": "The prior Neo transfer was interrupted; no current receipt or verification is available."
   },
   "current_unmerged_branch": "t3/finish-jgl-groups-switch-5",
   "current_unmerged_checkpoint": "31da02c2f5881a97083962a8971181be671509e1",
-  "current_code_acceptance": "Scoped data/state/DC and standalone Group 7 contracts accepted. Later HUD/frame fixes remain unreviewed; separate glyph reproduction and retained original mill raster work rejected. Full Group 6, integrated gameplay, default switch and Neo remain unaccepted.",
+  "current_code_acceptance": "Source corrections for shared glyph hits, owned line bypass, and owned mill raster bypass are in main and have private focused proofs. Full live Group 6 gameplay, integrated Group 7, default no-jgl switching, Neo deployment, and successor backup verification remain open.",
   "scoped_review": "evidence/jgl-data-review/review.json",
   "reviewed_corrections": {
     "source_loads": 203,
@@ -36,50 +36,9 @@
   },
   "schema_version": 2,
   "contract_matrix": "jgl-contract-audit.md",
-  "active_tasks": [
-    {
-      "title": "Share renderer glyph source for HUD/frame text hits",
-      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-shared-glyph-source-20261026-8",
-      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-shared-glyph-source-20261026-8",
-      "model": "gpt-6.1-sol",
-      "provider": "codex",
-      "task_status": "running",
-      "isolation": "worktree",
-      "no_child_agents": true,
-      "scope": [
-        "Remove rejected duplicate glyph and TextOutA calibration path while preserving independent fixes",
-        "Use renderer glyph data and placement for drawing and semantic hit answers",
-        "Qualify available loaded-map/HUD/frame/F1/quit interactions",
-        "Audit reached owned line paths for duplicate C3X GDI+ drawing"
-      ],
-      "sole_local_game_gui_input_owner": true,
-      "shared_game_gui_access": true,
-      "shared_game_files_mutation": true,
-      "shared_build_target_access": true,
-      "sole_warm_build_target_owner": "/tmp/c3r-jgl-g23/target"
-    },
-    {
-      "title": "Avoid legacy raster work in native C3X mill icons",
-      "task_id": "node:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-mill-no-raster-20261026-8",
-      "child_thread_id": "thread:delegated-task:command%3Amcp%3Aab9090e0-5007-4677-a3f4-26e735e7e56f%3Adelegate-task%3Aciv3-jgl-mill-no-raster-20261026-8",
-      "model": "gpt-6.1-sol",
-      "provider": "codex",
-      "task_status": "running",
-      "isolation": "worktree",
-      "no_child_agents": true,
-      "scope": [
-        "Review and correct state/file-art mill source integration",
-        "Avoid original mill DC/TransparentBlt drawing in owned mode",
-        "Private source/state/art/build validation; later live enabled-mill qualification remains open"
-      ],
-      "sole_local_game_gui_input_owner": false,
-      "shared_game_gui_access": false,
-      "shared_game_files_mutation": false,
-      "shared_build_target_access": false
-    }
-  ],
-  "active_agents": 2,
-  "integrated_group7_gate": "Standalone implementation accepted. Spawn the integrated qualification continuation only after accepted Group 6, parent common-source integration and release/reassignment of the sole shared-game reservation.",
+  "active_tasks": [],
+  "active_agents": 0,
+  "integrated_group7_gate": "Pending live Group 6 and enabled-mill qualification, then integrated gameplay and final no-jgl switch.",
   "latest_data_correction": {
     "original_owned_calls": 40,
     "contract_bytes": 1369360,
@@ -116,7 +75,7 @@
   "pending_integrated_work": [
     {
       "title": "Group 7 integrated game qualification and final no-jgl switch",
-      "status": "pending_group6_and_common_source",
+      "status": "open",
       "spawn_gpt_6_1_sol_continuation_when_ready": true,
       "brief": "jgl-group7-integration.md",
       "requires": [
