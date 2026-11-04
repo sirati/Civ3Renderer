@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use civ3_assets::GameFiles;
 use civ3_assets::fonts::{FontStyle, Glyph, GlyphFont, charset, outline_char};
@@ -45,44 +44,71 @@ struct HitRun {
     source: HitSource,
 }
 
-static HIT_RUNS: handoff::Latest<Vec<HitRun>> = handoff::Latest::new();
-static HIT_ATLASES: handoff::Latest<BTreeMap<FontKey, Arc<GlyphFont>>> = handoff::Latest::new();
-#[derive(Clone)]
+/// A coherent snapshot of loaded renderer resources. Run strings and glyph
+/// placements are rebuilt from this source, never retained as an authority.
 struct HitResources {
+    owner: Arc<()>,
+    revision: u64,
     faces: Vec<(String, Arc<tile_render::gpu_text::Face>)>,
+    atlases: BTreeMap<FontKey, Arc<GlyphFont>>,
     measures: bool,
+    // Offline fixtures supply the metric provider that Windows supplies in
+    // production. These are measurement inputs, not published draw history.
+    #[cfg(test)]
+    layouts: std::collections::HashMap<(FontStyle, String), Option<gdi_text::TextLayout>>,
+    #[cfg(test)]
+    widths: std::collections::HashMap<(FontStyle, String), Option<i32>>,
 }
 static HIT_RESOURCES: handoff::Latest<HitResources> = handoff::Latest::new();
-static HIT_REVISION: AtomicU64 = AtomicU64::new(u64::MAX);
 
-/// Query a pixel from the renderer's retained text source. The return value
-/// is `Some(None)` for the colour key and `Some(Some(rgb))` for the exact RGB
-/// result; `None` means this run has no retained renderer source.
-pub(crate) fn keyed_pixel(run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
-    let mut local = run.clone();
-    local.x = 0;
-    local.y = 0;
-    let hit = HIT_RUNS.load().and_then(|runs| runs.iter().rev().find(|hit| hit.run == local).cloned());
-    let hit = match hit {
-        Some(hit) => hit,
-        None => {
-            // A game-thread hit can precede the publisher's first emission
-            // of a new label or hover colour. The source is the retained
-            // font, not the fact that this exact string was emitted already.
-            let resources = HIT_RESOURCES.load()?;
-            let fonts = Fonts { measures: resources.measures, ..Fonts::default() };
-            let source = fonts.hit_source(&local, &resources.faces)?;
-            let hit = HitRun { run: local, source };
-            HIT_RUNS.update(|old| {
-                let mut runs=old.cloned().unwrap_or_default();
-                runs.retain(|old|old.run!=hit.run);
-                runs.push(hit.clone());
-                Some(runs)
-            });
-            hit
+// One optional short label per reader. Eviction only discards derived
+// placement; any supported label can be reconstructed from HitResources.
+const HIT_LABEL_BYTES: usize = 4096;
+struct HitCache {
+    resources: Arc<HitResources>,
+    run: Option<HitRun>,
+}
+
+impl HitCache {
+    fn new(resources: Arc<HitResources>) -> Self {
+        Self { resources, run: None }
+    }
+
+    fn pixel(&mut self, run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
+        let mut local = run.clone();
+        local.x = 0;
+        local.y = 0;
+        if let Some(hit) = &self.run {
+            if hit.run == local { return hit.pixel(x-run.x, y-run.y); }
         }
-    };
-    hit.pixel(x-run.x,y-run.y)
+        let fonts = Fonts { measures: self.resources.measures, ..Fonts::default() };
+        #[cfg(test)] {
+            *fonts.layouts.borrow_mut() = self.resources.layouts.clone();
+            *fonts.widths.borrow_mut() = self.resources.widths.clone();
+        }
+        let source = fonts.hit_source(&local, &self.resources.faces, &self.resources.atlases)?;
+        let hit = HitRun { run: local, source };
+        let pixel = hit.pixel(x-run.x, y-run.y);
+        self.run = (hit.run.text.len() + hit.run.face.len() <= HIT_LABEL_BYTES).then_some(hit);
+        pixel
+    }
+}
+
+thread_local! {
+    static HIT_CACHE: RefCell<Option<HitCache>> = const { RefCell::new(None) };
+}
+
+/// Query a pixel from the renderer's loaded text source. The return value
+/// is `Some(None)` for the colour key and `Some(Some(rgb))` for the exact RGB
+/// result; `None` means this run has no supported renderer source.
+pub(crate) fn keyed_pixel(run: &TextRun, x: i32, y: i32) -> Option<Option<[u8; 3]>> {
+    let resources = HIT_RESOURCES.load()?;
+    HIT_CACHE.with_borrow_mut(|cache| {
+        if cache.as_ref().is_none_or(|cache| !Arc::ptr_eq(&cache.resources, &resources)) {
+            *cache = Some(HitCache::new(resources));
+        }
+        cache.as_mut()?.pixel(run, x, y)
+    })
 }
 
 fn keyed_mix(color: [u8; 3], coverage: [u8; 3], key: [u8; 3]) -> Option<[u8; 3]> {
@@ -188,6 +214,8 @@ fn legacy_advance(c: char, face: &tile_render::gpu_text::Face, height: i32) -> O
 #[derive(Default)]
 pub struct Fonts {
     fonts: BTreeMap<FontKey, Option<GlyphFont>>,
+    /// Identifies this publisher even when another Fonts has the same revision.
+    hit_owner: Arc<()>,
     /// Changes whenever loaded font metrics change, including a reload
     /// whose glyphs are already in the atlas.
     revision: u64,
@@ -220,18 +248,7 @@ struct Loader {
 }
 
 impl Fonts {
-    fn atlas_source(&self, key: &FontKey, font: &GlyphFont) -> Arc<GlyphFont> {
-        let mut result = None;
-        HIT_ATLASES.update(|old| {
-            let mut atlases = old.cloned().unwrap_or_default();
-            let atlas = atlases.entry(key.clone()).or_insert_with(|| Arc::new(font.clone())).clone();
-            result = Some(atlas);
-            Some(atlases)
-        });
-        result.expect("atlas source published")
-    }
-
-    fn hit_source(&self, run: &TextRun, faces: &[(String, Arc<tile_render::gpu_text::Face>)]) -> Option<HitSource> {
+    fn hit_source(&self, run: &TextRun, faces: &[(String, Arc<tile_render::gpu_text::Face>)], atlases: &BTreeMap<FontKey, Arc<GlyphFont>>) -> Option<HitSource> {
         if let (Some((_, face)), Some(layout)) = (faces.iter().find(|(name,_)|name==&run.face), self.game_layout(run)) {
             let chars: Vec<char> = run.text.chars().collect();
             if chars.len() == layout.advances.len() {
@@ -247,8 +264,7 @@ impl Fonts {
             }
         }
         let want = key(run);
-        let font = self.fonts.get(&want).and_then(Option::as_ref).map(|font|self.atlas_source(&want,font))
-            .or_else(||HIT_ATLASES.load().and_then(|fonts|fonts.get(&want).cloned()))?;
+        let font = atlases.get(&want).cloned()?;
         if legacy_run(run, &font) { return None; }
         let mut advances: Vec<i32> = run.text.chars().filter_map(|c| font.glyphs.get(&c)).map(|glyph| glyph.advance).collect();
         self.fit(run, &mut advances);
@@ -256,26 +272,35 @@ impl Fonts {
         Some(HitSource::Atlas { font, advances })
     }
 
-    fn publish_hit(&self, run: &TextRun, compiled: &Compiled) {
-        let changed=HIT_RESOURCES.load().is_none_or(|old| old.measures!=self.measures || old.faces.len()!=compiled.fonts.len()
-            || old.faces.iter().zip(&compiled.fonts).any(|((a,af),(b,bf))|a!=b || !Arc::ptr_eq(af,bf)));
-        if changed { HIT_RESOURCES.update(|_|Some(HitResources {faces:compiled.fonts.clone(),measures:self.measures})); }
-        if HIT_REVISION.swap(self.revision, Ordering::AcqRel) != self.revision {
-            HIT_ATLASES.update(|_| Some(self.fonts.iter().filter_map(|(key,font)|font.as_ref().map(|font|(key.clone(),Arc::new(font.clone())))).collect()));
-        }
-        // Form placement and clipped canvas copies translate the baseline.
-        // Retain the renderer source in baseline-relative coordinates.
-        let mut local = run.clone();
-        local.x = 0;
-        local.y = 0;
-        let run = &local;
-        let Some(source) = self.hit_source(run, &compiled.fonts) else { return };
-        HIT_RUNS.update(|old| {
-            let mut runs = old.cloned().unwrap_or_default();
-            runs.retain(|hit| hit.run != *run);
-            runs.push(HitRun { run: run.clone(), source: source.clone() });
-            Some(runs)
+    fn publish_hit_resources(&self, compiled: &Compiled) {
+        let current = HIT_RESOURCES.load();
+        let changed = current.as_ref().is_none_or(|old| {
+            !Arc::ptr_eq(&old.owner, &self.hit_owner) || old.revision != self.revision
+                || old.measures != self.measures || old.faces.len() != compiled.fonts.len()
+                || old.faces.iter().zip(&compiled.fonts).any(|((a, af), (b, bf))| a != b || !Arc::ptr_eq(af, bf))
         });
+        #[cfg(test)]
+        let changed = changed || current.as_ref().is_some_and(|old| {
+            old.layouts != *self.layouts.borrow() || old.widths != *self.widths.borrow()
+        });
+        if changed {
+            let atlases = current.as_ref().filter(|old| {
+                Arc::ptr_eq(&old.owner, &self.hit_owner) && old.revision == self.revision
+            }).map(|old| old.atlases.clone()).unwrap_or_else(|| {
+                self.fonts.iter().filter_map(|(key, font)| font.as_ref().map(|font| (key.clone(), Arc::new(font.clone())))).collect()
+            });
+            HIT_RESOURCES.publish(HitResources {
+                owner: self.hit_owner.clone(),
+                revision: self.revision,
+                faces: compiled.fonts.clone(),
+                atlases,
+                measures: self.measures,
+                #[cfg(test)]
+                layouts: self.layouts.borrow().clone(),
+                #[cfg(test)]
+                widths: self.widths.borrow().clone(),
+            });
+        }
     }
 
     /// Fonts loaded on a thread of their own: [`Fonts::add`] asks for them,
@@ -774,7 +799,7 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) {
-        self.publish_hit(r, compiled);
+        self.publish_hit_resources(compiled);
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
         if self.sized_glyphs(r, clip, compiled, after_pass, out, 0) { return; }
         let key = key(r);
@@ -898,7 +923,7 @@ impl Fonts {
         after_pass: u32,
         out: &mut Vec<scene::FreeSprite>,
     ) -> bool {
-        self.publish_hit(r, compiled);
+        self.publish_hit_resources(compiled);
         if self.measured_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         if self.sized_glyphs(r, clip, compiled, after_pass, out, 2) { return true; }
         let want = key(r);

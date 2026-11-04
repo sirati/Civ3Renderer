@@ -38,7 +38,7 @@ fn recorded_first_city_caption_is_queried_in_canvas_coordinates() {
     fonts.fonts.insert(key(&run), Some(font));
     let compiled = readiness_tests::fixture_art(&[], "");
     let screen = TextRun { x: run.x + 448, y: run.y + 156, ..run.clone() };
-    fonts.publish_hit(&screen, &compiled);
+    fonts.publish_hit_resources(&compiled);
     let local = keyed_pixel(&run, 132, 324);
     assert_eq!(local, Some(None), "the recorded read lies in the caption key");
     assert_eq!(local, keyed_pixel(&screen, 580, 480));
@@ -48,8 +48,7 @@ fn recorded_first_city_caption_is_queried_in_canvas_coordinates() {
     // A native hit can ask for a new string before the publisher emits it.
     // The loaded font is already a renderer source for this run too.
     let fresh=TextRun {text:"....".into(),..run.clone()};
-    assert!(HIT_RUNS.load().unwrap().iter().all(|hit|hit.run.text!=fresh.text));
-    let source=fonts.hit_source(&TextRun {x:0,y:0,..fresh.clone()},&compiled.fonts).unwrap();
+    let source=fonts.hit_source(&TextRun {x:0,y:0,..fresh.clone()},&compiled.fonts,&HIT_RESOURCES.load().unwrap().atlases).unwrap();
     let expected=HitRun {run:TextRun {x:0,y:0,..fresh.clone()},source};
     for y in 313..333 { for x in 100..150 {
         assert_eq!(keyed_pixel(&fresh,x,y),expected.pixel(x-fresh.x,y-fresh.y));
@@ -168,7 +167,7 @@ fn recorded_science_outline_read_uses_each_characters_measured_pen() {
 #[test]
 fn retained_text_answers_from_the_renderer_without_native_certification() {
     let (run, fonts, compiled) = science();
-    fonts.publish_hit(&run, &compiled);
+    fonts.publish_hit_resources(&compiled);
     for y in 80..110 { for x in 380..480 {
         assert!(keyed_pixel(&run,x,y).is_some());
     }}
@@ -203,4 +202,73 @@ fn recorded_padded_console_button_leaves_unwritten_corner_transparent() {
     assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),Some(false));
     model.apply(Event::Fill {canvas,rect:[14,14,1,1],rgb:KEY_RGB,alpha:255,clip:None});
     assert_eq!(model.keyed_at(canvas,14,14,&crate::ui_opacity::KeyFiles),Some(false),"a later known writer resolves that pixel");
+}
+
+fn hit_atlas_fixture() -> (TextRun, Fonts, Compiled) {
+    let run = TextRun { x: 31, y: 27, color: [0; 3], face: "Hit cache fixture".into(), height: -12, weight: 400, italic: false, underline: false, text: "x".into(), backdrop: None };
+    let font = GlyphFont {
+        ascent: 1,
+        underline: (1, 1),
+        glyphs: BTreeMap::from([('x', Glyph { left: 0, advance: 2, extent: 1,
+            image: tile_render::RgbaImage::from_fn(1, 1, |_, _| [255; 4]),
+        })]),
+    };
+    let mut fonts = Fonts::default();
+    fonts.insert(key(&run), Ok(font));
+    (run, fonts, readiness_tests::fixture_art(&[], ""))
+}
+
+#[test]
+fn hit_placement_eviction_rebuilds_from_resources_without_retaining_labels() {
+    let (run, fonts, compiled) = hit_atlas_fixture();
+    fonts.publish_hit_resources(&compiled);
+    let resources = HIT_RESOURCES.load().unwrap();
+    let mut cache = HitCache::new(resources.clone());
+    let original = cache.pixel(&run, run.x, run.y - 1);
+    assert_eq!(original, Some(Some(run.color)));
+    for len in 2..128 {
+        let label = TextRun { text: "x".repeat(len), ..run.clone() };
+        assert_eq!(cache.pixel(&label, label.x, label.y - 1), original);
+        fonts.publish_hit_resources(&compiled);
+        assert!(Arc::ptr_eq(&resources, &HIT_RESOURCES.load().unwrap()), "draw history must not change the resource snapshot");
+    }
+    assert_eq!(cache.pixel(&run, run.x, run.y - 1), original, "an evicted label remains supported");
+    let long = TextRun { text: "x".repeat(HIT_LABEL_BYTES + 1), ..run.clone() };
+    assert_eq!(cache.pixel(&long, long.x, long.y - 1), original);
+    assert!(cache.run.is_none(), "oversized placement must stay transient");
+    assert_eq!(cache.pixel(&run, run.x, run.y - 1), original);
+    assert_eq!(resources.atlases.len(), 1);
+}
+
+#[test]
+fn reloaded_atlas_and_equal_revision_publishers_replace_cached_hits() {
+    let (run, mut fonts, compiled) = hit_atlas_fixture();
+    fonts.publish_hit_resources(&compiled);
+    assert_eq!(keyed_pixel(&run, run.x, run.y - 1), Some(Some(run.color)));
+    let mut replacement = fonts.fonts[&key(&run)].clone().unwrap();
+    replacement.glyphs.get_mut(&'x').unwrap().image = tile_render::RgbaImage::from_fn(1, 1, |_, _| [0; 4]);
+    fonts.insert(key(&run), Ok(replacement));
+    fonts.publish_hit_resources(&compiled);
+    assert_eq!(keyed_pixel(&run, run.x, run.y - 1), Some(None), "a reload must invalidate derived placement");
+    let (_, mut fresh, _) = hit_atlas_fixture();
+    // A separate publisher can reach exactly the same numeric revision.
+    let fresh_font = fresh.fonts[&key(&run)].clone().unwrap();
+    fresh.insert(key(&run), Ok(fresh_font));
+    assert_eq!(fonts.revision, fresh.revision);
+    fresh.publish_hit_resources(&compiled);
+    assert_eq!(keyed_pixel(&run, run.x, run.y - 1), Some(Some(run.color)), "revision numbers belong to their publisher");
+}
+
+#[test]
+fn outline_replacement_invalidates_existing_label_placement() {
+    let (run, fonts, mut compiled) = science();
+    fonts.publish_hit_resources(&compiled);
+    let ink = (80..110).flat_map(|y| (380..485).map(move |x| (x, y)))
+        .find(|&(x, y)| keyed_pixel(&run, x, y).is_some_and(|pixel| pixel.is_some())).unwrap();
+    let blank = tile_render::gpu_text::Face::from_curves(12, &[]);
+    compiled.fonts.iter_mut().find(|(name, _)| name == &run.face).unwrap().1 = Arc::new(blank);
+    fonts.publish_hit_resources(&compiled);
+    assert_eq!(HIT_RESOURCES.load().unwrap().faces.iter().find(|(name, _)| name == &run.face).unwrap().1.glyph_count(), 0);
+    assert_eq!(HitCache::new(HIT_RESOURCES.load().unwrap()).pixel(&run, ink.0, ink.1), Some(None));
+    assert_eq!(keyed_pixel(&run, ink.0, ink.1), Some(None), "a face replacement must not retain old outlines");
 }
