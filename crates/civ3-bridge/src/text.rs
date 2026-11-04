@@ -59,7 +59,24 @@ struct HitResources {
     #[cfg(test)]
     widths: std::collections::HashMap<(FontStyle, String), Option<i32>>,
 }
+#[cfg(not(test))]
 static HIT_RESOURCES: handoff::Latest<HitResources> = handoff::Latest::new();
+
+// Each unit-test thread represents a separate renderer session. Keep its
+// fixture publications apart while exercising the same Latest store.
+#[cfg(test)]
+struct TestHitResources;
+#[cfg(test)]
+static HIT_RESOURCES: TestHitResources = TestHitResources;
+#[cfg(test)]
+thread_local! {
+    static TEST_HIT_RESOURCES: handoff::Latest<HitResources> = handoff::Latest::new();
+}
+#[cfg(test)]
+impl TestHitResources {
+    fn load(&self) -> Option<Arc<HitResources>> { TEST_HIT_RESOURCES.with(handoff::Latest::load) }
+    fn publish(&self, resources: HitResources) { TEST_HIT_RESOURCES.with(|store| store.publish(resources)); }
+}
 
 // One optional short label per reader. Eviction only discards derived
 // placement; any supported label can be reconstructed from HitResources.
@@ -140,6 +157,13 @@ impl HitRun {
                                 result = Some(Some(rgb));
                             }
                         }
+                    }
+                    // run_sprites emits a solid TextLine segment after
+                    // each glyph, using its unadjusted sheet advance.
+                    let (top, thickness) = font.underline;
+                    if self.run.underline && x >= pen && x < pen + glyph.advance
+                        && y >= self.run.y + top && y < self.run.y + top + thickness {
+                        result = Some(Some(self.run.color));
                     }
                     pen += *advance;
                 }

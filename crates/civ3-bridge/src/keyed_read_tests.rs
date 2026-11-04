@@ -219,6 +219,63 @@ fn hit_atlas_fixture() -> (TextRun, Fonts, Compiled) {
 }
 
 #[test]
+fn atlas_underline_hits_follow_the_drawn_sheet_segments_and_fitted_pens() {
+    let (mut run, fonts, _) = hit_atlas_fixture();
+    run.underline = true;
+    run.text = "xx".into();
+    // Fitted pens are three pixels apart, while each actual underline
+    // sheet is two pixels wide. The one-pixel gap must stay transparent.
+    fonts.set_game_width(&run, 6);
+    let tag = Fonts::tag(&key(&run));
+    struct Generated;
+    impl render_desc::ImageLoader for Generated {
+        fn load(&self, _: &str, _: &toml::Table) -> Result<Vec<tile_render::RgbaImage>, String> {
+            Err("only generated solids are used".into())
+        }
+    }
+    let description = format!(r#"
+grid = {{ layout = "orthogonal", step = [1, 1] }}
+[images.glyph]
+source = "solid:255,255,255,255:1x1"
+[sheets.glyph]
+image = "glyph"
+cell = [1, 1]
+anchor = [0, -1]
+group = "Text@{tag}"
+first_index = 120
+[images.line]
+source = "solid:0,0,0,255:2x1"
+[sheets.line]
+image = "line"
+cell = [2, 1]
+anchor = [0, 1]
+group = "TextLine@{tag}"
+first_index = 2
+"#);
+    let compiled = render_desc::Description::parse(&description).unwrap().compile(&Generated, 64).unwrap();
+    let mut sprites = Vec::new();
+    fonts.run_sprites(&run, None, &compiled, 0, &mut sprites);
+    assert_eq!(sprites.len(), 4, "two glyphs and their two underline sheets");
+    assert!(sprites.iter().all(|s| s.glyph.is_none()), "exercise atlas drawing");
+    assert_eq!(sprites.iter().map(|s| s.x).collect::<Vec<_>>(), [31,31,34,34]);
+    for y in run.y..=run.y + 2 {
+        for x in run.x - 1..=run.x + 6 {
+            let underlined = y == run.y + 1 && ((31..33).contains(&x) || (34..36).contains(&x));
+            let drawn = sprites.iter().any(|s| {
+                let id = compiled.sets.frame(tile_render::SpriteSetId::from_raw(s.set), 0).unwrap();
+                let sprite = &compiled.atlas.sprites[id.0 as usize];
+                let gx = x - s.x - sprite.anchor_x;
+                let gy = y - s.y - sprite.anchor_y;
+                gx >= 0 && gy >= 0 && gx < sprite.width as i32 && gy < sprite.height as i32
+                    && compiled.atlas.pages[sprite.page as usize].get(sprite.atlas_x + gx as u32, sprite.atlas_y + gy as u32)[3] != 0
+            });
+            assert_eq!(drawn, underlined, "actual underline sprite ({x},{y})");
+            assert_eq!(keyed_pixel(&run, x, y), Some(underlined.then_some(run.color)), "underline ({x},{y})");
+        }
+    }
+}
+
+#[test]
 fn hit_placement_eviction_rebuilds_from_resources_without_retaining_labels() {
     let (run, fonts, compiled) = hit_atlas_fixture();
     fonts.publish_hit_resources(&compiled);
