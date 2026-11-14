@@ -493,6 +493,7 @@ mod unix_side {
         let assets = tile_viewer::Assets::new(compiled.clone());
         assets.set(compiled, generation);
         let config = tile_viewer::ViewerConfig {
+            shaders: civ3_ui::viewer::SHADERS,
             extensions: civ3_ui::viewer::extensions(),
             settings_path: civ3_ui::viewer::settings_path(),
             startup_ready_file: civ3_ui::viewer::startup_ready_file(),

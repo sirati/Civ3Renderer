@@ -10,7 +10,7 @@ use winit::window::Window;
 
 /// The shader module the startup window draws with (the viewer's; only its
 /// tile renderer's shaders are used).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(civ3_spirv::SPIRV, civ3_spirv::SPIRV_FALLBACK);
 
 pub(super) struct Display {
     surface: wgpu::Surface<'static>,
