@@ -1,0 +1,10 @@
+[package]
+name = "tile-render-test-spirv"
+description = "SPIR-V test module for the tile renderer, independent of the viewer"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[build-dependencies]
+shader-build = { path = "../shader-build" }

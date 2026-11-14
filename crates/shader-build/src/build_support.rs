@@ -67,7 +67,7 @@ mod tests {
         )
         .unwrap();
         fs::write(backend.join("src/lib.rs"), "pub fn backend() {}\n").unwrap();
-        let helper = PathBuf::from(file!()).canonicalize().unwrap();
+        let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/build_support.rs").canonicalize().unwrap();
         let build_script = format!(
             r#"
 #[path = {helper}]

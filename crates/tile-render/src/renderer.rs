@@ -3513,4 +3513,4 @@ mod atlas_transfer_planning {
 
 /// The viewer's module, for the tests drawing with a renderer.
 #[cfg(test)]
-pub(crate) const TEST_SHADERS: Shaders = Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+pub(crate) const TEST_SHADERS: Shaders = Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

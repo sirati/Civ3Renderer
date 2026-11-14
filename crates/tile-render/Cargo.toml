@@ -17,5 +17,5 @@ gpu-text.workspace = true
 
 [dev-dependencies]
 image.workspace = true
-# The module its GPU tests draw with (it holds this renderer's shaders).
-viewer-spirv.workspace = true
+# The independent test module holds only this library's shader dependencies.
+tile-render-test-spirv = { path = "../tile-render-test-spirv" }

@@ -79,5 +79,5 @@ fn dual_source_and_three_draw_lcd_match_for_real_glyphs_and_partial_alpha() {
     eprintln!("dual/fallback exact RGBA pixel comparisons: {compared}");
 }
 
-/// The viewer's shader module (it holds the tile renderer's shaders).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+/// The tile renderer's independent GPU-test shader module.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

@@ -1618,5 +1618,5 @@ fn nonwrapping_candidate_bounds_preserve_tall_wide_and_fixed_anchor_pixels() {
     }
 }
 
-/// The viewer's shader module (it holds the tile renderer's shaders).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+/// The tile renderer's independent GPU-test shader module.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

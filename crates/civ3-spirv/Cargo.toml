@@ -1,0 +1,9 @@
+[package]
+name = "civ3-spirv"
+description = "Civ III application shader bytes, combining viewer and glass entry points"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[build-dependencies]
+shader-build = { path = "../shader-build" }

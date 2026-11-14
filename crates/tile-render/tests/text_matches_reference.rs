@@ -546,5 +546,5 @@ fn world_annotation_layouts_keep_plates_and_text_together_across_native_zoom_swi
     }
 }
 
-/// The viewer's shader module (it holds the tile renderer's shaders).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+/// The tile renderer's independent GPU-test shader module.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

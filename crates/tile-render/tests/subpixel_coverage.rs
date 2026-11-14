@@ -129,5 +129,5 @@ fn subpixel_coverage_and_tint_bytes_keep_exact_blends() {
     eprintln!("subpixel coverage/tint oracle checked {checked} pixels");
 }
 
-/// The viewer's shader module (it holds the tile renderer's shaders).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+/// The tile renderer's independent GPU-test shader module.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

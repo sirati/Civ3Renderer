@@ -109,5 +109,5 @@ fn segments_and_gaps_keep_one_width_at_the_views_resolution() {
     }
 }
 
-/// The viewer's shader module (it holds the tile renderer's shaders).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+/// The tile renderer's independent GPU-test shader module.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

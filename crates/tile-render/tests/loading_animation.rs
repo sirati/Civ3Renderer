@@ -42,5 +42,5 @@ fn gpu_waiting_animation_uses_host_clock_and_preserves_game_clock_and_replay() {
     eprintln!("loading animation exact replay comparisons: {pixels_checked} pixels, all30frames and wrap; gameclock preserved");
 }
 
-/// The viewer's shader module (it holds the tile renderer's shaders).
-const SHADERS: tile_render::Shaders = tile_render::Shaders::new(viewer_spirv::SPIRV, viewer_spirv::SPIRV_FALLBACK);
+/// The tile renderer's independent GPU-test shader module.
+const SHADERS: tile_render::Shaders = tile_render::Shaders::new(tile_render_test_spirv::SPIRV, tile_render_test_spirv::SPIRV_FALLBACK);

@@ -1,0 +1,9 @@
+[package]
+name = "shader-build"
+description = "Host-side rust-gpu shader compilation and dual-source SPIR-V output preparation"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+cargo-gpu-install = "0.11"
