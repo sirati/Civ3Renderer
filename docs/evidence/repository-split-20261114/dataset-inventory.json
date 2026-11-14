@@ -1,0 +1,603 @@
+{
+  "date": "2026-11-14",
+  "scope": "Civ3/tile-renderer folders only. No files deleted. Other projects in cargo-target excluded.",
+  "project_roots": [
+    {
+      "path": "/mnt/datasets/c3r-artifacts",
+      "allocated_bytes": 7267815424
+    },
+    {
+      "path": "/mnt/datasets/c3r-build",
+      "allocated_bytes": 150962163712
+    },
+    {
+      "path": "/mnt/datasets/c3r-smoke",
+      "allocated_bytes": 16437248
+    },
+    {
+      "path": "/mnt/datasets/c3r-source-backups",
+      "allocated_bytes": 3017261056
+    },
+    {
+      "path": "/mnt/datasets/c3r-validation",
+      "allocated_bytes": 113004544
+    },
+    {
+      "path": "/mnt/datasets/c3r-wow64-fixtures",
+      "allocated_bytes": 336809984
+    },
+    {
+      "path": "/mnt/datasets/c3r-wt",
+      "allocated_bytes": 31846400
+    }
+  ],
+  "cargo_build_roots": [
+    {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-269e6006/target",
+      "allocated_bytes": 17836765184,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "spirv-builder",
+        "tmp"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/jgl-t3-12959774/target",
+      "allocated_bytes": 17735217152,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu",
+        "release",
+        "spirv-builder",
+        "tmp"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-630df663/target",
+      "allocated_bytes": 10054418432,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu",
+        "release",
+        "spirv-builder",
+        "tmp"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/tile-popup-menus-extended-target",
+      "allocated_bytes": 4696854528,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/army-acceptance-sol",
+      "allocated_bytes": 3946225664,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/launcher-cancel-sol/build1/target-linux-runtime",
+      "allocated_bytes": 3474317312,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "release",
+        "tmp"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/ui-prefix-target",
+      "allocated_bytes": 3365593088,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/prefs-preview-sol",
+      "allocated_bytes": 3236986880,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/macos-port/pointer-target",
+      "allocated_bytes": 3194966016,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "aarch64-apple-darwin",
+        "debug",
+        "i686-pc-windows-gnu",
+        "spirv-builder",
+        "x86_64-apple-darwin"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-win-f263139dfc2ab4a18f262911d579a0e38d6ababcbc9b788495f0e03b8f601c1e",
+      "allocated_bytes": 2393649152,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu",
+        "release",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/quit-audio-sol/audio-fix-build1/target",
+      "allocated_bytes": 1394442240,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/binary-cell-blend-sol/actualapp-f510/target",
+      "allocated_bytes": 1381793792,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "release",
+        "tmp"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/army-acceptance-win-sol",
+      "allocated_bytes": 1362378752,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-269e6006/windows-target",
+      "allocated_bytes": 1263222784,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "i686-pc-windows-gnu",
+        "release",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/jgl-mills-t3-269e6006/native-target",
+      "allocated_bytes": 1208877056,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "release",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/launcher-cancel-sol/build1/target-mac-intel",
+      "allocated_bytes": 1103269888,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "release",
+        "x86_64-apple-darwin"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/launcher-cancel-sol/build1/target-mac",
+      "allocated_bytes": 1100357632,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "aarch64-apple-darwin",
+        "debug",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/target-mac-f263139dfc2ab4a18f262911d579a0e38d6ababcbc9b788495f0e03b8f601c1e",
+      "allocated_bytes": 951386112,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "aarch64-apple-darwin",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/quit-audio-sol/observer-build1/target",
+      "allocated_bytes": 356638720,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "i686-pc-windows-gnu",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/native-app-qualification-sol/direct-pointer-target",
+      "allocated_bytes": 279109632,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/preload-sol/source3/crates/tile-render-shaders/target",
+      "allocated_bytes": 196673536,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/preload-sol/source4/crates/tile-render-shaders/target",
+      "allocated_bytes": 196673536,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/preload-sol/source5/crates/tile-render-shaders/target",
+      "allocated_bytes": 196673536,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/resolve-sol/src/crates/tile-render-shaders/target",
+      "allocated_bytes": 196636672,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/combat-diagnostics-army/check-source/crates/tile-render-shaders/target",
+      "allocated_bytes": 196636672,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/combat-diagnostics-army/successor/check-source/crates/tile-render-shaders/target",
+      "allocated_bytes": 196636672,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "spirv-builder"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/wider-integer-sol/compiler-gate/target-shader/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 174653440,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/background-upscale-sol/coherent-clip2/target/spirv-builder/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 174358528,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-output555/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 173580288,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-tiles555/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 173453312,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/handover/creative-qa/shader-perf-sol/target-indexed-opaque555/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 173445120,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/background-upscale-sol/coherent-clip/target/spirv-builder/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 173379584,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/macos-port/tsneo/coverage-shader-target/spirv-unknown-vulkan1.2",
+      "allocated_bytes": 171712512,
+      "markers": [
+        "CACHEDIR.TAG"
+      ],
+      "top_level_entries": [
+        "CACHEDIR.TAG",
+        "release"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/windows-final-sol/runner-target",
+      "allocated_bytes": 60133376,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/root-sol-review",
+      "allocated_bytes": 29061120,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug",
+        "tmp"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/macos-port/shader-build-cache-audit/control/shared-target",
+      "allocated_bytes": 5509120,
+      "markers": [
+        "CACHEDIR.TAG",
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json",
+        "CACHEDIR.TAG",
+        "debug"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    },
+    {
+      "path": "/mnt/datasets/c3r-build/release-1019/src-8b08b0bbf31394f4e626e6ca7192af6bc3e556b718b4472435e3e161f78652fe/target",
+      "allocated_bytes": 4096,
+      "markers": [
+        ".rustc_info.json"
+      ],
+      "top_level_entries": [
+        ".rustc_info.json"
+      ],
+      "classification": "generated_build_directory; retain source, receipts and separately retained artifacts outside it; check references before removal"
+    }
+  ],
+  "cargo_build_root_bytes": 82825691136,
+  "git_directories": [
+    "/mnt/datasets/c3r-build/release-1019/fex"
+  ],
+  "keep": [
+    "All c3r-source-backups: contain Git trees, development-source and FEX recovery archives.",
+    "c3r-build source snapshots, scripts, receipts, raw evidence, and the FEX checkout.",
+    "Game installation files, saves, macOS templates and VM runtime assets in winvm/macvm.",
+    "c3r-artifacts, c3r-validation, c3r-smoke and c3r-wow64-fixtures until exact duplicate artifacts/evidence are established."
+  ],
+  "not_in_scope": [
+    "/mnt/datasets/cargo-target/cosmic-greeter",
+    "/mnt/datasets/cargo-target/gaze",
+    "Unrelated ML/data directories."
+  ],
+  "worktrees": [
+    {
+      "path": "/mnt/datasets/c3r-wt/perf-baseline-reference",
+      "commit": "921bf96edbf896f2e60fe8f51e91c658517cd74c",
+      "branch": "perf-baseline-reference",
+      "clean": true,
+      "removal_method": "git worktree remove, preserving branch refs and main Git object store",
+      "unique_uncommitted_source": false
+    },
+    {
+      "path": "/mnt/datasets/c3r-wt/perf-final-preflight",
+      "commit": "2c2a22f6697017b15ccec0aa946d3797fb0e796b",
+      "branch": "perf-final-preflight-22cd2e4",
+      "clean": true,
+      "removal_method": "git worktree remove, preserving branch refs and main Git object store",
+      "unique_uncommitted_source": false
+    }
+  ],
+  "decision": {
+    "marked_Cargo_build_roots": "Cleanup candidates totaling about 77 GiB. Reproducible compiler output; preserve any receipt-bound executables needed as evidence before deleting an entire build root.",
+    "clean_worktrees": "Two redundant clean working directories can be removed with git worktree remove after source backup; preserve branch refs.",
+    "mixed_build_root": "Do not delete /mnt/datasets/c3r-build wholesale. It contains an FEX Git checkout, source snapshots, scripts, release artifacts and comparison evidence outside Cargo cache roots.",
+    "runtime_directories": "Keep macvm/winvm templates, disks, installed game copies and saves. No VM/disk deletion is authorized by this audit.",
+    "actual_deletions": "None. The request was to inspect and determine what can be deleted."
+  }
+}

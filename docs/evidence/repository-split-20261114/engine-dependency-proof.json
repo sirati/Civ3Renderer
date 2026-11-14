@@ -1,0 +1,17 @@
+{
+  "workspace": "tilerenderer-gameengine",
+  "resolved_packages": 363,
+  "forbidden_packages": [
+    "civ3-bridge",
+    "civ3-shaders",
+    "civ3-spirv",
+    "civ3-ui",
+    "glass",
+    "glass-shaders",
+    "glass-shared",
+    "glass-test-shaders",
+    "glass-test-spirv"
+  ],
+  "found": [],
+  "result": "No application or glass packages in the resolved standalone engine graph."
+}
