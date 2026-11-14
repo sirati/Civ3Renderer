@@ -1,0 +1,16 @@
+[package]
+name = "civ3-shaders"
+description = "Civ III application shader module: generic viewer entry points and glass effects"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+
+[lib]
+crate-type = ["dylib", "lib"]
+
+[dependencies]
+viewer-shaders = { path = "../viewer-shaders" }
+glass-shaders = { path = "../glass-shaders" }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spirv"))'] }
