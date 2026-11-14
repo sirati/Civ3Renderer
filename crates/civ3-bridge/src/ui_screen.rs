@@ -739,7 +739,7 @@ mod tests {
         world.free = free.iter().map(|s| tile_viewer::placed_sprite(&compiled, s, Some(0), None)).collect();
         let gpu = tile_render::Headless::new().expect("RADV for end-to-end native indexed smoke");
         let adapter = gpu.adapter.get_info(); assert_eq!(adapter.vendor, 0x1002); assert_eq!(adapter.backend, wgpu::Backend::Vulkan); assert!(adapter.name.to_ascii_lowercase().contains("radv"));
-        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
+        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, civ3_ui::viewer::SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas); renderer.set_world(&gpu.device, &world);
         let camera = tile_render::Camera { cells: false, ..tile_render::Camera::new((24, 40)) };
         let got = gpu.render(&mut renderer, &camera, 0, [0, 0, 0, 255]);
@@ -808,11 +808,11 @@ mod tests {
                     let ordinary = tile_render::reference::render(&plain, &nearest.atlas, &camera, 0, [11, 17, 23, 255]);
                     let unsplit = tile_render::reference::render(&unsplit, &original.atlas, &camera, 0, [11, 17, 23, 255]);
                     assert_background_pixels(&ordinary, &unsplit, &format!("complementary source masks changed nominal native pixels: {source}, opacity {opacity}, zoom {num}/{den}"));
-                    let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
+                    let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, civ3_ui::viewer::SHADERS);
                     renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
                     renderer.set_world(&gpu.device, &split);
                     let gpu_image = gpu.render(&mut renderer, &camera, 0, [11, 17, 23, 255]);
-                    let mut original_renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
+                    let mut original_renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, civ3_ui::viewer::SHADERS);
                     original_renderer.set_atlas(&gpu.device, &gpu.queue, &original.atlas);
                     let original_world = world(&original, false);
                     original_renderer.set_world(&gpu.device, &original_world);
@@ -880,7 +880,7 @@ mod tests {
                 let camera = tile_render::Camera { origin: (2, 3), screen_shift: (2, 3), target_clip: Some([0, 0, 64, 48]), cells: false, hairline, zoom, background_sampling: mode, ..tile_render::Camera::new((64, 48)) };
                 let expected = tile_render::reference::render(&split_world, &split.atlas, &camera, 0, [0, 0, 0, 255]);
                 let nearest = tile_render::reference::render(&plain_world, &plain.atlas, &camera, 0, [0, 0, 0, 255]);
-                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
+                let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, civ3_ui::viewer::SHADERS);
                 renderer.set_atlas(&gpu.device, &gpu.queue, &split.atlas);
                 renderer.set_world(&gpu.device, &split_world);
                 let actual = gpu.render(&mut renderer, &camera, 0, [0, 0, 0, 255]);
@@ -1026,7 +1026,7 @@ mod tests {
         let gpu = tile_render::Headless::new().expect("RADV for composed popup sampling");
         let adapter = gpu.adapter.get_info();
         assert_eq!(adapter.vendor, 0x1002); assert_eq!(adapter.backend, wgpu::Backend::Vulkan);
-        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
+        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, civ3_ui::viewer::SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas); renderer.set_world(&gpu.device, &world);
         for (num, den) in [(1, 2), (2, 3), (1, 1), (3, 2), (2, 1), (3, 1)] {
             let camera = tile_render::Camera { cells: false, hairline: true, zoom: (num, den), background_sampling: tile_render::BackgroundSampling::Nearest, ..tile_render::Camera::new((60 * num / den, 60 * num / den)) };

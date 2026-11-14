@@ -8,8 +8,8 @@ cd "$repo"
 export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$HOME/Library/Caches/civ3r/build}
 # Supply a module built from the same shader sources on the Linux build
 # machine when the rust-gpu toolchain cannot be installed on the Mac guest.
-if [ -n "${VIEWER_PRECOMPILED_SPV:-}" ]; then
-  [ -f "$VIEWER_PRECOMPILED_SPV" ] || { echo 'missing precompiled shader module' >&2; exit 1; }
+if [ -n "${CIV3_PRECOMPILED_SPV:-}" ]; then
+  [ -f "$CIV3_PRECOMPILED_SPV" ] || { echo 'missing precompiled shader module' >&2; exit 1; }
 fi
 cargo build --locked --release -p civ3r-viewer -p civ3r-launcher
 install_home=${CIV3R_HOME:-$HOME/Library/Application Support/civ3r}

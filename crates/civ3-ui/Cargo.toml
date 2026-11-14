@@ -6,6 +6,10 @@ license.workspace = true
 version.workspace = true
 
 [dependencies]
+glass = { path = "../glass" }
+marker = { path = "../marker" }
+tile-render.workspace = true
+civ3-spirv = { path = "../civ3-spirv" }
 jgl = { path = "../jgl" }
 scene = { path = "../scene" }
 viewer-settings = { path = "../viewer-settings" }
@@ -14,3 +18,7 @@ log.workspace = true
 tile-game = { path = "../tile-game" }
 tile-viewer = { path = "../tile-viewer" }
 
+
+[dev-dependencies]
+render-desc = { path = "../render-desc" }
+toml = "0.9"

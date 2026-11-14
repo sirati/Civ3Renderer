@@ -107,7 +107,7 @@ mod gpu_tests {
         fonts.set_game_layout(&run([0, 0, 255]), gdi_text::TextLayout { advances: vec![14; 5], ascent: 20, descent: 4, underline: (1, 1) });
         let gpu = tile_render::Headless::new().expect("GPU clipping correctness lease");
         eprintln!("inverse loading text adapter: {:?}", gpu.adapter.get_info());
-        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, tile_viewer::SHADERS);
+        let mut renderer = tile_render::TileRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm, civ3_ui::viewer::SHADERS);
         renderer.set_atlas(&gpu.device, &gpu.queue, &compiled.atlas);
         let clear = [13, 29, 47, 255];
         let mut compared_pixels = 0;
