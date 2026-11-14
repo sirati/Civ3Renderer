@@ -1,0 +1,82 @@
+{
+  "date": "2026-11-14",
+  "monorepo_preparation_commits": [
+    "9a0c48ffffe1ecf61f8217eeb0d7f65219eadb03",
+    "79929e1"
+  ],
+  "upstream_commits": {
+    "tilerenderer": "6941948fc77ad310c9021df6f01374be9d3a23fc",
+    "tilerenderer-gameengine": "ac73d010d2567ed256343a8d05b2358c4362d067",
+    "glass-shader-rs": "d155523fe2b63dd9130ead8daf35e8825eed860e",
+    "wine-unixlib-rs": "25af6264b351fd48b6e26720027bf2cf590cc155",
+    "pointer-control-rs": "10c22945ee0a9c23084cb85035a1ee44432cabd5",
+    "inproc-rs": "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c",
+    "nix-osx-kvm": "bc6f76cff637fc7dffa9eb00d3bb1af02d01435a"
+  },
+  "git_transport": "SSH; cross-repository Cargo dependencies pinned to full commit IDs.",
+  "history_preservation": [
+    "Original GitHub prototype d09005b preserved on tilerenderer legacy/2024-prototype and civ3renderer archive/tile-renderer-2024.",
+    "Original monorepo preserved on civ3renderer archive/monorepo-before-split.",
+    "File histories extracted into each component repository."
+  ],
+  "validation": {
+    "standalone_core": {
+      "handoff_lock_guard": 2,
+      "renderer_lib_passed": 47,
+      "renderer_lib_ignored": 1,
+      "gpu_text_lib": 4,
+      "shader_build_lib": 8
+    },
+    "standalone_support_libraries": "All workspace library tests passed in pointer-control-rs, wine-unixlib-rs, inproc-rs and glass-shader-rs. Windows/GUI-only probes were not executed.",
+    "standalone_engine": {
+      "library_passed": 671,
+      "library_ignored": 7,
+      "generic_guard": 3,
+      "lock_guard": 2,
+      "compiled_module_boundary": 1,
+      "loading_cursor_api_regression_tests": 36
+    },
+    "standalone_civ3": {
+      "ui_library_passed": 77,
+      "ui_library_ignored": 3,
+      "bridge_library_passed": 493,
+      "bridge_library_ignored": 9,
+      "lock_guard": 2,
+      "application_glass_gpu_test": 1,
+      "windows_i686_bridge_native_check": true,
+      "linux_production_workspace_check": true,
+      "windows_x86_64_native_check": true
+    },
+    "nix_vm": {
+      "synthetic_qcow2_tests": 18,
+      "flake_evaluation": true,
+      "manager_package": true,
+      "configurable_slice_module": true,
+      "legacy_boot_wrapper_smoke": true,
+      "legacy_nixos_module": true,
+      "published_git_flake_help": true,
+      "runtime_disks_changed": false
+    },
+    "limits": [
+      "No fresh full-game, physical Neo deployment, macOS cross-build or live VM boot.",
+      "Existing ignored tests remain ignored, apart from the explicit application-effect GPU test.",
+      "The known P4 subpixel_coverage integration target was outside this migration run.",
+      "The old legacy pixel-query reconstruction problem remains unresolved; this task changes repository ownership and effect composition, not that rendering architecture."
+    ]
+  },
+  "dataset_audit": {
+    "marked_Cargo_build_roots": 37,
+    "candidate_build_gib": 77.14,
+    "dataset_files_deleted": false,
+    "mixed_build_tree_source_evidence_backups_and_vm_disks_preserved": true
+  },
+  "application_commit": "This record is included in the final extracted Civ3 application commit; the publication receipt records its SHA after the push.",
+  "monorepo_preparation_validation": {
+    "shader_build_unit_tests": 8,
+    "compiled_module_boundaries": 4,
+    "focused_gpu_tests": 6,
+    "guards": 5,
+    "initial_parallel_viewer_timing_failures": 2,
+    "final_serialized_viewer_tests_passed": 671
+  }
+}

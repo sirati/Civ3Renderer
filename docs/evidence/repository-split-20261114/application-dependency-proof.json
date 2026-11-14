@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-14",
+  "standalone_application_metadata": true,
+  "viewer_dependency_closure_contains_glass_or_application": [],
+  "application_selects": [
+    "civ3-spirv",
+    "glass",
+    "glass-shared"
+  ],
+  "result": "Application owns glass; the generic engine dependency closure does not."
+}

@@ -1,0 +1,90 @@
+{
+  "date": "2026-11-14",
+  "projects": {
+    "tilerenderer": {
+      "path": "/home/sirati/devel/rust/tilerenderer",
+      "origin": "git@github.com:sirati/tilerenderer.git",
+      "commit": "6941948fc77ad310c9021df6f01374be9d3a23fc",
+      "default_branch": "main",
+      "remote_verified_commit": "6941948fc77ad310c9021df6f01374be9d3a23fc",
+      "clean": true,
+      "verified": true
+    },
+    "tilerenderer-gameengine": {
+      "path": "/home/sirati/devel/rust/tilerenderer-gameengine",
+      "origin": "git@github.com:sirati/tilerenderer-gameengine.git",
+      "commit": "ac73d010d2567ed256343a8d05b2358c4362d067",
+      "default_branch": "main",
+      "remote_verified_commit": "ac73d010d2567ed256343a8d05b2358c4362d067",
+      "clean": true,
+      "verified": true
+    },
+    "civ3renderer": {
+      "path": "/home/sirati/devel/rust/civ3renderer",
+      "origin": "git@github.com:sirati/civ3renderer.git",
+      "commit": "7ac3dc9ace4ad68e205560c2f56178406773fe3e",
+      "default_branch": "master",
+      "remote_verified_commit": "7ac3dc9ace4ad68e205560c2f56178406773fe3e",
+      "clean": true,
+      "verified": true
+    },
+    "glass-shader-rs": {
+      "path": "/home/sirati/devel/rust/glass-shader-rs",
+      "origin": "git@github.com:sirati/glass-shader-rs.git",
+      "commit": "d155523fe2b63dd9130ead8daf35e8825eed860e",
+      "default_branch": "main",
+      "remote_verified_commit": "d155523fe2b63dd9130ead8daf35e8825eed860e",
+      "clean": true,
+      "verified": true
+    },
+    "wine-unixlib-rs": {
+      "path": "/home/sirati/devel/rust/wine-unixlib-rs",
+      "origin": "git@github.com:sirati/wine-unixlib-rs.git",
+      "commit": "25af6264b351fd48b6e26720027bf2cf590cc155",
+      "default_branch": "main",
+      "remote_verified_commit": "25af6264b351fd48b6e26720027bf2cf590cc155",
+      "clean": true,
+      "verified": true
+    },
+    "pointer-control-rs": {
+      "path": "/home/sirati/devel/rust/pointer-control-rs",
+      "origin": "git@github.com:sirati/pointer-control-rs.git",
+      "commit": "10c22945ee0a9c23084cb85035a1ee44432cabd5",
+      "default_branch": "main",
+      "remote_verified_commit": "10c22945ee0a9c23084cb85035a1ee44432cabd5",
+      "clean": true,
+      "verified": true
+    },
+    "inproc-rs": {
+      "path": "/home/sirati/devel/rust/inproc-rs",
+      "origin": "git@github.com:sirati/inproc-rs.git",
+      "commit": "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c",
+      "default_branch": "main",
+      "remote_verified_commit": "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c",
+      "clean": true,
+      "verified": true
+    },
+    "nix-osx-kvm": {
+      "path": "/home/sirati/devel/rust/nix-osx-kvm",
+      "origin": "git@github.com:sirati/nix-osx-kvm.git",
+      "commit": "bc6f76cff637fc7dffa9eb00d3bb1af02d01435a",
+      "default_branch": "main",
+      "remote_verified_commit": "bc6f76cff637fc7dffa9eb00d3bb1af02d01435a",
+      "clean": true,
+      "verified": true
+    }
+  },
+  "prototype_commit": "d09005b0b3552c7a7825a3728bb87fa225edfe42",
+  "prototype_refs": [
+    "tilerenderer:legacy/2024-prototype",
+    "civ3renderer:archive/tile-renderer-2024"
+  ],
+  "monorepo_archive": "civ3renderer:archive/monorepo-before-split",
+  "runtime_files_deleted": false,
+  "verification": "All eight remote default-branch refs independently read over SSH and matched to clean local commits.",
+  "civ3_destination_update": {
+    "old": "d09005b0b3552c7a7825a3728bb87fa225edfe42",
+    "new": "7ac3dc9ace4ad68e205560c2f56178406773fe3e",
+    "method": "force-with-lease on master after prototype backup and successful application validation"
+  }
+}

@@ -174,6 +174,11 @@ def configure(project, destination, published):
         text = text.replace("/mnt/datasets/winvm/wine-dev", f"$HOME/.cache/{project}/wine-tests")
         runner.write_text(text)
     if project == "tilerenderer-gameengine":
+        library = target / "crates/tile-viewer/src/lib.rs"
+        content = library.read_text()
+        if "pub const LOADING_CURSOR_DESCRIPTION:" not in content:
+            content += '\n/// Generic busy-cursor art for application render descriptions.\npub const LOADING_CURSOR_DESCRIPTION: &str = include_str!("../../../assets/viewer/loading-cursor.toml");\n'
+            library.write_text(content)
         guard = target / "crates/tile-viewer/tests/generic_crates.rs"
         text = guard.read_text()
         allowed = "\n".join(f'    "{crate}",' for crate in sorted(spec["crates"]))
@@ -191,6 +196,10 @@ def configure(project, destination, published):
             "Use SSH for Git access. Preserve file history and commit accepted work to origin.\n"
         )
     elif project == "civ3renderer":
+        loading = target / "crates/civ3-ui/src/loading_cursor.rs"
+        loading.write_text(loading.read_text().replace('include_str!("../../../assets/viewer/loading-cursor.toml")', 'tile_viewer::LOADING_CURSOR_DESCRIPTION'))
+        shots = target / "crates/civ3-bridge/tests/cursor_shots.rs"
+        shots.write_text(shots.read_text().replace('include_str!("../../../assets/viewer/loading-cursor.toml")', 'civ3_ui::loading_cursor::description()'))
         (target / "AGENTS.md").write_text(
             "# Project boundaries\n\n"
             "This is the Civilization III integration. Generic rendering, the viewer/game engine, glass effects, Wine unixlib bindings and in-process hooks have separate repositories.\n"
@@ -218,6 +227,15 @@ def configure(project, destination, published):
             + readme.split("\n", 1)[1]
         )
         (target / "tools/macos-vm.py").unlink(missing_ok=True)
+        # The Unixlib fixture builder belongs to its SDK repository.
+        (target / "tools/wine-unixlib-fixtures").unlink(missing_ok=True)
+        (target / "tools/prepare-repository-split.py").unlink(missing_ok=True)
+        bytecode = target / "tools/__pycache__"
+        if bytecode.exists():
+            for file in bytecode.glob("*.pyc"): file.unlink()
+            if not any(bytecode.iterdir()): bytecode.rmdir()
+        ignore = target / ".gitignore"
+        if "__pycache__/" not in ignore.read_text(): ignore.write_text(ignore.read_text() + "\n__pycache__/\n")
         flake = "git+ssh://git@github.com/sirati/nix-osx-kvm.git?rev=bc6f76cff637fc7dffa9eb00d3bb1af02d01435a"
         (target / "tools/macos-vm").write_text(
             '#!/usr/bin/env bash\nset -euo pipefail\n'
