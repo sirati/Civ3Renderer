@@ -2,3 +2,5 @@ target/
 *.png
 !docs/**/*.png
 !crates/civ3r-viewer/assets/*.png
+
+__pycache__/

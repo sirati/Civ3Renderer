@@ -1,32 +1,75 @@
+
 [package]
 name = "civ3r-native"
 description = "Native side of the renderer inside a Wine program: unixlib of civ3r_native.dll (Linux, macOS, x64 Windows under the WoW64 port), runs the tile viewer natively"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [lib]
 name = "civ3r_native"
-# cdylib: the unixlib (x86_64 Linux, ARM64 macOS, x86_64 Windows under the
-# WoW64 port); rlib: the argument structs for the
-# Windows-side driver.
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wine-unixlib = { path = "../wine-unixlib" }
-render-errors = { path = "../render-errors" }
-bytemuck.workspace = true
-scene = { path = "../scene" }
-log.workspace = true
 
-[target.'cfg(not(target_arch = "x86"))'.dependencies]
-civ3-assets = { path = "../civ3-assets" }
-handoff = { path = "../handoff" }
-render-desc = { path = "../render-desc" }
-tile-viewer = { path = "../tile-viewer" }
-civ3-ui = { path = "../civ3-ui" }
-tile-render.workspace = true
-env_logger.workspace = true
+[dependencies.wine-unixlib]
+git = "ssh://git@github.com/sirati/wine-unixlib-rs.git"
+rev = "25af6264b351fd48b6e26720027bf2cf590cc155"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-application-icon = { path = "../application-icon" }
+[dependencies.render-errors]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.bytemuck]
+workspace = true
+
+[dependencies.scene]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.log]
+workspace = true
+
+[target]
+
+[target."cfg(not(target_arch = \"x86\"))"]
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies]
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.civ3-assets]
+path = "../civ3-assets"
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.handoff]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.render-desc]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.tile-viewer]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.civ3-ui]
+path = "../civ3-ui"
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.tile-render]
+workspace = true
+
+[target."cfg(not(target_arch = \"x86\"))".dependencies.env_logger]
+workspace = true
+
+[target."cfg(target_os = \"macos\")"]
+
+[target."cfg(target_os = \"macos\")".dependencies]
+
+[target."cfg(target_os = \"macos\")".dependencies.application-icon]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"

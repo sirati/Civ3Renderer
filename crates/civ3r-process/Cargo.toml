@@ -1,12 +1,28 @@
+
 [package]
 name = "civ3r-process"
 description = "Identity-stable signaling of explicitly marked Unix processes"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "1", features = ["process", "event"] }
+[package.edition]
+workspace = true
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
+
+[target]
+
+[target."cfg(target_os = \"linux\")"]
+
+[target."cfg(target_os = \"linux\")".dependencies]
+
+[target."cfg(target_os = \"linux\")".dependencies.rustix]
+version = "1"
+features = ["process", "event"]
+
+[target."cfg(target_os = \"macos\")"]
+
+[target."cfg(target_os = \"macos\")".dependencies]
 libc = "0.2"

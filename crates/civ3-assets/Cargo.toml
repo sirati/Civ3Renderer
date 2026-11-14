@@ -1,23 +1,55 @@
+
 [package]
 name = "civ3-assets"
 description = "Readers for Civilization III asset formats (PCX, FLC, INI) and game file lookup"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [dependencies]
-render-errors = { path = "../render-errors" }
-thiserror.workspace = true
-handoff = { path = "../handoff" }
-render-desc = { path = "../render-desc", optional = true }
-tile-render = { workspace = true, optional = true }
-toml = { version = "0.9", optional = true }
-image = { workspace = true, optional = true }
-gdi-text = { path = "../gdi-text", optional = true }
-log = { workspace = true, optional = true }
+
+[dependencies.render-errors]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.handoff]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.render-desc]
+optional = true
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.tile-render]
+workspace = true
+optional = true
+
+[dependencies.toml]
+version = "0.9"
+optional = true
+
+[dependencies.image]
+workspace = true
+optional = true
+
+[dependencies.gdi-text]
+path = "../gdi-text"
+optional = true
+
+[dependencies.log]
+workspace = true
+optional = true
 
 [features]
 default = ["render-desc"]
-# Image loader for render descriptions (pulls in the renderer's image type),
-# including the game's text glyphs.
 render-desc = ["dep:render-desc", "dep:tile-render", "dep:toml", "dep:image", "dep:gdi-text", "dep:log"]

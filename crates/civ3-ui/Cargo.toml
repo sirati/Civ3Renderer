@@ -1,24 +1,62 @@
+
 [package]
 name = "civ3-ui"
 description = "The Civilization III interface fed by the jgl hooks: text runs and, step by step, the rest of the interface model (docs/jgl-replacement.md)"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [dependencies]
-glass = { path = "../glass" }
-marker = { path = "../marker" }
-tile-render.workspace = true
-civ3-spirv = { path = "../civ3-spirv" }
-jgl = { path = "../jgl" }
-scene = { path = "../scene" }
-viewer-settings = { path = "../viewer-settings" }
-menu = { path = "../menu" }
-log.workspace = true
-tile-game = { path = "../tile-game" }
-tile-viewer = { path = "../tile-viewer" }
 
+[dependencies.glass]
+git = "ssh://git@github.com/sirati/glass-shader-rs.git"
+rev = "d155523fe2b63dd9130ead8daf35e8825eed860e"
+
+[dependencies.marker]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.tile-render]
+workspace = true
+
+[dependencies.civ3-spirv]
+path = "../civ3-spirv"
+
+[dependencies.jgl]
+path = "../jgl"
+
+[dependencies.scene]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.viewer-settings]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.menu]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.log]
+workspace = true
+
+[dependencies.tile-game]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.tile-viewer]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
 
 [dev-dependencies]
-render-desc = { path = "../render-desc" }
 toml = "0.9"
+
+[dev-dependencies.render-desc]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"

@@ -1,17 +1,45 @@
+
 [package]
 name = "civ3-sys"
 description = "Civilization III: Conquests process interface: build detection, global addresses, memory layouts, hook declarations"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [dependencies]
-inproc = { path = "../inproc" }
-handoff = { path = "../handoff" }
-gdi-text = { path = "../gdi-text" }
-bytemuck.workspace = true
-thiserror.workspace = true
-log.workspace = true
 
-[target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Memory"] }
+[dependencies.inproc]
+git = "ssh://git@github.com/sirati/inproc-rs.git"
+rev = "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c"
+
+[dependencies.handoff]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.gdi-text]
+path = "../gdi-text"
+
+[dependencies.bytemuck]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.log]
+workspace = true
+
+[target]
+
+[target."cfg(windows)"]
+
+[target."cfg(windows)".dev-dependencies]
+
+[target."cfg(windows)".dev-dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_System_Memory"]

@@ -145,6 +145,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "application-icon"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "application-icon-macos",
  "image",
@@ -155,8 +156,8 @@ dependencies = [
 [[package]]
 name = "application-icon-macos"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
- "image",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -972,6 +973,7 @@ dependencies = [
 [[package]]
 name = "function-keys"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "function-keys-macos",
  "log",
@@ -980,6 +982,7 @@ dependencies = [
 [[package]]
 name = "function-keys-macos"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "block2 0.6.2",
  "log",
@@ -1079,12 +1082,10 @@ dependencies = [
 [[package]]
 name = "glass"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/glass-shader-rs.git?rev=d155523fe2b63dd9130ead8daf35e8825eed860e#d155523fe2b63dd9130ead8daf35e8825eed860e"
 dependencies = [
  "bytemuck",
  "glass-shared",
- "glass-test-spirv",
- "image",
- "pollster",
  "tile-render",
  "wgpu",
 ]
@@ -1092,15 +1093,9 @@ dependencies = [
 [[package]]
 name = "glass-shared"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/glass-shader-rs.git?rev=d155523fe2b63dd9130ead8daf35e8825eed860e#d155523fe2b63dd9130ead8daf35e8825eed860e"
 dependencies = [
  "bytemuck",
-]
-
-[[package]]
-name = "glass-test-spirv"
-version = "0.1.0"
-dependencies = [
- "shader-build",
 ]
 
 [[package]]
@@ -1141,6 +1136,7 @@ dependencies = [
 [[package]]
 name = "gpu-text"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "thiserror 2.0.21",
  "tile-render-shared",
@@ -1162,6 +1158,7 @@ dependencies = [
 [[package]]
 name = "handoff"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "arc-swap",
  "crossbeam-channel",
@@ -1332,6 +1329,7 @@ dependencies = [
 [[package]]
 name = "inproc"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/inproc-rs.git?rev=1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c#1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c"
 dependencies = [
  "bytemuck",
  "handoff",
@@ -1582,10 +1580,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "marker"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "tile-render",
- "viewer-spirv",
- "wgpu",
 ]
 
 [[package]]
@@ -1606,6 +1603,7 @@ dependencies = [
 [[package]]
 name = "menu"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "render-desc",
  "scene",
@@ -1795,7 +1793,6 @@ checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.2",
  "objc2 0.6.5",
- "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
 ]
@@ -2194,10 +2191,12 @@ dependencies = [
 [[package]]
 name = "pointer-api"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 
 [[package]]
 name = "pointer-control"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "log",
  "pointer-api",
@@ -2212,6 +2211,7 @@ dependencies = [
 [[package]]
 name = "pointer-fallback"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "pointer-api",
  "winit",
@@ -2220,6 +2220,7 @@ dependencies = [
 [[package]]
 name = "pointer-macos"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "log",
  "pointer-api",
@@ -2230,6 +2231,7 @@ dependencies = [
 [[package]]
 name = "pointer-wayland"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "log",
  "pointer-api",
@@ -2241,6 +2243,7 @@ dependencies = [
 [[package]]
 name = "pointer-windows"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "pointer-api",
  "pointer-fallback",
@@ -2251,6 +2254,7 @@ dependencies = [
 [[package]]
 name = "pointer-windows-ffi"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "windows-sys 0.61.2",
 ]
@@ -2258,6 +2262,7 @@ dependencies = [
 [[package]]
 name = "pointer-x11"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "log",
  "pointer-api",
@@ -2475,6 +2480,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "render-desc"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "log",
  "marker",
@@ -2484,13 +2490,12 @@ dependencies = [
  "tile-render",
  "tile-render-shared",
  "toml 0.9.12+spec-1.1.0",
- "viewer-spirv",
- "wgpu",
 ]
 
 [[package]]
 name = "render-errors"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "handoff",
  "log",
@@ -2585,6 +2590,7 @@ dependencies = [
 [[package]]
 name = "scene"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "crossbeam-channel",
  "handoff",
@@ -2725,6 +2731,7 @@ dependencies = [
 [[package]]
 name = "shader-build"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "cargo-gpu-install",
 ]
@@ -2984,6 +2991,7 @@ dependencies = [
 [[package]]
 name = "tile-game"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "scene",
  "tile-render",
@@ -2993,36 +3001,30 @@ dependencies = [
 [[package]]
 name = "tile-render"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "bytemuck",
  "gpu-text",
- "image",
  "log",
  "pollster",
  "render-errors",
  "thiserror 2.0.21",
  "tile-render-shared",
- "tile-render-test-spirv",
  "wgpu",
 ]
 
 [[package]]
 name = "tile-render-shared"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
-name = "tile-render-test-spirv"
-version = "0.1.0"
-dependencies = [
- "shader-build",
-]
-
-[[package]]
 name = "tile-viewer"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "application-icon",
  "dispatch2",
@@ -3038,7 +3040,6 @@ dependencies = [
  "softbuffer",
  "thiserror 2.0.21",
  "tile-render",
- "toml 0.9.12+spec-1.1.0",
  "viewer-settings",
  "viewer-spirv",
  "wgpu",
@@ -3281,6 +3282,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "viewer-settings"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -3290,6 +3292,7 @@ dependencies = [
 [[package]]
 name = "viewer-spirv"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "shader-build",
 ]
@@ -3297,6 +3300,7 @@ dependencies = [
 [[package]]
 name = "viewer-transport"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "handoff",
  "scene",
@@ -3600,6 +3604,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -3890,6 +3895,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 [[package]]
 name = "wine-unixlib"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/wine-unixlib-rs.git?rev=25af6264b351fd48b6e26720027bf2cf590cc155#25af6264b351fd48b6e26720027bf2cf590cc155"
 dependencies = [
  "bytemuck",
  "libc",
@@ -3897,27 +3903,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "wine-unixlib-echo"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "wine-unixlib",
-]
-
-[[package]]
-name = "wine-unixlib-window"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "pollster",
- "wgpu",
- "wine-unixlib",
- "winit",
-]
-
-[[package]]
 name = "winit"
 version = "0.30.13"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "ahash",
  "android-activity",
@@ -3995,6 +3983,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 [[package]]
 name = "wl-pointer"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/pointer-control-rs.git?rev=10c22945ee0a9c23084cb85035a1ee44432cabd5#10c22945ee0a9c23084cb85035a1ee44432cabd5"
 dependencies = [
  "log",
  "wayland-backend",

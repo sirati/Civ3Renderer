@@ -54,6 +54,7 @@ dependencies = [
 [[package]]
 name = "glass-shaders"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/glass-shader-rs.git?rev=d155523fe2b63dd9130ead8daf35e8825eed860e#d155523fe2b63dd9130ead8daf35e8825eed860e"
 dependencies = [
  "glass-shared",
  "spirv-std",
@@ -63,6 +64,7 @@ dependencies = [
 [[package]]
 name = "glass-shared"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/glass-shader-rs.git?rev=d155523fe2b63dd9130ead8daf35e8825eed860e#d155523fe2b63dd9130ead8daf35e8825eed860e"
 dependencies = [
  "bytemuck",
 ]
@@ -76,6 +78,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "marker-shaders"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "spirv-std",
 ]
@@ -154,6 +157,7 @@ dependencies = [
 [[package]]
 name = "tile-render-shaders"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "spirv-std",
  "tile-render-shared",
@@ -162,6 +166,7 @@ dependencies = [
 [[package]]
 name = "tile-render-shared"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer.git?rev=6941948fc77ad310c9021df6f01374be9d3a23fc#6941948fc77ad310c9021df6f01374be9d3a23fc"
 dependencies = [
  "bytemuck",
 ]
@@ -175,6 +180,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 [[package]]
 name = "viewer-shaders"
 version = "0.1.0"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
 dependencies = [
  "marker-shaders",
  "spirv-std",

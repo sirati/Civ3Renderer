@@ -1,19 +1,47 @@
+
 [package]
 name = "jgl-ffi"
 description = "The unsafe shim between Civilization III and the safe jgl crate: jgl.dll's object layouts, thiscall entry points, method-table takeover, counting stubs"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [dependencies]
-jgl = { path = "../jgl" }
-inproc = { path = "../inproc" }
-handoff = { path = "../handoff" }
-log.workspace = true
-thiserror.workspace = true
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Performance"] }
+[dependencies.jgl]
+path = "../jgl"
+
+[dependencies.inproc]
+git = "ssh://git@github.com/sirati/inproc-rs.git"
+rev = "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c"
+
+[dependencies.handoff]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.log]
+workspace = true
+
+[dependencies.thiserror]
+workspace = true
+
+[target]
+
+[target."cfg(windows)"]
+
+[target."cfg(windows)".dependencies]
+
+[target."cfg(windows)".dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Performance"]
 
 [dev-dependencies]
-civ3-ui = { path = "../civ3-ui" }
+
+[dev-dependencies.civ3-ui]
+path = "../civ3-ui"

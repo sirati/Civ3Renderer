@@ -1,9 +1,16 @@
+
 [package]
 name = "civ3r-launcher"
 description = "Private game installation and process lifecycle for the native renderer"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [[bin]]
 name = "civ3-play-macos"
@@ -13,14 +20,40 @@ path = "src/main.rs"
 getrandom = "0.3"
 sha2 = "0.10.9"
 
-[target.'cfg(unix)'.dependencies]
-winit.workspace = true
+[target]
+
+[target."cfg(unix)"]
+
+[target."cfg(unix)".dependencies]
 font8x8 = "0.3"
-tile-render.workspace = true
-civ3-spirv = { path = "../civ3-spirv" }
-wgpu.workspace = true
-pollster.workspace = true
-civ3r-process = { path = "../civ3r-process" }
-function-keys = { path = "../function-keys" }
-rustix = { version = "1", features = ["process", "fs"] }
-signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
+
+[target."cfg(unix)".dependencies.winit]
+workspace = true
+
+[target."cfg(unix)".dependencies.tile-render]
+workspace = true
+
+[target."cfg(unix)".dependencies.civ3-spirv]
+path = "../civ3-spirv"
+
+[target."cfg(unix)".dependencies.wgpu]
+workspace = true
+
+[target."cfg(unix)".dependencies.pollster]
+workspace = true
+
+[target."cfg(unix)".dependencies.civ3r-process]
+path = "../civ3r-process"
+
+[target."cfg(unix)".dependencies.function-keys]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[target."cfg(unix)".dependencies.rustix]
+version = "1"
+features = ["process", "fs"]
+
+[target."cfg(unix)".dependencies.signal-hook]
+version = "0.3"
+default-features = false
+features = ["iterator"]

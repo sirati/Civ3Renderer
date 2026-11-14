@@ -1,24 +1,64 @@
+
 [package]
 name = "civ3r-viewer"
 description = "Standalone native renderer host for a Windows game process"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [dependencies]
-render-errors = { path = "../render-errors" }
-application-icon = { path = "../application-icon" }
-handoff = { path = "../handoff" }
 crossbeam-channel = "0.5"
-viewer-transport = { path = "../viewer-transport" }
-scene = { path = "../scene" }
-civ3-assets = { path = "../civ3-assets" }
-render-desc = { path = "../render-desc" }
-tile-viewer = { path = "../tile-viewer" }
-civ3-ui = { path = "../civ3-ui" }
-tile-render.workspace = true
-env_logger.workspace = true
-log.workspace = true
+
+[dependencies.render-errors]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.application-icon]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.handoff]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.viewer-transport]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.scene]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.civ3-assets]
+path = "../civ3-assets"
+
+[dependencies.render-desc]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.tile-viewer]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.civ3-ui]
+path = "../civ3-ui"
+
+[dependencies.tile-render]
+workspace = true
+
+[dependencies.env_logger]
+workspace = true
+
+[dependencies.log]
+workspace = true
 
 [dev-dependencies]
-image.workspace = true
+
+[dev-dependencies.image]
+workspace = true

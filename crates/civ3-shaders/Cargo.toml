@@ -1,3 +1,4 @@
+
 [package]
 name = "civ3-shaders"
 description = "Civ III application shader module: generic viewer entry points and glass effects"
@@ -9,8 +10,19 @@ version = "0.1.0"
 crate-type = ["dylib", "lib"]
 
 [dependencies]
-viewer-shaders = { path = "../viewer-shaders" }
-glass-shaders = { path = "../glass-shaders" }
+
+[dependencies.viewer-shaders]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.glass-shaders]
+git = "ssh://git@github.com/sirati/glass-shader-rs.git"
+rev = "d155523fe2b63dd9130ead8daf35e8825eed860e"
+
+[lints]
 
 [lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(target_arch, values("spirv"))'] }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = ["cfg(target_arch, values(\"spirv\"))"]

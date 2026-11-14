@@ -1,4 +1,20 @@
-# Civ3Renderer
+# Civ3renderer
+
+Civilization III integration and application-specific rendering configuration.
+Generic rendering, the viewer/game engine, glass effects and platform libraries live in separate repositories:
+
+- `git@github.com:sirati/tilerenderer.git`
+- `git@github.com:sirati/pointer-control-rs.git`
+- `git@github.com:sirati/wine-unixlib-rs.git`
+- `git@github.com:sirati/inproc-rs.git`
+- `git@github.com:sirati/glass-shader-rs.git`
+- `git@github.com:sirati/tilerenderer-gameengine.git`
+
+This application selects the glass plugin; the generic viewer has no glass dependency.
+The macOS VM manager is provided by `git@github.com:sirati/nix-osx-kvm.git`.
+
+The usage and historical implementation notes below predate the repository split.
+
 
 The [22 October 2026 handover](docs/handover-2026-10-22/README.md) records open and closed work, unfinished tasks and subagent continuation instructions, acceptance checks, and source backups. An [offline reading copy](docs/handover-2026-10-22/handover.html) is also available.
 

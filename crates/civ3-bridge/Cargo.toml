@@ -1,45 +1,125 @@
+
 [package]
 name = "civ3-bridge"
 description = "The Civilization III specific part: runs inside the game, turns its state into a game-agnostic scene, and feeds input back"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [lib]
-# Built as the game's ifc23.dll, see ifc23.def.
 name = "ifc23"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-render-errors = { path = "../render-errors" }
-inproc = { path = "../inproc" }
-handoff = { path = "../handoff" }
-tokio = { version = "1", default-features = false, features = ["sync", "rt", "time"] }
-civ3-sys = { path = "../civ3-sys" }
-log.workspace = true
-civ3-assets = { path = "../civ3-assets" }
-gdi-text = { path = "../gdi-text" }
-render-desc = { path = "../render-desc" }
-scene = { path = "../scene" }
-viewer-transport = { path = "../viewer-transport" }
-menu = { path = "../menu" }
-civ3-ui = { path = "../civ3-ui" }
-tile-game = { path = "../tile-game" }
-civ3-world = { path = "../civ3-world" }
-jgl = { path = "../jgl" }
-jgl-ffi = { path = "../jgl-ffi" }
-wine-unixlib = { path = "../wine-unixlib" }
-civ3r-native = { package = "civ3r-native", path = "../civ3r-native" }
-tile-render.workspace = true
-tile-render-shared.workspace = true
-wgpu.workspace = true
-tile-viewer = { path = "../tile-viewer" }
-thiserror.workspace = true
-image.workspace = true
-env_logger.workspace = true
-viewer-settings = { path = "../viewer-settings" }
-# (The options a render description gives its loaders.)
 toml = "0.9"
 
-[target.'cfg(windows)'.dev-dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_System_LibraryLoader"] }
+[dependencies.render-errors]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.inproc]
+git = "ssh://git@github.com/sirati/inproc-rs.git"
+rev = "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c"
+
+[dependencies.handoff]
+git = "ssh://git@github.com/sirati/tilerenderer.git"
+rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
+
+[dependencies.tokio]
+version = "1"
+default-features = false
+features = ["sync", "rt", "time"]
+
+[dependencies.civ3-sys]
+path = "../civ3-sys"
+
+[dependencies.log]
+workspace = true
+
+[dependencies.civ3-assets]
+path = "../civ3-assets"
+
+[dependencies.gdi-text]
+path = "../gdi-text"
+
+[dependencies.render-desc]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.scene]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.viewer-transport]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.menu]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.civ3-ui]
+path = "../civ3-ui"
+
+[dependencies.tile-game]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.civ3-world]
+path = "../civ3-world"
+
+[dependencies.jgl]
+path = "../jgl"
+
+[dependencies.jgl-ffi]
+path = "../jgl-ffi"
+
+[dependencies.wine-unixlib]
+git = "ssh://git@github.com/sirati/wine-unixlib-rs.git"
+rev = "25af6264b351fd48b6e26720027bf2cf590cc155"
+
+[dependencies.civ3r-native]
+package = "civ3r-native"
+path = "../civ3r-native"
+
+[dependencies.tile-render]
+workspace = true
+
+[dependencies.tile-render-shared]
+workspace = true
+
+[dependencies.wgpu]
+workspace = true
+
+[dependencies.tile-viewer]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.thiserror]
+workspace = true
+
+[dependencies.image]
+workspace = true
+
+[dependencies.env_logger]
+workspace = true
+
+[dependencies.viewer-settings]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[target]
+
+[target."cfg(windows)"]
+
+[target."cfg(windows)".dev-dependencies]
+
+[target."cfg(windows)".dev-dependencies.windows-sys]
+version = "0.61"
+features = ["Win32_Graphics_Gdi", "Win32_System_LibraryLoader"]

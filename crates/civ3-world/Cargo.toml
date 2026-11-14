@@ -1,12 +1,29 @@
+
 [package]
 name = "civ3-world"
 description = "The Civilization III world (the map and what is on it) from game state to scene, on tile-render (docs/jgl-replacement.md)"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
 
 [dependencies]
-civ3-assets = { path = "../civ3-assets" }
-scene = { path = "../scene" }
-tile-render.workspace = true
-tile-game = { path = "../tile-game" }
+
+[dependencies.civ3-assets]
+path = "../civ3-assets"
+
+[dependencies.scene]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"
+
+[dependencies.tile-render]
+workspace = true
+
+[dependencies.tile-game]
+git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
+rev = "ac73d010d2567ed256343a8d05b2358c4362d067"

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-if command -v python3 >/dev/null 2>&1; then
-  exec python3 "$script_dir/macos-vm.py" "$@"
-fi
-exec nix shell nixpkgs#python3 -c python3 "$script_dir/macos-vm.py" "$@"
+export OSX_KVM_VM_ROOT=${OSX_KVM_VM_ROOT:-${CIV3R_MACVM_ROOT:-/mnt/datasets/macvm}}
+if command -v osx-kvm-manager >/dev/null 2>&1; then exec osx-kvm-manager "$@"; fi
+vm_flake=${CIV3R_MACVM_FLAKE:-git+ssh://git@github.com/sirati/nix-osx-kvm.git?rev=bc6f76cff637fc7dffa9eb00d3bb1af02d01435a}
+exec nix run "$vm_flake#manager" -- "$@"

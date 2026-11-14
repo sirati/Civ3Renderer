@@ -1,0 +1,149 @@
+{
+  "date": "2026-11-14",
+  "source_before_split": "af83b6505416d1ac7da271abd90519c60b829919",
+  "git_transport": "SSH only",
+  "projects": {
+    "tilerenderer": {
+      "origin": "git@github.com:sirati/tilerenderer.git",
+      "crates": [
+        "tile-render",
+        "tile-render-shared",
+        "tile-render-shaders",
+        "gpu-text",
+        "render-errors",
+        "handoff",
+        "shader-build",
+        "tile-render-test-spirv",
+        "tile-render-test-shaders"
+      ],
+      "paths": [
+        "vendor/wgpu-hal",
+        "docs/concurrency.md",
+        "docs/per-view-layers.md"
+      ],
+      "description": "GPU rendering for layered tile worlds, GPU text and shader compilation support."
+    },
+    "pointer-control-rs": {
+      "origin": "git@github.com:sirati/pointer-control-rs.git",
+      "crates": [
+        "pointer-api",
+        "pointer-control",
+        "pointer-fallback",
+        "pointer-macos",
+        "pointer-wayland",
+        "pointer-windows",
+        "pointer-windows-ffi",
+        "pointer-x11",
+        "wl-pointer"
+      ],
+      "paths": [
+        "vendor/winit"
+      ],
+      "description": "Physical-pixel pointer capture, confinement and placement across window systems."
+    },
+    "wine-unixlib-rs": {
+      "origin": "git@github.com:sirati/wine-unixlib-rs.git",
+      "crates": [
+        "wine-unixlib",
+        "wine-unixlib-echo",
+        "wine-unixlib-window"
+      ],
+      "paths": [
+        "tools/mark-wine-builtin",
+        "tools/wine-unixlib-fixtures",
+        "docs/wow64-windows.md"
+      ],
+      "description": "Rust interfaces to Wine's existing in-process PE/native unixlib mechanism."
+    },
+    "inproc-rs": {
+      "origin": "git@github.com:sirati/inproc-rs.git",
+      "crates": [
+        "inproc"
+      ],
+      "paths": [],
+      "description": "Guarded foreign-memory access, function hooks and injected DLL support."
+    },
+    "glass-shader-rs": {
+      "origin": "git@github.com:sirati/glass-shader-rs.git",
+      "crates": [
+        "glass",
+        "glass-shared",
+        "glass-shaders",
+        "glass-test-spirv",
+        "glass-test-shaders"
+      ],
+      "paths": [],
+      "description": "Glass effects: host GPU passes, shared parameters and shader libraries."
+    },
+    "tilerenderer-gameengine": {
+      "origin": "git@github.com:sirati/tilerenderer-gameengine.git",
+      "crates": [
+        "application-icon",
+        "application-icon-macos",
+        "function-keys",
+        "function-keys-macos",
+        "marker",
+        "marker-shaders",
+        "viewer-shaders",
+        "viewer-spirv",
+        "render-desc",
+        "scene",
+        "menu",
+        "tile-viewer",
+        "viewer-settings",
+        "viewer-transport",
+        "tile-game"
+      ],
+      "paths": [
+        "assets/viewer",
+        "docs/generic-crates.md",
+        "docs/generic-crates.md",
+        "docs/concurrency.md"
+      ],
+      "description": "Generic tile-world viewer and game-engine interfaces, menus, input and scene transport."
+    },
+    "civ3renderer": {
+      "origin": "git@github.com:sirati/civ3renderer.git",
+      "crates": [
+        "civ3-assets",
+        "civ3-bridge",
+        "civ3-sys",
+        "civ3-ui",
+        "civ3-world",
+        "civ3r-launcher",
+        "civ3r-native",
+        "civ3r-process",
+        "civ3r-viewer",
+        "civ3-shaders",
+        "civ3-spirv",
+        "jgl",
+        "jgl-ffi",
+        "gdi-text"
+      ],
+      "paths": [
+        "assets/civ3",
+        "docs",
+        "tools",
+        "nix",
+        "README.md"
+      ],
+      "description": "Civilization III game integration, asset loading, compatibility hooks and launch/deployment tools."
+    }
+  },
+  "unmapped_crate_directories": [],
+  "macos_vm_destination": "git@github.com:sirati/nix-osx-kvm.git",
+  "macos_vm_scope": "Python management, Nix package/app and NixOS user-slice configuration; no runtime disk images or secrets.",
+  "remote_civ3renderer_before": {
+    "default_branch": "master",
+    "head": "d09005b0b3552c7a7825a3728bb87fa225edfe42",
+    "content": "2024 tile-renderer prototype: root renderer source plus shared/shaders, no current Civ3 integration.",
+    "backup": "/home/sirati/civ3r-source-backups/20261114-repository-split/github-civ3renderer-before.git"
+  },
+  "constraints": [
+    "Generic engine must have no glass package or shader dependency.",
+    "Civ3 owns the application shader module and selects its glass plugin.",
+    "Tile and glass tests compile independent test shader modules.",
+    "Preserve existing GitHub prototype before replacing the Civ3 destination.",
+    "The original monorepo and dataset source/evidence are not deleted."
+  ]
+}
