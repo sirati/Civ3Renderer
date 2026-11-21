@@ -45,6 +45,10 @@ const PREVIEW_ART_REST: Duration = Duration::from_millis(250);
 /// About how many bytes of pixels an addition of art made ahead has
 /// (`crate::preload`): art the screen needs waits at most for one.
 const PRELOAD_CHUNK: u64 = 3 << 20;
+/// How often new interface art is written to the remembered list at most
+/// (`crate::preload::Remembered`).
+const REMEMBER_EVERY: Duration = Duration::from_secs(5);
+const REMEMBERED_HEADER: &str = "# Interface art this game showed (civ3-bridge, crate::preload::Remembered), made ahead\n# at the next start. Delete the file to forget it; it fills again as screens show.\n";
 /// Atlas memory art made ahead may fill, by default: in the game's 32-bit
 /// process, where software renderers keep the atlas in the process too,
 /// and in a native renderer (an integrated GPU's memory is the system's).
@@ -675,7 +679,13 @@ fn publish(
     // which game that is), the interface art to make, the budget, the
     // atlas memory the art takes (the art thread says, with the pixels;
     // else estimated from what was sent).
-    let art_list = crate::preload::ArtList::parse(crate::preload::BUILTIN_LIST);
+    // With the art this installation's game showed before: a screen whose
+    // art came late once is made ahead from the next start on.
+    let mut remembered = crate::preload::Remembered::load(crate::preload::Remembered::path(&crate::prefs::settings_path()));
+    let art_list = crate::preload::ArtList::parse(&format!("{}{}", crate::preload::BUILTIN_LIST, remembered.text()));
+    // (What the remembered art was last brought up to date with.)
+    let mut remembered_count = 0usize;
+    let mut remembered_at = std::time::Instant::now();
     let mut preload = crate::preload::Preload::none();
     let mut preload_for = None;
     let budget = crate::preload::budget(if pixels { PRELOAD_MIB_IN_PROCESS } else { PRELOAD_MIB_NATIVE });
@@ -864,6 +874,14 @@ fn publish(
                     log::warn!("art list {}: {e}", path.display());
                 }
             }
+        }
+        // New interface art showed: remembered for the next start.
+        let count = screen_art.regions.len() + screen_art.resized_regions.len() + screen_art.indexed.len()
+            + screen_art.fills.len() + screen_art.dynamic.len() + fonts.len();
+        if count != remembered_count && remembered_at.elapsed() >= REMEMBER_EVERY {
+            remembered_count = count;
+            remembered_at = std::time::Instant::now();
+            remembered.note(REMEMBERED_HEADER, &format!("{}{}", screen_art.to_lines(), fonts.lines()));
         }
         // Art built: from now on the scenes use it.
         while let Some(done) = art_thread.try_done() {

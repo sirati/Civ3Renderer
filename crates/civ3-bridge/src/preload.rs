@@ -179,6 +179,70 @@ pub fn planning_world(world: &Civ3World) -> Civ3World {
     }
 }
 
+/// The interface art this installation's game showed in earlier sessions,
+/// made ahead like [`BUILTIN_LIST`]: a screen that showed its art late once
+/// has it ready from the next start on. Lines of an art list, in a file
+/// next to the settings ([`Remembered::path`]); kept growing as new art
+/// shows, never more than [`Remembered::MAX_LINES`].
+#[derive(Debug, Default)]
+pub struct Remembered {
+    path: Option<std::path::PathBuf>,
+    lines: BTreeSet<String>,
+    written: usize,
+}
+
+impl Remembered {
+    pub const MAX_LINES: usize = 50_000;
+
+    /// `seen-art.txt` beside the settings file.
+    pub fn path(settings: &std::path::Path) -> std::path::PathBuf {
+        settings.with_file_name("seen-art.txt")
+    }
+
+    /// What `path` holds (nothing if it is missing or unreadable).
+    pub fn load(path: std::path::PathBuf) -> Remembered {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let lines: BTreeSet<String> = list_lines(&text).take(Self::MAX_LINES).collect();
+        Remembered { written: lines.len(), path: Some(path), lines }
+    }
+
+    /// The remembered lines, as an art list's text.
+    pub fn text(&self) -> String {
+        self.lines.iter().map(|l| format!("{l}\n")).collect()
+    }
+
+    /// Adds the lines of art list `text`; rewrites the file when there
+    /// are new ones. `header` starts the file.
+    pub fn note(&mut self, header: &str, text: &str) {
+        for line in list_lines(text) {
+            if self.lines.len() >= Self::MAX_LINES {
+                break;
+            }
+            self.lines.insert(line);
+        }
+        let Some(path) = &self.path else { return };
+        if self.lines.len() == self.written {
+            return;
+        }
+        let temporary = path.with_extension(format!("txt.{}.tmp", std::process::id()));
+        let written = std::fs::write(&temporary, format!("{header}{}", self.text())).and_then(|()| std::fs::rename(&temporary, path));
+        match written {
+            Ok(()) => self.written = self.lines.len(),
+            Err(e) => {
+                let _ = std::fs::remove_file(&temporary);
+                log::warn!("remembered art {}: {e}", path.display());
+                // (Not again until more art shows.)
+                self.written = self.lines.len();
+            }
+        }
+    }
+}
+
+/// The art lines of an art list's text (no comments or blank lines).
+fn list_lines(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.lines().map(str::trim_end).filter(|l| !l.is_empty() && !l.starts_with('#')).map(str::to_owned)
+}
+
 /// The budget of atlas memory for art made ahead: `CIV3R_PRELOAD_MIB`, else
 /// `default_mib`; `CIV3R_PRELOAD=off`: none.
 pub fn budget(default_mib: u64) -> u64 {
@@ -558,6 +622,30 @@ impl Preload {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_art_survives_restarts_and_grows_only_with_new_lines() {
+        let dir = std::env::temp_dir().join(format!("civ3r-remembered-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = Remembered::path(&dir.join("settings.toml"));
+        let line = "region\tArt/Advisors/cultureometer.pcx\t1,1,72,13\tk\t-\t0,0\t-\t0,0";
+        let mut first = Remembered::load(path.clone());
+        assert_eq!(first.text(), "");
+        first.note("# head\n", &format!("# comment\n{line}\n\n{line}\n"));
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(written, format!("# head\n{line}\n"));
+        // The next session starts with it, and the art list parses it.
+        let mut second = Remembered::load(path.clone());
+        assert_eq!(second.text(), format!("{line}\n"));
+        assert_eq!(ArtList::parse(&second.text()).screen.regions.len(), 1);
+        // Nothing new: the file is not rewritten.
+        std::fs::write(&path, "kept").unwrap();
+        second.note("# head\n", line);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "kept");
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["seen-art.txt"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn file(path: &str, frames: u32) -> AnimFile {
         AnimFile {
