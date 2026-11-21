@@ -449,27 +449,36 @@ impl UiModel {
 
     /// Whether something is drawn on `canvas` at (x, y), by the rectangles
     /// of its draws: the topmost one there decides, and a clear to the
-    /// colour key draws nothing. The canvas as last presented (what the
-    /// viewer shows), else as recorded; `None` when the model has neither.
-    /// This decides where a colour-keyed form takes the mouse
-    /// (`civ3_sys::controls::form_hit`); no pixel is read or made.
+    /// colour key draws nothing, nor does a writer the model cannot show.
+    /// The canvas as last presented (what the viewer shows), else as
+    /// recorded; `None` when the model has neither. This decides where a
+    /// colour-keyed form takes the mouse (`civ3_sys::controls::form_hit`);
+    /// no pixel is read or made.
     pub fn drawn_at(&self, canvas: u32, x: i32, y: i32) -> Option<bool> {
+        Some(self.draw_at(canvas, x, y)?.is_some_and(|op| !matches!(op, Op::KeyClear { .. }) && op_colour(&op) != Some(KEY_RGB)))
+    }
+
+    /// The draw [`Self::drawn_at`] goes by, for diagnostics.
+    pub fn draw_at_text(&self, canvas: u32, x: i32, y: i32) -> String {
+        format!("{:?}", self.draw_at(canvas, x, y))
+    }
+
+    fn draw_at(&self, canvas: u32, x: i32, y: i32) -> Option<Option<Op>> {
         if self.files.contains_key(&canvas) {
-            return Some(true);
+            return Some(Some(Op::Fill { rect: [x, y, 1, 1], rgb: [0, 0, 0], alpha: 255 }));
         }
         let ops: Vec<Op> = match self.presented.get(&canvas) {
             Some(snapshot) => snapshot.iter().flat_map(|(_, resolved)| resolved.iter().cloned()).collect(),
             None => match self.canvases.get(&canvas) {
                 Some(list) => list.iter().flat_map(|op| self.resolve(op, 0)).collect(),
-                None => return self.keyed_clear.contains(&canvas).then_some(false),
+                None => return self.keyed_clear.contains(&canvas).then_some(None),
             },
         };
         let size = self.sizes.get(&canvas).copied();
-        let top = ops.iter().rev().find(|op| {
+        Some(ops.into_iter().rev().find(|op| {
             let [l, t, r, b] = visible_bounds(op, size);
-            x >= l && y >= t && x < r && y < b
-        });
-        Some(top.is_some_and(|op| !matches!(op, Op::KeyClear { .. }) && op_colour(op) != Some(KEY_RGB)))
+            !matches!(op, Op::Unknown { .. }) && x >= l && y >= t && x < r && y < b
+        }))
     }
 
     /// Leave the skipped canvases out (or not, e.g. between games).
@@ -1753,6 +1762,10 @@ mod tests {
         m.apply(Event::Fill { canvas: 40, rect: [20, 70, 10, 10], rgb: KEY_RGB, alpha: 255, clip: None });
         assert_eq!(m.drawn_at(40, 25, 75), Some(false));
         assert_eq!(m.drawn_at(40, 35, 75), Some(true));
+        // A writer the model cannot show draws nothing the viewer shows.
+        m.unanswered_in(40, [0, 0, 200, 50]);
+        assert_eq!(m.drawn_at(40, 5, 30), Some(false));
+        assert_eq!(m.drawn_at(40, 110, 35), Some(true), "the picture under it still shows");
     }
 
     #[test]

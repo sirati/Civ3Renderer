@@ -1694,8 +1694,9 @@ fn compare_mismatch(at: (i32, i32), game: (u32, (i32, i32), bool), ours: (u32, (
     let n = SEEN.with_borrow_mut(|seen| { let n = seen.entry((game.0, ours.0)).or_insert(0); *n += 1; *n });
     if n <= 3 || n.is_power_of_two() {
         let class = |form: u32| inproc::Ptr32::<u32>::new(form).read().unwrap_or(0);
-        log::warn!("hit compare #{n}: at {at:?} the game finds {:#x} (class {:#x}) at {:?} frame {}, ours {:#x} (class {:#x}) at {:?} frame {}",
-            game.0, class(game.0), game.1, game.2, ours.0, class(ours.0), ours.1, ours.2);
+        let draw = |form: u32, p: (i32, i32)| with_model(false, |m| m.draw_at_text(form + form_hit::CANVAS, p.0, p.1)).unwrap_or_default();
+        log::warn!("hit compare #{n}: at {at:?} the game finds {:#x} (class {:#x}) at {:?} frame {}, ours {:#x} (class {:#x}) at {:?} frame {}; our draw there: {}",
+            game.0, class(game.0), game.1, game.2, ours.0, class(ours.0), ours.1, ours.2, draw(ours.0, ours.1));
     }
 }
 
