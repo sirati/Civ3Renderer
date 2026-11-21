@@ -1562,7 +1562,7 @@ fn op_bounds(op: &Op) -> [i32; 4] {
 /// Where an operation may draw (left, top, right, bottom), within a canvas
 /// of `size` if known: generously for text (its pen is at the baseline;
 /// every character as wide as the font is high) and for an animation (all
-/// of the canvas: its frame's size is not known here).
+/// of its clip: its frame's size is not known here).
 fn visible_bounds(op: &Op, size: Option<(i32, i32)>) -> [i32; 4] {
     let canvas = size.map_or(ALL, |(w, h)| [0, 0, w, h]);
     let bounds = match op {
@@ -1572,7 +1572,7 @@ fn visible_bounds(op: &Op, size: Option<(i32, i32)>) -> [i32; 4] {
             // (Lucida Sans: ascent about the height, descent a fifth.)
             intersect([run.x, run.y - h, run.x.saturating_add(w), run.y + h / 4 + 1], *clip)
         }
-        Op::Flc { .. } => ALL,
+        Op::Flc { clip, .. } => clip.unwrap_or(ALL),
         op => op_bounds(op),
     };
     intersect(bounds, canvas)
@@ -1766,6 +1766,12 @@ mod tests {
         m.unanswered_in(40, [0, 0, 200, 50]);
         assert_eq!(m.drawn_at(40, 5, 30), Some(false));
         assert_eq!(m.drawn_at(40, 110, 35), Some(true), "the picture under it still shows");
+        // An animation draws within its clip only (its frame's size is
+        // not known): a unit in an info panel takes no point elsewhere.
+        m.apply(Event::FlcLoaded { flic: 5, path: "Art\\Units\\Settler\\settDefault.flc".into() });
+        m.apply(Event::FlcBlit { flic: 5, chunk: 33, canvas: 40, x: 150, y: 5, clip: Some([140, 0, 200, 20]), plain: false });
+        assert_eq!(m.drawn_at(40, 160, 10), Some(true));
+        assert_eq!(m.drawn_at(40, 5, 10), Some(false));
     }
 
     #[test]
