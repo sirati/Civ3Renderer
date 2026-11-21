@@ -39,6 +39,8 @@ impl FileState {
         Self::version(self.0.pixels.clone(),changes,used)
     }
     pub fn changes(&self)->&[menu::screen::IndexChange] {&self.0.changes}
+    /// Whether `index` may be among the pixels (after the replacements).
+    pub fn uses(&self,index:u8)->bool {self.0.used[index as usize]}
     pub fn palette_color(&self,index:u8)->[u8;3] {self.0.pixels.palette[index as usize]}
     /// Whether a drawn index may be `rgb` in RGB555. `keyed`: 254 and 255
     /// draw nothing.

@@ -884,6 +884,20 @@ fn blit(sprite: u32, canvas: u32, x: u32, y: u32, add_crop: bool, ct: u32, clip:
     emit(Event::Blit { sprite, canvas, x: x as i32 + cx, y: y as i32 + cy, clip, palette });
 }
 
+/// 0x5F81A0's blit (jgl's sprite slot +0x5C; 0x1000B980 for an 8-bit
+/// sprite): every index but 255 in its colour, 254 too (the plain blit
+/// leaves out 254 as well). The city view's grassland backgrounds have
+/// their sky's dither in 254: left out, the canvas showed through as black
+/// specks. (A file without 254 draws as with the plain blit, as a picture.)
+fn variant_blit(sprite: u32, canvas: u32, x: u32, y: u32, ct: u32, clip: Option<[i32; 4]>) {
+    let draws_254 = with_model(false, |m| matches!(m.sprite_source(sprite), Some(crate::ui::Source::File { retained: Some(state), .. }) if state.uses(254))).unwrap_or(false);
+    if !draws_254 || h::flc_frame(sprite).is_some() {
+        return blit(sprite, canvas, x, y, true, ct, clip);
+    }
+    let indices = menu::screen::Indices { transparent: vec![255], ..Default::default() };
+    indexed_blit(sprite, canvas, x, y, indices, palette_from(sprite, ct), clip);
+}
+
 fn palette_from(sprite: u32, ct: u32) -> Option<menu::screen::PaletteFrom> {
     // Through a civ colour table: that table's palette.
     let table = BUILD.get().and_then(|&b| h::civ_color_table(b, ct));
@@ -1867,7 +1881,8 @@ pub fn on_blit(b: &GameBlit) {
         W::Draw => {
             if !is_cursor(sprite, canvas) { blit(sprite, canvas, x, y, true, ct, clip); }
         }
-        W::Variant | W::A4 => blit(sprite, canvas, x, y, true, ct, clip),
+        W::Variant => variant_blit(sprite, canvas, x, y, ct, clip),
+        W::A4 => blit(sprite, canvas, x, y, true, ct, clip),
         W::A4b => indexed_blit(sprite, canvas, x, y, shade_blit(b.extra), None, clip),
         W::ScaledA4 => resized_blit(sprite, canvas, x, y, placed(b), b.scale, ct, None, clip),
         W::ScaledA8 => resized_blit(sprite, canvas, x, y, placed(b), b.scale, ct, Some(shade_blit(b.extra)), clip),

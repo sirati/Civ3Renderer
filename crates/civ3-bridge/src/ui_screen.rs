@@ -722,6 +722,30 @@ mod tests {
         assert_eq!(opaque_pixels(&compiled, &name(true)), 0, "through the shade blit, nothing of it does");
     }
 
+    /// A city view background of grassland (`G-LRG.pcx`), drawn by the
+    /// variant blit 0x5F81A0, which leaves out only 255: its sky's dither of
+    /// 254 draws. (As a picture, 254 left out, the canvas showed through it
+    /// as black specks.)
+    #[test]
+    fn the_variant_blit_draws_the_grassland_sky_s_254() {
+        let Some(files) = install() else { return eprintln!("no Civ III install, skipped") };
+        let path = "Art/City View/Backgrounds/G-LRG.pcx";
+        let img = civ3_assets::pcx::decode(&files.read(path).unwrap()).unwrap();
+        let rect = [0, 0, 1024, 100];
+        let sky = |i: u8| (0..rect[3] as u32).flat_map(|y| (0..rect[2] as u32).map(move |x| (x, y))).filter(|&(x, y)| img.pixels[(y * img.width + x) as usize] == i).count();
+        assert!(sky(254) > 1000, "the sky's dither");
+        let region = Region { source: path.into(), rect, keyed: true, mask: None, palette: None };
+        let variant = Element::Indexed { region: region.clone(), indices: menu::screen::Indices { transparent: vec![255], ..Default::default() }, at: (0, 0), clip: [0, 0, 1920, 1080] };
+        let picture = Element::Image { region, at: (0, 0), clip: [0, 0, 1920, 1080] };
+        let mut art = ScreenArt::default();
+        art.add(&[variant, picture]);
+        let compiled = compiles_alike(&art, &[], &files);
+        let name = |indexed: bool| compiled.sprite_names.iter().find(|n| n.contains("G-LRG") && n.starts_with("ScreenIndexed") == indexed).cloned().unwrap();
+        let all = (rect[2] * rect[3]) as usize - sky(255);
+        assert_eq!(opaque_pixels(&compiled, &name(true)), all, "the variant blit draws 254");
+        assert_eq!(opaque_pixels(&compiled, &name(false)), all - sky(254), "a picture leaves it out");
+    }
+
     /// Every kind of element the mirror makes, of 8-bit (indexed) art and
     /// of art in colours (masked), plain, through another palette, resized,
     /// translucent, by indices (shades, smoke, a frame of an animation,
