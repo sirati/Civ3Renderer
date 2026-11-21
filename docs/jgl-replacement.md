@@ -682,10 +682,9 @@ mill icons and broader live qualification remain open. Earlier navigator
 results below apply to their bound checkpoints. See the
 [current handover](jgl-continuation.md) and
 [latest review](evidence/jgl-readback-review/review.json).
-Main's implementation baseline remains
-`dd992e0`. The experimental implementation requires `CIV3R_JGL=own`.
-Ordinary viewer launches still load original jgl; no-viewer/no-trace launches
-keep the plain-game pass-through. The default no-jgl switch is not accepted.
+Since `d1910cd` our jgl is the default with a viewer: jgl.dll is not
+loaded. `CIV3R_JGL=original` keeps jgl.dll for comparison; no-viewer and
+no-trace launches keep the plain-game pass-through.
 
 ### Palace selection and retained sources
 

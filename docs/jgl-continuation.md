@@ -1,9 +1,12 @@
 # JGL continuation handover
 
-Implementation source is back at baseline `c1a8d1e`. The shared-glyph HUD
-source, owned line/mill bypasses, and WoW64 window fixes predate this session. Owned mode still needs an explicit `CIV3R_JGL=own`.
-Normal launches remain on the original jgl path until the final switch is
-qualified.
+Since 21 November 2026 (`d1910cd`), our jgl stands in for jgl.dll
+whenever our renderer draws the game, and jgl.dll is not loaded.
+`CIV3R_JGL=original` keeps jgl.dll for comparison. The plain game without a
+viewer still loads jgl.dll and only passes through. Live checks on Linux
+Wine: no jgl.dll mapping in the game process, menus, setup, HUD buttons,
+minimap, map clicks through the HUD, city founding and the city screen,
+F1 to F7, the Civilopedia, popups, context menus, save and load.
 
 The hard requirement is unchanged: owned mode must avoid legacy drawing work.
 The renderer must be the only drawing path. Reconstructing a queried canvas
@@ -51,9 +54,9 @@ reviews do not prove complete gameplay or a no-jgl shipping session.
    zero legacy DC/blit/release calls in owned mode.
 4. Integrate and qualify Group 7 gameplay: launch lock, windowed mode,
    Alt/capture, stale input, screen/turn/combat checks, and the soak run.
-5. Only after those gates pass, make the no-jgl default switch and produce a
-   coherent release build. Deploy that build to Neo and verify the native
-   renderer window, map, input, and clean exit on ARM64.
+5. The no-jgl default is on (`d1910cd`). Still to do: a release build
+   deployed to Neo and the Windows WoW64 VM with the native renderer
+   window, map, input and clean exit checked there, and the Group 7 soak.
 
 The recovery backup at `2501e49` was recreated and verified on both hosts.
 Its receipt is `evidence/jgl-source-backup-20261104/backup-receipt.json`.
