@@ -42,6 +42,10 @@ The human-turn loop is `0x4DFC50`. It runs while the turn flag `0xA26858` is set
 
 The player's menus open from inside this loop: pump → map handler → `Advisor_GUI_open` 0x49D100 or `City_Form_open` 0x421720 → modal loop. So no end of turn, interturn or AI turn can run while such a menu is open (single player). Menus opened at the start of a turn or during the interturn do not have that guarantee.
 
+### The network game's loop
+
+A network game (game type 4 or 5, `0x49A070`; LAN, internet and direct IP) never enters 0x4DFC50. The game's main function calls `0x469670` once at 0x4F67D8 instead, and the whole network game runs in that loop. Each pass calls the network pump `0x495B00` at 0x469685, then steps the selected unit's go-to, then checks for the end of the game (`0x4F1C20`). `0x495B00` handles the network's messages (`0x495B90`) and then pumps one window message without waiting (`0x624BA0`, jgl slot +0x128). The game's own map clicks are handled from there, and the turn flag says whether it is the player's turn. Screens' idle handlers call `0x495B00` too (from inside their modal loops), so only the call at 0x469685 counts as the human-turn pump of a network game.
+
 ### Other pumps
 
 - `0x4DBF29` and `0x4D7AE8` pump in the middle of animations, and the game is re-entrant there. Never act from these sites.
@@ -117,7 +121,7 @@ This loses scroll and tab state, so the mirror should hold the last frame while 
 
 ## v1 as built
 
-- `crates/civ3-bridge/src/modal.rs` runs the actions; `crates/civ3-sys/src/modal.rs` has the sites. The pump calls at 0x6053B4, 0x4DFE24, 0x4DFE5C, 0x4DBF29 and 0x4D7AE8 are patched after checking their bytes. The human-turn and animation sites only count how many of their calls are running, which is how "inside 0x4DFC50, outside an animation" is checked.
+- `crates/civ3-bridge/src/modal.rs` runs the actions; `crates/civ3-sys/src/modal.rs` has the sites. The pump calls at 0x6053B4, 0x4DFE24, 0x4DFE5C, 0x4DBF29 and 0x4D7AE8, and the network game loop's call of 0x495B00 at 0x469685, are patched after checking their bytes. The human-turn, network-loop and animation sites only count how many of their calls are running, which is how "inside the human-turn loop (0x4DFC50, or 0x469670 in a network game), outside an animation" is checked.
 - Advisor_GUI really is the modal form while an advisor is open (F1 sets `[0xCAD384] = 0x9AFD58`).
 - The left button selects, the right button sends the unit, and keys act through an allowlist. Outside such a menu, world keys reach the game as plain keys.
 - Seen in the game (PCGames, Wine), with the domestic advisor open:

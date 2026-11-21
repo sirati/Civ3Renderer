@@ -333,7 +333,7 @@ mod live {
     use std::time::Instant;
 
     use civ3_sys::Civ3;
-    use civ3_sys::modal::{self as m, animation_pump_a, animation_pump_b, human_pump_goto, human_pump_idle, modal_pump};
+    use civ3_sys::modal::{self as m, animation_pump_a, animation_pump_b, human_pump_goto, human_pump_idle, modal_pump, network_pump_idle};
 
     use super::{Action, GateState, Pending, Refused, Walk, gate, may_enter, refusal_notice, selection_outcome, step, walk_goes_on};
 
@@ -365,7 +365,7 @@ mod live {
     /// The patched pump calls; they stay patched while this lives.
     pub struct Installed {
         _modal: modal_pump::Installed,
-        _human: (human_pump_goto::Installed, human_pump_idle::Installed),
+        _human: (human_pump_goto::Installed, human_pump_idle::Installed, network_pump_idle::Installed),
         _animation: (animation_pump_a::Installed, animation_pump_b::Installed),
     }
 
@@ -392,6 +392,14 @@ mod live {
     }
 
     fn on_human_idle(call: &human_pump_idle::Call) -> u32 {
+        let _c = Count::new(&HUMAN_PUMPS);
+        call.original()
+    }
+
+    /// A network game's turn: its loop's pump is the human-turn pump there
+    /// (the game's own map clicks are handled from it), whether or not it
+    /// is the player's turn (the turn flag says that).
+    fn on_network_idle(call: &network_pump_idle::Call) -> u32 {
         let _c = Count::new(&HUMAN_PUMPS);
         call.original()
     }
@@ -445,6 +453,7 @@ mod live {
         let human = (
             human_pump_goto::install(sites.human_goto.0, &sites.human_goto.1, on_human_goto).map_err(e("human-turn pump"))?,
             human_pump_idle::install(sites.human_idle.0, &sites.human_idle.1, on_human_idle).map_err(e("human-turn pump"))?,
+            network_pump_idle::install(sites.network_idle.0, &sites.network_idle.1, on_network_idle).map_err(e("network-game pump"))?,
         );
         let animation = (
             animation_pump_a::install(sites.animation[0].0, &sites.animation[0].1, on_animation_a).map_err(e("animation pump"))?,

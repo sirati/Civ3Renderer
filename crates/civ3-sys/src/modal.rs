@@ -26,6 +26,14 @@ inproc::call_site_hook! {
 }
 
 inproc::call_site_hook! {
+    /// The network game's loop (`0x469670`, the whole game of a network
+    /// game runs in it): its pump (`0x495B00`: the network's messages, then
+    /// the window's) once a pass, where the single-player human-turn loop
+    /// waits for the player.
+    pub mod network_pump_idle() -> u32;
+}
+
+inproc::call_site_hook! {
     /// A pump in the middle of an animation (the game is re-entrant there).
     pub mod animation_pump_a() -> u32;
 }
@@ -83,6 +91,9 @@ pub struct PumpSites {
     /// In the human-turn loop (0x4DFC50): go-to stepping, waiting.
     pub human_goto: CallSite,
     pub human_idle: CallSite,
+    /// In the network game's loop (0x469670), the network pump 0x495B00
+    /// (also called by screens' idle handlers, which are not the turn).
+    pub network_idle: CallSite,
     /// In the middle of animations.
     pub animation: [CallSite; 2],
 }
@@ -93,6 +104,7 @@ pub fn pump_sites(build: Build) -> Option<PumpSites> {
             modal: (0x60_53B4, [0xE8, 0xD7, 0xF7, 0x01, 0x00]),
             human_goto: (0x4D_FE24, [0xE8, 0x67, 0x4D, 0x14, 0x00]),
             human_idle: (0x4D_FE5C, [0xE8, 0x2F, 0x4D, 0x14, 0x00]),
+            network_idle: (0x46_9685, [0xE8, 0x76, 0xC4, 0x02, 0x00]),
             animation: [(0x4D_BF29, [0xE8, 0x62, 0x8C, 0x14, 0x00]), (0x4D_7AE8, [0xE8, 0xA3, 0xD0, 0x14, 0x00])],
         }),
         Build::Gog | Build::Steam => None,
@@ -329,6 +341,14 @@ mod tests {
             assert_eq!(at.wrapping_add(5).wrapping_add(rel as u32), 0x62_4B90, "{at:#x}");
         }
         assert!(pump_sites(Build::Gog).is_none());
+    }
+
+    #[test]
+    fn the_network_loop_site_calls_the_network_pump() {
+        let (at, bytes) = pump_sites(Build::PcGames).unwrap().network_idle;
+        assert_eq!(bytes[0], 0xE8);
+        let rel = i32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+        assert_eq!(at.wrapping_add(5).wrapping_add(rel as u32), 0x49_5B00);
     }
 
     #[test]

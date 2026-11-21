@@ -30,7 +30,7 @@ The game's orders that take the same tile keep it and change what it does (`civ3
 
 While a destination is preselected, the bridge keeps the game's pointer tile on it (`live::pin`). A client mouse move over the interface keeps the virtual tile on the destination. A client press is made off the map, so a press that reaches the map itself, beside the interface's controls, can never give an order for some other tile. A key's world point does not move it either.
 
-The native camera may park only while the private-message interceptor is attached to the live game window. Direct map events require the instrumented human-turn pump and no active animation or modal dialog. The existing advisor/Civilopedia input path remains responsible for its allowed actions while those forms are open. Builds without decoded native input sites retain their existing fallback.
+The native camera may park only while the private-message interceptor is attached to the live game window. Direct map events require the instrumented human-turn pump (in a network game, the network game loop's pump: docs/modal-input.md) and no active animation or modal dialog. The existing advisor/Civilopedia input path remains responsible for its allowed actions while those forms are open. Builds without decoded native input sites retain their existing fallback.
 
 ## Popups opened at a map click
 
