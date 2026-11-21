@@ -1162,11 +1162,11 @@ The exe wrappers add the crop offset (`spr+0x20/+0x24`, multiplied by the curren
 | **`Sprite_draw`** 0x5F8210 | `(PCX_Image* canvas, int x, int y, PCX_Color_Table* ct)`, `ret 0x10` | +0x44 (jgl 0x10008180) | 441 callers; normal colour-keyed (index 0xFF) blit [X key; I exact 254 handling] |
 | `Sprite_draw_on_map` 0x5F8060 | `(Map_Renderer*, x, y, ct, ?, scale_num, scale_den)`, `ret 0x1C` | +0x44 with scale | map only (section 4) |
 | 0x5F81A0 | `(canvas, x, y, ct)`, `ret 0x10` | +0x5C | 26, city screen 0x408xxx-0x412xxx, 0x4F8997, 0x523Cxx [I: variant blit mode] |
-| 0x5F84A0 | `(canvas, x, y, int a4, ct)`, `ret 0x14` | +0x74 | 16 (city screen, 0x52Axxx, 0x5A39xx) [I] |
+| 0x5F84A0 | `(canvas, x, y, int a4, ct)`, `ret 0x14` | +0x74 | 16 (city screen, 0x52Axxx, 0x5A39xx). **Silhouette** (8-bit source: jgl 0x1000D120): every index below 254 in one colour, `a4` itself when negative (a 16-bit colour), else entry `a4 & 0xFF` of the colour table [X]. The city screen draws each building so onto its second canvas (+0xC54) in the colour of its number (0x411B9A): the hit mask the screen's click lookup reads |
 | 0x5F83E0 | scaled wrapper of 0x5F84A0, `ret 0x20` | | 2 |
 | 0x5F8620 | `(canvas, x, y, void* blend_lut, ct)`, `ret 0x14` | +0x7C | per pixel: if src != 0xFF then `dst = lut[(src16<<16)|dst16]` (16-bit path 0x1000A740) [X]. Translucent overlays |
 | **0x5F8560** | scaled wrapper of 0x5F8620 `(…, num_x, num_y, den)`, `ret 0x20` | | 5 (0x4C47xx fog, 0x4E55D0 city HUD) |
-| 0x5F8760 | `(canvas, x, y, int a4, ct)`, `ret 0x14` | +0x84 | 25, city screen 0x411xxx-0x414xxx, 0x424C05, 0x5A855B [I] |
+| 0x5F8760 | `(canvas, x, y, int a4, ct)`, `ret 0x14` | +0x84 | 25, city screen 0x411xxx-0x414xxx, 0x424C05, 0x5A855B. **Shade** (8-bit source: jgl 0x10014DB0) through the blend tables `a4` (`[0x9C7304]` at all the callers read): index 0 black, `i` of 1..15 `dst = a4[(i − 1) << 15 \| dst]` (level `i − 1`), no other index drawn (254 and 255, and 16..253 too) [X]. The city screen's building shadows (0x411B63) and the science advisor's "not required" shadow (0x5A855B, its ring of 248..251 not drawn) |
 | 0x5F86A0 | scaled wrapper of 0x5F8760 | | 1 (0x4C4F05) |
 | **`Sprite_draw_with_color_table`** 0x5F87E0 | `(canvas, PCX_Image* canvas2, x, y, int a5, ct)`, `ret 0x18` | +0x8C | 10 (units/leaders) |
 | 0x5F8870 | scaled two-surface variant, `ret 0x24` | +0x88 | 7 |
@@ -1174,7 +1174,7 @@ The exe wrappers add the crop offset (`spr+0x20/+0x24`, multiplied by the curren
 | **0x5F8310** (alpha-mask blit) | `(Sprite* alpha_mask, PCX_Image* background, PCX_Image* dest, x, y, ct)`, `ret 0x18` | +0x50 | **no crop offset added**. Buttons with an alpha image: `Images[state].0x5F8310(Button.Images[3], tmp_bg, button_canvas, (W-w)/2, (H-h)/2, 0)` [X: 0x60A252]. Also Main_GUI 0x5536FD..0x558209 |
 | 0x5F8380 | `(PCX_Image* a1, PCX_Image* a2, x, y, ct)`, `ret 0x14` | +0x58 | no crop offset; Main_GUI 0x54F2xx/0x552Bxx [I: two-surface mode] |
 
-JGLSprite vtable (jgl RVA 0x68440), useful as a catch-all hook (every exe wrapper ends here, with x/y already offset): +0x44 0x10008180, +0x50 0x10009AA0, +0x58 0x10009B20, +0x5C 0x10008050, +0x74 0x10008600, +0x7C 0x10008EE0, +0x84 0x10008FC0, +0x88 0x100090E0, +0x8C 0x100090A0, +0x94 0x10009220 [X]. The first stack arg is always the destination `JGL_Image*`, and `JGL_Image+0x80` gives back its `PCX_Image*` [X]. Each slot dispatches on (sprite bpp, dest bpp) to specialised loops. Only +0x7C was decoded; the exact pixel maths of the other modes is [?].
+JGLSprite vtable (jgl RVA 0x68440), useful as a catch-all hook (every exe wrapper ends here, with x/y already offset): +0x44 0x10008180, +0x50 0x10009AA0, +0x58 0x10009B20, +0x5C 0x10008050, +0x74 0x10008600, +0x7C 0x10008EE0, +0x84 0x10008FC0, +0x88 0x100090E0, +0x8C 0x100090A0, +0x94 0x10009220 [X]. The first stack arg is always the destination `JGL_Image*`, and `JGL_Image+0x80` gives back its `PCX_Image*` [X]. Each slot dispatches on (sprite bpp, dest bpp) to specialised loops. +0x7C, +0x74 and +0x84 are decoded (8-bit sources); the exact pixel maths of the other modes is [?].
 
 **PCX_Image -> PCX_Image copies** (whole backgrounds, the minimap, parent backgrounds, temporaries) [X]:
 
