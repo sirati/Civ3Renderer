@@ -204,6 +204,7 @@ mod live {
         if frame.draws.is_empty() || rect[2] <= 0 || rect[3] <= 0 {
             return give_up("an empty picture");
         }
+        log::info!("detached popups: tile box draws: {}", draws_text(&frame));
         let anchor = parts::click_anchor(ClickPopup::TileInfo, press.at, press.tile, crate::world_input::popup_tile(), press.zoomed_out, (rect[2], rect[3]));
         let serial = super::keep(frame, rect, anchor, press.at);
         if !crate::world_input::close_click_popup_now(game) {
@@ -218,6 +219,23 @@ mod live {
         }
         log::info!("detached popups: tile box {serial} kept, {}x{} at {anchor:?} for the press at {:?} (modal pass {passes}), closed in the game", rect[2], rect[3], press.at);
         true
+    }
+
+    /// The draws of a kept box, one by one (a diagnostic: which file and
+    /// region each piece of the picture is, and the replaced indices it
+    /// draws with).
+    fn draws_text(frame: &crate::ui::Frame) -> String {
+        use crate::ui::ScreenDraw as D;
+        let changes = |r: &Option<crate::ui::FileState>| r.as_ref().map_or_else(|| "-".to_owned(), |s| format!("{:?}", s.changes()));
+        frame.draws.iter().map(|d| match d {
+            D::Image { retained, path, rect, x, y, keyed, .. } => format!("image {path} {rect:?} at ({x}, {y}) keyed {keyed} changes {}", changes(&retained)),
+            D::ResizedImage { retained, path, rect, x, y, size, keyed, .. } => format!("resized {path} {rect:?} at ({x}, {y}) to {size:?} keyed {keyed} changes {}", changes(&retained)),
+            D::Indexed { retained, path, rect, x, y, indices, .. } => format!("indexed {path} {rect:?} at ({x}, {y}) rule {:?}/{:?} changes {}", indices.transparent, indices.index_changes, changes(retained)),
+            D::Fill { rect, rgb, alpha, .. } => format!("fill {rect:?} {rgb:?} alpha {alpha}"),
+            D::Text { run, .. } => format!("text {:?}", run.text),
+            D::Flc { path, chunk, .. } => format!("flc {path} {chunk}"),
+            D::Surface { image, rect, x, y, .. } => format!("surface {image:#x} {rect:?} at ({x}, {y})"),
+        }).collect::<Vec<_>>().join("; ")
     }
 
     /// The box stays modal in the game (and shown as such).
