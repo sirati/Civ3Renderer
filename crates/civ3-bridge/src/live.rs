@@ -783,6 +783,7 @@ fn publish(
     let mut detached_memos: [Memo<_, Vec<scene::FreeSprite>>; crate::detached::MAX_KEPT] = Default::default();
     // The queued reports' items and sprites, per slot (`crate::async_popups`).
     let mut queued_item_memos: [Memo<_, Vec<ui_screen::Item>>; crate::async_popups::MAX_SHOWN] = Default::default();
+    let mut detached_item_memos: [Memo<_, Vec<ui_screen::Item>>; crate::detached::MAX_KEPT] = Default::default();
     let mut queued_memos: [Memo<_, Vec<scene::FreeSprite>>; crate::async_popups::MAX_SHOWN] = Default::default();
     // The loading bar's items and sprites (`crate::loading_cursor::split_bar`).
     let mut bar_memo: Memo<_, Vec<ui_screen::Item>> = Default::default();
@@ -1522,6 +1523,11 @@ fn publish(
         let queued_items: Vec<Vec<ui_screen::Item>> = queued.iter().zip(queued_item_memos.iter_mut())
             .map(|(q, memo)| memo.get((q.serial, unit_colors), || ui_screen::items(&q.frame, files.roots(), generated, unit_colors)))
             .collect();
+        // The tile boxes the viewer keeps (`crate::detached`): their art is
+        // wanted as a popup's is (the game no longer shows them).
+        let detached_items: Vec<Vec<ui_screen::Item>> = crate::detached::kept().iter().zip(detached_item_memos.iter_mut())
+            .map(|(kept, memo)| memo.get((kept.serial, unit_colors), || ui_screen::items(&kept.frame, files.roots(), generated, unit_colors)))
+            .collect();
         // Our tabs on top of the game's Preferences screen (a menu), in the
         // part of the interface that draws it (the screen may be the popup
         // split off), under what the game draws over it (a popup over it,
@@ -1721,9 +1727,9 @@ fn publish(
             wanted_for.push("interface");
         }
         mark(&mut profile, "ui items: visible source lookup", &mut t);
-        if ui_screen::add_present_art(bar_items.iter().chain(queued_items.iter().flatten()), &mut screen_art, &mut fonts, &files, &mut absent_art) {
+        if ui_screen::add_present_art(bar_items.iter().chain(queued_items.iter().flatten()).chain(detached_items.iter().flatten()), &mut screen_art, &mut fonts, &files, &mut absent_art) {
             screen_recompile = true;
-            wanted_for.push("loading bar, queued reports");
+            wanted_for.push("loading bar, queued reports, kept tile boxes");
         }
         if ui_screen::add_present_art(&hint.1, &mut screen_art, &mut fonts, &files, &mut absent_art) {
             recompile = true;
