@@ -1566,12 +1566,29 @@ fn op_bounds(op: &Op) -> [i32; 4] {
 /// of `size` if known: generously for text (its pen is at the baseline;
 /// every character as wide as the font is high) and for an animation (all
 /// of its clip: its frame's size is not known here).
+/// The game's measure of a text run's width (`GetTextExtentPoint32A`, as
+/// the game lays its text out), where the process has one: set once by the
+/// host ([`set_text_width`]).
+static TEXT_WIDTH: std::sync::OnceLock<fn(&TextRun) -> Option<i32>> = std::sync::OnceLock::new();
+
+/// Gives text bounds the game's measure of each run (see [`visible_bounds`]).
+pub fn set_text_width(width: fn(&TextRun) -> Option<i32>) {
+    let _ = TEXT_WIDTH.set(width);
+}
+
 fn visible_bounds(op: &Op, size: Option<(i32, i32)>) -> [i32; 4] {
     let canvas = size.map_or(ALL, |(w, h)| [0, 0, w, h]);
     let bounds = match op {
         Op::Text(run, clip) => {
             let h = run.height.abs().max(1);
-            let w = h.saturating_mul(run.text.chars().count() as i32);
+            // The game's width and what a glyph may reach past its advance
+            // (italics, bold); unmeasured, a full height per character
+            // (wider than any face draws). Too wide, a run the game clears
+            // all of seems to reach past the clear: a copy of it, clipped
+            // to the rest, stays at every redraw (the info box's lines,
+            // cleared up to 5 pixels before the screen's edge, piled up
+            // with every turn).
+            let w = TEXT_WIDTH.get().and_then(|width| width(run)).map_or_else(|| h.saturating_mul(run.text.chars().count() as i32), |w| w.saturating_add(h / 2));
             // (Lucida Sans: ascent about the height, descent a fifth.)
             intersect([run.x, run.y - h, run.x.saturating_add(w), run.y + h / 4 + 1], *clip)
         }

@@ -303,3 +303,28 @@ fn an_unchanged_canvas_keeps_its_snapshot_and_a_changed_one_or_its_copied_surfac
     m.apply(Event::Fill { canvas: temp, rect: [0, 0, 10, 10], rgb: [5, 5, 5], alpha: 255, clip: None });
     assert_eq!(paint(&mut m), [fill([0, 0, 100, 100], [3, 3, 3]), fill([5, 5, 10, 10], [5, 5, 5])]);
 }
+
+/// The info box at the screen's bottom right: the game clears it to the
+/// key up to 5 pixels before the screen's edge and writes its lines anew
+/// (each turn, each unit). With the game's measure of the lines, each
+/// clear takes all of the last ones; a run judged to reach past the clear
+/// left a copy of itself, clipped to the 5 pixels, at every redraw.
+#[test]
+fn the_lines_a_clear_takes_all_of_leave_no_copy() {
+    // (Only this face is measured: other tests keep their bounds.)
+    fn width(run: &TextRun) -> Option<i32> {
+        (run.face == "Measured fixture").then_some(6 * run.text.chars().count() as i32)
+    }
+    set_text_width(width);
+    let canvas = 0x9F_DD84;
+    let mut m = UiModel::new(vec![], vec![]).with_screen(999);
+    m.apply(Event::Size { image: canvas, size: (1920, 1080) });
+    let run = |text: String| TextRun { x: 1704, y: 1038, color: [0; 3], face: "Measured fixture".into(), height: -12, weight: 0, italic: false, underline: false, text, backdrop: None };
+    for turn in 0..20 {
+        m.apply(Event::Fill { canvas, rect: [1621, 794, 294, 286], rgb: KEY_RGB, alpha: 255, clip: None });
+        m.apply(Event::TextClipped { canvas, run: run(format!("ann - Despotism ({turn}.5.0)")), clip: [0, 0, 1920, 1080] });
+    }
+    let held = m.canvases.get(&canvas).map(DisplayList::to_vec).unwrap_or_default();
+    let texts: Vec<_> = held.iter().filter(|op| matches!(op, Op::Text(..))).collect();
+    assert_eq!(texts.len(), 1, "{texts:?}");
+}

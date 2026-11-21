@@ -599,6 +599,57 @@ mod tests {
         }}
     }
 
+    /// A border piece of `Territory.pcx` in a colour-table blit (the tile
+    /// box draws the territory so): the game turns the diamonds' filler,
+    /// indices 0 and 1, into 255 before it cuts the sprites, so the compiled
+    /// piece has no 0 or 1 left and 255 draws nothing. (Drawn with them, the
+    /// filler showed flat in the civilization's colours on the border side
+    /// of the tile box's picture.)
+    #[test]
+    fn a_territory_border_piece_compiles_without_its_filler() {
+        let Some(files) = install() else { return eprintln!("no Civ III install, skipped") };
+        use crate::ui::{Event, UiModel};
+        let path = "Art/Terrain/Territory.pcx";
+        let img = civ3_assets::pcx::decode(&files.read(path).unwrap()).unwrap();
+        let mut model = UiModel::new(vec![], vec![]);
+        model.apply(Event::Loaded { image: 10, path: path.into(), size: (img.width as i32, img.height as i32) });
+        let palette = std::array::from_fn(|i| { let c = img.palette.0[i]; [c.0, c.1, c.2] });
+        model.loaded_pixels(10, std::sync::Arc::new(civ3_ui::selection::FilePixels { size: (img.width, img.height), row: img.width, indices: img.pixels.clone(), palette }));
+        for from in [0, 1] {
+            assert!(model.replace_indices(10, [0, 0, img.width as i32, img.height as i32], from, 255));
+        }
+        let rect = [61, 80, 66, 34];
+        assert!((0..rect[3]).any(|y| (0..rect[2]).any(|x| img.pixels[((rect[1] + y) as u32 * img.width + (rect[0] + x) as u32) as usize] <= 1)), "the piece has filler");
+        model.apply(Event::Sliced { sprite: 20, image: 10, rect });
+        let civ = Some(menu::screen::PaletteFrom { image: "Art/Units/Palettes/ntp01.pcx".into(), first: 0, count: 256 });
+        for indices in [crate::ui::indices::colored(crate::ui::indices::blank(path)), crate::ui::indices::colored_shades(), crate::ui::indices::colored_smoke()] {
+            model.apply(Event::IndexedBlit { sprite: 20, canvas: 40, x: 0, y: 0, clip: None, palette: civ.clone(), indices });
+        }
+        model.apply(Event::PaintBegin);
+        model.apply(Event::Composite { canvas: 40, vtable: 1, origin: (0, 0), size: (256, 173), clip: [0, 0, 1920, 1080], keyed: true });
+        model.apply(Event::PaintEnd);
+        let frame = model.frame();
+        let elements: Vec<_> = items(&frame, &[], &[], 0).into_iter().filter_map(|i| match i { Item::Element(e, _) => Some(e), _ => None }).collect();
+        assert_eq!(elements.len(), 3, "{elements:?}");
+        let Element::Indexed { indices, .. } = &elements[0] else { panic!("{:?}", elements[0]) };
+        assert_eq!(indices.index_changes.len(), 2, "the replacements go with the draw");
+        let mut art = ScreenArt::default();
+        art.add(&elements);
+        let compiled = compiles_alike(&art, &elements, &files);
+        let name = menu::screen::sprites(&elements[..1], &compiled, u32::MAX);
+        assert_eq!(name.len(), 1);
+        let id = compiled.sprite_names.iter().position(|n| n.contains("Territory") && n.contains("!changes")).expect("the colour pass's sprite");
+        let s = compiled.atlas.sprites[id];
+        assert_ne!(s.palette, 0, "an indexed sprite");
+        let page = &compiled.atlas.index_pages[s.page as usize];
+        let row = |i: u8| compiled.atlas.palettes[(s.palette * 256 + u32::from(i)) as usize];
+        assert_eq!(row(255) >> 24, 0, "255 draws nothing");
+        for y in 0..s.height { for x in 0..s.width {
+            let i = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize];
+            assert!(i > 1 || row(i) >> 24 == 0, "filler {i} drawn at ({x}, {y}) as {:#010x}", row(i));
+        }}
+    }
+
     /// Every kind of element the mirror makes, of 8-bit (indexed) art and
     /// of art in colours (masked), plain, through another palette, resized,
     /// translucent, by indices (shades, smoke, a frame of an animation,
