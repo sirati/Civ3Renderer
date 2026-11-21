@@ -1212,6 +1212,13 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             hit.form
         })?));
     }
+    // The science advisor finds the advance under a click by reading its
+    // box sprite's pixel; ours goes by the box's rectangle.
+    if let Some(site) = civ3_sys::controls::advisors::science_hit_site(game.build) {
+        hooks.push(Box::new(h::science_advance_at::install_at_start(site.0, site.1, |c| {
+            civ3_sys::controls::advisors::science_advance_at(&civ3_sys::controls::Live, c.form, (c.x as i32, c.y as i32)).unwrap_or(u32::MAX)
+        })?));
+    }
     // The art presence test at start reads back an 8-bit image the game
     // drew a sprite into: with placeholder sprites jgl drew nothing there;
     // the sprite's file answers.

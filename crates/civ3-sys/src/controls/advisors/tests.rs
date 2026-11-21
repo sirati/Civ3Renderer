@@ -632,3 +632,39 @@ fn foreign_leaders_need_contact_and_tabs_keep_their_native_order() {
     assert_eq!(tabs, [(0, [10, 20, 81, 21]), (1, [110, 20, 81, 21]), (2, [210, 20, 81, 21])]);
     assert_eq!(leaders, [(1, [0, 300, 81, 101]), (2, [100, 300, 81, 101]), (6, [500, 300, 81, 101])]);
 }
+
+#[test]
+fn an_advance_takes_the_points_of_its_box_rectangle_in_the_games_order() {
+    let mut m = Fake::default();
+    let form = 0x10_0000;
+    let (advances, shown) = (0x20_0000, 0x30_0000);
+    m.put(form, SCIENCE);
+    m.put(ADVANCE_COUNT, 3);
+    m.put(ADVANCES, advances);
+    m.put(form + S_SHOWN, shown);
+    m.put(form + S_ERA, 0);
+    // Advance 0 shown at (100, 50), 1 hidden, 2 shown at (100, 120); both
+    // drawn with the state-0 box of era 0, 80 x 40 (inclusive: 81 x 41).
+    for (i, shown_byte, at) in [(0u32, 0u8, (100, 50)), (1, 1, (300, 50)), (2, 0, (100, 120))] {
+        m.bytes(shown + 24 * i, &[shown_byte]);
+        m.put(shown + 24 * i + 4, 0);
+        m.put(advances + 0x74 * i + 0x50, at.0);
+        m.put(advances + 0x74 * i + 0x54, at.1);
+    }
+    let record = form + S_BOXES;
+    m.put(record, 0xBEEF);
+    m.put(record + 0x14, 80);
+    m.put(record + 0x18, 40);
+    // Every point of the box, its corners and edges too (the game's test is
+    // inclusive), and none outside.
+    for (x, y) in [(100, 50), (180, 90), (140, 70), (100, 90), (180, 50)] {
+        assert_eq!(science_advance_at(&m, form, (x, y)), Some(0), "({x}, {y})");
+    }
+    assert_eq!(science_advance_at(&m, form, (140, 130)), Some(2));
+    for (x, y) in [(99, 70), (181, 70), (140, 91), (320, 60)] {
+        assert_eq!(science_advance_at(&m, form, (x, y)), None, "({x}, {y})");
+    }
+    // Another form is not the science advisor.
+    m.put(form, 0x66_C270);
+    assert_eq!(science_advance_at(&m, form, (140, 70)), None);
+}
