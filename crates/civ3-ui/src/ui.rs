@@ -1719,6 +1719,18 @@ pub mod indices {
         Indices { transparent: Vec::new(), shade: (248..254).zip(levels.iter().copied()).collect(), ..Default::default() }
     }
 
+    /// The shade blit (0x5F8760 and its scaled 0x5F86A0; jgl's sprite slot
+    /// +0x84, 0x10014DB0 for an 8-bit sprite) through a set of tables of
+    /// `levels`: index 0 is black, an index `i` of 1..=15 replaces the
+    /// pixel under it by entry `(i − 1) << 15 | pixel` of the tables (level
+    /// `i − 1`), and no other index is drawn (254 and 255, and 16..253 too).
+    /// (Indices beyond the tables: not drawn here.)
+    pub fn shade_blit(levels: &[u8]) -> Indices {
+        let mut shade = vec![(0, 0)];
+        shade.extend((1..=15).zip(levels.iter().copied()));
+        Indices { transparent: Vec::new(), shade, ..Default::default() }
+    }
+
     /// The colours of a colour-table blit (`Sprite_draw_with_color_table`
     /// 0x5F87E0 through the shade tables; jgl 0x10015BF1): indices below
     /// 224 in the table's colours, 224..239 translucent smoke (drawn by
