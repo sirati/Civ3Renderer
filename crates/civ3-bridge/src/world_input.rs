@@ -612,6 +612,21 @@ mod live {
         native::virtual_tile()
     }
 
+    /// A map event the game was not given, and why: logged once a second
+    /// per reason (map input in a state where it never arrives is a bug).
+    fn dropped(why: &'static str, detail: impl FnOnce() -> String) {
+        thread_local! { static LAST: std::cell::RefCell<std::collections::HashMap<&'static str, std::time::Instant>> = Default::default(); }
+        let now = std::time::Instant::now();
+        let due = LAST.with_borrow_mut(|last| {
+            let due = last.get(why).is_none_or(|t| now.duration_since(*t) >= std::time::Duration::from_secs(1));
+            if due { last.insert(why, now); }
+            due
+        });
+        if due {
+            log::info!("world input: map event not acted on: {why} ({})", detail());
+        }
+    }
+
     fn world(game: &Civ3) -> Option<World> {
         let map = game.map().ok()?;
         Some(World {
@@ -972,6 +987,7 @@ mod live {
             return;
         }
         if world(game) != Some(pending.world) {
+            dropped("the event's world (map, seed, viewing player) is not the game's", || format!("event {:?}, game {:?}", pending.world, world(game)));
             take_preview();
             clear();
             return;
@@ -1008,12 +1024,15 @@ mod live {
             }
         } else {
             if !crate::modal::native_input_allowed() {
+                dropped("not in the human-turn loop's pump, or an animation or action runs", || crate::modal::pump_state());
                 return;
             }
             let Some(dialog) = game.dialog_state().ok().flatten() else {
+                dropped("the game's dialog state is unreadable", String::new);
                 return;
             };
             if !dialog.turn_flag || dialog.depth != 0 {
+                dropped("not the human player's turn at the top level", || format!("{dialog:?}"));
                 return;
             }
         }

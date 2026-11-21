@@ -323,7 +323,7 @@ impl Pending {
 }
 
 #[cfg(windows)]
-pub use live::{after_world_order, install, may_enter_now, modal_open, native_input_allowed, notices, queue, refuse, run_now, screen_gate, world_input};
+pub use live::{after_world_order, install, may_enter_now, modal_open, native_input_allowed, notices, pump_state, queue, refuse, run_now, screen_gate, world_input};
 
 #[cfg(windows)]
 mod live {
@@ -461,6 +461,11 @@ mod live {
     pub fn native_input_allowed() -> bool {
         LIVE.get().is_some() && HUMAN_PUMPS.load(SeqCst) > 0
             && ANIMATION_PUMPS.load(SeqCst) == 0 && !RUNNING.load(SeqCst)
+    }
+
+    /// The pump counters [`native_input_allowed`] reads, for the log.
+    pub fn pump_state() -> String {
+        format!("live {}, human pumps {}, animation pumps {}, running {}", LIVE.get().is_some(), HUMAN_PUMPS.load(SeqCst), ANIMATION_PUMPS.load(SeqCst), RUNNING.load(SeqCst))
     }
 
     /// Whether a modal form is open (the map takes no input then).
