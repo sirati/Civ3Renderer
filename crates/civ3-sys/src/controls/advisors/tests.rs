@@ -651,10 +651,15 @@ fn an_advance_takes_the_points_of_its_box_rectangle_in_the_games_order() {
         m.put(advances + 0x74 * i + 0x50, at.0);
         m.put(advances + 0x74 * i + 0x54, at.1);
     }
-    let record = form + S_BOXES;
-    m.put(record, 0xBEEF);
+    let (record, sprite) = (form + S_BOXES, 0x40_0000);
+    m.put(record, sprite);
     m.put(record + 0x14, 80);
     m.put(record + 0x18, 40);
+    // Its jgl sprite fills the box.
+    m.put(record + 0x1C, 0);
+    m.put(record + 0x20, 0);
+    m.put(sprite + 0x30, 81);
+    m.put(sprite + 0x34, 41);
     // Every point of the box, its corners and edges too (the game's test is
     // inclusive), and none outside.
     for (x, y) in [(100, 50), (180, 90), (140, 70), (100, 90), (180, 50)] {
@@ -662,6 +667,18 @@ fn an_advance_takes_the_points_of_its_box_rectangle_in_the_games_order() {
     }
     assert_eq!(science_advance_at(&m, form, (140, 130)), Some(2));
     for (x, y) in [(99, 70), (181, 70), (140, 91), (320, 60)] {
+        assert_eq!(science_advance_at(&m, form, (x, y)), None, "({x}, {y})");
+    }
+    // A sprite trimmed of its transparent margins, placed at (6, 2) in the
+    // box: the margins take nothing, as in the game.
+    m.put(record + 0x1C, 6);
+    m.put(record + 0x20, 2);
+    m.put(sprite + 0x30, 70);
+    m.put(sprite + 0x34, 36);
+    for (x, y) in [(106, 52), (175, 87), (140, 70)] {
+        assert_eq!(science_advance_at(&m, form, (x, y)), Some(0), "({x}, {y})");
+    }
+    for (x, y) in [(100, 70), (105, 70), (176, 70), (140, 51), (140, 88)] {
         assert_eq!(science_advance_at(&m, form, (x, y)), None, "({x}, {y})");
     }
     // Another form is not the science advisor.

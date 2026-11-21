@@ -423,6 +423,11 @@ const S_SHOWN: u32 = 0x33E4;
 
 /// The science advisor's advance boxes (advance, x, y, w, h) on its page.
 pub fn science(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, [i32; 4])>> {
+    Some(science_boxes(mem, form)?.into_iter().map(|(advance, rect, _)| (advance, rect)).collect())
+}
+
+/// [`science`] with each box's `Sprite` record (`+4`: its jgl sprite).
+fn science_boxes(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, [i32; 4], u32)>> {
     if mem.u32(form)? != SCIENCE {
         return None;
     }
@@ -447,7 +452,7 @@ pub fn science(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, [i32; 4])>> {
         let (Some(sprite), Some(w), Some(h)) = (mem.u32(record), mem.i32(record + 0x14), mem.i32(record + 0x18)) else { continue };
         let (Some(x), Some(y)) = (mem.i32(advances + 0x74 * i + 0x50), mem.i32(advances + 0x74 * i + 0x54)) else { continue };
         if sprite != 0 && (0..=1024).contains(&w) && (0..=768).contains(&h) {
-            out.push((i, [x, y, w + 1, h + 1]));
+            out.push((i, [x, y, w + 1, h + 1], record));
         }
     }
     Some(out)
@@ -464,12 +469,24 @@ pub fn science_hit_site(build: crate::Build) -> Option<(u32, &'static [u8])> {
 }
 
 /// The advance whose box takes point (x, y) of the science advisor's page,
-/// decided by us: the first shown advance whose box rectangle holds it
-/// (inclusive, as 0x5A8EF0 tests it), in the game's order. The game also
-/// read the box sprite's pixel there and let colour 255 through; that is
+/// decided by us as 0x5A8EF0 decides it, in the game's order: the first
+/// shown advance whose box rectangle holds the point (inclusive), on the
+/// box's jgl sprite. The record (the box `Sprite` from its `+4`) places
+/// that sprite at `+0x1C`/`+0x20` in the box, trimmed of its transparent
+/// margins, with its size at the jgl sprite's `+0x30`/`+0x34`. The game
+/// then read the sprite's pixel there and let colour 255 through; that is
 /// sprite pixel work this replaces (the box art's corners take the click).
 pub fn science_advance_at(mem: &dyn Mem, form: u32, (x, y): (i32, i32)) -> Option<u32> {
-    science(mem, form)?.into_iter().find(|&(_, [bx, by, w, h])| x >= bx && y >= by && x < bx + w && y < by + h).map(|(advance, _)| advance)
+    science_boxes(mem, form)?.into_iter().find(|&(_, [bx, by, w, h], record)| {
+        let on_sprite = || -> Option<bool> {
+            let sprite = mem.u32(record)?;
+            let (ox, oy) = (mem.i32(record + 0x1C)?, mem.i32(record + 0x20)?);
+            let (sw, sh) = (mem.i32(sprite + 0x30)?, mem.i32(sprite + 0x34)?);
+            let (sx, sy) = (x - bx - ox, y - by - oy);
+            Some(sx >= 0 && sy >= 0 && sx < sw && sy < sh)
+        };
+        x >= bx && y >= by && x < bx + w && y < by + h && on_sprite() == Some(true)
+    }).map(|(advance, _, _)| advance)
 }
 
 const F_TABS: [u32; 3] = [0x3810, 0x3800, 0x3820];
