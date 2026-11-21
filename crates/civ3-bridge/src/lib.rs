@@ -141,6 +141,9 @@ fn init() {
         let _ = std::fs::write("civ3-bridge.log", "civ3-bridge: pass-through (CIV3R_VIEWER unset): forwarding to ifc23_orig.dll only\n");
         return;
     }
+    // The last session's log stays as `civ3-bridge.previous.log`: what
+    // went wrong there can still be read after a restart.
+    let _ = std::fs::rename("civ3-bridge.log", "civ3-bridge.previous.log");
     let _ = inproc::log_to_file(std::path::Path::new("civ3-bridge.log"), log::LevelFilter::Debug);
     // Render errors, every type once per run, from every side (`render_errors`).
     const RENDER_ERROR_LOG: &str = "civ3-render-errors.log";
