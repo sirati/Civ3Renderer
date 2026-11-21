@@ -1196,7 +1196,18 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             let keyed = |form: u32, x: i32, y: i32| {
                 with_model(false, |m| m.drawn_at(form + form_hit::CANVAS, x, y)).flatten().unwrap_or(true)
             };
+            // (Diagnostic: the game's own test first, on copies, where its
+            // canvases have the game's pixels.)
+            let game = hit_compare().then(|| {
+                let (mut gx, mut gy) = (x, y);
+                let form = c.original_with(&mut gx as *mut i32 as usize as u32, &mut gy as *mut i32 as usize as u32);
+                let frame = inproc::Ptr32::<u32>::new(targets.on_frame).read().unwrap_or(0) != 0;
+                (form, (gx, gy), frame)
+            });
             let hit = form_hit::form_under(&civ3_sys::controls::Live, &targets, (x, y), &keyed);
+            if let Some(game) = game.filter(|&g| g != (hit.form, hit.point, hit.on_frame)) {
+                compare_mismatch((x, y), game, (hit.form, hit.point, hit.on_frame));
+            }
             let _ = (px.write(&hit.point.0), py.write(&hit.point.1));
             hit.form
         })?));
@@ -1662,6 +1673,29 @@ fn placeholder_read(image: u32, how: &str) {
     });
     if first {
         log::warn!("placeholder sprites: the game reads pixels of {image:#x} ({how}), whose sprite blits were left out");
+    }
+}
+
+/// `CIV3R_HIT_COMPARE=1`, a diagnostic: the game's own hit test runs
+/// beside ours, and every difference is logged ([`compare_mismatch`]). Only
+/// where the game draws its canvases itself (`CIV3R_GAME_RENDER=on`), so
+/// its pixel reads see the game's pixels.
+fn hit_compare() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        std::env::var("CIV3R_HIT_COMPARE").as_deref() == Ok("1") && !placeholder_sprites() && !jgl_ffi::own::on()
+    });
+    *ON
+}
+
+/// Logs a difference between the game's hit test and ours: each pair of
+/// forms the first few times, with the forms' classes.
+fn compare_mismatch(at: (i32, i32), game: (u32, (i32, i32), bool), ours: (u32, (i32, i32), bool)) {
+    thread_local! { static SEEN: std::cell::RefCell<std::collections::HashMap<(u32, u32), u32>> = Default::default(); }
+    let n = SEEN.with_borrow_mut(|seen| { let n = seen.entry((game.0, ours.0)).or_insert(0); *n += 1; *n });
+    if n <= 3 || n.is_power_of_two() {
+        let class = |form: u32| inproc::Ptr32::<u32>::new(form).read().unwrap_or(0);
+        log::warn!("hit compare #{n}: at {at:?} the game finds {:#x} (class {:#x}) at {:?} frame {}, ours {:#x} (class {:#x}) at {:?} frame {}",
+            game.0, class(game.0), game.1, game.2, ours.0, class(ours.0), ours.1, ours.2);
     }
 }
 
