@@ -437,8 +437,10 @@ impl ImageLoader for Civ3Loader {
     fn indexed(&self, source: &str, options: &toml::Table) -> Result<Option<Vec<render_desc::IndexedFrame>>, String> {
         let lower = source.to_lowercase();
         let flc = lower.ends_with(".flc") || lower.ends_with(".fli");
-        // (Alpha per pixel from a mask is no palette's.)
-        if source.starts_with("font:") || options.contains_key("alpha_image") || !(lower.ends_with(".pcx") || flc) {
+        // (Alpha per pixel from a mask is no palette's. Replaced indices are
+        // other indices than the file's, which the sprites of this source
+        // share whatever their options: the colour image then, of its own.)
+        if source.starts_with("font:") || options.contains_key("alpha_image") || options.contains_key("index_changes") || !(lower.ends_with(".pcx") || flc) {
             return Ok(None);
         }
         let bytes = self.files.read(source).map_err(|e| e.to_string())?;
