@@ -1032,7 +1032,15 @@ pub(crate) fn replace_indices(target:jgl::Surface,rect:jgl::Rect,from:u32,to:u32
     let rect=[rect.left.max(clip.left),rect.top.max(clip.top),rect.right.min(clip.right),rect.bottom.min(clip.bottom)];
     if rect[2]<=rect[0] || rect[3]<=rect[1] {return;}
     with_model(false,|m| {
-        if !m.replace_indices(target.owner,rect,from as u8,to as u8) {
+        let recorded=m.replace_indices(target.owner,rect,from as u8,to as u8);
+        // (Once per image: a loaded file whose edit is lost draws its
+        // replaced indices, e.g. the border diamonds' grey filler.)
+        thread_local! { static SEEN: std::cell::RefCell<std::collections::HashSet<u32>> = Default::default(); }
+        if SEEN.with_borrow_mut(|seen| seen.len() < 256 && seen.insert(target.owner)) {
+            log::info!("index replacement on image {:#x} ({}) {rect:?} {from}->{to}: {}", target.owner, m.file_of(target.owner).unwrap_or("not a loaded file"),
+                if recorded { "kept with the file" } else { "no decoded file to keep it with: unanswered" });
+        }
+        if !recorded {
             m.unanswered_in(target.owner,[rect[0],rect[1],rect[2]-rect[0],rect[3]-rect[1]]);
         }
     });
@@ -1136,7 +1144,10 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
                 crate::ui_selection::loaded(c.image, &path, c.ct);
                 crate::ui_mills::loaded(c.image, &path);
                 emit(Event::Loaded { image: c.image, path, size });
-                if let Some(pixels)=pixels { with_model(false,|m|m.loaded_pixels(c.image,pixels)); }
+                match pixels {
+                    Some(pixels) => { with_model(false,|m|m.loaded_pixels(c.image,pixels)); }
+                    None => log::debug!("loaded image {:#x}: its decoded indices could not be kept (its later index edits go unanswered)", c.image),
+                }
             }
         }
         r

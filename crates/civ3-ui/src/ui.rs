@@ -354,6 +354,11 @@ impl UiModel {
     pub fn loaded_pixels(&mut self,image:u32,pixels:Arc<crate::selection::FilePixels>) {
         self.file_states.insert(image,FileState::new(pixels));
     }
+    /// The file loaded into `image`, if it holds one.
+    pub fn file_of(&self, image: u32) -> Option<&str> {
+        self.files.get(&image).map(String::as_str)
+    }
+
     pub fn replace_indices(&mut self,image:u32,rect:[i32;4],from:u8,to:u8)->bool {
         let Some(state)=self.file_states.get_mut(&image) else {return false};
         *state=state.replaced(menu::screen::IndexChange {rect,from,to});
@@ -2952,5 +2957,31 @@ mod line_tests {
             }
             println!("runs {runs}: {} lines, {events} fills, {:?}", lines.len(), t.elapsed());
         }
+    }
+}
+
+#[cfg(test)]
+mod border_index_changes {
+    use super::*;
+
+    #[test]
+    fn a_loaders_index_replacement_reaches_a_colour_table_draw_of_a_sprite_cut_after_it() {
+        let mut m = UiModel::new(vec![], vec![]);
+        m.apply(Event::Loaded { image: 11, path: "Art\\Terrain\\Territory.pcx".into(), size: (256, 288) });
+        m.loaded_pixels(11, Arc::new(crate::selection::FilePixels { size: (256, 288), row: 256, indices: vec![0; 256 * 288], palette: [[181; 3]; 256] }));
+        // The loader blanks the diamonds' filler before it cuts.
+        assert!(m.replace_indices(11, [0, 0, 256, 288], 0, 255));
+        assert!(m.replace_indices(11, [0, 0, 256, 288], 1, 255));
+        m.apply(Event::Sliced { sprite: 21, image: 11, rect: [61, 75, 67, 40] });
+        let owner = menu::screen::PaletteFrom { image: "Art/Units/Palettes/ntp10.pcx".into(), first: 64, count: 2 };
+        m.apply(Event::Size { image: 40, size: (256, 173) });
+        m.apply(Event::IndexedBlit { sprite: 21, canvas: 40, x: 1, y: -9, clip: None, palette: Some(owner), indices: indices::colored(indices::blank("Art\\Terrain\\Territory.pcx")) });
+        m.apply(Event::PaintBegin);
+        m.apply(Event::Composite { canvas: 40, vtable: 1, origin: (0, 0), size: (256, 173), clip: [0, 0, 1024, 768], keyed: false });
+        m.apply(Event::PaintEnd);
+        let draws = m.frame().draws;
+        let Some(ScreenDraw::Indexed { retained, .. }) = draws.first() else { panic!("{draws:?}") };
+        let changes = retained.as_ref().map(|r| r.changes().to_vec()).unwrap_or_default();
+        assert_eq!(changes.iter().map(|c| (c.from, c.to)).collect::<Vec<_>>(), [(0, 255), (1, 255)]);
     }
 }
