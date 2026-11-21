@@ -134,15 +134,16 @@ fn hooks() -> jgl::Hooks {
     }
 }
 
-/// Explicit diagnostic opt-in to the unfinished replacement. Keep jgl's
-/// implementation as the default until the recovered read-back and DC
-/// contracts have passed runtime acceptance (docs/jgl-replacement.md §9).
+/// Whether our jgl stands in for jgl.dll, which is then never loaded:
+/// whenever our renderer draws the game (`docs/jgl-replacement.md` §8).
+/// `CIV3R_JGL=original` keeps jgl.dll, for comparing with it. The plain
+/// game without a viewer always has jgl.dll.
 pub(crate) fn own_mode() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         crate::pass_through::active_here()
             && crate::ui_trace::placeholder_sprites()
-            && std::env::var("CIV3R_JGL").as_deref() == Ok("own")
+            && std::env::var("CIV3R_JGL").as_deref() != Ok("original")
     })
 }
 
