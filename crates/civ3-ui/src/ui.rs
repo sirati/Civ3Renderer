@@ -354,11 +354,6 @@ impl UiModel {
     pub fn loaded_pixels(&mut self,image:u32,pixels:Arc<crate::selection::FilePixels>) {
         self.file_states.insert(image,FileState::new(pixels));
     }
-    /// The file loaded into `image`, if it holds one.
-    pub fn file_of(&self, image: u32) -> Option<&str> {
-        self.files.get(&image).map(String::as_str)
-    }
-
     pub fn replace_indices(&mut self,image:u32,rect:[i32;4],from:u8,to:u8)->bool {
         let Some(state)=self.file_states.get_mut(&image) else {return false};
         *state=state.replaced(menu::screen::IndexChange {rect,from,to});
