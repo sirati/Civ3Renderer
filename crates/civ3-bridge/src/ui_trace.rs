@@ -1219,6 +1219,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             if let Some(game) = game.filter(|&g| g != (hit.form, hit.point, hit.on_frame)) {
                 compare_mismatch((x, y), game, (hit.form, hit.point, hit.on_frame));
             }
+            if hit_log() {
+                log_hit_change((x, y), hit);
+            }
             let _ = (px.write(&hit.point.0), py.write(&hit.point.1));
             hit.form
         })?));
@@ -1707,6 +1710,22 @@ fn hit_compare() -> bool {
 
 /// Logs a difference between the game's hit test and ours: each pair of
 /// forms the first few times, with the forms' classes.
+/// Whether each change of the form under the pointer is logged
+/// (`CIV3R_HIT_LOG=1`, a diagnostic).
+fn hit_log() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var("CIV3R_HIT_LOG").as_deref() == Ok("1"));
+    *ON
+}
+
+/// Logs the form the pointer acts on when it changes (`hit_log`).
+fn log_hit_change(at: (i32, i32), hit: form_hit::Hit) {
+    thread_local! { static LAST: std::cell::Cell<(u32, bool)> = const { std::cell::Cell::new((u32::MAX, false)) }; }
+    if LAST.replace((hit.form, hit.on_frame)) != (hit.form, hit.on_frame) {
+        let class = inproc::Ptr32::<u32>::new(hit.form).read().unwrap_or(0);
+        log::info!("hit: pointer at {at:?} acts on form {:#x} (class {class:#x}) at {:?}, frame {}", hit.form, hit.point, hit.on_frame);
+    }
+}
+
 fn compare_mismatch(at: (i32, i32), game: (u32, (i32, i32), bool), ours: (u32, (i32, i32), bool)) {
     thread_local! { static SEEN: std::cell::RefCell<std::collections::HashMap<(u32, u32), u32>> = Default::default(); }
     let n = SEEN.with_borrow_mut(|seen| { let n = seen.entry((game.0, ours.0)).or_insert(0); *n += 1; *n });
