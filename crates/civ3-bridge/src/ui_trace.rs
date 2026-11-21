@@ -1609,6 +1609,18 @@ fn map_blend_events(sprite: u32, canvas: u32, x: u32, y: u32, placed: Placement,
     }
 }
 
+/// The rule of a shade blit through blend tables `table` (see
+/// [`crate::ui::indices::shade_blit`]); of tables not known here, only its
+/// black (their levels unknown).
+fn shade_blit(table: u32) -> menu::screen::Indices {
+    let levels = BUILD.get().and_then(|&b| blend_levels(b, table));
+    if levels.is_none() {
+        static NOTED: AtomicBool = AtomicBool::new(false);
+        if !NOTED.swap(true, Relaxed) { log::warn!("UI mirror: a shade blit through tables {table:#x} not known here: only its black is drawn"); }
+    }
+    crate::ui::indices::shade_blit(levels.unwrap_or(&[]))
+}
+
 /// The levels of the set of blend tables `table` is (the value of one of
 /// the game's pointers to them), if it is one.
 fn blend_levels(build: civ3_sys::Build, table: u32) -> Option<&'static [u8]> {
@@ -1825,8 +1837,10 @@ pub fn on_blit(b: &GameBlit) {
         W::Draw => {
             if !is_cursor(sprite, canvas) { blit(sprite, canvas, x, y, true, ct, clip); }
         }
-        W::Variant | W::A4 | W::A4b => blit(sprite, canvas, x, y, true, ct, clip),
-        W::ScaledA4 | W::ScaledA8 => resized_blit(sprite, canvas, x, y, placed(b), b.scale, ct, None, clip),
+        W::Variant | W::A4 => blit(sprite, canvas, x, y, true, ct, clip),
+        W::A4b => indexed_blit(sprite, canvas, x, y, shade_blit(b.extra), None, clip),
+        W::ScaledA4 => resized_blit(sprite, canvas, x, y, placed(b), b.scale, ct, None, clip),
+        W::ScaledA8 => resized_blit(sprite, canvas, x, y, placed(b), b.scale, ct, Some(shade_blit(b.extra)), clip),
         W::ScaledColored => scaled_colored(sprite, canvas, x, y, placed(b), b.scale, b.extra, ct, clip),
         W::Blend => map_blend_events(sprite, canvas, x, y, placed(b), b.extra, [1, 1, 1], ct, clip),
         W::Opacity => opacity_blit(sprite, canvas, x, y, b.extra, ct, clip),

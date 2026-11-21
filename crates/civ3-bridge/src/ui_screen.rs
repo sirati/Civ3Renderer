@@ -700,6 +700,28 @@ mod tests {
         assert_eq!(opaque_pixels(&c, &replaced_name), drawn, "the replaced piece draws no filler");
     }
 
+    /// The science advisor's "not required" icon's shadow
+    /// (`non_required_shadow.pcx`, drawn by the shade blit 0x5F8760 through
+    /// the shade tables): its ring is of indices 248..251, which that blit
+    /// does not draw (only 0, black, and 1..15, shades). Drawn as a picture,
+    /// the ring showed in its palette's greens around the icon.
+    #[test]
+    fn the_not_required_icon_s_shadow_draws_none_of_its_green_ring() {
+        let Some(files) = install() else { return eprintln!("no Civ III install, skipped") };
+        let path = "Art/Advisors/non_required_shadow.pcx";
+        let img = civ3_assets::pcx::decode(&files.read(path).unwrap()).unwrap();
+        assert!(img.pixels.iter().any(|&i| (248..=251).contains(&i)), "the ring");
+        let region = Region { source: path.into(), rect: [1, 1, 43, 43], keyed: true, mask: None, palette: None };
+        let shade = Element::Indexed { region: region.clone(), indices: crate::ui::indices::shade_blit(&crate::ui::indices::SHADE_LEVELS), at: (0, 0), clip: [0, 0, 1920, 1080] };
+        let picture = Element::Image { region, at: (0, 0), clip: [0, 0, 1920, 1080] };
+        let mut art = ScreenArt::default();
+        art.add(&[shade, picture]);
+        let compiled = compiles_alike(&art, &[], &files);
+        let name = |indexed: bool| compiled.sprite_names.iter().find(|n| n.contains("non_required_shadow") && n.starts_with("ScreenIndexed") == indexed).cloned().unwrap();
+        assert!(opaque_pixels(&compiled, &name(false)) > 0, "as a picture, the ring draws");
+        assert_eq!(opaque_pixels(&compiled, &name(true)), 0, "through the shade blit, nothing of it does");
+    }
+
     /// Every kind of element the mirror makes, of 8-bit (indexed) art and
     /// of art in colours (masked), plain, through another palette, resized,
     /// translucent, by indices (shades, smoke, a frame of an animation,
