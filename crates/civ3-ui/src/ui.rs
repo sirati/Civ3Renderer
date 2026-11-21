@@ -467,18 +467,21 @@ impl UiModel {
         if self.files.contains_key(&canvas) {
             return Some(Some(Op::Fill { rect: [x, y, 1, 1], rgb: [0, 0, 0], alpha: 255 }));
         }
-        let ops: Vec<Op> = match self.presented.get(&canvas) {
-            Some(snapshot) => snapshot.iter().flat_map(|(_, resolved)| resolved.iter().cloned()).collect(),
-            None => match self.canvases.get(&canvas) {
-                Some(list) => list.iter().flat_map(|op| self.resolve(op, 0)).collect(),
-                None => return self.keyed_clear.contains(&canvas).then_some(None),
-            },
-        };
         let size = self.sizes.get(&canvas).copied();
-        Some(ops.into_iter().rev().find(|op| {
+        let covers = |op: &Op| {
             let [l, t, r, b] = visible_bounds(op, size);
             !matches!(op, Op::Unknown { .. }) && x >= l && y >= t && x < r && y < b
-        }))
+        };
+        // (Newest first, stopping at the first draw there: this runs for
+        // every pointer move over a keyed form.)
+        if let Some(snapshot) = self.presented.get(&canvas) {
+            return Some(snapshot.iter().rev().find_map(|(_, resolved)| resolved.iter().rev().find(|op| covers(op)).cloned()));
+        }
+        let list = match self.canvases.get(&canvas) {
+            Some(list) => list,
+            None => return self.keyed_clear.contains(&canvas).then_some(None),
+        };
+        Some(list.iter().rev().find_map(|op| self.resolve(op, 0).into_iter().rev().find(|op| covers(op))))
     }
 
     /// Leave the skipped canvases out (or not, e.g. between games).

@@ -62,7 +62,13 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
                     mask: mask.as_ref().map(|m| (relative_path(&m.path, roots), (m.at.0 - rect[0], m.at.1 - rect[1]))),
                     palette: palette.clone(),
                 };
-                Element::ResizedImage { region, at: (*x, *y), size: *size, sample_step: *sample_step, clip: *clip, opacity: *opacity }
+                if let Some(state)=retained.as_ref().filter(|s|!s.changes().is_empty()) {
+                    assert!(mask.is_none() && *opacity==255,"unsupported transformed masked/opacity source");
+                    let resize=Some(menu::screen::IndexedResize {size:(size.0.max(0) as u32,size.1.max(0) as u32),sample_step:*sample_step});
+                    Element::Indexed {region,indices:menu::screen::Indices {index_changes:state.changes().to_vec(),transparent:if *keyed {vec![254,255]} else {vec![]},resize,..Default::default()},at:(*x,*y),clip:*clip}
+                } else {
+                    Element::ResizedImage { region, at: (*x, *y), size: *size, sample_step: *sample_step, clip: *clip, opacity: *opacity }
+                }
             }
             ScreenDraw::Fill { rect, rgb, alpha, clip } => Element::Fill { rect: *rect, rgb: *rgb, alpha: *alpha, clip: *clip },
             ScreenDraw::Indexed { retained,path, rect, x, y, clip, palette, indices } => {
@@ -1046,6 +1052,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A resized draw of a file the game replaced indices in (Territory's
+    /// border pieces, made transparent) draws the replaced indices.
+    #[test]
+    fn a_resized_draw_keeps_the_file_s_index_replacements() {
+        let pixels = std::sync::Arc::new(civ3_ui::selection::FilePixels { size: (4, 4), row: 4, indices: vec![0; 16], palette: [[0; 3]; 256] });
+        let change = menu::screen::IndexChange { rect: [0, 0, 4, 4], from: 0, to: 255 };
+        let state = civ3_ui::ui::FileState::new(pixels).replaced(change.clone());
+        let frame = Frame {
+            draws: vec![ScreenDraw::ResizedImage { retained: Some(state),
+                path: "C:/Civ3/Art/Terrain/Territory.pcx".into(), rect: [0, 0, 4, 4], x: 10, y: 20,
+                size: (8, 8), sample_step: [32768, 32768], keyed: true, clip: [0, 0, 100, 100],
+                mask: None, palette: None, opacity: 255,
+            }],
+            ..Default::default()
+        };
+        let elements = items(&frame, &[PathBuf::from("C:/Civ3")], &[], 0);
+        let [Item::Element(Element::Indexed { region, indices, at: (10, 20), .. }, false)] = elements.as_slice() else { panic!("{elements:?}") };
+        assert_eq!(region.source, "Art/Terrain/Territory.pcx");
+        assert_eq!(indices.index_changes, vec![change]);
+        assert_eq!(indices.transparent, vec![254, 255]);
+        assert_eq!(indices.resize, Some(menu::screen::IndexedResize { size: (8, 8), sample_step: [32768, 32768] }));
     }
 
     #[test]
