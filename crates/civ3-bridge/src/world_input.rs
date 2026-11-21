@@ -1024,7 +1024,7 @@ mod live {
             }
         } else {
             if !crate::modal::native_input_allowed() {
-                dropped("not in the human-turn loop's pump, or an animation or action runs", || crate::modal::pump_state());
+                dropped("not in the human-turn loop's pump, or an animation or action runs", || format!("{}; game calls {}", crate::modal::pump_state(), crate::modal::game_calls_on_stack()));
                 return;
             }
             let Some(dialog) = game.dialog_state().ok().flatten() else {

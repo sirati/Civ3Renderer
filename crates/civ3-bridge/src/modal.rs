@@ -323,7 +323,7 @@ impl Pending {
 }
 
 #[cfg(windows)]
-pub use live::{after_world_order, install, may_enter_now, modal_open, native_input_allowed, notices, pump_state, queue, refuse, run_now, screen_gate, world_input};
+pub use live::{after_world_order, game_calls_on_stack, install, may_enter_now, modal_open, native_input_allowed, notices, pump_state, queue, refuse, run_now, screen_gate, world_input};
 
 #[cfg(windows)]
 mod live {
@@ -466,6 +466,31 @@ mod live {
     /// The pump counters [`native_input_allowed`] reads, for the log.
     pub fn pump_state() -> String {
         format!("live {}, human pumps {}, animation pumps {}, running {}", LIVE.get().is_some(), HUMAN_PUMPS.load(SeqCst), ANIMATION_PUMPS.load(SeqCst), RUNNING.load(SeqCst))
+    }
+
+    /// The game's calls on this thread's stack, innermost first: each
+    /// return address into the game's code after a `call rel32`, and the
+    /// function called (a diagnostic: which of the game's loops runs). Read
+    /// up from a local of this frame until memory stops being readable.
+    pub fn game_calls_on_stack() -> String {
+        use civ3_sys::controls::Mem;
+        let mem = civ3_sys::controls::Live;
+        let here = 0u32;
+        let start = (std::ptr::addr_of!(here) as usize as u32) & !3;
+        let code = |v: u32| (0x40_1000..0x66_5000).contains(&v) || (0xCD_0000..0xD0_0000).contains(&v);
+        let mut out = Vec::new();
+        for at in (start..start.saturating_add(0x4_0000)).step_by(4) {
+            let Some(v) = mem.u32(at) else { break };
+            if code(v) && mem.u8(v - 5) == Some(0xE8) {
+                let target = mem.u32(v - 4).map_or(0, |rel| v.wrapping_add(rel));
+                out.push(format!("{:#x}>{target:#x}", v - 5));
+                if out.len() == 48 {
+                    break;
+                }
+            }
+        }
+        std::hint::black_box(&here);
+        out.join(" ")
     }
 
     /// Whether a modal form is open (the map takes no input then).
