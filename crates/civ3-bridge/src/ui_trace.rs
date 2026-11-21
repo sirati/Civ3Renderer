@@ -182,6 +182,26 @@ pub fn refresh_original_drawing(game: Civ3) {
     }
 }
 
+/// The game's width of `run` (its GDI measure: what its layout used),
+/// for the mirror's text bounds; remembered per face, size and text.
+fn text_width(run: &crate::text::TextRun) -> Option<i32> {
+    type Key = (civ3_assets::fonts::FontStyle, String);
+    static WIDTHS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<Key, Option<i32>>>> = std::sync::LazyLock::new(Default::default);
+    // TextRun stores lfHeight; FontStyle/FontSpec negate character height for GDI.
+    let style = civ3_assets::fonts::FontStyle { face: run.face.clone(), height: -run.height, weight: run.weight, italic: run.italic };
+    let key = (style, run.text.clone());
+    if let Some(&w) = WIDTHS.lock().ok()?.get(&key) {
+        return w;
+    }
+    let w = civ3_assets::fonts::measure(&key.0, &key.1).filter(|&w| w > 0);
+    let mut widths = WIDTHS.lock().ok()?;
+    if widths.len() >= 16384 {
+        widths.clear();
+    }
+    widths.insert(key, w);
+    w
+}
+
 fn policy() -> crate::game_render::StartupPolicy {
     let var = |name: &str| std::env::var(name).ok();
     crate::game_render::startup_policy(var("CIV3R_GAME_RENDER").as_deref(), var("CIV3R_VIEWER").as_deref(), var("CIV3R_GAME_WINDOW").as_deref(), var("CIV3R_UI").as_deref(), var("CIV3R_GAME_MAP").as_deref())
@@ -288,6 +308,7 @@ fn install_configured(base: u32, point: CapturePoint) -> Result<bool, String> {
         let inspect = std::env::var("CIV3R_UI_SKIP").as_deref() == Ok("off");
         let overlay = h::unit_overlay_canvas(game.build);
         let (skip, underlays) = if inspect { (Vec::new(), Vec::new()) } else { (overlay.into_iter().collect(), vec![map_canvas]) };
+        crate::ui::set_text_width(text_width);
         UiModel::new(Vec::new(), skip)
             .with_screen(h::back_buffer(game.build).unwrap_or(0))
             .with_generated(h::generated_surfaces(game.build).iter().map(|g| g.0).collect())
