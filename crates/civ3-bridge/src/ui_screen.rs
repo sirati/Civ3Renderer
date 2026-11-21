@@ -638,16 +638,66 @@ mod tests {
         let compiled = compiles_alike(&art, &elements, &files);
         let name = menu::screen::sprites(&elements[..1], &compiled, u32::MAX);
         assert_eq!(name.len(), 1);
-        let id = compiled.sprite_names.iter().position(|n| n.contains("Territory") && n.contains("!changes")).expect("the colour pass's sprite");
-        let s = compiled.atlas.sprites[id];
-        assert_ne!(s.palette, 0, "an indexed sprite");
-        let page = &compiled.atlas.index_pages[s.page as usize];
-        let row = |i: u8| compiled.atlas.palettes[(s.palette * 256 + u32::from(i)) as usize];
-        assert_eq!(row(255) >> 24, 0, "255 draws nothing");
+        let name = compiled.sprite_names.iter().find(|n| n.contains("Territory") && n.contains("!changes")).expect("the colour pass's sprite").clone();
+        let drawn = (0..rect[3]).flat_map(|y| (0..rect[2]).map(move |x| (x, y)))
+            .filter(|&(x, y)| !matches!(img.pixels[((rect[1] + y) as u32 * img.width + (rect[0] + x) as u32) as usize], 0 | 1 | 224..=255))
+            .count();
+        assert_eq!(opaque_pixels(&compiled, &name), drawn, "the filler draws nothing");
+    }
+
+    /// How many pixels of sprite `name` draw (alpha above 0), from either
+    /// atlas (colour pages, or index pages through the sprite's palette).
+    fn opaque_pixels(c: &Compiled, name: &str) -> usize {
+        let id = c.sprite_names.iter().position(|n| n == name).unwrap_or_else(|| panic!("no sprite {name}"));
+        let s = c.atlas.sprites[id];
+        let mut n = 0;
         for y in 0..s.height { for x in 0..s.width {
-            let i = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize];
-            assert!(i > 1 || row(i) >> 24 == 0, "filler {i} drawn at ({x}, {y}) as {:#010x}", row(i));
+            let alpha = if s.palette == 0 {
+                c.atlas.pages[s.page as usize].get(s.atlas_x + x, s.atlas_y + y)[3]
+            } else {
+                let page = &c.atlas.index_pages[s.page as usize];
+                let i = page.pixels[((s.atlas_y + y) * page.width + s.atlas_x + x) as usize];
+                (c.atlas.palettes[(s.palette * 256 + u32::from(i)) as usize] >> 24) as u8
+            };
+            n += usize::from(alpha > 0);
         }}
+        n
+    }
+
+    /// The colour pass of a border piece with the game's replacements, made
+    /// after the same piece without them (the art lists keep no
+    /// replacements, so the preload makes that one first). Sprites of the
+    /// same file share its indices; replaced indices are other indices, so
+    /// the replaced piece shares none: its filler draws nothing. (It took
+    /// the first one's indices: the filler, 0 and 1, drew in the file's own
+    /// greys on the border side of the tile box's picture.)
+    #[test]
+    fn a_border_piece_with_replaced_indices_shares_no_indices_with_one_without() {
+        let Some(files) = install() else { return eprintln!("no Civ III install, skipped") };
+        let path = "Art/Terrain/Territory.pcx";
+        let img = civ3_assets::pcx::decode(&files.read(path).unwrap()).unwrap();
+        let rect = [61, 80, 66, 34];
+        let drawn = (0..rect[3]).flat_map(|y| (0..rect[2]).map(move |x| (x, y)))
+            .filter(|&(x, y)| !matches!(img.pixels[((rect[1] + y) as u32 * img.width + (rect[0] + x) as u32) as usize], 0 | 1 | 224..=255))
+            .count();
+        let civ = menu::screen::PaletteFrom { image: "Art/Units/Palettes/ntp04.pcx".into(), first: 0, count: 64 };
+        let region = Region { source: path.into(), rect, keyed: true, mask: None, palette: Some(civ) };
+        let plain = Element::Indexed { region: region.clone(), indices: crate::ui::indices::colored(&[]), at: (0, 0), clip: [0, 0, 1920, 1080] };
+        let changes = vec![menu::screen::IndexChange { rect: [0, 0, 256, 288], from: 0, to: 255 }, menu::screen::IndexChange { rect: [0, 0, 256, 288], from: 1, to: 255 }];
+        let replaced = Element::Indexed { region, indices: menu::screen::Indices { index_changes: changes, ..crate::ui::indices::colored(&[]) }, at: (0, 0), clip: [0, 0, 1920, 1080] };
+        let loader = civ3_assets::loader::Civ3Loader::new(files);
+        let grid = "[grid]\nlayout = 'orthogonal'\nstep = [1, 1]\n";
+        let (mut c, mut growing) = render_desc::Description::parse(grid).unwrap().compile_growing(&loader, 4096, true).unwrap();
+        let mut art = ScreenArt::default();
+        for e in [&plain, &replaced] {
+            art.add(std::slice::from_ref(e));
+            let growth = growing.grow(&c, &description(&art), &loader).unwrap();
+            c.apply(&growth);
+        }
+        let name = |changes: bool| c.sprite_names.iter().find(|n| n.contains("Territory.pcx#61,80,66,34") && n.contains("!changes") == changes).cloned().unwrap();
+        let (plain_name, replaced_name) = (name(false), name(true));
+        assert!(opaque_pixels(&c, &plain_name) > drawn, "the piece without replacements draws its filler");
+        assert_eq!(opaque_pixels(&c, &replaced_name), drawn, "the replaced piece draws no filler");
     }
 
     /// Every kind of element the mirror makes, of 8-bit (indexed) art and
