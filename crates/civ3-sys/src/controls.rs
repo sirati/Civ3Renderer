@@ -16,6 +16,7 @@ mod setup;
 pub use setup::{TitleLayout, title_layout};
 pub mod advisors;
 pub mod end_screens;
+pub mod form_hit;
 pub mod screens;
 pub mod wheel;
 
@@ -48,6 +49,12 @@ impl Mem for Live {
     }
     fn read_bytes(&self, addr: u32, len: usize) -> Option<Vec<u8>> {
         Ptr32::<u8>::new(addr).read_array(len).ok()
+    }
+}
+
+impl form_hit::HitMem for Live {
+    fn write_u32(&self, addr: u32, value: u32) -> Option<()> {
+        Ptr32::<u32>::new(addr).write(&value).ok()
     }
 }
 

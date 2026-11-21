@@ -43,7 +43,6 @@ pub(crate) fn loaded(image: u32, path: &str, ct: u32) {
     let Some(colors) = civ3_sys::ui_hooks::obj::image_color_entries(image).or_else(|| civ3_sys::ui_hooks::color_table_entries(ct, 0, 256)) else { log::error!("selection source has no palette: {path}"); return };
     let palette = std::array::from_fn(|i| { let c = colors[i]; [c as u8, (c >> 8) as u8, (c >> 16) as u8] });
     let source = Arc::new(crate::ui_opacity::GameFile { size: (w, h), row, indices, palette });
-    crate::ui_opacity::cache_game_file(path, source.clone());
     SOURCES.with_borrow_mut(|s| { s.images.insert(image, source); });
 }
 
@@ -299,16 +298,8 @@ mod tests {
     }
 
     #[test]
-    fn decoded_source_stride_key_indices_and_palette_match_the_shared_pixel_query() {
+    fn decoded_source_stride_key_indices_and_palette() {
         let source = file();
-        crate::ui_opacity::cache_game_file("selection test", source.clone());
-        for y in -1..3 {
-            for x in -1..5 {
-                for keyed in [false, true] {
-                    assert_eq!(crate::ui_opacity::pixel("selection test", x, y, keyed), Some(source.pixel(x, y, keyed)));
-                }
-            }
-        }
         assert_eq!(source.pixel(1, 0, true), Some([12, 34, 56]));
         assert_eq!(source.pixel(2, 0, true), None);
         assert_eq!(source.index(0, 1), Some(8), "padding is not a file pixel");

@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::atomic::Ordering::{Acquire, AcqRel, Relaxed, Release};
 
 use civ3_sys::{Civ3, layout as L};
+use civ3_sys::controls::form_hit;
 use civ3_sys::ui_hooks::{self as h, obj};
 use inproc::hook::HookError;
 
@@ -69,7 +70,6 @@ pub(crate) fn audit_map_original(kind: &str, sprite: u32, canvas: u32, args: &[u
     let reason = if kind == "map_sprite" && obj::sprite_loads_file(sprite) { "file_image_source" }
         else if !has_pixels(canvas) { "no_pixels" }
         else if obj::image_bits(canvas).is_some_and(|bits| bits <= 8) { "palette_indices" }
-        else if obj::keyed_form_canvas(canvas) { "native_hit_mask" }
         else if with_any_skipper(|s| s.keeps(canvas)) == Some(true) { "native_pixel_source" }
         else { "unclassified" };
     let args = args.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
@@ -125,7 +125,6 @@ static ORIGINAL_PRESENT_ALL: AtomicBool = AtomicBool::new(false);
 thread_local! { static ORIGINAL_REFRESHING: Cell<bool> = const { Cell::new(false) }; }
 /// The game's build, once the hooks are installed.
 static BUILD: std::sync::OnceLock<civ3_sys::Build> = std::sync::OnceLock::new();
-pub(crate) fn build() -> Option<&'static civ3_sys::Build> { BUILD.get() }
 
 /// The back buffer (`PCX_Image` 0xCACFF0), once the hooks are installed.
 static BACK_BUFFER: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
@@ -394,10 +393,6 @@ fn skips(canvas: u32, source: u32) -> bool {
     };
     if bits <= 8 {
         audit_readback(canvas, "palette_indices");
-        return false;
-    }
-    if obj::keyed_form_canvas(canvas) {
-        audit_readback(canvas, "native_hit_mask");
         return false;
     }
     if COMPATIBILITY.load(Relaxed) && title {
@@ -967,10 +962,6 @@ pub fn generated_surfaces(build: civ3_sys::Build) -> Vec<(u32, &'static str)> {
     out
 }
 
-pub(crate) fn generated_name(image:u32)->Option<&'static str> {
-    generated_surfaces(*BUILD.get()?).into_iter().find(|&(at,_)|at==image).map(|(_,name)|name)
-}
-
 /// The forms' own surfaces seen so far: image and name.
 pub fn form_surfaces() -> Vec<(u32, &'static str)> {
     FORM_SURFACES.get().unwrap_or_default()
@@ -1143,7 +1134,6 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             if let (Some(path), Some(size)) = (path, obj::image_size(c.image)) {
                 let pixels=crate::ui_opacity::decoded(c.image,c.ct);
                 crate::ui_selection::loaded(c.image, &path, c.ct);
-                if let Some(pixels)=&pixels {crate::ui_opacity::named_palette(&path,pixels.palette);}
                 crate::ui_mills::loaded(c.image, &path);
                 emit(Event::Loaded { image: c.image, path, size });
                 if let Some(pixels)=pixels { with_model(false,|m|m.loaded_pixels(c.image,pixels)); }
@@ -1194,22 +1184,21 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         emit(Event::Reset { sprite: c.sprite });
         c.original()
     });
-    // The keyed forms' hit test reads the pixel under the mouse from the
-    // form's canvas. With placeholder sprites jgl draws no sprite there:
-    // the interface model answers it, from what the viewer shows.
-    if let Some((site, expected)) = h::keyed_hit_test_site(game.build).filter(|_| placeholder_sprites() || query_comparing()) {
-        hooks.push(Box::new(h::keyed_hit_pixel::install_call_site(site, expected, |c| compare_query(c.image,c.x as i32,c.y as i32,"keyed",||c.original()))?));
-    }
-    if (placeholder_sprites() || query_comparing()) && game.build == civ3_sys::Build::PcGames {
-        // These internal frame checks have no public site table. Keep the
-        // expected call bytes tied to the PCGames executable. The second
-        // site handles bottom, left and right caches as well as +0x128.
-        // All four caches query the viewer's retained canvas model.
-        hooks.push(Box::new(h::frame_mask_pixel::install_call_site(0x60_8E0A, &[0xE8, 0x11, 0x74, 0xFF, 0xFF], |c| {
-            compare_query(c.image,c.x as i32,c.y as i32,"frame",||c.original())
-        })?));
-        hooks.push(Box::new(h::frame_mask_pixel_alt::install_call_site(0x60_8E7E, &[0xE8, 0x9D, 0x73, 0xFF, 0xFF], |c| {
-            compare_query(c.image,c.x as i32,c.y as i32,"frame",||c.original())
+    // The form the mouse acts on is ours to find (`controls::form_hit`):
+    // the game's hit test read its canvases' pixels, ours reads none. A
+    // colour-keyed form (the HUD over the map) takes a point where the
+    // interface model draws something, what the viewer shows there. The
+    // game's handlers then act on the form as before.
+    if let (Some(site), Some(targets)) = (form_hit::site(game.build), form_hit::hit_sites(game.build)) {
+        hooks.push(Box::new(h::form_under_pointer::install_at_start(site.0, site.1, move |c| {
+            let (px, py) = (inproc::Ptr32::<i32>::new(c.x), inproc::Ptr32::<i32>::new(c.y));
+            let (Ok(x), Ok(y)) = (px.read(), py.read()) else { return 0 };
+            let keyed = |form: u32, x: i32, y: i32| {
+                with_model(false, |m| m.drawn_at(form + form_hit::CANVAS, x, y)).flatten().unwrap_or(true)
+            };
+            let hit = form_hit::form_under(&civ3_sys::controls::Live, &targets, (x, y), &keyed);
+            let _ = (px.write(&hit.point.0), py.write(&hit.point.1));
+            hit.form
         })?));
     }
     // The art presence test at start reads back an 8-bit image the game
@@ -1656,7 +1645,6 @@ pub(crate) fn placeholder_lost(canvas: u32) {
     let reason = if !skipping() { "game draws" }
         else if world_canvas(canvas) && !crate::trace::GAME_MAP_OFF.load(Relaxed) { "world canvas, game map on" }
         else if obj::image_bits(canvas).is_some_and(|bits| bits <= 8) { "palette_indices" }
-        else if obj::keyed_form_canvas(canvas) { "native_hit_mask" }
         else if with_any_skipper(|s| s.keeps(canvas)) == Some(true) { "native_pixel_source" }
         else { "other" };
     let new = PLACEHOLDER_LOST.with_borrow_mut(|l| l.len() < 256 && !l.contains_key(&canvas) && { l.insert(canvas, (reason, false)); true });
@@ -1677,93 +1665,6 @@ fn placeholder_read(image: u32, how: &str) {
     }
 }
 
-/// The pixel of keyed form canvas `canvas` at (x, y) for the game's hit
-/// test, from what the interface model shows there
-/// (`UiModel::shown_at`, the files' pixels from `ui_opacity::pixel`):
-/// the colour key where it is see-through, else its colour as the
-/// canvas's 16-bit value. Owned mode refuses an incomplete model answer.
-/// Out-of-bounds follows PCX_Image::get_pixel's defined zero result.
-fn keyed_hit_pixel(canvas: u32, x: i32, y: i32) -> Option<u32> {
-    let (w, hh) = obj::image_size(canvas)?;
-    if x < 0 || y < 0 || x >= w || y >= hh {
-        return Some(0); // PCX_Image::get_pixel, 0x6002C0.
-    }
-    if obj::image_bits(canvas) != Some(16) { return None; }
-    let key = inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().ok()? & 0x7FFF_FFFF;
-    if jgl_ffi::own::on() || query_comparing() {
-        let result=with_model(false, |m|m.keyed_at(canvas,x,y,&crate::ui_opacity::KeyFiles)).flatten();
-        if result.is_none() {log::error!("semantic query {} records={}",with_model(false,|m|m.query_detail(canvas,x,y)).unwrap_or_default(),with_model(false,|m|m.records_at(canvas,x,y)).unwrap_or_default());}
-        return result.map(|shown|if shown {key^1} else {key});
-    }
-    let shown = with_model(false, |m| if jgl_ffi::own::on() { m.exact_shown_at(canvas, x, y, &crate::ui_opacity::pixel) } else { m.shown_at(canvas, x, y, &crate::ui_opacity::pixel) })?;
-    let answer = match shown {
-        crate::ui::Shown::Rgb(rgb) if rgb == crate::ui::KEY_RGB => key,
-        crate::ui::Shown::Rgb([r, g, b]) => (u32::from(r >> 3) << 10) | (u32::from(g >> 3) << 5) | u32::from(b >> 3),
-        // Nothing drawn: cleared to the key. If the source file is not
-        // available, return None so the call site uses the game's original
-        // pixel rather than inventing a hit result.
-        crate::ui::Shown::Nothing => key,
-        crate::ui::Shown::Unknown => {
-            log::error!("semantic query {}", with_model(false, |m| m.query_detail(canvas, x, y)).unwrap_or_default());
-            return None;
-        }
-        crate::ui::Shown::NotMirrored => return None,
-    };
-    if HIT_LOG.with(|n| { let k = n.get(); n.set(k + 1); k < 40 }) {
-        log::debug!("keyed hit test: canvas {canvas:#x} ({x}, {y}): {shown:?} -> {answer:#x}");
-    }
-    Some(answer)
-}
-
-fn query_comparing() -> bool {
-    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||std::env::var("CIV3R_JGL_QUERY_COMPARE").as_deref()==Ok("1"));
-    // The oracle comparison reads real legacy pixels and is only meaningful
-    // with original jgl. Owned mode must never call that oracle, including
-    // when the diagnostic environment flag is present.
-    *ON && !jgl_ffi::own::on()
-}
-fn compare_query(image:u32,x:i32,y:i32,family:&str,original:impl FnOnce()->u32)->u32 {
-    let answer=keyed_hit_pixel(image,x,y);
-    if query_comparing() {
-        let old=original();
-        let key=inproc::Ptr32::<u32>::new(h::COLOR_KEY).read().unwrap() & 0x7fff_ffff;
-        log::info!("query-pair family={family} image={image:#x} x={x} y={y} original={old:#x} answer={answer:?} match={}",answer.map(|a|(a==key)==(old==key)).map_or("unknown",|b|if b {"yes"} else {"NO"}));
-        compare_sweep(image,family,key,(x,y,old));
-        old
-    } else { answer.unwrap_or_else(||semantic_pixel_unavailable(image,family,original)) }
-}
-
-/// Temporary comparison (CIV3R_JGL_QUERY_COMPARE=1, original jgl only):
-/// the model's key predicate against the original canvas at every point
-/// of the queried image (every 4th on large ones), once per image.
-/// Per-query comparisons continue throughout the session. Repeating a full
-/// synchronous sweep on ordinary hover events starves the game's input pump.
-fn compare_sweep(image:u32,family:&str,key:u32,(qx,qy,old):(i32,i32,u32)) {
-    thread_local! { static SWEPT: std::cell::RefCell<std::collections::HashSet<u32>> = std::cell::RefCell::new(std::collections::HashSet::new()); }
-    if !SWEPT.with_borrow_mut(|images| images.insert(image)) {return;}
-    let Some(jgl)=inproc::Ptr32::<u32>::new(image+4).read().ok().filter(|&p|p!=0) else {return};
-    let read=|at:u32|inproc::Ptr32::<u32>::new(jgl+at).read().ok();
-    let (Some((w,h)),Some(16),Some(row),Some(bits))=(obj::image_size(image),obj::image_bits(image),read(0x40),read(0x4C0)) else {return};
-    let pixel=|x:i32,y:i32|inproc::Ptr32::<u16>::new(bits+(y as u32*row+x as u32)*2).read().ok().map(u32::from);
-    let step=if w*h>200_000 {4} else {1};
-    let (mut same,mut differ,mut text_raster,mut unwritten,mut unknown)=(0u32,0u32,0u32,0u32,0u32);
-    let mut shown=[0u32;2];
-    with_model(false,|m| {
-        for y in (0..h).step_by(step) { for x in (0..w).step_by(step) {
-            let Some(p)=pixel(x,y) else {continue};
-            shown[usize::from(p!=key)]+=1;
-            match m.keyed_at(image,x,y,&crate::ui_opacity::KeyFiles) {
-                None=>{ unknown+=1; if unknown%97==1 && unknown<400 {log::info!("sweep-unknown family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
-                Some(s) if s==(p!=key)=>same+=1,
-                Some(_) if m.text_raster_at(image,x,y,&crate::ui_opacity::KeyFiles)=>text_raster+=1,
-                Some(_) if m.unwritten_at(image,x,y)=>unwritten+=1,
-                Some(_)=>{ differ+=1; if differ<=8 {log::info!("sweep-diff family={family} image={image:#x} x={x} y={y} original={p:#x} {}",m.records_at(image,x,y));} }
-            }
-        }}
-    });
-    log::info!("sweep family={family} image={image:#x} size={w}x{h} step={step} self_check={} key_px={} drawn_px={} same={same} differ={differ} text_raster={text_raster} unwritten={unwritten} unknown={unknown}",pixel(qx,qy)==Some(old),shown[0],shown[1]);
-}
-
 /// An owned image has no original raster to consult. Missing semantic
 /// provenance is an unsupported contract, never transparency or dummy data.
 fn semantic_pixel_unavailable(image: u32, family: &str, original: impl FnOnce() -> u32) -> u32 {
@@ -1775,8 +1676,6 @@ fn semantic_pixel_unavailable(image: u32, family: &str, original: impl FnOnce() 
     }
     original()
 }
-
-thread_local! { static HIT_LOG: Cell<u32> = const { Cell::new(0) }; }
 
 /// Whether `sprite` drawn onto `canvas` is the game's mouse cursor, which
 /// it draws onto the screen last (docs §16.5, §16.11): not mirrored, the

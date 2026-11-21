@@ -6,6 +6,13 @@ use crate::selection::FilePixels;
 
 #[derive(Clone)]
 pub struct FileState(Arc<State>);
+
+/// A pixel of a loaded file: its palette index and colour.
+#[derive(Clone, Copy, Debug)]
+pub struct FileSample {
+    pub index: u8,
+    pub rgb: [u8; 3],
+}
 struct State {
     id:u64,
     pixels:Arc<FilePixels>,
@@ -69,13 +76,13 @@ impl FileState {
         done.append(&mut open);
         Some(done)
     }
-    pub fn sample(&self,x:i32,y:i32)->Option<super::FileSample> {
+    pub fn sample(&self,x:i32,y:i32)->Option<FileSample> {
         let mut index=self.0.pixels.index(x,y)?;
         for change in &self.0.changes {
             let [l,t,r,b]=change.rect;
             if x>=l && y>=t && x<r && y<b && index==change.from {index=change.to;}
         }
-        Some(super::FileSample {index,rgb:self.0.pixels.palette[index as usize]})
+        Some(FileSample {index,rgb:self.0.pixels.palette[index as usize]})
     }
 }
 impl std::fmt::Debug for FileState {

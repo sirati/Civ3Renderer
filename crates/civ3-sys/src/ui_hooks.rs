@@ -59,24 +59,13 @@ inproc::fastcall_hook! {
     pub mod pcx_get_pixel(image, edx; x, y) -> u32;
 }
 
-inproc::fastcall_hook! {
-    /// The same `get_pixel` at one call: the keyed forms' hit test
-    /// ([`keyed_hit_test_site`]). A hook of its own: [`pcx_get_pixel`] is
-    /// installed at the function's start.
-    pub mod keyed_hit_pixel(image, edx; x, y) -> u32;
-}
-
-inproc::fastcall_hook! {
-    /// The frame image reader at PCGames 0x608E0A. The bridge installs this
-    /// only for the owned placeholder path and falls back to the original
-    /// when its recorded source is unavailable.
-    pub mod frame_mask_pixel(image, edx; x, y) -> u32;
-}
-
-inproc::fastcall_hook! {
-    /// The second frame image reader at PCGames 0x608E7E. It has its own
-    /// hook state because each call-site patch owns one trampoline.
-    pub mod frame_mask_pixel_alt(image, edx; x, y) -> u32;
+inproc::cdecl_hook! {
+    /// `Base_Form *cdecl form_under_pointer(int *x, int *y)` (0x609030):
+    /// the form the mouse acts on at screen point (*x, *y), which it turns
+    /// into the form's pixels. Every mouse message, the wheel and the
+    /// cursor ask it. Replaced by `controls::form_hit::form_under`, which
+    /// reads no pixel (`controls::form_hit::site`).
+    pub mod form_under_pointer(x, y) -> u32;
 }
 
 inproc::fastcall_hook! {
@@ -204,17 +193,6 @@ pub fn graphics_initialized(build: Build) -> bool {
     }
 }
 
-/// The keyed forms' hit test (0x608C70) reads the pixel of the form's
-/// canvas (+0x274) under the mouse here, `call PCX_Image::get_pixel`, and
-/// compares it with the colour key (0x72FEB0) (`docs/rerender-roadmap.md`
-/// §4 #1).
-pub fn keyed_hit_test_site(build: Build) -> Option<(u32, &'static [u8; 5])> {
-    match build {
-        Build::PcGames => Some((0x60_8FE3, &[0xE8, 0x38, 0x72, 0xFF, 0xFF])),
-        Build::Gog | Build::Steam => None,
-    }
-}
-
 /// At start the game cuts 32×32 sprites from `Art\oldinterface.pcx`
 /// (0x549D60..), draws each into a new 8-bit image (the three `PCX_Image`s
 /// from 0xB3F3E0, 0x2B8 apart) and reads its pixel (0, 0) here, `call
@@ -234,9 +212,6 @@ pub fn palace_mask_form(image: u32) -> Option<u32> {
     (Ptr32::<u32>::new(form).read().ok()? == crate::controls::screens::PALACE).then_some(form)
 }
 
-/// Where the game keeps its 16-bit colour key (bit 31 a flag), which the
-/// keyed hit test compares with.
-pub const COLOR_KEY: u32 = 0x72_FEB0;
 
 /// The back buffer (`PCX_Image` at 0xCACFF0): its pixels are the window's.
 pub fn back_buffer(build: Build) -> Option<u32> {
@@ -402,24 +377,6 @@ pub mod obj {
         let jgl = Ptr32::<u32>::new(image.checked_add(4)?).read().ok().filter(|&p| p != 0)?;
         let table = Ptr32::<u32>::new(jgl.checked_add(0x7C)?).read().ok().filter(|&p| p != 0)?;
         Ptr32::<u32>::new(table.checked_add(0x0C)?).read_array(256).ok()
-    }
-
-    /// Whether `canvas` is the canvas of a form composited colour-keyed
-    /// (`Status1` 0x1000000): the game reads such a canvas back to tell
-    /// whether a click lands on the form or goes through it (0x608C70). A
-    /// form is recognised by its vtable (in the exe's `.rdata`) whose
-    /// composite (`m79`, +0x13C) is `Base_Form`'s (0x602710). PCGames build.
-    /// Native0x608FA1 rejects NO_MOUSE before pixel reads;0x608FCD also
-    /// bypasses pixels when the rectangle-only hit flag0x100 is set.
-    pub const fn keyed_hit_mask_flags(status1: u32) -> bool {
-        status1 & 0x100_0000 != 0 && status1 & 0x102 == 0
-    }
-
-    pub fn keyed_form_canvas(canvas: u32) -> bool {
-        let form = canvas.wrapping_sub(CANVAS);
-        let u32_at = |a: u32| Ptr32::<u32>::new(a).read().ok();
-        let Some(vtable) = u32_at(form).filter(|v| (0x66_5000..0x68_0000).contains(v)) else { return false };
-        u32_at(vtable + 0x13C) == Some(0x60_2710) && u32_at(form + STATUS1).is_some_and(keyed_hit_mask_flags)
     }
 
     /// Sprite+8 selects the native lazy file-load branch. At8060 this
@@ -1034,14 +991,3 @@ pub fn canvas_text_clip(image: u32) -> Option<[i32; 4]> {
     obj::rect(jgl + 0x44)
 }
 
-#[cfg(test)]
-mod native_hit_mask_tests {
-    #[test]
-    fn only_forms_whose_native_hit_test_reads_pixels_retain_their_mask() {
-        use super::obj::keyed_hit_mask_flags;
-        assert!(keyed_hit_mask_flags(0x0100_0020)); // Main_GUI.
-        assert!(!keyed_hit_mask_flags(0x0100_0022)); // NO_MOUSE map overlay.
-        assert!(!keyed_hit_mask_flags(0x0100_0120)); // Rectangle-only hit test.
-        assert!(!keyed_hit_mask_flags(0x0020)); // Opaque form.
-    }
-}

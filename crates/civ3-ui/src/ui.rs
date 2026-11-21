@@ -14,10 +14,8 @@ use std::sync::Arc;
 use crate::text::TextRun;
 
 mod display_list;
-mod keyed;
 mod file_state;
-pub use file_state::FileState;
-pub use keyed::{KeySources, FileSample};
+pub use file_state::{FileSample, FileState};
 pub use menu::screen::PaletteFrom as PaletteInput;
 use display_list::DisplayList;
 
@@ -449,36 +447,29 @@ impl UiModel {
         else { self.push(canvas,Op::Unknown { rect }); }
     }
 
-    /// Query the same retained sources used to draw the canvas, refusing
-    /// operations whose pixel semantics are not represented yet.
-    pub fn exact_shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
-        self.shown_at_depth(canvas, x, y, file, 0, true)
-    }
-
-    /// Exact colour-key predicate, using the retained display commands and
-    /// their file indices. A range represents possible glyph coverage, never
-    /// an opaque glyph rectangle. It answers only when every possible colour
-    /// has the same key predicate.
-    pub fn keyed_at(&self, canvas: u32, x: i32, y: i32, sources: &impl KeySources) -> Option<bool> {
-        keyed::query(self, canvas, x, y, sources)
-    }
-
-    /// Diagnostic only: varying Text record coverage alone can change this
-    /// known hit predicate. Non-text writers retain their normal semantics.
-    pub fn text_raster_at(&self, canvas:u32, x:i32, y:i32, sources:&impl KeySources)->bool {
-        keyed::text_raster_at(self,canvas,x,y,sources)
-    }
-
-    /// No retained writer covers this pixel; the viewer leaves it transparent.
-    pub fn unwritten_at(&self, canvas:u32, x:i32, y:i32)->bool {
-        keyed::unwritten_at(self,canvas,x,y)
-    }
-
-    pub fn records_at(&self, canvas: u32, x: i32, y: i32) -> String { keyed::records_at(self, canvas, x, y) }
-
-    pub fn query_detail(&self, canvas: u32, x: i32, y: i32) -> String {
-        let frame = self.canvas_frame(canvas, 0);
-        format!("canvas={canvas:#x} at=({x},{y}) unanswered={} keyed_clear={} size={:?} draws={:#?}", self.unanswered.contains(&canvas), self.keyed_clear.contains(&canvas), self.sizes.get(&canvas), frame)
+    /// Whether something is drawn on `canvas` at (x, y), by the rectangles
+    /// of its draws: the topmost one there decides, and a clear to the
+    /// colour key draws nothing. The canvas as last presented (what the
+    /// viewer shows), else as recorded; `None` when the model has neither.
+    /// This decides where a colour-keyed form takes the mouse
+    /// (`civ3_sys::controls::form_hit`); no pixel is read or made.
+    pub fn drawn_at(&self, canvas: u32, x: i32, y: i32) -> Option<bool> {
+        if self.files.contains_key(&canvas) {
+            return Some(true);
+        }
+        let ops: Vec<Op> = match self.presented.get(&canvas) {
+            Some(snapshot) => snapshot.iter().flat_map(|(_, resolved)| resolved.iter().cloned()).collect(),
+            None => match self.canvases.get(&canvas) {
+                Some(list) => list.iter().flat_map(|op| self.resolve(op, 0)).collect(),
+                None => return self.keyed_clear.contains(&canvas).then_some(false),
+            },
+        };
+        let size = self.sizes.get(&canvas).copied();
+        let top = ops.iter().rev().find(|op| {
+            let [l, t, r, b] = visible_bounds(op, size);
+            x >= l && y >= t && x < r && y < b
+        });
+        Some(top.is_some_and(|op| !matches!(op, Op::KeyClear { .. }) && op_colour(op) != Some(KEY_RGB)))
     }
 
     /// Leave the skipped canvases out (or not, e.g. between games).
@@ -656,38 +647,22 @@ impl UiModel {
     /// viewer draws it: the colour of the topmost draw there with a pixel
     /// (a file's colour-keyed pixels and text are none; copies from another
     /// canvas are followed). `file(path, x, y, keyed)` gives a file's pixel:
-    /// `None` not known yet, `Some(None)` transparent. This is what the
-    /// game's own hit test of colour-keyed forms is answered from (it reads
-    /// the canvas's pixel and compares it with the key), now that sprites
-    /// are no longer drawn into the canvases.
+    /// `None` not known yet, `Some(None)` transparent.
     pub fn shown_at(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>) -> Shown {
-        self.shown_at_depth(canvas, x, y, file, 0, false)
+        self.shown_at_depth(canvas, x, y, file, 0)
     }
 
-    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32, exact: bool) -> Shown {
+    fn shown_at_depth(&self, canvas: u32, x: i32, y: i32, file: &dyn Fn(&str, i32, i32, bool) -> Option<Option<[u8; 3]>>, depth: u32) -> Shown {
         if depth == 0 && !self.sizes.contains_key(&canvas) {
             return Shown::NotMirrored;
         }
-        if exact && (self.unanswered.contains(&canvas) || self.canvases.get(&canvas).is_some_and(|ops|ops.iter().any(|op|matches!(op,Op::Unknown {..})))) { return Shown::Unknown; }
-        // A clear to the key is evidence for an empty canvas. Merely knowing
-        // its size says nothing about its initialized content.
         let Some(frame) = self.canvas_frame(canvas, 0) else {
-            return if !exact || self.keyed_clear.contains(&canvas) { Shown::Nothing } else { Shown::Unknown };
+            return Shown::Nothing;
         };
         let inside = |[rx, ry, w, h]: [i32; 4]| x >= rx && y >= ry && x < rx + w && y < ry + h;
         let clipped = |[l, t, r, b]: [i32; 4]| x >= l && y >= t && x < r && y < b;
         for d in frame.draws.iter().rev() {
             let pixel = match d {
-                ScreenDraw::Text { clip, .. } if exact && clipped(*clip) => return Shown::Unknown,
-                ScreenDraw::Fill { rect, alpha, clip, .. } if exact && *alpha != 255 && inside(*rect) && clipped(*clip) => return Shown::Unknown,
-                ScreenDraw::Image { rect, x: dx, y: dy, clip, mask, palette, opacity, .. }
-                    if exact && (mask.is_some() || palette.is_some() || *opacity != 255)
-                        && inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip) => return Shown::Unknown,
-                ScreenDraw::ResizedImage { x: dx, y: dy, size, clip, mask, palette, opacity, .. }
-                    if exact && (mask.is_some() || palette.is_some() || *opacity != 255)
-                        && inside([*dx, *dy, size.0, size.1]) && clipped(*clip) => return Shown::Unknown,
-                ScreenDraw::Indexed { rect, x: dx, y: dy, clip, .. } if exact && inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip) => return Shown::Unknown,
-                ScreenDraw::Flc { clip, .. } if exact && clipped(*clip) => return Shown::Unknown,
                 ScreenDraw::Fill { rect, rgb, clip, .. } => (inside(*rect) && clipped(*clip)).then_some(Some(Some(*rgb))),
                 ScreenDraw::Image { path, rect, x: dx, y: dy, keyed, clip, mask, .. } => {
                     (inside([*dx, *dy, rect[2], rect[3]]) && clipped(*clip)).then(|| file(path, rect[0] + x - dx, rect[1] + y - dy, *keyed || mask.is_some()))
@@ -708,7 +683,7 @@ impl UiModel {
                     if self.generated.contains(image) && !self.canvases.contains_key(image) {
                         return Shown::Unknown;
                     }
-                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1, exact) {
+                    match self.shown_at_depth(*image, rect[0] + x - dx, rect[1] + y - dy, file, depth + 1) {
                         Shown::Nothing => continue,
                         shown => return shown,
                     }
@@ -722,7 +697,7 @@ impl UiModel {
                 Some(Some(None)) | None => {}
             }
         }
-        if exact && !self.keyed_clear.contains(&canvas) { Shown::Unknown } else { Shown::Nothing }
+        Shown::Nothing
     }
 
     /// `layer` as it is on the back buffer now, everywhere.
@@ -1760,43 +1735,24 @@ mod tests {
     }
 
     #[test]
-    fn exact_queries_retain_sources_clips_and_lifetimes_without_a_global_history() {
+    fn a_keyed_canvas_is_drawn_where_its_topmost_draw_is_not_a_key_clear() {
         let mut m = UiModel::new(vec![], vec![]);
-        m.apply(Event::Size { image: 40, size: (20, 20) });
-        assert_eq!(m.exact_shown_at(40, 1, 1, &|_,_,_,_| None), Shown::Unknown);
-        m.apply(Event::Fill { canvas: 40, rect: [0,0,20,20], rgb: KEY_RGB, alpha: 255, clip: None });
-        m.apply(Event::Loaded { image: 10, path: "frame source".into(), size: (3,2) });
-        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0,0,3,2] });
-        m.apply(Event::Blit { sprite: 20, canvas: 40, x: 4, y: 5, clip: Some([5,5,7,7]), palette: None });
-        m.apply(Event::Reset { sprite: 20 });
-        m.apply(Event::Cleared { image: 10 });
-        for image in 100..1300 {
-            m.apply(Event::Size { image, size: (3,3) });
-            m.apply(Event::Fill { canvas: image, rect: [0,0,3,3], rgb: [1,2,3], alpha: 255, clip: None });
-        }
-        let pixels = |path: &str, x, _, _| { assert_eq!(path,"frame source"); Some((x != 2).then_some([24,56,88])) };
-        assert_eq!(m.exact_shown_at(40,4,5,&pixels), Shown::Nothing);
-        assert_eq!(m.exact_shown_at(40,5,5,&pixels), Shown::Rgb([24,56,88]));
-        assert_eq!(m.exact_shown_at(40,6,5,&pixels), Shown::Nothing);
-        m.apply(Event::Size { image: 41, size: (20,20) });
-        m.apply(Event::Copy { from: 40, src: [0,0,20,20], canvas: 41, x: 0, y: 0, keyed: false });
-        m.apply(Event::Cleared { image: 40 });
-        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([24,56,88]));
-        m.unanswered(41);
-        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
-        m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
-        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Rgb([8,16,24]));
-        m.apply(Event::Loaded { image: 60, path: "transformed source".into(), size: (3,2) });
-        m.unanswered(60); // A replacement whose metadata is not represented.
-        m.apply(Event::Sliced { sprite: 61, image: 60, rect: [0,0,3,2] });
-        m.apply(Event::Copied { sprite: 62, source: 61 });
-        m.apply(Event::Reset { sprite: 61 });
-        m.apply(Event::Cleared { image: 60 });
-        m.apply(Event::Blit { sprite: 62, canvas: 41, x: 4, y: 5, clip: None, palette: None });
-        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown);
-        m.apply(Event::Fill { canvas: 41, rect: [0,0,20,20], rgb: [8,16,24], alpha: 255, clip: None });
-        m.apply(Event::TextClipped { canvas: 41, run: text(1,10,"caption"), clip: [0,0,20,20] });
-        assert_eq!(m.exact_shown_at(41,5,5,&pixels), Shown::Unknown, "caption glyph source is not represented by a rectangular hit");
+        assert_eq!(m.drawn_at(40, 1, 1), None, "nothing known of the canvas");
+        m.apply(Event::Size { image: 40, size: (200, 100) });
+        m.apply(Event::Fill { canvas: 40, rect: [0, 0, 200, 100], rgb: KEY_RGB, alpha: 255, clip: None });
+        assert_eq!(m.drawn_at(40, 50, 50), Some(false), "cleared to the key");
+        // A panel along the bottom, and a picture above it.
+        m.apply(Event::Fill { canvas: 40, rect: [0, 60, 200, 40], rgb: [10, 20, 30], alpha: 255, clip: None });
+        m.apply(Event::Loaded { image: 10, path: "art\\panel.pcx".into(), size: (30, 20) });
+        m.apply(Event::Sliced { sprite: 20, image: 10, rect: [0, 0, 30, 20] });
+        m.apply(Event::Blit { sprite: 20, canvas: 40, x: 100, y: 30, clip: None, palette: None });
+        assert_eq!(m.drawn_at(40, 5, 70), Some(true));
+        assert_eq!(m.drawn_at(40, 110, 35), Some(true), "the picture's rectangle");
+        assert_eq!(m.drawn_at(40, 5, 30), Some(false));
+        // A hole cleared to the key in the panel takes nothing.
+        m.apply(Event::Fill { canvas: 40, rect: [20, 70, 10, 10], rgb: KEY_RGB, alpha: 255, clip: None });
+        assert_eq!(m.drawn_at(40, 25, 75), Some(false));
+        assert_eq!(m.drawn_at(40, 35, 75), Some(true));
     }
 
     #[test]

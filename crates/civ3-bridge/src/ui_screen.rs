@@ -27,7 +27,6 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
 /// that index, under the others.
 pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32, extra: Option<(usize, Vec<Item>)>) -> Vec<Item> {
     #[cfg(any(windows,test))]
-    crate::ui_opacity::unit_colors(unit_colors);
     let mut out = Vec::new();
     let (at, mut extra) = extra.map_or((usize::MAX, None), |(at, items)| (at, Some(items)));
     for (i, d) in frame.draws.iter().enumerate() {
@@ -82,14 +81,10 @@ pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], u
             // Leader heads: in their own colours.
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: true } => {
                 let source = relative_path(path, roots);
-                #[cfg(any(windows, test))]
-                crate::ui_opacity::animation_source(path, &source);
                 Element::Sprite { name: format!("Flc@{source}/{chunk}"), at: (*x, *y), clip: *clip, scale_den: 0, palette: String::new() }
             }
             ScreenDraw::Flc { path, chunk, x, y, clip, plain: false } => {
                 let source = relative_path(path, roots);
-                #[cfg(any(windows, test))]
-                crate::ui_opacity::animation_source(path, &source);
                 let path = source;
                 let shadow = format!("UnitShadow@{path}/{chunk}");
                 out.push(Item::Element(Element::Sprite { name: shadow, at: (*x, *y), clip: *clip, scale_den: 16, palette: String::new() }, under));
@@ -455,8 +450,6 @@ pub fn minimap_patches(
             .map(|civ| crate::minimap::from_rgb(table_color(world.color_tables.get(civ).copied().unwrap_or(0))))
             .collect();
         let rgba = crate::minimap::image_mode(world, *size, world.navigator_modes.for_surface(name), |civ| colors.get(civ as usize).copied().unwrap_or(0));
-        #[cfg(any(windows,test))]
-        crate::ui_opacity::generated(name,*size,&rgba);
         out.extend(menu::screen::patch(compiled, name, *size, rgba));
     }
     out
