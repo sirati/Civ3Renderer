@@ -26,7 +26,6 @@ pub fn items(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_c
 /// [`items`] with `extra` (index, items) among them: over the draws before
 /// that index, under the others.
 pub fn items_with(frame: &Frame, roots: &[PathBuf], generated: &[(u32, &str)], unit_colors: i32, extra: Option<(usize, Vec<Item>)>) -> Vec<Item> {
-    #[cfg(any(windows,test))]
     let mut out = Vec::new();
     let (at, mut extra) = extra.map_or((usize::MAX, None), |(at, items)| (at, Some(items)));
     for (i, d) in frame.draws.iter().enumerate() {
