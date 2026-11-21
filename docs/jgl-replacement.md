@@ -438,16 +438,17 @@ Done:
   or `CIV3R_JGL_COMPARE` (while it existed) jgl made and drew sprites as
   before. Consequence [G, not tested]: when the viewer is lost and the
   game's own drawing is restored, sprites made since start are stripes.
-- **The keyed hit test** (0x608C70, its `get_pixel` call at 0x608FE3,
-  roadmap §4 #1) is answered from the interface model
-  (`UiModel::shown_at`): the topmost draw of the canvas's display list
-  with a pixel there, the files' pixels from `ui_opacity::pixel`, the
-  same decoded art and key indices (254, 255) the model's opacity uses.
-  The viewer's own pointer routing uses the forms' rectangles
-  (`tile-viewer` `Layout::hit`), not pixels; both come from the same
-  model. Text gives no pixel there [G: jgl's canvas had the glyphs]; a
-  file not decoded yet counts as drawn; a canvas the model has no list of
-  keeps jgl's pixel.
+- **The mouse's form is found by us** (since 21 November 2026). The
+  game's hit test (0x609030 and its recursive form test 0x608C70) read
+  canvas pixels twice: frame pieces (0x608E0A, 0x608E7E) and keyed form
+  canvases (0x608FE3). Those reads were answered by rebuilding the pixels
+  on the CPU. Now `civ3_sys::controls::form_hit` replaces 0x609030 whole,
+  with the game's rules for captures, the modal form and its companion,
+  root order, children, frames and receivers, and no pixel read. A frame
+  band takes every point on it. A keyed form takes a point where the
+  interface model has a draw (`UiModel::drawn_at`, by draw rectangles),
+  as the viewer decides interface against world by its drawn sprites. The
+  game's handlers act on the form as before. 0x608C70 is never called.
 - Removed: the exe detours on `Sprite::draw` 0x5F8210 and its twelve
   sibling wrappers (0x5F81A0, 0x5F8310, 0x5F8380, 0x5F83E0, 0x5F84A0,
   0x5F8620, 0x5F86A0, 0x5F8760, 0x5F8870, 0x5F89A0) and the map tracer's

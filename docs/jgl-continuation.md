@@ -29,13 +29,15 @@ reviews do not prove complete gameplay or a no-jgl shipping session.
 
 ## Open work
 
-1. Remove the game's dependency on rendered canvas pixels for interaction
-   decisions. Trace the keyed-form and frame-hit consumers, then replace
-   those consumers using actual control/form state or the renderer's own
-   interaction result. Do not expand the CPU pixel-query emulator. Actual
-   simulation/data buffers must keep real required data and state, rather
-   than simulated success returns. The existing baseline query path is
-   still present and is an unresolved architectural problem.
+1. Click detection is ours (user, 21 November 2026): we find what a
+   click is on and call the game's functions; the game's own click
+   detection is not used. Done for the form under the mouse: 0x609030 is
+   replaced by `civ3_sys::controls::form_hit`, which reads no pixel, and
+   the CPU pixel-query code that answered the old reads is deleted. The
+   map already went through the renderer (`world-input.md`). Still the
+   game's: the Palace View's piece map (answered from piece geometry and
+   art) and the screens' region index maps (exe-decoded file data, no
+   drawing involved).
 2. Run the combined owned game through the loaded map and HUD. Exercise keyed
    reads, frame readers, line paths, F1/F5/F3, quit, and both mill visibility
    cases. The old HUD and F1 missing-source failures have corrections and
