@@ -59,6 +59,12 @@ inproc::fastcall_hook! {
     pub mod pcx_get_pixel(image, edx; x, y) -> u32;
 }
 
+inproc::fastcall_hook! {
+    /// The science advisor's `int advance_at(this, x, y)` (0x5A8EF0):
+    /// replaced by `controls::advisors::science_advance_at`.
+    pub mod science_advance_at(form, edx; x, y) -> u32;
+}
+
 inproc::cdecl_hook! {
     /// `Base_Form *cdecl form_under_pointer(int *x, int *y)` (0x609030):
     /// the form the mouse acts on at screen point (*x, *y), which it turns

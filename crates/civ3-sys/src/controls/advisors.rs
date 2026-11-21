@@ -453,6 +453,25 @@ pub fn science(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, [i32; 4])>> {
     Some(out)
 }
 
+/// The science advisor's `advance_at(x, y)` (0x5A8EF0, thiscall, `ret 8`:
+/// the advance whose box takes a point of its page, -1 for none) and its
+/// first instructions. Its left and right clicks and its hover ask it.
+pub fn science_hit_site(build: crate::Build) -> Option<(u32, &'static [u8])> {
+    match build {
+        crate::Build::PcGames => Some((0x5A_8EF0, &[0x83, 0xEC, 0x10, 0x8B, 0x15, 0x7C, 0x3D, 0x9C, 0x00])),
+        crate::Build::Gog | crate::Build::Steam => None,
+    }
+}
+
+/// The advance whose box takes point (x, y) of the science advisor's page,
+/// decided by us: the first shown advance whose box rectangle holds it
+/// (inclusive, as 0x5A8EF0 tests it), in the game's order. The game also
+/// read the box sprite's pixel there and let colour 255 through; that is
+/// sprite pixel work this replaces (the box art's corners take the click).
+pub fn science_advance_at(mem: &dyn Mem, form: u32, (x, y): (i32, i32)) -> Option<u32> {
+    science(mem, form)?.into_iter().find(|&(_, [bx, by, w, h])| x >= bx && y >= by && x < bx + w && y < by + h).map(|(advance, _)| advance)
+}
+
 const F_TABS: [u32; 3] = [0x3810, 0x3800, 0x3820];
 const F_LEADERS: u32 = 0x3830;
 const F_CIVS: u32 = 0x5D8;
