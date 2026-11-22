@@ -1347,6 +1347,9 @@ fn publish(
         // (A context menu over the map is one too, modal or not: the topmost
         // form there.)
         let context_menu = ui.as_ref().and_then(|f| f.forms.last().filter(|t| civ3_sys::controls::CONTEXT_MENU_VTABLES.contains(&t.0)).map(|t| t.1));
+        // (A kept tile box's canvas stays out until the game's modal form
+        // is another: `crate::detached::seen_modal`.)
+        crate::detached::seen_modal(modal.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4));
         let popup_and_canvas = match (ui, modal) {
             (Some(f), m) if matches!(shown, Shown::Map(..)) || screen_open.is_some() => {
                 let modal_popup = m.map(|m| m + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4).filter(|&c| c != crate::detached::hidden_canvas() && c != crate::async_popups::hidden_canvas()).and_then(|c| crate::interface_parts::popup(f, c, screen_open.map(|s| s.0), screen_size).map(|p| (p, c)));
@@ -1538,7 +1541,8 @@ fn publish(
             .collect();
         // The tile boxes the viewer keeps (`crate::detached`): their art is
         // wanted as a popup's is (the game no longer shows them).
-        let detached_items: Vec<Vec<ui_screen::Item>> = crate::detached::kept().iter().zip(detached_item_memos.iter_mut())
+        let kept_now = crate::detached::kept();
+        let detached_items: Vec<Vec<ui_screen::Item>> = kept_now.iter().zip(detached_item_memos.iter_mut())
             .map(|(kept, memo)| memo.get((kept.serial, unit_colors), || ui_screen::items(&kept.frame, files.roots(), generated, unit_colors)))
             .collect();
         // Our tabs on top of the game's Preferences screen (a menu), in the
@@ -2179,7 +2183,13 @@ fn publish(
         if !on_map {
             crate::detached::close_all();
         }
-        let detached = crate::detached::kept();
+        // A new one shows once its art is made (or it waited too long for
+        // it): never black for a frame where its pictures go.
+        let detached = if on_map {
+            crate::detached::shown(kept_now, |i| detached_items.get(i).is_some_and(|items| ui_screen::unready_art(items.iter().filter(|item| !absent_art.covers(item)), &compiled).is_empty()))
+        } else {
+            Vec::new()
+        };
         for ((index, kept), memo) in detached.iter().enumerate().zip(detached_memos.iter_mut()) {
             let sprites = memo.get((kept.serial, art_key), || {
                 ui_screen::sprites(&ui_screen::items(&kept.frame, files.roots(), generated, unit_colors), &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)

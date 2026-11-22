@@ -33,6 +33,8 @@ pub struct Kept {
     pub anchor: scene::PopupAnchor,
     /// The world pixel of the press that opened it.
     pub click: (i32, i32),
+    /// When it was kept.
+    pub when: std::time::Instant,
 }
 
 /// At most this many are kept (a new one beyond lets the oldest go): one
@@ -42,6 +44,10 @@ pub const MAX_KEPT: usize = 4;
 /// above the game's frame and the parts the viewer arranges (256-259),
 /// below the game's own popups (their canvases' addresses).
 pub const FIRST_VIEW: u32 = 0x1000;
+
+/// How long a new kept box waits for its art before it shows without it
+/// (black where its pictures are not made yet).
+pub const ART_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
 static KEPT: handoff::Latest<Vec<Kept>> = handoff::Latest::new();
 static NEXT_SERIAL: AtomicU64 = AtomicU64::new(1);
@@ -61,7 +67,7 @@ pub fn enabled() -> bool {
 /// Keeps a popup's picture; its serial.
 pub fn keep(frame: Frame, rect: [i32; 4], anchor: scene::PopupAnchor, click: (i32, i32)) -> u64 {
     let serial = NEXT_SERIAL.fetch_add(1, Ordering::Relaxed);
-    let new = Kept { serial, frame, rect, anchor, click };
+    let new = Kept { serial, frame, rect, anchor, click, when: std::time::Instant::now() };
     KEPT.update(|kept| {
         let mut kept = kept.cloned().unwrap_or_default();
         if kept.len() >= MAX_KEPT {
@@ -90,18 +96,24 @@ pub fn kept() -> Vec<Kept> {
     KEPT.get().unwrap_or_default()
 }
 
+/// Of `kept` (with whether each one's art is all made), those to show:
+/// a new one once its art is made, or it waited [`ART_WAIT`] for it.
+pub fn shown(kept: Vec<Kept>, ready: impl Fn(usize) -> bool) -> Vec<Kept> {
+    kept.into_iter().enumerate().filter(|(i, k)| ready(*i) || k.when.elapsed() >= ART_WAIT).map(|(_, k)| k).collect()
+}
+
 /// The scene's entry for the `index`th kept popup.
 pub fn entry(index: usize, kept: &Kept) -> scene::DetachedPopup {
     scene::DetachedPopup { view: FIRST_VIEW + index as u32, serial: kept.serial, anchor: kept.anchor, click: kept.click }
 }
 
 #[cfg(windows)]
-pub use live::{hidden_canvas, on_modal_pass, scoped};
+pub use live::{hidden_canvas, on_modal_pass, scoped, seen_modal};
 
 #[cfg(windows)]
 mod live {
     use std::cell::Cell;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     use civ3_sys::Civ3;
 
@@ -121,6 +133,14 @@ mod live {
     /// close (0: none): the publisher leaves it out of the scene, so the
     /// viewer never takes it for a modal popup of the game's.
     static HIDDEN: AtomicU32 = AtomicU32::new(0);
+    /// The game's thread is in a map button the viewer sent (`scoped`).
+    static IN_SCOPE: AtomicBool = AtomicBool::new(false);
+    /// A box was kept and closed: its canvas stays hidden until the
+    /// publisher sees it modal no more (`seen_modal`). Frames the game
+    /// presented while it was open may still be published after its
+    /// click's scope ends; shown then, it was a popup of the game's for a
+    /// frame, at the game's place for it.
+    static KEPT_HIDDEN: AtomicBool = AtomicBool::new(false);
 
     /// How many modal passes to wait for the game to present the box before
     /// keeping its canvas alone (without the frame drawn around it).
@@ -132,13 +152,17 @@ mod live {
         let outer = SCOPE.get() == 0;
         if outer && super::enabled() {
             HIDDEN.store(tile_box_canvas(game).unwrap_or(0), Ordering::Release);
+            IN_SCOPE.store(true, Ordering::Release);
             GAVE_UP.set(false);
         }
         SCOPE.set(SCOPE.get() + 1);
         let result = f();
         SCOPE.set(SCOPE.get() - 1);
         if outer {
-            HIDDEN.store(0, Ordering::Release);
+            if !KEPT_HIDDEN.load(Ordering::Acquire) {
+                HIDDEN.store(0, Ordering::Release);
+            }
+            IN_SCOPE.store(false, Ordering::Release);
             PASSES.set((0, 0));
             GAVE_UP.set(false);
         }
@@ -149,6 +173,19 @@ mod live {
     /// a popup of the game's for the viewer (0: none).
     pub fn hidden_canvas() -> u32 {
         HIDDEN.load(Ordering::Acquire)
+    }
+
+    /// The publisher's frame has `modal` (a canvas) as the game's modal
+    /// form: a kept box's canvas no longer modal is no longer hidden.
+    pub fn seen_modal(modal: Option<u32>) {
+        if IN_SCOPE.load(Ordering::Acquire) || !KEPT_HIDDEN.load(Ordering::Acquire) {
+            return;
+        }
+        let hidden = HIDDEN.load(Ordering::Acquire);
+        if modal != Some(hidden) {
+            HIDDEN.store(0, Ordering::Release);
+            KEPT_HIDDEN.store(false, Ordering::Release);
+        }
     }
 
     /// The tile box's canvas (`open_tile_info`'s form at 0xC950A0).
@@ -217,6 +254,7 @@ mod live {
             super::close(serial);
             return give_up("it stayed open after Escape");
         }
+        KEPT_HIDDEN.store(true, Ordering::Release);
         log::info!("detached popups: tile box {serial} kept, {}x{} at {anchor:?} for the press at {:?} (modal pass {passes}), closed in the game", rect[2], rect[3], press.at);
         true
     }
@@ -271,5 +309,15 @@ mod tests {
         assert_eq!(entry(1, &now[1]), scene::DetachedPopup { view: FIRST_VIEW + 1, serial: serials[2], anchor: anchor(4), click: (2, 2) });
         close_all();
         assert!(kept().is_empty());
+    }
+
+    #[test]
+    fn a_new_box_shows_once_its_art_is_made_or_it_waited_long_enough() {
+        let now = std::time::Instant::now();
+        let kept = |serial, age| Kept { serial, frame: Frame::default(), rect: [0, 0, 10, 10], anchor: anchor(0), click: (0, 0), when: now.checked_sub(age).unwrap() };
+        let boxes = vec![kept(1, std::time::Duration::ZERO), kept(2, std::time::Duration::ZERO), kept(3, ART_WAIT)];
+        // 1 has its art; 2 not yet (left out); 3 not, but waited enough.
+        let shown: Vec<u64> = shown(boxes, |i| i == 0).iter().map(|k| k.serial).collect();
+        assert_eq!(shown, [1, 3]);
     }
 }
