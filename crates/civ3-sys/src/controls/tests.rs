@@ -796,3 +796,28 @@ fn the_native_map_seed_text_box_can_receive_alt_focus_and_keyboard_editing() {
     m.put(seed + STATUS2, 0);
     assert!(controls(&m, &sites()).is_empty());
 }
+
+#[test]
+fn every_form_a_click_acts_on_is_a_control_whatever_its_class() {
+    // A dialog (class not decoded here; rectangles left, top, right,
+    // bottom) with three children of unknown
+    // classes: one with a click callback (+0x244), one whose class has its
+    // own left button handler, one that does nothing with a click.
+    let (dialog, cb, own, inert, screen) = (0x10_0000, 0x11_0000, 0x12_0000, 0x13_0000, 0x14_0000);
+    let mut m = Fake::default();
+    m.form(dialog, 0x66_9990, 0, true, [100, 100, 600, 400], 0, &[cb, own, inert, screen]);
+    m.form(cb, 0x66_9994, 0, true, [10, 200, 90, 230], dialog, &[]);
+    m.put(cb + 0x244, 0x51_2340);
+    m.form(own, 0x66_9998, 0, true, [100, 200, 180, 230], dialog, &[]);
+    m.put(0x66_9998 + 0x150, 0x41_0000);
+    m.put(0x66_9998 + 0x154, 0x60_8A40);
+    m.form(inert, 0x66_999C, 0, true, [200, 200, 280, 230], dialog, &[]);
+    m.put(0x66_999C + 0x150, 0x60_8960);
+    m.put(0x66_999C + 0x154, 0x60_8A40);
+    // Too large for a control (a panel), though it has a callback.
+    m.form(screen, 0x66_99A0, 0, true, [0, 0, 450, 180], dialog, &[]);
+    m.put(screen + 0x244, 0x51_2340);
+    with_roots(&mut m, &[dialog]);
+    let got: Vec<(u64, ControlKind)> = controls(&m, &sites()).iter().map(|c| (c.id, c.kind)).collect();
+    assert_eq!(got, [(cb as u64, ControlKind::Button), (own as u64, ControlKind::Button)]);
+}

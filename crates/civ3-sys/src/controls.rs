@@ -355,6 +355,9 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
         return;
     }
     let Some(form) = Form::read(mem, addr) else { return };
+    // (What this form and its children give: if nothing, it may be a
+    // control of a class not decoded here.)
+    let start = out.len();
     // Children first: the hit test tries them before their parent, from
     // the first, the first hit winning. What an opaque child (one taking
     // the mouse on all of its rectangle) covers of a later one does not
@@ -413,6 +416,35 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
     } else {
         choice_group(mem, &form, out);
     }
+    // Every control is reachable, whatever its class: a form that takes
+    // clicks, the size of a control, holding none of its own (a combo
+    // box's box, a dialog's own buttons of another class) is one. (Larger
+    // forms are screens and panels: their contents are their controls.)
+    if out.len() == start && control_sized(form.shown) && acts_on_clicks(mem, &form) {
+        out.push(Control { rect: form.shown, kind: ControlKind::Button, id: addr as u64 });
+    }
+}
+
+/// The most a control of an undecoded class spans (driver pixels): a
+/// dialog's button or a combo box, never a screen or a panel of them.
+const MAX_CONTROL: (i32, i32) = (400, 160);
+
+fn control_sized([_, _, w, h]: [i32; 4]) -> bool {
+    w > 0 && h > 0 && w <= MAX_CONTROL.0 && h <= MAX_CONTROL.1
+}
+
+/// A form's click callback, `cdecl (x, y)`, which `Base_Form`'s click
+/// (0x605920) calls when it is set.
+const CLICK_CALLBACK: u32 = 0x244;
+/// `Base_Form`'s left button down and up (vtable +0x150, +0x154): a class
+/// with its own reacts to clicks itself (a `Button`, a combo box).
+const BASE_MOUSE: [(u32, u32); 2] = [(0x150, 0x60_8960), (0x154, 0x60_8A40)];
+
+/// Whether a click on `form` does something: it has a click callback, or
+/// its class handles the left button itself.
+fn acts_on_clicks(mem: &dyn Mem, form: &Form) -> bool {
+    mem.u32(form.addr + CLICK_CALLBACK).is_some_and(|c| c != 0)
+        || BASE_MOUSE.iter().any(|&(slot, base)| mem.u32(form.vtable + slot).is_some_and(|f| f != 0 && f != base))
 }
 
 // Main_GUI::handle_click_in_status_panel (PCGames 0x555F30) tests these
