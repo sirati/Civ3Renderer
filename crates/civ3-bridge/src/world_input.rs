@@ -1054,6 +1054,10 @@ mod live {
             crate::targeting::on_game_thread();
             return;
         };
+        // (Presses and orders: which gesture reached the game, and how.)
+        if !matches!(pending.event, Event::Move(_)) {
+            log::info!("world input: {:?} on tile {tile:?}{}", pending.event, if under_screen { " under a screen" } else { "" });
+        }
         match pending.event {
             // (A key's point: with a destination preselected the key acts on it.)
             Event::Move(_) => match preview() {
