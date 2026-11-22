@@ -671,15 +671,34 @@ struct CommittedCapture {
     model: UiModel,
     native: std::sync::Arc<NativeUi>,
     presented: Option<crate::city_screen::Presented>,
+    /// The shown frame's revision the native interface was last sampled
+    /// at, and when.
+    sampled: Option<(u64, std::time::Instant)>,
 }
 
+/// How long the native interface may go unsampled while the screen shows
+/// nothing new (a change to it without a redraw is published that late at
+/// most).
+const NATIVE_REFRESH: std::time::Duration = std::time::Duration::from_millis(100);
+
 impl CommittedCapture {
-    fn view(&mut self, model: &UiModel, present: bool, presented: Option<crate::city_screen::Presented>, sample: impl FnOnce(&UiModel) -> NativeUi) -> (UiView, bool) {
+    /// The view of `model` as of its last present. At a present the native
+    /// interface is sampled where the screen shows something new since the
+    /// last sample, or that was [`NATIVE_REFRESH`] ago: the game's controls
+    /// change with what it draws, and a network game presents at every pass
+    /// of its loop (hundreds a second) with nothing new.
+    fn view(&mut self, model: &UiModel, present: bool, presented: Option<crate::city_screen::Presented>, now: std::time::Instant, sample: impl FnOnce(&UiModel) -> NativeUi) -> (UiView, bool) {
         let mut changed = false;
         if present {
-            let native = sample(model);
-            changed = *self.native != native || self.presented != presented;
-            if *self.native != native { self.native = std::sync::Arc::new(native); }
+            let revision = model.shown_revision();
+            let due = self.sampled.is_none_or(|(at, when)| at != revision || now.saturating_duration_since(when) >= NATIVE_REFRESH);
+            if due {
+                let native = sample(model);
+                self.sampled = Some((revision, now));
+                changed = *self.native != native;
+                if changed { self.native = std::sync::Arc::new(native); }
+            }
+            changed |= self.presented != presented;
             self.model = model.snapshot();
             self.presented = presented;
         }
@@ -746,7 +765,7 @@ fn with_model<R>(present: bool, f: impl FnOnce(&mut UiModel) -> R) -> Option<R> 
         }
         if present || (WANT_VIEW.load(Relaxed) && WANT_VIEW.swap(false, AcqRel)) {
             let viewed = std::time::Instant::now();
-            let (view, native_changed) = COMMITTED.with_borrow_mut(|committed| committed.view(model, present, PRESENTING.get(), |m| {
+            let (view, native_changed) = COMMITTED.with_borrow_mut(|committed| committed.view(model, present, PRESENTING.get(), std::time::Instant::now(), |m| {
                 let sampled = std::time::Instant::now();
                 let native = NativeUi::read(m);
                 if present { PRESENT_PHASES.add(3, sampled); }
@@ -2029,7 +2048,7 @@ mod present_snapshot_tests {
         let mut model = UiModel::default().with_screen(999);
         staged(&mut model, 100, "new");
         let mut capture = CommittedCapture::default();
-        let (view, changed) = capture.view(&model, false, None, |_| panic!("reader refresh sampled uncommitted controls"));
+        let (view, changed) = capture.view(&model, false, None, std::time::Instant::now(), |_| panic!("reader refresh sampled uncommitted controls"));
         assert!(!changed);
         assert!(view.model.committed_frame().draws.is_empty());
         assert_eq!(*view.native, NativeUi::default());
@@ -2044,7 +2063,7 @@ mod present_snapshot_tests {
         model.apply(Event::Present { rect: None });
         let old_native = native(100, &model);
         let old_presented = Some(crate::city_screen::Presented { focus_city: Some(1), camera: (100, 100) });
-        let (old, changed) = capture.view(&model, true, old_presented, |_| old_native.clone());
+        let (old, changed) = capture.view(&model, true, old_presented, std::time::Instant::now(), |_| old_native.clone());
         assert!(changed);
         let old_frame = old.model.committed_frame();
         let old_sources = SnapshotSources(Some(std::sync::Arc::new(old)));
@@ -2053,7 +2072,7 @@ mod present_snapshot_tests {
         let new_native = native(200, &model);
         assert_ne!(new_native, old_native);
         let new_presented = Some(crate::city_screen::Presented { focus_city: Some(2), camera: (200, 100) });
-        let (refresh, changed) = capture.view(&model, false, new_presented, |_| panic!("WANT_VIEW read live controls"));
+        let (refresh, changed) = capture.view(&model, false, new_presented, std::time::Instant::now(), |_| panic!("WANT_VIEW read live controls"));
         assert!(!changed);
         assert_eq!(refresh.model.committed_frame(), old_frame);
         assert_eq!(*refresh.native, old_native);
@@ -2062,7 +2081,7 @@ mod present_snapshot_tests {
         assert_ne!(refresh.model.sprite_source(11), model.sprite_source(11));
 
         model.apply(Event::Present { rect: None });
-        let (new, changed) = capture.view(&model, true, new_presented, |_| new_native.clone());
+        let (new, changed) = capture.view(&model, true, new_presented, std::time::Instant::now(), |_| new_native.clone());
         assert!(changed);
         assert_ne!(new.model.committed_frame(), old_frame);
         assert_eq!(*new.native, new_native);
@@ -2072,17 +2091,40 @@ mod present_snapshot_tests {
     }
 
     #[test]
-    fn a_metadata_only_present_is_a_new_publication() {
+    fn a_metadata_only_present_is_a_new_publication_once_sampled() {
         let mut model = UiModel::default().with_screen(999);
         let mut capture = CommittedCapture::default();
         staged(&mut model, 100, "same");
         model.apply(Event::Present { rect: None });
-        let (old, _) = capture.view(&model, true, None, |model| native(100, model));
+        let t0 = std::time::Instant::now();
+        let (old, _) = capture.view(&model, true, None, t0, |model| native(100, model));
+        // Presents showing nothing new soon after: no sample (a network
+        // game presents hundreds of times a second).
         model.apply(Event::Present { rect: None });
-        let (new, changed) = capture.view(&model, true, None, |model| native(200, model));
+        let (same, changed) = capture.view(&model, true, None, t0 + NATIVE_REFRESH / 2, |_| panic!("sampled with nothing new shown"));
+        assert!(!changed);
+        assert_eq!(same.native, old.native);
+        // Due again: a change without a redraw is published then.
+        model.apply(Event::Present { rect: None });
+        let (new, changed) = capture.view(&model, true, None, t0 + NATIVE_REFRESH, |model| native(200, model));
         assert!(changed, "metadata-only updates must wake the publisher");
         assert_eq!(old.model.committed_frame(), new.model.committed_frame());
         assert_ne!(old.native, new.native, "native metadata participates in the publisher's unchanged key");
+    }
+
+    #[test]
+    fn a_present_showing_something_new_samples_at_once() {
+        let mut model = UiModel::default().with_screen(999);
+        let mut capture = CommittedCapture::default();
+        staged(&mut model, 100, "old");
+        model.apply(Event::Present { rect: None });
+        let t0 = std::time::Instant::now();
+        let _ = capture.view(&model, true, None, t0, |model| native(100, model));
+        staged(&mut model, 200, "new");
+        model.apply(Event::Present { rect: None });
+        let (new, changed) = capture.view(&model, true, None, t0, |model| native(200, model));
+        assert!(changed);
+        assert_eq!(*new.native, native(200, &model));
     }
 }
 
