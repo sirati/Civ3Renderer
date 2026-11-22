@@ -1685,7 +1685,9 @@ fn publish(
                 more.add_file(&mut art, &path, unit_colors);
             }
             // Leader heads: those shown now replace those before.
-            let heads = ui_screen::unit_files(f, files.roots(), true);
+            // (With each head's other file: it plays the next sweep from
+            // that one, `leader_pairs`.)
+            let heads = crate::leader_pairs::with_partners(ui_screen::unit_files(f, files.roots(), true), |p| civ3_ui::ui_screen::relative_path(p, files.roots()));
             if !heads.iter().all(|p| have.plain.contains_key(p)) {
                 more.set_plain(&mut art, &heads);
             }

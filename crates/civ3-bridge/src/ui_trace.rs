@@ -1427,6 +1427,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             let path = read_c_string(c.path);
             let r = c.original();
             if let (0, Some(path)) = (r, path) {
+                crate::leader_pairs::loaded(c.flic, &path);
                 emit(Event::FlcLoaded { flic: c.flic, path });
             }
             r
