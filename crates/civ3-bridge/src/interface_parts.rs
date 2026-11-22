@@ -160,6 +160,47 @@ pub fn split_modal_stack(frame: &Frame, canvases: &[u32], screen: Option<usize>,
     (below, parts)
 }
 
+/// The diplomacy talk's dialog (`talk_offer.pcx`, x, y, w, h) in its popup
+/// (`canvas`, its draws from `first`): the main panel the viewer centres
+/// (`scene::Interface::popup_core`). The popup also takes in the foreign
+/// advisor at its right, whose picture and box change as the talk goes on.
+pub fn popup_core(frame: &Frame, canvas: u32, first: usize) -> Option<[i32; 4]> {
+    let form = frame.forms.iter().rfind(|f| f.1 == canvas)?;
+    if form.0 != civ3_sys::controls::screens::DIPLOMACY {
+        return None;
+    }
+    frame.draws.get(first..)?.iter().find_map(|d| match d {
+        crate::ui::ScreenDraw::Image { path, .. } if path.rsplit(['/', '\\']).next().is_some_and(|n| n.eq_ignore_ascii_case("talk_offer.pcx")) => {
+            reach(d).map(|[l, t, r, b]| [l, t, r - l, b - t])
+        }
+        _ => None,
+    })
+}
+
+/// A popup's rectangle while it stays open (`canvas`): as large as it has
+/// been, so that what comes and goes at its edges (an advisor's changing
+/// picture beside a talk) never moves or scales it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeldExtent(Option<(u32, [i32; 4])>);
+
+impl HeldExtent {
+    pub fn hold(&mut self, canvas: u32, [x, y, w, h]: [i32; 4]) -> [i32; 4] {
+        let held = match self.0 {
+            Some((c, [hx, hy, hw, hh])) if c == canvas => {
+                let (l, t) = (x.min(hx), y.min(hy));
+                [l, t, (x + w).max(hx + hw) - l, (y + h).max(hy + hh) - t]
+            }
+            _ => [x, y, w, h],
+        };
+        self.0 = Some((canvas, held));
+        held
+    }
+
+    pub fn closed(&mut self) {
+        self.0 = None;
+    }
+}
+
 /// The active screen's part. Preferences owns a screen-sized canvas,
 /// while its controls and background occupy a 1024 by 768 panel. Keep that
 /// panel, rather than the driver's map, as the rectangle the viewer places.
@@ -264,6 +305,22 @@ mod tests {
         assert!(dialog.underlay_draws.is_empty());
         // The same rule covers full-canvas menus and cropped screen parts.
         assert_eq!(screen_part(&frame, 1, (1920, 1080)), Some((1, rect)));
+        // Its main panel, the dialog, is what the viewer centres.
+        assert_eq!(popup_core(&frame, 2, first), Some([297, 50, 438, 517]));
+        assert_eq!(popup_core(&frame, 1, first), None, "not a talk");
+    }
+
+    #[test]
+    fn a_popups_rectangle_holds_its_largest_extent_while_it_stays_open() {
+        let mut held = HeldExtent::default();
+        assert_eq!(held.hold(7, [297, 0, 716, 567]), [297, 0, 716, 567]);
+        // The advisor's box narrower, then wider: never smaller.
+        assert_eq!(held.hold(7, [297, 50, 600, 517]), [297, 0, 716, 567]);
+        assert_eq!(held.hold(7, [297, 0, 760, 567]), [297, 0, 760, 567]);
+        // Another popup, or the same canvas opened anew: its own.
+        assert_eq!(held.hold(8, [10, 10, 100, 100]), [10, 10, 100, 100]);
+        held.closed();
+        assert_eq!(held.hold(8, [20, 20, 50, 50]), [20, 20, 50, 50]);
     }
 
     fn fill(x: i32, y: i32, w: i32, h: i32) -> ScreenDraw {

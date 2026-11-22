@@ -711,6 +711,8 @@ fn publish(
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>, Option<scene::SettingsPreview>) = (Vec::new(), None, None);
     // The open popup's canvas and where it is anchored (`scene::Interface::popup_anchor`).
     let mut popup_anchor_state: Option<(u32, Option<scene::PopupAnchor>)> = None;
+    // A talk's popup at its largest while open (`interface_parts::HeldExtent`).
+    let mut popup_extent = crate::interface_parts::HeldExtent::default();
     // (The popup layers last logged: logged again when they change.)
     let mut popup_layers_logged: Vec<(u32, [i32; 4], bool)> = Vec::new();
     // When a popup anchored at a map click last showed (one an entry of it
@@ -1357,6 +1359,17 @@ fn publish(
                 (c != crate::async_popups::hidden_canvas()).then(|| crate::interface_parts::menu_popup(f, c, screen_size).map(|p| (p, c))).flatten()
             }
             _ => None,
+        };
+        // A talk (diplomacy): its dialog is what the viewer centres, and
+        // its popup holds its largest extent while open, so that the
+        // advisor's picture and box changing beside it move nothing.
+        let popup_core = popup_and_canvas.zip(ui.as_ref()).and_then(|(((first, _), canvas), f)| crate::interface_parts::popup_core(f, canvas, first));
+        let popup_and_canvas = match (popup_and_canvas, popup_core) {
+            (Some(((first, rect), canvas)), Some(_)) => Some(((first, popup_extent.hold(canvas, rect)), canvas)),
+            (other, _) => {
+                popup_extent.closed();
+                other
+            }
         };
         let popup = popup_and_canvas.map(|(p, _)| p);
         // A context menu or the tile box the game opened at the map click
@@ -2221,6 +2234,7 @@ fn publish(
                 Shown::Preview(rect, p) => Some(scene::Beside { screen: *rect, edge: scene::Edge::Left, world: p.as_ref().map(|p| p.area) }),
                 _ => None,
             },
+            popup_core,
             popup_anchor,
             popup_on_screen: popup_on_screen && popup.is_some(),
             detached: detached.iter().enumerate().map(|(index, kept)| crate::detached::entry(index, kept)).collect(),

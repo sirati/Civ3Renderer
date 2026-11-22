@@ -50,26 +50,26 @@ path = "../gdi-text"
 
 [dependencies.render-desc]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [dependencies.scene]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [dependencies.viewer-transport]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [dependencies.menu]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [dependencies.civ3-ui]
 path = "../civ3-ui"
 
 [dependencies.tile-game]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [dependencies.civ3-world]
 path = "../civ3-world"
@@ -99,7 +99,7 @@ workspace = true
 
 [dependencies.tile-viewer]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [dependencies.thiserror]
 workspace = true
@@ -112,7 +112,7 @@ workspace = true
 
 [dependencies.viewer-settings]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [target]
 

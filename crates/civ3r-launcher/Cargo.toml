@@ -47,7 +47,7 @@ path = "../civ3r-process"
 
 [target."cfg(unix)".dependencies.function-keys]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "ce18a73c1a1885a8d41eda8a87a663953b2d4303"
+rev = "52a2ec4203168908f1a224fc67396d37e6bebc5e"
 
 [target."cfg(unix)".dependencies.rustix]
 version = "1"
