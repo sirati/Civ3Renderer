@@ -69,9 +69,17 @@ to the device itself; that is the next thing to separate.
 2. A 32-bit `sound.dll` replacement with the same ordinals and vtable
    layouts. It forwards to native code (the renderer's unixlib side, as the
    renderer does). It must not rely on Wine's DirectSound or WinMM.
-3. Native mixing in Rust: WAV and MP3 decoding, then mixing with Miles'
-   volume and pan curves and its resampling. Output through the platform's
-   audio API (CoreAudio, WASAPI, PipeWire/ALSA).
+   The devices are MSVC objects called through vtables with `thiscall`.
+   `cxx` cannot define classes with virtual methods, so they are a
+   `#[repr(C)]` struct whose first field points to a static table of
+   `extern "thiscall"` functions, as in the jgl replacement.
+3. Native audio from existing crates, not hand-written: decoding (WAV,
+   MP3), resampling where Miles' own rule allows it, and output through the
+   platform's audio API (CoreAudio, WASAPI, PipeWire/ALSA). Every crate and
+   its dependency tree is vetted for malicious authors before it is added;
+   the report goes in `docs/audio-crates-vetting.md`. Only what must match
+   the old engine is written here: the device interface, and Miles' volume,
+   pan and mixing rules where the output has to be equal.
 4. Equality test: render the same call sequence through the old stack
    (capturing what it hands to DirectSound) and through ours, then compare
    the sample buffers within the old engine's own precision.
