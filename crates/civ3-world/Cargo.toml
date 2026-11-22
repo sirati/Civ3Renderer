@@ -19,11 +19,11 @@ path = "../civ3-assets"
 
 [dependencies.scene]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "0f2812509d7b830f9cb4cdc070d705568708a3b3"
+rev = "b3cc1b2acc3d832902e107389950ca05b418dd0a"
 
 [dependencies.tile-render]
 workspace = true
 
 [dependencies.tile-game]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "0f2812509d7b830f9cb4cdc070d705568708a3b3"
+rev = "b3cc1b2acc3d832902e107389950ca05b418dd0a"
