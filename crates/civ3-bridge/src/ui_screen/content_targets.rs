@@ -161,6 +161,8 @@ fn annotate_with(frame: &Frame, controls: &[Control], targets: &mut [Interactabl
             .unwrap_or(&[]);
         let mut icon: Option<[i32; 4]> = None;
         let mut text: Option<[i32; 4]> = None;
+        // All its text together: what a person sees as the entry.
+        let mut all_text: Option<[i32; 4]> = None;
         // A list entry's name: its first text (leftmost, then topmost).
         let mut name: Option<([i32; 4], &TextRun, [i32; 4])> = None;
         for draw in draws {
@@ -197,6 +199,7 @@ fn annotate_with(frame: &Frame, controls: &[Control], targets: &mut [Interactabl
                         if text.is_none_or(|old| (r[0] + r[2], r[1]) > (old[0] + old[2], old[1])) {
                             text = Some(r);
                         }
+                        all_text = Some(all_text.map_or(r, |a| union(a, r)));
                         if name.is_none_or(|(old, _, _)| (r[0], r[1]) < (old[0], old[1])) {
                             name = Some((r, run, *text_clip));
                         }
@@ -231,7 +234,21 @@ fn annotate_with(frame: &Frame, controls: &[Control], targets: &mut [Interactabl
         } else {
             None
         };
+        // Snapping is drawn to the whole entry as it shows (its icon and
+        // all its text), not only to the spot the pointer goes to.
+        if target.region.is_none() {
+            target.region = match (icon, all_text) {
+                (Some(i), Some(t)) => Some(union(i, t)),
+                (i, t) => i.or(t).or_else(|| control.text_link().then_some(control.rect)),
+            };
+        }
     }
+}
+
+/// The smallest rectangle (x, y, w, h) holding both.
+fn union(a: [i32; 4], b: [i32; 4]) -> [i32; 4] {
+    let (l, t) = (a[0].min(b[0]), a[1].min(b[1]));
+    [l, t, (a[0] + a[2]).max(b[0] + b[2]) - l, (a[1] + a[3]).max(b[1] + b[3]) - t]
 }
 
 #[cfg(test)]
@@ -305,6 +322,14 @@ mod tests {
             controls.map(|c| c.rect),
             "anchors preserve real game hit boxes"
         );
+        // Snapping is drawn to each whole entry as it shows (its icon and
+        // all its text), not only to the spot after its name.
+        let regions: Vec<_> = got.iter().map(|t| t.region).collect();
+        let [icon_row, text_row, link] = [regions[0].unwrap(), regions[1].unwrap(), regions[2].unwrap()];
+        assert_eq!((icon_row[0], icon_row[1]), (22, 22), "from the icon's corner: {icon_row:?}");
+        assert!(icon_row[0] + icon_row[2] >= 149, "to the end of its name: {icon_row:?}");
+        assert!(text_row[0] <= 22 && text_row[0] + text_row[2] >= 92, "the whole text: {text_row:?}");
+        assert!(link[0] <= 22 && link[0] + link[2] >= 56, "{link:?}");
     }
     #[test]
     fn clip_to_visible_content_and_ignore_other_forms_and_decorations() {
