@@ -16,6 +16,32 @@ Assets (base game `Sounds/`): 98 `.wav` effects and 36 `.mp3` tracks
 (diplomacy and menu music, decoded by Miles). Units' own sounds are `.wav`
 files next to their animations under `Art/Units/`.
 
+## What sound.dll does itself [X sound.dll imports]
+
+Miles does little here. `sound.dll` imports only 9 of its functions:
+`AIL_startup`, `AIL_shutdown`, `AIL_set_redist_directory`,
+`AIL_file_size`, `AIL_file_read`, `AIL_mem_alloc_lock`,
+`AIL_mem_free_lock`, `RIB_find_file_provider` and `RIB_request_interface`.
+The last two find Miles' ASI decoder provider, which decodes the MP3 music.
+Everything else is `sound.dll`'s own:
+
+- **Output and mixing:** DirectSound (`DSOUND` imported by ordinal, COM
+  through `ole32` `CoCreateInstance`/`CoInitialize`). DirectSound mixes the
+  buffers, so the volume and pan rules to match are DirectSound's.
+  `IDirectSoundBuffer::SetVolume` attenuates in hundredths of a decibel
+  (gain `10^(mB/2000)`). `SetPan` attenuates only the opposite channel by
+  `|pan|` hundredths of a decibel.
+- **WAV parsing:** `mmio*` (RIFF chunks).
+- **Streaming:** a multimedia timer (`timeSetEvent`, `timeBeginPeriod`;
+  `init_sound_timer`) that refills streaming buffers.
+- **`Midi_Device`:** `midiOutOpen`, `midiOutShortMsg`, `midiOutClose`.
+- **`Wave_In_Device`:** `waveIn*` recording, for multiplayer voice (the exe
+  has a "Voice Rx" string next to its `.\sound.dll`).
+
+So "the same output" means: the same sounds started and stopped at the
+same moments, with DirectSound's volume, pan, frequency and looping
+semantics, and MP3 decoded to the same PCM within a decoder's rounding.
+
 ## How the game loads it [X PCGames]
 
 `0x5F9C60`: `LoadLibraryA(".\\sound.dll")` (string at `0x72FE28`), module
@@ -54,11 +80,29 @@ parameter. Its vtable is at `0x1005A304`: 43 entries, `0x1005A304` to
 `0x1005A3AC`, each a `jmp` thunk.
 
 The game wraps it in its own object (functions around `0x5F8800` to
-`0x5F9660`), the device pointer at wrapper `+0x14`. Virtual calls in that
-code use these vtable offsets: `0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
-0x20, 0x40, 0x64, 0x68, 0x70, 0x78, 0x80, 0x88, 0x8C, 0x9C, 0xA0`. Some of
-them may belong to the per-sound objects the device hands out rather than
-to the device itself; that is the next thing to separate.
+`0x5F9660`), the device pointer at wrapper `+0x14`. The wrapper's methods
+from `0x5F8E80` forward to these device vtable offsets (slot = offset / 4):
+
+| Game wrapper | Device offset (slot) | Arguments, result |
+|---|---|---|
+| 0x5F8E80 | (ordinal 6) | delete the device; 0x14 if none |
+| 0x5F8EB0 | 0x10 (4) | 2 arguments; non-zero result kept (opens a sound?) |
+| 0x5F8EF0 | 0x14 (5) | none; then deletes the device (shutdown) |
+| 0x5F8F20 | 0x4C (19) | tail call |
+| 0x5F8F30 | 0x50 (20) | tail call |
+| 0x5F8F40 | 0x38 (14) | tail call |
+| 0x5F8F50 | 0x18 (6) | tail call; 0 without a device |
+| 0x5F8F60 | 0x70 (28) | 1 argument; 0x13 without a device |
+| 0x5F8F80 | 0x5C (23) | tail call; 0 without a device |
+| 0x5F8F90 | 0x1C (7) | 1 argument; first walks the game's own sound list at `[0xCAACE8]` |
+| 0x5F9050 | 0x20 (8) | 3 arguments |
+
+The other offsets in that region (`0x04, 0x08, 0x0C, 0x40, 0x64, 0x68,
+0x78, 0x80, 0x88, 0x8C, 0x9C, 0xA0`) are calls on the game's own sound
+objects (the list at `[0xCAACE8]`: `+0x70` flags, `+0x64` next) and on the
+per-sound objects. The device's 43 thunks start at `0x10001C30` (slot 0).
+The next step is to decode each listed slot's body in `sound.dll` (follow
+its thunk, then name the DirectSound and Miles calls inside).
 
 ## Plan
 
