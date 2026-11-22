@@ -239,8 +239,16 @@ mod live {
                         planned,
                     };
                     log::debug!("unit slide: unit {} from {:?} by {:?} in {} ms ({} steps, {planned} planned)", slide.unit, slide.from_tile, slide.way, slide.ms, call.steps);
-                    // Told to the viewer now, not with the next scene.
-                    change(u.id, |s| s.record(slide));
+                    // Told to the viewer now, not with the next scene. (Not
+                    // one already at its end: in a network game the game
+                    // moves the unit before it slides it, so its slide
+                    // starts on the tile it goes to and has no way. As a
+                    // walk it held the unit there while a scene still had
+                    // it on its old tile, and let it back: a walk from the
+                    // destination back to where it came from.)
+                    if slide.way != (0, 0) {
+                        change(u.id, |s| s.record(slide));
+                    }
                 }
                 Err(error) => log::debug!("unit slide: the unit at {:#x}: {error}", call.unit),
             }
