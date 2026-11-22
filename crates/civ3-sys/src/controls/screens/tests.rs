@@ -246,6 +246,37 @@ fn wonder_boxes_follow_the_six_native_boxes_and_their_filled_slots() {
     assert!(controls(&m, &sites()).iter().all(|c| cell_kind(c.id) != Some(CELL_LIST)));
 }
 
+// ---- City governor ----
+
+#[test]
+fn governor_tabs_ok_and_cancel_hit_its_native_tests() {
+    let f = 0xA9_5ACC;
+    let mut m = Fake::default();
+    m.form(f, GOVERNOR, ORIGIN, (677, 620));
+    // (left, top, right, bottom), inclusive: the two tabs, OK, Cancel.
+    let rects = [[20, 40, 160, 60], [170, 40, 330, 60], [440, 580, 520, 605], [540, 580, 640, 605]];
+    for (i, r) in rects.into_iter().enumerate() {
+        m.rect(f + G_RECTS + 16 * i as u32, r);
+    }
+    let found: Vec<_> = controls(&m, &sites()).into_iter().filter(|c| c.id >> 32 == f as u64).collect();
+    assert_eq!(found.iter().map(|c| (cell_kind(c.id), c.id as u32 & 0xF_FFFF)).collect::<Vec<_>>(),
+        [(Some(CELL_TAB), 0), (Some(CELL_TAB), 1), (Some(CELL_BUTTON), 0), (Some(CELL_BUTTON), 1)]);
+    assert!(found.iter().all(|c| c.kind == ControlKind::Button));
+    // 0x53BD80: each rectangle in turn, inclusive, in the form's pixels.
+    let native = |x: i32, y: i32| (0..4).find(|&i| inside(rects[i], x, y));
+    for (i, c) in found.iter().enumerate() {
+        for (px, py) in points(c.rect) {
+            assert_eq!(native(px - ORIGIN.0, py - ORIGIN.1), Some(i), "{c:?} at ({px}, {py})");
+        }
+        let [x, y, w, h] = c.rect;
+        assert_eq!(native(x + w - ORIGIN.0, y - ORIGIN.1).filter(|&j| j == i), None, "nothing past its right edge");
+        assert_eq!(native(x - ORIGIN.0, y + h - ORIGIN.1).filter(|&j| j == i), None, "nothing below it");
+    }
+    // Another form class: none of these.
+    m.put(f, 0x66_6408);
+    assert!(controls(&m, &sites()).iter().all(|c| cell_kind(c.id).is_none()));
+}
+
 // ---- Palace and Spaceship masks ----
 
 /// An 8-bit screen-sized mask PCX at `pcx` whose pixels are `paint(x, y)`.

@@ -40,6 +40,12 @@
 //!   page 1, columns x 0x13C..0x205 (theirs, AI partner; list +0xF80 +
 //!   16·civ, count +4, scroll +0xECC) and 0x206..0x2CD (ours, +0x1180,
 //!   +0xED0), y 0x1CC..0x21C, rows of lh.
+//!
+//! City governor (`Governor_Form`, vtable 0x66CE90): `On_Left_Click`
+//! (vtable +0x74) 0x53BD80 tests four rectangles (+0x94398 + 16·i,
+//! inclusive, the form's pixels): the Common and Production tabs (page
+//! +0x31E0), OK (keeps the policies) and Cancel, which both close it. Its
+//! combo boxes and check box are forms of their own.
 
 use super::advisors::{CELL_BUILDING, CELL_BUTTON, CELL_CITY, CELL_LIST, CELL_TAB, cell_id};
 use super::{Control, ControlKind, Form, Mem, empty, rect_at};
@@ -55,6 +61,12 @@ pub const WONDERS: u32 = 0x66_FF98;
 pub const PALACE: u32 = 0x66_E0F8;
 pub const SPACESHIP: u32 = 0x66_EE48;
 pub const DIPLOMACY: u32 = 0x66_C0D8;
+pub const GOVERNOR: u32 = 0x66_CE90;
+
+/// The city governor's tabs, OK and Cancel (`Governor_Form` +0x94398).
+const G_RECTS: u32 = 0x9_4398;
+/// What each of those rectangles is: (cell kind, index).
+const G_CELLS: [(u32, u32); 4] = [(CELL_TAB, 0), (CELL_TAB, 1), (CELL_BUTTON, 0), (CELL_BUTTON, 1)];
 
 const PLAYER: u32 = 0x9F_D47C;
 const CITY_ITEMS: u32 = 0xA5_2E2C;
@@ -426,6 +438,15 @@ pub fn diplomacy(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, u32, [i32; 4])>> 
     Some(out)
 }
 
+/// The city governor's painted controls (cell kind, index, rect in the
+/// form's pixels): its two page tabs, OK and Cancel.
+pub fn governor(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, u32, [i32; 4])>> {
+    if mem.u32(form)? != GOVERNOR {
+        return None;
+    }
+    Some(G_CELLS.iter().zip(0..).filter_map(|(&(cell, index), i)| Some((cell, index, inclusive(mem, form + G_RECTS + 16 * i)?))).collect())
+}
+
 pub(super) fn controls(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
     let push = |r: [i32; 4], kind: ControlKind, cell: u32, index: u32, out: &mut Vec<Control>| {
         let rect = form.on_screen(r);
@@ -466,6 +487,11 @@ pub(super) fn controls(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
                         }
                     }
                 }
+            }
+        }
+        GOVERNOR => {
+            for (cell, index, r) in governor(mem, form.addr).unwrap_or_default() {
+                push(r, ControlKind::Button, cell, index, out);
             }
         }
         PALACE | SPACESHIP => {
