@@ -97,6 +97,22 @@ from `0x5F8E80` forward to these device vtable offsets (slot = offset / 4):
 | 0x5F8F90 | 0x1C (7) | 1 argument; first walks the game's own sound list at `[0xCAACE8]` |
 | 0x5F9050 | 0x20 (8) | 3 arguments |
 
+First readings of slot bodies (`sound.dll`, thunk to body; tentative):
+
+- Slot 4 (`0x1000B5D0`): open (window, flags). Makes the DirectSound holder
+  `[0x100B3A68]` (0x1B8 bytes), sets cooperative level 2; flag bit 0x80
+  starts something at `0x100B3A30` (the timer?).
+- Slot 6 (`0x1000E410`): returns holder `+0x148` (0 without a holder).
+- Slot 14 (`0x1000C440`): walks the holder's playing list (`+0x168`, next
+  at `+0x04`). It adds the device's `+0x1B4` to each sound's `+0x44`; at or
+  past 0 it clears the field and calls `0x100011F9(0)` on the sound. A
+  fade or delay step; ends with `+0x1B0 = 0`.
+- Slot 19 (`0x1000C100`) and 20 (`0x1000C1A0`): pause and resume. They act
+  on the streams at `[0x100B3A70]`, and on `[0x100B3A74]`/`[0x100B3A78]`
+  when holder `+0x6C` has 0x10. Slot 20 calls `0x100011F9(1)` on them and
+  re-registers the device with `[0x100B3A64]`.
+- Slot 23 (`0x1000E440`): forwards to the holder (`0x10001C49`); 0 without.
+
 The other offsets in that region (`0x04, 0x08, 0x0C, 0x40, 0x64, 0x68,
 0x78, 0x80, 0x88, 0x8C, 0x9C, 0xA0`) are calls on the game's own sound
 objects (the list at `[0xCAACE8]`: `+0x70` flags, `+0x64` next) and on the
