@@ -78,7 +78,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "marker-shaders"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ce18a73c1a1885a8d41eda8a87a663953b2d4303#ce18a73c1a1885a8d41eda8a87a663953b2d4303"
 dependencies = [
  "spirv-std",
 ]
@@ -180,7 +180,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 [[package]]
 name = "viewer-shaders"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ac73d010d2567ed256343a8d05b2358c4362d067#ac73d010d2567ed256343a8d05b2358c4362d067"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=ce18a73c1a1885a8d41eda8a87a663953b2d4303#ce18a73c1a1885a8d41eda8a87a663953b2d4303"
 dependencies = [
  "marker-shaders",
  "spirv-std",
