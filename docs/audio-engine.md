@@ -104,6 +104,36 @@ per-sound objects. The device's 43 thunks start at `0x10001C30` (slot 0).
 The next step is to decode each listed slot's body in `sound.dll` (follow
 its thunk, then name the DirectSound and Miles calls inside).
 
+## DirectSound as sound.dll uses it [X sound.dll]
+
+`sound.dll` imports only `DirectSoundEnumerateA` from `DSOUND` (ordinal
+2). It creates the device through COM (`0x10011F65`):
+`CoCreateInstance(CLSID at 0x1005C764, NULL, CLSCTX_INPROC_SERVER, IID at
+0x1005C6C4, &ds)`, then `IDirectSound::Initialize(guid)` (vtable `+0x28`),
+`SetCooperativeLevel(hwnd, level)` (`+0x18`) and `GetCaps` (`+0x10`,
+`DSCAPS` of 0x60 bytes). Device slot 4 (`0x1000B5D0`) is the game's open
+call: it makes the 0x1B8-byte DirectSound holder (`[0x100B3A68]`) and asks
+for cooperative level 2 (`DSSCL_PRIORITY`).
+
+On the Mac, Wine's DirectSound is 32-bit code that runs emulated, together
+with its mixing; that is the likely source of the slowness and glitches.
+
+## Two stages
+
+The mixing rules are DirectSound's either way, so the native mixer is the
+same in both stages:
+
+- **A. Native DirectSound.** A `dsound.dll` (`IDirectSound`,
+  `IDirectSoundBuffer`, `DllGetClassObject` for `CLSID_DirectSound`) whose
+  buffers are mixed natively and played through `cpal`. `sound.dll` and
+  Miles stay as they are. Output equals the old engine's by construction,
+  because the same code decides what plays. The emulated mixing goes away.
+  The streaming timer, `mmio` parsing and MP3 decoding stay 32-bit.
+- **B. Native sound.dll.** The game-facing devices (ordinals 1 to 11, the
+  wave device's vtable) in Rust, on the same mixer, decoding with
+  `symphonia`. Nothing audio-related stays 32-bit. This needs every slot
+  the game calls decoded (below).
+
 ## Plan
 
 1. Decode every method the game calls on each device and on the objects
