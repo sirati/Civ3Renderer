@@ -169,12 +169,16 @@ pub fn popup_core(frame: &Frame, canvas: u32, first: usize) -> Option<[i32; 4]> 
     if form.0 != civ3_sys::controls::screens::DIPLOMACY {
         return None;
     }
-    frame.draws.get(first..)?.iter().find_map(|d| match d {
-        crate::ui::ScreenDraw::Image { path, .. } if path.rsplit(['/', '\\']).next().is_some_and(|n| n.eq_ignore_ascii_case("talk_offer.pcx")) => {
-            reach(d).map(|[l, t, r, b]| [l, t, r - l, b - t])
+    // Where its regions go, whole (not as clipped: a draw the model cut
+    // down where a later one covers it, or the game's redraw of a strip,
+    // would make a strip of the dialog its middle).
+    let talk = |path: &str| path.rsplit(['/', '\\']).next().is_some_and(|n| n.eq_ignore_ascii_case("talk_offer.pcx"));
+    frame.draws.get(first..)?.iter().filter_map(|d| match d {
+        crate::ui::ScreenDraw::Image { path, rect, x, y, .. } | crate::ui::ScreenDraw::Indexed { path, rect, x, y, .. } if talk(path) => {
+            Some([*x, *y, x + rect[2], y + rect[3]])
         }
         _ => None,
-    })
+    }).reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]).map(|[l, t, r, b]| [l, t, r - l, b - t])
 }
 
 /// A popup's rectangle while it stays open (`canvas`): as large as it has
@@ -308,6 +312,12 @@ mod tests {
         // Its main panel, the dialog, is what the viewer centres.
         assert_eq!(popup_core(&frame, 2, first), Some([297, 50, 438, 517]));
         assert_eq!(popup_core(&frame, 1, first), None, "not a talk");
+        // Cut down to a strip (covered below by a later draw), and a strip
+        // of it drawn again: still the whole dialog.
+        let mut redrawn = frame.clone();
+        if let ScreenDraw::Image { clip, .. } = &mut redrawn.draws[1] { *clip = [297, 50, 735, 58]; }
+        redrawn.draws.push(ScreenDraw::Image { retained: None, path: "Art/Diplomacy/talk_offer.pcx".into(), rect: [0, 400, 438, 20], x: 297, y: 450, keyed: true, clip: full, mask: None, palette: None, opacity: 255 });
+        assert_eq!(popup_core(&redrawn, 2, first), Some([297, 50, 438, 517]));
     }
 
     #[test]

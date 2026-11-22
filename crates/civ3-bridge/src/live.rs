@@ -713,6 +713,8 @@ fn publish(
     let mut popup_anchor_state: Option<(u32, Option<scene::PopupAnchor>)> = None;
     // A talk's popup at its largest while open (`interface_parts::HeldExtent`).
     let mut popup_extent = crate::interface_parts::HeldExtent::default();
+    // (The last main panel published, for its log line.)
+    let mut last_core: Option<[i32; 4]> = None;
     // (The popup layers last logged: logged again when they change.)
     let mut popup_layers_logged: Vec<(u32, [i32; 4], bool)> = Vec::new();
     // When a popup anchored at a map click last showed (one an entry of it
@@ -1367,6 +1369,10 @@ fn publish(
         // its popup holds its largest extent while open, so that the
         // advisor's picture and box changing beside it move nothing.
         let popup_core = popup_and_canvas.zip(ui.as_ref()).and_then(|(((first, _), canvas), f)| crate::interface_parts::popup_core(f, canvas, first));
+        if popup_core != last_core {
+            log::info!("popup: main panel {popup_core:?} (popup {:?})", popup_and_canvas.map(|((_, rect), _)| rect));
+            last_core = popup_core;
+        }
         let popup_and_canvas = match (popup_and_canvas, popup_core) {
             (Some(((first, rect), canvas)), Some(_)) => Some(((first, popup_extent.hold(canvas, rect)), canvas)),
             (other, _) => {
