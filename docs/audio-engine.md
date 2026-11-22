@@ -115,6 +115,20 @@ its thunk, then name the DirectSound and Miles calls inside).
 call: it makes the 0x1B8-byte DirectSound holder (`[0x100B3A68]`) and asks
 for cooperative level 2 (`DSSCL_PRIORITY`).
 
+Interfaces it asks for (the GUIDs the code references, out of the whole
+`dsound.h` table it links): `CLSID_DirectSound` and `IID_IDirectSound`
+(creation), and `IID_IDirectSound3DListener` / `IID_IDirectSound3DBuffer`
+(`0x1000FFB9`, `0x1000FFC4`, `0x1001017C`, `0x10010187`). It queries the 3D
+interfaces only for a buffer whose flags (`+0x74`) have 0x10. The listener
+comes from the primary buffer (`+0x00` flag 2), a 3D buffer from a
+secondary. A failed `QueryInterface` is tolerated: the pointers are cleared
+(`+0x64`, `+0x68`) and it plays without 3D. The primary buffer gets
+`SetFormat` (`+0x38`, format at holder `+0xA8`) and a looping `Play(0, 0,
+1)` (`+0x30`). Whether the game ever asks for 3D buffers is still open. If
+it does, a native DirectSound needs the 3D attenuation and panning too, or
+it must answer `E_NOINTERFACE` so the same path runs without 3D. The latter
+changes the output only if the game had 3D on.
+
 On the Mac, Wine's DirectSound is 32-bit code that runs emulated, together
 with its mixing; that is the likely source of the slowness and glitches.
 
