@@ -44,6 +44,27 @@ pub struct Slide {
     pub planned: u32,
 }
 
+/// The world pixel (full size) of the anchor of tile `t`.
+pub fn tile_anchor(t: (i32, i32)) -> (i32, i32) {
+    (64 * t.0 + 64, 32 * t.1 + 32)
+}
+
+/// Where a slide to tile `to` starts: the tile and anchor pixel it leaves,
+/// for a unit on `tile` whose picture is at `pixel`. In a single-player game
+/// the slide comes before the move, so that is the unit's tile. In a network
+/// game the game moves the unit first: its tile is already `to`, while its
+/// picture is still where it was, on the tile it leaves. That picture, when
+/// it is on a tile's anchor, is the start. `None`: no way to go (the picture
+/// is on `to` too).
+pub fn slide_start(tile: (i32, i32), pixel: (i32, i32), to: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
+    if tile != to {
+        return Some((tile, tile_anchor(tile)));
+    }
+    let on_anchor = (pixel.0 - 64).rem_euclid(64) == 0 && (pixel.1 - 32).rem_euclid(32) == 0;
+    let left = ((pixel.0 - 64).div_euclid(64), (pixel.1 - 32).div_euclid(32));
+    (on_anchor && left != to).then(|| (left, pixel))
+}
+
 /// How a slide has the publisher draw its unit.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Shown {
@@ -228,25 +249,25 @@ mod live {
                     // (The path's planned tiles: the walk plays on without
                     // waiting to learn of each next one.)
                     let planned = sys::go_to(call.unit).map_or(0, |g| g.planned(to));
-                    let slide = Slide {
-                        serial: next_serial(),
-                        unit: u.id,
-                        from_tile: (u.x, u.y),
-                        from_pixel: (64 * u.x + 64, 32 * u.y + 32),
-                        way: sys::slide_way((u.x, u.y), to),
-                        started,
-                        ms: ms.max(0) as u32,
-                        planned,
-                    };
-                    log::debug!("unit slide: unit {} from {:?} by {:?} in {} ms ({} steps, {planned} planned)", slide.unit, slide.from_tile, slide.way, slide.ms, call.steps);
+                    // (In a network game from the unit's picture: it is
+                    // moved before it slides, `slide_start`.)
+                    let start = super::slide_start((u.x, u.y), u.pixel, to);
+                    log::debug!("unit slide: unit {} on {:?} at {:?} to {to:?}: from {start:?} in {ms} ms ({} steps, {planned} planned)", u.id, (u.x, u.y), u.pixel, call.steps);
                     // Told to the viewer now, not with the next scene. (Not
-                    // one already at its end: in a network game the game
-                    // moves the unit before it slides it, so its slide
-                    // starts on the tile it goes to and has no way. As a
-                    // walk it held the unit there while a scene still had
-                    // it on its old tile, and let it back: a walk from the
-                    // destination back to where it came from.)
-                    if slide.way != (0, 0) {
+                    // one with no way: as a walk it held the unit on the
+                    // tile it goes to while a scene still had it on its old
+                    // tile, and let it back: a walk backwards.)
+                    if let Some((from_tile, from_pixel)) = start {
+                        let slide = Slide {
+                            serial: next_serial(),
+                            unit: u.id,
+                            from_tile,
+                            from_pixel,
+                            way: sys::slide_way(from_tile, to),
+                            started,
+                            ms: ms.max(0) as u32,
+                            planned,
+                        };
                         change(u.id, |s| s.record(slide));
                     }
                 }
@@ -311,6 +332,19 @@ mod live {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_network_games_slide_starts_where_the_units_picture_still_is() {
+        // Single player: the unit is still on the tile it leaves.
+        assert_eq!(slide_start((10, 20), tile_anchor((10, 20)), (11, 21)), Some(((10, 20), tile_anchor((10, 20)))));
+        // Network game: moved to (11, 21) already, its picture on (10, 20).
+        assert_eq!(slide_start((11, 21), tile_anchor((10, 20)), (11, 21)), Some(((10, 20), tile_anchor((10, 20)))));
+        // Its picture there too, or between tiles: no way to go.
+        assert_eq!(slide_start((11, 21), tile_anchor((11, 21)), (11, 21)), None);
+        assert_eq!(slide_start((11, 21), (tile_anchor((10, 20)).0 + 5, tile_anchor((10, 20)).1), (11, 21)), None);
+        // Across the map's left edge (negative tile numbers stay exact).
+        assert_eq!(slide_start((0, 21), tile_anchor((-1, 20)), (0, 21)), Some(((-1, 20), tile_anchor((-1, 20)))));
+    }
 
     fn slide(started: Instant) -> Slide {
         Slide { serial: 3, unit: 7, from_tile: (10, 20), from_pixel: (704, 672), way: (64, 32), started, ms: 100, planned: 2 }
