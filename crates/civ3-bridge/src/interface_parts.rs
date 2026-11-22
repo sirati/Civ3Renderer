@@ -161,10 +161,12 @@ pub fn split_modal_stack(frame: &Frame, canvases: &[u32], screen: Option<usize>,
 }
 
 /// The diplomacy talk's dialog (`talk_offer.pcx`, x, y, w, h) in its popup
-/// (`canvas`, its draws from `first`): the main panel the viewer centres
-/// (`scene::Interface::popup_core`). The popup also takes in the foreign
-/// advisor at its right, whose picture and box change as the talk goes on.
-pub fn popup_core(frame: &Frame, canvas: u32, first: usize) -> Option<[i32; 4]> {
+/// (`canvas`, its draws from `first`, its rectangle `rect`): the main panel
+/// the viewer centres (`scene::Interface::popup_core`). The popup also takes
+/// in the foreign advisor at its right, whose picture and box change as the
+/// talk goes on. The trade table (proposing a deal) has no such dialog: its
+/// lists lie either side of the leader, so the whole popup is its middle.
+pub fn popup_core(frame: &Frame, canvas: u32, first: usize, rect: [i32; 4]) -> Option<[i32; 4]> {
     let form = frame.forms.iter().rfind(|f| f.1 == canvas)?;
     if form.0 != civ3_sys::controls::screens::DIPLOMACY {
         return None;
@@ -179,6 +181,7 @@ pub fn popup_core(frame: &Frame, canvas: u32, first: usize) -> Option<[i32; 4]> 
         }
         _ => None,
     }).reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]).map(|[l, t, r, b]| [l, t, r - l, b - t])
+        .or(Some(rect))
 }
 
 /// A popup's rectangle while it stays open (`canvas`): as large as it has
@@ -310,14 +313,18 @@ mod tests {
         // The same rule covers full-canvas menus and cropped screen parts.
         assert_eq!(screen_part(&frame, 1, (1920, 1080)), Some((1, rect)));
         // Its main panel, the dialog, is what the viewer centres.
-        assert_eq!(popup_core(&frame, 2, first), Some([297, 50, 438, 517]));
-        assert_eq!(popup_core(&frame, 1, first), None, "not a talk");
+        assert_eq!(popup_core(&frame, 2, first, rect), Some([297, 50, 438, 517]));
+        assert_eq!(popup_core(&frame, 1, first, rect), None, "not a talk");
+        // The trade table: no dialog, the whole popup.
+        let mut trade = frame.clone();
+        trade.draws.retain(|d| !matches!(d, ScreenDraw::Image { path, .. } if path.ends_with("talk_offer.pcx")));
+        assert_eq!(popup_core(&trade, 2, first, [25, 2, 988, 759]), Some([25, 2, 988, 759]));
         // Cut down to a strip (covered below by a later draw), and a strip
         // of it drawn again: still the whole dialog.
         let mut redrawn = frame.clone();
         if let ScreenDraw::Image { clip, .. } = &mut redrawn.draws[1] { *clip = [297, 50, 735, 58]; }
         redrawn.draws.push(ScreenDraw::Image { retained: None, path: "Art/Diplomacy/talk_offer.pcx".into(), rect: [0, 400, 438, 20], x: 297, y: 450, keyed: true, clip: full, mask: None, palette: None, opacity: 255 });
-        assert_eq!(popup_core(&redrawn, 2, first), Some([297, 50, 438, 517]));
+        assert_eq!(popup_core(&redrawn, 2, first, rect), Some([297, 50, 438, 517]));
     }
 
     #[test]

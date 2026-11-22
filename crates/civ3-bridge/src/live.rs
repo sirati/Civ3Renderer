@@ -1368,7 +1368,7 @@ fn publish(
         // A talk (diplomacy): its dialog is what the viewer centres, and
         // its popup holds its largest extent while open, so that the
         // advisor's picture and box changing beside it move nothing.
-        let popup_core = popup_and_canvas.zip(ui.as_ref()).and_then(|(((first, _), canvas), f)| crate::interface_parts::popup_core(f, canvas, first));
+        let popup_core = popup_and_canvas.zip(ui.as_ref()).and_then(|(((first, rect), canvas), f)| crate::interface_parts::popup_core(f, canvas, first, rect));
         if popup_core != last_core {
             log::info!("popup: main panel {popup_core:?} (popup {:?})", popup_and_canvas.map(|((_, rect), _)| rect));
             last_core = popup_core;
