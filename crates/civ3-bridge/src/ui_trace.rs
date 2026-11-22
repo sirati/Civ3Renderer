@@ -202,6 +202,44 @@ fn text_width(run: &crate::text::TextRun) -> Option<i32> {
     w
 }
 
+/// Where the game's presents spend their time in the bridge (a diagnostic,
+/// logged every 5 seconds of presents): the game's own present, the city
+/// screen's state, the model's present, the native interface's sample and
+/// the view's snapshot and publication (the sample within it).
+struct PresentPhases {
+    nanos: [AtomicU64; 5],
+    total: AtomicU64,
+    count: AtomicU64,
+    logged: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+static PRESENT_PHASES: PresentPhases = PresentPhases {
+    nanos: [const { AtomicU64::new(0) }; 5],
+    total: AtomicU64::new(0),
+    count: AtomicU64::new(0),
+    logged: std::sync::Mutex::new(None),
+};
+
+impl PresentPhases {
+    fn add(&self, phase: usize, since: std::time::Instant) {
+        self.nanos[phase].fetch_add(since.elapsed().as_nanos() as u64, Relaxed);
+    }
+
+    fn done(&self, began: std::time::Instant) {
+        self.total.fetch_add(began.elapsed().as_nanos() as u64, Relaxed);
+        self.count.fetch_add(1, Relaxed);
+        let Ok(mut logged) = self.logged.lock() else { return };
+        let now = std::time::Instant::now();
+        let last = *logged.get_or_insert(now);
+        if now.duration_since(last) < std::time::Duration::from_secs(5) { return; }
+        *logged = Some(now);
+        let ms = |a: &AtomicU64| a.swap(0, Relaxed) as f64 / 1e6;
+        let n = self.count.swap(0, Relaxed);
+        let [game, city, model, native, view] = [0, 1, 2, 3, 4].map(|i| ms(&self.nanos[i]));
+        log::info!("present phases: {n} presents, {:.0} ms: the game's present {game:.0}, city screen {city:.0}, model {model:.0}, native sample {native:.0}, view {view:.0} (with the sample)", ms(&self.total));
+    }
+}
+
 fn policy() -> crate::game_render::StartupPolicy {
     let var = |name: &str| std::env::var(name).ok();
     crate::game_render::startup_policy(var("CIV3R_GAME_RENDER").as_deref(), var("CIV3R_VIEWER").as_deref(), var("CIV3R_GAME_WINDOW").as_deref(), var("CIV3R_UI").as_deref(), var("CIV3R_GAME_MAP").as_deref())
@@ -700,13 +738,22 @@ fn with_model<R>(present: bool, f: impl FnOnce(&mut UiModel) -> R) -> Option<R> 
         if let Some(on) = requested_skipping() {
             model.set_skipping(on);
         }
+        let applied = std::time::Instant::now();
         let result = f(model);
+        if present { PRESENT_PHASES.add(2, applied); }
         if WANT_DETAIL.load(Relaxed) && WANT_DETAIL.swap(false, AcqRel) {
             DETAIL.publish(model.detail());
         }
         if present || (WANT_VIEW.load(Relaxed) && WANT_VIEW.swap(false, AcqRel)) {
-            let (view, native_changed) = COMMITTED.with_borrow_mut(|committed| committed.view(model, present, PRESENTING.get(), NativeUi::read));
+            let viewed = std::time::Instant::now();
+            let (view, native_changed) = COMMITTED.with_borrow_mut(|committed| committed.view(model, present, PRESENTING.get(), |m| {
+                let sampled = std::time::Instant::now();
+                let native = NativeUi::read(m);
+                if present { PRESENT_PHASES.add(3, sampled); }
+                native
+            }));
             VIEW.publish(view);
+            if present { PRESENT_PHASES.add(4, viewed); }
             // A present that changed what the window shows: the publisher
             // goes on at once (a swap and an unpark; this thread never waits).
             thread_local! { static RUNG: Cell<u64> = const { Cell::new(0) }; }
@@ -1330,6 +1377,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     let back_buffer = h::back_buffer(game.build).unwrap_or(0);
     let presenting = *game;
     hook!(present, sites.present, move |c| {
+        let began = std::time::Instant::now();
         // It draws the tooltip and the cursor onto the back buffer first.
         let full = !ORIGINAL_REFRESHING.with(Cell::get) && !ORIGINAL_COMPOSE_ALL.load(Acquire)
             && ORIGINAL_PRESENT_ALL.swap(false, AcqRel);
@@ -1338,6 +1386,8 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
         emit(Event::PresentBegin);
         updating(rect, || if full { c.original_with(0) } else { c.original() });
         size_of(back_buffer);
+        PRESENT_PHASES.add(0, began);
+        let city = std::time::Instant::now();
         // (Read on this thread, as the screen is presented: the publisher
         // composes the world it reads later only with a matching screen.)
         let presented = presenting.view().ok().map(|v| crate::city_screen::Presented {
@@ -1345,7 +1395,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             camera: (v.camera_x, v.camera_y),
         });
         crate::city_screen::native::present(&presenting);
+        PRESENT_PHASES.add(1, city);
         emit_present(if rect == 0 { None } else { obj::rect(rect) }, presented);
+        PRESENT_PHASES.done(began);
     });
     if let Some(site) = h::flc_load_site(game.build) {
         hook!(flc_load, site, |c| {
