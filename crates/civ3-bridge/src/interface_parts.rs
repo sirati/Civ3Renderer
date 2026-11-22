@@ -131,9 +131,15 @@ pub struct PopupPart {
     pub rect: [i32; 4],
     pub frame: Frame,
     /// Part of the dialog under it, not a dialog of its own: the list a
-    /// combo box of that dialog opened (`civ3_sys::controls::COMBO_LIST_VTABLES`).
-    /// It goes where that dialog goes (`scene::Interface::modal_attached`).
+    /// combo box of that dialog opened (`civ3_sys::controls::COMBO_LIST_VTABLES`),
+    /// or a dialog the game opened inside it (the gold amount a trade asks
+    /// for, over the talk). It goes where that dialog goes, moved and
+    /// scaled with it (`scene::Interface::modal_attached`).
     pub attached: bool,
+}
+
+fn inside([x, y, w, h]: [i32; 4], [ox, oy, ow, oh]: [i32; 4]) -> bool {
+    x >= ox && y >= oy && x + w <= ox + ow && y + h <= oy + oh
 }
 
 /// Remove the complete visible modal stack before measuring the named screen.
@@ -152,12 +158,28 @@ pub fn split_modal_stack(frame: &Frame, canvases: &[u32], screen: Option<usize>,
         below = parent;
     }
     parts.reverse();
+    // A dialog lying inside the one under it is part of it: placed on its
+    // own, it would move that one (its main panel, `popup_core`, is the
+    // placed popup's: `placed_core`) or land elsewhere over it.
+    for k in 1..parts.len() {
+        let under = parts[k - 1].rect;
+        parts[k].attached |= inside(parts[k].rect, under);
+    }
     // (Attached to a dialog under it only: a combo box's list over a screen
     // is a popup of its own.)
     if let Some(bottom) = parts.first_mut() {
         bottom.attached = false;
     }
     (below, parts)
+}
+
+/// The main panel ([`popup_core`]) of the popup the viewer places: the top
+/// layer of `parts`, or the layer it is part of (`PopupPart::attached`,
+/// `scene::Interface::placed_popup`), e.g. the talk while the gold amount
+/// it asked for is open over it.
+pub fn placed_core(parts: &[PopupPart]) -> Option<[i32; 4]> {
+    let root = parts.iter().rfind(|part| !part.attached)?;
+    popup_core(&root.frame, root.canvas, 0, root.rect)
 }
 
 /// The diplomacy talk's dialog (`talk_offer.pcx`, x, y, w, h) in its popup
@@ -182,30 +204,6 @@ pub fn popup_core(frame: &Frame, canvas: u32, first: usize, rect: [i32; 4]) -> O
         _ => None,
     }).reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]).map(|[l, t, r, b]| [l, t, r - l, b - t])
         .or(Some(rect))
-}
-
-/// A popup's rectangle while it stays open (`canvas`): as large as it has
-/// been, so that what comes and goes at its edges (an advisor's changing
-/// picture beside a talk) never moves or scales it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct HeldExtent(Option<(u32, [i32; 4])>);
-
-impl HeldExtent {
-    pub fn hold(&mut self, canvas: u32, [x, y, w, h]: [i32; 4]) -> [i32; 4] {
-        let held = match self.0 {
-            Some((c, [hx, hy, hw, hh])) if c == canvas => {
-                let (l, t) = (x.min(hx), y.min(hy));
-                [l, t, (x + w).max(hx + hw) - l, (y + h).max(hy + hh) - t]
-            }
-            _ => [x, y, w, h],
-        };
-        self.0 = Some((canvas, held));
-        held
-    }
-
-    pub fn closed(&mut self) {
-        self.0 = None;
-    }
 }
 
 /// The active screen's part. Preferences owns a screen-sized canvas,
@@ -282,16 +280,15 @@ mod tests {
         assert_eq!(popup_anchor(ClickPopup::TileInfo, (0, 0), (6, 0), true, (256, 173)), scene::PopupAnchor { world: (6 * 32 - 32, 9 - 16), offset: (0, 0), world_scaled: true });
     }
 
-    #[test]
-    fn a_full_canvas_diplomacy_popup_uses_its_dialog_leader_and_advisor_bounds() {
+    /// Native WW2 diplomacy (canvas 2) owns a full-window canvas but only
+    /// draws the conversation, its leader and the separate advisor on it.
+    fn talk_frame() -> Frame {
         let full = [0, 0, 1920, 1080];
         let image = |path: &str, x, y, w, h| ScreenDraw::Image { retained:None,
             path: path.into(), rect: [0, 0, w, h], x, y, keyed: true,
             clip: full, mask: None, palette: None, opacity: 255,
         };
-        // Native WW2 diplomacy owns a full-window canvas but only draws
-        // the conversation, its leader and the separate advisor on it.
-        let frame = Frame {
+        Frame {
             overlay_draws: 0..0,
             forms: vec![(0x66b3d8, 1, (0, 0), (1920, 1080)), (0x66c0d8, 2, (0, 0), (1920, 1080))],
             draws: vec![
@@ -303,7 +300,13 @@ mod tests {
             ],
             form_draws: vec![(1, 0..1), (2, 1..5)],
             underlay_draws: vec![0..1],
-        };
+        }
+    }
+
+    #[test]
+    fn a_full_canvas_diplomacy_popup_uses_its_dialog_leader_and_advisor_bounds() {
+        let full = [0, 0, 1920, 1080];
+        let frame = talk_frame();
         let (first, rect) = popup(&frame, 2, None, (1920, 1080)).unwrap();
         assert_eq!((first, rect), (1, [297, 0, 716, 567]));
         let (map, dialog) = split_popup(&frame, first, rect);
@@ -328,16 +331,30 @@ mod tests {
     }
 
     #[test]
-    fn a_popups_rectangle_holds_its_largest_extent_while_it_stays_open() {
-        let mut held = HeldExtent::default();
-        assert_eq!(held.hold(7, [297, 0, 716, 567]), [297, 0, 716, 567]);
-        // The advisor's box narrower, then wider: never smaller.
-        assert_eq!(held.hold(7, [297, 50, 600, 517]), [297, 0, 716, 567]);
-        assert_eq!(held.hold(7, [297, 0, 760, 567]), [297, 0, 760, 567]);
-        // Another popup, or the same canvas opened anew: its own.
-        assert_eq!(held.hold(8, [10, 10, 100, 100]), [10, 10, 100, 100]);
-        held.closed();
-        assert_eq!(held.hold(8, [20, 20, 50, 50]), [20, 20, 50, 50]);
+    fn a_dialog_opened_inside_a_talk_goes_with_it_and_the_talk_stays_centred() {
+        let size = (1920, 1080);
+        // The gold amount a trade asks for (canvas 3): its frame drawn onto
+        // the screen, then its form, inside the talk.
+        let with_dialog = |x: i32, y: i32| {
+            let mut f = talk_frame();
+            f.draws.push(fill(x, y, 281, 140));
+            f.forms.push((0x66_6408, 3, (x + 3, y + 3), (275, 134)));
+            f.draws.push(fill(x + 3, y + 3, 275, 134));
+            f.form_draws.push((3, 6..7));
+            f
+        };
+        let (_, alone) = split_modal_stack(&talk_frame(), &[2], None, size);
+        assert_eq!(placed_core(&alone), Some([297, 50, 438, 517]));
+
+        let (_, parts) = split_modal_stack(&with_dialog(374, 317), &[2, 3], None, size);
+        assert_eq!(parts.iter().map(|p| (p.canvas, p.rect, p.attached)).collect::<Vec<_>>(),
+            vec![(2, [297, 0, 716, 567], false), (3, [374, 317, 281, 140], true)]);
+        assert_eq!(placed_core(&parts), Some([297, 50, 438, 517]), "the talk's dialog, still centred");
+
+        // One reaching past the talk is placed on its own (no main panel).
+        let (_, parts) = split_modal_stack(&with_dialog(900, 317), &[2, 3], None, size);
+        assert_eq!(parts.iter().map(|p| p.attached).collect::<Vec<_>>(), vec![false, false]);
+        assert_eq!(placed_core(&parts), None);
     }
 
     fn fill(x: i32, y: i32, w: i32, h: i32) -> ScreenDraw {

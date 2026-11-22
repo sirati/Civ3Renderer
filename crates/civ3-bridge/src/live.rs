@@ -711,8 +711,6 @@ fn publish(
     let mut published_prefs: (Vec<menu::panel::Draw>, Option<viewer_settings::Settings>, Option<scene::SettingsPreview>) = (Vec::new(), None, None);
     // The open popup's canvas and where it is anchored (`scene::Interface::popup_anchor`).
     let mut popup_anchor_state: Option<(u32, Option<scene::PopupAnchor>)> = None;
-    // A talk's popup at its largest while open (`interface_parts::HeldExtent`).
-    let mut popup_extent = crate::interface_parts::HeldExtent::default();
     // (The last main panel published, for its log line.)
     let mut last_core: Option<[i32; 4]> = None;
     // (The popup layers last logged: logged again when they change.)
@@ -1372,21 +1370,6 @@ fn publish(
             }
             _ => None,
         };
-        // A talk (diplomacy): its dialog is what the viewer centres, and
-        // its popup holds its largest extent while open, so that the
-        // advisor's picture and box changing beside it move nothing.
-        let popup_core = popup_and_canvas.zip(ui.as_ref()).and_then(|(((first, rect), canvas), f)| crate::interface_parts::popup_core(f, canvas, first, rect));
-        if popup_core != last_core {
-            log::info!("popup: main panel {popup_core:?} (popup {:?})", popup_and_canvas.map(|((_, rect), _)| rect));
-            last_core = popup_core;
-        }
-        let popup_and_canvas = match (popup_and_canvas, popup_core) {
-            (Some(((first, rect), canvas)), Some(_)) => Some(((first, popup_extent.hold(canvas, rect)), canvas)),
-            (other, _) => {
-                popup_extent.closed();
-                other
-            }
-        };
         let popup = popup_and_canvas.map(|(p, _)| p);
         // A context menu or the tile box the game opened at the map click
         // just made goes there (decided when it opens, kept while open).
@@ -1444,6 +1427,15 @@ fn publish(
             }
             None => (None, Vec::new()),
         };
+        // A talk (diplomacy): its dialog is what the viewer centres, also
+        // while a dialog opened inside it is on top (the gold amount a trade
+        // asks for: attached to it), so that the advisor's picture and box
+        // changing beside it, or that dialog, move nothing.
+        let popup_core = popup.and(crate::interface_parts::placed_core(&popup_frames));
+        if popup_core != last_core {
+            log::info!("popup: main panel {popup_core:?} (popup {:?})", popup.map(|(_, rect)| rect));
+            last_core = popup_core;
+        }
         // Unit pictures in panels are drawn in the viewing player's colours.
         let unit_colors = match shown {
             Shown::Map(world, _) => world.color_tables.get(world.player.max(0) as usize).copied().unwrap_or(0),
