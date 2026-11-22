@@ -8,8 +8,8 @@
 //! file shown was requested, so each change of direction asked for the
 //! other file then, and the head was black until it was made.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 /// The reverse file's `Flic_Anim_Info` past the forward one's.
 const REVERSE: u32 = 0x384 - 0x2BC;
@@ -17,47 +17,42 @@ const REVERSE: u32 = 0x384 - 0x2BC;
 /// At most this many files remembered (heads of every civ and era).
 const MAX: usize = 512;
 
-#[derive(Default)]
-struct Pairs {
-    /// The last file loaded, and where.
-    last: Option<(u32, String)>,
-    /// Each head file's other one, both ways.
-    partner: HashMap<String, String>,
+thread_local! {
+    /// The last file the game's thread loaded, and where.
+    static LAST: RefCell<Option<(u32, String)>> = const { RefCell::new(None) };
 }
 
-static PAIRS: Mutex<Option<Pairs>> = Mutex::new(None);
+/// Each head file's other one, both ways: from the game's thread to the
+/// publisher's.
+static PARTNERS: handoff::Latest<HashMap<String, String>> = handoff::Latest::new();
 
 /// The folder of `path` (either separator, any case).
 fn folder(path: &str) -> String {
     path.rsplit_once(['/', '\\']).map_or("", |(dir, _)| dir).replace('\\', "/").to_ascii_lowercase()
 }
 
-/// The game loaded animation file `path` into `flic`: a head's reverse
-/// file pairs with its forward file, loaded just before it into the same
-/// head from the same folder.
+/// The game loaded animation file `path` into `flic` (on its thread): a
+/// head's reverse file pairs with its forward file, loaded just before it
+/// into the same head from the same folder.
 pub(crate) fn loaded(flic: u32, path: &str) {
-    let mut guard = PAIRS.lock().unwrap_or_else(|e| e.into_inner());
-    let pairs = guard.get_or_insert_with(Pairs::default);
-    if pairs.partner.len() >= MAX {
-        pairs.partner.clear();
+    let before = LAST.with_borrow_mut(|last| last.replace((flic, path.to_owned())));
+    let Some((at, forward)) = before else { return };
+    if at.checked_add(REVERSE) != Some(flic) || forward == path || folder(&forward) != folder(path) {
+        return;
     }
-    if let Some((before, forward)) = pairs.last.take()
-        && before.checked_add(REVERSE) == Some(flic)
-        && forward != path
-        && folder(&forward) == folder(path)
-    {
-        pairs.partner.insert(forward.clone(), path.to_owned());
-        pairs.partner.insert(path.to_owned(), forward);
-    }
-    pairs.last = Some((flic, path.to_owned()));
+    PARTNERS.update(|old| {
+        let mut partners = old.filter(|o| o.len() < MAX).cloned().unwrap_or_default();
+        partners.insert(forward.clone(), path.to_owned());
+        partners.insert(path.to_owned(), forward.clone());
+        Some(partners)
+    });
 }
 
 /// `heads` (files as `name` gives them) with the other file of each.
 pub(crate) fn with_partners(heads: Vec<String>, name: impl Fn(&str) -> String) -> Vec<String> {
-    let guard = PAIRS.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(pairs) = guard.as_ref() else { return heads };
+    let Some(partners) = PARTNERS.load() else { return heads };
     let mut out = heads.clone();
-    for (file, other) in &pairs.partner {
+    for (file, other) in partners.iter() {
         if heads.contains(&name(file)) {
             out.push(name(other));
         }

@@ -186,19 +186,22 @@ pub fn refresh_original_drawing(game: Civ3) {
 /// for the mirror's text bounds; remembered per face, size and text.
 fn text_width(run: &crate::text::TextRun) -> Option<i32> {
     type Key = (civ3_assets::fonts::FontStyle, String);
-    static WIDTHS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<Key, Option<i32>>>> = std::sync::LazyLock::new(Default::default);
+    thread_local! {
+        static WIDTHS: std::cell::RefCell<std::collections::HashMap<Key, Option<i32>>> = std::cell::RefCell::new(std::collections::HashMap::new());
+    }
     // TextRun stores lfHeight; FontStyle/FontSpec negate character height for GDI.
     let style = civ3_assets::fonts::FontStyle { face: run.face.clone(), height: -run.height, weight: run.weight, italic: run.italic };
     let key = (style, run.text.clone());
-    if let Some(&w) = WIDTHS.lock().ok()?.get(&key) {
+    if let Some(w) = WIDTHS.with_borrow(|widths| widths.get(&key).copied()) {
         return w;
     }
     let w = civ3_assets::fonts::measure(&key.0, &key.1).filter(|&w| w > 0);
-    let mut widths = WIDTHS.lock().ok()?;
-    if widths.len() >= 16384 {
-        widths.clear();
-    }
-    widths.insert(key, w);
+    WIDTHS.with_borrow_mut(|widths| {
+        if widths.len() >= 16384 {
+            widths.clear();
+        }
+        widths.insert(key, w);
+    });
     w
 }
 
@@ -210,15 +213,18 @@ struct PresentPhases {
     nanos: [AtomicU64; 5],
     total: AtomicU64,
     count: AtomicU64,
-    logged: std::sync::Mutex<Option<std::time::Instant>>,
+    /// When it last logged (nanoseconds from `PHASES_START`; 0: never).
+    logged: AtomicU64,
 }
 
 static PRESENT_PHASES: PresentPhases = PresentPhases {
     nanos: [const { AtomicU64::new(0) }; 5],
     total: AtomicU64::new(0),
     count: AtomicU64::new(0),
-    logged: std::sync::Mutex::new(None),
+    logged: AtomicU64::new(0),
 };
+
+static PHASES_START: std::sync::LazyLock<std::time::Instant> = std::sync::LazyLock::new(std::time::Instant::now);
 
 impl PresentPhases {
     fn add(&self, phase: usize, since: std::time::Instant) {
@@ -228,11 +234,13 @@ impl PresentPhases {
     fn done(&self, began: std::time::Instant) {
         self.total.fetch_add(began.elapsed().as_nanos() as u64, Relaxed);
         self.count.fetch_add(1, Relaxed);
-        let Ok(mut logged) = self.logged.lock() else { return };
-        let now = std::time::Instant::now();
-        let last = *logged.get_or_insert(now);
-        if now.duration_since(last) < std::time::Duration::from_secs(5) { return; }
-        *logged = Some(now);
+        let now = (PHASES_START.elapsed().as_nanos() as u64).max(1);
+        let last = self.logged.load(Relaxed);
+        if last == 0 {
+            self.logged.store(now, Relaxed);
+            return;
+        }
+        if now.saturating_sub(last) < 5_000_000_000 || self.logged.compare_exchange(last, now, Relaxed, Relaxed).is_err() { return; }
         let ms = |a: &AtomicU64| a.swap(0, Relaxed) as f64 / 1e6;
         let n = self.count.swap(0, Relaxed);
         let [game, city, model, native, view] = [0, 1, 2, 3, 4].map(|i| ms(&self.nanos[i]));
