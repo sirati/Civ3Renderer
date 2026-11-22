@@ -25,9 +25,18 @@ no target is invented for an unavailable option.
 
 `PCX_Image+4` points to the JGL image. Its width and height come from the
 rectangle at `+0x54`, its byte stride is at `+0x40`, its bit depth at
-`+0x24`, and its pixel pointer at `+0x4C0`. These masks remain rendered by
-the game when ordinary drawing is suppressed. One guarded block read
-copies a mask. Solid runs of each valid index produce its target; choosing
+`+0x24`, and its pixel pointer at `+0x4C0`. One guarded block read
+copies a mask.
+
+The masks are not files. Each screen creates its mask at screen size,
+fills it whole with 255 (`0x5DD4B2`, `0x5819D6`), then fills one rectangle
+per offered choice with that choice's index (fill x,y,w,h `0x5FFEF0`,
+jgl `+0x44`). Without jgl.dll no fill writes any pixels, so the game's
+`get_pixel` read 0 everywhere: a tiny world and no civilization. The
+bridge's `option_masks` keeps every fill into a mask as a rectangle. The
+game's reads get the index of the last fill over the point. The control
+walk gets each index's largest rectangle through `Mem::index_regions`. With
+jgl both answers equal the pixels. Solid runs of each valid index produce its target; choosing
 a solid rectangle keeps the target center out of gaps and other options.
 The unrelated world renderer never scans these masks.
 

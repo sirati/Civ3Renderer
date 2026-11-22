@@ -12,7 +12,7 @@ use inproc::Ptr32;
 
 use crate::Build;
 
-mod setup;
+pub mod setup;
 pub use setup::{TitleLayout, title_layout};
 pub mod advisors;
 pub mod end_screens;

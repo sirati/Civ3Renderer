@@ -47,6 +47,7 @@ struct Fills;
 impl jgl::FillHooks for Fills {
     fn fill(&mut self, call: &jgl::FillCall) {
         crate::ui_selection::fill(call);
+        crate::option_masks::fill(call);
         if let jgl::FillCall::ReplaceColor {target,rect,from,to}=*call {
             crate::ui_trace::replace_indices(target,rect,from,to);
         } else if matches!(call,jgl::FillCall::Other {..}) {

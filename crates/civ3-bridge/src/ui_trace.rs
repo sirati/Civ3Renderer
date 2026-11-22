@@ -1255,6 +1255,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     });
     hook!(pcx_clear, sites.pcx_clear, |c| {
         crate::ui_selection::cleared(c.image);
+        crate::option_masks::cleared(c.image);
         crate::ui_mills::cleared(c.image);
         forget_form_surface(c.image);
         forget_data_image(c.image);
@@ -1347,6 +1348,9 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     hook!(pcx_get_pixel, sites.pcx_get_pixel, |c| {
         audit_semantic(SemanticClass::PixelRead);
         if let Some(answer) = crate::ui_selection::pixel(c.image, c.x as i32, c.y as i32) {
+            return answer;
+        }
+        if let Some(answer) = crate::option_masks::pixel(c.image, c.x as i32, c.y as i32) {
             return answer;
         }
         if with_skipper(|s| s.reads(c.image)) == Some(true) {

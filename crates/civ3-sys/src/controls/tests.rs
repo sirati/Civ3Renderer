@@ -589,6 +589,27 @@ fn native_setup_targets_never_land_in_holes_or_over_another_option() {
 }
 
 #[test]
+fn without_mask_pixels_the_setup_targets_are_the_recorded_fills() {
+    // Without jgl no fill writes the mask: its memory stays 0, which the
+    // pixel walk would take for one choice 0 over the whole screen.
+    struct Filled(Fake, u32);
+    impl Mem for Filled {
+        fn u32(&self, addr: u32) -> Option<u32> { self.0.u32(addr) }
+        fn u8(&self, addr: u32) -> Option<u8> { self.0.u8(addr) }
+        fn index_regions(&self, pcx: u32) -> Option<Vec<(u8, [i32; 4])>> {
+            // 255 is never a choice; 40 is past the world screen's last.
+            (pcx == self.1).then(|| vec![(0, [2, 3, 17, 11]), (5, [30, 3, 17, 11]), (40, [60, 3, 17, 11])])
+        }
+    }
+    let (f, offset) = (0x10_0000, 0x3958);
+    let mut m = Fake::default();
+    setup_mask(&mut m, f, 0x67_0390, offset, (97, 47), &[(0, [0, 0, 97, 47])]);
+    let got = controls(&Filled(m, f + offset), &sites());
+    let got: Vec<_> = got.iter().map(|c| (c.id as u32, c.rect)).collect();
+    assert_eq!(got, [(0x5000_0000, [42, 23, 17, 11]), (0x5000_0005, [70, 23, 17, 11])]);
+}
+
+#[test]
 fn native_title_layout_uses_actual_resolution_rows_and_modal_state() {
     let mut m = Fake::default();
     m.bytes(0xB4_25CA, &[1]);

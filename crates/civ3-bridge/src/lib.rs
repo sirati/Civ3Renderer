@@ -87,6 +87,8 @@ pub mod ui_trace;
 #[cfg(any(windows, test))]
 mod ui_selection;
 #[cfg(any(windows, test))]
+mod option_masks;
+#[cfg(any(windows, test))]
 mod ui_mills;
 pub mod units;
 pub mod unit_notices;

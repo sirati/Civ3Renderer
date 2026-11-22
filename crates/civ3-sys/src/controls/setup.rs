@@ -9,6 +9,17 @@ const TAG_HITMAP: u32 = 0x5000_0000;
 const WORLD_FORM: u32 = 0x67_0390;
 const PLAYER_FORM: u32 = 0x66_E2F0;
 
+/// The setup screen form whose option mask `image` (a `PCX_Image`) is:
+/// the world setup's at +0x3958, the player setup's at +0x2B60. The game
+/// fills one rectangle per option into it with the option's index and
+/// looks its clicks and hovers up there (`PCX_Image::get_pixel`).
+pub fn mask_form(mem: &dyn Mem, image: u32) -> Option<u32> {
+    [(WORLD_FORM, 0x3958), (PLAYER_FORM, 0x2B60)].into_iter().find_map(|(vtable, offset)| {
+        let form = image.checked_sub(offset)?;
+        (mem.u32(form)? == vtable).then_some(form)
+    })
+}
+
 pub(super) fn controls(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
     let (pcx, last) = match form.vtable {
         WORLD_FORM => (form.addr.checked_add(0x3958), 33),
@@ -19,11 +30,19 @@ pub(super) fn controls(mem: &dyn Mem, form: &Form, out: &mut Vec<Control>) {
         }
         _ => return,
     };
-    let Some((width, height, stride, pixels)) = pcx.and_then(|pcx| hitmap(mem, pcx)) else { return };
-    // A rectangular run remains a valid native target even if another
-    // control cuts into this index's bounding box. Pick the largest run
-    // rectangle, rather than putting the pointer into such a hole.
-    for (index, rect) in regions(&pixels, width, height, stride, last as u8) {
+    let Some(pcx) = pcx else { return };
+    // Without jgl the mask has no pixels; its recorded fills answer.
+    let found: BTreeMap<u8, [i32; 4]> = match mem.index_regions(pcx) {
+        Some(cells) => cells.into_iter().filter(|&(index, _)| index <= last as u8).collect(),
+        None => {
+            let Some((width, height, stride, pixels)) = hitmap(mem, pcx) else { return };
+            // A rectangular run remains a valid native target even if another
+            // control cuts into this index's bounding box. Pick the largest run
+            // rectangle, rather than putting the pointer into such a hole.
+            regions(&pixels, width, height, stride, last as u8)
+        }
+    };
+    for (index, rect) in found {
         let rect = form.on_screen(rect);
         if rect[2] > 0 && rect[3] > 0 {
             out.push(Control { rect, kind: ControlKind::Button, id: part_id(form.addr, TAG_HITMAP, index as u32) });
@@ -48,7 +67,7 @@ fn hitmap(mem: &dyn Mem, pcx: u32) -> Option<(usize, usize, usize, Vec<u8>)> {
 
 /// Rectangles made of one palette index. The maps use 255 for areas that
 /// cannot be clicked. A missing or disabled choice has no pixels at all.
-pub(super) fn regions(pixels: &[u8], width: usize, height: usize, stride: usize, last: u8) -> BTreeMap<u8, [i32; 4]> {
+pub fn regions(pixels: &[u8], width: usize, height: usize, stride: usize, last: u8) -> BTreeMap<u8, [i32; 4]> {
     let mut best = BTreeMap::new();
     let mut active: BTreeMap<(u8, usize, usize), [i32; 4]> = BTreeMap::new();
     let keep = |best: &mut BTreeMap<u8, [i32; 4]>, index, rect: [i32; 4]| {

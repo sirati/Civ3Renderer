@@ -169,13 +169,15 @@ pub(crate) struct DeferredControls {
     bytes: HashMap<u32, Option<u8>>,
     blocks: HashMap<(u32, usize), Option<Vec<u8>>>,
     maps: HashMap<u32, Arc<Map>>,
+    /// The setup screens' option masks the walk read (`option_masks`).
+    options: HashMap<u32, Vec<(u8, [i32; 4])>>,
     controls: OnceLock<Vec<civ3_sys::controls::Control>>,
 }
 
 impl PartialEq for DeferredControls {
     fn eq(&self, other: &Self) -> bool {
         self.sites == other.sites && self.words == other.words && self.bytes == other.bytes && self.blocks == other.blocks
-            && self.maps.len() == other.maps.len() && self.maps.iter().all(|(id, map)| other.maps.get(id).is_some_and(|other| Arc::ptr_eq(map, other)))
+            && self.options == other.options && self.maps.len() == other.maps.len() && self.maps.iter().all(|(id, map)| other.maps.get(id).is_some_and(|other| Arc::ptr_eq(map, other)))
     }
 }
 
@@ -190,6 +192,7 @@ impl civ3_sys::controls::Mem for DeferredControls {
     fn u8(&self, at: u32) -> Option<u8> { self.bytes.get(&at).copied().flatten() }
     fn read_bytes(&self, at: u32, len: usize) -> Option<Vec<u8>> { self.blocks.get(&(at, len)).cloned().flatten() }
     fn index_regions(&self, pcx: u32) -> Option<Vec<(u8, [i32; 4])>> {
+        if let Some(options) = self.options.get(&pcx) { return Some(options.clone()); }
         let map = self.maps.get(&pcx)?;
         map.anchors.get_or_init(|| {
             if map.error.is_some() { return None; }
@@ -206,6 +209,7 @@ pub(crate) struct Memory {
     bytes: RefCell<HashMap<u32, Option<u8>>>,
     blocks: RefCell<HashMap<(u32, usize), Option<Vec<u8>>>>,
     maps: RefCell<HashMap<u32, Arc<Map>>>,
+    options: RefCell<HashMap<u32, Vec<(u8, [i32; 4])>>>,
     recording: bool,
 }
 
@@ -215,7 +219,7 @@ impl Memory {
     pub fn finish(self, sites: civ3_sys::controls::Sites) -> Option<Arc<DeferredControls>> {
         let maps = self.maps.into_inner();
         if maps.is_empty() { return None; }
-        Some(Arc::new(DeferredControls { sites, words: self.words.into_inner(), bytes: self.bytes.into_inner(), blocks: self.blocks.into_inner(), maps, controls: OnceLock::new() }))
+        Some(Arc::new(DeferredControls { sites, words: self.words.into_inner(), bytes: self.bytes.into_inner(), blocks: self.blocks.into_inner(), maps, options: self.options.into_inner(), controls: OnceLock::new() }))
     }
 }
 
@@ -236,6 +240,10 @@ impl civ3_sys::controls::Mem for Memory {
         else { civ3_sys::controls::Live.read_bytes(at, len) }
     }
     fn index_regions(&self, pcx: u32) -> Option<Vec<(u8, [i32; 4])>> {
+        if let Some(options) = crate::option_masks::regions(pcx) {
+            self.options.borrow_mut().insert(pcx, options.clone());
+            return Some(options);
+        }
         MAPS.with_borrow(|maps| {
             let Some(map) = maps.get(&pcx) else {
                 return civ3_sys::ui_hooks::palace_mask_form(pcx).map(|_| Vec::new());
@@ -313,7 +321,7 @@ mod tests {
         let mut map = Map { selection: Selection::new((20, 20)), error: None, anchors: OnceLock::new(), files: HashMap::from([("art".into(), file())]) };
         let source = Source::File { retained:None,path: "art".into(), rect: [0, 0, 3, 2], mask: None, palette: None, opacity: 255 };
         map.selection.piece(&source, 3, (2, 3), None).unwrap();
-        let mut capture = DeferredControls { sites, words: HashMap::new(), bytes: HashMap::new(), blocks: HashMap::new(), maps: HashMap::from([(form + 0x3154, Arc::new(map))]), controls: OnceLock::new() };
+        let mut capture = DeferredControls { sites, words: HashMap::new(), bytes: HashMap::new(), blocks: HashMap::new(), maps: HashMap::from([(form + 0x3154, Arc::new(map))]), options: HashMap::new(), controls: OnceLock::new() };
         let put = |words: &mut HashMap<_, _>, at, value| { words.insert(at, Some(value)); };
         for (at, value) in [(sites.modal, 0), (sites.root_count, 1), (sites.roots, form), (0x9C72F8, 20), (0x9C72FC, 20), (form + 0x312C, 20), (form + 0x3130, 20)] { put(&mut capture.words, at, value); }
         for (addr, vtable) in [(form, screens::PALACE), (0x20000, 0x671218)] {
