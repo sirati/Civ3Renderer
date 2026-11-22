@@ -148,6 +148,17 @@ changes the output only if the game had 3D on.
 On the Mac, Wine's DirectSound is 32-bit code that runs emulated, together
 with its mixing; that is the likely source of the slowness and glitches.
 
+## Decision (2026-11-22): replace sound.dll, not just DirectSound
+
+On the Mac, three things run emulated: Miles' MP3 decoder, `sound.dll`'s
+streaming timer that refills the music buffers, and Wine's 32-bit
+DirectSound mixer. When the timer or the decoder runs late, DirectSound
+keeps playing its looping buffer and repeats old audio: the music's
+"weird loops". Replacing only DirectSound (stage A below) would leave the
+timer and the MP3 decoding emulated, so the user chose stage B: the whole
+`sound.dll` natively. Which of the three costs most has not been measured;
+B removes all three.
+
 ## Two stages
 
 The mixing rules are DirectSound's either way, so the native mixer is the
