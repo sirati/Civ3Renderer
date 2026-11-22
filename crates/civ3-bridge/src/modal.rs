@@ -13,6 +13,22 @@
 
 use std::time::{Duration, Instant};
 
+/// How often a network game's loop goes round at most: the display's rate.
+/// The loop asks its idle pump again the moment it returns (0x469670), and
+/// each round animates, composes every form and presents. Without jgl a
+/// present costs next to nothing, so it went round hundreds of times a
+/// second, and every round paid for the bridge's hooks on the game's thread
+/// (emulated, on the Mac, most of its time). With jgl the presents' drawing
+/// had kept it near the display's rate.
+pub const NETWORK_ROUND: Duration = Duration::from_micros(8_333);
+
+/// How long a network game's idle pump waits before its next round, the
+/// last one having ended at `last` (`None`: none yet).
+pub fn network_pace(last: Option<Instant>, now: Instant) -> Option<Duration> {
+    let since = now.checked_duration_since(last?)?;
+    (since < NETWORK_ROUND).then(|| NETWORK_ROUND - since)
+}
+
 /// How long a queued action may wait for the game to get to it.
 pub const EXPIRES: Duration = Duration::from_millis(1500);
 
@@ -401,7 +417,14 @@ mod live {
     /// is the player's turn (the turn flag says that).
     fn on_network_idle(call: &network_pump_idle::Call) -> u32 {
         let _c = Count::new(&HUMAN_PUMPS);
-        call.original()
+        // Paced to the display (`super::network_pace`).
+        thread_local! { static LAST: Cell<Option<Instant>> = const { Cell::new(None) }; }
+        if let Some(wait) = super::network_pace(LAST.get(), Instant::now()) {
+            std::thread::sleep(wait);
+        }
+        let r = call.original();
+        LAST.set(Some(Instant::now()));
+        r
     }
 
     fn on_animation_a(call: &animation_pump_a::Call) -> u32 {
@@ -835,6 +858,15 @@ pub fn selection_outcome(unit: i32, tile: (i32, i32), taken: bool, selected: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_network_games_loop_goes_round_no_faster_than_the_display() {
+        let t = Instant::now();
+        assert_eq!(network_pace(None, t), None, "the first round at once");
+        assert_eq!(network_pace(Some(t), t + Duration::from_millis(2)), Some(NETWORK_ROUND - Duration::from_millis(2)));
+        assert_eq!(network_pace(Some(t), t + NETWORK_ROUND), None, "a slow round: no wait");
+        assert_eq!(network_pace(Some(t), t + Duration::from_millis(50)), None);
+    }
 
     fn open() -> GateState {
         GateState {

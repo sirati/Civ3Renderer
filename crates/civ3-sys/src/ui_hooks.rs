@@ -406,7 +406,8 @@ pub mod obj {
 
     /// A `RECT` (left, top, right, bottom).
     pub fn rect(at: u32) -> Option<[i32; 4]> {
-        Some([i32_at(at, 0)?, i32_at(at, 4)?, i32_at(at, 8)?, i32_at(at, 12)?])
+        // (One guarded read: each is a system call, costly emulated.)
+        Ptr32::<[i32; 4]>::new(at).read().ok()
     }
 
     /// A form as it is put on the screen.
@@ -433,19 +434,43 @@ pub mod obj {
     const CLIP: u32 = 0x1DC;
     const CANVAS: u32 = 0x274;
 
+    /// A form's fields up to its clip rectangle, read at once: the game
+    /// composes every form many times a second (a network game's loop
+    /// thousands), and each guarded read is a system call, costly where
+    /// the game runs emulated. One read a form, instead of one a field.
+    struct Fields(Vec<u8>);
+
+    impl Fields {
+        const LEN: usize = (CLIP + 16) as usize;
+
+        fn read(form: u32) -> Option<Fields> {
+            Ptr32::<u8>::new(form).read_array(Self::LEN).ok().map(Fields)
+        }
+
+        fn i32(&self, at: u32) -> i32 {
+            let at = at as usize;
+            i32::from_le_bytes(self.0[at..at + 4].try_into().expect("within the fields"))
+        }
+
+        fn rect(&self, at: u32) -> [i32; 4] {
+            [self.i32(at), self.i32(at + 4), self.i32(at + 8), self.i32(at + 12)]
+        }
+    }
+
     /// `Base_Form::local_to_screen(0, 0)` (0x604A00), computed.
-    fn origin(form: u32, depth: u32) -> Option<(i32, i32)> {
-        let mut x = i32_at(form, LEFT)? + i32_at(form, CLIENT)?;
-        let mut y = i32_at(form, LEFT + 4)? + i32_at(form, CLIENT + 4)?;
-        let status = i32_at(form, STATUS1)? as u32;
-        let parent = i32_at(form, PARENT)? as u32;
+    fn origin(form: &Fields, depth: u32) -> Option<(i32, i32)> {
+        let mut x = form.i32(LEFT) + form.i32(CLIENT);
+        let mut y = form.i32(LEFT + 4) + form.i32(CLIENT + 4);
+        let status = form.i32(STATUS1) as u32;
+        let parent = form.i32(PARENT) as u32;
         if status & 0x20 != 0 && parent != 0 && depth < 32 {
-            let (px, py) = origin(parent, depth + 1)?;
+            let parent = Fields::read(parent)?;
+            let (px, py) = origin(&parent, depth + 1)?;
             x += px;
             y += py;
             if status & 0x8000 != 0 {
-                x -= i32_at(parent, LEFT)?;
-                y -= i32_at(parent, LEFT + 4)?;
+                x -= parent.i32(LEFT);
+                y -= parent.i32(LEFT + 4);
             }
         }
         Some((x, y))
@@ -453,14 +478,15 @@ pub mod obj {
 
     /// Where `form`'s canvas goes on the screen (what `m79` does).
     pub fn placement(form: u32) -> Option<FormPlacement> {
-        let [l, t, r, b] = rect(form + LEFT)?;
+        let f = Fields::read(form)?;
+        let [l, t, r, b] = f.rect(LEFT);
         Some(FormPlacement {
-            vtable: Ptr32::<u32>::new(form).read().ok()?,
+            vtable: f.i32(0) as u32,
             canvas: form + CANVAS,
-            origin: origin(form, 0)?,
+            origin: origin(&f, 0)?,
             size: (r - l, b - t),
-            clip: rect(form + CLIP)?,
-            keyed: i32_at(form, STATUS1)? as u32 & 0x100_0000 != 0,
+            clip: f.rect(CLIP),
+            keyed: f.i32(STATUS1) as u32 & 0x100_0000 != 0,
         })
     }
 }
@@ -997,3 +1023,41 @@ pub fn canvas_text_clip(image: u32) -> Option<[i32; 4]> {
     obj::rect(jgl + 0x44)
 }
 
+
+#[cfg(all(test, windows))]
+mod placement_tests {
+    use super::obj;
+
+    fn put(form: &mut [u8], at: usize, v: i32) {
+        form[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    /// A form in this process's memory: its fields (`obj` offsets) set.
+    fn form(left: [i32; 4], client: (i32, i32), clip: [i32; 4], status: u32, parent: u32) -> Box<[u8; 0x300]> {
+        let mut f = Box::new([0u8; 0x300]);
+        put(&mut f[..], 0, 0x66_56C0);
+        for (k, v) in left.into_iter().enumerate() { put(&mut f[..], 0x1AC + 4 * k, v); }
+        put(&mut f[..], 0x1BC, client.0);
+        put(&mut f[..], 0x1C0, client.1);
+        for (k, v) in clip.into_iter().enumerate() { put(&mut f[..], 0x1DC + 4 * k, v); }
+        put(&mut f[..], 0x9C, status as i32);
+        put(&mut f[..], 0x130, parent as i32);
+        f
+    }
+
+    #[test]
+    fn a_forms_placement_is_read_whole_and_follows_its_parents() {
+        let parent = form([100, 50, 900, 650], (2, 3), [0, 0, 1024, 768], 0, 0);
+        let p = parent.as_ptr() as u32;
+        // A child placed in its parent's client area (0x20), keyed, and one
+        // also relative to its parent's corner (0x8000).
+        let child = form([10, 20, 110, 70], (1, 1), [5, 6, 7, 8], 0x20 | 0x100_0000, p);
+        let c = obj::placement(child.as_ptr() as u32).unwrap();
+        assert_eq!((c.vtable, c.size, c.clip, c.keyed), (0x66_56C0, (100, 50), [5, 6, 7, 8], true));
+        assert_eq!(c.origin, (10 + 1 + 100 + 2, 20 + 1 + 50 + 3));
+        assert_eq!(c.canvas, child.as_ptr() as u32 + 0x274);
+        let relative = form([10, 20, 110, 70], (1, 1), [0; 4], 0x20 | 0x8000, p);
+        assert_eq!(obj::placement(relative.as_ptr() as u32).unwrap().origin, (10 + 1 + 2, 20 + 1 + 3));
+        assert_eq!(obj::rect(child.as_ptr() as u32 + 0x1DC), Some([5, 6, 7, 8]));
+    }
+}
