@@ -1,13 +1,18 @@
-//! Input the game reaches only after a stall is dropped, not replayed.
+//! Input the game reaches only after a stall is not replayed in a burst.
 //!
 //! The viewer shows hover and presses at once and forwards input into the
-//! game window's queue. When the game thread stalls (seen under ARM64
-//! Wine/FEX: seconds waiting for a heap lock), everything posted meanwhile
-//! would run in one burst once it resumes: a dozen "Next City" clicks at
-//! once. A press, wheel notch or typed key older than [`STALE_AFTER_MS`]
-//! when the game dispatches it is dropped, together with its release.
-//! Releases of presses the game did get always go through, so nothing stays
-//! held; moves and every other message go through untouched.
+//! game window's queue. When the game thread (or the bridge) stalls (seen
+//! under ARM64 Wine/FEX: seconds waiting for a heap lock, or applying a
+//! large addition of art), everything posted meanwhile would run in one
+//! burst once it resumes: a dozen "Next City" clicks at once. Of the
+//! presses older than [`STALE_AFTER_MS`] when the game gets them, the first
+//! of each action goes through (the player's action is not lost: a "Build
+//! City" pressed once during a stall still builds), and its repeats are
+//! dropped with their releases: the same key, or the same mouse button at
+//! the same place. The first fresh input ends the stall. Wheel notches
+//! older than that are dropped; typed text is never. Releases of presses
+//! the game did get always go through, so nothing stays held; moves and
+//! every other message go through untouched.
 
 /// How old (ms since posting) input may be when the game gets to it.
 pub const STALE_AFTER_MS: u32 = 1000;
@@ -32,6 +37,10 @@ pub enum Source {
     World(u8),
 }
 
+/// How far apart two presses of a mouse button may be and still be the same
+/// action (a repeated click on one button), in pixels.
+pub const SAME_PLACE: i32 = 8;
+
 /// The filter's state on the game window's thread.
 #[derive(Debug, Default)]
 pub struct StaleFilter {
@@ -39,24 +48,45 @@ pub struct StaleFilter {
     dropped: Vec<Source>,
     /// A key press was dropped: its characters follow in the same turn.
     drop_chars: bool,
+    /// The presses let through during the current stall (and where, for a
+    /// mouse button): a repeat of one is dropped.
+    stall_presses: Vec<(Source, Option<(i32, i32)>)>,
     /// How many messages were dropped (for the log).
     pub dropped_total: u64,
 }
 
 impl StaleFilter {
-    /// Whether the message goes on to the game (`false`: consumed).
+    /// Whether the message goes on to the game (`false`: consumed). `at`:
+    /// where a mouse button was pressed (none for keys).
     pub fn admit(&mut self, gesture: Gesture, age_ms: u32) -> bool {
+        self.admit_at(gesture, age_ms, None)
+    }
+
+    /// [`Self::admit`] for a press at `at`.
+    pub fn admit_at(&mut self, gesture: Gesture, age_ms: u32, at: Option<(i32, i32)>) -> bool {
         let stale = age_ms > STALE_AFTER_MS;
+        // The first fresh input ends the stall. (Not a character: the
+        // system posts it fresh in the turn of its key, which may be stale.)
+        if !stale && matches!(gesture, Gesture::Press(_) | Gesture::Release(_) | Gesture::Wheel) {
+            self.stall_presses.clear();
+        }
         // Characters follow their key directly; anything else ends them.
         let drop_chars = std::mem::take(&mut self.drop_chars);
         let admit = match gesture {
             Gesture::Press(source) => {
                 self.dropped.retain(|&s| s != source);
-                if stale {
+                let near = |p: Option<(i32, i32)>| match (p, at) {
+                    (Some(p), Some(q)) => (p.0 - q.0).abs() <= SAME_PLACE && (p.1 - q.1).abs() <= SAME_PLACE,
+                    (p, q) => p.is_none() && q.is_none(),
+                };
+                let repeat = stale && self.stall_presses.iter().any(|&(s, p)| s == source && near(p));
+                if repeat {
                     self.dropped.push(source);
+                } else if stale {
+                    self.stall_presses.push((source, at));
                 }
-                self.drop_chars = stale && matches!(source, Source::Key(_));
-                !stale
+                self.drop_chars = repeat && matches!(source, Source::Key(_));
+                !repeat
             }
             Gesture::Release(source) => match self.dropped.iter().position(|&s| s == source) {
                 Some(index) => {
@@ -68,7 +98,7 @@ impl StaleFilter {
             Gesture::Wheel => !stale,
             Gesture::Char => {
                 self.drop_chars = drop_chars;
-                !(drop_chars || stale)
+                !drop_chars
             }
             Gesture::Other => true,
         };
@@ -173,18 +203,21 @@ impl BatchFilter {
                     Input::Wheel { .. } => Gesture::Wheel,
                     _ => Gesture::Other,
                 };
-                // Text without a key stands alone: no key press before it.
+                // Text without a key stands alone: no key press before it
+                // (typed text is never dropped).
                 if gesture == Gesture::Char {
-                    let admit = waited_ms <= STALE_AFTER_MS;
-                    if !admit { self.filter.dropped_total += 1; }
-                    return admit;
+                    return true;
                 }
-                self.filter.admit(gesture, waited_ms)
+                let at = match *input {
+                    Input::MouseButton { x, y, .. } | Input::WorldButton { x, y, .. } => Some((x, y)),
+                    _ => None,
+                };
+                self.filter.admit_at(gesture, waited_ms, at)
             })
             .collect();
         let dropped = self.filter.dropped_total - dropped_before;
         if dropped != 0 {
-            log::info!("input: dropped {dropped} viewer inputs that waited up to {waited_ms} ms for the bridge; not replayed late");
+            log::info!("input: dropped {dropped} repeated viewer inputs that waited up to {waited_ms} ms for the bridge; not replayed in a burst");
         }
         kept
     }
@@ -201,15 +234,15 @@ pub mod live {
         static FILTER: RefCell<StaleFilter> = RefCell::new(StaleFilter::default());
     }
 
-    fn admit(gesture: Gesture, what: impl FnOnce() -> String) -> bool {
+    fn admit(gesture: Gesture, at: Option<(i32, i32)>, what: impl FnOnce() -> String) -> bool {
         if gesture == Gesture::Other {
             // Cheap path for the bulk of the game's messages.
             return FILTER.with(|f| f.borrow_mut().admit(gesture, 0));
         }
         let age = inproc::message::queued_age_ms();
-        let admit = FILTER.with(|f| f.borrow_mut().admit(gesture, age));
+        let admit = FILTER.with(|f| f.borrow_mut().admit_at(gesture, age, at));
         if !admit {
-            log::info!("input: dropped {} posted {age} ms ago (the game was busy); not replayed late", what());
+            log::info!("input: dropped a repeated {} posted {age} ms ago (the game was busy); not replayed in a burst", what());
         }
         admit
     }
@@ -217,18 +250,21 @@ pub mod live {
     /// For a native message to the game window: whether it goes on.
     pub fn admit_native(message: inproc::message::Message) -> bool {
         let gesture = gesture(message.id, message.wparam);
-        admit(gesture, || format!("{gesture:?} (message {:#x})", message.id))
+        // (A mouse button's place: the low and high signed words.)
+        let at = matches!(gesture, Gesture::Press(Source::Mouse(_)))
+            .then(|| (message.lparam as u32 as i16 as i32, (message.lparam as u32 >> 16) as i16 as i32));
+        admit(gesture, at, || format!("{gesture:?} (message {:#x})", message.id))
     }
 
-    /// For a button of the bridge's own world input (map clicks).
-    pub fn admit_world_button(button: scene::Button, down: bool) -> bool {
+    /// For a button of the bridge's own world input (map clicks at `at`).
+    pub fn admit_world_button(button: scene::Button, down: bool, at: (i32, i32)) -> bool {
         let source = Source::World(match button {
             scene::Button::Left => 0,
             scene::Button::Right => 1,
             scene::Button::Middle => 2,
         });
         let gesture = if down { Gesture::Press(source) } else { Gesture::Release(source) };
-        admit(gesture, || format!("world {gesture:?}"))
+        admit(gesture, down.then_some(at), || format!("world {gesture:?}"))
     }
 }
 
@@ -240,19 +276,27 @@ mod tests {
     const STALE: u32 = STALE_AFTER_MS + 1;
 
     #[test]
-    fn stale_clicks_are_dropped_with_their_releases_fresh_ones_pass() {
+    fn after_a_stall_a_click_goes_once_and_its_repeats_are_dropped_with_their_releases() {
         let mut f = StaleFilter::default();
         let (down, up) = (gesture(WM_LBUTTONDOWN, 1), gesture(WM_LBUTTONUP, 0));
-        // A burst after a 5 s stall: every click is dropped, press and release.
-        for _ in 0..12 {
-            assert!(!f.admit(down, 5000));
+        // A burst after a 5 s stall: the first click goes (the player's
+        // action), its eleven repeats at the same button do not.
+        assert!(f.admit_at(down, 5000, Some((100, 40))));
+        assert!(f.admit(up, 5000));
+        for i in 0..11 {
+            assert!(!f.admit_at(down, 5000, Some((100 + i % 3, 40))));
             assert!(f.admit(gesture(0x0200, 1), 5000), "moves always pass");
             assert!(!f.admit(up, 5000));
         }
-        assert_eq!(f.dropped_total, 24);
-        // Input after the stall works normally at once.
-        assert!(f.admit(down, FRESH));
-        assert!(f.admit(up, FRESH));
+        assert_eq!(f.dropped_total, 22);
+        // Another button pressed during the same stall is its own action.
+        assert!(f.admit_at(down, 5000, Some((300, 40))));
+        assert!(f.admit(up, 5000));
+        // Input after the stall works normally at once, repeats too.
+        for _ in 0..3 {
+            assert!(f.admit_at(down, FRESH, Some((100, 40))));
+            assert!(f.admit(up, FRESH));
+        }
     }
 
     #[test]
@@ -269,10 +313,14 @@ mod tests {
     }
 
     #[test]
-    fn stale_keys_drop_with_their_characters_and_release_but_modifiers_pass() {
+    fn a_repeated_stale_key_drops_with_its_characters_and_release_but_text_and_modifiers_pass() {
         let mut f = StaleFilter::default();
+        // The first Enter of the stall goes, with its character.
+        assert!(f.admit(gesture(WM_KEYDOWN, 0x0D), STALE));
+        assert!(f.admit(gesture(WM_CHAR, 0x0D), FRESH));
+        assert!(f.admit(gesture(WM_KEYUP, 0x0D), STALE));
+        // Its repeat in the same stall: dropped with its character and release.
         assert!(!f.admit(gesture(WM_KEYDOWN, 0x0D), STALE));
-        // TranslateMessage posts its character fresh, in the same turn.
         assert!(!f.admit(gesture(WM_CHAR, 0x0D), FRESH));
         assert!(f.admit(gesture(0x0200, 0), FRESH));
         assert!(f.admit(gesture(WM_CHAR, 0x61), FRESH), "a later character is its own");
@@ -281,11 +329,11 @@ mod tests {
             assert!(f.admit(gesture(WM_KEYDOWN, vk), STALE), "modifier {vk:#x}");
             assert!(f.admit(gesture(WM_KEYUP, vk), STALE));
         }
-        assert!(!f.admit(gesture(WM_CHAR, 0x62), STALE), "stale text on its own");
+        assert!(f.admit(gesture(WM_CHAR, 0x62), STALE), "typed text is never dropped");
     }
 
     #[test]
-    fn a_batch_taken_after_a_bridge_stall_loses_its_clicks_but_keeps_releases_and_metadata() {
+    fn a_batch_taken_after_a_bridge_stall_keeps_one_click_drops_its_repeats_and_keeps_metadata() {
         use scene::{Button, Input};
         let mut f = BatchFilter::default();
         let click = |down| Input::MouseButton { button: Button::Left, down, x: 10, y: 10 };
@@ -302,17 +350,22 @@ mod tests {
             Input::Resized { width: 800, height: 600 },
             Input::Quit,
         ];
+        // The click and the Enter pressed during the stall go once; the
+        // click's repeat and the old wheel notch do not.
         assert_eq!(f.filter(stalled, 5000), [
             click(false),
+            click(true), click(false),
             Input::MouseMove { x: 11, y: 11 },
+            Input::Key { vk: 0x0D, down: true, text: None },
             Input::Key { vk: 0x11, down: true, text: None },
+            Input::Key { vk: 0, down: true, text: Some('a') },
             Input::Resized { width: 800, height: 600 },
             Input::Quit,
         ]);
         // Input arriving right after the stall (still in the socket) counts
-        // as sent during it; the dropped Enter's release goes with it.
+        // as sent during it: the Enter's release goes, a repeated click not.
         let next = vec![Input::Key { vk: 0x0D, down: false, text: None }, click(true), click(false)];
-        assert!(f.filter(next, FRESH).is_empty());
+        assert_eq!(f.filter(next, FRESH), [Input::Key { vk: 0x0D, down: false, text: None }]);
         for _ in 0..RESUME_GRACE_MS / FRESH {
             assert!(f.filter(vec![], FRESH).is_empty());
         }
@@ -321,17 +374,20 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_press_replaces_a_dropped_one_and_wheel_and_world_follow_age() {
+    fn a_fresh_press_follows_a_dropped_repeat_and_wheel_and_world_follow_age() {
         let mut f = StaleFilter::default();
         let world = |down| if down { Gesture::Press(Source::World(0)) } else { Gesture::Release(Source::World(0)) };
-        assert!(!f.admit(world(true), STALE));
-        assert!(f.admit(world(true), FRESH));
+        assert!(f.admit_at(world(true), STALE, Some((5, 5))));
+        assert!(f.admit(world(false), STALE));
+        assert!(!f.admit_at(world(true), STALE, Some((6, 5))), "the same map click again");
+        assert!(f.admit_at(world(true), FRESH, Some((6, 5))));
         assert!(f.admit(world(false), FRESH), "the release belongs to the fresh press");
         assert!(!f.admit(gesture(WM_MOUSEWHEEL, 120 << 16), STALE));
         assert!(f.admit(gesture(WM_MOUSEWHEEL, 120 << 16), FRESH));
         assert!(f.admit(gesture(0x0401, 7), u32::MAX), "private and other messages always pass");
         // Double-click presses pair with ordinary releases.
-        assert!(!f.admit(gesture(WM_LBUTTONDBLCLK, 1), STALE));
+        assert!(f.admit_at(gesture(WM_LBUTTONDBLCLK, 1), STALE, Some((1, 1))));
+        assert!(!f.admit_at(gesture(WM_LBUTTONDBLCLK, 1), STALE, Some((1, 1))));
         assert!(!f.admit(gesture(WM_LBUTTONUP, 0), FRESH));
     }
 }
