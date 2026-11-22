@@ -35,6 +35,24 @@ const ORDERS: u32 = 0x1_6CE4;
 const ORDER_STRIDE: u32 = 0x6DC;
 const ORDER_COUNT: u32 = 42;
 const ORDER_COMMAND: u32 = 0x6D4;
+/// `Main_GUI.Images[252]` (`Tile_Image_Info`, 0x2C bytes each): every
+/// command's three order button sprites (normal, rollover, highlighted),
+/// loaded once; a command button's are copied from here when it is given
+/// its command (the stack buttons' are entries 17 and 21, `STACK_*`).
+const ORDER_IMAGES: u32 = 0x1_40D8;
+const ORDER_IMAGE_COUNT: u32 = 252;
+const IMAGE_BYTES: u32 = 0x2C;
+
+/// The sprites of every command's order button in every state.
+pub fn order_images(main_gui: u32) -> Vec<u32> {
+    (0..ORDER_IMAGE_COUNT).map(|k| main_gui + ORDER_IMAGES + IMAGE_BYTES * k).collect()
+}
+
+/// The unit's 42 order buttons (their forms).
+pub fn order_buttons(main_gui: u32) -> Vec<u32> {
+    (0..ORDER_COUNT).map(|k| main_gui + ORDERS + ORDER_STRIDE * k).collect()
+}
+
 /// `Unit_Mode_Actions` values are below this (one pointer of
 /// `Art/Cursor.pcx` each); 0 and `IDC_ARROW` are none.
 const MODES: i32 = 23;

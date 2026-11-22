@@ -12,6 +12,27 @@ use civ3_sys::lit_orders::Lit;
 
 use crate::ui::{Frame, ScreenDraw, Source};
 
+/// Every command's order button in every state (`images`, the game's
+/// table of them, `civ3_sys::lit_orders::order_images`), drawn as one of
+/// `buttons` (their forms) is drawn in `frame`: so that the art of each
+/// is made before any button shows it, its hover state included. `None`
+/// while no order button is drawn.
+pub fn all_states(frame: &Frame, buttons: &[u32], images: &[u32], sources: impl Fn(&[u32]) -> Vec<Option<Source>>) -> Option<Vec<ScreenDraw>> {
+    let template = buttons.iter().find_map(|&b| {
+        let canvas = b + civ3_sys::layout::BASE_FORM_DATA_CANVAS + 4;
+        let range = frame.form_draws.iter().find(|(c, _)| *c == canvas).map(|(_, r)| r.clone())?;
+        frame.draws.get(range)?.iter().find(|d| matches!(d, ScreenDraw::Image { .. })).cloned()
+    })?;
+    Some(sources(images).into_iter().flatten().filter_map(|source| {
+        let Source::File { retained, path, rect, .. } = source else { return None };
+        let mut draw = template.clone();
+        if let ScreenDraw::Image { retained: r, path: p, rect: re, .. } = &mut draw {
+            (*r, *p, *re) = (retained, path, rect);
+        }
+        Some(draw)
+    }).collect())
+}
+
 /// `frame` with each of `lit` drawn from its sprite to show: of its draws
 /// (those of its canvas), each from another of its sprites is drawn from
 /// that one instead. `sources` resolves sprites to the image regions the
@@ -65,6 +86,16 @@ mod tests {
         let mut all = vec![image(0)];
         all.extend(draws);
         Frame { draws: all, form_draws: vec![(7, 0..1), (CANVAS, 1..n + 1)], ..Default::default() }
+    }
+
+    #[test]
+    fn every_commands_art_in_every_state_is_drawn_as_a_shown_order_button() {
+        // No order button drawn yet: nothing to go by.
+        assert_eq!(all_states(&frame(vec![]), &[0xB0_0000], &[1, 2, 3, 9], sources), None);
+        // One drawn: each known image as that button draws, in its region
+        // (9, unknown, left out).
+        let draws = all_states(&frame(vec![image(0)]), &[0xB0_0000, BUTTON], &[1, 2, 3, 9], sources).unwrap();
+        assert_eq!(draws, [image(0), image(32), image(64)]);
     }
 
     #[test]

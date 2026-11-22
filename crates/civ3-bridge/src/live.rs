@@ -742,6 +742,13 @@ fn publish(
     let mut round_began: Option<std::time::Instant> = None;
     // Since when the screen shows without some of its art (still loading).
     let mut partial_since: Option<std::time::Instant> = None;
+    // The last interface whose art was complete, shown while a newer one's
+    // art is made (`crate::interface_hold`).
+    let mut interface_hold = crate::interface_hold::InterfaceHold::default();
+    // Every command's order button in every state, as items: made ahead
+    // of any hover (`crate::lit_orders::all_states`; once an order button
+    // is drawn).
+    let mut order_states: Option<Vec<ui_screen::Item>> = None;
     // Holds a scene back while its interface's art is coming.
     let mut partial_reported = false;
     // Visible art missing that `art_retry` asks for again (a static screen
@@ -1732,6 +1739,19 @@ fn publish(
         mark(&mut profile, "ui items: commands and look states", &mut t);
         let looks_items = |draws: &[crate::ui::ScreenDraw]| ui_screen::items(&crate::ui::Frame { draws: draws.to_vec(), ..Default::default() }, files.roots(), generated, unit_colors);
         let mut looks_art = false;
+        if order_states.as_ref().is_none_or(Vec::is_empty) {
+            if let (Some(f), Some(sites)) = (ui.as_ref(), civ3_sys::controls::sites(game.build)) {
+                let buttons = civ3_sys::lit_orders::order_buttons(sites.main_gui);
+                let images = civ3_sys::lit_orders::order_images(sites.main_gui);
+                order_states = crate::lit_orders::all_states(f, &buttons, &images, |s| sources.get(s)).map(|draws| looks_items(&draws));
+                if let Some(items) = &order_states {
+                    log::info!("order buttons: {} images of every command and state made ahead", items.len());
+                }
+            }
+        }
+        if let Some(items) = &order_states {
+            looks_art |= ui_screen::add_present_art(items, &mut screen_art, &mut fonts, &files, &mut absent_art);
+        }
         for (_, draws) in control_looks.iter().flat_map(|c| &c.states) {
             looks_art |= ui_screen::add_present_art(&looks_items(draws), &mut screen_art, &mut fonts, &files, &mut absent_art);
         }
@@ -1971,7 +1991,12 @@ fn publish(
         // Asset readiness drives retries and diagnostics, not UI publication.
         let size = input.game_window().and_then(|w| w.client_size()).unwrap_or(input.viewport);
         let visible = mandatory.clone().filter(|i| !absent_art.covers(i));
-        match ui_screen::publication(visible.clone(), &fonts, &compiled, schedule.screen_pending(), size) {
+        let publication = ui_screen::publication(visible.clone(), &fonts, &compiled, schedule.screen_pending(), size);
+        let (art_complete, art_pending) = match publication {
+            ui_screen::Publication::Complete => (true, false),
+            ui_screen::Publication::Partial { pending } => (false, pending),
+        };
+        match publication {
             ui_screen::Publication::Partial { pending } => {
                 if partial_since.is_none() {
                     partial_since = Some(std::time::Instant::now());
@@ -2347,6 +2372,11 @@ fn publish(
         // (Read while the game quit: never shown.)
         if crate::session_end::SESSION.ending() {
             continue;
+        }
+        // Never an interface with art not made yet: the last complete one
+        // meanwhile, for a moment (`crate::interface_hold`).
+        if interface_hold.apply(&mut scene, art_complete, art_pending, std::time::Instant::now()) {
+            log::debug!("scene: the last complete interface kept while the new one's art is made");
         }
         // Held back while the renderer is busy: publish again next time.
         let published = presenter.publish(scene);
