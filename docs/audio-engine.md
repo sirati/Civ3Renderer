@@ -376,15 +376,23 @@ Disassembly and numerical equality captures against the original 2003
     - `amb`: `.amb` container + SMF parser and sample-accurate sequencer.
     - `mixer`: deterministic 44100 Hz stereo `f64` `AudioEngine` with
       `render_frames` used identically by live playback and offline tests.
-    - `output`: lock-free native audio thread (`handoff::Mailbox` command queue,
-      wait-free atomic `is_playing` state table, `#![forbid(unsafe_code)]`
-      65,536-sample `AtomicU32` SPSC ring buffer with 120 ms target buffer
-      feeding the real-time `cpal` callback, optional `rubato` host-rate
-      conversion, ~45 ms ALSA period (`BufferSize::Fixed` with `Default`
-      fallback) on Linux to prevent PipeWire-ALSA 2-period xruns under heavy
-      load, lock-free stream error rate-limiting, graceful headless/silent
-      fallback if no host audio device is present, and optional
-      `CIV3R_AUDIO_DUMP` WAV capture).
+    - `output`: lock-free single-threaded async native audio engine (`tokio`
+      `current_thread` runtime on `civ3r-native-audio`, zero `thread::sleep` /
+      `park_timeout`, woken immediately by `tokio::sync::mpsc` unbounded pushes;
+      dedicated `civ3r-native-audio-decode` background decoder thread so disk
+      I/O and `symphonia` decoding stall neither the game thread nor the mixer;
+      caller-side atomic handle allocation and fire-and-forget hot paths for
+      `CreateSound`, `Play`, `PlayInstance`, `Load`, `PlaylistQueueTrack`, and
+      all setters/fades; recycled double-buffered atomic `StatusSnapshot`
+      (`handoff::Latest`) flipped only on discrete state changes so `QueryState`
+      computes `is_playing` and `get_position_ms` purely from the host monotonic
+      clock; `#![forbid(unsafe_code)]` 65,536-sample `AtomicU32` SPSC ring
+      buffer with 120 ms target buffer feeding the real-time `cpal` callback,
+      optional `rubato` host-rate conversion, ~45 ms ALSA period
+      (`BufferSize::Fixed` with `Default` fallback) on Linux to prevent
+      PipeWire-ALSA 2-period xruns under heavy load, lock-free stream error
+      rate-limiting, graceful headless/silent fallback if no host audio device
+      is present, and optional `CIV3R_AUDIO_DUMP` WAV capture).
 - **`crates/civ3r-native`**:
   - Adds `CALL_AUDIO = 9` and `LIMIT_AUDIO = 16` (`AudioCall` struct) to
     `unix_call_table!`.

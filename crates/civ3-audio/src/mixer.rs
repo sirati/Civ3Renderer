@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::amb::{parse_amb, AmbAction, AmbSequencer, ResolvedProgram};
+use crate::amb::{parse_amb, AmbAction, AmbScript, AmbSequencer, ResolvedProgram};
 use crate::decoder::{decode_wav_file, DecodedWav, StreamDecoder};
 use crate::dsp::{
     clamp_i16, ds_pan_gains, ds_volume_gain, pitch_ratio_from_cents, sw_pan_gains,
@@ -48,6 +48,256 @@ pub const SNDERR_INVALID_FORMAT: u32 = 0x12;
 pub const SNDERR_NO_OBJECT: u32 = 0x13;
 pub const SNDERR_UNLOADED: u32 = 0x14;
 pub const SNDERR_EMPTY_SLOT: u32 = 0x24;
+
+/// Converts a 44100 Hz frame count to microseconds.
+#[inline]
+fn mix_frames_to_us(frames: f64) -> u64 {
+    if frames <= 0.0 || !frames.is_finite() {
+        return 0;
+    }
+    ((frames * 1_000_000.0) / f64::from(MIX_SAMPLE_RATE)).ceil() as u64
+}
+
+/// Immutable per-handle playback status record stored in the double-buffered
+/// atomic snapshot so the game thread computes `is_playing` and
+/// `get_position_ms` purely from the monotonic computer clock without waiting
+/// on the audio thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HandleStatus {
+    pub kind: SoundKind,
+    /// Static `QueryState` flags (`STATE_LOADED`, `STATE_LOOPING`,
+    /// `STATE_DS_BUFFER`, `STATE_PLAYLIST_HAS_QUEUED`).
+    pub state_flags: u32,
+    /// Accumulated `WaveSound` flags (`0x01`, `0x02`, `0x04`, `0x100`, ...)
+    /// used by caller-side `Load` validation.
+    pub wave_flags: u32,
+    /// Known sample/stream duration in milliseconds.
+    pub duration_ms: u32,
+    /// Whether the handle is currently active (playing or paused mid-play).
+    pub playing: bool,
+    /// Whether stream playback is individually paused (`Op::Pause`).
+    pub paused: bool,
+    /// Whether playback loops indefinitely.
+    pub looping: bool,
+    /// Whether `QueryState` reports stream position in `extra2`.
+    pub report_position: bool,
+    /// Monotonic timestamp (µs since runtime epoch) when `base_pos_ms` was anchored.
+    pub anchor_us: u64,
+    /// Stream position in ms at `anchor_us`.
+    pub base_pos_ms: u32,
+    /// Absolute monotonic timestamp (µs since runtime epoch) at which playback
+    /// naturally stops (one-shot WAV EOF, non-looping stream EOF, or fade-out
+    /// hitting zero). `u64::MAX` means open-ended (looping, unknown duration,
+    /// or `.amb` sequencer whose end is driven by engine events).
+    pub stop_at_us: u64,
+}
+
+impl HandleStatus {
+    pub fn new(kind: SoundKind) -> Self {
+        Self {
+            kind,
+            state_flags: 0,
+            wave_flags: 0,
+            duration_ms: 0,
+            playing: false,
+            paused: false,
+            looping: false,
+            report_position: false,
+            anchor_us: 0,
+            base_pos_ms: 0,
+            stop_at_us: 0,
+        }
+    }
+
+    /// Projects `QueryState` at host monotonic timestamp `now_us`.
+    pub fn project(
+        &self,
+        now_us: u64,
+        global_paused: bool,
+        global_paused_at_us: u64,
+    ) -> Response {
+        let eff_now_us = if global_paused { now_us.min(global_paused_at_us) } else { now_us };
+        let is_playing = self.playing && (self.paused || eff_now_us < self.stop_at_us);
+        let mut bits = self.state_flags;
+        if is_playing {
+            bits |= STATE_PLAYING;
+        }
+        let pos_ms = if !self.report_position {
+            0
+        } else if !self.playing || self.paused {
+            self.base_pos_ms
+        } else {
+            let elapsed_ms = (eff_now_us.saturating_sub(self.anchor_us) / 1000) as u32;
+            let raw = self.base_pos_ms.saturating_add(elapsed_ms);
+            if self.duration_ms > 0 {
+                if self.looping {
+                    raw % self.duration_ms
+                } else {
+                    raw.min(self.duration_ms)
+                }
+            } else {
+                raw
+            }
+        };
+        Response { snderr: SNDERR_OK, value: bits, extra1: self.duration_ms, extra2: pos_ms }
+    }
+}
+
+/// What kind of asset to decode on the background decoder thread.
+#[derive(Clone, Debug)]
+pub enum DecodeKind {
+    WavePreload,
+    WaveStream,
+    Amb { flags_58: u32 },
+}
+
+/// Request sent from the audio thread to the background decoder thread so heavy
+/// disk I/O and `symphonia` decoding never block the game thread or stall mixing.
+#[derive(Clone, Debug)]
+pub struct DecodeJob {
+    pub handle: SoundHandle,
+    pub load_gen: u64,
+    pub host_path: PathBuf,
+    pub kind: DecodeKind,
+}
+
+/// Decoded asset returned by the background decoder thread to the audio thread.
+pub enum DecodedPayload {
+    Wav {
+        canonical_path: PathBuf,
+        wav: Arc<DecodedWav>,
+    },
+    Stream(StreamDecoder),
+    Amb {
+        script: AmbScript,
+        resolved_programs: Vec<ResolvedProgram>,
+        child_wavs: Vec<(PathBuf, Arc<DecodedWav>)>,
+        root_notes: Vec<u8>,
+        flags_58: u32,
+    },
+}
+
+/// Completed background decode ready to install on the audio thread.
+pub struct DecodedResult {
+    pub handle: SoundHandle,
+    pub load_gen: u64,
+    pub payload: Result<DecodedPayload, u32>,
+}
+
+fn decode_cached_wav_with_cache(
+    path: &Path,
+    wav_cache: &mut HashMap<PathBuf, Arc<DecodedWav>>,
+) -> Result<(PathBuf, Arc<DecodedWav>), u32> {
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Some(cached) = wav_cache.get(&key) {
+        return Ok((key, cached.clone()));
+    }
+    let decoded = decode_wav_file(&key).map_err(|e| {
+        log::warn!("civ3-audio: failed decoding WAV {}: {e}", key.display());
+        SNDERR_INVALID_FORMAT
+    })?;
+    let arc = Arc::new(decoded);
+    if wav_cache.len() < 2048 {
+        wav_cache.insert(key.clone(), arc.clone());
+    }
+    Ok((key, arc))
+}
+
+/// Executes one [`DecodeJob`] on the background decoder thread using its own
+/// private decoded-WAV cache (no shared locks).
+pub fn execute_decode_job(
+    job: DecodeJob,
+    wav_cache: &mut HashMap<PathBuf, Arc<DecodedWav>>,
+) -> DecodedResult {
+    let payload = match job.kind {
+        DecodeKind::WavePreload => {
+            decode_cached_wav_with_cache(&job.host_path, wav_cache)
+                .map(|(canonical_path, wav)| DecodedPayload::Wav { canonical_path, wav })
+        }
+        DecodeKind::WaveStream => StreamDecoder::open(&job.host_path)
+            .map(DecodedPayload::Stream)
+            .map_err(|e| {
+                log::warn!("civ3-audio: stream open failed for {}: {e}", job.host_path.display());
+                SNDERR_INVALID_FORMAT
+            }),
+        DecodeKind::Amb { flags_58 } => decode_amb_assets(&job.host_path, flags_58, wav_cache),
+    };
+    DecodedResult { handle: job.handle, load_gen: job.load_gen, payload }
+}
+
+fn decode_amb_assets(
+    amb_path: &Path,
+    flags_58: u32,
+    wav_cache: &mut HashMap<PathBuf, Arc<DecodedWav>>,
+) -> Result<DecodedPayload, u32> {
+    let bytes = std::fs::read(amb_path).map_err(|_| SNDERR_FILE_OPEN)?;
+    let script = parse_amb(&bytes).map_err(|e| {
+        log::warn!("civ3-audio: failed parsing .amb {}: {e}", amb_path.display());
+        SNDERR_INVALID_FORMAT
+    })?;
+
+    let relative = (flags_58 & 1) != 0;
+    let mut child_wavs: Vec<(PathBuf, Arc<DecodedWav>)> = Vec::new();
+    let mut root_notes: Vec<u8> = Vec::new();
+    let mut wav_index_by_path: HashMap<PathBuf, usize> = HashMap::new();
+    let mut resolved_programs: Vec<ResolvedProgram> = Vec::new();
+
+    for prgm in &script.programs {
+        let kmap = script
+            .keymaps
+            .iter()
+            .find(|k| k.name == prgm.keymap_name)
+            .or_else(|| {
+                script
+                    .keymaps
+                    .iter()
+                    .find(|k| k.name.eq_ignore_ascii_case(&prgm.keymap_name))
+            });
+        let mut note_map = [None; 128];
+        let mut all_wavs = Vec::new();
+        let (kmap_flags, release_ms) = if let Some(km) = kmap {
+            for entry in &km.entries {
+                if let Some(wp) = resolve_amb_wav(amb_path, &entry.wav_name, relative) {
+                    let idx = if let Some(&existing) = wav_index_by_path.get(&wp) {
+                        existing
+                    } else if let Ok((canon, wav)) = decode_cached_wav_with_cache(&wp, wav_cache) {
+                        let idx = child_wavs.len();
+                        root_notes.push(wav.root_note);
+                        child_wavs.push((canon, wav));
+                        wav_index_by_path.insert(wp, idx);
+                        idx
+                    } else {
+                        continue;
+                    };
+                    all_wavs.push(idx);
+                    let lo = entry.low_note.min(entry.high_note) as usize;
+                    let hi = entry.high_note.max(entry.low_note).min(127) as usize;
+                    for slot in &mut note_map[lo..=hi] {
+                        *slot = Some(idx);
+                    }
+                }
+            }
+            (km.flags, km.release_ms)
+        } else {
+            (0, 250)
+        };
+
+        resolved_programs.push(ResolvedProgram {
+            id: prgm.id,
+            flags: prgm.flags,
+            pitch_min: prgm.pitch_min,
+            pitch_max: prgm.pitch_max,
+            vol_min: prgm.vol_min,
+            vol_max: prgm.vol_max,
+            kmap_flags,
+            release_ms,
+            note_map,
+            all_wavs,
+        });
+    }
+
+    Ok(DecodedPayload::Amb { script, resolved_programs, child_wavs, root_notes, flags_58 })
+}
 
 #[derive(Clone, Debug)]
 struct FadeState {
@@ -269,6 +519,7 @@ impl StreamState {
 }
 
 struct WaveObject {
+    kind: SoundKind,
     flags: u32,
     volume: i32,
     pan: i32,
@@ -278,13 +529,30 @@ struct WaveObject {
     fade_in_ms: u32,
     wav: Option<Arc<DecodedWav>>,
     stream: Option<StreamState>,
-    /// Set when `fade_out` was requested on a SW-mixed sound.
+    /// Set when `fade_out` was requested on a SW-mixed sound (or before async stream open completes).
     active_fade: Option<FadeState>,
+    /// Generation counter bumped on every load/unload so stale background decodes are ignored.
+    load_gen: u64,
+    /// Active in-flight background decode generation (if any).
+    loading_gen: Option<u64>,
+    /// Set if `Play` arrived while an async background decode was still in flight.
+    pending_play: bool,
+    /// Whether the in-flight async load will open a streaming decoder (`STATE_DS_BUFFER`).
+    pending_is_stream: bool,
+    /// Header-probed duration (ms) available immediately before background decode completes.
+    probed_duration_ms: u32,
+    /// Deferred seek requested while async stream open was still in flight.
+    pending_seek_ms: Option<u32>,
+    /// Deferred next playlist track chained while current stream open was still in flight.
+    chained_next_pending: Option<SoundHandle>,
+    /// Owning playlist handle recorded before async stream open completes.
+    playlist_owner_pending: Option<SoundHandle>,
 }
 
 impl WaveObject {
-    fn new() -> Self {
+    fn new(kind: SoundKind) -> Self {
         Self {
+            kind,
             flags: 0,
             volume: 127,
             pan: 0,
@@ -295,22 +563,33 @@ impl WaveObject {
             wav: None,
             stream: None,
             active_fade: None,
+            load_gen: 0,
+            loading_gen: None,
+            pending_play: false,
+            pending_is_stream: false,
+            probed_duration_ms: 0,
+            pending_seek_ms: None,
+            chained_next_pending: None,
+            playlist_owner_pending: None,
         }
     }
 
     fn is_ds_stream(&self) -> bool {
-        self.stream.is_some()
+        self.stream.is_some() || (self.loading_gen.is_some() && self.pending_is_stream)
     }
 
     fn is_loaded(&self) -> bool {
-        self.wav.is_some() || self.stream.is_some()
+        self.wav.is_some() || self.stream.is_some() || self.loading_gen.is_some()
     }
 
     fn duration_ms(&self) -> u32 {
         if let Some(w) = &self.wav {
             w.duration_ms()
         } else if let Some(s) = &self.stream {
-            s.decoder.duration_ms()
+            let d = s.decoder.duration_ms();
+            if d > 0 { d } else { self.probed_duration_ms }
+        } else if self.loading_gen.is_some() {
+            self.probed_duration_ms
         } else {
             0
         }
@@ -319,9 +598,18 @@ impl WaveObject {
     fn position_ms(&self) -> u32 {
         if let Some(s) = &self.stream {
             s.decoder.position_ms()
+        } else if self.loading_gen.is_some() {
+            self.pending_seek_ms.unwrap_or(0)
         } else {
             0
         }
+    }
+
+    fn playlist_owner(&self) -> Option<SoundHandle> {
+        self.stream
+            .as_ref()
+            .and_then(|s| s.playlist_owner)
+            .or(self.playlist_owner_pending)
     }
 }
 
@@ -334,6 +622,10 @@ struct AmbObject {
     volume: i32,
     pan: i32,
     looping: bool,
+    load_gen: u64,
+    loading_gen: Option<u64>,
+    pending_play: bool,
+    pending_anim_frame: Option<(u32, u32, u32)>,
 }
 
 impl AmbObject {
@@ -347,6 +639,10 @@ impl AmbObject {
             volume: 127,
             pan: 0,
             looping: false,
+            load_gen: 0,
+            loading_gen: None,
+            pending_play: false,
+            pending_anim_frame: None,
         }
     }
 }
@@ -368,7 +664,7 @@ enum SoundSlot {
     Wave(WaveObject),
     Amb(AmbObject),
     Playlist(PlaylistObject),
-    Stub,
+    Stub(SoundKind),
 }
 
 /// Optional WAV file capture writer (matches `WaveDevice::slot 21/22` and
@@ -445,6 +741,7 @@ pub fn make_wav_header(sample_rate: u32, channels: u16, data_bytes: u32) -> [u8;
 /// Core deterministic Civ3 audio engine.
 pub struct AudioEngine {
     next_handle: SoundHandle,
+    next_internal_handle: SoundHandle,
     sounds: HashMap<SoundHandle, SoundSlot>,
     sw_voices: Vec<SwVoice>,
     /// Cache of decoded short WAVs keyed by canonical host path so repeated
@@ -461,12 +758,19 @@ pub struct AudioEngine {
     recorder: Option<WavRecorder>,
     /// Monotonic 44100 Hz frame clock used for deterministic voice deduplication.
     total_frames_rendered: u64,
+    /// Handles whose playback/load status changed since the last snapshot flip.
+    dirty_handles: Vec<SoundHandle>,
+    /// Set when global pause/close changed and all live handles should refresh.
+    global_dirty: bool,
+    /// Set on `ReleaseAll` to wipe the snapshot completely.
+    clear_all_dirty: bool,
 }
 
 impl AudioEngine {
     pub fn new() -> Self {
         Self {
             next_handle: 1,
+            next_internal_handle: 0x8000_0001,
             sounds: HashMap::new(),
             sw_voices: Vec::with_capacity(64),
             wav_cache: HashMap::new(),
@@ -480,7 +784,57 @@ impl AudioEngine {
             amb_actions_scratch: Vec::with_capacity(32),
             recorder: None,
             total_frames_rendered: 0,
+            dirty_handles: Vec::with_capacity(16),
+            global_dirty: false,
+            clear_all_dirty: false,
         }
+    }
+
+    #[inline]
+    fn mark_dirty(&mut self, handle: SoundHandle) {
+        if handle != 0 {
+            self.dirty_handles.push(handle);
+        }
+    }
+
+    /// Returns whether any sound status or global pause state changed since the
+    /// last call to [`Self::take_dirty_state`].
+    #[inline]
+    pub fn has_dirty(&self) -> bool {
+        self.clear_all_dirty || self.global_dirty || !self.dirty_handles.is_empty()
+    }
+
+    /// Drains pending snapshot dirty flags: `(clear_all, global_refresh, handles)`.
+    pub fn take_dirty_state(&mut self) -> (bool, bool, Vec<SoundHandle>) {
+        let clear = std::mem::take(&mut self.clear_all_dirty);
+        let global = std::mem::take(&mut self.global_dirty);
+        let handles = std::mem::take(&mut self.dirty_handles);
+        (clear, global, handles)
+    }
+
+    pub fn is_wave_paused(&self) -> bool {
+        self.wave_paused
+    }
+
+    fn alloc_internal_handle(&mut self) -> SoundHandle {
+        let h = self.next_internal_handle;
+        let next = self.next_internal_handle.wrapping_add(1);
+        self.next_internal_handle = if (next & 0x8000_0000) == 0 || next == 0x8000_0000 {
+            0x8000_0001
+        } else {
+            next
+        };
+        h
+    }
+
+    fn canonicalize_wav_arc(&mut self, canonical_path: PathBuf, wav: Arc<DecodedWav>) -> Arc<DecodedWav> {
+        if let Some(existing) = self.wav_cache.get(&canonical_path) {
+            return existing.clone();
+        }
+        if self.wav_cache.len() < 2048 {
+            self.wav_cache.insert(canonical_path, wav.clone());
+        }
+        wav
     }
 
     /// Sets an explicit base directory for resolving relative game paths
@@ -546,22 +900,478 @@ impl AudioEngine {
     }
 
     /// Returns whether `handle` is currently playing (SW voice, active stream,
-    /// active `.amb` sequencer, or active playlist track).
+    /// active `.amb` sequencer, active playlist track, or pending play while an
+    /// async decode finishes).
     pub fn is_playing(&self, handle: SoundHandle) -> bool {
         match self.sounds.get(&handle) {
             Some(SoundSlot::Wave(w)) => {
                 if let Some(s) = &w.stream {
                     s.playing
+                } else if w.loading_gen.is_some() {
+                    w.pending_play
                 } else {
                     self.sw_voices.iter().any(|v| v.owner == handle)
                 }
             }
             Some(SoundSlot::Amb(a)) => {
-                a.sequencer.as_ref().is_some_and(|s| s.playing)
+                a.pending_play
+                    || a.sequencer.as_ref().is_some_and(|s| s.playing)
                     || self.sw_voices.iter().any(|v| v.owner == handle)
             }
             Some(SoundSlot::Playlist(p)) => p.current.is_some_and(|h| self.is_playing(h)),
             _ => false,
+        }
+    }
+
+    fn voice_end_us(v: &SwVoice, now_us: u64) -> u64 {
+        let fade_end_us = match &v.fade {
+            Some(f) if f.stop_at_zero && f.step_per_frame < 0.0 => {
+                let rem = ((f.current - f.target) / -f.step_per_frame).max(0.0);
+                now_us.saturating_add(mix_frames_to_us(rem))
+            }
+            _ => u64::MAX,
+        };
+        let eof_end_us = if v.looping {
+            u64::MAX
+        } else {
+            let total = v.wav.frame_count() as f64;
+            let rem_src = (total - v.pos).max(0.0);
+            let rem_mix = rem_src / v.step.max(1e-9);
+            now_us.saturating_add(mix_frames_to_us(rem_mix))
+        };
+        fade_end_us.min(eof_end_us)
+    }
+
+    /// Computes a self-contained, clock-projectable [`HandleStatus`] for `handle`
+    /// at monotonic timestamp `now_us`.
+    pub fn snapshot_handle(&self, handle: SoundHandle, now_us: u64) -> Option<HandleStatus> {
+        let slot = self.sounds.get(&handle)?;
+        let st = match slot {
+            SoundSlot::Wave(w) => {
+                let mut state_flags = 0u32;
+                if w.is_loaded() {
+                    state_flags |= STATE_LOADED;
+                }
+                if w.looping {
+                    state_flags |= STATE_LOOPING;
+                }
+                if w.is_ds_stream() {
+                    state_flags |= STATE_DS_BUFFER;
+                }
+                let duration_ms = w.duration_ms();
+                if let Some(s) = &w.stream {
+                    let looping = s.looping && s.chained_next.is_none();
+                    let base_pos_ms = s.decoder.position_ms();
+                    let stop_at_us = if !s.playing {
+                        0
+                    } else if s.paused {
+                        u64::MAX
+                    } else {
+                        let fade_end_us = match &s.fade {
+                            Some(f) if f.stop_at_zero && f.step_per_frame < 0.0 => {
+                                let rem = ((f.current - f.target) / -f.step_per_frame).max(0.0);
+                                now_us.saturating_add(mix_frames_to_us(rem))
+                            }
+                            _ => u64::MAX,
+                        };
+                        let eof_end_us = if !looping && duration_ms > 0 && s.chained_next.is_none() {
+                            let rem_ms = duration_ms.saturating_sub(base_pos_ms);
+                            now_us.saturating_add(u64::from(rem_ms).saturating_mul(1000))
+                        } else {
+                            u64::MAX
+                        };
+                        fade_end_us.min(eof_end_us)
+                    };
+                    HandleStatus {
+                        kind: w.kind,
+                        state_flags,
+                        wave_flags: w.flags,
+                        duration_ms,
+                        playing: s.playing,
+                        paused: s.paused,
+                        looping,
+                        report_position: true,
+                        anchor_us: now_us,
+                        base_pos_ms,
+                        stop_at_us,
+                    }
+                } else if w.loading_gen.is_some() {
+                    let base_pos_ms = w.pending_seek_ms.unwrap_or(0);
+                    let stop_at_us = if !w.pending_play {
+                        0
+                    } else if w.looping || duration_ms == 0 {
+                        u64::MAX
+                    } else {
+                        let rem_ms = duration_ms.saturating_sub(base_pos_ms);
+                        now_us.saturating_add(u64::from(rem_ms).saturating_mul(1000))
+                    };
+                    HandleStatus {
+                        kind: w.kind,
+                        state_flags,
+                        wave_flags: w.flags,
+                        duration_ms,
+                        playing: w.pending_play,
+                        paused: false,
+                        looping: w.looping,
+                        report_position: w.pending_is_stream,
+                        anchor_us: now_us,
+                        base_pos_ms,
+                        stop_at_us,
+                    }
+                } else {
+                    let mut any_voice = false;
+                    let mut max_end_us = 0u64;
+                    for v in &self.sw_voices {
+                        if v.owner == handle {
+                            any_voice = true;
+                            max_end_us = max_end_us.max(Self::voice_end_us(v, now_us));
+                        }
+                    }
+                    HandleStatus {
+                        kind: w.kind,
+                        state_flags,
+                        wave_flags: w.flags,
+                        duration_ms,
+                        playing: any_voice,
+                        paused: false,
+                        looping: w.looping,
+                        report_position: false,
+                        anchor_us: now_us,
+                        base_pos_ms: 0,
+                        stop_at_us: if any_voice { max_end_us } else { 0 },
+                    }
+                }
+            }
+            SoundSlot::Amb(a) => {
+                let mut state_flags = 0u32;
+                if a.sequencer.is_some() || a.loading_gen.is_some() {
+                    state_flags |= STATE_LOADED;
+                }
+                if a.looping {
+                    state_flags |= STATE_LOOPING;
+                }
+                let seq_playing = a.pending_play || a.sequencer.as_ref().is_some_and(|s| s.playing);
+                let (playing, stop_at_us) = if seq_playing {
+                    (true, u64::MAX)
+                } else {
+                    let mut any_voice = false;
+                    let mut max_end_us = 0u64;
+                    for v in &self.sw_voices {
+                        if v.owner == handle {
+                            any_voice = true;
+                            max_end_us = max_end_us.max(Self::voice_end_us(v, now_us));
+                        }
+                    }
+                    (any_voice, if any_voice { max_end_us } else { 0 })
+                };
+                HandleStatus {
+                    kind: SoundKind::Amb,
+                    state_flags,
+                    wave_flags: a.flags_58,
+                    duration_ms: 0,
+                    playing,
+                    paused: false,
+                    looping: a.looping,
+                    report_position: false,
+                    anchor_us: now_us,
+                    base_pos_ms: 0,
+                    stop_at_us,
+                }
+            }
+            SoundSlot::Playlist(p) => {
+                let mut state_flags = 0u32;
+                if p.current.is_some() || p.queued.is_some() {
+                    state_flags |= STATE_LOADED;
+                }
+                if p.queued.is_some() {
+                    state_flags |= STATE_PLAYLIST_HAS_QUEUED;
+                }
+                if let Some(cur) = p.current.and_then(|h| self.snapshot_handle(h, now_us)) {
+                    HandleStatus {
+                        kind: SoundKind::Playlist,
+                        state_flags,
+                        wave_flags: 0,
+                        duration_ms: cur.duration_ms,
+                        playing: cur.playing,
+                        paused: cur.paused,
+                        looping: cur.looping,
+                        report_position: cur.report_position,
+                        anchor_us: cur.anchor_us,
+                        base_pos_ms: cur.base_pos_ms,
+                        stop_at_us: cur.stop_at_us,
+                    }
+                } else {
+                    HandleStatus {
+                        kind: SoundKind::Playlist,
+                        state_flags,
+                        wave_flags: 0,
+                        duration_ms: 0,
+                        playing: false,
+                        paused: false,
+                        looping: false,
+                        report_position: false,
+                        anchor_us: now_us,
+                        base_pos_ms: 0,
+                        stop_at_us: 0,
+                    }
+                }
+            }
+            SoundSlot::Stub(kind) => HandleStatus::new(*kind),
+        };
+        Some(st)
+    }
+
+    /// Snapshots all live handles (used on rare global events like `WavePause`/`WaveResume`).
+    pub fn snapshot_all_handles(&self, now_us: u64) -> Vec<(SoundHandle, HandleStatus)> {
+        self.sounds
+            .keys()
+            .filter_map(|&h| self.snapshot_handle(h, now_us).map(|st| (h, st)))
+            .collect()
+    }
+
+    /// Starts an asynchronous load on `handle` without touching disk on the
+    /// mixer thread. Returns `None` on an instant `wav_cache` hit, or
+    /// `Some(DecodeJob)` to hand to the background decoder thread.
+    pub fn begin_async_load(
+        &mut self,
+        handle: SoundHandle,
+        load_gen: u64,
+        host_path: PathBuf,
+        extra_flags: u32,
+        want_stream: bool,
+        probed_duration_ms: u32,
+    ) -> Option<DecodeJob> {
+        self.sw_voices.retain(|v| v.owner != handle);
+        match self.sounds.get_mut(&handle) {
+            Some(SoundSlot::Amb(a)) => {
+                a.flags_58 |= extra_flags;
+                let flags_58 = a.flags_58;
+                a.sequencer = None;
+                a.child_wavs.clear();
+                a.root_notes.clear();
+                a.load_gen = load_gen;
+                a.loading_gen = Some(load_gen);
+                a.pending_play = false;
+                a.pending_anim_frame = None;
+                self.mark_dirty(handle);
+                Some(DecodeJob {
+                    handle,
+                    load_gen,
+                    host_path,
+                    kind: DecodeKind::Amb { flags_58 },
+                })
+            }
+            Some(SoundSlot::Wave(w)) => {
+                w.flags |= extra_flags;
+                if (extra_flags & 2) != 0 {
+                    w.looping = true;
+                }
+                w.load_gen = load_gen;
+                w.pending_play = false;
+                w.pending_seek_ms = None;
+                w.active_fade = None;
+                w.probed_duration_ms = probed_duration_ms;
+                w.pending_is_stream = want_stream;
+                if !want_stream {
+                    // Instant hit if this canonical path is already decoded in memory.
+                    let key = std::fs::canonicalize(&host_path)
+                        .unwrap_or_else(|_| host_path.clone());
+                    if let Some(cached) = self.wav_cache.get(&key).cloned() {
+                        if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&handle) {
+                            w.stream = None;
+                            w.wav = Some(cached);
+                            w.loading_gen = None;
+                        }
+                        self.mark_dirty(handle);
+                        return None;
+                    }
+                }
+                if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&handle) {
+                    w.wav = None;
+                    w.stream = None;
+                    w.loading_gen = Some(load_gen);
+                }
+                self.mark_dirty(handle);
+                Some(DecodeJob {
+                    handle,
+                    load_gen,
+                    host_path,
+                    kind: if want_stream {
+                        DecodeKind::WaveStream
+                    } else {
+                        DecodeKind::WavePreload
+                    },
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Starts an asynchronous streaming track load for a Type 8 `MusicPlaylist`.
+    pub fn begin_async_playlist_queue(
+        &mut self,
+        pl_handle: SoundHandle,
+        track_handle: SoundHandle,
+        load_gen: u64,
+        host_path: PathBuf,
+        probed_duration_ms: u32,
+    ) -> Option<DecodeJob> {
+        let (cur_handle, scaled_vol) = match self.sounds.get(&pl_handle) {
+            Some(SoundSlot::Playlist(p)) if p.queued.is_none() => (p.current, p.scaled_volume),
+            _ => return None,
+        };
+
+        let mut w = WaveObject::new(SoundKind::Wave);
+        w.flags = 0x102;
+        w.looping = true;
+        w.volume = scaled_vol;
+        w.load_gen = load_gen;
+        w.loading_gen = Some(load_gen);
+        w.pending_is_stream = true;
+        w.probed_duration_ms = probed_duration_ms;
+        w.playlist_owner_pending = Some(pl_handle);
+        self.sounds.insert(track_handle, SoundSlot::Wave(w));
+
+        if let Some(SoundSlot::Playlist(p)) = self.sounds.get_mut(&pl_handle) {
+            p.queued = Some(track_handle);
+        }
+        if let Some(cur) = cur_handle {
+            if let Some(SoundSlot::Wave(cw)) = self.sounds.get_mut(&cur) {
+                if let Some(cst) = &mut cw.stream {
+                    cst.chained_next = Some(track_handle);
+                } else {
+                    cw.chained_next_pending = Some(track_handle);
+                }
+            }
+            self.mark_dirty(cur);
+        }
+        self.mark_dirty(track_handle);
+        self.mark_dirty(pl_handle);
+        Some(DecodeJob {
+            handle: track_handle,
+            load_gen,
+            host_path,
+            kind: DecodeKind::WaveStream,
+        })
+    }
+
+    /// Installs a completed background [`DecodedResult`] onto the mixer thread,
+    /// discarding stale generations and kicking off any `pending_play` immediately.
+    pub fn finish_async_decode(&mut self, result: DecodedResult) {
+        let handle = result.handle;
+        match result.payload {
+            Ok(DecodedPayload::Wav { canonical_path, wav }) => {
+                let wav = self.canonicalize_wav_arc(canonical_path, wav);
+                let should_play = match self.sounds.get_mut(&handle) {
+                    Some(SoundSlot::Wave(w)) if w.load_gen == result.load_gen => {
+                        w.stream = None;
+                        w.wav = Some(wav);
+                        w.loading_gen = None;
+                        let p = w.pending_play;
+                        w.pending_play = false;
+                        p
+                    }
+                    _ => return,
+                };
+                if should_play {
+                    let _ = self.cmd_play(handle);
+                }
+                self.mark_dirty(handle);
+            }
+            Ok(DecodedPayload::Stream(mut dec)) => {
+                let (should_play, pl_owner) = match self.sounds.get_mut(&handle) {
+                    Some(SoundSlot::Wave(w)) if w.load_gen == result.load_gen => {
+                        if let Some(seek_ms) = w.pending_seek_ms.take() {
+                            dec.seek_ms(seek_ms);
+                        }
+                        let mut st = StreamState::new(dec);
+                        st.looping = w.looping;
+                        st.volume = w.volume;
+                        st.pan = w.pan;
+                        st.fade = w.active_fade.take();
+                        st.chained_next = w.chained_next_pending.take();
+                        st.playlist_owner = w.playlist_owner_pending.take();
+                        let pl = st.playlist_owner;
+                        let play_now = w.pending_play;
+                        w.pending_play = false;
+                        if play_now {
+                            st.playing = true;
+                            st.paused = false;
+                        }
+                        w.wav = None;
+                        w.stream = Some(st);
+                        w.loading_gen = None;
+                        (play_now, pl)
+                    }
+                    _ => return,
+                };
+                let _ = should_play;
+                self.mark_dirty(handle);
+                if let Some(pl) = pl_owner {
+                    self.mark_dirty(pl);
+                }
+            }
+            Ok(DecodedPayload::Amb {
+                script,
+                resolved_programs,
+                child_wavs,
+                root_notes,
+                flags_58,
+            }) => {
+                let canonical_wavs: Vec<Arc<DecodedWav>> = child_wavs
+                    .into_iter()
+                    .map(|(p, w)| self.canonicalize_wav_arc(p, w))
+                    .collect();
+                let seed = self.amb_rng_seed;
+                self.amb_rng_seed = self.amb_rng_seed.wrapping_add(1);
+                let mut seq = AmbSequencer::new(&script, resolved_programs, seed);
+                let pending_frame = match self.sounds.get_mut(&handle) {
+                    Some(SoundSlot::Amb(a)) if a.load_gen == result.load_gen => {
+                        a.flags_58 |= flags_58;
+                        seq.flags_58 = a.flags_58;
+                        seq.ms_per_frame = a.ms_per_frame;
+                        seq.volume = a.volume;
+                        seq.pan = a.pan;
+                        seq.looping = a.looping;
+                        let play_now = a.pending_play;
+                        a.pending_play = false;
+                        if play_now {
+                            seq.start();
+                        }
+                        a.sequencer = Some(seq);
+                        a.child_wavs = canonical_wavs;
+                        a.root_notes = root_notes;
+                        a.loading_gen = None;
+                        if play_now { a.pending_anim_frame.take() } else { None }
+                    }
+                    _ => return,
+                };
+                if let Some((frame, f58, mpf)) = pending_frame {
+                    self.cmd_amb_set_anim_frame(handle, frame, f58, mpf);
+                }
+                self.mark_dirty(handle);
+            }
+            Err(err) => {
+                log::warn!("civ3-audio: background decode failed for handle {handle} (err={err:#x})");
+                let pl_owner = match self.sounds.get_mut(&handle) {
+                    Some(SoundSlot::Wave(w)) if w.load_gen == result.load_gen => {
+                        w.loading_gen = None;
+                        w.pending_play = false;
+                        w.playlist_owner()
+                    }
+                    Some(SoundSlot::Amb(a)) if a.load_gen == result.load_gen => {
+                        a.loading_gen = None;
+                        a.pending_play = false;
+                        a.pending_anim_frame = None;
+                        None
+                    }
+                    _ => return,
+                };
+                self.mark_dirty(handle);
+                if let Some(pl) = pl_owner {
+                    self.mark_dirty(pl);
+                }
+            }
         }
     }
 
@@ -586,33 +1396,43 @@ impl AudioEngine {
                 self.sounds.clear();
                 self.wave_open = false;
                 self.midi_open = false;
+                self.wave_paused = false;
+                self.midi_paused = false;
                 self.stop_recording();
+                self.clear_all_dirty = true;
                 Response::default()
             }
             Op::WaveOpen => {
                 self.wave_open = true;
                 self.wave_paused = false;
+                self.global_dirty = true;
                 Response::default()
             }
             Op::WaveClose => {
                 self.sw_voices.clear();
                 for slot in self.sounds.values_mut() {
                     if let SoundSlot::Wave(w) = slot {
+                        w.pending_play = false;
                         if let Some(s) = &mut w.stream {
                             s.playing = false;
                         }
+                    } else if let SoundSlot::Amb(a) = slot {
+                        a.pending_play = false;
                     }
                 }
                 self.wave_open = false;
                 self.stop_recording();
+                self.global_dirty = true;
                 Response::default()
             }
             Op::WavePause => {
                 self.wave_paused = true;
+                self.global_dirty = true;
                 Response::default()
             }
             Op::WaveResume => {
                 self.wave_paused = false;
+                self.global_dirty = true;
                 Response::default()
             }
             Op::WaveSetMasterVolume => {
@@ -658,14 +1478,15 @@ impl AudioEngine {
 
             Op::CreateSound => {
                 let kind = SoundKind::from_u32(hdr.a as u32).unwrap_or(SoundKind::Wave);
-                let h = self.alloc_handle();
+                let h = if hdr.handle != 0 { hdr.handle } else { self.alloc_handle() };
                 let slot = match kind {
-                    SoundKind::Wave | SoundKind::Type3 => SoundSlot::Wave(WaveObject::new()),
+                    SoundKind::Wave | SoundKind::Type3 => SoundSlot::Wave(WaveObject::new(kind)),
                     SoundKind::Amb => SoundSlot::Amb(AmbObject::new()),
                     SoundKind::Playlist => SoundSlot::Playlist(PlaylistObject::new()),
-                    _ => SoundSlot::Stub,
+                    other => SoundSlot::Stub(other),
                 };
                 self.sounds.insert(h, slot);
+                self.mark_dirty(h);
                 Response { snderr: SNDERR_OK, value: h, ..Default::default() }
             }
             Op::DeleteSound => {
@@ -686,10 +1507,16 @@ impl AudioEngine {
             Op::FadeIn => self.cmd_fade_in(hdr.handle),
             Op::Fade => self.cmd_fade(hdr.handle, hdr.a, hdr.b, hdr.c),
             Op::Pause => {
+                let mut pl_owner = None;
                 if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&hdr.handle) {
                     if let Some(s) = &mut w.stream {
                         s.paused = !s.paused;
+                        pl_owner = s.playlist_owner;
                     }
+                }
+                self.mark_dirty(hdr.handle);
+                if let Some(pl) = pl_owner {
+                    self.mark_dirty(pl);
                 }
                 Response::default()
             }
@@ -719,6 +1546,7 @@ impl AudioEngine {
                             s.looping = true;
                         }
                     }
+                    self.mark_dirty(hdr.handle);
                 }
                 Response::default()
             }
@@ -735,11 +1563,21 @@ impl AudioEngine {
                 Response::default()
             }
             Op::SetPositionMs => {
+                let mut pl_owner = None;
                 if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&hdr.handle) {
+                    let ms = hdr.a.max(0) as u32;
                     if let Some(s) = &mut w.stream {
-                        s.decoder.seek_ms(hdr.a.max(0) as u32);
+                        s.decoder.seek_ms(ms);
                         s.primed = false;
+                        pl_owner = s.playlist_owner;
+                    } else if w.loading_gen.is_some() {
+                        w.pending_seek_ms = Some(ms);
+                        pl_owner = w.playlist_owner_pending;
                     }
+                }
+                self.mark_dirty(hdr.handle);
+                if let Some(pl) = pl_owner {
+                    self.mark_dirty(pl);
                 }
                 Response::default()
             }
@@ -780,7 +1618,9 @@ impl AudioEngine {
 
     fn delete_sound(&mut self, handle: SoundHandle) {
         self.sw_voices.retain(|v| v.owner != handle);
-        if let Some(SoundSlot::Playlist(p)) = self.sounds.remove(&handle) {
+        let removed = self.sounds.remove(&handle);
+        self.mark_dirty(handle);
+        if let Some(SoundSlot::Playlist(p)) = removed {
             if let Some(cur) = p.current {
                 self.delete_sound(cur);
             }
@@ -792,18 +1632,32 @@ impl AudioEngine {
 
     fn cmd_unload(&mut self, handle: SoundHandle) {
         self.sw_voices.retain(|v| v.owner != handle);
+        let mut pl_owner = None;
         match self.sounds.get_mut(&handle) {
             Some(SoundSlot::Wave(w)) => {
+                pl_owner = w.playlist_owner();
+                w.load_gen = w.load_gen.wrapping_add(1);
+                w.loading_gen = None;
+                w.pending_play = false;
+                w.pending_seek_ms = None;
                 w.wav = None;
                 w.stream = None;
                 w.active_fade = None;
             }
             Some(SoundSlot::Amb(a)) => {
+                a.load_gen = a.load_gen.wrapping_add(1);
+                a.loading_gen = None;
+                a.pending_play = false;
+                a.pending_anim_frame = None;
                 a.sequencer = None;
                 a.child_wavs.clear();
                 a.root_notes.clear();
             }
             _ => {}
+        }
+        self.mark_dirty(handle);
+        if let Some(pl) = pl_owner {
+            self.mark_dirty(pl);
         }
     }
 
@@ -839,7 +1693,9 @@ impl AudioEngine {
                         st.pan = w.pan;
                         w.wav = None;
                         w.stream = Some(st);
+                        w.loading_gen = None;
                     }
+                    self.mark_dirty(handle);
                     Response { snderr: SNDERR_OK, value: 1, extra1: dur, ..Default::default() }
                 }
                 Err(e) => {
@@ -854,7 +1710,9 @@ impl AudioEngine {
                     if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&handle) {
                         w.stream = None;
                         w.wav = Some(wav);
+                        w.loading_gen = None;
                     }
+                    self.mark_dirty(handle);
                     Response { snderr: SNDERR_OK, value: 0, extra1: dur, ..Default::default() }
                 }
                 Err(err) => Response { snderr: err, ..Default::default() },
@@ -964,12 +1822,27 @@ impl AudioEngine {
                         st.rewind();
                         st.playing = true;
                     }
+                    let pl = st.playlist_owner;
+                    self.mark_dirty(handle);
+                    if let Some(pl) = pl {
+                        self.mark_dirty(pl);
+                    }
+                    return Response::default();
+                }
+                if w.loading_gen.is_some() {
+                    w.pending_play = true;
+                    let pl = w.playlist_owner_pending;
+                    self.mark_dirty(handle);
+                    if let Some(pl) = pl {
+                        self.mark_dirty(pl);
+                    }
                     return Response::default();
                 }
                 let Some(wav) = w.wav.clone() else {
                     return Response { snderr: SNDERR_UNLOADED, ..Default::default() };
                 };
                 if self.has_recent_voice_for_wav(&wav) {
+                    self.mark_dirty(handle);
                     return Response::default();
                 }
                 // Enforce 16-voice polyphony cap per WaveSound.
@@ -1000,9 +1873,15 @@ impl AudioEngine {
                     started_at_frame: self.total_frames_rendered,
                 };
                 self.sw_voices.push(voice);
+                self.mark_dirty(handle);
                 Response::default()
             }
             Some(SoundSlot::Amb(a)) => {
+                if a.loading_gen.is_some() && a.sequencer.is_none() {
+                    a.pending_play = true;
+                    self.mark_dirty(handle);
+                    return Response::default();
+                }
                 let Some(seq) = &mut a.sequencer else {
                     return Response { snderr: SNDERR_UNLOADED, ..Default::default() };
                 };
@@ -1012,17 +1891,21 @@ impl AudioEngine {
                 seq.pan = a.pan;
                 seq.looping = a.looping;
                 seq.start();
+                self.mark_dirty(handle);
                 Response::default()
             }
             Some(SoundSlot::Playlist(_)) => self.cmd_playlist_play(handle),
-            Some(SoundSlot::Stub) => Response::default(),
+            Some(SoundSlot::Stub(_)) => Response::default(),
             None => Response { snderr: SNDERR_NO_OBJECT, ..Default::default() },
         }
     }
 
     fn cmd_stop(&mut self, handle: SoundHandle, force_kill: bool) {
+        let mut pl_owner = None;
         match self.sounds.get_mut(&handle) {
             Some(SoundSlot::Wave(w)) => {
+                pl_owner = w.playlist_owner();
+                w.pending_play = false;
                 if let Some(st) = &mut w.stream {
                     st.playing = false;
                     st.fade = None;
@@ -1030,6 +1913,8 @@ impl AudioEngine {
                 self.sw_voices.retain(|v| v.owner != handle);
             }
             Some(SoundSlot::Amb(a)) => {
+                a.pending_play = false;
+                a.pending_anim_frame = None;
                 let ring_out = (a.flags_58 & 2) != 0 && !force_kill;
                 if let Some(seq) = &mut a.sequencer {
                     seq.stop();
@@ -1045,6 +1930,10 @@ impl AudioEngine {
                 }
             }
             _ => {}
+        }
+        self.mark_dirty(handle);
+        if let Some(pl) = pl_owner {
+            self.mark_dirty(pl);
         }
     }
 
@@ -1105,6 +1994,7 @@ impl AudioEngine {
             };
             let stop_at_zero = target <= 0.0;
             let fade = FadeState::new(start, target, duration_ms, stop_at_zero);
+            let pl_owner = w.playlist_owner();
             if let Some(st) = &mut w.stream {
                 st.fade = Some(fade);
             } else {
@@ -1117,6 +2007,12 @@ impl AudioEngine {
                 }
                 if !applied {
                     w.active_fade = Some(fade);
+                }
+            }
+            if stop_at_zero {
+                self.mark_dirty(handle);
+                if let Some(pl) = pl_owner {
+                    self.mark_dirty(pl);
                 }
             }
         }
@@ -1180,9 +2076,11 @@ impl AudioEngine {
     }
 
     fn cmd_set_loop(&mut self, handle: SoundHandle, looping: bool) {
+        let mut pl_owner = None;
         match self.sounds.get_mut(&handle) {
             Some(SoundSlot::Wave(w)) => {
                 w.looping = looping;
+                pl_owner = w.playlist_owner();
                 if let Some(st) = &mut w.stream {
                     st.looping = looping;
                 }
@@ -1200,17 +2098,26 @@ impl AudioEngine {
             }
             _ => {}
         }
+        self.mark_dirty(handle);
+        if let Some(pl) = pl_owner {
+            self.mark_dirty(pl);
+        }
     }
 
     fn cmd_set_pitch(&mut self, handle: SoundHandle, cents: i32) {
         if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&handle) {
             w.pitch_cents = cents;
             let ratio = pitch_ratio_from_cents(cents);
+            let mut touched = false;
             for voice in &mut self.sw_voices {
                 if voice.owner == handle {
                     voice.step =
                         (f64::from(voice.wav.sample_rate) / f64::from(MIX_SAMPLE_RATE)) * ratio;
+                    touched = true;
                 }
+            }
+            if touched {
+                self.mark_dirty(handle);
             }
         }
     }
@@ -1265,16 +2172,26 @@ impl AudioEngine {
         ms_per_frame: u32,
     ) {
         self.amb_actions_scratch.clear();
+        let mut ended = false;
         if let Some(SoundSlot::Amb(a)) = self.sounds.get_mut(&handle) {
             a.flags_58 = flags_58;
             a.ms_per_frame = ms_per_frame;
             if let Some(seq) = &mut a.sequencer {
+                let was_playing = seq.playing;
                 seq.flags_58 = flags_58;
                 seq.ms_per_frame = ms_per_frame;
                 seq.set_anim_frame(frame, &a.root_notes, &mut self.amb_actions_scratch);
+                if was_playing && !seq.playing {
+                    ended = true;
+                }
+            } else if a.loading_gen.is_some() {
+                a.pending_anim_frame = Some((frame, flags_58, ms_per_frame));
             }
         }
         self.apply_amb_actions(handle);
+        if ended {
+            self.mark_dirty(handle);
+        }
     }
 
     fn apply_amb_actions(&mut self, handle: SoundHandle) {
@@ -1349,8 +2266,8 @@ impl AudioEngine {
         let scaled_vol = p.scaled_volume;
 
         // Create an internal streaming WaveSound for this track.
-        let track_h = self.alloc_handle();
-        let mut w = WaveObject::new();
+        let track_h = self.alloc_internal_handle();
+        let mut w = WaveObject::new(SoundKind::Wave);
         w.flags = 0x102;
         w.looping = true;
         w.volume = scaled_vol;
@@ -1375,9 +2292,14 @@ impl AudioEngine {
             if let Some(SoundSlot::Wave(cw)) = self.sounds.get_mut(&cur) {
                 if let Some(cst) = &mut cw.stream {
                     cst.chained_next = Some(track_h);
+                } else {
+                    cw.chained_next_pending = Some(track_h);
                 }
             }
+            self.mark_dirty(cur);
         }
+        self.mark_dirty(track_h);
+        self.mark_dirty(pl_handle);
         Response { snderr: SNDERR_OK, value: track_h, ..Default::default() }
     }
 
@@ -1404,7 +2326,9 @@ impl AudioEngine {
         };
         self.cmd_set_loop(target, true);
         self.cmd_set_volume(target, scaled_vol);
-        self.cmd_play(target)
+        let res = self.cmd_play(target);
+        self.mark_dirty(pl_handle);
+        res
     }
 
     fn cmd_playlist_set_scaled_volume(&mut self, pl_handle: SoundHandle, vol: i32) {
@@ -1476,16 +2400,25 @@ impl AudioEngine {
                 let dt_ms = (chunk as f64 * 1000.0) / f64::from(MIX_SAMPLE_RATE);
                 for &ah in &amb_handles {
                     self.amb_actions_scratch.clear();
+                    let mut ended = false;
                     if let Some(SoundSlot::Amb(a)) = self.sounds.get_mut(&ah) {
                         if let Some(seq) = &mut a.sequencer {
+                            let was_playing = seq.playing;
                             seq.advance(dt_ms, &a.root_notes, &mut self.amb_actions_scratch);
+                            if was_playing && !seq.playing {
+                                ended = true;
+                            }
                         }
                     }
                     self.apply_amb_actions(ah);
+                    if ended {
+                        self.mark_dirty(ah);
+                    }
                 }
             }
 
             let mut promoted: Vec<(SoundHandle, SoundHandle, Option<SoundHandle>)> = Vec::new();
+            let mut stopped_handles: Vec<SoundHandle> = Vec::new();
 
             for i in 0..chunk {
                 let mut sw_l = 0.0_f64;
@@ -1497,7 +2430,8 @@ impl AudioEngine {
                     if self.sw_voices[vi].mix_frame(&mut sw_l, &mut sw_r) {
                         vi += 1;
                     } else {
-                        self.sw_voices.swap_remove(vi);
+                        let removed = self.sw_voices.swap_remove(vi);
+                        stopped_handles.push(removed.owner);
                     }
                 }
 
@@ -1519,6 +2453,10 @@ impl AudioEngine {
                             st.fade = None;
                             if stop_now {
                                 st.playing = false;
+                                stopped_handles.push(sh);
+                                if let Some(pl) = st.playlist_owner {
+                                    stopped_handles.push(pl);
+                                }
                                 continue;
                             }
                         }
@@ -1537,6 +2475,11 @@ impl AudioEngine {
                         st.playing = false;
                         if let Some(next_h) = st.chained_next.take() {
                             promoted.push((sh, next_h, st.playlist_owner));
+                        } else {
+                            stopped_handles.push(sh);
+                            if let Some(pl) = st.playlist_owner {
+                                stopped_handles.push(pl);
+                            }
                         }
                     }
                 }
@@ -1552,9 +2495,11 @@ impl AudioEngine {
                             }
                             _ => (127, 0, None),
                         };
+                        let mut ready_now = false;
                         if let Some(SoundSlot::Wave(nw)) = self.sounds.get_mut(&next_h) {
                             nw.volume = vol;
                             nw.pan = pan;
+                            nw.looping = true;
                             if let Some(nst) = &mut nw.stream {
                                 nst.volume = vol;
                                 nst.pan = pan;
@@ -1562,6 +2507,11 @@ impl AudioEngine {
                                 nst.looping = true;
                                 nst.playing = true;
                                 nst.paused = false;
+                                ready_now = true;
+                            } else if nw.loading_gen.is_some() {
+                                // Chained track is still finishing async open; start it immediately on arrival.
+                                nw.active_fade = fade;
+                                nw.pending_play = true;
                             }
                         }
                         if let Some(pl) = pl_owner {
@@ -1569,15 +2519,24 @@ impl AudioEngine {
                                 p.current = Some(next_h);
                                 p.queued = None;
                             }
+                            stopped_handles.push(pl);
                         }
                         self.sounds.remove(&old_h);
-                        stream_handles.push(next_h);
+                        stopped_handles.push(old_h);
+                        stopped_handles.push(next_h);
+                        if ready_now {
+                            stream_handles.push(next_h);
+                        }
                     }
                 }
 
                 let idx = (done_frames + i) * 2;
                 out[idx] = clamp_i16(sum_l);
                 out[idx + 1] = clamp_i16(sum_r);
+            }
+
+            for h in stopped_handles {
+                self.mark_dirty(h);
             }
 
             done_frames += chunk;
@@ -1624,7 +2583,7 @@ mod tests {
     fn sw_mixer_renders_exact_unity_pan_and_volume() {
         let mut engine = AudioEngine::new();
         let h = engine.alloc_handle();
-        let mut w = WaveObject::new();
+        let mut w = WaveObject::new(SoundKind::Wave);
         w.wav = Some(synthetic_wav(44_100, vec![10_000, -10_000, 20_000, -20_000]));
         w.volume = 64; // V = 33280 -> gain = 33280/65536 = 0.5078125
         w.pan = -32; // V_L = 49920, V_R = 16640
@@ -1647,7 +2606,7 @@ mod tests {
     fn sw_mixer_22050_linear_upsamples_matching_dsound() {
         let mut engine = AudioEngine::new();
         let h = engine.alloc_handle();
-        let mut w = WaveObject::new();
+        let mut w = WaveObject::new(SoundKind::Wave);
         w.wav = Some(synthetic_wav(22_050, vec![0, 1000, 2000, 3000]));
         engine.sounds.insert(h, SoundSlot::Wave(w));
         engine.cmd_play(h);
@@ -1668,7 +2627,7 @@ mod tests {
     fn fade_out_reaches_zero_and_stops_voice() {
         let mut engine = AudioEngine::new();
         let h = engine.alloc_handle();
-        let mut w = WaveObject::new();
+        let mut w = WaveObject::new(SoundKind::Wave);
         w.wav = Some(synthetic_wav(44_100, vec![10_000; 44_100]));
         engine.sounds.insert(h, SoundSlot::Wave(w));
         engine.cmd_play(h);
@@ -1773,17 +2732,17 @@ mod tests {
         let wav_b = synthetic_wav(44_100, vec![5_000; 22_050]);
 
         let h1 = engine.alloc_handle();
-        let mut w1 = WaveObject::new();
+        let mut w1 = WaveObject::new(SoundKind::Wave);
         w1.wav = Some(wav_a.clone());
         engine.sounds.insert(h1, SoundSlot::Wave(w1));
 
         let h2 = engine.alloc_handle();
-        let mut w2 = WaveObject::new();
+        let mut w2 = WaveObject::new(SoundKind::Wave);
         w2.wav = Some(wav_a.clone());
         engine.sounds.insert(h2, SoundSlot::Wave(w2));
 
         let h_other = engine.alloc_handle();
-        let mut wo = WaveObject::new();
+        let mut wo = WaveObject::new(SoundKind::Wave);
         wo.wav = Some(wav_b);
         engine.sounds.insert(h_other, SoundSlot::Wave(wo));
 

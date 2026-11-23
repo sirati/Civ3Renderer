@@ -7,7 +7,7 @@
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::Cursor;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
@@ -29,6 +29,222 @@ impl core::fmt::Display for DecodeError {
 }
 
 impl std::error::Error for DecodeError {}
+
+/// Error returned by cheap header-only file validation on the caller thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProbeError {
+    FileOpen(String),
+    InvalidFormat(String),
+}
+
+/// Metadata extracted cheaply from an audio file header without decoding PCM.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AudioProbe {
+    pub duration_ms: u32,
+}
+
+fn probe_wav_file(file: &mut File) -> Result<AudioProbe, ProbeError> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| ProbeError::FileOpen(format!("seek wav: {e}")))?;
+    let mut riff = [0u8; 12];
+    file.read_exact(&mut riff)
+        .map_err(|e| ProbeError::InvalidFormat(format!("truncated RIFF header: {e}")))?;
+    if &riff[0..4] != b"RIFF" || &riff[8..12] != b"WAVE" {
+        return Err(ProbeError::InvalidFormat("not a RIFF WAVE file".into()));
+    }
+
+    let mut fmt_tag: Option<u16> = None;
+    let mut channels: u16 = 0;
+    let mut sample_rate: u32 = 0;
+    let mut avg_bytes_per_sec: u32 = 0;
+    let mut block_align: u16 = 0;
+    let mut fact_samples: u32 = 0;
+    let mut data_bytes: Option<u32> = None;
+
+    for _ in 0..64 {
+        let mut hdr = [0u8; 8];
+        match file.read_exact(&mut hdr) {
+            Ok(()) => {}
+            Err(_) => break,
+        }
+        let tag = &hdr[0..4];
+        let size = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]);
+        let padded_size = u64::from(size) + u64::from(size & 1);
+
+        if tag == b"fmt " && size >= 16 {
+            let mut fmt = [0u8; 16];
+            file.read_exact(&mut fmt)
+                .map_err(|e| ProbeError::InvalidFormat(format!("truncated fmt chunk: {e}")))?;
+            fmt_tag = Some(u16::from_le_bytes([fmt[0], fmt[1]]));
+            channels = u16::from_le_bytes([fmt[2], fmt[3]]);
+            sample_rate = u32::from_le_bytes([fmt[4], fmt[5], fmt[6], fmt[7]]);
+            avg_bytes_per_sec = u32::from_le_bytes([fmt[8], fmt[9], fmt[10], fmt[11]]);
+            block_align = u16::from_le_bytes([fmt[12], fmt[13]]);
+            let rem = padded_size.saturating_sub(16);
+            if rem > 0 {
+                let _ = file.seek(SeekFrom::Current(rem as i64));
+            }
+        } else if tag == b"fact" && size >= 4 {
+            let mut fb = [0u8; 4];
+            if file.read_exact(&mut fb).is_ok() {
+                fact_samples = u32::from_le_bytes(fb);
+            }
+            let rem = padded_size.saturating_sub(4);
+            if rem > 0 {
+                let _ = file.seek(SeekFrom::Current(rem as i64));
+            }
+        } else if tag == b"data" {
+            data_bytes = Some(size);
+            if fmt_tag.is_some() {
+                break;
+            }
+            let _ = file.seek(SeekFrom::Current(padded_size as i64));
+        } else {
+            let _ = file.seek(SeekFrom::Current(padded_size as i64));
+        }
+
+        if fmt_tag.is_some() && data_bytes.is_some() {
+            break;
+        }
+    }
+
+    let Some(tag) = fmt_tag else {
+        return Err(ProbeError::InvalidFormat("WAV missing fmt chunk".into()));
+    };
+    let Some(bytes) = data_bytes else {
+        return Err(ProbeError::InvalidFormat("WAV missing data chunk".into()));
+    };
+    if channels == 0 || sample_rate == 0 {
+        return Err(ProbeError::InvalidFormat("WAV invalid channels/sample_rate".into()));
+    }
+
+    let duration_ms = if (tag == 1 || tag == 3) && block_align > 0 {
+        let frames = u64::from(bytes) / u64::from(block_align);
+        ((frames * 1000) / u64::from(sample_rate)) as u32
+    } else if fact_samples > 0 {
+        ((u64::from(fact_samples) * 1000) / u64::from(sample_rate)) as u32
+    } else if avg_bytes_per_sec > 0 {
+        ((u64::from(bytes) * 1000) / u64::from(avg_bytes_per_sec)) as u32
+    } else {
+        0
+    };
+    Ok(AudioProbe { duration_ms })
+}
+
+fn mpeg_bitrate_kbps(version: u8, layer: u8, idx: usize) -> u32 {
+    const V1_L1: [u32; 16] = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0];
+    const V1_L2: [u32; 16] = [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0];
+    const V1_L3: [u32; 16] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+    const V2_L1: [u32; 16] = [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0];
+    const V2_L23: [u32; 16] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+    if idx >= 15 {
+        return 0;
+    }
+    match (version, layer) {
+        (3, 3) => V1_L1[idx],
+        (3, 2) => V1_L2[idx],
+        (3, 1) => V1_L3[idx],
+        (0 | 2, 3) => V2_L1[idx],
+        (0 | 2, 1 | 2) => V2_L23[idx],
+        _ => 0,
+    }
+}
+
+fn probe_mp3_file(file: &mut File) -> Result<AudioProbe, ProbeError> {
+    let file_len = file
+        .metadata()
+        .map_err(|e| ProbeError::FileOpen(format!("stat mp3: {e}")))?
+        .len();
+    if file_len < 4 {
+        return Err(ProbeError::InvalidFormat("MP3 file too short".into()));
+    }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|e| ProbeError::FileOpen(format!("seek mp3: {e}")))?;
+
+    let mut id3 = [0u8; 10];
+    let mut audio_start = 0u64;
+    if file.read_exact(&mut id3).is_ok()
+        && &id3[0..3] == b"ID3"
+        && ((id3[6] | id3[7] | id3[8] | id3[9]) & 0x80) == 0
+    {
+        let tag_size = (u64::from(id3[6]) << 21)
+            | (u64::from(id3[7]) << 14)
+            | (u64::from(id3[8]) << 7)
+            | u64::from(id3[9]);
+        let footer = if (id3[5] & 0x10) != 0 { 10 } else { 0 };
+        audio_start = 10u64.saturating_add(tag_size).saturating_add(footer);
+    }
+
+    file.seek(SeekFrom::Start(audio_start.min(file_len)))
+        .map_err(|e| ProbeError::FileOpen(format!("seek mp3 frames: {e}")))?;
+    let mut buf = vec![0u8; 16_384.min(file_len.saturating_sub(audio_start) as usize)];
+    let n = file
+        .read(&mut buf)
+        .map_err(|e| ProbeError::FileOpen(format!("read mp3 header: {e}")))?;
+    let scan = &buf[..n];
+
+    for i in 0..scan.len().saturating_sub(3) {
+        let h0 = scan[i];
+        let h1 = scan[i + 1];
+        let h2 = scan[i + 2];
+        if h0 != 0xFF || (h1 & 0xE0) != 0xE0 {
+            continue;
+        }
+        let version = (h1 >> 3) & 3;
+        let layer = (h1 >> 1) & 3;
+        let br_idx = ((h2 >> 4) & 0x0F) as usize;
+        let sr_idx = ((h2 >> 2) & 0x03) as usize;
+        if version == 1 || layer == 0 || br_idx == 15 || sr_idx == 3 {
+            continue;
+        }
+        let kbps = mpeg_bitrate_kbps(version, layer, br_idx);
+        let frame_offset = audio_start.saturating_add(i as u64);
+        let audio_bytes = file_len.saturating_sub(frame_offset);
+        let duration_ms = if kbps > 0 {
+            ((audio_bytes.saturating_mul(8)) / u64::from(kbps)) as u32
+        } else {
+            0
+        };
+        return Ok(AudioProbe { duration_ms });
+    }
+
+    Err(ProbeError::InvalidFormat("no MPEG audio sync header found".into()))
+}
+
+/// Validates a WAV or MP3 file header cheaply without decoding the audio payload.
+pub fn probe_audio_header(path: &Path, expect_mp3: bool) -> Result<AudioProbe, ProbeError> {
+    let mut file =
+        File::open(path).map_err(|e| ProbeError::FileOpen(format!("{}: {e}", path.display())))?;
+    if expect_mp3 {
+        probe_mp3_file(&mut file).or_else(|_| probe_wav_file(&mut file))
+    } else {
+        probe_wav_file(&mut file).or_else(|_| probe_mp3_file(&mut file))
+    }
+}
+
+/// Validates an `.amb` container header cheaply without parsing MIDI or decoding child WAVs.
+pub fn probe_amb_header(path: &Path) -> Result<(), ProbeError> {
+    let mut file =
+        File::open(path).map_err(|e| ProbeError::FileOpen(format!("{}: {e}", path.display())))?;
+    let mut buf = [0u8; 64];
+    let n = file
+        .read(&mut buf)
+        .map_err(|e| ProbeError::FileOpen(format!("{}: {e}", path.display())))?;
+    let slice = &buf[..n];
+    let start = slice.iter().position(|&b| b != 0).unwrap_or(slice.len());
+    if slice.len().saturating_sub(start) < 4 {
+        return Err(ProbeError::InvalidFormat("empty or truncated .amb file".into()));
+    }
+    let tag = &slice[start..start + 4];
+    if matches!(
+        tag,
+        b"prgm" | b"kmap" | b"glbl" | b"chnl" | b"trak" | b"ctrl" | b"MThd"
+    ) {
+        Ok(())
+    } else {
+        Err(ProbeError::InvalidFormat(format!("unexpected .amb leading tag {tag:?}")))
+    }
+}
 
 /// Preloaded decoded WAV sound effect in signed 16-bit PCM.
 #[derive(Clone, Debug)]
@@ -455,6 +671,67 @@ mod tests {
         if elvis.is_file() {
             let d = decode_wav_file(&elvis).expect("decode Elvis MP3-in-WAV");
             assert!(d.frame_count() > 1000);
+            let p = probe_audio_header(&elvis, false).expect("probe Elvis MP3-in-WAV");
+            assert!(p.duration_ms > 100);
         }
+    }
+
+    #[test]
+    fn header_probes_validate_and_reject_cheaply() {
+        let dir = std::env::temp_dir().join(format!("civ3-probe-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Missing file -> FileOpen
+        let missing = dir.join("missing.wav");
+        assert!(matches!(probe_audio_header(&missing, false), Err(ProbeError::FileOpen(_))));
+        assert!(matches!(probe_amb_header(&missing), Err(ProbeError::FileOpen(_))));
+
+        // Corrupt garbage -> InvalidFormat
+        let junk = dir.join("junk.wav");
+        std::fs::write(&junk, b"not a wav or mp3 file at all").unwrap();
+        assert!(matches!(probe_audio_header(&junk, false), Err(ProbeError::InvalidFormat(_))));
+        assert!(matches!(probe_audio_header(&junk, true), Err(ProbeError::InvalidFormat(_))));
+        assert!(matches!(probe_amb_header(&junk), Err(ProbeError::InvalidFormat(_))));
+
+        // Valid synthetic 44100 Hz mono 16-bit WAV (exact 500 ms = 22050 frames = 44100 bytes)
+        let valid_wav = dir.join("ok.wav");
+        let mut bytes = crate::mixer::make_wav_header(44_100, 1, 44_100).to_vec();
+        bytes.resize(44 + 44_100, 0);
+        std::fs::write(&valid_wav, &bytes).unwrap();
+        let p = probe_audio_header(&valid_wav, false).expect("probe valid wav");
+        assert_eq!(p.duration_ms, 500);
+
+        // Valid .amb with optional CCM2 leading zero pad
+        let valid_amb = dir.join("ok.amb");
+        std::fs::write(&valid_amb, b"\0prgm\x00\x00\x00\x00").unwrap();
+        probe_amb_header(&valid_amb).expect("probe padded amb");
+
+        // Real Civ3 assets if present
+        let root = Path::new("/mnt/datasets/winvm/civ3-src/Civilization III Complete");
+        if root.is_dir() {
+            let wav = root.join("Sounds/Button.wav");
+            if wav.is_file() {
+                let p = probe_audio_header(&wav, false).expect("probe Button.wav");
+                let d = decode_wav_file(&wav).expect("decode Button.wav");
+                assert_eq!(p.duration_ms, d.duration_ms());
+            }
+            let mp3 = root.join("Sounds/Build/Ancient/AncEC.mp3");
+            if mp3.is_file() {
+                let p = probe_audio_header(&mp3, true).expect("probe AncEC.mp3");
+                assert!(p.duration_ms > 10_000);
+            }
+            let menu = root.join("Conquests/Sounds/Menu/Menu1.mp3");
+            if menu.is_file() {
+                let p = probe_audio_header(&menu, true).expect("probe Menu1.mp3");
+                assert!(p.duration_ms > 10_000);
+            }
+            let amb = root.join("Art/Units/Cavalry/CavalryAttack.amb");
+            if amb.is_file() {
+                probe_amb_header(&amb).expect("probe CavalryAttack.amb");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

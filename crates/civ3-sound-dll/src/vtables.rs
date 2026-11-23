@@ -895,6 +895,9 @@ unsafe extern "thiscall" fn amb_unload(this: *mut c_void) -> u32 {
 unsafe extern "thiscall" fn amb_play(this: *mut c_void) -> u32 {
     safe(SNDERR_UNLOADED, || {
         let obj = unsafe { &*(this as *const AmbSoundObj) };
+        if obj.is_loaded == 0 {
+            return SNDERR_UNLOADED;
+        }
         sync_amb_meta(obj);
         fire(RequestHeader::new(Op::Play, obj.handle), "")
     })

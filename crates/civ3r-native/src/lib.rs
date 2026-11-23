@@ -766,8 +766,8 @@ mod unix_side {
         if let Some(rt) = AUDIO.get() {
             return Some(rt);
         }
-        match civ3_audio::output::AudioRuntime::start(|f| {
-            wine_unixlib::unix::spawn_native("civ3r-native-audio", f).map(drop)
+        match civ3_audio::output::AudioRuntime::start(|name, f| {
+            wine_unixlib::unix::spawn_native(name, f).map(drop)
         }) {
             Ok(rt) => {
                 let _ = AUDIO.set(rt);

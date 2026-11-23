@@ -14,3 +14,4 @@ symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "
 cpal = { version = "=0.18.2", default-features = false }
 rubato = { version = "=5.1.0", default-features = false }
 handoff = { git = "ssh://git@github.com/sirati/tilerenderer.git", rev = "6941948fc77ad310c9021df6f01374be9d3a23fc" }
+tokio = { version = "1", default-features = false, features = ["rt", "time", "sync"] }
