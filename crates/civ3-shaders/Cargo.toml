@@ -13,7 +13,7 @@ crate-type = ["dylib", "lib"]
 
 [dependencies.viewer-shaders]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "2a7a16f55fdb194970582b8658cb0f12350fb845"
+rev = "934d781f20a523aa1c827210ae0e76583ac1c39b"
 
 [dependencies.glass-shaders]
 git = "ssh://git@github.com/sirati/glass-shader-rs.git"

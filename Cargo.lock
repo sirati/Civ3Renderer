@@ -145,7 +145,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "application-icon"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "application-icon-macos",
  "image",
@@ -156,7 +156,7 @@ dependencies = [
 [[package]]
 name = "application-icon-macos"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -973,7 +973,7 @@ dependencies = [
 [[package]]
 name = "function-keys"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "function-keys-macos",
  "log",
@@ -982,7 +982,7 @@ dependencies = [
 [[package]]
 name = "function-keys-macos"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "block2 0.6.2",
  "log",
@@ -1580,7 +1580,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "marker"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "tile-render",
 ]
@@ -1603,7 +1603,7 @@ dependencies = [
 [[package]]
 name = "menu"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "render-desc",
  "scene",
@@ -2480,7 +2480,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 [[package]]
 name = "render-desc"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "log",
  "marker",
@@ -2590,7 +2590,7 @@ dependencies = [
 [[package]]
 name = "scene"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "crossbeam-channel",
  "handoff",
@@ -2991,7 +2991,7 @@ dependencies = [
 [[package]]
 name = "tile-game"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "scene",
  "tile-render",
@@ -3024,7 +3024,7 @@ dependencies = [
 [[package]]
 name = "tile-viewer"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "application-icon",
  "dispatch2",
@@ -3282,7 +3282,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "viewer-settings"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -3292,7 +3292,7 @@ dependencies = [
 [[package]]
 name = "viewer-spirv"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "shader-build",
 ]
@@ -3300,7 +3300,7 @@ dependencies = [
 [[package]]
 name = "viewer-transport"
 version = "0.1.0"
-source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=2a7a16f55fdb194970582b8658cb0f12350fb845#2a7a16f55fdb194970582b8658cb0f12350fb845"
+source = "git+ssh://git@github.com/sirati/tilerenderer-gameengine.git?rev=934d781f20a523aa1c827210ae0e76583ac1c39b#934d781f20a523aa1c827210ae0e76583ac1c39b"
 dependencies = [
  "handoff",
  "scene",
