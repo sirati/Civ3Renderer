@@ -188,3 +188,28 @@ Plan:
    thread; the scroll bar drawn by the viewer from the position.
 5. F1's city table is drawn by the advisor's own code (not a list box):
    its row drawing is found and ported the same way.
+
+### Entries' text and the production list (2026-11-23)
+
+- A list box's entries are nodes of the container at L+0xC4 (first L+0xC8,
+  cursor L+0xCC, count L+0xD0, cursor index L+0xD4; next node +0xC,
+  previous +0x10). A node's +4 is the entry's text (`char *`, what the
+  text callback gets, 0x60C910), its +8 an item whose +4 is the data and
+  +8 the third argument of 0x618940 (lines; the production list's order
+  type: 1 improvement, 2 unit).
+- The production list (`Order_List`): callbacks G+0x4C = 0x41C700 (the
+  icon at the entry's top-left: `Improvement_Images_Small[id]`, or the
+  unit's `units_32` sprite (index 0x54C660(id, civ, 0), sprites at
+  [0xB42184], 44 bytes each) with the city civ's first 64 colours copied
+  into its palette (colour slot `Leader+0x10F8`, tables at 0x73DA04): the
+  mirror's `ntpNN.pcx` first-64 palette), G+0x50 = 0x423840 (the entry's
+  text split at `|`: "Worker  0.0.1|1 turn"; the first part in the left
+  half from x+38, the second from x + half + 38 + 4; the rectangle first
+  `InflateRect(0, −12)` or `OffsetRect(0, 6)` by whether the first part
+  fits, then drawn with 0x5FF4F0, which may wrap). Rows 42 px; run 30
+  traces show both parts' baselines at the entry's top + 19.
+- F1 (`Advisor_Internal_Form`, the domestic advisor) is no list box: it
+  keeps `Start_City_Index`, `Cities_Count`, `City_ID_List[512]` and nine
+  rows' rectangles (`Cities_Names_Rect[9]`, `Cities_Citizens_Rects[9]`) and
+  draws the rows onto its own canvas; its scroll bar is a `Scroll_Bar`
+  (`ScrollBar`).
