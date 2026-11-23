@@ -624,6 +624,11 @@ unsafe extern "thiscall" fn ws_set_loop(this: *mut c_void, enabled: u32) -> u32 
     safe(SNDERR_OK, || {
         let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
         obj.looping = u32::from(enabled != 0);
+        if obj.looping != 0 {
+            obj.flags |= 2;
+        } else {
+            obj.flags &= !2;
+        }
         fire(RequestHeader::new(Op::SetLoop, obj.handle).with_a(obj.looping as i32), "")
     })
 }
@@ -894,10 +899,11 @@ unsafe extern "thiscall" fn amb_unload(this: *mut c_void) -> u32 {
 
 unsafe extern "thiscall" fn amb_play(this: *mut c_void) -> u32 {
     safe(SNDERR_UNLOADED, || {
-        let obj = unsafe { &*(this as *const AmbSoundObj) };
+        let obj = unsafe { &mut *(this as *mut AmbSoundObj) };
         if obj.is_loaded == 0 {
             return SNDERR_UNLOADED;
         }
+        obj.cur_frame = 0;
         sync_amb_meta(obj);
         fire(RequestHeader::new(Op::Play, obj.handle), "")
     })

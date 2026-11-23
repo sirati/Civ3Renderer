@@ -475,6 +475,7 @@ pub struct AmbSequencer {
     pub pan: i32,
     elapsed_ms: f64,
     ms_per_tick: f64,
+    has_nonzero_duration: bool,
     track_cursors: Vec<usize>,
     channels: [ChannelState; 16],
     /// Currently held gated `(channel, note) -> (wav_index, release_ms)` flags.
@@ -485,6 +486,7 @@ pub struct AmbSequencer {
 impl AmbSequencer {
     pub fn new(script: &AmbScript, programs: Vec<ResolvedProgram>, rng_seed: u32) -> Self {
         let track_count = script.tracks.len();
+        let has_nonzero_duration = script.tracks.iter().flatten().any(|ev| ev.tick > 0);
         Self {
             ppq: script.ppq.max(1),
             tracks: script.tracks.clone(),
@@ -499,6 +501,7 @@ impl AmbSequencer {
             elapsed_ms: 0.0,
             // Standard MIDI default tempo: 500,000 us / quarter (120 BPM).
             ms_per_tick: 500.0 / f64::from(script.ppq.max(1)),
+            has_nonzero_duration,
             track_cursors: vec![0; track_count],
             channels: [ChannelState::default(); 16],
             held_notes: [[false; 128]; 16],
@@ -506,8 +509,9 @@ impl AmbSequencer {
         }
     }
 
-    /// Resets playback to tick 0 and marks the sequence playing.
+    /// Resets playback to frame 0 / tick 0 and marks the sequence playing.
     pub fn start(&mut self) {
+        self.cur_frame = 0;
         self.reset_tracks();
         self.playing = true;
     }
@@ -624,7 +628,16 @@ impl AmbSequencer {
         }
 
         if !any_remaining {
-            if self.looping {
+            if (self.flags_58 & 2) != 0 {
+                // Animation-sync mode: the animation clock (`cur_frame * ms_per_frame`)
+                // drives cycle wrapping via `set_anim_frame`'s backwards-wrap check.
+                // Never reset tracks here while `cur_frame` stays parked (e.g. when the
+                // game thread is busy/stalled), or every 1 ms `advance()` will re-trigger
+                // the entire `.amb` script in an infinite loop.
+                if !self.looping {
+                    self.playing = false;
+                }
+            } else if self.looping && self.has_nonzero_duration {
                 self.reset_tracks();
             } else {
                 self.playing = false;
@@ -813,5 +826,146 @@ mod tests {
         assert!(actions.is_empty());
         seq.set_anim_frame(5, &[60], &mut actions);
         assert_eq!(actions.len(), 1);
+    }
+
+    #[test]
+    fn anim_sync_stalled_caller_does_not_repeat_on_end_of_track_or_restart() {
+        let script = AmbScript {
+            programs: vec![],
+            keymaps: vec![],
+            ppq: 480,
+            tracks: vec![vec![
+                MidiEvent {
+                    tick: 0,
+                    kind: MidiEventKind::ProgramChange { channel: 0, program: 1 },
+                },
+                MidiEvent {
+                    tick: 0,
+                    kind: MidiEventKind::NoteOn { channel: 0, note: 60, velocity: 100 },
+                },
+                MidiEvent {
+                    tick: 480, // 500 ms at default 120 BPM
+                    kind: MidiEventKind::NoteOn { channel: 0, note: 60, velocity: 90 },
+                },
+                MidiEvent { tick: 960, kind: MidiEventKind::EndOfTrack },
+            ]],
+        };
+        let mut note_map = [None; 128];
+        note_map[60] = Some(0);
+        let prog = ResolvedProgram {
+            id: 1,
+            flags: PRGM_FIXED_PITCH,
+            pitch_min: 0,
+            pitch_max: 0,
+            vol_min: 0,
+            vol_max: 0,
+            kmap_flags: 0,
+            release_ms: 250,
+            note_map,
+            all_wavs: vec![0],
+        };
+
+        // 1. Looping anim-sync .amb reaches EndOfTrack at frame 10 and game thread stalls for 5 s:
+        //    must NEVER re-trigger notes while `cur_frame` is parked!
+        let mut seq = AmbSequencer::new(&script, vec![prog.clone()], 1);
+        seq.flags_58 = 2;
+        seq.ms_per_frame = 100;
+        seq.looping = true;
+        seq.start();
+
+        let mut actions = Vec::new();
+        seq.advance(1.0, &[60], &mut actions);
+        assert_eq!(actions.len(), 1, "tick 0 note fires once on start");
+        actions.clear();
+
+        seq.set_anim_frame(5, &[60], &mut actions);
+        assert_eq!(actions.len(), 1, "tick 480 note fires once at frame 5");
+        actions.clear();
+
+        seq.set_anim_frame(10, &[60], &mut actions); // reaches EndOfTrack (1000 ms)
+        assert!(actions.is_empty());
+        assert!(seq.playing, "looping anim-sync stays armed for next frame wrap");
+
+        // Simulate 5 full seconds (5,000 x 1 ms mixer sub-blocks) with zero game calls.
+        for _ in 0..5_000 {
+            seq.advance(1.0, &[60], &mut actions);
+        }
+        assert!(
+            actions.is_empty(),
+            "stalled looping anim-sync must emit 0 notes during 5 s stall, got {}",
+            actions.len()
+        );
+
+        // Once the game resumes and wraps back to frame 0, cycle 2 fires normally.
+        seq.set_anim_frame(0, &[60], &mut actions);
+        assert_eq!(actions.len(), 1, "wrap to frame 0 starts cycle 2 cleanly");
+        actions.clear();
+        seq.set_anim_frame(5, &[60], &mut actions);
+        assert_eq!(actions.len(), 1);
+        actions.clear();
+
+        // 2. Non-looping anim-sync .amb stops at EndOfTrack and `start()` resets `cur_frame = 0`
+        //    so a subsequent play does NOT inherit the old frame and blast all notes immediately.
+        let mut oneshot = AmbSequencer::new(&script, vec![prog.clone()], 1);
+        oneshot.flags_58 = 2;
+        oneshot.ms_per_frame = 100;
+        oneshot.looping = false;
+        oneshot.start();
+        oneshot.set_anim_frame(10, &[60], &mut actions);
+        assert_eq!(actions.len(), 2, "one-shot plays tick 0 and tick 480 once");
+        assert!(!oneshot.playing, "one-shot stops at EndOfTrack");
+        actions.clear();
+
+        for _ in 0..5_000 {
+            oneshot.advance(1.0, &[60], &mut actions);
+        }
+        assert!(actions.is_empty());
+
+        // Restart for a new animation: cur_frame must reset to 0, NOT stay at 10!
+        oneshot.start();
+        assert_eq!(oneshot.cur_frame, 0);
+        oneshot.advance(1.0, &[60], &mut actions);
+        assert_eq!(
+            actions.len(),
+            1,
+            "restart must fire only tick 0 before frame advances, not stale frame 10"
+        );
+        assert!(oneshot.playing, "restart must stay playing waiting for frame 5");
+        actions.clear();
+
+        // 3. Zero-duration free-running .amb or anim-sync with ms_per_frame == 0 never spins.
+        let zero_dur = AmbScript {
+            programs: vec![],
+            keymaps: vec![],
+            ppq: 480,
+            tracks: vec![vec![
+                MidiEvent {
+                    tick: 0,
+                    kind: MidiEventKind::ProgramChange { channel: 0, program: 1 },
+                },
+                MidiEvent {
+                    tick: 0,
+                    kind: MidiEventKind::NoteOn { channel: 0, note: 60, velocity: 100 },
+                },
+                MidiEvent { tick: 0, kind: MidiEventKind::EndOfTrack },
+            ]],
+        };
+        for flags_58 in [0u32, 2u32] {
+            let mut z = AmbSequencer::new(&zero_dur, vec![prog.clone()], 1);
+            z.flags_58 = flags_58;
+            z.ms_per_frame = 0;
+            z.looping = true;
+            z.start();
+            z.advance(1.0, &[60], &mut actions);
+            assert_eq!(actions.len(), 1, "tick 0 fires once for flags_58={flags_58}");
+            actions.clear();
+            for _ in 0..5_000 {
+                z.advance(1.0, &[60], &mut actions);
+            }
+            assert!(
+                actions.is_empty(),
+                "zero-duration .amb (flags_58={flags_58}) must never loop infinitely"
+            );
+        }
     }
 }

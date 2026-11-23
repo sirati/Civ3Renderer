@@ -660,11 +660,13 @@ fn apply_pending_entry(
             if let Some(st) = status.as_mut() {
                 st.looping = looping;
                 if looping {
+                    st.wave_flags |= 2;
                     st.state_flags |= STATE_LOOPING;
                     if st.playing {
                         st.stop_at_us = u64::MAX;
                     }
                 } else {
+                    st.wave_flags &= !2;
                     st.state_flags &= !STATE_LOOPING;
                 }
             }
@@ -1436,9 +1438,10 @@ fn process_job(
     output: &mut Option<LiveOutput>,
     resampler: &mut Option<HostResampler>,
     wave_active: &mut bool,
-    headless: bool,
+    shared: &SharedRuntimeState,
     headless_clock: &mut Instant,
     refill_timer: &mut tokio::time::Interval,
+    snapshot_buf: &mut StatusDoubleBuffer,
     last_seq: &mut u64,
 ) {
     *last_seq = (*last_seq).max(job.seq());
@@ -1447,13 +1450,16 @@ fn process_job(
             let op = Op::from_u32(hdr.op);
             let resp = engine.handle_request(hdr, &path);
             if let Some(tx) = reply {
+                if engine.has_dirty() {
+                    snapshot_buf.sync_from_engine(engine, *last_seq, shared.now_us());
+                }
                 let _ = tx.send(resp);
             }
             match op {
                 Some(Op::WaveOpen) => {
                     let was_active = *wave_active;
                     *wave_active = true;
-                    if !headless && output.is_none() {
+                    if !shared.headless && output.is_none() {
                         *output = open_cpal_output(Arc::clone(ring));
                         *resampler = output.as_ref().and_then(|o| {
                             if o.sample_rate != MIX_SAMPLE_RATE {
@@ -1585,9 +1591,10 @@ async fn audio_async_loop(
                     &mut output,
                     &mut resampler,
                     &mut wave_active,
-                    shared.headless,
+                    &shared,
                     &mut headless_clock,
                     &mut refill_timer,
+                    &mut snapshot_buf,
                     &mut last_seq,
                 );
             }
@@ -1609,9 +1616,10 @@ async fn audio_async_loop(
                 &mut output,
                 &mut resampler,
                 &mut wave_active,
-                shared.headless,
+                &shared,
                 &mut headless_clock,
                 &mut refill_timer,
+                &mut snapshot_buf,
                 &mut last_seq,
             );
         }
@@ -1622,7 +1630,8 @@ async fn audio_async_loop(
         // Refill SPSC ring (or advance headless real-time clock) while active.
         if wave_active {
             if let Some(live) = &output {
-                let target_samples = target_buffered_frames(live.sample_rate) * 2;
+                let target_samples =
+                    (target_buffered_frames(live.sample_rate) * 2).min(SPSC_RING_CAPACITY / 2);
                 let mut iterations = 0;
                 while ring.len() < target_samples && iterations < MAX_REFILL_CHUNKS_PER_WAKEUP {
                     iterations += 1;
@@ -2169,6 +2178,110 @@ mod tests {
         assert!(
             (tail - 10_000).abs() <= 5,
             "recorded tail after leaving Credits must contain only title music (~10000), got {tail}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stalled_caller_does_not_repeat_oneshot_wav_or_stream_in_async_runtime() {
+        let dir = unique_tmp_dir("stalled-caller");
+        let preload_wav = dir.join("click.wav");
+        let stream_wav = dir.join("voice.wav");
+        let rec_path = dir.join("stalled.wav");
+
+        // 50 ms constant-amplitude pulses (2205 frames at 44100 Hz).
+        write_test_wav(&preload_wav, 44_100, &vec![7_000i16; 2_205]);
+        write_test_wav(&stream_wav, 44_100, &vec![5_000i16; 2_205]);
+
+        let rt = start_test_runtime();
+        rt.dispatch(RequestHeader::new(Op::WaveOpen, 0), "");
+
+        let h_pre = rt
+            .dispatch(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+        let h_str = rt
+            .dispatch(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+
+        assert_eq!(
+            rt.dispatch(RequestHeader::new(Op::Load, h_pre), preload_wav.to_str().unwrap()).snderr,
+            SNDERR_OK
+        );
+        // Set loop flag via SetFlags(0x102), then explicitly disable via SetLoop(0), then Load:
+        // must remain one-shot.
+        rt.dispatch(RequestHeader::new(Op::SetFlags, h_str).with_a(0x102), "");
+        rt.dispatch(RequestHeader::new(Op::SetLoop, h_str).with_a(0), "");
+        assert_eq!(
+            rt.dispatch(
+                RequestHeader::new(Op::Load, h_str).with_a(0x100),
+                stream_wav.to_str().unwrap(),
+            )
+            .snderr,
+            SNDERR_OK
+        );
+
+        // Settle background decodes before recording.
+        wait_ms(60);
+
+        assert_eq!(
+            rt.dispatch(
+                RequestHeader::new(Op::WaveStartRecord, 0),
+                rec_path.to_str().unwrap(),
+            )
+            .snderr,
+            SNDERR_OK
+        );
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h_pre), "").snderr, SNDERR_OK);
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h_str), "").snderr, SNDERR_OK);
+
+        // Simulate a 1.1 s game-thread stall (zero audio commands during stall),
+        // followed by QueryState checks which must report stopped and never re-trigger playback.
+        wait_ms(1_100);
+        for _ in 0..5 {
+            assert_eq!(
+                rt.dispatch(RequestHeader::new(Op::QueryState, h_pre), "").value & STATE_PLAYING,
+                0,
+                "preloaded one-shot must report stopped after stall"
+            );
+            assert_eq!(
+                rt.dispatch(RequestHeader::new(Op::QueryState, h_str), "").value & STATE_PLAYING,
+                0,
+                "streaming one-shot must report stopped after stall"
+            );
+        }
+        wait_ms(100);
+
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::WaveStopRecord, 0), "").snderr, SNDERR_OK);
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::WaveClose, 0), "").snderr, SNDERR_OK);
+
+        let rec_bytes = std::fs::read(&rec_path).expect("read recorded wav");
+        assert!(rec_bytes.len() > 44);
+        let pcm: Vec<i16> = rec_bytes[44..]
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let total_frames = pcm.len() / 2;
+        assert!(
+            total_frames >= 40_000,
+            "expected >= 0.9 s recorded during stall, got {total_frames} frames"
+        );
+        let nonzero_frames = pcm.chunks_exact(2).filter(|lr| lr[0] != 0 || lr[1] != 0).count();
+        assert!(
+            nonzero_frames >= 1_800 && nonzero_frames <= 4_500,
+            "one-shot pulses should sound once (~2205 frames), got {nonzero_frames} non-zero frames out of {total_frames}"
+        );
+        // Tail after the first 250 ms must be 100% silent (zero repeats during stall + QueryState).
+        let tail_start = (total_frames.min(11_025)) * 2;
+        assert!(
+            pcm[tail_start..].iter().all(|&s| s == 0),
+            "audio tail after one-shot completion must remain strictly silent during stall"
         );
 
         let _ = std::fs::remove_dir_all(&dir);

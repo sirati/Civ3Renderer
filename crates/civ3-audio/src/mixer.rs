@@ -1364,7 +1364,8 @@ impl AudioEngine {
                         a.child_wavs = canonical_wavs;
                         a.root_notes = root_notes;
                         a.loading_gen = None;
-                        if play_now { a.pending_anim_frame.take() } else { None }
+                        let frame = a.pending_anim_frame.take();
+                        if play_now { frame } else { None }
                     }
                     _ => return,
                 };
@@ -1920,7 +1921,9 @@ impl AudioEngine {
                 seq.volume = a.volume;
                 seq.pan = a.pan;
                 seq.looping = a.looping;
-                seq.start();
+                if !seq.playing {
+                    seq.start();
+                }
                 self.mark_dirty(handle);
                 Response::default()
             }
@@ -1949,7 +1952,14 @@ impl AudioEngine {
                 if let Some(seq) = &mut a.sequencer {
                     seq.stop();
                 }
-                if !ring_out {
+                if ring_out {
+                    for v in &mut self.sw_voices {
+                        if v.owner == handle {
+                            v.looping = false;
+                            v.amb_gate = None;
+                        }
+                    }
+                } else {
                     self.sw_voices.retain(|v| v.owner != handle);
                 }
             }
@@ -2115,6 +2125,11 @@ impl AudioEngine {
         match self.sounds.get_mut(&handle) {
             Some(SoundSlot::Wave(w)) => {
                 w.looping = looping;
+                if looping {
+                    w.flags |= 2;
+                } else {
+                    w.flags &= !2;
+                }
                 pl_owner = w.playlist_owner();
                 if let Some(st) = &mut w.stream {
                     st.looping = looping;
@@ -2263,7 +2278,7 @@ impl AudioEngine {
                             step,
                             volume,
                             pan,
-                            looping: has_smpl_loop,
+                            looping: gated && has_smpl_loop,
                             fade: None,
                             amb_gate: gated.then_some((handle, channel, note)),
                             owner: handle,
@@ -2908,5 +2923,188 @@ mod tests {
         engine.handle_request(RequestHeader::new(Op::Play, h_title), "");
         engine.render_frames(&mut buf);
         assert!(engine.is_playing(h_title), "re-playing a fading-out stream must cancel fade-out");
+    }
+
+    #[test]
+    fn stalled_caller_never_repeats_oneshots_or_parked_anim_sync_amb() {
+        use crate::amb::{MidiEvent, MidiEventKind, PRGM_FIXED_PITCH, PRGM_GATED};
+
+        let mut engine = AudioEngine::new();
+
+        // 1. One-shot preloaded WaveSound (10 ms pulse).
+        let h_wave = engine.alloc_handle();
+        let mut w = WaveObject::new(SoundKind::Wave);
+        w.wav = Some(synthetic_wav(44_100, vec![8_000i16; 441]));
+        engine.sounds.insert(h_wave, SoundSlot::Wave(w));
+        assert_eq!(engine.cmd_play(h_wave).snderr, SNDERR_OK);
+
+        // 2. One-shot streaming WaveSound (`flags = 0x100`), plus verifying `SetFlags(0x102)`
+        //    followed by `SetLoop(0)` clears bit 1 of `w.flags` so future reloads stay one-shot.
+        let h_stream = engine
+            .handle_request(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+        engine.handle_request(RequestHeader::new(Op::SetFlags, h_stream).with_a(0x102), "");
+        engine.handle_request(RequestHeader::new(Op::SetLoop, h_stream).with_a(0), "");
+        if let Some(SoundSlot::Wave(sw)) = engine.sounds.get(&h_stream) {
+            assert_eq!(sw.flags & 2, 0, "SetLoop(0) must clear bit 1 of wave flags");
+            assert!(!sw.looping);
+        }
+        let samples = vec![6_000i16; 441];
+        let mut wav_bytes = make_wav_header(44_100, 1, (samples.len() * 2) as u32).to_vec();
+        wav_bytes.extend_from_slice(bytemuck::cast_slice(&samples));
+        let dec = StreamDecoder::from_bytes(wav_bytes, Some("wav")).unwrap();
+        if let Some(SoundSlot::Wave(sw)) = engine.sounds.get_mut(&h_stream) {
+            let mut st = StreamState::new(dec);
+            st.looping = sw.looping;
+            sw.stream = Some(st);
+        }
+        assert_eq!(engine.cmd_play(h_stream).snderr, SNDERR_OK);
+
+        // 3. Looping anim-sync AmbSound (`flags_58 = 2`, `looping = true`) that reaches
+        //    EndOfTrack on a unit animation (e.g. SettlerRun / WorkerRoad) and then the game
+        //    thread stalls for 3 full seconds with zero calls — including a child WAV with a
+        //    `smpl` loop chunk (non-gated) to verify it plays once and never loops forever.
+        let child_with_smpl_loop = Arc::new(DecodedWav {
+            sample_rate: 44_100,
+            channels: 1,
+            samples: vec![4_000i16; 441],
+            loop_range: Some((0, 441)),
+            root_note: 60,
+        });
+        let script = AmbScript {
+            programs: vec![],
+            keymaps: vec![],
+            ppq: 480,
+            tracks: vec![vec![
+                MidiEvent {
+                    tick: 0,
+                    kind: MidiEventKind::ProgramChange { channel: 0, program: 1 },
+                },
+                MidiEvent {
+                    tick: 0,
+                    kind: MidiEventKind::NoteOn { channel: 0, note: 60, velocity: 127 },
+                },
+                MidiEvent { tick: 480, kind: MidiEventKind::EndOfTrack },
+            ]],
+        };
+        let mut note_map = [None; 128];
+        note_map[60] = Some(0);
+        let prog = ResolvedProgram {
+            id: 1,
+            flags: PRGM_FIXED_PITCH,
+            pitch_min: 0,
+            pitch_max: 0,
+            vol_min: 0,
+            vol_max: 0,
+            kmap_flags: 0,
+            release_ms: 250,
+            note_map,
+            all_wavs: vec![0],
+        };
+        let h_amb = engine.alloc_handle();
+        let mut seq = AmbSequencer::new(&script, vec![prog], 1);
+        seq.flags_58 = 2;
+        seq.ms_per_frame = 100;
+        seq.looping = true;
+        engine.sounds.insert(
+            h_amb,
+            SoundSlot::Amb(AmbObject {
+                sequencer: Some(seq),
+                child_wavs: vec![child_with_smpl_loop.clone()],
+                root_notes: vec![60],
+                flags_58: 2,
+                ms_per_frame: 100,
+                volume: 127,
+                pan: 0,
+                looping: true,
+                load_gen: 1,
+                loading_gen: None,
+                pending_play: false,
+                pending_anim_frame: None,
+            }),
+        );
+        assert_eq!(engine.cmd_play(h_amb).snderr, SNDERR_OK);
+        // Advance unit animation to frame 5 (500 ms -> hits EndOfTrack), then duplicate Play
+        // while already playing must NOT restart the sequencer.
+        engine.cmd_amb_set_anim_frame(h_amb, 5, 2, 100);
+        assert_eq!(engine.cmd_play(h_amb).snderr, SNDERR_OK);
+
+        // 4. Gated AmbSound child WAV with `smpl` loop stopped with ring-out (`force_kill = false`):
+        //    stopping the AmbSound must release `v.looping` so the voice finishes cleanly.
+        let h_gated = engine.alloc_handle();
+        let mut gated_prog = ResolvedProgram {
+            id: 1,
+            flags: PRGM_FIXED_PITCH | PRGM_GATED,
+            pitch_min: 0,
+            pitch_max: 0,
+            vol_min: 0,
+            vol_max: 0,
+            kmap_flags: 0,
+            release_ms: 250,
+            note_map,
+            all_wavs: vec![0],
+        };
+        gated_prog.note_map[60] = Some(0);
+        let mut gated_seq = AmbSequencer::new(&script, vec![gated_prog], 1);
+        gated_seq.flags_58 = 2;
+        gated_seq.ms_per_frame = 100;
+        engine.sounds.insert(
+            h_gated,
+            SoundSlot::Amb(AmbObject {
+                sequencer: Some(gated_seq),
+                child_wavs: vec![child_with_smpl_loop],
+                root_notes: vec![60],
+                flags_58: 2,
+                ms_per_frame: 100,
+                volume: 127,
+                pan: 0,
+                looping: false,
+                load_gen: 1,
+                loading_gen: None,
+                pending_play: false,
+                pending_anim_frame: None,
+            }),
+        );
+        assert_eq!(engine.cmd_play(h_gated).snderr, SNDERR_OK);
+        engine.cmd_amb_set_anim_frame(h_gated, 0, 2, 100);
+        engine.cmd_stop(h_gated, false);
+
+        // Render first 30 ms (1323 frames): all four one-shots play their 10 ms pulse and finish.
+        let mut initial = vec![0i16; 1_323 * 2];
+        engine.render_frames(&mut initial);
+        assert!(initial.iter().any(|&s| s != 0), "initial playback must produce audio");
+
+        // Now simulate a 3-second game-thread stall (zero game calls, 3 * 44100 frames)
+        // with periodic status queries: output MUST be 100% silent with zero re-triggers!
+        let mut stall_chunk = vec![0i16; 4_410 * 2]; // 100 ms chunks x 30 = 3.0 s
+        for step in 0..30 {
+            engine.render_frames(&mut stall_chunk);
+            assert!(
+                stall_chunk.iter().all(|&s| s == 0),
+                "stalled caller step {step} produced unexpected non-zero audio (sound looped!)"
+            );
+            assert_eq!(
+                engine.handle_request(RequestHeader::new(Op::QueryState, h_wave), "").value
+                    & STATE_PLAYING,
+                0,
+                "one-shot WaveSound must stay stopped during stall"
+            );
+            assert_eq!(
+                engine.handle_request(RequestHeader::new(Op::QueryState, h_stream), "").value
+                    & STATE_PLAYING,
+                0,
+                "one-shot streaming WaveSound must stay stopped during stall"
+            );
+            assert_eq!(
+                engine.handle_request(RequestHeader::new(Op::QueryState, h_gated), "").value
+                    & STATE_PLAYING,
+                0,
+                "stopped gated AmbSound must finish ringing out and stay silent"
+            );
+        }
+        assert!(engine.sw_voices.is_empty(), "no stray sw_voices may linger during stall");
     }
 }
