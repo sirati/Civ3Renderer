@@ -259,6 +259,29 @@ pub fn oldest(found: [bool; 3]) -> Option<usize> {
     found.iter().position(|&f| f)
 }
 
+/// The filter a pump's peek for `filter` uses: a peek for keyboard
+/// messages (the game's modal loops pump only those, e.g. the credits'
+/// 0x4F8AC0) takes the keys a renderer forwards too, which are posted as a
+/// message of their own (`forwarded`, e.g. `inproc`'s), not as
+/// `WM_KEYDOWN`: the oldest of the two. `times` gives the times (as
+/// `GetTickCount`) of the oldest queued message of a filter, if any: of
+/// `filter`, and of the forwarded keys. Left in the queue, a forwarded
+/// Escape waited for the next loop that takes everything: the credits
+/// stayed and the title menu then took it as Exit.
+pub fn keyboard_filter(filter: Filter, forwarded: u32, times: impl FnOnce(Filter) -> (Option<u32>, Option<u32>)) -> Filter {
+    let all = filter.first == 0 && filter.last == 0;
+    let keyboard = filter.first <= KEYS.last && filter.last >= KEYS.first;
+    if all || !keyboard || forwarded == 0 || (filter.first..=filter.last).contains(&forwarded) {
+        return filter;
+    }
+    match times(f(forwarded, forwarded)) {
+        // (A tie: the keyboard message.)
+        (Some(native), Some(sent)) if sent.wrapping_sub(native) as i32 >= 0 => filter,
+        (_, Some(_)) => f(forwarded, forwarded),
+        _ => filter,
+    }
+}
+
 /// The button-up message that goes with a button-down in pump +0x144.
 pub fn button_up(down: u32) -> Option<u32> {
     match down {
@@ -403,6 +426,27 @@ pub const SHOW: [(u16, i32); 4] = [(0x10, 1), (0x14, 0), (0x18, 6), (0x1C, 3)];
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn keyboard_pumps_take_forwarded_keys_oldest_first() {
+        const SENT: u32 = 0xC123;
+        let none = |_| (None, None);
+        // Not a keyboard pump, or one that takes everything: as asked.
+        assert_eq!(keyboard_filter(MOUSE, SENT, none), MOUSE);
+        assert_eq!(keyboard_filter(f(0, 0), SENT, none), f(0, 0));
+        assert_eq!(keyboard_filter(OLDEST_FILTERS[1], SENT, |_| (None, Some(5))), OLDEST_FILTERS[1], "0x109..0x1FF: no keys");
+        // The keys pump: a forwarded key when it is the only or older one.
+        assert_eq!(keyboard_filter(KEYS, SENT, |_| (None, Some(5))), f(SENT, SENT));
+        assert_eq!(keyboard_filter(KEYS, SENT, |_| (Some(9), Some(5))), f(SENT, SENT));
+        assert_eq!(keyboard_filter(KEYS, SENT, |_| (Some(5), Some(9))), KEYS);
+        assert_eq!(keyboard_filter(KEYS, SENT, |_| (Some(5), Some(5))), KEYS, "a tie: the keyboard message");
+        assert_eq!(keyboard_filter(KEYS, SENT, |_| (Some(5), None)), KEYS);
+        // The characters pump too; no forwarded keys registered: as asked.
+        assert_eq!(keyboard_filter(f(0x102, 0x102), SENT, |_| (None, Some(1))), f(SENT, SENT));
+        assert_eq!(keyboard_filter(KEYS, 0, |_| (None, Some(1))), KEYS);
+    }
+
     use super::*;
     use std::collections::VecDeque;
 

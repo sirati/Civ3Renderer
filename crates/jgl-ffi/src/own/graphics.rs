@@ -678,6 +678,14 @@ impl w::Queue for Windows {
         let hooks = super::window_hooks();
         hooks.peeking();
         let flags = if remove { w::PM_REMOVE } else { 0 };
+        let filter = w::keyboard_filter(filter, inproc::keyboard::forwarded_key_message(), |forwarded| {
+            let time = |f: w::Filter| {
+                let mut m = native(message);
+                // SAFETY: as below; nothing is removed.
+                (unsafe { wm::PeekMessageA(&mut m, window as usize as HWND, f.first, f.last, 0) } != 0).then_some(m.time)
+            };
+            (time(filter), time(forwarded))
+        });
         let mut m = native(message);
         // SAFETY: the OS writes a live MSG; pointers in it remain opaque.
         let got = unsafe { wm::PeekMessageA(&mut m, window as usize as HWND, filter.first, filter.last, flags) } != 0;

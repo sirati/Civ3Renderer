@@ -19,7 +19,7 @@ path = "../jgl"
 
 [dependencies.inproc]
 git = "ssh://git@github.com/sirati/inproc-rs.git"
-rev = "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c"
+rev = "6f6fe5f43532ec193251865c5bce44fc974a4aa6"
 
 [dependencies.handoff]
 git = "ssh://git@github.com/sirati/tilerenderer.git"
