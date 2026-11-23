@@ -739,6 +739,10 @@ impl Prefs {
                 continue;
             };
             let routed = panels.input(panel, &mut self.state, area, &input);
+            if matches!(input, Input::MouseButton { .. }) {
+                log::debug!("preferences: {input:?} on {panel_name}: taken {}, {:?}; hover {:?}, pressed {:?}, buttons ours {:#x} theirs {:#x}",
+                    routed.consumed, routed.events, self.state.hover, self.state.pressed, self.state.ours, self.state.theirs);
+            }
             for event in &routed.events {
                 if let PanelEvent::Chose { control, value } = event {
                     if control == ACTION {
@@ -2295,6 +2299,39 @@ mod tests {
             assert_eq!(prefs.editing(), &Settings::default());
             assert_eq!(prefs.settings(), &Settings::default());
             assert!(!path.exists());
+        }
+    }
+
+    #[test]
+    fn a_press_on_yes_dragged_to_no_discards_nothing_and_no_still_clicks() {
+        // The Alt mode's press on "Yes, discard", the pointer moved to "No"
+        // while held and released there: nothing; a click on "No" then
+        // keeps editing (as the real pointer's does).
+        for sequences in [1, 2] {
+            let (mut prefs, _path) = with_native_buttons(&format!("drag-yes-to-no-{sequences}"));
+            prefs.follow_native(|| Some(native::test_values(false)), true);
+            click(&mut prefs, 330, 55);
+            click(&mut prefs, 340, 140);
+            let draft = prefs.editing().clone();
+            click(&mut prefs, CANCEL_AT.0, CANCEL_AT.1);
+            assert!(prefs.confirming_discard);
+            let b = |down, x| Input::MouseButton { button: scene::Button::Left, down, x, y: 522 };
+            let drag = if sequences == 1 {
+                vec![Input::MouseMove { x: 480, y: 522 }, b(true, 480), Input::MouseMove { x: 700, y: 522 }, b(false, 700)]
+            } else {
+                // (In separate batches, as frames deliver them.)
+                vec![Input::MouseMove { x: 480, y: 522 }, b(true, 480)]
+            };
+            prefs.route(drag, (1024, 768));
+            if sequences == 2 {
+                prefs.route(vec![Input::MouseMove { x: 700, y: 522 }], (1024, 768));
+                prefs.route(vec![b(false, 700)], (1024, 768));
+            }
+            assert!(prefs.confirming_discard, "a release off Yes discards nothing");
+            assert_eq!(prefs.editing(), &draft);
+            assert!(click(&mut prefs, 700, 522).is_empty());
+            assert!(!prefs.confirming_discard && prefs.is_open(), "No after the dragged-off press ({sequences})");
+            assert_eq!(prefs.editing(), &draft);
         }
     }
 
