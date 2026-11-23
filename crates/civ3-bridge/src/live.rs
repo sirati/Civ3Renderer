@@ -797,6 +797,8 @@ fn publish(
     // The loading bar's items and sprites (`crate::loading_cursor::split_bar`).
     let mut bar_memo: Memo<_, Vec<ui_screen::Item>> = Default::default();
     let mut bar_sprites_memo: Memo<_, Vec<scene::FreeSprite>> = Default::default();
+    // The list views' sprites (`crate::list_views`), by their draws.
+    let mut list_sprites_memo: Memo<_, Vec<Vec<scene::FreeSprite>>> = Default::default();
     // Bumped whenever `compiled` changes (new art, a growth): the memos of
     // what is made of the art key on it.
     let mut art_generation = 0u64;
@@ -2204,6 +2206,15 @@ fn publish(
         }
         if let Some((_, r)) = screen_part {
             crate::interface_parts::part_view(&mut scene, crate::interface_parts::SCREEN_VIEW, r, part_sprites(screen_part_memo, &screen_items));
+            // The lists the viewer shows whole (`crate::list_views`), in
+            // the screen's part.
+            if let Some(lists) = crate::list_views::latest().filter(|l| !l.is_empty()) {
+                let key: Vec<usize> = lists.iter().map(|l| std::sync::Arc::as_ptr(&l.draws) as usize).collect();
+                let sprites = list_sprites_memo.get((key, art_key), || {
+                    lists.iter().map(|l| ui_screen::sprites(&ui_screen::items(&crate::list_views::frame(l), files.roots(), generated, unit_colors), &fonts, &compiled, ui_screen::under_pass(&compiled), outlines)).collect::<Vec<_>>()
+                });
+                crate::list_views::views(&mut scene, &lists, crate::interface_parts::SCREEN_VIEW, &sprites);
+            }
         }
         for (id, rect, items) in &popup_layers {
             crate::interface_parts::part_view(&mut scene, *id, *rect, part_sprites(popup_part_memo, items));
@@ -2879,10 +2890,16 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 Some(edit) => crate::build_queue::post(window, edit),
                 None => log::debug!("input: an extension message of no extension of ours"),
             },
-            // A list the viewer scrolls itself (`scene::ListView`): none is
-            // published yet; their entries come list by list
-            // (docs/smooth-lists.md).
-            Input::ListScrolled { .. } => {}
+            // A list the viewer scrolls itself (`scene::ListView`): the
+            // game's list follows, turned by its own wheel so that the
+            // entry under the pointer is one it shows (`crate::list_views`).
+            Input::ListScrolled { id, offset } => {
+                if let Some((notches, (x, y))) = crate::list_views::scroll_to(id as u32, offset) {
+                    for _ in 0..notches.unsigned_abs().min(64) {
+                        window.wheel(if notches > 0 { 120 } else { -120 }, x, y, forwarder.held);
+                    }
+                }
+            }
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");

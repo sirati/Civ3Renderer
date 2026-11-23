@@ -80,6 +80,7 @@ mod ui_capture;
 mod ui_opacity;
 pub mod ui_screen;
 pub mod loading_cursor;
+pub mod list_views;
 pub mod ui_transaction;
 #[cfg(windows)]
 pub mod ui_wheel;

@@ -730,6 +730,65 @@ fn list_at(mem: &dyn Mem, form: &Form, g: u32) -> Option<ListParts> {
     (g.wrapping_add(4).wrapping_add(to_form) == form.addr).then(|| ListParts { list: g, items: g.wrapping_add(4).wrapping_add(to_items) })
 }
 
+/// A list box as its entries are drawn: what a renderer needs to show all
+/// of its entries itself (docs/smooth-lists.md, "Bridge design").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListBox {
+    /// The list object G, its form part F (a `Base_Form`), its item list L.
+    pub list: u32,
+    pub form: u32,
+    pub items: u32,
+    pub layout: ItemLayout,
+    /// The first entry shown (G+0x2C), how many are shown (G+0x30), how
+    /// many there are (L+0xD0).
+    pub first: i32,
+    pub shown: i32,
+    pub count: i32,
+    /// The form on the screen (x, y, w, h), and the part of it that shows
+    /// (within its clip).
+    pub rect: [i32; 4],
+    pub visible_rect: [i32; 4],
+    /// Whether the form is shown (Status2 bit 0).
+    pub visible: bool,
+    /// Each entry's data, in order: `[[node+8]+4]`, what the entry draw
+    /// (0x617470) gives the list's callbacks (an improvement's index in
+    /// the city screen's improvements). -1 where it cannot be read.
+    pub data: Vec<i32>,
+}
+
+/// The most entries a list box is read with.
+pub const MAX_LIST_ENTRIES: i32 = 4096;
+
+/// The list box whose list object is `g` (e.g. `City_Form.Improvement_List`).
+pub fn read_list_box(mem: &dyn Mem, g: u32) -> Option<ListBox> {
+    let vb = mem.u32(g.wrapping_add(4)).filter(|&v| v != 0)?;
+    let form = g.wrapping_add(4).wrapping_add(mem.u32(vb + 4)?);
+    let items = g.wrapping_add(4).wrapping_add(mem.u32(vb + 8)?);
+    let f = Form::read(mem, form)?;
+    let layout = ItemLayout::read(mem, items).filter(ItemLayout::sane)?;
+    let count = mem.i32(items + L_COUNT).filter(|c| (0..=MAX_LIST_ENTRIES).contains(c))?;
+    let mut data = Vec::with_capacity(count as usize);
+    let mut node = mem.u32(items + L_FIRST_NODE).unwrap_or(0);
+    while node != 0 && data.len() < count as usize {
+        data.push(mem.u32(node + 8).filter(|&i| i != 0).and_then(|item| mem.i32(item + 4)).unwrap_or(-1));
+        node = mem.u32(node + 0xC).unwrap_or(0);
+    }
+    data.resize(count as usize, -1);
+    Some(ListBox {
+        list: g,
+        form,
+        items,
+        layout,
+        first: mem.i32(g + G_FIRST)?,
+        shown: mem.i32(g + G_SHOWN)?,
+        count,
+        rect: [f.origin.0, f.origin.1, f.size.0, f.size.1],
+        visible_rect: f.shown,
+        visible: visible(mem, form),
+        data,
+    })
+}
+
 /// The draws of a choice group: a grid of items (0x615080 each), or rows
 /// of text (0x61CC20 each; a popup's choices).
 const CHOICE_DRAW: u32 = 0x61_56F0;

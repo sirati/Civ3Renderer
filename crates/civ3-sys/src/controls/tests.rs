@@ -195,6 +195,36 @@ fn a_list_box_shows_its_entries_and_scrolls_with_the_wheel() {
 }
 
 #[test]
+fn a_list_box_is_read_with_its_entries_data() {
+    let mut m = Fake::default();
+    let f = 0x10_0000;
+    list(&mut m, f, WHEEL, ROWS, 3, 1, 2);
+    let (g, l) = (f - 0x64, f - 0x64 + 4 + 0x5D8);
+    // Three nodes, their items' data 7, 9, 12.
+    let nodes = [0x20_0000u32, 0x20_0100, 0x20_0200];
+    m.put(l + L_FIRST_NODE, nodes[0]);
+    for (i, (&node, data)) in nodes.iter().zip([7, 9, 12]).enumerate() {
+        let item = node + 0x80;
+        m.put(node + 8, item);
+        m.put(item + 4, data);
+        m.put(node + 0xC, nodes.get(i + 1).copied().unwrap_or(0));
+    }
+    let b = read_list_box(&m, g).expect("a list box");
+    assert_eq!((b.list, b.form, b.items), (g, f, l));
+    assert_eq!((b.first, b.shown, b.count), (1, 2, 3));
+    assert_eq!(b.rect, [100, 100, 200, 160]);
+    assert!(b.visible);
+    assert_eq!(b.data, [7, 9, 12]);
+    assert_eq!(b.layout, ROWS);
+    // A node short: its entry's data is unknown, not another's.
+    m.put(nodes[1] + 0xC, 0);
+    assert_eq!(read_list_box(&m, g).unwrap().data, [7, 9, -1]);
+    // No virtual base table: no list box.
+    m.put(g + 4, 0);
+    assert!(read_list_box(&m, g).is_none());
+}
+
+#[test]
 fn a_form_whose_draw_thunk_differs_is_no_list() {
     let mut m = Fake::default();
     list(&mut m, 0x10_0000, WHEEL, ROWS, 30, 5, 8);

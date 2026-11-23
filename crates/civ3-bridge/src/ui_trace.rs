@@ -797,6 +797,12 @@ fn emit(e: Event) {
     // MapMessage draws onto the animator's map overlay. It is rebuilt as
     // tile-anchored world art, never copied into a misplaced UI overlay.
     if crate::unit_notices::drawing() && matches!(&e, Event::Text { .. } | Event::TextClipped { .. } | Event::Fill { .. }) { return; }
+    // A row of a list the viewer shows whole from the game's data: the
+    // list view draws it (`crate::list_views`), not the game's canvas.
+    if crate::list_views::drawing_shown_row() && matches!(&e,
+        Event::Blit { .. } | Event::IndexedBlit { .. } | Event::ResizedBlit { .. } | Event::OpacityBlit { .. } | Event::MaskedBlit { .. }
+        | Event::MillIcons { .. } | Event::Fill { .. } | Event::Text { .. } | Event::TextClipped { .. } | Event::FlcBlit { .. }
+        | Event::ResizedFlcBlit { .. } | Event::Copy { .. }) { return; }
     let present = matches!(e, Event::Present { .. });
     watch(&e);
     with_model(present, |m| m.apply(e));
@@ -1426,6 +1432,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
             camera: (v.camera_x, v.camera_y),
         });
         crate::city_screen::native::present(&presenting);
+        crate::list_views::present();
         PRESENT_PHASES.add(1, city);
         emit_present(if rect == 0 { None } else { obj::rect(rect) }, presented);
         PRESENT_PHASES.done(began);
@@ -1492,6 +1499,7 @@ fn install_hooks(game: &Civ3, jgl: u32) -> Result<UiTracer, HookError> {
     }
     hook_lines(game, &mut hooks);
     if let Some(hook) = crate::ui_mills::install(game.build)? { hooks.push(Box::new(hook)); }
+    if let Some(hook) = crate::list_views::install(game.build)? { hooks.push(Box::new(hook)); }
     // With our jgl (jgl.dll not loaded) its tables have every group already.
     if !jgl_ffi::own::on() {
         hook_jgl(jgl)?;
