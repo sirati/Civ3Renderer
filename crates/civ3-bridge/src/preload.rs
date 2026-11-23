@@ -140,14 +140,43 @@ pub struct Preload {
 }
 
 /// What a game is, for telling another apart (a new plan).
-pub fn game_key(world: &Civ3World) -> (i32, i32, u32, usize, usize) {
+pub fn game_key(world: &Civ3World) -> (i32, i32, u32, usize, usize, u64) {
     (
         world.width,
         world.height,
         world.seed,
         world.unit_type_keys.len(),
         world.era_keys.len(),
+        units_signature(world),
     )
+}
+
+/// The unit type a city completes next turn (its order a unit, at most a
+/// turn to go): its animations must be there when the turn begins.
+pub fn next_turn_unit(city: &crate::world::Civ3City) -> Option<i32> {
+    (city.order.0 == UNIT_ORDER && city.build_turns.is_some_and(|t| (0..=1).contains(&t))).then_some(city.order.1)
+}
+
+/// `Order_Type` of a unit (docs/civ3-map-rendering.md §10.8).
+const UNIT_ORDER: i32 = 2;
+
+/// Which kinds of units are in the game or come next turn: each unit type
+/// in each civ's colours and era. A plan is made again when that changes:
+/// a game's units are read after its first plan (which then had none, and
+/// planned none of them: TS Neo, a bomber invisible through its first
+/// attack), or a new type is built, or a civ enters an era.
+fn units_signature(world: &Civ3World) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let kinds: BTreeSet<(i32, i32, &str)> = world
+        .units
+        .iter()
+        .map(|u| (u.unit_type, u.civ))
+        .chain(world.cities.iter().filter_map(|c| next_turn_unit(c).map(|t| (t, c.civ))))
+        .map(|(t, civ)| (t, civ, units::era_of(world, civ)))
+        .collect();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    kinds.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Planning needs unit rules and civ colours, never the world's tiles,
@@ -172,6 +201,9 @@ pub fn planning_world(world: &Civ3World) -> Civ3World {
             .iter()
             .map(|city| crate::world::Civ3City {
                 civ: city.civ,
+                // (What it completes next turn: `next_turn_unit`.)
+                order: city.order,
+                build_turns: city.build_turns,
                 ..Default::default()
             })
             .collect(),
@@ -434,40 +466,55 @@ impl Preload {
             within(x, view.tile_x, world.width) && within(y, view.tile_y, world.height)
         };
         let mut seen_units = VecDeque::new();
+        let mut coming = VecDeque::new();
         let mut other_units = VecDeque::new();
-        for u in &world.units {
-            if stop() {
-                return None;
-            }
-            let out = if on_screen(u.x, u.y) {
-                &mut seen_units
-            } else {
-                &mut other_units
-            };
-            let Some(type_key) = world.unit_type_keys.get(u.unit_type.max(0) as usize) else {
-                continue;
-            };
-            let era = units::era_of(world, u.civ).to_owned();
-            if !animations(art, type_key, &era, &[units::recolor_of(world, u)], out) {
-                return None;
-            }
-            if let Some(member) = units::member_of(world, u) {
-                if let Some(type_key) = world.unit_type_keys.get(member.unit_type.max(0) as usize) {
-                    if !animations(
-                        art,
-                        type_key,
-                        &era,
-                        &[Recolor::civ(units::colors_of(world, u.civ))],
-                        out,
-                    ) {
-                        return None;
+        // (Planned in the order the tiers go, each item in the first: the
+        // units on screen, the units cities complete next turn, the rest.)
+        for pass in [true, false] {
+            for u in world.units.iter().filter(|u| on_screen(u.x, u.y) == pass) {
+                if stop() {
+                    return None;
+                }
+                let out = if pass { &mut seen_units } else { &mut other_units };
+                let Some(type_key) = world.unit_type_keys.get(u.unit_type.max(0) as usize) else {
+                    continue;
+                };
+                let era = units::era_of(world, u.civ).to_owned();
+                if !animations(art, type_key, &era, &[units::recolor_of(world, u)], out) {
+                    return None;
+                }
+                if let Some(member) = units::member_of(world, u) {
+                    if let Some(type_key) = world.unit_type_keys.get(member.unit_type.max(0) as usize) {
+                        if !animations(art, type_key, &era, &[Recolor::civ(units::colors_of(world, u.civ))], out) {
+                            return None;
+                        }
                     }
+                }
+            }
+            if !pass {
+                break;
+            }
+            // The units cities complete next turn: there when it begins.
+            for c in &world.cities {
+                if stop() {
+                    return None;
+                }
+                let Some(type_key) = next_turn_unit(c).and_then(|t| world.unit_type_keys.get(t.max(0) as usize)) else {
+                    continue;
+                };
+                let era = units::era_of(world, c.civ).to_owned();
+                if !animations(art, type_key, &era, &[Recolor::civ(units::colors_of(world, c.civ))], &mut coming) {
+                    return None;
                 }
             }
         }
         tiers.push_back(Tier {
             name: "units on screen",
             items: seen_units,
+        });
+        tiers.push_back(Tier {
+            name: "units built next turn",
+            items: coming,
         });
         tiers.push_back(Tier {
             name: "units present",
@@ -622,6 +669,36 @@ impl Preload {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// TS Neo: a game's first plan was made before its units were read,
+    /// so it planned none of them and was never made again; the bomber an
+    /// AI flew in its first turn showed nothing until its attack ended.
+    #[test]
+    fn units_read_late_or_coming_next_turn_plan_again() {
+        use crate::world::{Civ3City, Civ3Unit};
+        let mut world = Civ3World { width: 40, height: 40, seed: 7, unit_type_keys: vec!["Warrior".into(), "Bomber".into()], ..Default::default() };
+        let empty = game_key(&world);
+        world.units.push(Civ3Unit { unit_type: 0, civ: 1, ..Default::default() });
+        let with_units = game_key(&world);
+        assert_ne!(empty, with_units, "units read after the first plan: planned again");
+        // A unit moving, or another of a kind already there: no new plan.
+        world.units.push(Civ3Unit { unit_type: 0, civ: 1, x: 5, ..Default::default() });
+        assert_eq!(game_key(&world), with_units);
+        // A city completing a bomber next turn: planned again, the bomber with it.
+        let mut city = Civ3City { civ: 2, order: (2, 1), build_turns: Some(3), ..Default::default() };
+        world.cities.push(city.clone());
+        assert_eq!(game_key(&world), with_units, "three turns to go: not yet");
+        assert_eq!(next_turn_unit(&city), None);
+        city.build_turns = Some(1);
+        world.cities[0] = city.clone();
+        assert_ne!(game_key(&world), with_units);
+        assert_eq!(next_turn_unit(&city), Some(1));
+        // An improvement completing: no unit.
+        assert_eq!(next_turn_unit(&Civ3City { order: (1, 1), build_turns: Some(1), ..Default::default() }), None);
+        // The planning snapshot keeps what the city completes.
+        assert_eq!(planning_world(&world).cities[0].order, (2, 1));
+        assert_eq!(planning_world(&world).cities[0].build_turns, Some(1));
+    }
 
     #[test]
     fn remembered_art_survives_restarts_and_grows_only_with_new_lines() {
