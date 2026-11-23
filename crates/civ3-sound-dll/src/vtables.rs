@@ -1233,11 +1233,7 @@ unsafe extern "thiscall" fn pl_queue_track(this: *mut c_void, idx: u32) -> u32 {
         match client::call(RequestHeader::new(Op::PlaylistQueueTrack, obj.handle), &path) {
             Ok(r) => {
                 if r.snderr == SNDERR_OK {
-                    if r.value == 1 {
-                        obj.current_marker = 1;
-                    } else if r.value == 2 {
-                        obj.queued_marker = 1;
-                    }
+                    obj.queued_marker = 1;
                 }
                 r.snderr
             }

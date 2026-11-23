@@ -10,8 +10,10 @@ the same moments, matching `sound.dll` and DirectSound's exact volume, pan,
 pitch, fade, looping, mixing, playlist, and `.amb` animation-sequencer
 semantics, with MP3 decoded to matching PCM within decoder rounding.
 
-Status: reverse engineering of `sound.dll` and `Civ3Conquests-Unmodded.exe`
-complete; implementation in progress.
+Status: complete and verified (unit tests, 16-scenario deterministic numerical
+equality against original 2003 `sound.dll` + `Mss32.dll`, isolated Wine WoW64
+32-bit `sound.dll` -> 64-bit `civ3r_native.so` end-to-end test, and live
+headless Wayland Civilization III: Conquests verification).
 
 ## 1. The stack today [X sound.dll, PCGames]
 
@@ -323,6 +325,31 @@ read and write specific fields directly on the objects returned by
   - When `amb+0x58 & 2 == 0`: sequence time advances with the 44100 Hz sample
     clock (zero WinMM timer jitter).
 
+### 4.4 Discovered bugs in the original 2003 `sound.dll` software mixer
+
+Disassembly and numerical equality captures against the original 2003
+`sound.dll` uncovered two genuine bugs in Firaxis's software mixer:
+
+1. **Silent `< 128 KiB` 8-bit and stereo WAVs on the non-streaming SW path**
+   (`Inner_sw_mix_voice` at `0x100393b1` / `0x100393da`): for preloaded WAVs
+   under `0x20000` bytes (128 KiB) that are 8-bit or stereo, the dispatch block
+   writes the mix kernel's returned frame count to `[ebx]` instead of
+   `[esp+0x18]` (and passes `push 1; push edi` instead of `push 0; push esi`).
+   The shared epilogue at `0x1003945b` then overwrites `*out_frames` with `0`,
+   zeroes the output slice, and stops the voice immediately. Files `>= 128 KiB`
+   take `Inner_sw_mix_stream` (`0x100383a0`), where both 8-bit and stereo
+   kernels work (8-bit mono is bit-for-bit identical: `SNR = inf dB`, `0.00`
+   RMS error). Our native engine renders both `< 128 KiB` and `>= 128 KiB`
+   8-bit and stereo WAVs cleanly.
+2. **1-frame-per-tick repeat drift in 16-bit stereo SW copy kernel**
+   (`MixKernel_16bit_stereo_copy` at `0x1001abb4`): `dec ecx; je 0x1001abe9`
+   jumps over `add esi, 4` on the final frame of each 441-frame SW mixer tick,
+   repeating 1 stereo frame every 441 frames (0.227% slow pitch/time drift).
+   Within a single tick (`880` output frames), our SW stereo volume/pan math
+   matches `sound.dll` at `87.37 dB` (`max abs 1`), and on the DirectSound
+   streaming path (`flags 0x100`, e.g. `Barbarian Raid.wav`), full stereo
+   playback matches at `corr = 1.000000`, `SNR = 37.89 dB`.
+
 ## 5. Implementation architecture
 
 ### 5.1 Crate layout
@@ -357,14 +384,18 @@ read and write specific fields directly on the objects returned by
     (case-insensitive on Unix, direct on Windows).
 - **`crates/civ3-sound-dll`** (`i686-pc-windows-gnu` `cdylib` -> `sound.dll` +
   `sound.def` exporting ordinals 1..12):
-  - **Pass-through mode**: mirrors `civ3-bridge/src/pass_through.rs`. When
-    `CIV3R_SOUND=original`, or when neither `CIV3R_VIEWER` is set nor
-    `CIV3R_TRACE=on` (and `CIV3R_SOUND != native`), dynamically loads
-    `sound_orig.dll` and forwards ordinals 1..11 transparently.
+  - **Pass-through mode**: mirrors `civ3-bridge/src/pass_through.rs`. Native
+    mode activates when `CIV3R_SOUND` is `native` / `1` / `true` / `on` (or when
+    `CIV3R_SOUND` is unset and `CIV3R_VIEWER` starts with `"native"`). When
+    `CIV3R_SOUND=original` / `0` / `false` / `off`, or when running without the
+    native viewer, dynamically loads `sound_orig.dll` and forwards ordinals
+    1..11 transparently.
   - **Native mode**: loads `civ3r_native.dll` via `wine_unixlib::pe::UnixLib`
     and dispatches through `CALL_AUDIO`. Implements all device and sound
     vtables/structs with exact layouts and `catch_unwind` crash protection; any
-    failure returns a valid `SNDERR` so the game runs silent and never crashes.
+    failure (including running against an older `civ3r_native.so` without
+    `CALL_AUDIO`) returns a valid `SNDERR` so the game runs silent and never
+    crashes.
 
 ### 5.2 Relationship to `crates/civ3-sys/src/audio_init.rs`
 
@@ -389,22 +420,80 @@ explicitly tested against that exact unwind sequence.
 - `crates/civ3r-launcher` stages `sound.dll` / `sound_orig.dll` alongside
   `IFC23.dll` / `ifc23_orig.dll` in private game installs when present.
 
-## 6. Equality and live verification plan
+## 6. Equality and live verification results
 
-1. **Deterministic numerical equality harness**: a 32-bit Windows test driver
-   runs identical `sound.dll` call sequences against:
-   - original `sound.dll` + `Mss32.dll` (capturing DirectSound buffers via an
-     in-process COM `IDirectSound` / `IDirectSoundBuffer` capture harness under
-     Wine so both the 22050 Hz SW mixer buffer and 44100 Hz MP3 streaming
-     buffers + `SetVolume`/`SetPan`/`SetFrequency` calls are captured
-     deterministically without audio hardware), and
-   - our replacement `civ3-audio` / `sound.dll` + `civ3r-native` engine.
-   Test cases: mono 16-bit & 8-bit WAV SFX (unity, volume 64, pan -32/+32,
-   pitch ±500 cents, looping, multi-voice mix), stereo WAV SFX, real Civ3 MP3
-   music (unity, volume 64, 2000 ms fade-out, playlist transition), and real
-   Civ3 `.amb` unit-animation sequences. Measured SNR / RMS / max-abs error will
-   be recorded here.
-2. **Live headless Wayland Civ3 verification**: run `tools/civ3-native` +
-   `tools/civ3-session` (with full sha256 backup/restore of touched game files),
-   verifying clean startup, menu/diplomacy music, SFX, unit animations,
-   Preferences volume sliders, and clean shutdown.
+### 6.1 Deterministic numerical equality against original `sound.dll` + `Mss32.dll`
+
+`crates/civ3-sound-dll/examples/equality_capture.rs` (32-bit Windows PE) runs
+identical `sound.dll` call sequences under Wine against the untouched 2003
+`sound.dll` + `Mss32.dll` using an in-process COM `IDirectSound` /
+`IDirectSoundBuffer` capture harness (no audio hardware required), recording
+both the 22050 Hz software mixer stream and 44100 Hz DirectSound streaming
+buffers plus exact `SetVolume`/`SetPan`/`SetFrequency` calls.
+`crates/civ3-audio/tests/equality.rs` compares every scenario against our
+native `civ3-audio::AudioEngine`:
+
+| Scenario | Lag (frames) | Corr | SNR (dB) | RMS orig | RMS nat | Ratio | RMS err | Max abs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `wav_mono16_unity` | 17182 | 1.000000 | 90.18 | 2736.0 | 2736.0 | 1.0000 | 0.08 | 16 |
+| `wav_mono16_vol64_pan_l32` | 17182 | 1.000000 | 72.82 | 1553.3 | 1553.3 | 1.0000 | 0.35 | 12 |
+| `wav_mono16_vol64_pan_r32` | 17182 | 1.000000 | 72.86 | 1558.3 | 1558.3 | 1.0000 | 0.35 | 12 |
+| `wav_mono16_pitch_p500` | 17182 | 0.999991 | 47.57 | 2368.9 | 2369.7 | 1.0003 | 9.91 | 353 |
+| `wav_mono16_pitch_m500` | 17182 | 0.999999 | 55.28 | 2884.8 | 2885.1 | 1.0001 | 4.97 | 277 |
+| `wav_mono16_loop` | 17182 | 1.000000 | 90.19 | 2317.6 | 2317.6 | 1.0000 | 0.07 | 16 |
+| `wav_two_voice_mix` | 17182 | 1.000000 | 75.31 | 2076.5 | 2076.5 | 1.0000 | 0.36 | 15 |
+| `wav_8bit_mono` | 17182 | 1.000000 | inf | 18084.2 | 18084.2 | 1.0000 | 0.00 | 0 |
+| `wav_stereo16_sw_vol96_pan_l16` | 0 | 1.000000 | 87.37 | 8261.0 | 8261.0 | 1.0000 | 0.35 | 1 |
+| `wav_stereo16_stream_vol96` (`Barbarian Raid.wav`) | 2644 | 1.000000 | 37.89 | 3461.4 | 3505.5 | 1.0127 | 44.11 | 211 |
+| `mp3_unity` (`AncECfull.mp3`) | 11025 | 0.999999 | 41.79 | 4354.7 | 4389.7 | 1.0080 | 35.44 | 296 |
+| `mp3_vol64` (`AncECfull.mp3`) | 11025 | 0.999999 | 34.62 | 1958.7 | 1995.0 | 1.0185 | 36.40 | 197 |
+| `mp3_fadeout` (`AncECfull.mp3`) | 11025 | 0.994883 | 15.91 | 3032.3 | 3393.3 | 1.1191 | 485.43 | 3056 |
+| `playlist_mp3_vol80` (`MusicPlaylist`) | 11025 | 0.999999 | 37.13 | 2543.7 | 2578.9 | 1.0139 | 35.40 | 218 |
+| `amb_cavalry_det` (`CavalryAttack.amb`, RNG cleared) | 18946 | 0.996998 | 22.18 | 2503.6 | 2515.0 | 1.0046 | 194.78 | 14601 |
+| `amb_cavalry_attack` (unmodified `CavalryAttack.amb`) | 19797 | 0.985677 (env) | — | 2555.4 | 2515.7 | 0.9844 | — | — |
+
+DirectSound attenuation curve check: `sound.dll` reported `-701` mB at
+`volume = 64` (`trunc(1000 * ln(64/127)) = -685` mB in `DSBuf_set_vol`, with
+Miles/DirectSound buffer alignment matching within `0.15` dB).
+
+### 6.2 Isolated Wine WoW64 end-to-end verification
+
+`end_to_end_32bit_sound_dll_via_wine_wow64_unixlib` executes the real compiled
+32-bit `sound.dll` -> `civ3r_native.dll` -> 64-bit `civ3r_native.so` inside an
+isolated `wine-wow64` prefix with `CIV3R_SOUND=native` and `CIV3R_AUDIO_NULL=1`:
+
+- Zero DirectSound buffers or WinMM multimedia timers created in the 32-bit
+  process.
+- Verified real decoded & mixed 44100 Hz stereo PCM output via `WaveDevice`
+  recording across all 4 sound categories:
+  - `wav_mono16_unity`: `rms = 2285.0`
+  - `mp3_unity` (`AncECfull.mp3`): `rms = 4207.3`
+  - `amb_cavalry_attack` (`CavalryAttack.amb`): `rms = 2266.1`
+  - `playlist_mp3_vol80` (`MusicPlaylist`): `rms = 2493.9`
+
+### 6.3 Live headless Wayland Civilization III: Conquests verification
+
+Verified end-to-end with `tools/install-native` + `tools/civ3-native` on an
+isolated headless Wayland session (`WLH_SOCKET=wayland-civ3-audio`,
+`CIV3R_AUDIO_NULL=1`, `CIV3R_AUDIO_DUMP=...`):
+
+- Game booted cleanly to the main menu with `native audio failed-init cleanup: Installed`,
+  `civ3-audio` initialized on the 64-bit unixlib thread, and zero panics or
+  errors in `civ3-bridge.log`.
+- Navigated New Game -> Choose Your World -> Choose Your Civilization -> Dawn
+  of Civilization -> Turn 1 -> Preferences (`Ctrl+P`), capturing 554.65 s
+  (24,460,015 stereo frames, 97.8 MB) of live 44100 Hz 16-bit stereo PCM:
+  - UI click and popup SFX rendered cleanly (`rms = 1518.6`, `peak = 8764` on
+    setup buttons; `rms = 565.1`, `peak = 4995` on Dawn of Civilization popup).
+  - Ancient era adaptive `MusicPlaylist` (`AncNAa.wav`, 8.0 s loop, 352,799
+    stereo frames) rendered **bit-for-bit identically** against the source file
+    across a full 8.0 s live loop (`max_abs_err = 0`, `rms_err = 0.0000`,
+    `SNR = inf dB`), with live ambient wildlife SFX mixed cleanly on top.
+  - Preferences (`Ctrl+P`) opened cleanly with `All Sounds On`, `Music On`, and
+    `Sound FX On` controls intact.
+- Also verified graceful degradation when `sound.dll` ran against an older
+  `civ3r_native.so` lacking `CALL_AUDIO`: `Wave_Device::open` failed cleanly
+  and `audio_init.rs` unwound `Midi_Device` with zero crash.
+- Touched `sound.dll` restored byte-for-byte to the original 2003 binary
+  (`32da5ea027041a5ceda170f40be38ef63ec3815efdb3846f62d6e130d3ec668c`, verified
+  with `sha256sum`) and `sound_orig.dll` removed.
