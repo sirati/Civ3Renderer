@@ -481,20 +481,29 @@ pub fn city_screen(
     roots: &[PathBuf],
     bands: &mut std::collections::HashMap<String, Option<[i32; 4]>>,
 ) -> Option<([i32; 4], usize)> {
+    city_band(frame, |path| {
+        let rel = relative_path(path, roots);
+        *bands.entry(rel.clone()).or_insert_with(|| transparent_band(files, &rel))
+    })
+}
+
+/// [`city_screen`] with the band of a background file (left, top, right,
+/// bottom in its pixels) from `band_of`. The band is the picture's, placed
+/// where the picture is, however much of it a draw paints: the game repaints
+/// the screen in parts (the map's rows, the citizens' row), and a band cut
+/// to the part painted last left the rest of the map black, or showing
+/// whatever world lay below, until the next whole repaint (TS Neo).
+fn city_band(frame: &Frame, mut band_of: impl FnMut(&str) -> Option<[i32; 4]>) -> Option<([i32; 4], usize)> {
     frame.draws.iter().enumerate().find_map(|(i, d)| {
         let ScreenDraw::Image { path, rect, x, y, .. } = d else { return None };
         let p = path.to_ascii_lowercase().replace('/', "\\");
         if !p.ends_with("city screen\\background.pcx") {
             return None;
         }
-        let rel = relative_path(path, roots);
-        let band = *bands.entry(rel.clone()).or_insert_with(|| transparent_band(files, &rel));
-        let [bl, bt, br, bb] = band?;
-        // The band within the drawn region, on the screen.
-        let (l, t) = (bl.max(rect[0]), bt.max(rect[1]));
-        let (r, b) = (br.min(rect[0] + rect[2]), bb.min(rect[1] + rect[3]));
+        let [bl, bt, br, bb] = band_of(path)?;
+        // (The picture's pixel (u, v) on the screen: (x + u − rect.x, y + v − rect.y).)
         let first = frame.form_draws.iter().find(|(_, range)| range.contains(&i)).map_or(i, |(_, range)| range.start);
-        (r > l && b > t).then(|| ([x + l - rect[0], y + t - rect[1], r - l, b - t], first))
+        (br > bl && bb > bt).then(|| ([x + bl - rect[0], y + bt - rect[1], br - bl, bb - bt], first))
     })
 }
 
@@ -517,6 +526,25 @@ fn transparent_band(files: &civ3_assets::GameFiles, path: &str) -> Option<[i32; 
 mod tests {
     use super::*;
     use crate::text::TextRun;
+
+    /// TS Neo: the city screen's map sometimes ended above the citizens'
+    /// row (black there, or the world under the screen), until opening
+    /// the build menu repainted the whole screen. The game repaints its
+    /// background in parts; the map's band is the picture's wherever it is,
+    /// whichever part was painted.
+    #[test]
+    fn the_city_maps_band_is_the_pictures_whatever_part_is_painted() {
+        let (x0, y0) = (1125, 640);
+        let band = [0, 92, 1024, 508];
+        let clip = [0, 0, 3274, 2048];
+        for (rect, at) in [([0, 0, 1024, 768], (x0, y0)), ([0, 0, 1024, 433], (x0, y0)), ([0, 433, 1024, 335], (x0, y0 + 433)), ([0, 500, 1024, 40], (x0, y0 + 500))] {
+            let draw = ScreenDraw::Image { retained: None, path: "Art/City Screen/background.pcx".into(), rect, x: at.0, y: at.1,
+                keyed: false, clip, mask: None, palette: None, opacity: 255 };
+            let frame = Frame { overlay_draws: 0..0, draws: vec![ScreenDraw::Fill { rect: [0, 0, 3274, 2048], rgb: [0, 0, 0], alpha: 255, clip }, draw],
+                forms: vec![(0x11, 1, (0, 0), (3274, 2048)), (0x22, 2, (x0, y0), (1024, 768))], form_draws: vec![(1, 0..1), (2, 1..2)], underlay_draws: vec![] };
+            assert_eq!(city_band(&frame, |_| Some(band)), Some(([x0, y0 + 92, 1024, 416], 1)), "painted {rect:?}");
+        }
+    }
 
     fn assert_background_pixels(actual: &tile_render::RgbaImage, expected: &tile_render::RgbaImage, context: &str) {
         let mut first = None;
