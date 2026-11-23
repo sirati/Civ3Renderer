@@ -1458,7 +1458,10 @@ fn publish(
         // An open city screen covers everything under it; the map shows in
         // its gap, as a view of its own (§16.8).
         let city = match (shown, &ui_below) {
-            (Shown::Map(world, _), Some(frame)) if world.focus_city.is_some() && screen_open.is_none_or(|s| s.1 == "City") => {
+            // (Not while it is drawn but not composed yet: the world stays as
+            // it was with the interface `interface_hold` keeps; the map in
+            // the gap alone showed 1:1 on black for that present, run 33.)
+            (Shown::Map(world, _), Some(frame)) if world.focus_city.is_some() && screen_open.is_none_or(|s| s.1 == "City") && !screen_half_open => {
                 ui_screen::city_screen(frame, &files, files.roots(), &mut city_bands)
             }
             _ => None,
