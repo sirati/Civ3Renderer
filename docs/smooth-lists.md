@@ -59,8 +59,9 @@ state instead.
 - **No threshold.** The first trackpad or wheel input moves the list.
   Nothing waits for the game to reach a whole entry, and snapping (only
   with "Snap lists to items") happens after the input stops.
-- **Display rate.** The game's own loop runs at about 15 frames a second
-  on TS Neo; the viewer draws the list at its position every frame from
+- **Display rate.** The game repaints its interface about 15 times a
+  second (76 presents in 5 s on TS Neo; the viewer itself runs at 60+);
+  the viewer draws the list at its position every frame from
   the content it has, and the bridge keeps the entries round the position
   published ahead (at least a page each way) so a fast scroll never waits
   for the game.
@@ -100,3 +101,30 @@ state instead.
 `docs/civ3-map-rendering.md` §16 "List boxes" has the list object layout
 (G +0x2C first entry shown, +0x30 shown; L +0xC8 first node, +0xD0 count,
 +0xF0 selected, +0xF4 hovered; draw 0x6181E0).
+
+## Engine design (protocol 67, tilerenderer-gameengine b3be47f on)
+
+- `scene::View::list: Option<ListView { id, over, count, step, published }>`:
+  an interface-only view holding the entries as world-space sprites in
+  content space (entry k at y = k·step, x from the list's left); viewport
+  and origin = the list's rectangle (driver pixels); camera_y = the
+  driver's offset (content pixels). `over` = the screen view it is in.
+- `Input::ListScrolled { id, offset }`: the viewer's offset (rounded); the
+  driver sets the game's first entry from it and republishes.
+- Viewer (`tile_viewer`):
+  - Layout keeps a scroll state per list id: continuous `pos`, a glide
+    target for wheel notches, clamped to `0..count·step − viewport`;
+    starts at the driver's camera_y; trackpad pixels move it at once
+    (window pixels through the list's zoom), wheel notches glide a step.
+    Wheel/scroll input over a list's canvas rectangle goes to it and not
+    to the driver; `ListScrolled` goes out when the rounded pos changes.
+  - `scaling::arrange_panned`: a list view takes the piece of its `over`
+    view; its clip is its rectangle through that piece (within the
+    over view's clip). Its canvas camera: y = floor(pos), origin moved
+    up by the screen pixels of the fraction (`layout::screen_rest`),
+    viewport that much taller, target_clip = the clip: by screen pixels,
+    entries partly in the rectangle drawn and cut at its edges.
+  - Pointer routing over a list maps to the content at the viewer's pos,
+    then to where the game's list (at camera_y) has that point.
+  - `smooth_menus` leaves lists that have a ListView alone; it is removed
+    when no list uses it.
