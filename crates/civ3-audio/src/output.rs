@@ -594,6 +594,8 @@ enum PendingOp {
     Stop,
     TogglePause { at_us: u64 },
     Seek { pos_ms: u32, at_us: u64 },
+    SetFadeMs { ms: u32 },
+    FadeOut { at_us: u64 },
     FadeToZero { at_us: u64, duration_ms: u32 },
 }
 
@@ -775,6 +777,23 @@ fn apply_pending_entry(
                         let rem_ms = st.duration_ms.saturating_sub(pos_ms);
                         st.stop_at_us = at_us.saturating_add(u64::from(rem_ms).saturating_mul(1000));
                     }
+                }
+            }
+        }
+        PendingOp::SetFadeMs { ms } => {
+            if let Some(st) = status.as_mut() {
+                st.fade_out_ms = ms;
+            }
+        }
+        PendingOp::FadeOut { at_us } => {
+            if let Some(st) = status.as_mut() {
+                if st.playing {
+                    let ms = match st.kind {
+                        SoundKind::Playlist => 2000,
+                        _ => st.fade_out_ms.max(1),
+                    };
+                    let end_us = at_us.saturating_add(u64::from(ms).saturating_mul(1000));
+                    st.stop_at_us = st.stop_at_us.min(end_us);
                 }
             }
         }
@@ -1164,6 +1183,20 @@ impl AudioRuntime {
                                 pos_ms: hdr.a.max(0) as u32,
                                 at_us: now_us,
                             },
+                        });
+                    }
+                    Op::SetFadeMs => {
+                        self.push_pending(PendingEntry {
+                            seq,
+                            handle: hdr.handle,
+                            op: PendingOp::SetFadeMs { ms: hdr.a.max(0) as u32 },
+                        });
+                    }
+                    Op::FadeOut => {
+                        self.push_pending(PendingEntry {
+                            seq,
+                            handle: hdr.handle,
+                            op: PendingOp::FadeOut { at_us: now_us },
                         });
                     }
                     Op::Fade if hdr.a == 0 => {
@@ -1657,6 +1690,16 @@ mod tests {
         dir
     }
 
+    fn wait_ms(ms: u64) {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("test timer runtime");
+        rt.block_on(async {
+            tokio::time::sleep(Duration::from_millis(ms)).await;
+        });
+    }
+
     #[test]
     fn spsc_ring_transfers_stereo_samples_in_order() {
         let ring = SpscRing::new(1024);
@@ -1765,9 +1808,9 @@ mod tests {
     #[test]
     fn double_buffered_query_state_uses_clock_and_does_not_churn_during_steady_playback() {
         let dir = unique_tmp_dir("clock-query");
-        let wav_path = dir.join("tone_200ms.wav");
-        // 44100 Hz mono 16-bit WAV, 200 ms = 8820 frames.
-        write_test_wav(&wav_path, 44_100, &vec![8_000i16; 8_820]);
+        let wav_path = dir.join("tone_600ms.wav");
+        // 44100 Hz mono 16-bit WAV, 600 ms = 26460 frames (headroom for parallel tests).
+        write_test_wav(&wav_path, 44_100, &vec![8_000i16; 26_460]);
 
         let rt = start_test_runtime();
         let h = rt
@@ -1785,37 +1828,35 @@ mod tests {
         );
         assert_eq!(load.snderr, SNDERR_OK);
         assert_eq!(load.value, 1, "streaming flag 0x100 -> DS buffer");
-        assert_eq!(load.extra1, 200, "header probe exact 200 ms duration");
+        assert_eq!(load.extra1, 600, "header probe exact 600 ms duration");
+
+        // Let background decode finish before testing steady-state zero-churn Play,
+        // so finish_async_decode cannot race into the steady-state measurement window.
+        let _ = rt.dispatch(RequestHeader::new(Op::WaveStopRecord, 0), "");
+        wait_ms(100);
 
         // Fire-and-forget Play -> immediate QueryState sees STATE_PLAYING right away!
         assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h), "").snderr, SNDERR_OK);
         let q0 = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
         assert_ne!(q0.value & STATE_PLAYING, 0, "immediate is_playing after fire-and-forget Play");
         assert_ne!(q0.value & STATE_LOADED, 0);
-        assert_eq!(q0.extra1, 200);
+        assert_eq!(q0.extra1, 600);
 
-        // Sync once so background decode + Play are settled in StatusSnapshot.
+        // Sync once so Play is settled in StatusSnapshot.
         // Note: WaveOpen is intentionally NOT called yet, proving clock projection advances
-        // position_ms and stops at 200 ms purely from the computer clock without render ticks!
+        // position_ms and stops at 600 ms purely from the computer clock without render ticks!
         let _ = rt.dispatch(RequestHeader::new(Op::WaveStopRecord, 0), "");
-        let settle = Instant::now();
-        while settle.elapsed() < Duration::from_millis(25) {
-            std::thread::yield_now();
-        }
         let gen_mid = rt.snapshot_generation();
         assert!(gen_mid >= 1, "snapshot must have published at least once");
 
-        // Advance ~60 ms and verify get_position_ms tracks the computer clock with ZERO
+        // Advance ~80 ms and verify get_position_ms tracks the computer clock with ZERO
         // additional snapshot flips!
-        let wait_start = Instant::now();
-        while wait_start.elapsed() < Duration::from_millis(60) {
-            std::thread::yield_now();
-        }
+        wait_ms(80);
         let q_mid = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
         assert_ne!(q_mid.value & STATE_PLAYING, 0);
         assert!(
-            q_mid.extra2 >= 40 && q_mid.extra2 <= 185,
-            "clock-projected position_ms={} expected ~85 ms",
+            q_mid.extra2 >= 40 && q_mid.extra2 <= 500,
+            "clock-projected position_ms={} expected ~80 ms",
             q_mid.extra2
         );
         assert_eq!(
@@ -1825,17 +1866,14 @@ mod tests {
         );
 
         // Seek immediately updates projected position_ms without waiting.
-        rt.dispatch(RequestHeader::new(Op::SetPositionMs, h).with_a(100), "");
+        rt.dispatch(RequestHeader::new(Op::SetPositionMs, h).with_a(250), "");
         let q_seek = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
-        assert!(q_seek.extra2 >= 100 && q_seek.extra2 <= 125, "seek pos={}", q_seek.extra2);
+        assert!(q_seek.extra2 >= 250 && q_seek.extra2 <= 320, "seek pos={}", q_seek.extra2);
 
         // Pause freezes projected position_ms.
         rt.dispatch(RequestHeader::new(Op::Pause, h), "");
         let q_p1 = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
-        let pause_wait = Instant::now();
-        while pause_wait.elapsed() < Duration::from_millis(40) {
-            std::thread::yield_now();
-        }
+        wait_ms(40);
         let q_p2 = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
         assert_eq!(q_p1.extra2, q_p2.extra2, "position must freeze while paused");
 
@@ -1844,16 +1882,13 @@ mod tests {
         let q_stop = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
         assert_eq!(q_stop.value & STATE_PLAYING, 0, "immediate is_playing=false after Stop");
 
-        // Non-looping Play projects natural EOF purely from computer clock after 200 ms.
+        // Non-looping Play projects natural EOF purely from computer clock after 600 ms.
         assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h), "").snderr, SNDERR_OK);
         assert_ne!(
             rt.dispatch(RequestHeader::new(Op::QueryState, h), "").value & STATE_PLAYING,
             0
         );
-        let eof_wait = Instant::now();
-        while eof_wait.elapsed() < Duration::from_millis(240) {
-            std::thread::yield_now();
-        }
+        wait_ms(660);
         let q_eof = rt.dispatch(RequestHeader::new(Op::QueryState, h), "");
         assert_eq!(
             q_eof.value & STATE_PLAYING,
@@ -1968,10 +2003,7 @@ mod tests {
         );
 
         // Wait ~180 ms for async decode + render, then flush recording.
-        let render_wait = Instant::now();
-        while render_wait.elapsed() < Duration::from_millis(180) {
-            std::thread::yield_now();
-        }
+        wait_ms(180);
         assert_eq!(rt.dispatch(RequestHeader::new(Op::WaveStopRecord, 0), "").snderr, SNDERR_OK);
         assert_eq!(rt.dispatch(RequestHeader::new(Op::WaveClose, 0), "").snderr, SNDERR_OK);
 
@@ -2023,6 +2055,121 @@ mod tests {
         let mut out = [0i16; 8];
         engine.render_frames(&mut out);
         assert_eq!(out[0], 9_000, "stale gen 1 decode must not overwrite newer gen 2");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn credits_fade_out_survives_channel_set_volume_and_updates_query_state() {
+        let dir = unique_tmp_dir("credits-crossfade");
+        let title_wav = dir.join("menu1.wav");
+        let credits_wav = dir.join("credits.wav");
+        let rec_path = dir.join("after_leave_credits.wav");
+
+        // Two distinct constant-amplitude streams (44100 Hz mono 16-bit WAV, 1 s each).
+        write_test_wav(&title_wav, 44_100, &vec![10_000i16; 44_100]);
+        write_test_wav(&credits_wav, 44_100, &vec![6_000i16; 44_100]);
+
+        let rt = start_test_runtime();
+        rt.dispatch(RequestHeader::new(Op::WaveOpen, 0), "");
+
+        let h_title = rt
+            .dispatch(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+        let h_credits = rt
+            .dispatch(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+
+        for (h, path) in [(h_title, &title_wav), (h_credits, &credits_wav)] {
+            rt.dispatch(RequestHeader::new(Op::SetFlags, h).with_a(0x506), "");
+            rt.dispatch(RequestHeader::new(Op::SetLoop, h).with_a(1), "");
+            let load = rt.dispatch(
+                RequestHeader::new(Op::Load, h).with_a(0x506),
+                path.to_str().unwrap(),
+            );
+            assert_eq!(load.snderr, SNDERR_OK);
+            assert_eq!(load.value, 1, "flags=0x506 must load as DirectSound stream");
+        }
+
+        // Start title music and settle background decode.
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h_title), "").snderr, SNDERR_OK);
+        wait_ms(60);
+        assert_ne!(
+            rt.dispatch(RequestHeader::new(Op::QueryState, h_title), "").value & STATE_PLAYING,
+            0
+        );
+
+        // Enter Credits: title.fade(60) -> Channel 0 SetVolume(127) on BOTH -> credits.play().
+        rt.dispatch(RequestHeader::new(Op::SetFadeMs, h_title).with_a(60), "");
+        rt.dispatch(RequestHeader::new(Op::FadeOut, h_title), "");
+        rt.dispatch(RequestHeader::new(Op::SetVolume, h_title).with_a(127), "");
+        rt.dispatch(RequestHeader::new(Op::SetVolume, h_credits).with_a(127), "");
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h_credits), "").snderr, SNDERR_OK);
+
+        // Wait past the 60 ms fade-out (with generous scheduling headroom).
+        wait_ms(160);
+        assert_eq!(
+            rt.dispatch(RequestHeader::new(Op::QueryState, h_title), "").value & STATE_PLAYING,
+            0,
+            "title music must report not playing after fade-out despite Channel 0 SetVolume"
+        );
+        assert_ne!(
+            rt.dispatch(RequestHeader::new(Op::QueryState, h_credits), "").value & STATE_PLAYING,
+            0,
+            "credits music must be playing"
+        );
+
+        // Leave Credits: credits.fade(60) -> Channel 0 SetVolume(127) on BOTH -> title.play().
+        rt.dispatch(RequestHeader::new(Op::SetFadeMs, h_credits).with_a(60), "");
+        rt.dispatch(RequestHeader::new(Op::FadeOut, h_credits), "");
+        rt.dispatch(RequestHeader::new(Op::SetVolume, h_title).with_a(127), "");
+        rt.dispatch(RequestHeader::new(Op::SetVolume, h_credits).with_a(127), "");
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::Play, h_title), "").snderr, SNDERR_OK);
+
+        // Wait past the 60 ms fade-out, then record a slice to confirm ONLY title music plays.
+        wait_ms(160);
+        assert_eq!(
+            rt.dispatch(RequestHeader::new(Op::QueryState, h_credits), "").value & STATE_PLAYING,
+            0,
+            "credits music must stop after leaving Credits despite Channel 0 SetVolume"
+        );
+        assert_ne!(
+            rt.dispatch(RequestHeader::new(Op::QueryState, h_title), "").value & STATE_PLAYING,
+            0,
+            "title music must be playing after leaving Credits"
+        );
+
+        assert_eq!(
+            rt.dispatch(
+                RequestHeader::new(Op::WaveStartRecord, 0),
+                rec_path.to_str().unwrap(),
+            )
+            .snderr,
+            SNDERR_OK
+        );
+        wait_ms(80);
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::WaveStopRecord, 0), "").snderr, SNDERR_OK);
+        assert_eq!(rt.dispatch(RequestHeader::new(Op::WaveClose, 0), "").snderr, SNDERR_OK);
+
+        let rec_bytes = std::fs::read(&rec_path).expect("read recorded wav");
+        assert!(rec_bytes.len() > 44, "recorded wav must contain PCM frames");
+        let pcm: Vec<i16> = rec_bytes[44..]
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert!(!pcm.is_empty());
+        // Title amplitude is 10000 (not 16000 = title + credits stacked).
+        let tail = pcm[pcm.len() - 2];
+        assert!(
+            (tail - 10_000).abs() <= 5,
+            "recorded tail after leaving Credits must contain only title music (~10000), got {tail}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

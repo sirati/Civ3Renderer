@@ -73,6 +73,8 @@ pub struct HandleStatus {
     pub wave_flags: u32,
     /// Known sample/stream duration in milliseconds.
     pub duration_ms: u32,
+    /// Configured fade-out duration in milliseconds (from `Op::SetFadeMs`, default 1000).
+    pub fade_out_ms: u32,
     /// Whether the handle is currently active (playing or paused mid-play).
     pub playing: bool,
     /// Whether stream playback is individually paused (`Op::Pause`).
@@ -99,6 +101,7 @@ impl HandleStatus {
             state_flags: 0,
             wave_flags: 0,
             duration_ms: 0,
+            fade_out_ms: if kind == SoundKind::Playlist { 2000 } else { 1000 },
             playing: false,
             paused: false,
             looping: false,
@@ -972,6 +975,7 @@ impl AudioEngine {
                                 let rem = ((f.current - f.target) / -f.step_per_frame).max(0.0);
                                 now_us.saturating_add(mix_frames_to_us(rem))
                             }
+                            Some(f) if f.stop_at_zero && f.current <= f.target => now_us,
                             _ => u64::MAX,
                         };
                         let eof_end_us = if !looping && duration_ms > 0 && s.chained_next.is_none() {
@@ -987,6 +991,7 @@ impl AudioEngine {
                         state_flags,
                         wave_flags: w.flags,
                         duration_ms,
+                        fade_out_ms: w.fade_out_ms,
                         playing: s.playing,
                         paused: s.paused,
                         looping,
@@ -999,6 +1004,18 @@ impl AudioEngine {
                     let base_pos_ms = w.pending_seek_ms.unwrap_or(0);
                     let stop_at_us = if !w.pending_play {
                         0
+                    } else if let Some(f) = &w.active_fade {
+                        if f.stop_at_zero && f.step_per_frame < 0.0 {
+                            let rem = ((f.current - f.target) / -f.step_per_frame).max(0.0);
+                            now_us.saturating_add(mix_frames_to_us(rem))
+                        } else if f.stop_at_zero && f.current <= f.target {
+                            now_us
+                        } else if w.looping || duration_ms == 0 {
+                            u64::MAX
+                        } else {
+                            let rem_ms = duration_ms.saturating_sub(base_pos_ms);
+                            now_us.saturating_add(u64::from(rem_ms).saturating_mul(1000))
+                        }
                     } else if w.looping || duration_ms == 0 {
                         u64::MAX
                     } else {
@@ -1010,6 +1027,7 @@ impl AudioEngine {
                         state_flags,
                         wave_flags: w.flags,
                         duration_ms,
+                        fade_out_ms: w.fade_out_ms,
                         playing: w.pending_play,
                         paused: false,
                         looping: w.looping,
@@ -1032,6 +1050,7 @@ impl AudioEngine {
                         state_flags,
                         wave_flags: w.flags,
                         duration_ms,
+                        fade_out_ms: w.fade_out_ms,
                         playing: any_voice,
                         paused: false,
                         looping: w.looping,
@@ -1069,6 +1088,7 @@ impl AudioEngine {
                     state_flags,
                     wave_flags: a.flags_58,
                     duration_ms: 0,
+                    fade_out_ms: 1000,
                     playing,
                     paused: false,
                     looping: a.looping,
@@ -1092,6 +1112,7 @@ impl AudioEngine {
                         state_flags,
                         wave_flags: 0,
                         duration_ms: cur.duration_ms,
+                        fade_out_ms: 2000,
                         playing: cur.playing,
                         paused: cur.paused,
                         looping: cur.looping,
@@ -1106,6 +1127,7 @@ impl AudioEngine {
                         state_flags,
                         wave_flags: 0,
                         duration_ms: 0,
+                        fade_out_ms: 2000,
                         playing: false,
                         paused: false,
                         looping: false,
@@ -1553,6 +1575,7 @@ impl AudioEngine {
             Op::SetFadeMs => {
                 if let Some(SoundSlot::Wave(w)) = self.sounds.get_mut(&hdr.handle) {
                     w.fade_out_ms = (hdr.a.max(0)) as u32;
+                    self.mark_dirty(hdr.handle);
                 }
                 Response::default()
             }
@@ -1821,6 +1844,10 @@ impl AudioEngine {
                         st.fade = None;
                         st.rewind();
                         st.playing = true;
+                    } else if st.fade.as_ref().is_some_and(|f| f.stop_at_zero) {
+                        // Explicitly re-playing a stream that is mid-fade-out cancels
+                        // the fade-out so playback continues cleanly.
+                        st.fade = None;
                     }
                     let pl = st.playlist_owner;
                     self.mark_dirty(handle);
@@ -1831,6 +1858,9 @@ impl AudioEngine {
                 }
                 if w.loading_gen.is_some() {
                     w.pending_play = true;
+                    if w.active_fade.as_ref().is_some_and(|f| f.stop_at_zero) {
+                        w.active_fade = None;
+                    }
                     let pl = w.playlist_owner_pending;
                     self.mark_dirty(handle);
                     if let Some(pl) = pl {
@@ -1973,6 +2003,8 @@ impl AudioEngine {
             let start = if start_arg < 0 {
                 if let Some(s) = &w.stream {
                     s.fade.as_ref().map(|f| f.current).unwrap_or(w.volume as f64 / 127.0)
+                } else if w.is_ds_stream() {
+                    w.active_fade.as_ref().map(|f| f.current).unwrap_or(w.volume as f64 / 127.0)
                 } else {
                     cur_norm
                 }
@@ -2025,8 +2057,11 @@ impl AudioEngine {
             Some(SoundSlot::Wave(w)) => {
                 w.volume = v;
                 if let Some(st) = &mut w.stream {
+                    // Matches original sound.dll (0x1003693f: test [edi+0x58], 0x8):
+                    // updating base/channel volume must NOT cancel an active fade
+                    // (Civ3 calls Channel 0 set_volume on both title & credits music
+                    // immediately after calling fade(2000) when entering/leaving Credits).
                     st.volume = v;
-                    st.fade = None;
                 }
                 for voice in &mut self.sw_voices {
                     if voice.owner == handle {
@@ -2781,5 +2816,97 @@ mod tests {
         assert_eq!(engine.sw_voices.len(), 1); // only h_other remains
         assert_eq!(engine.cmd_play(h1).snderr, SNDERR_OK);
         assert_eq!(engine.sw_voices.len(), 2, "replay after explicit stop must start");
+    }
+
+    #[test]
+    fn set_volume_preserves_active_stream_fade_out_for_credits_and_title_crossfade() {
+        // Reproduces Civ3Conquests.exe 0x55047B..0x550554 -> 0x54FC81..0x54FD12:
+        // both title music (0xA51FA0) and credits music (0xA51F30) share Channel 0.
+        // Entering/leaving Credits calls `old.fade(2000)` then `Channel0::set_volume(vol)`
+        // (which calls `set_volume` on BOTH tracks) then `new.play()`.
+        // `SetVolume` must NOT cancel the active fade-out on the outgoing stream!
+        let make_stream_wav = |amp: i16| -> Vec<u8> {
+            let samples = vec![amp; 44_100]; // 1 s mono 44.1 kHz
+            let data_bytes = (samples.len() * 2) as u32;
+            let mut bytes = make_wav_header(44_100, 1, data_bytes).to_vec();
+            bytes.extend_from_slice(bytemuck::cast_slice(&samples));
+            bytes
+        };
+
+        let mut engine = AudioEngine::new();
+        let h_title = engine
+            .handle_request(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+        let h_credits = engine
+            .handle_request(
+                RequestHeader::new(Op::CreateSound, 0).with_a(SoundKind::Wave as i32),
+                "",
+            )
+            .value;
+
+        for (h, amp) in [(h_title, 10_000i16), (h_credits, 6_000i16)] {
+            engine.handle_request(RequestHeader::new(Op::SetFlags, h).with_a(0x506), "");
+            engine.handle_request(RequestHeader::new(Op::SetLoop, h).with_a(1), "");
+            let dec = StreamDecoder::from_bytes(make_stream_wav(amp), Some("wav")).unwrap();
+            if let Some(SoundSlot::Wave(w)) = engine.sounds.get_mut(&h) {
+                let mut st = StreamState::new(dec);
+                st.looping = true;
+                w.stream = Some(st);
+            }
+        }
+
+        // 1. Title screen starts title music.
+        assert_eq!(engine.handle_request(RequestHeader::new(Op::Play, h_title), "").snderr, SNDERR_OK);
+        assert!(engine.is_playing(h_title));
+
+        // 2. Enter Credits: fade title over 50 ms, refresh Channel 0 volume on BOTH, play credits.
+        engine.handle_request(RequestHeader::new(Op::SetFadeMs, h_title).with_a(50), "");
+        engine.handle_request(RequestHeader::new(Op::FadeOut, h_title), "");
+        engine.handle_request(RequestHeader::new(Op::SetVolume, h_title).with_a(127), "");
+        engine.handle_request(RequestHeader::new(Op::SetVolume, h_credits).with_a(127), "");
+        assert_eq!(engine.handle_request(RequestHeader::new(Op::Play, h_credits), "").snderr, SNDERR_OK);
+
+        // Advance 100 ms: title music must have faded out and stopped, leaving ONLY credits (6000).
+        let mut buf = vec![0i16; 4_410 * 2];
+        engine.render_frames(&mut buf);
+        assert!(!engine.is_playing(h_title), "title music must stop after fade-out even with SetVolume");
+        assert!(engine.is_playing(h_credits), "credits music must still be playing");
+        let tail = buf[buf.len() - 2];
+        assert!(
+            (tail - 6_000).abs() <= 2,
+            "after title fade-out completes, only credits (~6000) should sound, got {tail}"
+        );
+
+        // 3. Leave Credits: credits.is_playing() != 0 -> credits.fade(50) -> Channel 0 SetVolume on BOTH -> title.play().
+        assert_ne!(
+            engine.handle_request(RequestHeader::new(Op::QueryState, h_credits), "").value
+                & STATE_PLAYING,
+            0
+        );
+        engine.handle_request(RequestHeader::new(Op::SetFadeMs, h_credits).with_a(50), "");
+        engine.handle_request(RequestHeader::new(Op::FadeOut, h_credits), "");
+        engine.handle_request(RequestHeader::new(Op::SetVolume, h_title).with_a(127), "");
+        engine.handle_request(RequestHeader::new(Op::SetVolume, h_credits).with_a(127), "");
+        assert_eq!(engine.handle_request(RequestHeader::new(Op::Play, h_title), "").snderr, SNDERR_OK);
+
+        // Advance 100 ms: credits music MUST have faded out and stopped, leaving ONLY title (10000).
+        engine.render_frames(&mut buf);
+        assert!(!engine.is_playing(h_credits), "credits music must stop after leaving Credits");
+        assert!(engine.is_playing(h_title), "title music must be playing back on title screen");
+        let tail2 = buf[buf.len() - 2];
+        assert!(
+            (tail2 - 10_000).abs() <= 2,
+            "after credits fade-out completes, only title (~10000) should sound, got {tail2}"
+        );
+
+        // 4. Explicitly calling Play while a track is mid-fade-out cancels the fade-out and keeps playing.
+        engine.handle_request(RequestHeader::new(Op::SetFadeMs, h_title).with_a(50), "");
+        engine.handle_request(RequestHeader::new(Op::FadeOut, h_title), "");
+        engine.handle_request(RequestHeader::new(Op::Play, h_title), "");
+        engine.render_frames(&mut buf);
+        assert!(engine.is_playing(h_title), "re-playing a fading-out stream must cancel fade-out");
     }
 }
