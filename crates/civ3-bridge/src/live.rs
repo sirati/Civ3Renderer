@@ -1359,6 +1359,11 @@ fn publish(
         // screen open, the popup over it (split off: the viewer may draw it
         // elsewhere).
         let screen_open = ui.as_ref().and_then(|f| crate::interface_parts::active_screen(f, game.build));
+        // A city screen drawn but not composed as the screen yet (its first
+        // present): not shown (`crate::interface_hold` keeps the last
+        // complete interface), else it showed at 1:1 for a frame or two.
+        let screen_half_open = screen_open.is_none()
+            && ui.as_ref().and_then(|f| crate::interface_parts::city_screen_form(f, matches!(shown, Shown::Map(world, _) if world.focus_city.is_some()))).is_some();
         let screen_size = (input.viewport.0 as i32, input.viewport.1 as i32);
         // (A context menu over the map is one too, modal or not: the topmost
         // form there.)
@@ -2366,7 +2371,7 @@ fn publish(
         }
         // Never an interface with art not made yet: the last complete one
         // meanwhile, for a moment (`crate::interface_hold`).
-        if interface_hold.apply(&mut scene, art_complete, art_pending, std::time::Instant::now()) {
+        if interface_hold.apply(&mut scene, art_complete && !screen_half_open, art_pending || screen_half_open, std::time::Instant::now()) {
             log::debug!("scene: the last complete interface kept while the new one's art is made");
         }
         // Held back while the renderer is busy: publish again next time.

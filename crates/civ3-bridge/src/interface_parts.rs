@@ -52,6 +52,26 @@ pub fn active_screen(frame: &Frame, build: civ3_sys::Build) -> Option<(usize, &'
     })
 }
 
+/// The form whose draws hold the city screen's background (`City
+/// Screen\background.pcx`), while a city is in focus (`focused`). The
+/// first present after a city screen opens has its background (the map
+/// shows in its gap already, `ui_screen::city_screen`) before the screen's
+/// form is known among the screens ([`active_screen`]): shown then, it was
+/// drawn at 1:1, without the screen's scale (run 32, the first city
+/// opened); the publisher keeps the last complete interface instead.
+pub fn city_screen_form(frame: &Frame, focused: bool) -> Option<(usize, &'static str)> {
+    if !focused {
+        return None;
+    }
+    let draw = frame.draws.iter().position(|d| match d {
+        crate::ui::ScreenDraw::Image { path, .. } => path.to_ascii_lowercase().replace('/', "\\").ends_with("city screen\\background.pcx"),
+        _ => false,
+    })?;
+    let canvas = frame.form_draws.iter().find(|(_, range)| range.contains(&draw))?.0;
+    let index = frame.forms.iter().rposition(|f| f.1 == canvas)?;
+    Some((index, "City"))
+}
+
 /// The text key of the popup Escape opens on the map ("Oh No! Do you really
 /// want to quit?"): the map's key handler 0x4E06B0 calls 0x4DFEF0 for
 /// Escape (at 0x4E095C) when no command waits for its tile, which shows a
@@ -1027,3 +1047,24 @@ mod tests {
 #[cfg(test)]
 #[path = "interface_parts/histograph_tests.rs"]
 mod histograph_tests;
+
+#[cfg(test)]
+mod city_screen_form_tests {
+    use super::*;
+    use crate::ui::ScreenDraw;
+
+    #[test]
+    fn the_form_with_the_city_backgrounds_is_the_city_screen_while_a_city_is_in_focus() {
+        let image = |path: &str| ScreenDraw::Image { retained: None, path: path.into(), rect: [0, 0, 1024, 768], x: 448, y: 156, keyed: false, clip: [0, 0, 1920, 1080], mask: None, palette: None, opacity: 255 };
+        let frame = Frame {
+            forms: vec![(0x66B3D8, 7, (0, 0), (1920, 1080)), (0x665DD0, 40, (448, 156), (1024, 768))],
+            form_draws: vec![(7, 0..1), (40, 1..3)],
+            draws: vec![image("Art/x.pcx"), image("art/City Screen/background.pcx"), image("Art/y.pcx")],
+            ..Default::default()
+        };
+        assert_eq!(city_screen_form(&frame, true), Some((1, "City")));
+        assert_eq!(city_screen_form(&frame, false), None, "no city in focus");
+        let map_only = Frame { draws: vec![image("Art/x.pcx")], form_draws: vec![(7, 0..1)], ..frame };
+        assert_eq!(city_screen_form(&map_only, true), None);
+    }
+}
