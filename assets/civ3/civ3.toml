@@ -1819,8 +1819,9 @@ anchor = [-16, -116]
 group = "Viewer@arrow_bob/{v}"
 variants = [-12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
-# Each bob height has a ground shadow. Its centre stays at the same world
-# point while the higher arrow's shadow shrinks and loses contrast.
+# Each bob height has a ground shadow, centred on the marked tile under the
+# arrow. Its centre stays at the same world point while the higher arrow's
+# shadow shrinks and loses contrast.
 [images.viewer_arrow_shadow_0]
 source = "marker_shadow:32,23,14,58:38x12"
 
@@ -1828,7 +1829,7 @@ source = "marker_shadow:32,23,14,58:38x12"
 image = "viewer_arrow_shadow_0"
 cell = [38, 12]
 grid = [1, 1]
-anchor = [-11, -2]
+anchor = [-19, -6]
 group = "Viewer@arrow_shadow/-3"
 
 [images.viewer_arrow_shadow_1]
@@ -1838,7 +1839,7 @@ source = "marker_shadow:32,23,14,61:39x12"
 image = "viewer_arrow_shadow_1"
 cell = [39, 12]
 grid = [1, 1]
-anchor = [-11, -2]
+anchor = [-19, -6]
 group = "Viewer@arrow_shadow/-2"
 
 [images.viewer_arrow_shadow_2]
@@ -1848,7 +1849,7 @@ source = "marker_shadow:32,23,14,64:40x13"
 image = "viewer_arrow_shadow_2"
 cell = [40, 13]
 grid = [1, 1]
-anchor = [-12, -2]
+anchor = [-20, -6]
 group = "Viewer@arrow_shadow/-1"
 
 [images.viewer_arrow_shadow_3]
@@ -1858,7 +1859,7 @@ source = "marker_shadow:32,23,14,67:41x13"
 image = "viewer_arrow_shadow_3"
 cell = [41, 13]
 grid = [1, 1]
-anchor = [-12, -2]
+anchor = [-20, -6]
 group = "Viewer@arrow_shadow/0"
 
 [images.viewer_arrow_shadow_4]
@@ -1868,7 +1869,7 @@ source = "marker_shadow:32,23,14,70:42x14"
 image = "viewer_arrow_shadow_4"
 cell = [42, 14]
 grid = [1, 1]
-anchor = [-13, -3]
+anchor = [-21, -7]
 group = "Viewer@arrow_shadow/1"
 
 [images.viewer_arrow_shadow_5]
@@ -1878,7 +1879,7 @@ source = "marker_shadow:32,23,14,73:43x14"
 image = "viewer_arrow_shadow_5"
 cell = [43, 14]
 grid = [1, 1]
-anchor = [-13, -3]
+anchor = [-21, -7]
 group = "Viewer@arrow_shadow/2"
 
 [images.viewer_arrow_shadow_6]
@@ -1888,7 +1889,7 @@ source = "marker_shadow:32,23,14,76:44x15"
 image = "viewer_arrow_shadow_6"
 cell = [44, 15]
 grid = [1, 1]
-anchor = [-14, -3]
+anchor = [-22, -7]
 group = "Viewer@arrow_shadow/3"
 
 # The viewer's frame counter and missing-art diagnostic (`Viewer@glyphsN`): the

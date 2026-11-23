@@ -31,7 +31,7 @@ workspace = true
 
 [dependencies.scene]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "52fd78dddb26d8636ac89def8818fcfefe04e612"
+rev = "085feb9284a3a7574d4e68c0a69aa18a50c1d710"
 
 [dependencies.log]
 workspace = true
@@ -54,11 +54,11 @@ rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
 
 [target."cfg(not(target_arch = \"x86\"))".dependencies.render-desc]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "52fd78dddb26d8636ac89def8818fcfefe04e612"
+rev = "085feb9284a3a7574d4e68c0a69aa18a50c1d710"
 
 [target."cfg(not(target_arch = \"x86\"))".dependencies.tile-viewer]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "52fd78dddb26d8636ac89def8818fcfefe04e612"
+rev = "085feb9284a3a7574d4e68c0a69aa18a50c1d710"
 
 [target."cfg(not(target_arch = \"x86\"))".dependencies.civ3-ui]
 path = "../civ3-ui"
@@ -75,4 +75,4 @@ workspace = true
 
 [target."cfg(target_os = \"macos\")".dependencies.application-icon]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "52fd78dddb26d8636ac89def8818fcfefe04e612"
+rev = "085feb9284a3a7574d4e68c0a69aa18a50c1d710"
