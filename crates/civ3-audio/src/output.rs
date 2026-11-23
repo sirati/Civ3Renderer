@@ -13,12 +13,12 @@
 //!   the audio thread before pushing into the SPSC ring.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{SampleFormat, Stream, StreamConfig};
+use cpal::{BufferSize, SampleFormat, Stream, StreamConfig, SupportedBufferSize};
 use handoff::Mailbox;
 use rubato::audioadapter_buffers::direct::{InterleavedSlice, SequentialSliceOfVecs};
 use rubato::{
@@ -162,34 +162,127 @@ impl HostResampler {
     }
 }
 
-struct LiveOutput {
-    _stream: Stream,
-    sample_rate: u32,
+/// Target ALSA period duration (ms) on Linux. `cpal`'s ALSA backend constrains
+/// `BufferSize::Default` to `2 × device_period` (often 512 frames = ~10.6 ms
+/// under PipeWire-ALSA), which underruns easily under heavy CPU load. Requesting
+/// a ~45 ms period yields a ~90 ms double-buffered ALSA ring with 4× more
+/// scheduling headroom while keeping interactive click latency responsive.
+#[cfg(any(target_os = "linux", test))]
+const TARGET_ALSA_PERIOD_MS: u32 = 45;
+
+/// SPSC ring capacity in interleaved `f32` samples (32,768 stereo frames =
+/// ~682 ms at 48 kHz, ~743 ms at 44.1 kHz).
+const SPSC_RING_CAPACITY: usize = 65_536;
+
+/// Target audio buffered ahead in the SPSC ring (ms) so scheduling bursts on
+/// the mixer thread never starve the real-time callback.
+const TARGET_RING_BUFFER_MS: u64 = 120;
+
+/// Maximum 512-frame blocks rendered per mixer wakeup to catch up rapidly after
+/// a host scheduling stall.
+const MAX_REFILL_CHUNKS_PER_WAKEUP: usize = 24;
+
+/// Lock-free rate limiter for repeated `cpal` stream error callbacks (e.g.
+/// ALSA xruns under extreme host CPU load). Logs the first few errors
+/// immediately, then coalesces bursts into a periodic summary every 5 seconds.
+struct StreamErrorLimiter {
+    started: Instant,
+    total: AtomicU32,
+    suppressed: AtomicU32,
+    last_log_ms: AtomicU64,
 }
 
-fn open_cpal_output(ring: Arc<SpscRing>) -> Option<LiveOutput> {
-    if std::env::var_os("CIV3R_AUDIO_NULL").is_some() {
-        log::info!("civ3-audio: CIV3R_AUDIO_NULL set; running silent headless clock");
-        return None;
-    }
-    let host = cpal::default_host();
-    let device = host.default_output_device()?;
-    let default_cfg = device.default_output_config().ok()?;
-    let sample_format = default_cfg.sample_format();
-    let mut cfg: StreamConfig = default_cfg.into();
-    // Prefer 44100 Hz if supported by default config; otherwise keep device default and resample.
-    let sample_rate = cfg.sample_rate;
-    let channels = cfg.channels as usize;
-    if channels == 0 {
-        return None;
-    }
-    // Keep config untouched so ALSA/CoreAudio/WASAPI open reliably.
-    cfg.buffer_size = cpal::BufferSize::Default;
+impl StreamErrorLimiter {
+    const IMMEDIATE_LOGS: u32 = 3;
+    const SUMMARY_INTERVAL_MS: u64 = 5_000;
 
-    let err_fn = |err| log::warn!("civ3-audio: output stream error: {err}");
-    let stream = match sample_format {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            total: AtomicU32::new(0),
+            suppressed: AtomicU32::new(0),
+            last_log_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// Returns `Some(suppressed_since_last)` when this error should be logged.
+    fn record_at_ms(&self, now_ms: u64) -> Option<u32> {
+        let count = self.total.fetch_add(1, Ordering::Relaxed) + 1;
+        if count <= Self::IMMEDIATE_LOGS {
+            self.last_log_ms.store(now_ms, Ordering::Relaxed);
+            return Some(0);
+        }
+        let prev = self.last_log_ms.load(Ordering::Relaxed);
+        if now_ms.saturating_sub(prev) >= Self::SUMMARY_INTERVAL_MS
+            && self
+                .last_log_ms
+                .compare_exchange(prev, now_ms, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        {
+            let skipped = self.suppressed.swap(0, Ordering::AcqRel);
+            Some(skipped)
+        } else {
+            self.suppressed.fetch_add(1, Ordering::Relaxed);
+            None
+        }
+    }
+
+    fn log_error(&self, err: cpal::Error) {
+        let now_ms = self.started.elapsed().as_millis() as u64;
+        if let Some(skipped) = self.record_at_ms(now_ms) {
+            if skipped == 0 {
+                log::warn!("civ3-audio: output stream error: {err}");
+            } else {
+                log::warn!(
+                    "civ3-audio: output stream error: {err} ({skipped} similar errors suppressed)"
+                );
+            }
+        }
+    }
+}
+
+/// Computes the preferred `cpal` stream [`BufferSize`] for `sample_rate`.
+///
+/// On Linux (ALSA), selects a resilient ~45 ms period clamped to the device's
+/// advertised range; on macOS/Windows keeps [`BufferSize::Default`] so
+/// CoreAudio/WASAPI manage their native RT buffer sizes.
+#[cfg(any(target_os = "linux", test))]
+fn choose_linux_buffer_size(sample_rate: u32, supported: SupportedBufferSize) -> BufferSize {
+    let raw_frames = ((u64::from(sample_rate) * u64::from(TARGET_ALSA_PERIOD_MS)) / 1000) as u32;
+    // Round up to a 256-frame boundary (e.g. 2048 at 44.1 kHz, 2304 at 48 kHz).
+    let target = raw_frames.max(256).div_ceil(256) * 256;
+    match supported {
+        SupportedBufferSize::Range { min, max } if min <= max && max > 0 => {
+            BufferSize::Fixed(target.clamp(min, max))
+        }
+        _ => BufferSize::Default,
+    }
+}
+
+fn choose_output_buffer_size(sample_rate: u32, supported: SupportedBufferSize) -> BufferSize {
+    #[cfg(target_os = "linux")]
+    {
+        choose_linux_buffer_size(sample_rate, supported)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (sample_rate, supported);
+        BufferSize::Default
+    }
+}
+
+fn build_cpal_stream(
+    device: &cpal::Device,
+    cfg: StreamConfig,
+    sample_format: SampleFormat,
+    ring: Arc<SpscRing>,
+    err_limiter: Arc<StreamErrorLimiter>,
+) -> Option<Stream> {
+    let channels = cfg.channels as usize;
+    let err_fn = move |err| err_limiter.log_error(err);
+    match sample_format {
         SampleFormat::F32 => {
-            let r = ring.clone();
+            let r = ring;
             device.build_output_stream(
                 cfg,
                 move |data: &mut [f32], _| {
@@ -211,7 +304,7 @@ fn open_cpal_output(ring: Arc<SpscRing>) -> Option<LiveOutput> {
             )
         }
         SampleFormat::I16 => {
-            let r = ring.clone();
+            let r = ring;
             device.build_output_stream(
                 cfg,
                 move |data: &mut [i16], _| {
@@ -235,7 +328,7 @@ fn open_cpal_output(ring: Arc<SpscRing>) -> Option<LiveOutput> {
             )
         }
         SampleFormat::U16 => {
-            let r = ring.clone();
+            let r = ring;
             device.build_output_stream(
                 cfg,
                 move |data: &mut [u16], _| {
@@ -263,14 +356,60 @@ fn open_cpal_output(ring: Arc<SpscRing>) -> Option<LiveOutput> {
             return None;
         }
     }
-    .ok()?;
+    .ok()
+}
+
+struct LiveOutput {
+    _stream: Stream,
+    sample_rate: u32,
+}
+
+fn open_cpal_output(ring: Arc<SpscRing>) -> Option<LiveOutput> {
+    if std::env::var_os("CIV3R_AUDIO_NULL").is_some() {
+        log::info!("civ3-audio: CIV3R_AUDIO_NULL set; running silent headless clock");
+        return None;
+    }
+    let host = cpal::default_host();
+    let device = host.default_output_device()?;
+    let default_cfg = device.default_output_config().ok()?;
+    let sample_format = default_cfg.sample_format();
+    let supported_buf = *default_cfg.buffer_size();
+    let mut cfg: StreamConfig = default_cfg.into();
+    let sample_rate = cfg.sample_rate;
+    let channels = cfg.channels as usize;
+    if channels == 0 {
+        return None;
+    }
+
+    let preferred_buf = choose_output_buffer_size(sample_rate, supported_buf);
+    cfg.buffer_size = preferred_buf;
+    let err_limiter = Arc::new(StreamErrorLimiter::new());
+
+    let (stream, used_buf) = match build_cpal_stream(
+        &device,
+        cfg.clone(),
+        sample_format,
+        ring.clone(),
+        err_limiter.clone(),
+    ) {
+        Some(s) => (s, preferred_buf),
+        None if preferred_buf != BufferSize::Default => {
+            log::debug!(
+                "civ3-audio: build_output_stream with {preferred_buf:?} failed; retrying BufferSize::Default"
+            );
+            cfg.buffer_size = BufferSize::Default;
+            let s = build_cpal_stream(&device, cfg, sample_format, ring, err_limiter)?;
+            (s, BufferSize::Default)
+        }
+        None => return None,
+    };
 
     if let Err(e) = stream.play() {
         log::warn!("civ3-audio: failed starting audio stream: {e}");
         return None;
     }
     log::info!(
-        "civ3-audio: opened cpal output ({sample_rate} Hz, {channels} ch, {sample_format:?})"
+        "civ3-audio: opened cpal output ({sample_rate} Hz, {channels} ch, {sample_format:?}, buffer {used_buf:?})"
     );
     Some(LiveOutput { _stream: stream, sample_rate })
 }
@@ -341,16 +480,15 @@ fn audio_thread_main(mailbox: Arc<Mailbox<Job>>, alive: Arc<AtomicBool>) {
         }
     }
 
-    // 32768 f32 samples = 16384 stereo frames (~371 ms buffer capacity).
-    let ring = Arc::new(SpscRing::new(32_768));
+    let ring = Arc::new(SpscRing::new(SPSC_RING_CAPACITY));
     let mut output: Option<LiveOutput> = None;
     let mut resampler: Option<HostResampler> = None;
     let mut wave_active = false;
 
     let mut mix_f32 = vec![0.0_f32; 512 * 2];
     let mut scratch_i16 = Vec::with_capacity(512 * 2);
-    // Target ~80ms buffered ahead in the ring so glitches never occur while keeping latency snappy.
-    let target_buffered_frames = |rate: u32| -> usize { ((u64::from(rate) * 80) / 1000) as usize };
+    let target_buffered_frames =
+        |rate: u32| -> usize { ((u64::from(rate) * TARGET_RING_BUFFER_MS) / 1000) as usize };
     let mut headless_clock = Instant::now();
     let mut headless_frac_frames = 0.0_f64;
 
@@ -391,7 +529,7 @@ fn audio_thread_main(mailbox: Arc<Mailbox<Job>>, alive: Arc<AtomicBool>) {
             if let Some(live) = &output {
                 let target_samples = target_buffered_frames(live.sample_rate) * 2;
                 let mut iterations = 0;
-                while ring.len() < target_samples && iterations < 8 {
+                while ring.len() < target_samples && iterations < MAX_REFILL_CHUNKS_PER_WAKEUP {
                     iterations += 1;
                     engine.render_f32(&mut mix_f32, &mut scratch_i16);
                     if let Some(rs) = &mut resampler {
@@ -455,5 +593,44 @@ mod tests {
         }
         // 5120 input frames at 44100 -> ~5573 output frames at 48000 (within filter delay)
         assert!(total_out_frames > 5400 && total_out_frames < 5700, "got {total_out_frames}");
+    }
+
+    #[test]
+    fn linux_buffer_size_targets_45ms_and_clamps_to_supported_range() {
+        // 48 kHz * 45 ms = 2160 -> rounded up to 256-frame boundary = 2304.
+        assert_eq!(
+            choose_linux_buffer_size(48_000, SupportedBufferSize::Range { min: 64, max: 16_384 }),
+            BufferSize::Fixed(2304)
+        );
+        // 44.1 kHz * 45 ms = 1984 -> rounded up to 256-frame boundary = 2048.
+        assert_eq!(
+            choose_linux_buffer_size(44_100, SupportedBufferSize::Range { min: 64, max: 16_384 }),
+            BufferSize::Fixed(2048)
+        );
+        // Hardware with smaller max clamps cleanly to max.
+        assert_eq!(
+            choose_linux_buffer_size(48_000, SupportedBufferSize::Range { min: 64, max: 1024 }),
+            BufferSize::Fixed(1024)
+        );
+        // Unknown range falls back to Default.
+        assert_eq!(
+            choose_linux_buffer_size(48_000, SupportedBufferSize::Unknown),
+            BufferSize::Default
+        );
+    }
+
+    #[test]
+    fn stream_error_limiter_logs_initial_burst_then_coalesces() {
+        let lim = StreamErrorLimiter::new();
+        assert_eq!(lim.record_at_ms(10), Some(0));
+        assert_eq!(lim.record_at_ms(20), Some(0));
+        assert_eq!(lim.record_at_ms(30), Some(0));
+        // Burst within 5s window is suppressed.
+        assert_eq!(lim.record_at_ms(100), None);
+        assert_eq!(lim.record_at_ms(2_000), None);
+        assert_eq!(lim.record_at_ms(4_999), None);
+        // After 5s window elapses, emits summary with 3 suppressed.
+        assert_eq!(lim.record_at_ms(5_100), Some(3));
+        assert_eq!(lim.record_at_ms(6_000), None);
     }
 }
