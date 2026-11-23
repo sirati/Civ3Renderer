@@ -127,7 +127,7 @@ mod exports {
                         is_ds_buffer: 0,
                         duration_ms: 0,
                         deferred_path_len: 0,
-                        deferred_path: [0; 260],
+                        deferred_path: [0; 512],
                     });
                     if let Some(p) = &path {
                         let b = p.as_bytes();

@@ -68,10 +68,10 @@ pub struct WaveSoundObj {
     pub is_ds_buffer: i32,
     /// `+0x6C`: cached duration in ms.
     pub duration_ms: u32,
-    /// `+0x70`: deferred path length (for `slot 34 configure` + `slot 33 load_deferred`).
+    /// `+0x70`: deferred path length (for `create_sound(..., path, ...)` lazy load & `slot 34 configure`).
     pub deferred_path_len: u32,
     /// `+0x74`: deferred path bytes (Windows-1252 / UTF-8).
-    pub deferred_path: [u8; 260],
+    pub deferred_path: [u8; 512],
 }
 
 /// Type 5 `AmbSound` object (vtable has 78 slots, `0x00..0x134`).

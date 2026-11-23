@@ -16,6 +16,7 @@ use crate::layout::*;
 
 const SNDERR_OK: u32 = 0;
 const SNDERR_DEVICE_ERROR: u32 = 3;
+const SNDERR_FILE_OPEN: u32 = 8;
 const SNDERR_INVALID_PARAM: u32 = 0x0A;
 const SNDERR_UNSUPPORTED: u32 = 0x0B;
 const SNDERR_UNLOADED: u32 = 0x14;
@@ -515,9 +516,35 @@ unsafe extern "thiscall" fn ws_unload(this: *mut c_void) -> u32 {
     })
 }
 
+/// Matches `sound.dll` at `0x1003BF23..0x1003BF55` (`WaveSound::play`),
+/// `0x1003C036..0x1003C066` (`start_voice`), and `0x1003C102..0x1003C134`
+/// (`play_instance`): when a `WaveSound` was configured with flag `0x04`
+/// (lazy load-on-play, used by Civ3's title screen music `0xa51fa0` and
+/// credits music `0xa51f30` with `flags = 0x506`), the game skips calling
+/// `WaveSound::load` up front and expects the first `play()` to load the
+/// path saved during `create_sound`.
+fn ensure_lazy_loaded(obj: &mut WaveSoundObj) -> u32 {
+    if obj.is_loaded != 0 {
+        return SNDERR_OK;
+    }
+    if (obj.flags & 0x04) == 0 {
+        return SNDERR_UNLOADED;
+    }
+    let path = wave_deferred_path(obj);
+    if path.is_empty() {
+        return SNDERR_FILE_OPEN;
+    }
+    let err = wave_load_path(obj, &path);
+    if err == SNDERR_OK { SNDERR_OK } else { SNDERR_FILE_OPEN }
+}
+
 unsafe extern "thiscall" fn ws_play(this: *mut c_void) -> u32 {
     safe(SNDERR_UNLOADED, || {
         let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
+        let err = ensure_lazy_loaded(obj);
+        if err != SNDERR_OK {
+            return err;
+        }
         fire(RequestHeader::new(Op::Play, obj.handle), "")
     })
 }
@@ -542,15 +569,6 @@ unsafe extern "thiscall" fn ws_fade_out(this: *mut c_void) -> u32 {
     safe(SNDERR_OK, || {
         let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
         fire(RequestHeader::new(Op::FadeOut, obj.handle), "")
-    })
-}
-
-unsafe extern "thiscall" fn ws_fade_in_ms(this: *mut c_void, ms: u32) -> u32 {
-    safe(SNDERR_OK, || {
-        let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
-        obj.fade_in_ms = ms;
-        let _ = fire(RequestHeader::new(Op::SetFadeInMs, obj.handle).with_a(ms as i32), "");
-        fire(RequestHeader::new(Op::FadeIn, obj.handle), "")
     })
 }
 
@@ -607,14 +625,6 @@ unsafe extern "thiscall" fn ws_set_loop(this: *mut c_void, enabled: u32) -> u32 
         let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
         obj.looping = u32::from(enabled != 0);
         fire(RequestHeader::new(Op::SetLoop, obj.handle).with_a(obj.looping as i32), "")
-    })
-}
-
-unsafe extern "thiscall" fn ws_set_fade_in_ms(this: *mut c_void, ms: u32) -> u32 {
-    safe(SNDERR_OK, || {
-        let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
-        obj.fade_in_ms = ms;
-        fire(RequestHeader::new(Op::SetFadeInMs, obj.handle).with_a(ms as i32), "")
     })
 }
 
@@ -704,6 +714,10 @@ unsafe extern "thiscall" fn ws_configure_and_load(
 unsafe extern "thiscall" fn ws_play_instance(this: *mut c_void, out_voice: *mut u32) -> u32 {
     safe(SNDERR_UNLOADED, || {
         let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
+        let err = ensure_lazy_loaded(obj);
+        if err != SNDERR_OK {
+            return err;
+        }
         match client::call(RequestHeader::new(Op::PlayInstance, obj.handle), "") {
             Ok(r) => {
                 if !out_voice.is_null() {
@@ -719,6 +733,10 @@ unsafe extern "thiscall" fn ws_play_instance(this: *mut c_void, out_voice: *mut 
 unsafe extern "thiscall" fn ws_start_voice(this: *mut c_void, voice: u32) -> u32 {
     safe(SNDERR_OK, || {
         let obj = unsafe { &mut *(this as *mut WaveSoundObj) };
+        let err = ensure_lazy_loaded(obj);
+        if err != SNDERR_OK {
+            return err;
+        }
         fire(RequestHeader::new(Op::StartVoice, obj.handle).with_a(voice as i32), "")
     })
 }
@@ -768,7 +786,7 @@ pub static WAVE_SOUND_VT: VTable<WAVE_SOUND_SLOTS> = VTable([
     ws_stop as *const c_void,               // 8  (+0x20) ret 0
     ws_fade_out_ms as *const c_void,        // 9  (+0x24) ret 4
     ws_fade_out as *const c_void,           // 10 (+0x28) ret 0
-    ws_fade_in_ms as *const c_void,         // 11 (+0x2C) ret 4
+    ws_fade_out_ms as *const c_void,        // 11 (+0x2C) ret 4 (calls vt[+0x54](ms) then vt[+0x28] fade_out)
     ws_fade_in as *const c_void,            // 12 (+0x30) ret 0
     ws_fade as *const c_void,               // 13 (+0x34) ret 12
     ws_pause as *const c_void,              // 14 (+0x38) ret 0
@@ -778,7 +796,7 @@ pub static WAVE_SOUND_VT: VTable<WAVE_SOUND_SLOTS> = VTable([
     ws_set_loop as *const c_void,           // 18 (+0x48) ret 4
     stub1 as *const c_void,                 // 19 (+0x4C) ret 4
     stub1 as *const c_void,                 // 20 (+0x50) ret 4
-    ws_set_fade_in_ms as *const c_void,     // 21 (+0x54) ret 4
+    ws_set_fade_ms as *const c_void,        // 21 (+0x54) ret 4 (sets fade-out ms used by vt[+0x28])
     ws_is_looping as *const c_void,         // 22 (+0x58) ret 0
     ws_is_playing as *const c_void,         // 23 (+0x5C) ret 0
     ws_is_loaded as *const c_void,          // 24 (+0x60) ret 0
