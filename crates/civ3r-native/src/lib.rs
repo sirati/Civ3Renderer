@@ -28,6 +28,9 @@ pub mod log_lines;
 #[cfg(not(target_arch = "x86"))]
 mod art_queue;
 
+#[cfg(not(target_arch = "x86"))]
+mod art_priority;
+
 /// Call 0. `data`: `scene::wire::encode_assets`; `flags` bit 0: fullscreen.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -396,6 +399,8 @@ mod unix_side {
                 }
                 let stop = || NEXT.superseded(a.generation);
                 let viewer = || VIEWER.get().map(|v| v.assets.clone());
+                // (Art made ahead in the background, `art_priority`.)
+                crate::art_priority::set_background(crate::art_priority::ahead(&a.context));
                 let started = std::time::Instant::now();
                 let result = if a.append {
                     grow(&a, &stop, &mut art).map(|g| {

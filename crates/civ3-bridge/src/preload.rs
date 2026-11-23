@@ -1,8 +1,11 @@
 //! Art made ahead of need, so that what the game shows next is there when
-//! it does: the interface's art and fonts first, then every animation of
-//! the units on screen and the other units present, then every animation
-//! of every unit type of the game in every era, in
-//! the colours of the civs present. The publisher appends it to the art
+//! it does: every animation of the units on screen first (they are needed
+//! now: they go ahead of the interface's art, however late their plan is
+//! made), then the interface's art and fonts, then the animations of the
+//! units cities complete next turn and of the other units present. Unit
+//! types nobody has are not made ahead: in a network game with every civ
+//! present that was 760 MiB of atlas on an 8 GB Mac, made over minutes of
+//! dropped frames (user, 2026-11-23). The publisher appends it to the art
 //! a little at a time while the art thread has nothing else to do (art the
 //! screen needs now goes first), and stops at a budget of atlas memory.
 
@@ -124,6 +127,9 @@ impl ArtList {
 struct Tier {
     name: &'static str,
     items: VecDeque<Item>,
+    /// Needed now (the units on screen): a later phase's urgent tiers go
+    /// ahead of what the plan has left (`Preload::append`).
+    urgent: bool,
 }
 
 /// The art to make ahead for one game, highest priority first.
@@ -372,6 +378,7 @@ impl Preload {
             [Tier {
                 name: "interface",
                 items: interface,
+                urgent: false,
             }]
             .into(),
             budget,
@@ -379,12 +386,18 @@ impl Preload {
     }
 
     /// Appends a later planning phase without discarding work already admitted
-    /// or resetting this plan's budget and byte counters.
-    pub fn append(&mut self, mut phase: Preload) {
+    /// or resetting this plan's budget and byte counters. Its urgent tiers
+    /// (the units on screen) go ahead of everything the plan has left, in
+    /// their order; the rest goes after it.
+    pub fn append(&mut self, phase: Preload) {
         if self.budget == 0 || self.stopped.is_some() {
             return;
         }
-        self.tiers.append(&mut phase.tiers);
+        let (urgent, later): (Vec<Tier>, Vec<Tier>) = phase.tiers.into_iter().partition(|t| t.urgent);
+        for tier in urgent.into_iter().rev() {
+            self.tiers.push_front(tier);
+        }
+        self.tiers.extend(later);
         self.finished = false;
     }
 
@@ -511,49 +524,17 @@ impl Preload {
         tiers.push_back(Tier {
             name: "units on screen",
             items: seen_units,
+            urgent: true,
         });
         tiers.push_back(Tier {
             name: "units built next turn",
             items: coming,
+            urgent: false,
         });
         tiers.push_back(Tier {
             name: "units present",
             items: other_units,
-        });
-        // Every unit type in every era, in the colours of the civs present
-        // (with palettes, more colourings cost no pixels).
-        let civs: BTreeSet<i32> = world
-            .units
-            .iter()
-            .map(|u| u.civ)
-            .chain(world.cities.iter().map(|c| c.civ))
-            .collect();
-        let colors: Vec<Recolor> = civs
-            .iter()
-            .map(|&c| Recolor::civ(units::colors_of(world, c)))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        let mut types = VecDeque::new();
-        let player_era = units::era_of(world, world.player).to_owned();
-        let mut eras: Vec<&str> = vec![player_era.as_str()];
-        eras.extend(
-            world
-                .era_keys
-                .iter()
-                .map(String::as_str)
-                .filter(|e| *e != player_era),
-        );
-        for era in eras {
-            for type_key in &world.unit_type_keys {
-                if !animations(art, type_key, era, &colors, &mut types) {
-                    return None;
-                }
-            }
-        }
-        tiers.push_back(Tier {
-            name: "unit types",
-            items: types,
+            urgent: false,
         });
         if stop() {
             return None;
@@ -744,6 +725,7 @@ mod tests {
         .map(|(name, items)| Tier {
             name,
             items: items.into(),
+            urgent: false,
         })
         .collect();
         Preload {
@@ -898,6 +880,7 @@ mod tests {
                 tiers: [Tier {
                     name: "interface",
                     items: [Item::Screen(art.clone())].into(),
+                    urgent: false,
                 }]
                 .into(),
                 budget: u64::MAX,
@@ -923,6 +906,7 @@ mod tests {
             tiers: [Tier {
                 name: "large",
                 items: [item.clone(), item].into(),
+                urgent: false,
             }]
             .into(),
             budget: u64::MAX,
@@ -961,6 +945,7 @@ mod tests {
             tiers: [Tier {
                 name: "icons",
                 items: [Item::Screen(art)].into(),
+                urgent: false,
             }]
             .into(),
             budget: 60_000,
@@ -999,6 +984,50 @@ mod tests {
 #[cfg(test)]
 mod phase_tests {
     use super::*;
+
+    fn screen(source: &str) -> Item {
+        let mut art = menu::screen::ScreenArt::default();
+        art.regions.insert(menu::screen::Region { source: source.into(), rect: [0, 0, 4, 4], keyed: false, mask: None, palette: None });
+        Item::Screen(art)
+    }
+
+    fn tier(name: &'static str, sources: &[&str], urgent: bool) -> Tier {
+        Tier { name, items: sources.iter().map(|s| screen(s)).collect(), urgent }
+    }
+
+    #[test]
+    fn the_units_on_screen_go_ahead_of_the_interface_left_however_late_their_plan() {
+        let mut p = Preload::from_tiers([tier("interface", &["i1", "i2", "i3"], false)].into(), 1 << 30);
+        // One interface item went before the units' plan was made.
+        assert_eq!(p.next(0, 1, |_| false).map(|(t, _)| t), Some("interface"));
+        p.append(Preload::from_tiers(
+            [tier("units on screen", &["u1"], true), tier("units built next turn", &["n1"], false), tier("units present", &["p1"], false)].into(),
+            1 << 30,
+        ));
+        let mut order = Vec::new();
+        while let Some((tier, items)) = p.next(0, 1, |_| false) {
+            order.extend(items.iter().map(|i| match i {
+                Item::Screen(a) => format!("{tier}:{}", a.regions.iter().next().unwrap().source),
+                _ => unreachable!(),
+            }));
+        }
+        assert_eq!(order, ["units on screen:u1", "interface:i2", "interface:i3", "units built next turn:n1", "units present:p1"]);
+    }
+
+    #[test]
+    fn unit_types_nobody_has_are_not_made_ahead() {
+        // Two unit types, one unit of the first: only that type's art is
+        // looked for (no type of nobody's, in no era).
+        let world = Civ3World {
+            unit_type_keys: vec!["PRTO_Infantry".into(), "PRTO_Tank".into()],
+            era_keys: vec!["ERAS_Ancient_Times".into(), "ERAS_Modern_Era".into()],
+            units: vec![crate::world::Civ3Unit { unit_type: 0, civ: 1, ..Default::default() }],
+            ..Default::default()
+        };
+        let mut art = UnitArt::new(civ3_assets::GameFiles::with_roots(Vec::new()));
+        let plan = Preload::units(&world, &Civ3View::default(), &mut art, 1 << 30, &|| false).expect("a plan");
+        assert!(plan.tiers.iter().all(|t| matches!(t.name, "units on screen" | "units built next turn" | "units present")), "{:?}", plan.tiers.iter().map(|t| t.name).collect::<Vec<_>>());
+    }
 
     #[test]
     fn resized_indexed_icons_charge_the_output_rgba_pixels_before_admission() {
@@ -1050,6 +1079,7 @@ mod phase_tests {
             [Tier {
                 name: "units",
                 items: [item].into(),
+                urgent: false,
             }]
             .into(),
             u64::MAX,
@@ -1165,8 +1195,10 @@ mod phase_tests {
 
     #[test]
     fn units_stop_before_any_animation_when_disabled_or_superseded() {
+        // (One unit present: its animations' headers are what is read.)
         let world = Civ3World {
             unit_type_keys: vec!["PRTO_Infantry".into()],
+            units: vec![crate::world::Civ3Unit { unit_type: 0, civ: 1, ..Default::default() }],
             ..Default::default()
         };
         let mut art = UnitArt::new(civ3_assets::GameFiles::with_roots(Vec::new()));
