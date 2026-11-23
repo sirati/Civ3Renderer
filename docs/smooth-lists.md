@@ -128,3 +128,63 @@ state instead.
     then to where the game's list (at camera_y) has that point.
   - `smooth_menus` leaves lists that have a ListView alone; it is removed
     when no list uses it.
+
+## Bridge design (2026-11-23, from Civ3Conquests.exe PCGames with C3X)
+
+What the game has (read from the binary; `civ_prog_objects.csv` and C3X's
+`injected_code.c` in the game source folder name many of the functions):
+
+- `p_city_form` 0x7409C0. Its lists are `Base_List_Box`es (the list
+  object G): `Order_List` (production choices) at +0x7C7C,
+  `Order_Queue_List` +0x8364, `Improvement_List` +0x8A4C. G+0x2C first
+  entry shown, G+0x30 entries shown (`civ3_sys::controls`).
+- Every list box draws an entry with 0x617470 (`this` = G + 0x64, the
+  argument the entry's index). It calls the list's text callback G+0x50
+  (`(control, …, &rect, data)`; nonzero: the default text is skipped) and
+  its icon callback G+0x4C
+  (`(control, data, index, x, y, …)`, `draw_improv_icons_on_city_screen`'s
+  signature). An entry's data is `[[node+8]+4]`; entries are added with
+  0x618940 `(text, data, flag)` (text at L+0xE0, lines L+0xE8).
+  So one hook round 0x617470 marks every list box row's draws: they are
+  the list's rows, everything else the list draws is its background.
+- The improvements list (filled by 0x421D30): one entry per improvement
+  the city has (`City_has_improvement(city, i, 1)`, 0x4ACBE0), in
+  improvement order, skipping BIC flags (+0xF0 & 4, & 8), +0xD8 ≠ −1 and
+  +0xEC & 0x80000; data = the improvement's index, text = its name (BIC
+  improvement +0x44). Rows 32 px. Callbacks: G+0x50 = 0x421210 (the name
+  at x + small sprite width + 2), G+0x4C = 0x4212C0
+  `draw_improv_icons_on_city_screen` (C3X wraps it, adding mill resource
+  icons, `patch_Sprite_draw_improv_img_on_city_form`): the small sprite
+  (`City_Form.Improvement_Images_Small`, 0x746F08, 44-byte `Sprite`s, +0x18
+  width, +0x1C height) at (x, y); then the row right of it in quarters:
+  upkeep coins (`City_get_improvement_maintenance` 0x4ACE80, sprite
+  0x746930), culture (`City_get_tourism_amount` 0x4B07A0, sprite 0x7468AC),
+  content faces (0x4F8DA0, sprite 0x74695C), and a fourth group (0x5613F0,
+  0x55A790, sprite 0x746988); icons of a group are packed closer when they
+  do not fit (0x426790 clamps the step).
+- The production list (`Order_List`) draws its background through its
+  owner callback (0x41C240 / 0x41C370: `ProductionQueueBox` sprite
+  `City_Form+0x64F0`, clipped to the list) and its rows with the entry
+  draw above: a 32×32 unit icon (`units_32.PCX`) or the improvement's,
+  the name and stats ("Worker  0.0.1") at x+38, the turns ("1 turn") at
+  x+133, 42 px rows (run 30 traces).
+- Run 30 (/tmp/c3r-run30) has traces of both city lists and F1 at
+  several positions; the game draws whole rows only and leaves the part
+  row empty (the bug).
+
+Plan:
+1. civ3-sys `lists`: read a list's screen rectangle, row height, first
+   shown, count and each entry's data (the nodes).
+2. On the game's thread (its present), for the open city screen: each
+   entry's row data from game state (improvement id, maintenance,
+   culture, contentment, …; for production: the order and its turns),
+   only when it changes.
+3. civ3-ui: a row's items (images by the game's sprites' regions, text in
+   its fonts) from that data, a port of the callbacks above, in content
+   space (entry k at y = k·step).
+4. The publisher: a `ListView` view per list with those sprites; the
+   rows the game drew (marked by the 0x617470 hook) left out of the
+   mirrored screen; `Input::ListScrolled` sets G+0x2C on the game's
+   thread; the scroll bar drawn by the viewer from the position.
+5. F1's city table is drawn by the advisor's own code (not a list box):
+   its row drawing is found and ported the same way.
