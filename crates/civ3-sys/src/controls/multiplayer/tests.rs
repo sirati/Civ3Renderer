@@ -178,8 +178,10 @@ fn native(m: &Fake, p: (i32, i32)) -> Vec<Native> {
             }
         }
     }
-    // 0x48CFBF: every human row's (0x910234 + 0x63C·k: number, kind).
-    if !ready && (fixed || loaded || matches!(state, 3 | 4)) {
+    // 0x48CFBF: every human row's (0x910234 + 0x63C·k: number, kind),
+    // where drawn: the click also acts in the setup's state 3 or 4 with
+    // nothing drawn (and crashes the game there), no control.
+    if !ready && (fixed || loaded) {
         for k in 0..8u32 {
             let kind = m.u32(0x910234 + 0x63C * k + 4).unwrap();
             if matches!(kind, 2 | 3) && inside(rect(0x62088 - 0xC + 16 * k), p) && !out.contains(&Native::Player(k)) {
@@ -378,9 +380,16 @@ fn the_lobbys_buttons_titles_and_listed_games_hit_its_native_tests() {
 
 #[test]
 fn the_player_number_buttons_are_there_in_a_loaded_game_or_a_scenario_with_fixed_players_only() {
-    // A new standard game: none.
+    // A new standard game: none drawn, none listed, also in the setup's
+    // state 3 or 4, where the host's click would act (and, with no player
+    // data, crash the game: 0x48D182).
     let mut m = setup_fixture(2);
-    assert!(check_setup(&m, "new game").iter().all(|w| !matches!(w, Native::Player(_))));
+    assert!(setup_found(&m).iter().all(|(w, _)| !matches!(w, Native::Player(_))));
+    for state in [3, 4] {
+        m.put(SETUP_STATE, state);
+        assert!(setup_found(&m).iter().all(|(w, _)| !matches!(w, Native::Player(_))), "state {state}");
+    }
+    m.put(SETUP_STATE, 0);
     // Two humans joined a loaded game: the host reaches both their rows.
     m.put(LOADED_A, 3);
     m.put(LOADED_B, 0);

@@ -14,12 +14,15 @@
 //!   0x48C246, 0x48D04B): it steps the player number that slot plays
 //!   (0x910234 + 0x63C·row), which picks the player of a saved game or of
 //!   a scenario with fixed players (in one, only those that can be played,
-//!   the civilization box following it). Only there: a loaded game
-//!   ([0x9C3D6C] > 0 and [0x9C3D34] > −1) or such a scenario; in a new
-//!   standard game none is shown. The local player's own row while not
-//!   ready, and the host's (below) every human slot's (kind 0x910238 +
-//!   0x63C·row 2 or 3) while the host is not ready (also in the setup's
-//!   state 3 or 4).
+//!   the civilization box following it). Listed only where the setup draws
+//!   them (0x486A20: the player data [0x9C719C] read for the rows): a
+//!   loaded game ([0x9C3D6C] > 0 and [0x9C3D34] > −1) or such a scenario;
+//!   in a new standard game none is drawn. The local player's own row
+//!   while not ready, and the host's (below) every human slot's (kind
+//!   0x910238 + 0x63C·row 2 or 3) while the host is not ready. (The host's
+//!   click also acts in the setup's state 3 or 4 with none drawn, reading
+//!   that player data: in a new game it is NULL and the click crashes the
+//!   game, 0x48D182. Nothing drawn there is a control.)
 //! - The host's only (session role [0x9AFD34] 2 or 4, 0x49A050): the
 //!   game's name (+0x6206C, a prompt), Launch (+0x6203C) while no
 //!   countdown runs (+0x6210D), and, while the host is not ready, the game
@@ -159,7 +162,7 @@ pub fn setup(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, u32, [i32; 4])>> {
         }
         if !ready {
             out.extend(rules(mem, form).unwrap_or_default());
-            if loaded || fixed_players || matches!(state, 3 | 4) {
+            if loaded || fixed_players {
                 players.extend((0..SLOTS).filter(|&k| matches!(mem.u32(SLOT_KINDS + SLOT_SIZE * k), Some(2 | 3))));
             }
         }
