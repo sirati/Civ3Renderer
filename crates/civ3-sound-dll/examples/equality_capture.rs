@@ -1123,6 +1123,8 @@ mod win32 {
         let c_button = CString::new(r"..\Sounds\Button1.wav").unwrap();
         let c_enter = CString::new(r"..\Sounds\EnterTurn.wav").unwrap();
         let c_barbarian = CString::new(r"..\Sounds\Barbarian Raid.wav").unwrap();
+        let c_love_king = CString::new(r"..\Sounds\LoveTheKing.wav").unwrap();
+        let c_menu_mp3 = CString::new(r"..\Sounds\menu\menu1.mp3").unwrap();
         let c_mp3 = CString::new(r"..\Sounds\build\ancient\AncECfull.mp3").unwrap();
         let c_8bit = CString::new(synth_8bit.to_str().unwrap()).unwrap();
         let c_stereo = CString::new(synth_stereo.to_str().unwrap()).unwrap();
@@ -1413,6 +1415,51 @@ mod win32 {
                 unsafe { call0(s, 8) };
             }
             unsafe { (api.delete_sound)(s) };
+        }
+
+        // Scenario 16: Title screen music lazy load-on-play (exact Civ3 0x537627 -> 0x54fd12 path):
+        // create_sound(out, path, 1) -> set_flags(0x506) -> set_volume(127) -> play() WITHOUT load().
+        {
+            // Drain any residual .amb ring-out voices completely before starting the MP3 test.
+            for _ in 0..6 {
+                drain_ring();
+            }
+            let mut s: *mut c_void = std::ptr::null_mut();
+            assert_eq!(
+                unsafe { (api.create_sound)(&mut s, c_menu_mp3.as_ptr() as *const u8, 1) },
+                0
+            );
+            unsafe {
+                assert_eq!(call1_u32(s, 27, 0x506), 0); // set_flags(0x506): lazy load + stream + loop
+                call1_i32(s, 16, 127); // set_volume(127)
+                assert_eq!(call0(s, 7), 0); // play() triggers lazy load of menu1.mp3
+            }
+            run_steps("title_music_lazy_0x506", 120, &mut |_| {});
+            unsafe {
+                call0(s, 8);
+                (api.delete_sound)(s);
+            }
+        }
+
+        // Scenario 17 (native e2e only): Rapid burst of identical "We Love the King Day" plays
+        // within 50 ms must coalesce to a single playing voice rather than stacking 8x.
+        if !patch_iat {
+            drain_ring();
+            let mut s: *mut c_void = std::ptr::null_mut();
+            assert_eq!(unsafe { (api.create_sound)(&mut s, std::ptr::null(), 1) }, 0);
+            assert_eq!(unsafe { call1_ptr(s, 4, c_love_king.as_ptr() as *const u8) }, 0);
+            assert_eq!(unsafe { call0(s, 7) }, 0);
+            run_steps("love_the_king_single", 100, &mut |_| {});
+            unsafe { call0(s, 8) };
+
+            // Wait past the 50 ms dedup window before testing an 8x burst.
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            for _ in 0..8 {
+                assert_eq!(unsafe { call0(s, 7) }, 0);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            run_steps("love_the_king_burst_50ms", 100, &mut |_| {});
+            unsafe { call0(s, 8); (api.delete_sound)(s) };
         }
 
         // Exact Civ3 teardown order: close/delete MIDI BEFORE Wave BEFORE release_sound!

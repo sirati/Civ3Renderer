@@ -144,9 +144,9 @@ read and write specific fields directly on the objects returned by
      - `1 (+0x04, ret 4)`: `set_fade_ms(ms)`.
      - `4 (+0x10, ret 4)`: `load(const char* path) -> SNDERR`.
      - `5 (+0x14, ret 0)`: `unload() -> SNDERR`.
-     - `7 (+0x1C, ret 0)`: `play() -> SNDERR`.
+     - `7 (+0x1C, ret 0)`: `play() -> SNDERR`. When `!is_loaded` and `(flags & 0x04) != 0` (lazy load-on-play, e.g. title screen music `0xa51fa0` and credits music `0xa51f30` configured with `flags = 0x506`), automatically loads the path saved during `create_sound` before playing (`0x1003BF23..0x1003BF4F`).
      - `8 (+0x20, ret 0)`: `stop() -> SNDERR`.
-     - `9 (+0x24, ret 4)`: `fade_out_ms(ms)` -> `set_fade_ms(ms); fade_out()`.
+     - `9 (+0x24, ret 4)` / `11 (+0x2C, ret 4)`: `fade_out_ms(ms)` -> sets fade-out duration (`vt[+0x04]` / `vt[+0x54]`) then calls `fade_out()` (`vt[+0x28]`).
      - `10 (+0x28, ret 0)`: `fade_out() -> SNDERR`.
      - `12 (+0x30, ret 0)`: `fade_in() -> SNDERR`.
      - `13 (+0x34, ret 12)`: `fade(target_vol, start_vol, duration_ms)` — `target`/`start` in `0..=127` or `-1` meaning "current volume" (`0x1003C2F0`).
@@ -154,7 +154,7 @@ read and write specific fields directly on the objects returned by
      - `16 (+0x40, ret 4)`: `set_volume(vol)`.
      - `17 (+0x44, ret 4)`: `set_pan(pan)`.
      - `18 (+0x48, ret 4)`: `set_loop(enabled)`.
-     - `21 (+0x54, ret 4)`: `set_fade_in_ms(ms)`.
+     - `21 (+0x54, ret 4)`: `set_fade_ms(ms)` (sets fade-out duration used by `vt[+0x28]`, e.g. 2000 ms title music fade-out at `0x4F18E8`).
      - `22 (+0x58, ret 0)`: `is_looping()`.
      - `23 (+0x5C, ret 0)`: `is_playing() -> u32` (`1` or `0`).
      - `24 (+0x60, ret 0)`: `is_loaded() -> u32` (`-1` or `0` in original; non-zero truthy).
@@ -261,7 +261,13 @@ read and write specific fields directly on the objects returned by
   - If a WAV contains a RIFF `smpl` chunk with `cSampleLoops > 0`, loop start
     and end (inclusive `+ 1`) are taken from loop entry 0; otherwise the full
     sample range loops when looping is enabled.
-- **Polyphony**: up to 16 simultaneous voices per `WaveSound` (`0x10032C44`).
+- **Polyphony and burst deduplication**: up to 16 simultaneous voices per
+  `WaveSound` (`0x10032C44`). To eliminate phase/clipping artefacts when the
+  game triggers the exact same sample many times on the same tick (e.g.
+  multiple cities celebrating "We Love the King Day"), starts of the same
+  decoded sample (`Arc::ptr_eq` on canonicalized `wav_cache` entries) within
+  `SAME_SOUND_DEDUP_MS = 50` ms (`2,205` frames) while an earlier voice is still
+  playing are coalesced into the active voice while returning `SNDERR_OK`.
 
 ### 4.2 DirectSound streaming buffer path (MP3 music & playlists)
 
@@ -372,10 +378,13 @@ Disassembly and numerical equality captures against the original 2003
       `render_frames` used identically by live playback and offline tests.
     - `output`: lock-free native audio thread (`handoff::Mailbox` command queue,
       wait-free atomic `is_playing` state table, `#![forbid(unsafe_code)]`
-      `AtomicU32` SPSC ring buffer feeding the real-time `cpal` callback,
-      optional `rubato` host-rate conversion, graceful headless/silent fallback
-      if no host audio device is present, and optional `CIV3R_AUDIO_DUMP` WAV
-      capture).
+      65,536-sample `AtomicU32` SPSC ring buffer with 120 ms target buffer
+      feeding the real-time `cpal` callback, optional `rubato` host-rate
+      conversion, ~45 ms ALSA period (`BufferSize::Fixed` with `Default`
+      fallback) on Linux to prevent PipeWire-ALSA 2-period xruns under heavy
+      load, lock-free stream error rate-limiting, graceful headless/silent
+      fallback if no host audio device is present, and optional
+      `CIV3R_AUDIO_DUMP` WAV capture).
 - **`crates/civ3r-native`**:
   - Adds `CALL_AUDIO = 9` and `LIMIT_AUDIO = 16` (`AudioCall` struct) to
     `unix_call_table!`.
@@ -451,6 +460,7 @@ native `civ3-audio::AudioEngine`:
 | `playlist_mp3_vol80` (`MusicPlaylist`) | 11025 | 0.999999 | 37.13 | 2543.7 | 2578.9 | 1.0139 | 35.40 | 218 |
 | `amb_cavalry_det` (`CavalryAttack.amb`, RNG cleared) | 18946 | 0.996998 | 22.18 | 2503.6 | 2515.0 | 1.0046 | 194.78 | 14601 |
 | `amb_cavalry_attack` (unmodified `CavalryAttack.amb`) | 19797 | 0.985677 (env) | — | 2555.4 | 2515.7 | 0.9844 | — | — |
+| `title_music_lazy_0x506` (`Sounds\menu\menu1.mp3`, no `load()`) | 11025 | 0.999996 | 41.47 | 3250.5 | 3276.6 | 1.0080 | 27.43 | 289 |
 
 DirectSound attenuation curve check: `sound.dll` reported `-701` mB at
 `volume = 64` (`trunc(1000 * ln(64/127)) = -685` mB in `DSBuf_set_vol`, with
@@ -465,35 +475,41 @@ isolated `wine-wow64` prefix with `CIV3R_SOUND=native` and `CIV3R_AUDIO_NULL=1`:
 - Zero DirectSound buffers or WinMM multimedia timers created in the 32-bit
   process.
 - Verified real decoded & mixed 44100 Hz stereo PCM output via `WaveDevice`
-  recording across all 4 sound categories:
-  - `wav_mono16_unity`: `rms = 2285.0`
-  - `mp3_unity` (`AncECfull.mp3`): `rms = 4207.3`
-  - `amb_cavalry_attack` (`CavalryAttack.amb`): `rms = 2266.1`
-  - `playlist_mp3_vol80` (`MusicPlaylist`): `rms = 2493.9`
+  recording across all sound categories:
+  - `wav_mono16_unity`: `rms = 2269.5`
+  - `mp3_unity` (`AncECfull.mp3`): `rms = 4299.7`
+  - `amb_cavalry_attack` (`CavalryAttack.amb`): `rms = 2209.9`
+  - `playlist_mp3_vol80` (`MusicPlaylist`): `rms = 2459.5`
+  - `title_music_lazy_0x506` (`Sounds\menu\menu1.mp3` via lazy `flags=0x506` `play()`): `rms = 3699.6`
+  - `dedup LoveTheKing` (8× rapid plays within 16 ms vs. 1× single play): `single(rms=2941.6, peak=11289)` vs. `8x_burst(rms=2943.8, peak=11289)`, `ratio = 1.001`.
 
 ### 6.3 Live headless Wayland Civilization III: Conquests verification
 
 Verified end-to-end with `tools/install-native` + `tools/civ3-native` on an
 isolated headless Wayland session (`WLH_SOCKET=wayland-civ3-audio`,
-`CIV3R_AUDIO_NULL=1`, `CIV3R_AUDIO_DUMP=...`):
+`CIV3R_AUDIO_DUMP=...`):
 
-- Game booted cleanly to the main menu with `native audio failed-init cleanup: Installed`,
-  `civ3-audio` initialized on the 64-bit unixlib thread, and zero panics or
-  errors in `civ3-bridge.log`.
-- Navigated New Game -> Choose Your World -> Choose Your Civilization -> Dawn
-  of Civilization -> Turn 1 -> Preferences (`Ctrl+P`), capturing 554.65 s
-  (24,460,015 stereo frames, 97.8 MB) of live 44100 Hz 16-bit stereo PCM:
-  - UI click and popup SFX rendered cleanly (`rms = 1518.6`, `peak = 8764` on
-    setup buttons; `rms = 565.1`, `peak = 4995` on Dawn of Civilization popup).
-  - Ancient era adaptive `MusicPlaylist` (`AncNAa.wav`, 8.0 s loop, 352,799
-    stereo frames) rendered **bit-for-bit identically** against the source file
-    across a full 8.0 s live loop (`max_abs_err = 0`, `rms_err = 0.0000`,
-    `SNR = inf dB`), with live ambient wildlife SFX mixed cleanly on top.
-  - Preferences (`Ctrl+P`) opened cleanly with `All Sounds On`, `Music On`, and
-    `Sound FX On` controls intact.
+- **Title screen music & Linux ALSA output** (real `cpal` ALSA output enabled):
+  - `civ3-bridge.log` logged `opened cpal output (48000 Hz, 2 ch, F32, buffer Fixed(2304))`
+    and `symphonia_bundle_mp3::demuxer` at `t = 2.338 s` immediately on the
+    title screen, with **zero** underrun/overrun warnings.
+  - Captured 18.40 s (811,520 stereo frames) of live title screen music
+    (`menu1.mp3`, `overall rms = 1934.4`, `peak = 17213`, continuous active
+    stereo music from `t = 0 s` through `t = 17 s`).
+- **Turn 1 gameplay, SFX, adaptive music & Preferences**:
+  - Navigated New Game -> Choose Your World -> Choose Your Civilization -> Dawn
+    of Civilization -> Turn 1 -> Preferences (`Ctrl+P`), capturing 554.65 s
+    (24,460,015 stereo frames, 97.8 MB) of live 44100 Hz 16-bit stereo PCM:
+    - UI click and popup SFX rendered cleanly (`rms = 1518.6`, `peak = 8764` on
+      setup buttons; `rms = 565.1`, `peak = 4995` on Dawn of Civilization popup).
+    - Ancient era adaptive `MusicPlaylist` (`AncNAa.wav`, 8.0 s loop, 352,799
+      stereo frames) rendered **bit-for-bit identically** against the source
+      file across a full 8.0 s live loop (`max_abs_err = 0`, `rms_err = 0.0000`,
+      `SNR = inf dB`), with live ambient wildlife SFX mixed cleanly on top.
+    - Preferences (`Ctrl+P`) opened cleanly with `All Sounds On`, `Music On`,
+      and `Sound FX On` controls intact.
 - Also verified graceful degradation when `sound.dll` ran against an older
   `civ3r_native.so` lacking `CALL_AUDIO`: `Wave_Device::open` failed cleanly
   and `audio_init.rs` unwound `Midi_Device` with zero crash.
-- Touched `sound.dll` restored byte-for-byte to the original 2003 binary
-  (`32da5ea027041a5ceda170f40be38ef63ec3815efdb3846f62d6e130d3ec668c`, verified
-  with `sha256sum`) and `sound_orig.dll` removed.
+- All 5 touched live prefix files restored byte-for-byte (`sha256sum -c`: 5/5 OK)
+  and `sound_orig.dll` / `civ3r_native.dll` cleaned up.

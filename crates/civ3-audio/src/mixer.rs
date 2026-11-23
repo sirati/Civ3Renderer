@@ -25,6 +25,17 @@ use crate::wire::{
 /// (`sound.dll` allocates 16 slots at `inner + 0x238`, stride `0x110`).
 pub const MAX_VOICES_PER_SOUND: usize = 16;
 
+/// Coalescing window (milliseconds) for repeated starts of the exact same sound
+/// sample. When the game triggers the same sound file again within this window
+/// while the previous start is still playing (e.g. many cities celebrating "We
+/// Love the King Day" on the same turn), the duplicate start is suppressed and
+/// the already-playing voice continues cleanly without phase/clipping artefacts.
+pub const SAME_SOUND_DEDUP_MS: u32 = 50;
+
+/// [`SAME_SOUND_DEDUP_MS`] expressed in 44100 Hz mixer frames.
+pub const SAME_SOUND_DEDUP_FRAMES: u64 =
+    (SAME_SOUND_DEDUP_MS as u64 * MIX_SAMPLE_RATE as u64) / 1000;
+
 /// `SNDERR` constants matching `sound.dll`.
 pub const SNDERR_OK: u32 = 0;
 pub const SNDERR_NOT_INIT: u32 = 1;
@@ -87,6 +98,8 @@ struct SwVoice {
     amb_gate: Option<(SoundHandle, u8, u8)>,
     /// Parent sound handle (used to report `is_playing` and stop non-ringout voices).
     owner: SoundHandle,
+    /// Engine frame counter (`AudioEngine::total_frames_rendered`) when this voice started.
+    started_at_frame: u64,
 }
 
 impl SwVoice {
@@ -446,6 +459,8 @@ pub struct AudioEngine {
     amb_rng_seed: u32,
     amb_actions_scratch: Vec<AmbAction>,
     recorder: Option<WavRecorder>,
+    /// Monotonic 44100 Hz frame clock used for deterministic voice deduplication.
+    total_frames_rendered: u64,
 }
 
 impl AudioEngine {
@@ -464,6 +479,7 @@ impl AudioEngine {
             amb_rng_seed: 1,
             amb_actions_scratch: Vec::with_capacity(32),
             recorder: None,
+            total_frames_rendered: 0,
         }
     }
 
@@ -504,18 +520,29 @@ impl AudioEngine {
     }
 
     fn load_cached_wav(&mut self, path: &Path) -> Result<Arc<DecodedWav>, u32> {
-        if let Some(cached) = self.wav_cache.get(path) {
+        let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if let Some(cached) = self.wav_cache.get(&key) {
             return Ok(cached.clone());
         }
-        let decoded = decode_wav_file(path).map_err(|e| {
-            log::warn!("civ3-audio: failed decoding WAV {}: {e}", path.display());
+        let decoded = decode_wav_file(&key).map_err(|e| {
+            log::warn!("civ3-audio: failed decoding WAV {}: {e}", key.display());
             SNDERR_INVALID_FORMAT
         })?;
         let arc = Arc::new(decoded);
         if self.wav_cache.len() < 2048 {
-            self.wav_cache.insert(path.to_path_buf(), arc.clone());
+            self.wav_cache.insert(key, arc.clone());
         }
         Ok(arc)
+    }
+
+    /// Returns `true` if an active software voice for the exact same decoded
+    /// sample (`Arc::ptr_eq`) was already started within [`SAME_SOUND_DEDUP_FRAMES`].
+    fn has_recent_voice_for_wav(&self, wav: &Arc<DecodedWav>) -> bool {
+        self.sw_voices.iter().any(|v| {
+            Arc::ptr_eq(&v.wav, wav)
+                && self.total_frames_rendered.saturating_sub(v.started_at_frame)
+                    < SAME_SOUND_DEDUP_FRAMES
+        })
     }
 
     /// Returns whether `handle` is currently playing (SW voice, active stream,
@@ -933,6 +960,7 @@ impl AudioEngine {
                     st.looping = w.looping;
                     st.paused = false;
                     if !st.playing {
+                        st.fade = None;
                         st.rewind();
                         st.playing = true;
                     }
@@ -941,6 +969,9 @@ impl AudioEngine {
                 let Some(wav) = w.wav.clone() else {
                     return Response { snderr: SNDERR_UNLOADED, ..Default::default() };
                 };
+                if self.has_recent_voice_for_wav(&wav) {
+                    return Response::default();
+                }
                 // Enforce 16-voice polyphony cap per WaveSound.
                 let active_count = self.sw_voices.iter().filter(|v| v.owner == handle).count();
                 if active_count >= MAX_VOICES_PER_SOUND {
@@ -948,18 +979,25 @@ impl AudioEngine {
                         self.sw_voices.remove(idx);
                     }
                 }
-                let ratio = pitch_ratio_from_cents(w.pitch_cents);
+                let (volume, pan, looping, pitch_cents, fade) = match self.sounds.get_mut(&handle) {
+                    Some(SoundSlot::Wave(w)) => {
+                        (w.volume, w.pan, w.looping, w.pitch_cents, w.active_fade.take())
+                    }
+                    _ => return Response { snderr: SNDERR_NO_OBJECT, ..Default::default() },
+                };
+                let ratio = pitch_ratio_from_cents(pitch_cents);
                 let step = (f64::from(wav.sample_rate) / f64::from(MIX_SAMPLE_RATE)) * ratio;
                 let voice = SwVoice {
                     wav,
                     pos: 0.0,
                     step,
-                    volume: w.volume,
-                    pan: w.pan,
-                    looping: w.looping,
-                    fade: w.active_fade.take(),
+                    volume,
+                    pan,
+                    looping,
+                    fade,
                     amb_gate: None,
                     owner: handle,
+                    started_at_frame: self.total_frames_rendered,
                 };
                 self.sw_voices.push(voice);
                 Response::default()
@@ -1260,6 +1298,9 @@ impl AudioEngine {
                         _ => None,
                     };
                     if let Some(wav) = wav {
+                        if self.has_recent_voice_for_wav(&wav) {
+                            continue;
+                        }
                         let ratio = pitch_ratio_from_cents(pitch_cents);
                         let step =
                             (f64::from(wav.sample_rate) / f64::from(MIX_SAMPLE_RATE)) * ratio;
@@ -1274,6 +1315,7 @@ impl AudioEngine {
                             fade: None,
                             amb_gate: gated.then_some((handle, channel, note)),
                             owner: handle,
+                            started_at_frame: self.total_frames_rendered,
                         });
                     }
                 }
@@ -1539,6 +1581,7 @@ impl AudioEngine {
             }
 
             done_frames += chunk;
+            self.total_frames_rendered = self.total_frames_rendered.saturating_add(chunk as u64);
         }
 
         if let Some(rec) = &mut self.recorder {
@@ -1718,5 +1761,66 @@ mod tests {
         let mut mp3_buf = vec![0i16; 22_050 * 2];
         engine.render_frames(&mut mp3_buf);
         assert!(mp3_buf.iter().any(|&s| s != 0), "MP3 playlist produced silence");
+    }
+
+    #[test]
+    fn dedup_coalesces_repeated_starts_within_50ms_and_allows_after_window() {
+        assert_eq!(SAME_SOUND_DEDUP_MS, 50);
+        assert_eq!(SAME_SOUND_DEDUP_FRAMES, 2_205);
+
+        let mut engine = AudioEngine::new();
+        let wav_a = synthetic_wav(44_100, vec![10_000; 22_050]);
+        let wav_b = synthetic_wav(44_100, vec![5_000; 22_050]);
+
+        let h1 = engine.alloc_handle();
+        let mut w1 = WaveObject::new();
+        w1.wav = Some(wav_a.clone());
+        engine.sounds.insert(h1, SoundSlot::Wave(w1));
+
+        let h2 = engine.alloc_handle();
+        let mut w2 = WaveObject::new();
+        w2.wav = Some(wav_a.clone());
+        engine.sounds.insert(h2, SoundSlot::Wave(w2));
+
+        let h_other = engine.alloc_handle();
+        let mut wo = WaveObject::new();
+        wo.wav = Some(wav_b);
+        engine.sounds.insert(h_other, SoundSlot::Wave(wo));
+
+        // 1. Blast 10 starts of the same sample within < 50 ms (same handle & second handle).
+        assert_eq!(engine.cmd_play(h1).snderr, SNDERR_OK);
+        for _ in 0..5 {
+            assert_eq!(engine.cmd_play(h1).snderr, SNDERR_OK);
+        }
+        let mut tmp = vec![0i16; 1_000 * 2]; // ~22.7 ms (< 50 ms)
+        engine.render_frames(&mut tmp);
+        assert_eq!(tmp[0], 10_000, "single voice amplitude expected, no stacking");
+        for _ in 0..4 {
+            assert_eq!(engine.cmd_play(h2).snderr, SNDERR_OK);
+        }
+        assert_eq!(engine.sw_voices.len(), 1, "all starts within 50 ms must share one voice");
+
+        // 2. Starting a different sample within 50 ms is unaffected.
+        assert_eq!(engine.cmd_play(h_other).snderr, SNDERR_OK);
+        assert_eq!(engine.sw_voices.len(), 2, "different sample must start immediately");
+        let mut mix = vec![0i16; 10 * 2];
+        engine.render_frames(&mut mix);
+        assert_eq!(mix[0], 15_000, "both distinct samples should mix cleanly");
+
+        // 3. Advance past the 50 ms window (total >= 2205 frames since first start).
+        let mut advance = vec![0i16; 1_300 * 2]; // total 2310 frames > 2205
+        engine.render_frames(&mut advance);
+        assert_eq!(engine.cmd_play(h1).snderr, SNDERR_OK);
+        assert_eq!(
+            engine.sw_voices.len(),
+            3,
+            "start after 50 ms window must launch a new voice"
+        );
+
+        // 4. Explicit stop followed by immediate replay within 50 ms starts a fresh voice.
+        engine.cmd_stop(h1, true);
+        assert_eq!(engine.sw_voices.len(), 1); // only h_other remains
+        assert_eq!(engine.cmd_play(h1).snderr, SNDERR_OK);
+        assert_eq!(engine.sw_voices.len(), 2, "replay after explicit stop must start");
     }
 }

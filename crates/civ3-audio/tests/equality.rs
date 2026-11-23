@@ -385,6 +385,20 @@ fn render_native_scenario(
             assert_eq!(engine.handle_request(RequestHeader::new(Op::Play, h), "").snderr, 0);
             render_steps(&mut engine, 120, Box::new(|_, _| {}))
         }
+        "title_music_lazy_0x506" => {
+            let h = create(&mut engine, SoundKind::Wave);
+            engine.handle_request(RequestHeader::new(Op::SetFlags, h).with_a(0x506), "");
+            engine.handle_request(RequestHeader::new(Op::SetVolume, h).with_a(127), "");
+            assert_eq!(
+                engine.handle_request(
+                    RequestHeader::new(Op::Load, h).with_a(0x506),
+                    r"..\Sounds\menu\menu1.mp3",
+                ).snderr,
+                0
+            );
+            assert_eq!(engine.handle_request(RequestHeader::new(Op::Play, h), "").snderr, 0);
+            render_steps(&mut engine, 120, Box::new(|_, _| {}))
+        }
         other => panic!("unknown scenario {other}"),
     }
 }
@@ -463,6 +477,7 @@ fn numerical_equality_against_original_sound_dll_and_mss32() {
         // Unmodified CavalryAttack.amb sets PRGM_RAND_PITCH (±200 cents via MSVC rand()),
         // so phase differs across RNGs while RMS energy & envelope match closely.
         ("amb_cavalry_attack", 0.85, 0.0, 4096, None, true),
+        ("title_music_lazy_0x506", 0.990, 20.0, 2048, None, false),
     ];
 
     println!("| Scenario | Lag (frames) | Corr | SNR (dB) | RMS orig | RMS nat | Ratio | RMS err | Max abs |");
@@ -626,7 +641,13 @@ fn end_to_end_32bit_sound_dll_via_wine_wow64_unixlib() {
     assert!(stdout.contains("version=0x05000d01"), "unexpected version:\n{stdout}");
     assert!(stdout.contains("equality_capture_done=1"), "incomplete:\n{stdout}");
 
-    for name in ["wav_mono16_unity", "mp3_unity", "amb_cavalry_attack", "playlist_mp3_vol80"] {
+    for name in [
+        "wav_mono16_unity",
+        "mp3_unity",
+        "amb_cavalry_attack",
+        "playlist_mp3_vol80",
+        "title_music_lazy_0x506",
+    ] {
         let p = cap_dir.join(format!("{name}.wav"));
         let pcm = read_wav_i16_stereo(&p);
         let rms = (pcm.iter().map(|&s| f64::from(s) * f64::from(s)).sum::<f64>()
@@ -635,6 +656,32 @@ fn end_to_end_32bit_sound_dll_via_wine_wow64_unixlib() {
         println!("e2e {name}: frames={} rms={rms:.1}", pcm.len() / 2);
         assert!(rms > 10.0, "e2e {name} rendered silence (rms={rms})");
     }
+
+    // Verify 50 ms repeated-sound dedup end-to-end: 8 rapid LoveTheKing.wav plays within 16 ms
+    // must match a single play's energy (ratio ~1.0, not ~8x stacked/clipped).
+    let rms_of = |name: &str| -> (usize, f64, i32) {
+        let pcm = read_wav_i16_stereo(&cap_dir.join(format!("{name}.wav")));
+        let rms = (pcm.iter().map(|&s| f64::from(s) * f64::from(s)).sum::<f64>()
+            / (pcm.len().max(1) as f64))
+            .sqrt();
+        let peak = pcm.iter().map(|&s| i32::from(s).abs()).max().unwrap_or(0);
+        (pcm.len() / 2, rms, peak)
+    };
+    let (f_single, rms_single, pk_single) = rms_of("love_the_king_single");
+    let (f_burst, rms_burst, pk_burst) = rms_of("love_the_king_burst_50ms");
+    let burst_ratio = rms_burst / rms_single.max(1e-9);
+    println!(
+        "e2e dedup LoveTheKing: single(frames={f_single}, rms={rms_single:.1}, peak={pk_single}) vs 8x_burst(frames={f_burst}, rms={rms_burst:.1}, peak={pk_burst}) ratio={burst_ratio:.3}"
+    );
+    assert!(rms_single > 50.0, "single LoveTheKing rendered too quietly: {rms_single}");
+    assert!(
+        (0.85..=1.15).contains(&burst_ratio),
+        "8x LoveTheKing burst within 50ms was not deduplicated (ratio={burst_ratio:.3}, single={rms_single:.1}, burst={rms_burst:.1})"
+    );
+    assert!(
+        (pk_burst - pk_single).abs() <= pk_single / 10 + 16,
+        "8x LoveTheKing burst peak diverged from single voice (single={pk_single}, burst={pk_burst})"
+    );
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
