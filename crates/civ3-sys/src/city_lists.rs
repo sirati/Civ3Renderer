@@ -129,13 +129,17 @@ const HAS_TECH_PROLOGUE: &[u8] = &[0x8B, 0x44, 0x24, 0x04, 0x83, 0xF8, 0xFF];
 /// The game's own upkeep function (the call site's target without C3X).
 const UPKEEP: u32 = 0x4A_CE80;
 const UPKEEP_PROLOGUE: &[u8] = &[0x51, 0x53, 0x8B, 0xD9, 0x55];
-/// How C3X's functions (built with TCC) start: `push ebp; mov ebp,esp`.
-const C3X_START: &[u8] = &[0x55, 0x89, 0xE5];
-/// C3X R28's mill helpers (`gather_mill_yields`), at the addresses
-/// `mill_icons::Producer::find` audits.
+/// How C3X's functions (built with TCC) start: `push ebp; mov ebp,esp;
+/// sub esp,imm32` (`81 EC`, the frame size after it).
+const C3X_START: &[u8] = &[0x55, 0x89, 0xE5, 0x81, 0xEC];
+/// C3X R28's mill helpers (`gather_mill_yields`), at the addresses and
+/// with the starts `mill_icons::Producer::find` audits.
 const CAN_GENERATE: u32 = 0xD9_FA83;
+const CAN_GENERATE_PROLOGUE: &[u8] = &[0x55, 0x89, 0xE5, 0x81, 0xEC, 4, 0, 0, 0];
 const ACTIVE_BUILDING: u32 = 0xDA_7B13;
+const ACTIVE_BUILDING_PROLOGUE: &[u8] = &[0x55, 0x89, 0xE5, 0x81, 0xEC, 8, 0, 0, 0];
 const HAS_INPUTS: u32 = 0xDA_9632;
+const HAS_INPUTS_PROLOGUE: &[u8] = &[0x55, 0x89, 0xE5, 0x81, 0xEC, 0, 0, 0, 0];
 
 inproc::thiscall_fn! {
     /// `int City::get_improvement_maintenance(this, improvement)` as the
@@ -228,9 +232,9 @@ impl ImprovementLists {
                 let state = Ptr32::<u32>::new(0xE2_74E0).read()?;
                 Some(Mills {
                     state,
-                    can_generate: can_generate::Function::at(CAN_GENERATE, C3X_START)?,
-                    active_building: active_building::Function::at(ACTIVE_BUILDING, C3X_START)?,
-                    has_inputs: has_inputs::Function::at(HAS_INPUTS, C3X_START)?,
+                    can_generate: can_generate::Function::at(CAN_GENERATE, CAN_GENERATE_PROLOGUE)?,
+                    active_building: active_building::Function::at(ACTIVE_BUILDING, ACTIVE_BUILDING_PROLOGUE)?,
+                    has_inputs: has_inputs::Function::at(HAS_INPUTS, HAS_INPUTS_PROLOGUE)?,
                 })
             }
             _ => None,
@@ -346,6 +350,15 @@ impl ImprovementLists {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_checked_start_is_long_enough_to_check() {
+        // `InlinePatch::check` refuses a start of fewer than 5 bytes: a
+        // shorter one failed every install, and the game with it.
+        for p in [ENTRY_DRAW_PROLOGUE, TOURISM_PROLOGUE, CULTURE_PROLOGUE, DOUBLES_HAPPY_PROLOGUE, HAS_TECH_PROLOGUE, UPKEEP_PROLOGUE, C3X_START, CAN_GENERATE_PROLOGUE, ACTIVE_BUILDING_PROLOGUE, HAS_INPUTS_PROLOGUE] {
+            assert!(p.len() >= 5, "{p:x?}");
+        }
+    }
 
     #[test]
     fn the_icons_are_the_city_forms() {

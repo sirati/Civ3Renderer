@@ -73,13 +73,28 @@ pub fn install(build: civ3_sys::Build) -> Result<Option<Installed>, inproc::hook
     if !enabled() {
         return Ok(None);
     }
-    let Some(functions) = sys::ImprovementLists::find(build)? else { return Ok(None) };
-    let _ = FUNCTIONS.set(functions);
-    let hook = sys::entry_draw::install_inline(sys::ENTRY_DRAW, sys::ENTRY_DRAW_PROLOGUE, |c| {
+    // (Not as decoded: the game's own rows, as before; the game goes on.)
+    let functions = match sys::ImprovementLists::find(build) {
+        Ok(Some(f)) => f,
+        Ok(None) => return Ok(None),
+        Err(e) => {
+            log::error!("list views: the game's list functions are not as decoded ({e}); its lists show its own rows");
+            return Ok(None);
+        }
+    };
+    let hook = match sys::entry_draw::install_inline(sys::ENTRY_DRAW, sys::ENTRY_DRAW_PROLOGUE, |c| {
         let previous = DRAWING.replace(c.this);
         c.original();
         DRAWING.set(previous);
-    })?;
+    }) {
+        Ok(hook) => hook,
+        Err(e) => {
+            log::error!("list views: the list boxes' entry draw cannot be hooked ({e}); the game's lists show its own rows");
+            return Ok(None);
+        }
+    };
+    // (Only now are its rows the list views'.)
+    let _ = FUNCTIONS.set(functions);
     log::info!("list views: the city screen's improvements are drawn from the game's data and scrolled by the viewer");
     Ok(Some(Installed(hook)))
 }
