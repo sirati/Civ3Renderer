@@ -2046,7 +2046,6 @@ fn publish(
                 }
                 // Choosing a target (§10.15): ours, whether or not the game
                 // draws its map.
-                scene.sprites.extend(crate::targeting::grid_sprites(world, &compiled, view.zoomed_out));
                 scene.sprites.extend(crate::targeting::range_sprites(world, &compiled, view.zoomed_out));
                 scene.sprites.extend(crate::targeting::sprites(world, view.zoomed_out, &mut art, &compiled));
                 // The point of interest: the active unit.
@@ -2524,7 +2523,10 @@ impl<K: PartialEq, V: Clone> Memo<K, V> {
 /// labels and the minimap do not depend on: what their memos key on.
 /// Navigator modes are keyed separately by the minimap alone.
 fn still_world(world: &Civ3World) -> Civ3World {
-    Civ3World { navigator_modes: Default::default(), units: Vec::new(), army_members: Vec::new(), mouse_tile: None, current_unit: None, selection: None, unit_tiles: Vec::new(), effects: Vec::new(), targeting: Default::default(), goto: None, ..world.clone() }
+    // (Of the targeting state only the map grid's flag: the map's `grid`
+    // layer, `crate::targeting::grid_cell`.)
+    let targeting = civ3_sys::world::Targeting { grid: world.targeting.grid, ..Default::default() };
+    Civ3World { navigator_modes: Default::default(), units: Vec::new(), army_members: Vec::new(), mouse_tile: None, current_unit: None, selection: None, unit_tiles: Vec::new(), effects: Vec::new(), targeting, goto: None, ..world.clone() }
 }
 
 /// Adds the time since `t` to span `name` of the profile, if one is kept,

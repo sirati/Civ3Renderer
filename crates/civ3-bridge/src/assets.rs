@@ -233,6 +233,24 @@ mod tests {
 
     /// A compile that reuses the sheets of the last one draws what a fresh
     /// one does when the art folders changed in between (a scenario's own
+    /// The map grid's layer draws the generated grid art (`crate::targeting`,
+    /// appended to the description as the renderer's start does), one value
+    /// for each of its four sprites, in a pass of its own before the fog's.
+    #[test]
+    fn the_grid_layer_resolves_its_generated_sprites() {
+        let install = std::env::var("CIV3_INSTALL").unwrap_or_else(|_| "/mnt/datasets/winvm/civ3-src/Civilization III Complete".into());
+        if !Path::new(&install).is_dir() {
+            return eprintln!("no Civ III install, skipped");
+        }
+        let text = format!("{BUILTIN_DESC}{}", crate::targeting::description());
+        let (compiled, _) = compile_growing(&text, GameFiles::complete(&install), false, render_desc::ANY_DEVICE_PAGE, &|| false).unwrap();
+        let values: Vec<Option<u32>> = ["GridUpper@1/0", "GridTile@1/0", "GridUpper@2/0", "GridTile@2/0"].iter().map(|s| compiled.value("grid", s)).collect();
+        assert!(values.iter().all(|v| v.is_some_and(|v| v != 0)), "{values:?}");
+        let pass = |name: &str| compiled.layers.iter().find(|l| l.name == name).map(|l| l.pass);
+        assert!(pass("grid") < pass("fog") && pass("grid") > pass("rivers_over"), "grid {:?}, fog {:?}", pass("grid"), pass("fog"));
+        assert_eq!(compiled.layers.iter().filter(|l| Some(l.pass) == pass("grid")).count(), 1, "alone in its pass");
+    }
+
     /// city art in place of the game's: same file names, other files).
     #[test]
     fn cached_compiles_follow_the_art_folders() {

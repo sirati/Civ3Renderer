@@ -197,6 +197,8 @@ impl<'a> Mapper<'a> {
                 self.put(&mut scene, "railroad", col, row, rail.clone());
                 self.put(&mut scene, "forest_over_railroad", col, row, forest.filter(|_| over_roads && rail.is_some()));
                 self.put(&mut scene, "city", col, row, rules::city(world, x, y));
+                // The map grid (Ctrl+G), when it is on.
+                self.put(&mut scene, "grid", col, row, crate::targeting::grid_cell(world, (x, y), view.zoomed_out));
                 self.put(&mut scene, "victory_location", col, row, rules::victory_location(world, x, y));
                 for (layer, sprite) in rules::terrain_buildings(world, x, y).into_iter().chain(rules::pollution(world, x, y)) {
                     self.put(&mut scene, layer, col, row, Some(sprite));
