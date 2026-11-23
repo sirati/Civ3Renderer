@@ -2,6 +2,11 @@
 //! has unwound it. The game normally closes MIDI before unloading sound.dll,
 //! but its failed-Wave branch omits that close and leaves a stale owner.
 //!
+//! Deliberately retained alongside our native `sound.dll` replacement
+//! (`docs/audio-engine.md` §5.2): it still protects pass-through launches using
+//! `sound_orig.dll`, and cleanly unwinds our `Midi_Device` before unloading
+//! `sound.dll` if `Wave_Device::open` fails (e.g. missing `civ3r_native.dll`).
+//!
 //! Install synchronously from imported IFC23's DllMain, before game startup.
 //! A late injection with active or stale audio ownership is declined. Only
 //! the audited failed-Wave callsite is redirected; ordinary audio startup

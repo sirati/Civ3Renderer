@@ -15,7 +15,7 @@ use crate::dsp::{
     clamp_i16, ds_pan_gains, ds_volume_gain, pitch_ratio_from_cents, sw_pan_gains,
     sw_pan_gains_from_fixed, sw_volume_fixed, MIX_SAMPLE_RATE,
 };
-use crate::path::{resolve_amb_wav, resolve_game_path};
+use crate::path::{resolve_amb_wav, resolve_game_path, resolve_output_path};
 use crate::wire::{
     Op, RequestHeader, Response, SoundHandle, SoundKind, STATE_DS_BUFFER, STATE_LOADED,
     STATE_LOOPING, STATE_PLAYING, STATE_PLAYLIST_HAS_QUEUED,
@@ -246,8 +246,10 @@ impl StreamState {
             }
         }
         let frac = self.src_pos;
-        let l = f64::from(self.cur_frame.0) + frac * f64::from(self.next_frame.0 - self.cur_frame.0);
-        let r = f64::from(self.cur_frame.1) + frac * f64::from(self.next_frame.1 - self.cur_frame.1);
+        let l = f64::from(self.cur_frame.0)
+            + frac * (f64::from(self.next_frame.0) - f64::from(self.cur_frame.0));
+        let r = f64::from(self.cur_frame.1)
+            + frac * (f64::from(self.next_frame.1) - f64::from(self.cur_frame.1));
         self.src_pos += step;
         Some((l, r))
     }
@@ -591,8 +593,7 @@ impl AudioEngine {
                 Response::default()
             }
             Op::WaveStartRecord => {
-                let target = self
-                    .resolve_path(path)
+                let target = resolve_output_path(path, self.base_dir.as_deref())
                     .unwrap_or_else(|| PathBuf::from(path.replace('\\', "/")));
                 match self.start_recording(&target) {
                     Ok(()) => Response::default(),

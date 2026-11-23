@@ -92,6 +92,55 @@ pub fn resolve_game_path(raw: &str, base_dir: Option<&Path>) -> Option<PathBuf> 
     }
 }
 
+/// Resolves a Windows-formatted output path (for a file about to be created,
+/// such as `WaveDevice::start_recording`) to a host [`PathBuf`].
+pub fn resolve_output_path(raw: &str, base_dir: Option<&Path>) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    #[cfg(windows)]
+    {
+        let p = PathBuf::from(trimmed);
+        return Some(if p.is_absolute() {
+            p
+        } else {
+            match base_dir {
+                Some(dir) => dir.join(p),
+                None => p,
+            }
+        });
+    }
+
+    #[cfg(unix)]
+    {
+        let normalized = trimmed.replace('\\', "/");
+        if let Some((drive, tail)) = normalized.split_once(':') {
+            if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
+                let prefix = std::env::var_os("WINEPREFIX")
+                    .map(PathBuf::from)
+                    .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".wine")))
+                    .unwrap_or_default();
+                let drive_root = prefix
+                    .join("dosdevices")
+                    .join(format!("{}:", drive.to_ascii_lowercase()));
+                return Some(drive_root.join(tail.trim_start_matches('/')));
+            }
+        }
+        let p = PathBuf::from(&normalized);
+        if p.is_absolute() {
+            Some(p)
+        } else {
+            let start = base_dir
+                .map(Path::to_path_buf)
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| PathBuf::from("."));
+            Some(start.join(p))
+        }
+    }
+}
+
 /// Resolves a child `.wav` referenced inside an `.amb` file. When
 /// `relative_to_amb` is true (matching `AmbSound+0x58 & 1`), searches the
 /// `.amb`'s parent directory first, then falls back to the game CWD.

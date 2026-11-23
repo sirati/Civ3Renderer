@@ -311,7 +311,10 @@ impl AudioRuntime {
                     | Op::QueryState
                     | Op::PlaylistQueueTrack
                     | Op::WaveOpen
+                    | Op::WaveClose
                     | Op::WaveStartRecord
+                    | Op::WaveStopRecord
+                    | Op::ReleaseAll
                     | Op::Play
                     | Op::PlayInstance
             )

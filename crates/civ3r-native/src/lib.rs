@@ -122,6 +122,22 @@ pub struct SourceSample {
     pub sample:u32,
 }
 
+/// Call 9. Native audio engine RPC (`civ3_audio::wire`).
+pub const CALL_AUDIO: u32 = 9;
+/// [`Limits::_pad`] advertises that [`CALL_AUDIO`] exists.
+pub const LIMIT_AUDIO: u32 = 16;
+
+/// Call 9. Sends one encoded `civ3_audio::wire::RequestHeader` + path and
+/// receives a `civ3_audio::wire::Response`.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct AudioCall {
+    pub req: Buffer32,
+    pub resp: Buffer32,
+    pub resp_len: u32,
+    pub _pad: u32,
+}
+
 
 #[cfg(not(target_arch = "x86"))]
 mod unix_side {
@@ -353,7 +369,10 @@ mod unix_side {
 
     pub fn limits(args: &mut Limits) -> Status {
         log_init();
-        *args = Limits { max_texture: max_page(), _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT | LIMIT_PUSH | LIMIT_SOURCE_SAMPLE };
+        *args = Limits {
+            max_texture: max_page(),
+            _pad: LIMIT_UPLOADED | LIMIT_INPUT_WAIT | LIMIT_PUSH | LIMIT_SOURCE_SAMPLE | LIMIT_AUDIO,
+        };
         STATUS_SUCCESS
     }
 
@@ -740,10 +759,53 @@ mod unix_side {
         }
         STATUS_SUCCESS
     }
+
+    static AUDIO: OnceLock<civ3_audio::output::AudioRuntime> = OnceLock::new();
+
+    fn audio_runtime() -> Option<&'static civ3_audio::output::AudioRuntime> {
+        if let Some(rt) = AUDIO.get() {
+            return Some(rt);
+        }
+        match civ3_audio::output::AudioRuntime::start(|f| {
+            wine_unixlib::unix::spawn_native("civ3r-native-audio", f).map(drop)
+        }) {
+            Ok(rt) => {
+                let _ = AUDIO.set(rt);
+                AUDIO.get()
+            }
+            Err(e) => {
+                log::error!("civ3r-native: starting native audio thread: {e}");
+                None
+            }
+        }
+    }
+
+    pub fn audio(args: &mut AudioCall) -> Status {
+        log_init();
+        let Ok(bytes) = wine_unixlib::unix::read(args.req) else {
+            return STATUS_INVALID_PARAMETER;
+        };
+        let Some((hdr, path)) = civ3_audio::wire::decode_request(&bytes) else {
+            return STATUS_INVALID_PARAMETER;
+        };
+        let Some(rt) = audio_runtime() else {
+            return STATUS_UNSUCCESSFUL;
+        };
+        let resp = rt.dispatch(hdr, path);
+        let resp_bytes = bytemuck::bytes_of(&resp);
+        args.resp_len = resp_bytes.len() as u32;
+        if resp_bytes.len() > args.resp.len as usize {
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+        if wine_unixlib::unix::write(args.resp, resp_bytes).is_err() {
+            return STATUS_INVALID_PARAMETER;
+        }
+        STATUS_SUCCESS
+    }
 }
 
 #[cfg(not(target_arch = "x86"))]
-use unix_side::{assets, input, limits, publish, push, status, take_log, uploaded,source_sample};
+use unix_side::{assets, audio, input, limits, publish, push, source_sample, status, take_log, uploaded};
 
 #[cfg(not(target_arch = "x86"))]
-wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded, push,source_sample];
+wine_unixlib::unix_call_table![assets, publish, input, take_log, status, limits, uploaded, push, source_sample, audio];

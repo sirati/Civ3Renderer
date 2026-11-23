@@ -1,0 +1,17 @@
+; Civilization III: Conquests sound.dll exports (exact ordinals 1..12 and
+; exact MSVC decorated names matching original sound.dll).
+; Civ3Conquests.exe resolves ordinals 1..11 via GetProcAddress(hmod, ordinal).
+LIBRARY sound.dll
+EXPORTS
+    create_sound = civ3_create_sound @1
+    delete_sound = civ3_delete_sound @2
+    init_sound_timer = civ3_init_sound_timer @3
+    release_sound = civ3_release_sound @4
+    "?create_device@Dll_Wave_Device@@KA?AW4SNDERR@@PAPAVWave_Device@@K@Z" = civ3_wave_create_device @5
+    "?delete_device@Dll_Wave_Device@@KA?AW4SNDERR@@XZ" = civ3_wave_delete_device @6
+    "?create_device@Dll_Midi_Device@@KA?AW4SNDERR@@PAPAVMidi_Device@@K@Z" = civ3_midi_create_device @7
+    "?delete_device@Dll_Midi_Device@@KA?AW4SNDERR@@XZ" = civ3_midi_delete_device @8
+    "?create_device@Dll_Wave_In_Device@@KA?AW4SNDERR@@PAPAVWave_In_Device@@K@Z" = civ3_wave_in_create_device @9
+    "?delete_device@Dll_Wave_In_Device@@KA?AW4SNDERR@@XZ" = civ3_wave_in_delete_device @10
+    get_sound_version = civ3_get_sound_version @11
+    "?call_back@WaveInDeviceMgr@@SGXPAUHWAVEIN__@@GKKK@Z" = civ3_wave_in_callback@20 @12

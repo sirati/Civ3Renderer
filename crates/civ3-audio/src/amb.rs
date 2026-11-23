@@ -435,7 +435,8 @@ struct ChannelState {
 
 impl Default for ChannelState {
     fn default() -> Self {
-        Self { program: 0, volume: 127, pan: 63 }
+        // Standard MIDI center pan is 64; sound.dll subtracts 63 (`0x10021D0B`).
+        Self { program: 0, volume: 127, pan: 64 }
     }
 }
 
@@ -569,6 +570,7 @@ impl AmbSequencer {
     }
 
     fn dispatch_due_events(&mut self, root_notes: &[u8], out: &mut Vec<AmbAction>) {
+        // Matches sound.dll 0x1001FD8F: `cur_tick = trunc(elapsed_ms / ms_per_tick + 0.5)`.
         let mut any_remaining = false;
         for ti in 0..self.tracks.len() {
             loop {
@@ -576,8 +578,12 @@ impl AmbSequencer {
                 let Some(ev) = self.tracks[ti].get(idx).cloned() else {
                     break;
                 };
-                let ev_ms = f64::from(ev.tick) * self.ms_per_tick;
-                if ev_ms > self.elapsed_ms + 1e-6 {
+                let cur_tick = if self.ms_per_tick > 0.0 {
+                    (self.elapsed_ms / self.ms_per_tick + 0.5).max(0.0) as u32
+                } else {
+                    0
+                };
+                if ev.tick > cur_tick {
                     any_remaining = true;
                     break;
                 }

@@ -1,0 +1,30 @@
+[package]
+name = "civ3-sound-dll"
+description = "32-bit Windows sound.dll replacement: thin ABI shim forwarding to native Rust audio inside civ3r-native"
+
+[package.edition]
+workspace = true
+
+[package.license]
+workspace = true
+
+[package.version]
+workspace = true
+
+[lib]
+name = "sound"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bytemuck = { workspace = true }
+civ3-audio = { path = "../civ3-audio" }
+civ3r-native = { path = "../civ3r-native" }
+log = { workspace = true }
+
+[dependencies.wine-unixlib]
+git = "ssh://git@github.com/sirati/wine-unixlib-rs.git"
+rev = "25af6264b351fd48b6e26720027bf2cf590cc155"
+
+[dependencies.inproc]
+git = "ssh://git@github.com/sirati/inproc-rs.git"
+rev = "1d223b76c7c29e54c0e6df35ca2a0a375ec1ca4c"

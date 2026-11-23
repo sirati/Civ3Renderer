@@ -91,13 +91,17 @@ pub fn sw_pan_gains_from_fixed(vol_fixed: i32, pan: i32) -> (f64, f64) {
 /// ```
 #[inline]
 pub fn ds_volume_mb(sound_vol: i32, master_vol: i32) -> i32 {
+    // Exact f64 reciprocal from sound.dll at 0x1005a488 (`1.0 / 127.0`).
+    // Multiplying by `INV_127` reproduces `sound.dll`'s exact `__ftol`
+    // truncation on every `(sound_vol, master_vol)` pair (e.g. (64, 127) -> -701 mB).
+    const INV_127: f64 = 1.0 / 127.0;
     let v = sound_vol.clamp(0, 127) as f64;
     let m = master_vol.clamp(0, 127) as f64;
-    let combined = ((m / 127.0) * (v / 127.0) * 127.0).trunc() as i32;
+    let combined = ((m * INV_127) * (v * INV_127) * 127.0).trunc() as i32;
     if combined <= 0 {
         DSBVOLUME_MIN
     } else {
-        (1000.0 * (combined as f64 / 127.0).ln()).trunc() as i32
+        ((combined as f64 * INV_127).ln() * 10.0 * 100.0).trunc() as i32
     }
 }
 
@@ -218,7 +222,7 @@ mod tests {
         assert_eq!(ds_volume_mb(127, 0), DSBVOLUME_MIN);
         // ln(1/127)*1000 = -4844.187... -> trunc = -4844
         assert_eq!(ds_volume_mb(1, 127), -4844);
-        // ln(64/127)*1000 = -685.30... -> trunc = -685
+        // ln(64/127)*1000 = -685.30... -> trunc = -685 (matches Windows 53-bit x87)
         assert_eq!(ds_volume_mb(64, 127), -685);
         assert!((ds_volume_gain(127, 127) - 1.0).abs() < 1e-12);
         assert_eq!(ds_volume_gain(0, 127), 0.0);

@@ -1,7 +1,7 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/civ3-assets", "crates/civ3-audio", "crates/civ3-bridge", "crates/civ3-sys", "crates/civ3-ui", "crates/civ3-world", "crates/civ3r-launcher", "crates/civ3r-native", "crates/civ3r-process", "crates/civ3r-viewer", "crates/civ3-spirv", "crates/jgl", "crates/jgl-ffi", "crates/gdi-text"]
+members = ["crates/civ3-assets", "crates/civ3-audio", "crates/civ3-bridge", "crates/civ3-sound-dll", "crates/civ3-sys", "crates/civ3-ui", "crates/civ3-world", "crates/civ3r-launcher", "crates/civ3r-native", "crates/civ3r-process", "crates/civ3r-viewer", "crates/civ3-spirv", "crates/jgl", "crates/jgl-ffi", "crates/gdi-text"]
 exclude = ["crates/civ3-shaders", "vendor"]
 
 [workspace.package]

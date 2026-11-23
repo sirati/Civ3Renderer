@@ -36,6 +36,9 @@ rev = "546ccb8a93f7daec95aa65c5ebf24ec72d1af276"
 [dependencies.log]
 workspace = true
 
+[dependencies.civ3-audio]
+path = "../civ3-audio"
+
 [target]
 
 [target."cfg(not(target_arch = \"x86\"))"]

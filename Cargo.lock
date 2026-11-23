@@ -538,6 +538,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "civ3-sound-dll"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "civ3-audio",
+ "civ3r-native",
+ "inproc",
+ "log",
+ "wine-unixlib",
+]
+
+[[package]]
 name = "civ3-spirv"
 version = "0.1.0"
 dependencies = [
@@ -611,6 +623,7 @@ dependencies = [
  "application-icon",
  "bytemuck",
  "civ3-assets",
+ "civ3-audio",
  "civ3-ui",
  "env_logger",
  "handoff",
