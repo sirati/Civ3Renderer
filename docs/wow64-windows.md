@@ -70,6 +70,32 @@ Windows binds an import to any loaded module with the same base name. So
 the port also accepts Wine's `<module>.so` name for native unixlibs, which
 keeps Wine's x64 companions from shadowing system DLLs.
 
+## Multiplayer: DirectPlay in every install
+
+Civ III hosts, finds and joins network games through DirectPlay 8
+(`CoCreateInstance(CLSID_DirectPlay8Peer)`). Wine's builtin dpnet stubs
+`IDirectPlay8Peer::Host` (E_FAIL), so a hosted game gets no player row, no
+Ready box and no buttons (the laptop's VM, 2026-11-23). As on Linux
+(`tools/install-directplay`), every WoW64 install therefore carries
+Microsoft's DirectPlay, the flake's `directplay` package: dplaysvr.exe,
+dplayx.dll, dpmodemx.dll, dpnet.dll, dpnhpast.dll, dpnhupnp.dll,
+dpnsvr.exe, dpwsockx.dll (x86). Windows' own 32-bit DirectPlay is not
+used.
+
+The port (145b812 on) loads native DLLs from `runtime\native-wine\i386-windows`
+with Wine's load order (its README):
+- the files go into `runtime\native-wine\i386-windows`;
+- the launchers set
+  `WINEDLLOVERRIDES=civ3r_native=b;dplaysvr.exe,dplayx,dpmodemx,dpnet,dpnhpast,dpnhupnp,dpnsvr.exe,dpwsockx=n,b`;
+- the install registers dplayx, dpnet, dpnhpast and dpnhupnp with the
+  packaged `runtime\stock-wine\regsvr32.exe` through `wine-host.exe`
+  (`WINEDLLPATH=runtime\native-wine`, the same overrides), but only where
+  the DirectPlay 8 classes and service providers are not registered yet in
+  the 32-bit view (Windows without its DirectPlay feature): those writes
+  are machine-wide, and Windows' own registration is never replaced;
+- the install checks the result with a 32-bit DirectPlay 8 host test
+  (hosting a TCP/IP session on port 23456): "RESULT host ok".
+
 ## Fixtures
 
 `tools/wine-unixlib-fixtures OUT` builds two pairs, each a builtin DLL,
