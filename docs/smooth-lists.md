@@ -42,6 +42,12 @@ state instead.
   position. Rendering is always the content clipped to the list's
   rectangle at that position, so stepped scrolling is the same path at
   multiples of `step`.
+- **Screen pixels.** The position is continuous (pixels of the content,
+  fractions kept), and the content is drawn by a camera of its own at
+  the list's zoom: between whole content pixels it is moved by screen
+  pixels, as a zoomed-in map is (`tile_viewer::layout::FreeView::camera`,
+  `screen_rest`). At a 2× or 3× interface a list then scrolls one
+  screen pixel at a time, not one game pixel (user, 2026-11-23).
 - **The scroll bar is drawn by the viewer** from position, viewport and
   content height, in the game's art. Its thumb never jumps or changes size
   while scrolling.
