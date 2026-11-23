@@ -20,6 +20,9 @@ install -m 755 "$CARGO_TARGET_DIR/release/civ3-play-macos" "$install_home/bin/ci
 if [ -n "${CIV3R_BRIDGE:-}" ]; then
   install -m 755 "$CIV3R_BRIDGE" "$install_home/bin/IFC23.dll"
 fi
+if [ -n "${CIV3R_SOUND_DLL:-}" ]; then
+  install -m 755 "$CIV3R_SOUND_DLL" "$install_home/bin/sound.dll"
+fi
 # Glyph sheets are generated data from Windows GDI, not original game files.
 # Install only that named data set when supplied; never copy the game tree.
 if [ -n "${CIV3R_FONT_CACHE_SOURCE:-}" ]; then

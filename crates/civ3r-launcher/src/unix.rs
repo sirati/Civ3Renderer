@@ -76,6 +76,8 @@ struct Options {
     /// The former separate viewer process instead of the in-process one.
     separate_viewer: bool,
     bridge: PathBuf,
+    /// Optional replacement 32-bit `sound.dll` staged when present.
+    sound_dll: Option<PathBuf>,
     /// Microsoft's DirectPlay files for network games (`install_directplay`).
     directplay: PathBuf,
     wine: OsString,
@@ -116,6 +118,12 @@ impl Options {
             bridge: environment("CIV3R_BRIDGE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join("bin/IFC23.dll")),
+            sound_dll: environment("CIV3R_SOUND_DLL")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    let default = home.join("bin/sound.dll");
+                    default.is_file().then_some(default)
+                }),
             directplay: environment("CIV3R_DIRECTPLAY_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join("directplay")),
@@ -465,6 +473,20 @@ fn original_dll(game: &Path) -> Result<PathBuf> {
     Err("the original IFC23.dll is missing".into())
 }
 
+fn original_sound_dll(game: &Path) -> Option<PathBuf> {
+    for name in ["sound_orig.dll", "sound.dll", "SOUND.DLL", "Sound.dll"] {
+        let path = game.join(name);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn sound_game_file(name: &OsStr) -> bool {
+    name.eq_ignore_ascii_case("sound.dll") || name.eq_ignore_ascii_case("sound_orig.dll")
+}
+
 fn scratch_file(name: &OsStr) -> bool {
     Path::new(name)
         .extension()
@@ -552,7 +574,12 @@ fn install_copy(private: &Path, source: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn private_install(home: &Path, game: &Path, bridge: &Path) -> Result<PathBuf> {
+fn private_install(
+    home: &Path,
+    game: &Path,
+    bridge: &Path,
+    sound_dll: Option<&Path>,
+) -> Result<PathBuf> {
     let private_install = home.join("game/Civilization III Complete");
     let private = private_install.join("Conquests");
     for path in [
@@ -572,6 +599,8 @@ fn private_install(home: &Path, game: &Path, bridge: &Path) -> Result<PathBuf> {
         return Err("supply the original game, not the private install".into());
     }
     let original = original_dll(game)?;
+    let orig_sound = sound_dll.and_then(|_| original_sound_dll(game));
+    let replace_sound = sound_dll.is_some() && orig_sound.is_some();
     let private_original = private.join("ifc23_orig.dll");
     match fs::symlink_metadata(&private_original) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -585,6 +614,21 @@ fn private_install(home: &Path, game: &Path, bridge: &Path) -> Result<PathBuf> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => (),
         Err(error) => return Err(error.into()),
     }
+    if let Some(orig_sound) = &orig_sound {
+        let private_sound_orig = private.join("sound_orig.dll");
+        match fs::symlink_metadata(&private_sound_orig) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                if fs::read_link(&private_sound_orig)? != *orig_sound {
+                    return Err(
+                        "private install belongs to another game; use another CIV3R_HOME".into(),
+                    );
+                }
+            }
+            Ok(_) => return Err("unexpected original sound DLL in the private install".into()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
     prepare_private_state(&private, game)?;
     fs::create_dir_all(private.join("Saves/Auto"))?;
     let source = game.parent().ok_or("game directory has no parent")?;
@@ -597,7 +641,7 @@ fn private_install(home: &Path, game: &Path, bridge: &Path) -> Result<PathBuf> {
     for entry in fs::read_dir(game)? {
         let entry = entry?;
         let name = entry.file_name();
-        if !private_game_file(&name) {
+        if !private_game_file(&name) && !(replace_sound && sound_game_file(&name)) {
             link_if_missing(&entry.path(), &private.join(name))?;
         }
     }
@@ -618,6 +662,10 @@ fn private_install(home: &Path, game: &Path, bridge: &Path) -> Result<PathBuf> {
     }
     link_if_missing(&original, &private_original)?;
     install_copy(&private, bridge, "IFC23.dll")?;
+    if let (Some(sound_src), Some(orig_sound)) = (sound_dll, &orig_sound) {
+        link_if_missing(orig_sound, &private.join("sound_orig.dll"))?;
+        install_copy(&private, sound_src, "sound.dll")?;
+    }
     let ini = private.join("conquests.ini");
     if !ini.exists() {
         let bytes = if game.join("conquests.ini").is_file() {
@@ -1180,6 +1228,12 @@ pub fn launch(
     }
     options.game = options.game.canonicalize()?;
     options.bridge = options.bridge.canonicalize()?;
+    if let Some(sound_dll) = &options.sound_dll {
+        if !sound_dll.is_file() {
+            return Err(format!("no sound replacement at {}", sound_dll.display()).into());
+        }
+        options.sound_dll = Some(sound_dll.canonicalize()?);
+    }
     let wine = resolve_command(&options.wine)?;
     options.home = writable_destination(&options.home)?;
     // Wine and the native asset worker share the generated Windows glyph data.
@@ -1199,7 +1253,12 @@ pub fn launch(
     }
     fs::create_dir_all(&options.home)?;
     let mut lock = take_lock(&options.home, options.remove_lock, &ask)?;
-    let private = private_install(&options.home, &options.game, &options.bridge)?;
+    let private = private_install(
+        &options.home,
+        &options.game,
+        &options.bridge,
+        options.sound_dll.as_deref(),
+    )?;
     if !options.separate_viewer {
         // Wine loads a builtin DLL only if a copy is on the Windows search
         // path too; the one it maps is WINEDLLPATH's.
@@ -1882,5 +1941,35 @@ mod tests {
             windows_path(Path::new("/Users/Test Name/遊戲/Conquests.exe")).unwrap(),
             "Z:\\Users\\Test Name\\遊戲\\Conquests.exe"
         );
+    }
+
+    #[test]
+    fn private_install_stages_sound_dll_only_when_replacement_is_supplied() {
+        let root = TestHome::new("sound-stage");
+        let game = root.0.join("orig/Civilization III Complete/Conquests");
+        fs::create_dir_all(&game).unwrap();
+        fs::write(game.join("IFC23.dll"), b"orig-ifc").unwrap();
+        fs::write(game.join("sound.dll"), b"orig-sound").unwrap();
+        let bridge = root.0.join("bridge.dll");
+        fs::write(&bridge, b"new-ifc").unwrap();
+        let replacement_sound = root.0.join("new-sound.dll");
+        fs::write(&replacement_sound, b"new-sound").unwrap();
+
+        // Without a replacement sound.dll, original sound.dll stays linked directly.
+        let home_plain = root.0.join("home-plain");
+        fs::create_dir_all(&home_plain).unwrap();
+        let priv_plain = private_install(&home_plain, &game, &bridge, None).unwrap();
+        assert!(!priv_plain.join("sound_orig.dll").exists());
+        assert!(fs::symlink_metadata(priv_plain.join("sound.dll")).unwrap().file_type().is_symlink());
+
+        // With a replacement sound.dll, sound_orig.dll links to original and sound.dll is replaced.
+        let home_sound = root.0.join("home-sound");
+        fs::create_dir_all(&home_sound).unwrap();
+        let priv_sound =
+            private_install(&home_sound, &game, &bridge, Some(&replacement_sound)).unwrap();
+        assert!(fs::symlink_metadata(priv_sound.join("sound_orig.dll")).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_link(priv_sound.join("sound_orig.dll")).unwrap(), game.join("sound.dll"));
+        assert!(!fs::symlink_metadata(priv_sound.join("sound.dll")).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read(priv_sound.join("sound.dll")).unwrap(), b"new-sound");
     }
 }

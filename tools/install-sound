@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Installs civ3-sound-dll into a Civilization III Conquests folder as sound.dll,
+# keeping the original as sound_orig.dll (which the shim forwards to in
+# pass-through mode).
+#
+#   tools/install-sound [Conquests dir] [debug|release]
+#   tools/install-sound --uninstall [Conquests dir]
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+uninstall=0
+if [ "${1:-}" = --uninstall ]; then uninstall=1; shift; fi
+dir=${1:-"/mnt/datasets/winvm/wine-civ3-wow64/drive_c/Games/Civilization III Complete/Conquests"}
+profile=${2:-release}
+# Cargo's output directory (CARGO_TARGET_DIR, else the repository's target/).
+target=${CARGO_TARGET_DIR:-$repo/target}
+
+orig=$(find "$dir" -maxdepth 1 -iname 'sound_orig.dll' | head -1)
+cur=$(find "$dir" -maxdepth 1 -iname 'sound.dll' | head -1)
+if [ $uninstall = 1 ]; then
+  [ -n "$orig" ] || { echo "not installed"; exit 0; }
+  mv -f "$orig" "${cur:-$dir/sound.dll}"
+  echo "restored original sound.dll"
+  exit 0
+fi
+if [ -z "$orig" ]; then
+  [ -n "$cur" ] || { echo "no sound.dll in $dir" >&2; exit 1; }
+  mv "$cur" "$dir/sound_orig.dll"
+  cur=$dir/sound.dll
+fi
+cp -f "$target/i686-pc-windows-gnu/$profile/sound.dll" "${cur:-$dir/sound.dll}"
+echo "installed $profile civ3-sound-dll into $dir"
