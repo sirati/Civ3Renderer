@@ -159,7 +159,8 @@ fn improvement_content(l: &sys::ImprovementList) -> Option<ListContent> {
     let layout = l.list.layout;
     let step = layout.height + layout.gap;
     let width = layout.width - 2 * layout.x0;
-    let canvas_width = civ3_sys::ui_hooks::obj::image_size(l.canvas).map_or(l.list.rect[2], |s| s.0);
+    let canvas = civ3_sys::ui_hooks::obj::image_size(l.canvas).unwrap_or((l.list.rect[2], l.list.rect[3]));
+    let canvas_width = canvas.0;
     let icons = civ3_ui::list_rows::ImprovementIcons { upkeep: sprite(l.icons.upkeep), tourism: sprite(l.icons.tourism), culture: sprite(l.icons.culture), happy: sprite(l.icons.happy) };
     let mut draws = Vec::new();
     for (k, row) in l.rows.iter().enumerate() {
@@ -186,10 +187,14 @@ fn improvement_content(l: &sys::ImprovementList) -> Option<ListContent> {
             }
         }
     }
+    // The rows show as far as the list's canvas goes, as the game clips
+    // them (its form is only as tall as its whole rows: the part row below
+    // them stayed empty, run 33).
     let [fx, fy, _, fh] = l.list.rect;
+    let height = canvas.1.max(fh);
     Some(ListContent {
         list: l.list.list,
-        rect: [fx + layout.x0, fy + layout.y0, width, (fh - layout.y0).max(step)],
+        rect: [fx + layout.x0, fy + layout.y0, width, (height - layout.y0).max(step)],
         step,
         count: l.list.count,
         first: l.list.first,
