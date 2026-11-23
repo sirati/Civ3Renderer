@@ -791,6 +791,9 @@ impl UiModel {
                 d
             }));
         }
+        if vtable == CAMPAIGN_RECORD {
+            campaign_heading_on_board(&mut frame.draws[start..], origin);
+        }
         frame.form_draws.push((canvas, start..frame.draws.len()));
         if underlay {
             frame.underlay_draws.push(start..frame.draws.len());
@@ -1764,6 +1767,36 @@ pub mod indices {
     pub fn blank(_path: &str) -> &'static [u8] { &[] }
 }
 
+/// The campaign record screen (the title's campaigns: its board
+/// `Art/Advisors/CampRecBG.pcx`, vtable 0x668DD8). Its draw (0x4AA270)
+/// puts the board in the middle of the window ((window − board) / 2,
+/// 0x4AA2A9) and its rows there (0x4AA420), but the heading ("C A M P A I
+/// G N S") centred in this rectangle of the canvas (0x4AA34E), without the
+/// board's offset: in a window larger than the board it lands off it.
+pub const CAMPAIGN_RECORD: u32 = 0x66_8DD8;
+const CAMPAIGN_HEADING: [i32; 4] = [0xF7, 0x1A, 0x309, 0x34];
+
+/// The campaign record's heading drawn on its board, where a window of
+/// the board's size shows it: moved by the board's offset (`draws` are the
+/// form's, the form at `origin`).
+fn campaign_heading_on_board(draws: &mut [ScreenDraw], origin: (i32, i32)) {
+    let board = draws.iter().find_map(|d| match d {
+        ScreenDraw::Image { path, x, y, .. } if path.rsplit(['/', '\\']).next().is_some_and(|n| n.eq_ignore_ascii_case("CampRecBG.pcx")) => Some((x - origin.0, y - origin.1)),
+        _ => None,
+    });
+    let Some((bx, by)) = board.filter(|&b| b != (0, 0)) else { return };
+    let [l, t, r, b] = CAMPAIGN_HEADING;
+    for d in draws.iter_mut() {
+        if let ScreenDraw::Text { run, .. } = d {
+            let (x, y) = (run.x - origin.0, run.y - origin.1);
+            if (l..=r).contains(&x) && (t..=b).contains(&y) {
+                run.x += bx;
+                run.y += by;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod occlusion_tests;
 
@@ -2323,6 +2356,25 @@ mod tests {
         m.apply(Event::PaintEnd);
         let clip = [0, 0, 100, 100];
         assert_eq!(m.frame().draws, vec![ScreenDraw::Fill { rect: [10, 30, 30, 5], rgb: [1, 1, 1], alpha: 128, clip }]);
+    }
+
+    #[test]
+    fn the_campaign_records_heading_is_drawn_on_its_board() {
+        let window = [0, 0, 3274, 2048];
+        let board = |x, y| ScreenDraw::Image { retained: None, path: "art\\Advisors\\CampRecBG.pcx".into(), rect: [0, 0, 1024, 768], x, y,
+            keyed: false, clip: window, mask: None, palette: None, opacity: 255 };
+        let heading = text(378, 48, "C  A  M  P  A  I  G  N  S");
+        let column = text(1321, 779, "Campaign");
+        // In a 3274 by 2048 window the board is at (1125, 640); the game
+        // drew the heading at (378, 48), off it.
+        let mut draws = vec![board(1125, 640), ScreenDraw::Text { run: heading.clone(), clip: window }, ScreenDraw::Text { run: column.clone(), clip: window }];
+        campaign_heading_on_board(&mut draws, (0, 0));
+        let runs: Vec<(i32, i32)> = draws.iter().filter_map(|d| match d { ScreenDraw::Text { run, .. } => Some((run.x, run.y)), _ => None }).collect();
+        assert_eq!(runs, [(378 + 1125, 48 + 640), (1321, 779)], "the heading on the board, the rows as they were");
+        // A window of the board's size: as drawn.
+        let mut draws = vec![board(0, 0), ScreenDraw::Text { run: heading.clone(), clip: window }];
+        campaign_heading_on_board(&mut draws, (0, 0));
+        assert!(matches!(&draws[1], ScreenDraw::Text { run, .. } if (run.x, run.y) == (378, 48)));
     }
 
     fn text(x: i32, y: i32, s: &str) -> TextRun {
