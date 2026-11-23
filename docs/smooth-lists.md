@@ -48,6 +48,22 @@ state instead.
   pixels, as a zoomed-in map is (`tile_viewer::layout::FreeView::camera`,
   `screen_rest`). At a 2× or 3× interface a list then scrolls one
   screen pixel at a time, not one game pixel (user, 2026-11-23).
+- **Only the foreground scrolls.** An entry's content is its icons, text
+  and buttons. The screen's background art (the board, the panel behind
+  the list) is not content and never moves: it was not made for
+  scrolling (user, 2026-11-23).
+- **Partial entries are drawn.** The entries the position puts partly in
+  the list's rectangle are drawn, clipped to it. Nothing of an entry
+  shows outside the rectangle (no icon hanging below the list, as F1's
+  citizens did), and there is no empty gap where the next entry goes.
+- **No threshold.** The first trackpad or wheel input moves the list.
+  Nothing waits for the game to reach a whole entry, and snapping (only
+  with "Snap lists to items") happens after the input stops.
+- **Display rate.** The game's own loop runs at about 15 frames a second
+  on TS Neo; the viewer draws the list at its position every frame from
+  the content it has, and the bridge keeps the entries round the position
+  published ahead (at least a page each way) so a fast scroll never waits
+  for the game.
 - **The scroll bar is drawn by the viewer** from position, viewport and
   content height, in the game's art. Its thumb never jumps or changes size
   while scrolling.
@@ -73,8 +89,13 @@ state instead.
      drawn entries pixel for pixel;
    - publish them, keep the game's position in sync, and route
      clicks/hovers to entries.
-3. The other lists (advisors, Civilopedia, file lists, diplomacy tables),
-   one at a time, on the same parts.
+3. The domestic advisor's city table (F1) next (user, 2026-11-23: its
+   citizens hung below the list, its background moved, and a trackpad
+   scroll waited for a whole row before moving).
+4. The other lists (other advisors, Civilopedia, file lists, diplomacy
+   tables), one at a time, on the same parts. Every scrolling screen is
+   in scope; `tile_viewer::smooth_menus`'s composition of the game's
+   drawings is removed once no list uses it.
 
 `docs/civ3-map-rendering.md` §16 "List boxes" has the list object layout
 (G +0x2C first entry shown, +0x30 shown; L +0xC8 first node, +0xD0 count,
