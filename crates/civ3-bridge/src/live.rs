@@ -1651,19 +1651,10 @@ fn publish(
             }
             _ => Vec::new(),
         };
-        // The viewer's own views marked on the minimap.
+        // The views on the minimap are the viewer's to mark, every frame
+        // where they are (`scene::Minimap::marks`): the game's own mark out.
         if let Shown::Map(world, view) = shown {
-            // (The game's own view as the viewer shows it.)
-            // The viewer's rectangles are in its last frame's world pixels:
-            // with the game's zoom changed since (its zoom key), in this
-            // frame's, as the viewer will show them, not at the old scale.
-            let now = if view.zoomed_out { 2 } else { 1 };
-            if let Some(main) = input.main_view {
-                let main = scene::rescale_view_rect(main, input.main_view_downscale, now);
-                ui_screen::replace_game_view_mark(&mut ui_items, world, (view.tile_x.0, view.tile_y.0, view.tile_x.1, view.tile_y.1), main, view.zoomed_out);
-            }
-            let views: Vec<_> = input.views.iter().map(|&v| scene::rescale_view_rect(v, input.views_downscale, now)).collect();
-            ui_screen::mark_views(&mut ui_items, world, &views, view.zoomed_out, view_rect_color());
+            ui_screen::remove_game_view_mark(&mut ui_items, world, (view.tile_x.0, view.tile_y.0, view.tile_x.1, view.tile_y.1));
         }
         // Where the renderer may point at the minimap (not under a menu,
         // where a click is the menu's).
@@ -2557,14 +2548,6 @@ fn world_labels() -> bool {
 
 /// The colour the viewer's own views are marked with on the minimap:
 /// `CIV3R_VIEW_RECT_COLOR` (`R;G;B`), yellow by default.
-fn view_rect_color() -> [u8; 3] {
-    static COLOR: std::sync::OnceLock<[u8; 3]> = std::sync::OnceLock::new();
-    *COLOR.get_or_init(|| {
-        let spec = std::env::var("CIV3R_VIEW_RECT_COLOR").unwrap_or_default();
-        let c: Vec<u8> = spec.split(';').filter_map(|v| v.trim().parse().ok()).collect();
-        <[u8; 3]>::try_from(c).unwrap_or([255, 255, 0])
-    })
-}
 
 /// Delivers the viewer's input to the game's window. The viewer shows the
 /// game's map with the game's camera at its own top-left corner, 1:1, so a
@@ -2888,6 +2871,10 @@ fn forward_input(game: &Civ3, forwarder: &mut InputForwarder, mut inputs: Vec<sc
                 Some(edit) => crate::build_queue::post(window, edit),
                 None => log::debug!("input: an extension message of no extension of ours"),
             },
+            // A list the viewer scrolls itself (`scene::ListView`): none is
+            // published yet; their entries come list by list
+            // (docs/smooth-lists.md).
+            Input::ListScrolled { .. } => {}
             Input::DismissPopup => {
                 if !crate::world_input::post_dismiss(game, window) {
                     log::debug!("input: dismissing the popup opened at a map click: world input not ready");

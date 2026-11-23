@@ -4,6 +4,19 @@
 
 use crate::world::Civ3World;
 
+/// The colour the renderer marks its views other than the game's own on
+/// the minimap in (`scene::Minimap::marks`): `CIV3R_VIEW_RECT_COLOR` as
+/// `r;g;b`, else yellow.
+pub fn view_rect_color() -> [u8; 3] {
+    static COLOR: std::sync::OnceLock<[u8; 3]> = std::sync::OnceLock::new();
+    *COLOR.get_or_init(|| {
+        let spec = std::env::var("CIV3R_VIEW_RECT_COLOR").unwrap_or_default();
+        let c: Vec<u8> = spec.split(';').filter_map(|v| v.trim().parse().ok()).collect();
+        <[u8; 3]>::try_from(c).unwrap_or([255, 255, 0])
+    })
+}
+
+
 /// Terrain colours in RGB555, by effective terrain id (§17.4).
 const TERRAIN: [u16; 14] =
     [0x7BD7, 0x6AAA, 0x4646, 0x6FBD, 0x30C2, 0x1986, 0x6739, 0x25E6, 0x0D60, 0x31EB, 0x3401, 0x1295, 0x0E11, 0x012B];

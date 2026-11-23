@@ -1381,6 +1381,9 @@ pub fn minimap_area(items: &[Item], world: &crate::world::Civ3World, zoomed_out:
             size: *size,
             shown: [left, top, right - left, bottom - top],
             world: (width * sx, (height - 1) * sy),
+            // (The viewer marks its views itself: the game's own view white,
+            // the others in the view rectangle colour.)
+            marks: Some(([255, 255, 255], crate::minimap::view_rect_color())),
         })
     })
 }
@@ -1410,12 +1413,30 @@ pub fn mark_views(items: &mut Vec<Item>, world: &crate::world::Civ3World, views:
 }
 
 /// The game's own view marked on the minimap among `items` (white lines
+/// round tile range `game_tiles`, x0, y0, x1, y1) taken out: the renderer
+/// marks its views itself, every frame where they are
+/// (`scene::Minimap::marks`). Whether there was one.
+pub fn remove_game_view_mark(items: &mut Vec<Item>, world: &crate::world::Civ3World, game_tiles: (i32, i32, i32, i32)) -> bool {
+    remove_marks(items, world, game_tiles).is_some()
+}
+
+/// The game's own view marked on the minimap among `items` (white lines
 /// round tile range `game_tiles`, x0, y0, x1, y1) replaced by world
 /// rectangle `shown` (x, y, w, h): what the renderer shows of the game's
 /// view where that is not all of it (`scene::Input::MainView`).
 pub fn replace_game_view_mark(items: &mut Vec<Item>, world: &crate::world::Civ3World, game_tiles: (i32, i32, i32, i32), shown: (i32, i32, i32, i32), zoomed_out: bool) {
-    let Some(at) = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap")) else { return };
-    let Item::Element(Element::Dynamic { size, rect: [rx, ry, _, _], at: (x, y), .. }, _) = items[at].clone() else { return };
+    let Some(at) = remove_marks(items, world, game_tiles) else { return };
+    let mut marked = items[..=at].to_vec();
+    mark_views(&mut marked, world, &[shown], zoomed_out, [255, 255, 255]);
+    let added: Vec<Item> = marked.drain(at + 1..).collect();
+    items.splice(at + 1..at + 1, added);
+}
+
+/// [`remove_game_view_mark`]: the minimap's item index, if a mark was
+/// there.
+fn remove_marks(items: &mut Vec<Item>, world: &crate::world::Civ3World, game_tiles: (i32, i32, i32, i32)) -> Option<usize> {
+    let at = items.iter().position(|i| matches!(i, Item::Element(Element::Dynamic { name, .. }, _) if name == "minimap"))?;
+    let Item::Element(Element::Dynamic { size, rect: [rx, ry, _, _], at: (x, y), .. }, _) = items[at].clone() else { return None };
     let lines: Vec<[i32; 4]> = crate::minimap::view_rect(world, size, game_tiles).into_iter().map(|[lx, ly, lw, lh]| [x + lx - rx, y + ly - ry, lw, lh]).collect();
     // The game's rectangle drawer gives each corner to just one edge.
     // Its recorded fills are therefore shorter than view_rect's spans,
@@ -1432,16 +1453,13 @@ pub fn replace_game_view_mark(items: &mut Vec<Item>, world: &crate::world::Civ3W
         })
         .collect();
     if marks.is_empty() {
-        // (Not drawn: nothing to replace.)
-        return;
+        // (Not drawn: nothing to take out.)
+        return None;
     }
     for i in marks.into_iter().rev() {
         items.remove(i);
     }
-    let mut marked = items[..=at].to_vec();
-    mark_views(&mut marked, world, &[shown], zoomed_out, [255, 255, 255]);
-    let added: Vec<Item> = marked.drain(at + 1..).collect();
-    items.splice(at + 1..at + 1, added);
+    Some(at)
 }
 
 /// `len` as consecutive power-of-two pieces: (offset, length).
@@ -1612,7 +1630,7 @@ mod view_mark_tests {
         let minimap = Item::Element(Element::Dynamic { name: "minimap".into(), size: (200, 100), rect: [0, 0, 200, 100], at: (30, 960), clip: [80, 0, 1920, 1080] }, false);
         let items = vec![minimap];
         let area = minimap_area(&items, &world, false).unwrap();
-        assert_eq!(area, scene::Minimap { at: (30, 960), size: (200, 100), shown: [80, 960, 150, 100], world: (40 * 64, 39 * 32) });
+        assert_eq!(area, scene::Minimap { at: (30, 960), size: (200, 100), shown: [80, 960, 150, 100], world: (40 * 64, 39 * 32), marks: Some(([255, 255, 255], crate::minimap::view_rect_color())) });
         for tile in [(10, 10), (21, 5), (38, 38), (30, 20)] {
             let p = minimap_point(&items, &world, tile).unwrap();
             let w = area.world_at(p).unwrap();

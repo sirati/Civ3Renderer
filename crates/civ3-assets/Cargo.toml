@@ -28,7 +28,7 @@ rev = "6941948fc77ad310c9021df6f01374be9d3a23fc"
 [dependencies.render-desc]
 optional = true
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "80ae8f987b901a60161e5137566c244480f87947"
+rev = "52fd78dddb26d8636ac89def8818fcfefe04e612"
 
 [dependencies.tile-render]
 workspace = true
