@@ -20,7 +20,7 @@ rev = "d155523fe2b63dd9130ead8daf35e8825eed860e"
 
 [dependencies.marker]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
 
 [dependencies.tile-render]
 workspace = true
@@ -33,30 +33,30 @@ path = "../jgl"
 
 [dependencies.scene]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
 
 [dependencies.viewer-settings]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
 
 [dependencies.menu]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
 
 [dependencies.log]
 workspace = true
 
 [dependencies.tile-game]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
 
 [dependencies.tile-viewer]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
 
 [dev-dependencies]
 toml = "0.9"
 
 [dev-dependencies.render-desc]
 git = "ssh://git@github.com/sirati/tilerenderer-gameengine.git"
-rev = "13f07affc7efed3ad4748a2701b262d6681f1199"
+rev = "d44fe086b831515954760e630a8e5fe0c31516f1"
