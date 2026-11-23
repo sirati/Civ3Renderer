@@ -685,3 +685,53 @@ fn an_advance_takes_the_points_of_its_box_rectangle_in_the_games_order() {
     m.put(form, 0x66_C270);
     assert_eq!(science_advance_at(&m, form, (140, 70)), None);
 }
+
+#[test]
+fn an_advance_overlapped_by_an_earlier_ones_box_has_its_spot_where_it_takes_the_click() {
+    // Currency's box under Philosophy's (the user's ancient page): an
+    // earlier advance's box over the lower left of a later one's.
+    let mut m = Fake::default();
+    let form = 0x10_0000;
+    let (advances, shown) = (0x20_0000, 0x30_0000);
+    m.put(form, SCIENCE);
+    m.put(ADVANCE_COUNT, 2);
+    m.put(ADVANCES, advances);
+    m.put(form + S_SHOWN, shown);
+    m.put(form + S_ERA, 0);
+    for (i, at) in [(0u32, (947, 372)), (1, (1084, 331))] {
+        m.bytes(shown + 24 * i, &[0]);
+        m.put(shown + 24 * i + 4, 0);
+        m.put(advances + 0x74 * i + 0x50, at.0);
+        m.put(advances + 0x74 * i + 0x54, at.1);
+    }
+    let (record, sprite) = (form + S_BOXES, 0x40_0000);
+    m.put(record, sprite);
+    m.put(record + 0x14, 188);
+    m.put(record + 0x18, 83);
+    m.put(record + 0x1C, 0);
+    m.put(record + 0x20, 8);
+    m.put(sprite + 0x30, 189);
+    m.put(sprite + 0x34, 75);
+    let boxes = ScienceBoxes::read(&m, form).unwrap();
+    // Its icon's corner lies in the earlier box: that advance takes it.
+    assert_eq!(boxes.at((1127, 394)), Some(0));
+    let spot = boxes.spot(1, (1127, 394)).unwrap();
+    assert_eq!(boxes.at(spot), Some(1), "{spot:?}");
+    assert_eq!(science_advance_at(&m, form, spot), Some(1));
+    // As near as it can be: just right of the earlier box's right edge.
+    assert_eq!(spot, (947 + 189, 394));
+    // A spot already its own stays.
+    assert_eq!(boxes.spot(1, (1200, 360)), Some((1200, 360)));
+    // On the screen: the form at (448, 156); the cells' spots as the
+    // content gave them (the icon's corner), moved only where taken.
+    m.put(form + 0x9C, 0x100_0000);
+    m.put(form + 0xA0, 1);
+    m.put(form + 0x130, 0);
+    m.rect(form + 0x1AC, [448, 156, 448 + 1024, 156 + 768]);
+    m.rect(form + 0x1BC, [0; 4]);
+    m.rect(form + 0x1DC, [0, 0, 1920, 1080]);
+    let (o, id) = ((448, 156), |advance: u32| cell_id(form, CELL_TECH, advance));
+    let on_screen = |(x, y): (i32, i32)| (x + o.0, y + o.1);
+    let cells = [(id(0), [0, 0, 1, 1], on_screen((990, 435))), (id(1), [0, 0, 1, 1], on_screen((1127, 394))), (cell_id(form, CELL_BUTTON, 0), [0, 0, 1, 1], on_screen((1127, 394)))];
+    assert_eq!(science_spots(&m, &cells), [(1, on_screen((947 + 189, 394)))]);
+}

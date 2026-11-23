@@ -476,17 +476,71 @@ pub fn science_hit_site(build: crate::Build) -> Option<(u32, &'static [u8])> {
 /// margins, with its size at the jgl sprite's `+0x30`/`+0x34`. The game
 /// then read the sprite's pixel there and let colour 255 through; that is
 /// sprite pixel work this replaces (the box art's corners take the click).
-pub fn science_advance_at(mem: &dyn Mem, form: u32, (x, y): (i32, i32)) -> Option<u32> {
-    science_boxes(mem, form)?.into_iter().find(|&(_, [bx, by, w, h], record)| {
-        let on_sprite = || -> Option<bool> {
+pub fn science_advance_at(mem: &dyn Mem, form: u32, p: (i32, i32)) -> Option<u32> {
+    ScienceBoxes::read(mem, form)?.at(p)
+}
+
+/// The science advisor's advance boxes as [`science_advance_at`] tests
+/// them, read once: (advance, box rectangle, its sprite's rectangle), in
+/// the game's order, in the page's pixels.
+pub struct ScienceBoxes(Vec<(u32, [i32; 4], [i32; 4])>);
+
+impl ScienceBoxes {
+    pub fn read(mem: &dyn Mem, form: u32) -> Option<ScienceBoxes> {
+        let boxes = science_boxes(mem, form)?;
+        Some(ScienceBoxes(boxes.into_iter().filter_map(|(advance, [bx, by, w, h], record)| {
             let sprite = mem.u32(record)?;
             let (ox, oy) = (mem.i32(record + 0x1C)?, mem.i32(record + 0x20)?);
             let (sw, sh) = (mem.i32(sprite + 0x30)?, mem.i32(sprite + 0x34)?);
-            let (sx, sy) = (x - bx - ox, y - by - oy);
-            Some(sx >= 0 && sy >= 0 && sx < sw && sy < sh)
-        };
-        x >= bx && y >= by && x < bx + w && y < by + h && on_sprite() == Some(true)
-    }).map(|(advance, _, _)| advance)
+            Some((advance, [bx, by, w, h], [bx + ox, by + oy, sw, sh]))
+        }).collect()))
+    }
+
+    /// The advance whose box takes point `p` (see [`science_advance_at`]).
+    pub fn at(&self, (x, y): (i32, i32)) -> Option<u32> {
+        let inside = |[rx, ry, rw, rh]: [i32; 4]| x >= rx && y >= ry && x < rx + rw && y < ry + rh;
+        self.0.iter().find(|&&(_, b, s)| inside(b) && inside(s)).map(|&(advance, _, _)| advance)
+    }
+
+    /// The point of `advance`'s box nearest `near` that the advisor gives
+    /// to it ([`ScienceBoxes::at`]): an earlier advance's box over part of
+    /// it takes that part (the page's pixels).
+    pub fn spot(&self, advance: u32, near: (i32, i32)) -> Option<(i32, i32)> {
+        let &(_, [bx, by, w, h], _) = self.0.iter().find(|b| b.0 == advance)?;
+        let d = |(x, y): (i32, i32)| (x - near.0).pow(2) + (y - near.1).pow(2);
+        (by..by + h).flat_map(|y| (bx..bx + w).map(move |x| (x, y)))
+            .filter(|&p| self.at(p) == Some(advance))
+            .min_by_key(|&p| d(p))
+    }
+}
+
+/// The science advisor's advance cells among `cells` (control id, its
+/// rectangle and the spot the pointer takes on it, the screen's pixels)
+/// whose spot the advisor gives to another advance (an earlier one's box
+/// over it): each such cell's index and its spot moved to the nearest
+/// point that is its advance's ([`ScienceBoxes::spot`]).
+pub fn science_spots(mem: &dyn Mem, cells: &[(u64, [i32; 4], (i32, i32))]) -> Vec<(usize, (i32, i32))> {
+    let mut boxes: Vec<(u32, Option<((i32, i32), ScienceBoxes)>)> = Vec::new();
+    let mut out = Vec::new();
+    for (k, &(id, _, spot)) in cells.iter().enumerate() {
+        if cell_kind(id) != Some(CELL_TECH) {
+            continue;
+        }
+        let (form, advance) = ((id >> 32) as u32, id as u32 & 0xF_FFFF);
+        if !boxes.iter().any(|(f, _)| *f == form) {
+            let read = super::form_rect(mem, form).zip(ScienceBoxes::read(mem, form)).map(|(r, b)| ((r[0], r[1]), b));
+            boxes.push((form, read));
+        }
+        let Some(((ox, oy), b)) = boxes.iter().find(|(f, _)| *f == form).and_then(|(_, b)| b.as_ref()) else { continue };
+        let page = (spot.0 - ox, spot.1 - oy);
+        if b.at(page) == Some(advance) {
+            continue;
+        }
+        if let Some((x, y)) = b.spot(advance, page) {
+            out.push((k, (x + ox, y + oy)));
+        }
+    }
+    out
 }
 
 const F_TABS: [u32; 3] = [0x3810, 0x3800, 0x3820];

@@ -1257,6 +1257,15 @@ fn publish(
             interactables = anchors_memo.get((frame.clone(), fonts.revision(), controls.clone(), interactables.clone(), stat_lists.clone()), || {
                 let mut anchored = interactables.clone();
                 ui_screen::content_anchors(frame, &fonts, &controls, &mut anchored, &stat_lists);
+                // The science advisor's advances: a spot an earlier
+                // advance's box takes (Currency's icon under Philosophy's
+                // box) moved onto its own advance.
+                let cells: Vec<(u64, [i32; 4], (i32, i32))> = anchored.iter()
+                    .map(|t| (t.id, t.rect, t.anchor.map_or((t.rect[0] + t.rect[2] / 2, t.rect[1] + t.rect[3] / 2), |[x, y]| (x, y))))
+                    .collect();
+                for (k, (x, y)) in civ3_sys::controls::advisors::science_spots(&civ3_sys::controls::Live, &cells) {
+                    anchored[k].anchor = Some([x, y]);
+                }
                 anchored
             });
             mark(&mut profile, "controls: anchors", &mut t);
