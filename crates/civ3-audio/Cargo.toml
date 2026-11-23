@@ -1,0 +1,16 @@
+[package]
+name = "civ3-audio"
+description = "Native lock-free audio engine and wire protocol replacing Civ III's sound.dll"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+log.workspace = true
+
+[target.'cfg(not(target_arch = "x86"))'.dependencies]
+symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "mp3", "adpcm"] }
+cpal = { version = "=0.18.2", default-features = false }
+rubato = { version = "=5.1.0", default-features = false }
+handoff = { git = "ssh://git@github.com/sirati/tilerenderer.git", rev = "6941948fc77ad310c9021df6f01374be9d3a23fc" }

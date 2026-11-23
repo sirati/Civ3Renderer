@@ -26,7 +26,7 @@
         linux = pkgs.stdenv.hostPlatform.isLinux;
         mingw64 = pkgs.pkgsCross.mingwW64;
         mingw32 = pkgs.pkgsCross.mingw32;
-        runtimeLibs = pkgs.lib.optionals linux (with pkgs; [ vulkan-loader wayland libxkbcommon libGL ]);
+        runtimeLibs = pkgs.lib.optionals linux (with pkgs; [ vulkan-loader wayland libxkbcommon libGL alsa-lib ]);
       in { default = pkgs.mkShell ({
         # The toolchain itself comes from rustup (rust-toolchain.toml); the
         # shader build additionally pulls rust-gpu's pinned nightly.
