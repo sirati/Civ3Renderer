@@ -17,6 +17,7 @@ pub use setup::{TitleLayout, title_layout};
 pub mod advisors;
 pub mod end_screens;
 pub mod form_hit;
+pub mod multiplayer;
 pub mod screens;
 pub mod wheel;
 
@@ -398,6 +399,7 @@ fn walk(mem: &dyn Mem, sites: &Sites, known: &[u32], addr: u32, depth: u32, out:
     advisors::controls(mem, &form, out);
     screens::controls(mem, &form, out);
     end_screens::controls(mem, &form, out);
+    multiplayer::controls(mem, &form, out);
     if let Some(slider) = crate::sliders::Slider::read(mem, addr) {
         let [x, y, w, h] = slider.track;
         out.push(Control {
