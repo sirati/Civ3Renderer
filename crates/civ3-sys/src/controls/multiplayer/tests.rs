@@ -82,7 +82,17 @@ fn setup_fixture(role: u32) -> Fake {
     m.rect(f + S_NAME, [0x2A, 0x74, 0x13D, 0x90]);
     // 0x486737: the local slot's box.
     m.rect(f + S_READY, [0x3C9, 0x56 + 35, 0x3E1, 0x56 + 35 + 0x17]);
-    m.byte(f + S_LOCKED, 0);
+    m.byte(f + S_FIXED_PLAYERS, 0);
+    // 0x485DC0: the rows' player number buttons.
+    for k in 0..SLOTS {
+        let top = 0x78 + 0x23 * k as i32;
+        m.rect(f + S_PLAYER_BUTTONS + 16 * k, [0x172, top, 0x188, top + 0x16]);
+        // The host's row human, the others open.
+        m.put(SLOT_KINDS + SLOT_SIZE * k, if k == 0 { 2 } else { 1 });
+    }
+    // A new game: not loaded.
+    m.put(LOADED_A, 0);
+    m.put(LOADED_B, -1i32 as u32);
     m.byte(f + S_COUNTDOWN, 0);
     m.put(f + S_RULES_SCROLL, 0);
     m.byte(NETWORK_GAME, 1);
@@ -114,6 +124,7 @@ enum Native {
     Name,
     Launch,
     Rule(u32),
+    Player(u32),
 }
 
 fn native(m: &Fake, p: (i32, i32)) -> Vec<Native> {
@@ -127,11 +138,18 @@ fn native(m: &Fake, p: (i32, i32)) -> Vec<Native> {
     };
     let ready = m.u8(SLOT_READY + SLOT_SIZE * slot).unwrap() != 0;
     let mut out = Vec::new();
-    if !ready && m.u8(f + S_LOCKED).unwrap() == 0 && inside(rect(S_RENAME), p) {
+    let fixed = m.u8(f + S_FIXED_PLAYERS).unwrap() != 0;
+    let loaded = m.i32(LOADED_A).unwrap() > 0 && m.i32(LOADED_B).unwrap() > -1;
+    let state = m.i32(SETUP_STATE).unwrap();
+    if !ready && !fixed && inside(rect(S_RENAME), p) {
         out.push(Native::Rename);
     }
-    if !matches!(m.i32(SETUP_STATE).unwrap(), 3 | 4) && inside(rect(S_READY), p) {
+    if !matches!(state, 3 | 4) && inside(rect(S_READY), p) {
         out.push(Native::Ready);
+    }
+    // 0x48C1DD: the own row's button (+0x6206C + 16·slot).
+    if !ready && (loaded || fixed) && inside(rect(S_NAME + 16 * slot), p) {
+        out.push(Native::Player(slot - 1));
     }
     if !matches!(m.u32(SESSION_ROLE).unwrap(), 2 | 4) {
         return out;
@@ -160,6 +178,15 @@ fn native(m: &Fake, p: (i32, i32)) -> Vec<Native> {
             }
         }
     }
+    // 0x48CFBF: every human row's (0x910234 + 0x63C·k: number, kind).
+    if !ready && (fixed || loaded || matches!(state, 3 | 4)) {
+        for k in 0..8u32 {
+            let kind = m.u32(0x910234 + 0x63C * k + 4).unwrap();
+            if matches!(kind, 2 | 3) && inside(rect(0x62088 - 0xC + 16 * k), p) && !out.contains(&Native::Player(k)) {
+                out.push(Native::Player(k));
+            }
+        }
+    }
     out
 }
 
@@ -175,6 +202,7 @@ fn setup_found(m: &Fake) -> Vec<(Native, [i32; 4])> {
                 (Some(CELL_BUTTON), 2) => Native::Launch,
                 (Some(CELL_BUTTON), 3) => Native::Name,
                 (Some(CELL_RULE), i) => Native::Rule(i),
+                (Some(CELL_PLAYER), k) => Native::Player(k),
                 other => panic!("an unexpected control {other:?}"),
             };
             assert_eq!(c.kind, ControlKind::Button);
@@ -192,8 +220,8 @@ fn check_setup(m: &Fake, context: &str) -> Vec<Native> {
             assert_eq!(native(m, (x - ORIGIN.0, y - ORIGIN.1)), vec![what.clone()], "{context}: {what:?} at ({x}, {y})");
         }
     }
-    for y in (0..768).step_by(6) {
-        for x in (0..1024).step_by(6) {
+    for y in (0..768).step_by(8) {
+        for x in (0..1024).step_by(8) {
             for hit in native(m, (x, y)) {
                 assert!(found.iter().any(|(w, r)| *w == hit && inside([r[0], r[1], r[0] + r[2] - 1, r[1] + r[3] - 1], (x + ORIGIN.0, y + ORIGIN.1))),
                     "{context}: the native click acts on {hit:?} at ({x}, {y}): found");
@@ -322,8 +350,8 @@ fn check_lobby(m: &Fake, context: &str) -> Vec<u32> {
             assert_eq!(lobby_native(m, &named, (x - ORIGIN.0, y - ORIGIN.1)), Some(what(c)), "{context}: {c:?} at ({x}, {y})");
         }
     }
-    for y in (0..768).step_by(6) {
-        for x in (0..1024).step_by(6) {
+    for y in (0..768).step_by(8) {
+        for x in (0..1024).step_by(8) {
             if let Some(hit) = lobby_native(m, &named, (x, y)) {
                 assert!(found.iter().any(|c| what(c) == hit), "{context}: the native click acts on {hit:?} at ({x}, {y}): found");
             }
@@ -346,4 +374,32 @@ fn the_lobbys_buttons_titles_and_listed_games_hit_its_native_tests() {
     let m = lobby_fixture(&[], 0);
     assert_eq!(check_lobby(&m, "none"), Vec::<u32>::new());
     assert_eq!(controls(&m, &sites()).len(), 13);
+}
+
+#[test]
+fn the_player_number_buttons_are_there_in_a_loaded_game_or_a_scenario_with_fixed_players_only() {
+    // A new standard game: none.
+    let mut m = setup_fixture(2);
+    assert!(check_setup(&m, "new game").iter().all(|w| !matches!(w, Native::Player(_))));
+    // Two humans joined a loaded game: the host reaches both their rows.
+    m.put(LOADED_A, 3);
+    m.put(LOADED_B, 0);
+    m.put(SLOT_KINDS + SLOT_SIZE * 2, 3);
+    let players: Vec<u32> = check_setup(&m, "loaded, host").into_iter().filter_map(|w| if let Native::Player(k) = w { Some(k) } else { None }).collect();
+    assert_eq!(players, [0, 2]);
+    // The host ready: none of them (Ready and Launch stay).
+    m.byte(SLOT_READY + SLOT_SIZE, 1);
+    assert_eq!(check_setup(&m, "loaded, host ready"), [Native::Ready, Native::Name, Native::Launch]);
+    // A player who joined (in slot 3): their own row's only.
+    let mut m = setup_fixture(1);
+    m.put(LOADED_A, 3);
+    m.put(LOADED_B, 0);
+    m.put(LOCAL_ID, 5);
+    m.put(SLOT_IDS + SLOT_SIZE * 2, 5);
+    m.put(SLOT_KINDS + SLOT_SIZE * 2, 3);
+    assert_eq!(check_setup(&m, "loaded, joined"), [Native::Rename, Native::Ready, Native::Player(2)]);
+    // A scenario with fixed players: no Rename, the own row's button.
+    m.put(LOADED_A, 0);
+    m.byte(SETUP_FORM + S_FIXED_PLAYERS, 1);
+    assert_eq!(check_setup(&m, "scenario, joined"), [Native::Ready, Native::Player(2)]);
 }

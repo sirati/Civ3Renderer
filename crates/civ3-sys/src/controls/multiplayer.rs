@@ -6,10 +6,20 @@
 //! Multiplayer setup (vtable 0x667540), `On_Left_Click` 0x48BE80, every
 //! RECT inclusive in the form's pixels, set by 0x485DC0 (0x486737 for
 //! Ready):
-//! - Rename (+0x6202C) while the local player is not ready and the form's
-//!   +0xCCC is clear (0x48E730).
+//! - Rename (+0x6202C) while the local player is not ready and the setup
+//!   is no scenario's with fixed players (+0xCCC) (0x48E730).
 //! - Ready, the local player's box (+0x6201C), unless the setup's state
 //!   [0x990350] is 3 or 4.
+//! - A row's player number button (+0x6207C + 16·row, left of its name;
+//!   0x48C246, 0x48D04B): it steps the player number that slot plays
+//!   (0x910234 + 0x63C·row), which picks the player of a saved game or of
+//!   a scenario with fixed players (in one, only those that can be played,
+//!   the civilization box following it). Only there: a loaded game
+//!   ([0x9C3D6C] > 0 and [0x9C3D34] > −1) or such a scenario; in a new
+//!   standard game none is shown. The local player's own row while not
+//!   ready, and the host's (below) every human slot's (kind 0x910238 +
+//!   0x63C·row 2 or 3) while the host is not ready (also in the setup's
+//!   state 3 or 4).
 //! - The host's only (session role [0x9AFD34] 2 or 4, 0x49A050): the
 //!   game's name (+0x6206C, a prompt), Launch (+0x6203C) while no
 //!   countdown runs (+0x6210D), and, while the host is not ready, the game
@@ -45,6 +55,8 @@ pub const LOBBY: u32 = 0x66_7000;
 pub const CELL_RULE: u32 = 16;
 /// A game's entry in the lobby's list.
 pub const CELL_GAME: u32 = 17;
+/// A setup row's player number button.
+pub const CELL_PLAYER: u32 = 18;
 
 const NETWORK_GAME: u32 = 0x74_AF3C;
 const CURRENT_PLAYER: u32 = 0x9F_D47C;
@@ -53,15 +65,22 @@ const SESSION_ROLE: u32 = 0x9A_FD34;
 const SLOT_IDS: u32 = 0x90_FC04;
 const SLOT_READY: u32 = 0x90_FBEC;
 const SLOT_SIZE: u32 = 0x63C;
+/// Row `k`'s (slot `k` + 1's) kind (+0x63C·k): 2 and 3 human.
+const SLOT_KINDS: u32 = 0x91_0238;
 const SLOTS: u32 = 8;
 const SETUP_STATE: u32 = 0x99_0350;
+/// A loaded game: [0x9C3D6C] > 0 and [0x9C3D34] > −1.
+const LOADED_A: u32 = 0x9C_3D6C;
+const LOADED_B: u32 = 0x9C_3D34;
 
-const S_LOCKED: u32 = 0xCCC;
+/// A scenario's set-up with fixed players.
+const S_FIXED_PLAYERS: u32 = 0xCCC;
 const S_COUNTDOWN: u32 = 0x6_210D;
 const S_READY: u32 = 0x6_201C;
 const S_RENAME: u32 = 0x6_202C;
 const S_LAUNCH: u32 = 0x6_203C;
 const S_NAME: u32 = 0x6_206C;
+const S_PLAYER_BUTTONS: u32 = 0x6_207C;
 const S_RULES_SCROLL: u32 = 0x7_3F40;
 
 const RULE_FLAGS: u32 = 0x66_7318;
@@ -117,22 +136,38 @@ pub fn setup(mem: &dyn Mem, form: u32) -> Option<Vec<(u32, u32, [i32; 4])>> {
     }
     let slot = local_slot(mem)?;
     let ready = mem.u8(SLOT_READY.checked_add(SLOT_SIZE.checked_mul(slot)?)?)? != 0;
+    let fixed_players = mem.u8(form + S_FIXED_PLAYERS)? != 0;
+    let loaded = mem.i32(LOADED_A)? > 0 && mem.i32(LOADED_B)? > -1;
+    let state = mem.i32(SETUP_STATE)?;
     let mut out = Vec::new();
-    if !ready && mem.u8(form + S_LOCKED)? == 0 {
+    if !ready && !fixed_players {
         out.extend(inclusive(mem, form + S_RENAME).map(|r| (CELL_BUTTON, 1, r)));
     }
-    if !matches!(mem.i32(SETUP_STATE)?, 3 | 4) {
+    if !matches!(state, 3 | 4) {
         out.extend(inclusive(mem, form + S_READY).map(|r| (CELL_BUTTON, 0, r)));
     }
-    if !matches!(mem.i32(SESSION_ROLE)?, 2 | 4) {
-        return Some(out);
+    // The rows whose player number button takes clicks.
+    let mut players: Vec<u32> = Vec::new();
+    if !ready && (loaded || fixed_players) && (1..=SLOTS).contains(&slot) {
+        players.push(slot - 1);
     }
-    out.extend(inclusive(mem, form + S_NAME).map(|r| (CELL_BUTTON, 3, r)));
-    if mem.u8(form + S_COUNTDOWN)? == 0 {
-        out.extend(inclusive(mem, form + S_LAUNCH).map(|r| (CELL_BUTTON, 2, r)));
+    let host = matches!(mem.i32(SESSION_ROLE)?, 2 | 4);
+    if host {
+        out.extend(inclusive(mem, form + S_NAME).map(|r| (CELL_BUTTON, 3, r)));
+        if mem.u8(form + S_COUNTDOWN)? == 0 {
+            out.extend(inclusive(mem, form + S_LAUNCH).map(|r| (CELL_BUTTON, 2, r)));
+        }
+        if !ready {
+            out.extend(rules(mem, form).unwrap_or_default());
+            if loaded || fixed_players || matches!(state, 3 | 4) {
+                players.extend((0..SLOTS).filter(|&k| matches!(mem.u32(SLOT_KINDS + SLOT_SIZE * k), Some(2 | 3))));
+            }
+        }
     }
-    if !ready {
-        out.extend(rules(mem, form).unwrap_or_default());
+    players.sort_unstable();
+    players.dedup();
+    for k in players {
+        out.extend(inclusive(mem, form + S_PLAYER_BUTTONS + 16 * k).map(|r| (CELL_PLAYER, k, r)));
     }
     Some(out)
 }
